@@ -1,4 +1,4 @@
-# Prompt Manager MCP
+# Test Opik MCP
 
 This repository contains a Model Context Protocol (MCP) implementation for managing prompts. It provides a set of tools for creating, updating, listing, and managing prompts through a standardized interface.
 
