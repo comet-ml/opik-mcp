@@ -1,0 +1,26 @@
+{
+  "name": "test-opik-mcp",
+  "version": "0.0.1",
+  "description": "test opik mcp",
+  "type": "module",
+  "bin": {
+    "opik-mcp": "build/index.js"
+  },
+  "scripts": {
+    "build": "tsc && shx chmod +x build/*.js"
+  },
+  "files": [
+    "build"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.6.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "shx": "^0.3.4",
+    "typescript": "^5.8.2"
+  }
+}

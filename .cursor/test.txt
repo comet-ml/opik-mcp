@@ -1,0 +1,7 @@
+I wanna test Opik prompt feature
+1. create a new Prompt with name RandomDish, it should generate prompt to get random dish receipt
+2. create a new version with enchanced prompt version, to create the recepies with joke format
+3. Show all list of prompts, sorted by count of versions and names
+4. update the name of RandomDish prompt to EasyDish
+5. get the latest summary data for RandomDish prompt
+6. remove RandomDish prompt and show how much prompt are left
