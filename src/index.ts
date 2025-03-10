@@ -1,26 +1,71 @@
+import fs from 'fs';
+
+// Import other modules
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-// Import environment variables loader
+// Import environment variables loader - no console output
 import './utils/env.js';
 
+// Setup file-based logging
+const logFile = '/tmp/opik-mcp.log';
+
 // Import configuration
-import config from './config.js';
+import configImport from './config.js';
+const config = configImport;
 
-/**
- * Opik MCP Server
- *
- * The server follows the Opik API architecture where:
- * - Workspaces are the top-level containers
- * - Projects exist within workspaces
- * - Traces are associated with projects
- *
- * The 'default' workspace is used when none is specified.
- * Project ID is a required parameter for most trace operations.
- */
+// Clean stdout protocol message - only use this for protocol communication
+function sendProtocolMessage(method: string, message: string) {
+  console.log(JSON.stringify({
+    jsonrpc: "2.0",
+    method,
+    params: { message }
+  }));
+}
 
-// Types
+// Define logging functions
+function logToFile(message: string) {
+  // Only log if debug mode is enabled
+  if (!config?.debugMode) return;
+
+  try {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
+  } catch (error) {
+    // Silently fail if we can't write to the log file
+  }
+}
+
+// Only initialize log file if debug mode is enabled
+if (config.debugMode) {
+  try {
+    fs.writeFileSync(logFile, `Opik MCP Server Started: ${new Date().toISOString()}\n`);
+
+    // Log process info
+    logToFile(`Process ID: ${process.pid}, Node Version: ${process.version}`);
+    logToFile(`Arguments: ${process.argv.join(' ')}`);
+    logToFile(`Loaded configuration: API=${config.apiBaseUrl}, Workspace=${config.workspaceName || 'None'}`);
+
+    // Register error handlers
+    process.on('uncaughtException', (err) => {
+      logToFile(`UNCAUGHT EXCEPTION: ${err.message}`);
+      logToFile(err.stack || 'No stack trace');
+    });
+
+    process.on('unhandledRejection', (reason) => {
+      logToFile(`UNHANDLED REJECTION: ${reason}`);
+    });
+
+    process.on('exit', (code) => {
+      logToFile(`Process exiting with code ${code}`);
+    });
+  } catch (error) {
+    // Silently fail if we can't write to the log file
+  }
+}
+
+// Rest of imports
 import {
   ProjectResponse,
   SingleProjectResponse,
@@ -32,33 +77,27 @@ import {
   MetricsResponse
 } from './types.js';
 
-// Helper function to make requests to API
+// Helper function to make requests to API with file logging
 const makeApiRequest = async <T>(
   path: string,
   options: RequestInit = {}
 ): Promise<{ data: T | null; error: string | null }> => {
   // Prepare headers based on configuration
-  // According to Opik API documentation:
-  // - authorization header should NOT include "Bearer" prefix
-  // - Comet-Workspace header should be included for cloud installations
   const API_HEADERS: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/json",
     authorization: config.apiKey
   };
 
-  // Add workspace header for cloud version (and on-premise installations of Comet platform)
-  if (config.workspaceName) {
+  // Add workspace header for cloud version
+  if (!config.isSelfHosted && config.workspaceName) {
     API_HEADERS["Comet-Workspace"] = config.workspaceName;
+    logToFile(`Using workspace: ${config.workspaceName}`);
   }
 
   const url = `${config.apiBaseUrl}${path}`;
-
-  // Debug logging
-  if (config.debugMode) {
-    console.error(`Making API request to: ${url}`);
-    console.error('Headers:', JSON.stringify(API_HEADERS, null, 2));
-  }
+  logToFile(`Making API request to: ${url}`);
+  logToFile(`Headers: ${JSON.stringify(API_HEADERS, null, 2)}`);
 
   try {
     const response = await fetch(url, {
@@ -83,9 +122,7 @@ const makeApiRequest = async <T>(
 
     if (!response.ok) {
       const errorMsg = `HTTP error! status: ${response.status} ${JSON.stringify(responseData)}`;
-      if (config.debugMode) {
-        console.error(`API Error:`, errorMsg);
-      }
+      logToFile(`API Error: ${errorMsg}`);
       return {
         data: null,
         error: errorMsg,
@@ -99,7 +136,7 @@ const makeApiRequest = async <T>(
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error occurred";
-    console.error("Error making API request:", error);
+    logToFile(`Error making API request: ${errorMessage}`);
     return {
       data: null,
       error: errorMessage,
@@ -107,11 +144,73 @@ const makeApiRequest = async <T>(
   }
 };
 
-// Create and configure server
+// Create and configure server - no console output here
 const server = new McpServer({
   name: config.mcpName,
   version: config.mcpVersion,
+}, {
+  capabilities: {
+    resources: {}, // Enable resources capability
+    tools: {}      // Enable tools capability
+  }
 });
+
+// Add resources to the MCP server
+if (config.workspaceName) {
+  // Define a workspace info resource
+  server.resource(
+    "workspace-info",
+    "opik://workspace-info",
+    async () => ({
+      contents: [{
+        uri: "opik://workspace-info",
+        text: JSON.stringify({
+          name: config.workspaceName,
+          apiUrl: config.apiBaseUrl,
+          selfHosted: config.isSelfHosted
+        }, null, 2)
+      }]
+    })
+  );
+
+  // Define a projects resource that provides the list of projects in the workspace
+  server.resource(
+    "projects-list",
+    "opik://projects-list",
+    async () => {
+      try {
+        const response = await makeApiRequest<ProjectResponse>("/v1/private/projects");
+
+        if (!response.data) {
+          return {
+            contents: [{
+              uri: "opik://projects-list",
+              text: `Error: ${response.error || "Unknown error fetching projects"}`
+            }]
+          };
+        }
+
+        return {
+          contents: [{
+            uri: "opik://projects-list",
+            text: JSON.stringify(response.data, null, 2)
+          }]
+        };
+      } catch (error) {
+        logToFile(`Error fetching projects resource: ${error}`);
+        return {
+          contents: [{
+            uri: "opik://projects-list",
+            text: `Error: Failed to fetch projects data`
+          }]
+        };
+      }
+    }
+  );
+}
+
+// DO NOT send any protocol messages before server initialization
+// REMOVED: sendProtocolMessage("log", "Initializing Opik MCP Server");
 
 // Conditionally enable tool categories based on configuration
 if (config.mcpEnablePromptTools) {
@@ -557,7 +656,7 @@ if (config.mcpEnableTraceTools) {
             projectsResponse.data.content.length > 0) {
           const firstProject = projectsResponse.data.content[0];
           url += `&project_id=${firstProject.id}`;
-          console.error(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+          logToFile(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
         } else {
           return {
             content: [
@@ -673,7 +772,7 @@ if (config.mcpEnableTraceTools) {
             projectsResponse.data.content.length > 0) {
           const firstProject = projectsResponse.data.content[0];
           queryParams.push(`project_id=${firstProject.id}`);
-          console.error(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+          logToFile(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
         } else {
           return {
             content: [
@@ -801,17 +900,58 @@ server.tool(
 
 // Server startup
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error("Opik MCP Server running on stdio");
+  try {
+    logToFile("Starting main function");
 
-  // Log server configuration for debugging purposes
-  console.error(`API Base URL: ${config.apiBaseUrl}`);
-  console.error(`Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
-  console.error(`Workspace: ${config.workspaceName || "None"}`);
+    // Initialize transport with error handling
+    logToFile("Creating StdioServerTransport");
+    const transport = new StdioServerTransport();
+
+    // Add explicit error handlers to the transport
+    transport.onerror = (error) => {
+      logToFile(`Transport error: ${error.message}`);
+    };
+
+    transport.onclose = () => {
+      logToFile("Transport connection closed");
+    };
+
+    // Log configuration for debugging purposes only to file
+    logToFile(`API Base URL: ${config.apiBaseUrl}`);
+    logToFile(`Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
+    logToFile(`Workspace: ${config.workspaceName || "None"}`);
+
+    try {
+      // Connect server to transport - This is where the initialization handshake happens
+      logToFile("Connecting server to transport");
+      await server.connect(transport);
+
+      logToFile("Transport connection established");
+
+      // Success message AFTER transport is connected
+      sendProtocolMessage("log", "Opik MCP Server successfully connected and running");
+
+      logToFile("Opik MCP Server running on stdio");
+      logToFile("Main function completed successfully");
+
+      // Keep the process alive with a heartbeat
+      setInterval(() => {
+        logToFile("Heartbeat ping");
+      }, 5000);
+
+    } catch (connectError: any) {
+      logToFile(`Error connecting to transport: ${connectError?.message || connectError}`);
+      sendProtocolMessage("log", `Connection error: ${connectError?.message || connectError}`);
+      process.exit(1);
+    }
+  } catch (mainError: any) {
+    logToFile(`Error in main function: ${mainError?.message || mainError}`);
+    process.exit(1);
+  }
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  logToFile(`Fatal error in main() catch handler: ${error?.message || error}`);
+  sendProtocolMessage("log", `Fatal error: ${error?.message || error}`);
   process.exit(1);
 });

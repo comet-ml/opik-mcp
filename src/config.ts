@@ -6,6 +6,30 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
+import * as fs from 'node:fs';
+
+/**
+ * File-based logger
+ * Only writes if debug mode is enabled or being set to enabled
+ */
+function writeToLogFile(message: string, forceWrite: boolean = false): void {
+  try {
+    // Check if debug mode is enabled or being set to enabled
+    // This check is special because we're in the process of parsing args
+    const debugArg = process.argv.includes('--debug') && process.argv[process.argv.indexOf('--debug') + 1] === 'true';
+    const debugEnv = process.env.DEBUG_MODE === 'true';
+
+    if (debugArg || debugEnv || forceWrite) {
+      const logFile = '/tmp/opik-mcp.log';
+      if (!fs.existsSync(logFile)) {
+        fs.writeFileSync(logFile, `Opik MCP Server Started: ${new Date().toISOString()}\n`);
+      }
+      fs.appendFileSync(logFile, `[${new Date().toISOString()}] [config] ${message}\n`);
+    }
+  } catch (error) {
+    // Silently fail if we can't write to the log file
+  }
+}
 
 interface OpikConfig {
   // API configuration
@@ -123,9 +147,9 @@ function loadConfig(): OpikConfig {
 
   // Try to load from process.env and command-line args, with command-line taking precedence
   const config: OpikConfig = {
-    // API configuration with fallbacks
-    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || "",
-    workspaceName: args.workspace || process.env.OPIK_WORKSPACE_NAME || "",
+    // API configuration with fallbacks - with much more forgiving defaults
+    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || "https://www.comet.com/opik/api",
+    workspaceName: args.workspace || process.env.OPIK_WORKSPACE_NAME || "default",
     apiKey: args.apiKey || process.env.OPIK_API_KEY || "",
     isSelfHosted: args.selfHosted !== undefined ? args.selfHosted :
                   process.env.OPIK_SELF_HOSTED === "true" || false,
@@ -151,49 +175,36 @@ function loadConfig(): OpikConfig {
                          process.env.MCP_ENABLE_METRIC_TOOLS !== "false" // Enable by default
   };
 
-  // Validate required fields
+  // Validate required fields but be much more forgiving
   const missingFields: string[] = [];
 
-  if (!config.apiBaseUrl) missingFields.push("apiBaseUrl (--apiUrl or OPIK_API_BASE_URL)");
-  if (!config.apiKey) missingFields.push("apiKey (--apiKey or OPIK_API_KEY)");
-  if (!config.isSelfHosted && !config.workspaceName) missingFields.push("workspaceName (--workspace or OPIK_WORKSPACE_NAME, required for cloud deployment)");
-
-  if (missingFields.length > 0) {
-    const errorMessage = `Missing required configuration: ${missingFields.join(", ")}`;
-    console.error(`Configuration Error: ${errorMessage}`);
-    console.error("Please provide configuration via environment variables or command-line arguments");
-    throw new Error(errorMessage);
-  }
-
-  // If workspaceName isn't provided, use the default
-  if (!config.workspaceName && !config.isSelfHosted) {
-    config.workspaceName = config.mcpDefaultWorkspace;
-    if (config.debugMode) {
-      console.log(`No workspace provided, using default: ${config.mcpDefaultWorkspace}`);
-    }
+  if (!config.apiKey) {
+    // Only warn about missing API key, don't throw an error
+    writeToLogFile(`Warning: No API key provided - some functionality will be limited`, true);
+    // Still allow the server to start even without an API key
   }
 
   // Log configuration if in debug mode
   if (config.debugMode) {
-    console.log("Opik MCP Configuration:");
-    console.log(`- API Base URL: ${config.apiBaseUrl}`);
-    console.log(`- Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
+    writeToLogFile("Opik MCP Configuration:");
+    writeToLogFile(`- API Base URL: ${config.apiBaseUrl}`);
+    writeToLogFile(`- Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
     if (!config.isSelfHosted) {
-      console.log(`- Workspace: ${config.workspaceName}`);
+      writeToLogFile(`- Workspace: ${config.workspaceName}`);
     }
-    console.log(`- Debug mode: ${config.debugMode ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- Debug mode: ${config.debugMode ? "Enabled" : "Disabled"}`);
 
     // Log MCP configuration
-    console.log("\nMCP Configuration:");
-    console.log(`- MCP Name: ${config.mcpName}`);
-    console.log(`- MCP Version: ${config.mcpVersion}`);
-    if (config.mcpPort) console.log(`- MCP Port: ${config.mcpPort}`);
-    console.log(`- MCP Logging: ${config.mcpLogging ? "Enabled" : "Disabled"}`);
-    console.log(`- MCP Default Workspace: ${config.mcpDefaultWorkspace}`);
-    console.log(`- Prompt Tools: ${config.mcpEnablePromptTools ? "Enabled" : "Disabled"}`);
-    console.log(`- Project Tools: ${config.mcpEnableProjectTools ? "Enabled" : "Disabled"}`);
-    console.log(`- Trace Tools: ${config.mcpEnableTraceTools ? "Enabled" : "Disabled"}`);
-    console.log(`- Metric Tools: ${config.mcpEnableMetricTools ? "Enabled" : "Disabled"}`);
+    writeToLogFile("\nMCP Configuration:");
+    writeToLogFile(`- MCP Name: ${config.mcpName}`);
+    writeToLogFile(`- MCP Version: ${config.mcpVersion}`);
+    if (config.mcpPort) writeToLogFile(`- MCP Port: ${config.mcpPort}`);
+    writeToLogFile(`- MCP Logging: ${config.mcpLogging ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- MCP Default Workspace: ${config.mcpDefaultWorkspace}`);
+    writeToLogFile(`- Prompt Tools: ${config.mcpEnablePromptTools ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- Project Tools: ${config.mcpEnableProjectTools ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- Trace Tools: ${config.mcpEnableTraceTools ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- Metric Tools: ${config.mcpEnableMetricTools ? "Enabled" : "Disabled"}`);
   }
 
   return config;

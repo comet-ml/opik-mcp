@@ -77,6 +77,42 @@ To use this MCP implementation, follow these steps:
    }
    ```
 
+   If your workspace name contains spaces, use either of these approaches:
+
+   ```json
+   # Option 1: Escape the workspace name in the args array
+   {
+     "mcpServers": {
+       "opik": {
+         "command": "node",
+         "args": [
+           "/path/to/build/index.js",
+           "--apiUrl", "https://www.comet.com/opik/api",
+           "--apiKey", "your-api-key",
+           "--workspace", "\"Workspace With Spaces\""
+         ]
+       }
+     }
+   }
+
+   # Option 2: Use environment variables instead
+   {
+     "mcpServers": {
+       "opik": {
+         "command": "node",
+         "args": [
+           "/path/to/build/index.js",
+           "--apiUrl", "https://www.comet.com/opik/api",
+           "--apiKey", "your-api-key"
+         ],
+         "env": {
+           "OPIK_WORKSPACE_NAME": "Workspace With Spaces"
+         }
+       }
+     }
+   }
+   ```
+
 4. Alternatively, configure the server with environment variables (see Configuration section)
 
 5. Install dependencies and build the project:
@@ -100,6 +136,18 @@ Run the server with command-line arguments:
 
 ```bash
 node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key" --workspace "default"
+```
+
+For workspace names that contain spaces, make sure to quote the entire name:
+
+```bash
+node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key" --workspace "Therapist Chat"
+```
+
+Alternatively, you can use the environment variable:
+
+```bash
+OPIK_WORKSPACE_NAME="Therapist Chat" node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key"
 ```
 
 #### Available Arguments
@@ -427,3 +475,97 @@ The tests validate the API client functionality and the MCP server implementatio
 ## Contributing
 
 Feel free to submit issues and enhancement requests!
+
+## IDE Integration
+
+### Cursor Configuration
+
+To use the Opik MCP server with Cursor IDE, you need to create a `.cursor/mcp.json` file in your project root. This file tells Cursor how to start and configure the MCP server.
+
+Here's a comprehensive example with all available configuration options:
+
+```json
+{
+  "mcpServers": {
+    "opik": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/build/index.js",
+
+        // API Configuration
+        "--apiUrl", "https://www.comet.com/opik/api",
+        "--apiKey", "your-api-key",
+        "--workspace", "default",
+
+        // Deployment Configuration
+        "--selfHosted", "false",
+
+        // Debug Settings
+        "--debug", "false",
+
+        // MCP Server Configuration
+        "--mcpName", "opik-manager",
+        "--mcpVersion", "1.0.0",
+        "--mcpLogging", "false",
+        "--mcpDefaultWorkspace", "default",
+
+        // Tool Enablement (omit these to use defaults)
+        "--disablePromptTools", "false",
+        "--disableProjectTools", "false",
+        "--disableTraceTools", "false",
+        "--disableMetricTools", "false"
+      ],
+      "env": {
+        // You can also set environment variables here if preferred
+        // "OPIK_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+#### Important Notes:
+
+1. **Absolute Path**: Make sure to use an absolute path to the `index.js` file to ensure Cursor can find it regardless of the working directory.
+
+2. **Workspace Names with Spaces**: If your workspace name contains spaces, you must escape it properly in the `mcp.json` file. There are two ways to handle this:
+
+   **Option 1**: Enclose the entire workspace name in a single argument:
+   ```json
+   "args": [
+     "/path/to/build/index.js",
+     "--apiUrl", "https://www.comet.com/opik/api",
+     "--apiKey", "your-api-key",
+     "--workspace", "\"Therapist Chat\""
+   ]
+   ```
+
+   **Option 2**: Use the environment variable instead:
+   ```json
+   "args": [
+     "/path/to/build/index.js",
+     "--apiUrl", "https://www.comet.com/opik/api",
+     "--apiKey", "your-api-key"
+   ],
+   "env": {
+     "OPIK_WORKSPACE_NAME": "Therapist Chat"
+   }
+   ```
+
+3. **Minimal Configuration**: For a simpler setup, you can use just the essential parameters:
+
+```json
+{
+  "mcpServers": {
+    "opik": {
+      "command": "node",
+      "args": [
+        "/path/to/build/index.js",
+        "--apiUrl", "https://www.comet.com/opik/api",
+        "--apiKey", "your-api-key",
+        "--workspace", "default"
+      ]
+    }
+  }
+}
+```
