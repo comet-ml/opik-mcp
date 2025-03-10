@@ -47,32 +47,62 @@ export type TraceResponse = {
   total: number;
   content: Array<{
     id: string;
+    project_id: string;
     name: string;
+    start_time?: string;
+    end_time?: string;
     input: Record<string, any>;
     output: Record<string, any>;
-    metadata: Record<string, any>;
-    tags: string[];
+    metadata?: Record<string, any>;
+    usage?: {
+      completion_tokens?: number;
+      prompt_tokens?: number;
+      total_tokens?: number;
+    };
     created_at: string;
+    last_updated_at?: string;
     created_by: string;
-    project_id: string;
+    last_updated_by?: string;
+    total_estimated_cost?: number;
+    duration?: number;
+    tags?: string[];
   }>;
+  sortable_by?: string[];
 };
 
-export type SingleTraceResponse = TraceResponse["content"][0];
+export type SingleTraceResponse = {
+  id: string;
+  project_id: string;
+  name: string;
+  start_time?: string;
+  end_time?: string;
+  input: Record<string, any>;
+  output: Record<string, any>;
+  metadata?: Record<string, any>;
+  usage?: {
+    completion_tokens?: number;
+    prompt_tokens?: number;
+    total_tokens?: number;
+  };
+  created_at: string;
+  last_updated_at?: string;
+  created_by: string;
+  last_updated_by?: string;
+  total_estimated_cost?: number;
+  duration?: number;
+  tags?: string[];
+};
 
 // Trace stats types
 export type TraceStatsResponse = {
-  total_traces: number;
-  total_spans: number;
-  average_trace_duration_ms: number;
-  total_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  stats_by_day: Array<{
-    date: string;
-    trace_count: number;
-    span_count: number;
-    total_tokens: number;
+  stats: Array<{
+    date?: string;
+    trace_count?: number;
+    span_count?: number;
+    total_tokens?: number;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cost?: number;
   }>;
 };
 

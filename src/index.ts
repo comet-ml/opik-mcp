@@ -8,6 +8,18 @@ import './utils/env.js';
 // Import configuration
 import config from './config.js';
 
+/**
+ * Opik MCP Server
+ *
+ * The server follows the Opik API architecture where:
+ * - Workspaces are the top-level containers
+ * - Projects exist within workspaces
+ * - Traces are associated with projects
+ *
+ * The 'default' workspace is used when none is specified.
+ * Project ID is a required parameter for most trace operations.
+ */
+
 // Types
 import {
   ProjectResponse,
@@ -40,8 +52,16 @@ const makeApiRequest = async <T>(
     API_HEADERS["Comet-Workspace"] = config.workspaceName;
   }
 
+  const url = `${config.apiBaseUrl}${path}`;
+
+  // Debug logging
+  if (config.debugMode) {
+    console.error(`Making API request to: ${url}`);
+    console.error('Headers:', JSON.stringify(API_HEADERS, null, 2));
+  }
+
   try {
-    const response = await fetch(`${config.apiBaseUrl}${path}`, {
+    const response = await fetch(url, {
       ...options,
       headers: {
         ...API_HEADERS,
@@ -49,18 +69,31 @@ const makeApiRequest = async <T>(
       },
     });
 
+    // Get response body text for better error handling
+    const responseText = await response.text();
+    let responseData: any = null;
+
+    // Try to parse the response as JSON
+    try {
+      responseData = JSON.parse(responseText);
+    } catch (e) {
+      // If it's not valid JSON, use the raw text
+      responseData = responseText;
+    }
+
     if (!response.ok) {
+      const errorMsg = `HTTP error! status: ${response.status} ${JSON.stringify(responseData)}`;
+      if (config.debugMode) {
+        console.error(`API Error:`, errorMsg);
+      }
       return {
         data: null,
-        error: `HTTP error! status: ${response.status} ${JSON.stringify(
-          response.body
-        )}`,
+        error: errorMsg,
       };
     }
 
-    const data = (await response.json()) as T;
     return {
-      data,
+      data: responseData as T,
       error: null,
     };
   } catch (error) {
@@ -277,11 +310,32 @@ server.tool(
   {
     page: z.number().describe("Page number for pagination"),
     size: z.number().describe("Number of items per page"),
+    sortBy: z.string().optional().describe("Sort projects by this field"),
+    sortOrder: z.string().optional().describe("Sort order (asc or desc)"),
+    workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
   },
   async (args) => {
-    const response = await makeApiRequest<ProjectResponse>(
-      `/v1/private/projects?page=${args.page}&size=${args.size}`
-    );
+    const { page, size, sortBy, sortOrder, workspaceName } = args;
+
+    // Save original workspace name to restore later if needed
+    const originalWorkspace = config.workspaceName;
+
+    // Override workspace temporarily if specified
+    if (workspaceName) {
+      config.workspaceName = workspaceName;
+    }
+
+    // Build query string
+    let url = `/v1/private/projects?page=${page}&size=${size}`;
+    if (sortBy) url += `&sort_by=${sortBy}`;
+    if (sortOrder) url += `&sort_order=${sortOrder}`;
+
+    const response = await makeApiRequest<ProjectResponse>(url);
+
+    // Restore original workspace
+    if (workspaceName) {
+      config.workspaceName = originalWorkspace;
+    }
 
     if (!response.data) {
       return {
@@ -313,12 +367,27 @@ server.tool(
   "Get a single project by ID",
   {
     projectId: z.string().describe("ID of the project to fetch"),
+    workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
   },
   async (args) => {
-    const { projectId } = args;
+    const { projectId, workspaceName } = args;
+
+    // Save original workspace name to restore later if needed
+    const originalWorkspace = config.workspaceName;
+
+    // Override workspace temporarily if specified
+    if (workspaceName) {
+      config.workspaceName = workspaceName;
+    }
+
     const response = await makeApiRequest<SingleProjectResponse>(
       `/v1/private/projects/${projectId}`
     );
+
+    // Restore original workspace
+    if (workspaceName) {
+      config.workspaceName = originalWorkspace;
+    }
 
     if (!response.data) {
       return {
@@ -369,31 +438,56 @@ server.tool(
   "Update a project",
   {
     projectId: z.string().describe("ID of the project to update"),
-    name: z.string().optional().describe("New name for the project"),
-    description: z.string().optional().describe("New description for the project"),
+    name: z.string().optional().describe("New project name"),
+    workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+    description: z.string().optional().describe("New project description"),
   },
   async (args) => {
-    const { projectId, name, description } = args;
-    const payload: Record<string, string> = {};
+    const { projectId, name, description, workspaceName } = args;
 
-    if (name) payload.name = name;
-    if (description) payload.description = description;
+    // Save original workspace name to restore later if needed
+    const originalWorkspace = config.workspaceName;
 
-    const response = await makeApiRequest<void>(
+    // Override workspace temporarily if specified
+    if (workspaceName) {
+      config.workspaceName = workspaceName;
+    }
+
+    // Build update data
+    const updateData: Record<string, any> = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+
+    const response = await makeApiRequest<SingleProjectResponse>(
       `/v1/private/projects/${projectId}`,
       {
-        method: "PUT",
-        body: JSON.stringify(payload),
+        method: "PATCH",
+        body: JSON.stringify(updateData),
       }
     );
+
+    // Restore original workspace
+    if (workspaceName) {
+      config.workspaceName = originalWorkspace;
+    }
+
+    if (!response.data) {
+      return {
+        content: [
+          { type: "text", text: response.error || "Failed to update project" },
+        ],
+      };
+    }
 
     return {
       content: [
         {
           type: "text",
-          text: !response.error
-            ? "Successfully updated project"
-            : response.error || "Failed to update project",
+          text: "Project successfully updated",
+        },
+        {
+          type: "text",
+          text: JSON.stringify(response.data, null, 2),
         },
       ],
     };
@@ -436,14 +530,37 @@ server.tool(
   {
     page: z.number().describe("Page number for pagination"),
     size: z.number().describe("Number of items per page"),
-    projectId: z.string().optional().describe("Optional project ID to filter traces"),
+    projectId: z.string().optional().describe("Project ID to filter traces"),
+    projectName: z.string().optional().describe("Project name to filter traces"),
   },
   async (args) => {
-    const { page, size, projectId } = args;
+    const { page, size, projectId, projectName } = args;
     let url = `/v1/private/traces?page=${page}&size=${size}`;
 
+    // Add project filtering - API requires either project_id or project_name
     if (projectId) {
       url += `&project_id=${projectId}`;
+    } else if (projectName) {
+      url += `&project_name=${encodeURIComponent(projectName)}`;
+    } else {
+      // If no project specified, we need to find one for the API to work
+      const projectsResponse = await makeApiRequest<ProjectResponse>(
+        `/v1/private/projects?page=1&size=1`
+      );
+
+      if (projectsResponse.data &&
+          projectsResponse.data.content &&
+          projectsResponse.data.content.length > 0) {
+        const firstProject = projectsResponse.data.content[0];
+        url += `&project_id=${firstProject.id}`;
+        console.error(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+      } else {
+        return {
+          content: [
+            { type: "text", text: "Error: No project ID or name provided, and no projects found" },
+          ],
+        };
+      }
     }
 
     const response = await makeApiRequest<TraceResponse>(url);
@@ -493,11 +610,27 @@ server.tool(
       };
     }
 
+    // Format the response for better readability
+    const formattedResponse: any = { ...response.data };
+
+    // Format input/output if they're large
+    if (formattedResponse.input && typeof formattedResponse.input === 'object' && Object.keys(formattedResponse.input).length > 0) {
+      formattedResponse.input = JSON.stringify(formattedResponse.input, null, 2);
+    }
+
+    if (formattedResponse.output && typeof formattedResponse.output === 'object' && Object.keys(formattedResponse.output).length > 0) {
+      formattedResponse.output = JSON.stringify(formattedResponse.output, null, 2);
+    }
+
     return {
       content: [
         {
           type: "text",
-          text: JSON.stringify(response.data, null, 2),
+          text: `Trace Details for ID: ${traceId}`,
+        },
+        {
+          type: "text",
+          text: JSON.stringify(formattedResponse, null, 2),
         },
       ],
     };
@@ -508,16 +641,44 @@ server.tool(
   "get-trace-stats",
   "Get statistics for traces",
   {
-    projectId: z.string().optional().describe("Optional project ID to filter traces"),
+    projectId: z.string().optional().describe("Project ID to filter traces"),
+    projectName: z.string().optional().describe("Project name to filter traces"),
     startDate: z.string().optional().describe("Start date in ISO format (YYYY-MM-DD)"),
     endDate: z.string().optional().describe("End date in ISO format (YYYY-MM-DD)"),
   },
   async (args) => {
-    const { projectId, startDate, endDate } = args;
+    const { projectId, projectName, startDate, endDate } = args;
     let url = `/v1/private/traces/stats`;
 
+    // Build query parameters
     const queryParams = [];
-    if (projectId) queryParams.push(`project_id=${projectId}`);
+
+    // Add project filtering - API requires either project_id or project_name
+    if (projectId) {
+      queryParams.push(`project_id=${projectId}`);
+    } else if (projectName) {
+      queryParams.push(`project_name=${encodeURIComponent(projectName)}`);
+    } else {
+      // If no project specified, we need to find one for the API to work
+      const projectsResponse = await makeApiRequest<ProjectResponse>(
+        `/v1/private/projects?page=1&size=1`
+      );
+
+      if (projectsResponse.data &&
+          projectsResponse.data.content &&
+          projectsResponse.data.content.length > 0) {
+        const firstProject = projectsResponse.data.content[0];
+        queryParams.push(`project_id=${firstProject.id}`);
+        console.error(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+      } else {
+        return {
+          content: [
+            { type: "text", text: "Error: No project ID or name provided, and no projects found" },
+          ],
+        };
+      }
+    }
+
     if (startDate) queryParams.push(`start_date=${startDate}`);
     if (endDate) queryParams.push(`end_date=${endDate}`);
 
@@ -537,6 +698,10 @@ server.tool(
 
     return {
       content: [
+        {
+          type: "text",
+          text: `Trace Statistics:`,
+        },
         {
           type: "text",
           text: JSON.stringify(response.data, null, 2),
