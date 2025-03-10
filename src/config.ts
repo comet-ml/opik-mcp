@@ -149,7 +149,7 @@ function loadConfig(): OpikConfig {
   const config: OpikConfig = {
     // API configuration with fallbacks - with much more forgiving defaults
     apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || "https://www.comet.com/opik/api",
-    workspaceName: args.workspace || process.env.OPIK_WORKSPACE_NAME || "default",
+    workspaceName: (args.workspace || process.env.OPIK_WORKSPACE_NAME || "default").replace(/^['"](.*)['"]$/, '$1'), // Remove any quotes
     apiKey: args.apiKey || process.env.OPIK_API_KEY || "",
     isSelfHosted: args.selfHosted !== undefined ? args.selfHosted :
                   process.env.OPIK_SELF_HOSTED === "true" || false,

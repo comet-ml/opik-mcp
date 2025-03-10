@@ -5,9 +5,42 @@ This repository contains a Model Context Protocol (MCP) implementation for the O
 ## Architecture
 
 The Opik API follows a hierarchical structure:
-- **Workspaces** are top-level containers that organize all resources
-- **Projects** exist within workspaces and are used to group related traces
+- **Workspaces** are top-level containers that organize all resources (typically "default" for most users)
+- **Projects** exist within workspaces and are used to group related traces (e.g., "Therapist Chat", "Demo chatbot 🤖")
 - **Traces** are always associated with a specific project
+
+> **Important Note**: Do not confuse workspaces with projects. The workspace name is typically "default" unless you've explicitly created additional workspaces. Project names like "Therapist Chat" are not valid workspace names and will cause API errors if used as such.
+
+### Project Name Mapping
+
+When using the MCP server, you can work with specific projects in several ways:
+
+1. **Project ID**: Most tools accept a `projectId` parameter to specify which project to use
+2. **Project Name**: Many tools also accept a `projectName` parameter as an alternative to using the ID
+3. **Default Behavior**: If neither is provided, the server will automatically use the first available project in your workspace
+
+For example, when listing traces, you can specify:
+```typescript
+// Using project ID
+{
+  name: "list-traces",
+  parameters: {
+    page: 1,
+    size: 10,
+    projectId: "0194fdd8-de46-73c4-b0ac-381cec5fbf5c"  // Specific project ID
+  }
+}
+
+// Using project name
+{
+  name: "list-traces",
+  parameters: {
+    page: 1,
+    size: 10,
+    projectName: "Therapist Chat"  // Project name is automatically mapped to the correct ID
+  }
+}
+```
 
 When using this MCP server:
 - Configuration can be provided via environment variables (`.env` file) or command-line arguments
@@ -138,17 +171,7 @@ Run the server with command-line arguments:
 node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key" --workspace "default"
 ```
 
-For workspace names that contain spaces, make sure to quote the entire name:
-
-```bash
-node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key" --workspace "Therapist Chat"
-```
-
-Alternatively, you can use the environment variable:
-
-```bash
-OPIK_WORKSPACE_NAME="Therapist Chat" node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key"
-```
+> **Important**: The workspace name should typically be "default" unless you have explicitly created additional workspaces. Do not use project names (like "Therapist Chat") as workspace names, as this will result in API errors.
 
 #### Available Arguments
 
@@ -156,7 +179,7 @@ OPIK_WORKSPACE_NAME="Therapist Chat" node build/index.js --apiUrl "https://www.c
 |----------|-------|-------------|---------|
 | `--apiUrl` | `-url` | API base URL | - |
 | `--apiKey` | `-key` | API key for authentication | - |
-| `--workspace` | `-ws` | Workspace name | "default" |
+| `--workspace` | `-ws` | Workspace name (typically "default") | "default" |
 | `--selfHosted` | - | Whether the instance is self-hosted | false |
 | `--debug` | - | Enable debug mode | false |
 | `--mcpName` | - | MCP server name | "opik-manager" |
@@ -182,7 +205,7 @@ Alternatively, configure via environment variables in a `.env` file:
 - `DEBUG_MODE`: Set to "true" to see detailed API request logs (default is "false")
 
 #### Cloud-specific Configuration
-- `OPIK_WORKSPACE_NAME`: Your workspace name (required for cloud instances, defaults to "default")
+- `OPIK_WORKSPACE_NAME`: Your workspace name (typically "default" for most users)
 
 #### MCP Server Configuration
 - `MCP_NAME`: Name of the MCP server (defaults to "opik-manager")
@@ -361,7 +384,11 @@ Deletes an existing project.
 
 ### Traces
 
-> **Important**: The Opik API requires either a project ID or project name for most trace endpoints. If neither is provided, the MCP server will attempt to use the first available project.
+> **Important**: The Opik API requires either a project ID or project name for most trace endpoints. You can specify either:
+> - `projectId`: The unique identifier of the project (e.g., "0194fdd8-de46-73c4-b0ac-381cec5fbf5c")
+> - `projectName`: The human-readable name of the project (e.g., "Therapist Chat")
+>
+> If neither is provided, the MCP server will automatically use the first available project in your workspace.
 
 #### 1. List Traces
 
@@ -495,7 +522,7 @@ Here's a comprehensive example with all available configuration options:
         // API Configuration
         "--apiUrl", "https://www.comet.com/opik/api",
         "--apiKey", "your-api-key",
-        "--workspace", "default",
+        "--workspace", "default",  // Use "default" unless you have created additional workspaces
 
         // Deployment Configuration
         "--selfHosted", "false",
@@ -528,31 +555,17 @@ Here's a comprehensive example with all available configuration options:
 
 1. **Absolute Path**: Make sure to use an absolute path to the `index.js` file to ensure Cursor can find it regardless of the working directory.
 
-2. **Workspace Names with Spaces**: If your workspace name contains spaces, you must escape it properly in the `mcp.json` file. There are two ways to handle this:
+2. **Workspaces vs Projects**: Do not confuse workspaces with projects:
+   - The workspace name is typically "default" for most users
+   - Project names (like "Therapist Chat") are NOT valid workspace names
+   - Using a project name as a workspace name will result in a 400 error from the API
 
-   **Option 1**: Enclose the entire workspace name in a single argument:
-   ```json
-   "args": [
-     "/path/to/build/index.js",
-     "--apiUrl", "https://www.comet.com/opik/api",
-     "--apiKey", "your-api-key",
-     "--workspace", "\"Therapist Chat\""
-   ]
-   ```
+3. **Working with Specific Projects**: When using the MCP tools, you can specify which project to work with by:
+   - Using the `projectId` parameter with the project's unique identifier
+   - Using the `projectName` parameter with the project's human-readable name
+   - If neither is specified, the server will use the first available project
 
-   **Option 2**: Use the environment variable instead:
-   ```json
-   "args": [
-     "/path/to/build/index.js",
-     "--apiUrl", "https://www.comet.com/opik/api",
-     "--apiKey", "your-api-key"
-   ],
-   "env": {
-     "OPIK_WORKSPACE_NAME": "Therapist Chat"
-   }
-   ```
-
-3. **Minimal Configuration**: For a simpler setup, you can use just the essential parameters:
+4. **Minimal Configuration**: For a simpler setup, you can use just the essential parameters:
 
 ```json
 {

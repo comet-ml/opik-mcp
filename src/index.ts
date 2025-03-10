@@ -80,7 +80,8 @@ import {
 // Helper function to make requests to API with file logging
 const makeApiRequest = async <T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  workspaceName?: string
 ): Promise<{ data: T | null; error: string | null }> => {
   // Prepare headers based on configuration
   const API_HEADERS: Record<string, string> = {
@@ -90,9 +91,21 @@ const makeApiRequest = async <T>(
   };
 
   // Add workspace header for cloud version
-  if (!config.isSelfHosted && config.workspaceName) {
-    API_HEADERS["Comet-Workspace"] = config.workspaceName;
-    logToFile(`Using workspace: ${config.workspaceName}`);
+  if (!config.isSelfHosted) {
+    // Use provided workspace name or fall back to config
+    const wsName = workspaceName || config.workspaceName;
+
+    if (wsName) {
+      // Note: The Opik API expects the workspace name to be the default workspace.
+      // Project names like "Therapist Chat" are not valid workspace names.
+      // The API will return a 400 error if a non-existent workspace is specified.
+      const workspaceNameToUse = wsName.trim();
+      logToFile(`DEBUG - Workspace name before setting header: "${workspaceNameToUse}", type: ${typeof workspaceNameToUse}, length: ${workspaceNameToUse.length}`);
+
+      // Use the raw workspace name - do not encode it
+      API_HEADERS["Comet-Workspace"] = workspaceNameToUse;
+      logToFile(`Using workspace: ${workspaceNameToUse}`);
+    }
   }
 
   const url = `${config.apiBaseUrl}${path}`;
@@ -419,25 +432,12 @@ if (config.mcpEnableProjectTools) {
     async (args) => {
       const { page, size, sortBy, sortOrder, workspaceName } = args;
 
-      // Save original workspace name to restore later if needed
-      const originalWorkspace = config.workspaceName;
-
-      // Override workspace temporarily if specified
-      if (workspaceName) {
-        config.workspaceName = workspaceName;
-      }
-
       // Build query string
       let url = `/v1/private/projects?page=${page}&size=${size}`;
       if (sortBy) url += `&sort_by=${sortBy}`;
       if (sortOrder) url += `&sort_order=${sortOrder}`;
 
-      const response = await makeApiRequest<ProjectResponse>(url);
-
-      // Restore original workspace
-      if (workspaceName) {
-        config.workspaceName = originalWorkspace;
-      }
+      const response = await makeApiRequest<ProjectResponse>(url, {}, workspaceName);
 
       if (!response.data) {
         return {
@@ -474,22 +474,11 @@ if (config.mcpEnableProjectTools) {
     async (args) => {
       const { projectId, workspaceName } = args;
 
-      // Save original workspace name to restore later if needed
-      const originalWorkspace = config.workspaceName;
-
-      // Override workspace temporarily if specified
-      if (workspaceName) {
-        config.workspaceName = workspaceName;
-      }
-
       const response = await makeApiRequest<SingleProjectResponse>(
-        `/v1/private/projects/${projectId}`
+        `/v1/private/projects/${projectId}`,
+        {},
+        workspaceName
       );
-
-      // Restore original workspace
-      if (workspaceName) {
-        config.workspaceName = originalWorkspace;
-      }
 
       if (!response.data) {
         return {
@@ -516,13 +505,14 @@ if (config.mcpEnableProjectTools) {
     {
       name: z.string().describe("Name of the project"),
       description: z.string().optional().describe("Description of the project"),
+      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
     },
     async (args) => {
-      const { name, description } = args;
+      const { name, description, workspaceName } = args;
       const response = await makeApiRequest<void>(`/v1/private/projects`, {
         method: "POST",
         body: JSON.stringify({ name, description }),
-      });
+      }, workspaceName);
 
       return {
         content: [
@@ -547,14 +537,6 @@ if (config.mcpEnableProjectTools) {
     async (args) => {
       const { projectId, name, description, workspaceName } = args;
 
-      // Save original workspace name to restore later if needed
-      const originalWorkspace = config.workspaceName;
-
-      // Override workspace temporarily if specified
-      if (workspaceName) {
-        config.workspaceName = workspaceName;
-      }
-
       // Build update data
       const updateData: Record<string, any> = {};
       if (name !== undefined) updateData.name = name;
@@ -565,13 +547,9 @@ if (config.mcpEnableProjectTools) {
         {
           method: "PATCH",
           body: JSON.stringify(updateData),
-        }
+        },
+        workspaceName
       );
-
-      // Restore original workspace
-      if (workspaceName) {
-        config.workspaceName = originalWorkspace;
-      }
 
       if (!response.data) {
         return {
@@ -601,14 +579,16 @@ if (config.mcpEnableProjectTools) {
     "Delete a project",
     {
       projectId: z.string().describe("ID of the project to delete"),
+      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
     },
     async (args) => {
-      const { projectId } = args;
+      const { projectId, workspaceName } = args;
       const response = await makeApiRequest<void>(
         `/v1/private/projects/${projectId}`,
         {
           method: "DELETE",
-        }
+        },
+        workspaceName
       );
 
       return {
@@ -635,9 +615,10 @@ if (config.mcpEnableTraceTools) {
       size: z.number().describe("Number of items per page"),
       projectId: z.string().optional().describe("Project ID to filter traces"),
       projectName: z.string().optional().describe("Project name to filter traces"),
+      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
     },
     async (args) => {
-      const { page, size, projectId, projectName } = args;
+      const { page, size, projectId, projectName, workspaceName } = args;
       let url = `/v1/private/traces?page=${page}&size=${size}`;
 
       // Add project filtering - API requires either project_id or project_name
@@ -648,7 +629,9 @@ if (config.mcpEnableTraceTools) {
       } else {
         // If no project specified, we need to find one for the API to work
         const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`
+          `/v1/private/projects?page=1&size=1`,
+          {},
+          workspaceName
         );
 
         if (projectsResponse.data &&
@@ -666,7 +649,7 @@ if (config.mcpEnableTraceTools) {
         }
       }
 
-      const response = await makeApiRequest<TraceResponse>(url);
+      const response = await makeApiRequest<TraceResponse>(url, {}, workspaceName);
 
       if (!response.data) {
         return {
@@ -698,11 +681,14 @@ if (config.mcpEnableTraceTools) {
     "Get a single trace by ID",
     {
       traceId: z.string().describe("ID of the trace to fetch"),
+      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
     },
     async (args) => {
-      const { traceId } = args;
+      const { traceId, workspaceName } = args;
       const response = await makeApiRequest<SingleTraceResponse>(
-        `/v1/private/traces/${traceId}`
+        `/v1/private/traces/${traceId}`,
+        {},
+        workspaceName
       );
 
       if (!response.data) {
@@ -748,9 +734,10 @@ if (config.mcpEnableTraceTools) {
       projectName: z.string().optional().describe("Project name to filter traces"),
       startDate: z.string().optional().describe("Start date in ISO format (YYYY-MM-DD)"),
       endDate: z.string().optional().describe("End date in ISO format (YYYY-MM-DD)"),
+      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
     },
     async (args) => {
-      const { projectId, projectName, startDate, endDate } = args;
+      const { projectId, projectName, startDate, endDate, workspaceName } = args;
       let url = `/v1/private/traces/stats`;
 
       // Build query parameters
@@ -764,7 +751,9 @@ if (config.mcpEnableTraceTools) {
       } else {
         // If no project specified, we need to find one for the API to work
         const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`
+          `/v1/private/projects?page=1&size=1`,
+          {},
+          workspaceName
         );
 
         if (projectsResponse.data &&
@@ -789,7 +778,7 @@ if (config.mcpEnableTraceTools) {
         url += `?${queryParams.join('&')}`;
       }
 
-      const response = await makeApiRequest<TraceStatsResponse>(url);
+      const response = await makeApiRequest<TraceStatsResponse>(url, {}, workspaceName);
 
       if (!response.data) {
         return {
@@ -823,16 +812,43 @@ if (config.mcpEnableMetricTools) {
     {
       metricName: z.string().optional().describe("Optional metric name to filter"),
       projectId: z.string().optional().describe("Optional project ID to filter metrics"),
+      projectName: z.string().optional().describe("Optional project name to filter metrics"),
       startDate: z.string().optional().describe("Start date in ISO format (YYYY-MM-DD)"),
       endDate: z.string().optional().describe("End date in ISO format (YYYY-MM-DD)"),
     },
     async (args) => {
-      const { metricName, projectId, startDate, endDate } = args;
+      const { metricName, projectId, projectName, startDate, endDate } = args;
       let url = `/v1/private/metrics`;
 
       const queryParams = [];
       if (metricName) queryParams.push(`metric_name=${metricName}`);
-      if (projectId) queryParams.push(`project_id=${projectId}`);
+
+      // Add project filtering - API requires either project_id or project_name
+      if (projectId) {
+        queryParams.push(`project_id=${projectId}`);
+      } else if (projectName) {
+        queryParams.push(`project_name=${encodeURIComponent(projectName)}`);
+      } else {
+        // If no project specified, we need to find one for the API to work
+        const projectsResponse = await makeApiRequest<ProjectResponse>(
+          `/v1/private/projects?page=1&size=1`
+        );
+
+        if (projectsResponse.data &&
+            projectsResponse.data.content &&
+            projectsResponse.data.content.length > 0) {
+          const firstProject = projectsResponse.data.content[0];
+          queryParams.push(`project_id=${firstProject.id}`);
+          logToFile(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+        } else {
+          return {
+            content: [
+              { type: "text", text: "Error: No project ID or name provided, and no projects found" },
+            ],
+          };
+        }
+      }
+
       if (startDate) queryParams.push(`start_date=${startDate}`);
       if (endDate) queryParams.push(`end_date=${endDate}`);
 
@@ -921,6 +937,22 @@ async function main() {
     logToFile(`Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
     logToFile(`Workspace: ${config.workspaceName || "None"}`);
 
+    // Test API call if test flag is set
+    if (process.argv.includes("--test")) {
+      logToFile("Test flag detected, making test API call");
+
+      // First, let's try to list available workspaces
+      logToFile("Listing available workspaces");
+      const workspacesResult = await makeApiRequest<any>('/v1/private/workspaces');
+      logToFile(`Workspaces API call result: ${JSON.stringify(workspacesResult, null, 2)}`);
+
+      // Then try the projects API
+      const testResult = await makeApiRequest<any>('/v1/private/projects?page=1&size=10');
+      logToFile(`Projects API call result: ${JSON.stringify(testResult, null, 2)}`);
+
+      process.exit(0);
+    }
+
     try {
       // Connect server to transport - This is where the initialization handshake happens
       logToFile("Connecting server to transport");
@@ -940,10 +972,10 @@ async function main() {
       }, 5000);
 
     } catch (connectError: any) {
-      logToFile(`Error connecting to transport: ${connectError?.message || connectError}`);
-      sendProtocolMessage("log", `Connection error: ${connectError?.message || connectError}`);
+      logToFile(`Error in server connection: ${connectError?.message || connectError}`);
       process.exit(1);
     }
+
   } catch (mainError: any) {
     logToFile(`Error in main function: ${mainError?.message || mainError}`);
     process.exit(1);
