@@ -10,7 +10,7 @@ The Opik API follows a hierarchical structure:
 - **Traces** are always associated with a specific project
 
 When using this MCP server:
-- The workspace name is configured in the `.env` file (`OPIK_WORKSPACE_NAME`)
+- Configuration can be provided via environment variables (`.env` file) or command-line arguments
 - For cloud deployments, the default workspace name is "default"
 - Project ID is required for most trace operations
 - You can override the configured workspace name in supported API calls
@@ -52,27 +52,32 @@ To use this MCP implementation, follow these steps:
    cd opik-mcp
    ```
 
-2. Create a `.cursor/msp.json` file in your project root:
+2. Create a `.cursor/mcp.json` file in your project root:
 
    ```bash
    mkdir -p .cursor
-   touch .cursor/msp.json
+   touch .cursor/mcp.json
    ```
 
-3. Add the following configuration to the `.cursor/msp.json` file:
+3. Add the following configuration to the `.cursor/mcp.json` file:
 
    ```json
    {
      "mcpServers": {
        "opik": {
          "command": "node",
-         "args": ["/Users/{username}/{path}/test-opik-mcp/build/index.js"]
+         "args": [
+           "/path/to/build/index.js",
+           "--apiUrl", "https://www.comet.com/opik/api",
+           "--apiKey", "your-api-key",
+           "--workspace", "default"
+         ]
        }
      }
    }
    ```
 
-4. Configure the server with environment variables (see Configuration section)
+4. Alternatively, configure the server with environment variables (see Configuration section)
 
 5. Install dependencies and build the project:
 
@@ -87,9 +92,40 @@ To use this MCP implementation, follow these steps:
 
 ## Configuration
 
-The MCP server supports both cloud and self-hosted Opik instances. Configure using the following environment variables:
+The MCP server can be configured through environment variables (`.env` file) or command-line arguments. Command-line arguments take precedence over environment variables.
 
-### Common Configuration
+### Command-line Arguments
+
+Run the server with command-line arguments:
+
+```bash
+node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key" --workspace "default"
+```
+
+#### Available Arguments
+
+| Argument | Alias | Description | Default |
+|----------|-------|-------------|---------|
+| `--apiUrl` | `-url` | API base URL | - |
+| `--apiKey` | `-key` | API key for authentication | - |
+| `--workspace` | `-ws` | Workspace name | "default" |
+| `--selfHosted` | - | Whether the instance is self-hosted | false |
+| `--debug` | - | Enable debug mode | false |
+| `--mcpName` | - | MCP server name | "opik-manager" |
+| `--mcpVersion` | - | MCP server version | "1.0.0" |
+| `--mcpPort` | - | MCP server port | - |
+| `--mcpLogging` | - | Enable MCP server logging | false |
+| `--mcpDefaultWorkspace` | - | Default workspace name | "default" |
+| `--disablePromptTools` | - | Disable prompt-related tools | false |
+| `--disableProjectTools` | - | Disable project-related tools | false |
+| `--disableTraceTools` | - | Disable trace-related tools | false |
+| `--disableMetricTools` | - | Disable metric-related tools | false |
+
+### Environment Variables
+
+Alternatively, configure via environment variables in a `.env` file:
+
+#### Common Configuration
 - `OPIK_API_BASE_URL`: The base URL for the API
   - For cloud: "https://comet.com/opik/api"
   - For self-hosted: "http://localhost:5173/api"
@@ -97,21 +133,120 @@ The MCP server supports both cloud and self-hosted Opik instances. Configure usi
 - `OPIK_SELF_HOSTED`: Set to "true" for self-hosted instances, or "false" for cloud (default is "false")
 - `DEBUG_MODE`: Set to "true" to see detailed API request logs (default is "false")
 
-### Cloud-specific Configuration
+#### Cloud-specific Configuration
 - `OPIK_WORKSPACE_NAME`: Your workspace name (required for cloud instances, defaults to "default")
 
-### MCP Server Configuration
+#### MCP Server Configuration
 - `MCP_NAME`: Name of the MCP server (defaults to "opik-manager")
 - `MCP_VERSION`: Version of the MCP server (defaults to "1.0.0")
 - `MCP_PORT`: Optional port for TCP connections if needed
 - `MCP_LOGGING`: Set to "true" to enable MCP-specific logging (defaults to "false")
 - `MCP_DEFAULT_WORKSPACE`: Default workspace to use if none is specified (defaults to "default")
 
-### Tool Enablement
+#### Tool Enablement
 - `MCP_ENABLE_PROMPT_TOOLS`: Set to "false" to disable prompt-related tools (defaults to "true")
 - `MCP_ENABLE_PROJECT_TOOLS`: Set to "false" to disable project-related tools (defaults to "true")
 - `MCP_ENABLE_TRACE_TOOLS`: Set to "false" to disable trace-related tools (defaults to "true")
 - `MCP_ENABLE_METRIC_TOOLS`: Set to "false" to disable metric-related tools (defaults to "true")
+
+## IDE Integration
+
+### Cursor Configuration
+
+To use the Opik MCP server with Cursor IDE, you need to create a `.cursor/mcp.json` file in your project root. This file tells Cursor how to start and configure the MCP server.
+
+Here's a comprehensive example with all available configuration options:
+
+```json
+{
+  "mcpServers": {
+    "opik": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/build/index.js",
+
+        // API Configuration
+        "--apiUrl", "https://www.comet.com/opik/api",
+        "--apiKey", "your-api-key",
+        "--workspace", "default",
+
+        // Deployment Configuration
+        "--selfHosted", "false",
+
+        // Debug Settings
+        "--debug", "false",
+
+        // MCP Server Configuration
+        "--mcpName", "opik-manager",
+        "--mcpVersion", "1.0.0",
+        "--mcpLogging", "false",
+        "--mcpDefaultWorkspace", "default",
+
+        // Tool Enablement (omit these to use defaults)
+        "--disablePromptTools", "false",
+        "--disableProjectTools", "false",
+        "--disableTraceTools", "false",
+        "--disableMetricTools", "false"
+      ],
+      "env": {
+        // You can also set environment variables here if preferred
+        // "OPIK_API_KEY": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+#### Important Notes:
+
+1. **Absolute Path**: Make sure to use an absolute path to the `index.js` file to ensure Cursor can find it regardless of the working directory.
+
+2. **Minimal Configuration**: For a simpler setup, you can use just the essential parameters:
+
+```json
+{
+  "mcpServers": {
+    "opik": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/build/index.js",
+        "--apiUrl", "https://www.comet.com/opik/api",
+        "--apiKey", "your-api-key",
+        "--workspace", "default"
+      ]
+    }
+  }
+}
+```
+
+3. **Multiple Configurations**: You can define multiple MCP servers by adding more entries to the `mcpServers` object:
+
+```json
+{
+  "mcpServers": {
+    "opik-prod": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/build/index.js",
+        "--apiUrl", "https://www.comet.com/opik/api",
+        "--apiKey", "your-production-api-key",
+        "--workspace", "production"
+      ]
+    },
+    "opik-dev": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/build/index.js",
+        "--apiUrl", "https://www.comet.com/opik/api",
+        "--apiKey", "your-development-api-key",
+        "--workspace", "development"
+      ]
+    }
+  }
+}
+```
+
+4. **Enabling in Cursor**: After setting up the configuration file, go to Cursor settings → MCP and enable the Opik MCP server(s).
 
 ## Available Tools
 
