@@ -8,7 +8,9 @@
   },
   "scripts": {
     "build": "tsc && shx chmod +x build/*.js",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
+    "api:build": "tsc",
+    "api:test": "node build/test-client.js"
   },
   "files": [
     "build"
@@ -17,6 +19,7 @@
   "license": "ISC",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
+    "dotenv": "^16.4.5",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -32,7 +35,9 @@
   },
   "jest": {
     "preset": "ts-jest/presets/default-esm",
-    "extensionsToTreatAsEsm": [".ts"],
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
     "transform": {
       "^.+\\.tsx?$": [
         "ts-jest",

@@ -2,130 +2,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-// Configuration options
-interface OpikConfig {
-  apiBaseUrl: string;
-  workspaceName?: string; // Optional for self-hosted version
-  apiKey: string;
-  isSelfHosted: boolean;
-}
+// Import environment variables loader
+import './utils/env.js';
 
-// Load configuration
-const OPIK_CONFIG: OpikConfig = {
-  apiBaseUrl: process.env.OPIK_API_BASE_URL || "YOUR VALUE HERE",
-  workspaceName: process.env.OPIK_WORKSPACE_NAME || "YOUR VALUE HERE",
-  apiKey: process.env.OPIK_API_KEY || "YOUR VALUE HERE",
-  isSelfHosted: process.env.OPIK_SELF_HOSTED === "true" || false
-};
-
-// Validate configuration
-if (!OPIK_CONFIG.apiBaseUrl || OPIK_CONFIG.apiBaseUrl === "YOUR VALUE HERE") {
-  console.error(
-    "Error: OPIK_API_BASE_URL environment variable is required"
-  );
-  process.exit(1);
-}
-
-if (!OPIK_CONFIG.apiKey || OPIK_CONFIG.apiKey === "YOUR VALUE HERE") {
-  console.error(
-    "Error: OPIK_API_KEY environment variable is required"
-  );
-  process.exit(1);
-}
-
-// For cloud version, workspace name is required
-if (!OPIK_CONFIG.isSelfHosted &&
-    (!OPIK_CONFIG.workspaceName || OPIK_CONFIG.workspaceName === "YOUR VALUE HERE")) {
-  console.error(
-    "Error: OPIK_WORKSPACE_NAME environment variable is required for cloud version"
-  );
-  process.exit(1);
-}
+// Import configuration
+import config from './config.js';
 
 // Types
-type PromptResponse = {
-  page: number;
-  size: number;
-  total: number;
-  content: Array<{
-    name: string;
-    id: string;
-    description: string;
-    created_at: string;
-    created_by: string;
-    last_updated_at: string;
-    last_updated_by: string;
-    version_count: number;
-  }>;
-};
-
-type SinglePromptResponse = Omit<PromptResponse["content"][0], never>;
-
-// Project/Workspace related types
-type ProjectResponse = {
-  page: number;
-  size: number;
-  total: number;
-  content: Array<{
-    id: string;
-    name: string;
-    description: string;
-    created_at: string;
-    created_by: string;
-    last_updated_at: string;
-    last_updated_by: string;
-    workspace: string;
-  }>;
-};
-
-type SingleProjectResponse = Omit<ProjectResponse["content"][0], never>;
-
-// Trace related types
-type TraceResponse = {
-  page: number;
-  size: number;
-  total: number;
-  content: Array<{
-    id: string;
-    name: string;
-    input: Record<string, any>;
-    output: Record<string, any>;
-    metadata: Record<string, any>;
-    tags: string[];
-    created_at: string;
-    created_by: string;
-    project_id: string;
-  }>;
-};
-
-type SingleTraceResponse = Omit<TraceResponse["content"][0], never>;
-
-// Trace stats related types
-type TraceStatsResponse = {
-  total_traces: number;
-  total_spans: number;
-  average_trace_duration_ms: number;
-  total_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  stats_by_day: Array<{
-    date: string;
-    trace_count: number;
-    span_count: number;
-    total_tokens: number;
-  }>;
-};
-
-// Metrics related types
-type MetricsResponse = {
-  metrics: Array<{
-    name: string;
-    description: string;
-    value: number;
-    unit: string;
-    timestamp: string;
-  }>;
-};
+import {
+  ProjectResponse,
+  SingleProjectResponse,
+  PromptResponse,
+  SinglePromptResponse,
+  TraceResponse,
+  SingleTraceResponse,
+  TraceStatsResponse,
+  MetricsResponse
+} from './types.js';
 
 // Helper function to make requests to API
 const makeApiRequest = async <T>(
@@ -133,19 +26,22 @@ const makeApiRequest = async <T>(
   options: RequestInit = {}
 ): Promise<{ data: T | null; error: string | null }> => {
   // Prepare headers based on configuration
+  // According to Opik API documentation:
+  // - authorization header should NOT include "Bearer" prefix
+  // - Comet-Workspace header should be included for cloud installations
   const API_HEADERS: Record<string, string> = {
     Accept: "application/json",
     "Content-Type": "application/json",
-    authorization: OPIK_CONFIG.apiKey,
+    authorization: config.apiKey
   };
 
-  // Add workspace header only for cloud version
-  if (!OPIK_CONFIG.isSelfHosted && OPIK_CONFIG.workspaceName) {
-    API_HEADERS["Comet-Workspace"] = OPIK_CONFIG.workspaceName;
+  // Add workspace header for cloud version (and on-premise installations of Comet platform)
+  if (config.workspaceName) {
+    API_HEADERS["Comet-Workspace"] = config.workspaceName;
   }
 
   try {
-    const response = await fetch(`${OPIK_CONFIG.apiBaseUrl}${path}`, {
+    const response = await fetch(`${config.apiBaseUrl}${path}`, {
       ...options,
       headers: {
         ...API_HEADERS,
@@ -708,9 +604,9 @@ server.tool(
         {
           type: "text",
           text: JSON.stringify({
-            apiBaseUrl: OPIK_CONFIG.apiBaseUrl,
-            isSelfHosted: OPIK_CONFIG.isSelfHosted,
-            hasWorkspace: !!OPIK_CONFIG.workspaceName,
+            apiBaseUrl: config.apiBaseUrl,
+            isSelfHosted: config.isSelfHosted,
+            hasWorkspace: !!config.workspaceName,
             serverVersion: "v1"
           }, null, 2),
         },
@@ -726,11 +622,9 @@ async function main() {
   console.error("Opik MCP Server running on stdio");
 
   // Log server configuration for debugging purposes
-  console.error(`API Base URL: ${OPIK_CONFIG.apiBaseUrl}`);
-  console.error(`Self-hosted: ${OPIK_CONFIG.isSelfHosted ? "Yes" : "No"}`);
-  if (!OPIK_CONFIG.isSelfHosted) {
-    console.error(`Workspace: ${OPIK_CONFIG.workspaceName}`);
-  }
+  console.error(`API Base URL: ${config.apiBaseUrl}`);
+  console.error(`Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
+  console.error(`Workspace: ${config.workspaceName || "None"}`);
 }
 
 main().catch((error) => {
