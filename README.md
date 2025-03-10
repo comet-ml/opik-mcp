@@ -2,6 +2,19 @@
 
 This repository contains a Model Context Protocol (MCP) implementation for the Opik platform. It provides a set of tools for managing prompts, projects/workspaces, traces, and metrics through a standardized interface.
 
+## Architecture
+
+The Opik API follows a hierarchical structure:
+- **Workspaces** are top-level containers that organize all resources
+- **Projects** exist within workspaces and are used to group related traces
+- **Traces** are always associated with a specific project
+
+When using this MCP server:
+- The workspace name is configured in the `.env` file (`OPIK_WORKSPACE_NAME`)
+- For cloud deployments, the default workspace name is "default"
+- Project ID is required for most trace operations
+- You can override the configured workspace name in supported API calls
+
 ## Features
 
 ### Prompts
@@ -13,16 +26,17 @@ This repository contains a Model Context Protocol (MCP) implementation for the O
 - Delete prompts
 
 ### Projects/Workspaces
-- List all projects with pagination
+- List all projects with pagination and sorting
 - Create new projects
 - Get project details by ID
 - Update project information
 - Delete projects
+- Override workspace name for specific operations
 
 ### Traces
-- List all traces with pagination and filtering by project
+- List all traces with pagination and filtering by project ID/name
 - Get trace details by ID
-- Get trace statistics
+- Get trace statistics with filtering options
 
 ### Metrics
 - Get metrics data with filtering options
@@ -81,9 +95,10 @@ The MCP server supports both cloud and self-hosted Opik instances. Configure usi
   - For self-hosted: "http://localhost:5173/api"
 - `OPIK_API_KEY`: Your API key for authentication
 - `OPIK_SELF_HOSTED`: Set to "true" for self-hosted instances, or "false" for cloud (default is "false")
+- `DEBUG_MODE`: Set to "true" to see detailed API request logs (default is "false")
 
 ### Cloud-specific Configuration
-- `OPIK_WORKSPACE_NAME`: Your workspace name (required only for cloud instances)
+- `OPIK_WORKSPACE_NAME`: Your workspace name (required for cloud instances, defaults to "default")
 
 ## Available Tools
 
@@ -181,8 +196,11 @@ Lists all available projects with pagination support.
 {
   name: "list-projects",
   parameters: {
-    page: number,    // Page number for pagination
-    size: number     // Number of items per page
+    page: number,                 // Page number for pagination
+    size: number,                 // Number of items per page
+    sortBy?: string,              // Optional field to sort by
+    sortOrder?: string,           // Optional sort order (asc/desc)
+    workspaceName?: string        // Optional workspace name override
   }
 }
 ```
@@ -195,7 +213,8 @@ Retrieves details of a specific project.
 {
   name: "get-project-by-id",
   parameters: {
-    projectId: string  // ID of the project to fetch
+    projectId: string,            // ID of the project to fetch
+    workspaceName?: string        // Optional workspace name override
   }
 }
 ```
@@ -208,15 +227,15 @@ Creates a new project.
 {
   name: "create-project",
   parameters: {
-    name: string,                 // Name of the project
-    description?: string          // Optional description of the project
+    name: string,                 // Name for the new project
+    description?: string          // Optional description for the new project
   }
 }
 ```
 
 #### 4. Update Project
 
-Updates an existing project's information.
+Updates an existing project.
 
 ```typescript
 {
@@ -224,7 +243,8 @@ Updates an existing project's information.
   parameters: {
     projectId: string,            // ID of the project to update
     name?: string,                // Optional new name for the project
-    description?: string          // Optional new description for the project
+    description?: string,         // Optional new description for the project
+    workspaceName?: string        // Optional workspace name override
   }
 }
 ```
@@ -244,6 +264,8 @@ Deletes an existing project.
 
 ### Traces
 
+> **Important**: The Opik API requires either a project ID or project name for most trace endpoints. If neither is provided, the MCP server will attempt to use the first available project.
+
 #### 1. List Traces
 
 Lists all available traces with pagination and filtering support.
@@ -252,9 +274,10 @@ Lists all available traces with pagination and filtering support.
 {
   name: "list-traces",
   parameters: {
-    page: number,             // Page number for pagination
-    size: number,             // Number of items per page
-    projectId?: string        // Optional project ID to filter traces
+    page: number,                 // Page number for pagination
+    size: number,                 // Number of items per page
+    projectId?: string,           // Project ID to filter traces
+    projectName?: string          // Project name to filter traces (alternative to projectId)
   }
 }
 ```
@@ -274,15 +297,16 @@ Retrieves details of a specific trace.
 
 #### 3. Get Trace Stats
 
-Retrieves statistics for traces.
+Retrieves trace statistics.
 
 ```typescript
 {
   name: "get-trace-stats",
   parameters: {
-    projectId?: string,        // Optional project ID to filter traces
-    startDate?: string,        // Optional start date in ISO format (YYYY-MM-DD)
-    endDate?: string           // Optional end date in ISO format (YYYY-MM-DD)
+    projectId?: string,           // Project ID to filter traces
+    projectName?: string,         // Project name to filter traces (alternative to projectId)
+    startDate?: string,           // Optional start date in ISO format (YYYY-MM-DD)
+    endDate?: string              // Optional end date in ISO format (YYYY-MM-DD)
   }
 }
 ```
