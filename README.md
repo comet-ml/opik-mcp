@@ -100,6 +100,19 @@ The MCP server supports both cloud and self-hosted Opik instances. Configure usi
 ### Cloud-specific Configuration
 - `OPIK_WORKSPACE_NAME`: Your workspace name (required for cloud instances, defaults to "default")
 
+### MCP Server Configuration
+- `MCP_NAME`: Name of the MCP server (defaults to "opik-manager")
+- `MCP_VERSION`: Version of the MCP server (defaults to "1.0.0")
+- `MCP_PORT`: Optional port for TCP connections if needed
+- `MCP_LOGGING`: Set to "true" to enable MCP-specific logging (defaults to "false")
+- `MCP_DEFAULT_WORKSPACE`: Default workspace to use if none is specified (defaults to "default")
+
+### Tool Enablement
+- `MCP_ENABLE_PROMPT_TOOLS`: Set to "false" to disable prompt-related tools (defaults to "true")
+- `MCP_ENABLE_PROJECT_TOOLS`: Set to "false" to disable project-related tools (defaults to "true")
+- `MCP_ENABLE_TRACE_TOOLS`: Set to "false" to disable trace-related tools (defaults to "true")
+- `MCP_ENABLE_METRIC_TOOLS`: Set to "false" to disable metric-related tools (defaults to "true")
+
 ## Available Tools
 
 ### Prompts
