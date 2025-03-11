@@ -14,7 +14,7 @@
 </h1>
 
 <p align="center">
-A Model Context Protocol (MCP) implementation for the [Opik platform](https://github.com/comet-ml/opik/) with support for multiple transport mechanisms, enabling seamless integration with IDEs and providing a unified interface for Opik's capabilities.
+A Model Context Protocol (MCP) implementation for the <a href="https://github.com/comet-ml/opik/">Opik platform</a> with support for multiple transport mechanisms, enabling seamless integration with IDEs and providing a unified interface for Opik's capabilities.
 </p>
 
 <div align="center">
