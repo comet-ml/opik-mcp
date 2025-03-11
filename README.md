@@ -582,3 +582,44 @@ Here's a comprehensive example with all available configuration options:
   }
 }
 ```
+
+## Test Coverage
+
+The project includes comprehensive test coverage for the following components:
+
+1. **API Endpoints** (`index.test.ts`): Tests for validating the structure of API endpoints related to projects, traces, prompts, and metrics.
+
+2. **Capabilities Module** (`capabilities.test.ts`): Tests for the `opikCapabilities` object, the `getEnabledCapabilities` function, and the `getCapabilitiesDescription` function.
+
+3. **Tracing Info Module** (`tracing-info.test.ts`): Tests for the `getTracingInfo` function, which provides information about Opik's tracing capabilities.
+
+4. **Metrics Info Module** (`metrics-info.test.ts`): Tests for the `getMetricInfo` and `getAllMetricsInfo` functions, which provide information about Opik's evaluation metrics.
+
+5. **Examples Module** (`examples.test.ts`): Tests for the `getExampleForTask` and `getAllExampleTasks` functions, which provide usage examples for common tasks with the Opik API.
+
+6. **MCP Tools** (`mcp-tools.test.ts`): Tests for the MCP tools that provide information about Opik's capabilities, including:
+   - `get-server-info`: Provides information about the Opik server configuration
+   - `get-opik-help`: Provides contextual help for Opik's features
+   - `get-opik-examples`: Provides usage examples for common tasks
+   - `get-opik-metrics-info`: Provides information about Opik's evaluation metrics
+   - `get-opik-tracing-info`: Provides information about Opik's tracing capabilities
+
+### Running Tests
+
+To run the tests, use the following command:
+
+```bash
+npm test
+```
+
+To run tests excluding specific files:
+
+```bash
+npm test -- --testPathIgnorePatterns=<file-pattern>
+```
+
+For example, to run all tests except the MCP tools tests:
+
+```bash
+npm test -- --testPathIgnorePatterns=mcp-tools.test.ts
+```
