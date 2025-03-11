@@ -1040,8 +1040,9 @@ server.tool(
                   type: "text",
                   text: `${topic} Examples:\n\n` +
                         typedCapabilities.examples.map((e: string) => `- ${e}`).join('\n')
-              }
-            ];
+                }
+              ]
+            };
           } else {
             return {
               content: [
