@@ -1,14 +1,55 @@
-# Opik MCP Server
+<h1 align="center" style="border-bottom: none">
+    <div>
+        <a href="https://www.comet.com/site/products/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=header_img&utm_campaign=opik"><picture>
+            <source media="(prefers-color-scheme: dark)" srcset="/apps/opik-documentation/documentation/static/img/logo-dark-mode.svg">
+            <source media="(prefers-color-scheme: light)" srcset="/apps/opik-documentation/documentation/static/img/opik-logo.svg">
+            <img alt="Comet Opik logo" src="/apps/opik-documentation/documentation/static/img/opik-logo.svg" width="200" />
+        </picture></a>
+        <br>
+        Opik MCP Server
+    </div>
+    Model Context Protocol for Opik<br>
+</h1>
 
-A Model Context Protocol (MCP) implementation for the [Opik](https://github.com/comet-ml/opik) platform with support for multiple transport mechanisms.
+<p align="center">
+A Model Context Protocol (MCP) implementation for the [Opik platform](https://github.com/comet-ml/opik/) with support for multiple transport mechanisms, enabling seamless integration with IDEs and providing a unified interface for Opik's capabilities.
+</p>
 
-## Overview
+<div align="center">
 
-This server provides a unified interface for interacting with the Opik platform through the Model Context Protocol (MCP). It supports:
+[![License](https://img.shields.io/github/license/comet-ml/opik-mcp)](https://github.com/comet-ml/opik-mcp/blob/main/LICENSE)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.11.0-brightgreen)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/typescript-%5E5.8.2-blue)](https://www.typescriptlang.org/)
 
-- Standard Input/Output (stdio) transport for local integration with IDE
-- Server-Sent Events (SSE) transport for network-based communication to run as a standalone server
-- Multiple simultaneous client connections (with SSE transport)
+</div>
+
+<p align="center">
+    <a href="https://www.comet.com/site/products/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=website_button&utm_campaign=opik"><b>Website</b></a> •
+    <a href="https://chat.comet.com"><b>Slack community</b></a> •
+    <a href="https://x.com/Cometml"><b>Twitter</b></a> •
+    <a href="https://www.comet.com/docs/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=docs_button&utm_campaign=opik"><b>Documentation</b></a>
+</p>
+
+> **⚠️ Notice:** SSE (Server-Sent Events) transport support is currently experimental and untested. For production use, we recommend using the direct process execution approach shown in the IDE integration examples.
+
+## 🚀 What is Opik MCP Server?
+
+Opik MCP Server is an open-source implementation of the Model Context Protocol for the Opik platform. It provides a unified interface for interacting with Opik's capabilities, supporting multiple transport mechanisms for flexible integration into various environments.
+
+<br>
+
+You can use Opik MCP Server for:
+* **IDE Integration:**
+  * Seamlessly integrate with Cursor and other compatible IDEs
+  * Provide direct access to Opik's capabilities from your development environment
+
+* **Unified API Access:**
+  * Access all Opik features through a standardized protocol
+  * Leverage multiple transport options (stdio, SSE) for different integration scenarios
+
+* **Platform Management:**
+  * Manage prompts, projects, traces, and metrics through a consistent interface
+  * Organize and monitor your LLM applications efficiently
 
 ## Features
 
@@ -46,9 +87,43 @@ cp .env.example .env
 # Start with stdio transport (default)
 npm run start:stdio
 
-# Start with SSE transport for network access
+# Start with SSE transport for network access (experimental)
 npm run start:sse
 ```
+
+## IDE Integration
+
+### Cursor Integration
+
+To integrate with Cursor IDE, create a `.cursor/mcp.json` file in your project directory with the following configuration:
+
+```json
+{
+  "mcpServers": {
+    "opik": {
+      "command": "/path/to/node",
+      "args": [
+        "/path/to/opik-mcp/build/index.js",
+        "--apiUrl",
+        "https://www.comet.com/opik/api",
+        "--apiKey",
+        "YOUR_API_KEY",
+        "--workspace",
+        "default",
+        "--debug",
+        "true"
+      ],
+      "env": {
+        "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
+        "OPIK_API_KEY": "YOUR_API_KEY",
+        "OPIK_WORKSPACE_NAME": "default",
+      }
+    }
+  }
+}
+```
+
+Replace `/path/to/node` with the path to your Node.js executable and `/path/to/opik-mcp` with the path to your opik-mcp installation. Also replace `YOUR_API_KEY` with your actual Opik API key.
 
 ## Available Commands
 
@@ -64,7 +139,7 @@ make test
 # Run transport-specific tests
 make test-transport
 
-# Start the server with SSE transport
+# Start the server with SSE transport (experimental)
 make start-sse
 
 # Start the server with stdio transport
@@ -83,7 +158,7 @@ make start-stdio
 
 ### Server-Sent Events (SSE)
 
-Enables remote access and multiple simultaneous clients over HTTP.
+Enables remote access and multiple simultaneous clients over HTTP. Note that this transport option is experimental.
 
 ```bash
 make start-sse
