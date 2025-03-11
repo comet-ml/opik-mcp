@@ -16,7 +16,9 @@ function writeToLogFile(message: string, forceWrite: boolean = false): void {
   try {
     // Check if debug mode is enabled or being set to enabled
     // This check is special because we're in the process of parsing args
-    const debugArg = process.argv.includes('--debug') && process.argv[process.argv.indexOf('--debug') + 1] === 'true';
+    const debugArg =
+      process.argv.includes('--debug') &&
+      process.argv[process.argv.indexOf('--debug') + 1] === 'true';
     const debugEnv = process.env.DEBUG_MODE === 'true';
 
     if (debugArg || debugEnv || forceWrite) {
@@ -55,71 +57,72 @@ interface OpikConfig {
  * Parse command-line arguments
  */
 function parseCommandLineArgs() {
-  return yargs(hideBin(process.argv))
-    // API Configuration
-    .option('apiUrl', {
-      alias: 'url',
-      type: 'string',
-      description: 'API base URL',
-    })
-    .option('apiKey', {
-      alias: 'key',
-      type: 'string',
-      description: 'API key for authentication',
-    })
-    .option('workspace', {
-      alias: 'ws',
-      type: 'string',
-      description: 'Workspace name',
-    })
-    .option('selfHosted', {
-      type: 'boolean',
-      description: 'Whether the instance is self-hosted',
-    })
-    .option('debug', {
-      type: 'boolean',
-      description: 'Enable debug mode',
-    })
-    // MCP Configuration
-    .option('mcpName', {
-      type: 'string',
-      description: 'MCP server name',
-    })
-    .option('mcpVersion', {
-      type: 'string',
-      description: 'MCP server version',
-    })
-    .option('mcpPort', {
-      type: 'number',
-      description: 'MCP server port',
-    })
-    .option('mcpLogging', {
-      type: 'boolean',
-      description: 'Enable MCP server logging',
-    })
-    .option('mcpDefaultWorkspace', {
-      type: 'string',
-      description: 'Default workspace name',
-    })
-    // Tool enablement
-    .option('disablePromptTools', {
-      type: 'boolean',
-      description: 'Disable prompt-related tools',
-    })
-    .option('disableProjectTools', {
-      type: 'boolean',
-      description: 'Disable project-related tools',
-    })
-    .option('disableTraceTools', {
-      type: 'boolean',
-      description: 'Disable trace-related tools',
-    })
-    .option('disableMetricTools', {
-      type: 'boolean',
-      description: 'Disable metric-related tools',
-    })
-    .help()
-    .parse() as {
+  return (
+    yargs(hideBin(process.argv))
+      // API Configuration
+      .option('apiUrl', {
+        alias: 'url',
+        type: 'string',
+        description: 'API base URL',
+      })
+      .option('apiKey', {
+        alias: 'key',
+        type: 'string',
+        description: 'API key for authentication',
+      })
+      .option('workspace', {
+        alias: 'ws',
+        type: 'string',
+        description: 'Workspace name',
+      })
+      .option('selfHosted', {
+        type: 'boolean',
+        description: 'Whether the instance is self-hosted',
+      })
+      .option('debug', {
+        type: 'boolean',
+        description: 'Enable debug mode',
+      })
+      // MCP Configuration
+      .option('mcpName', {
+        type: 'string',
+        description: 'MCP server name',
+      })
+      .option('mcpVersion', {
+        type: 'string',
+        description: 'MCP server version',
+      })
+      .option('mcpPort', {
+        type: 'number',
+        description: 'MCP server port',
+      })
+      .option('mcpLogging', {
+        type: 'boolean',
+        description: 'Enable MCP server logging',
+      })
+      .option('mcpDefaultWorkspace', {
+        type: 'string',
+        description: 'Default workspace name',
+      })
+      // Tool enablement
+      .option('disablePromptTools', {
+        type: 'boolean',
+        description: 'Disable prompt-related tools',
+      })
+      .option('disableProjectTools', {
+        type: 'boolean',
+        description: 'Disable project-related tools',
+      })
+      .option('disableTraceTools', {
+        type: 'boolean',
+        description: 'Disable trace-related tools',
+      })
+      .option('disableMetricTools', {
+        type: 'boolean',
+        description: 'Disable metric-related tools',
+      })
+      .help()
+      .parse() as {
       apiUrl?: string;
       apiKey?: string;
       workspace?: string;
@@ -135,7 +138,8 @@ function parseCommandLineArgs() {
       disableTraceTools?: boolean;
       disableMetricTools?: boolean;
       [key: string]: unknown;
-    };
+    }
+  );
 }
 
 /**
@@ -148,36 +152,43 @@ function loadConfig(): OpikConfig {
   // Try to load from process.env and command-line args, with command-line taking precedence
   const config: OpikConfig = {
     // API configuration with fallbacks - with much more forgiving defaults
-    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || "https://www.comet.com/opik/api",
-    workspaceName: (args.workspace || process.env.OPIK_WORKSPACE_NAME || "default").replace(/^['"](.*)['"]$/, '$1'), // Remove any quotes
-    apiKey: args.apiKey || process.env.OPIK_API_KEY || "",
-    isSelfHosted: args.selfHosted !== undefined ? args.selfHosted :
-                  process.env.OPIK_SELF_HOSTED === "true" || false,
-    debugMode: args.debug !== undefined ? args.debug :
-               process.env.DEBUG_MODE === "true" || false,
+    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || 'https://www.comet.com/opik/api',
+    workspaceName: (args.workspace || process.env.OPIK_WORKSPACE_NAME || 'default').replace(
+      /^['"](.*)['"]$/,
+      '$1'
+    ), // Remove any quotes
+    apiKey: args.apiKey || process.env.OPIK_API_KEY || '',
+    isSelfHosted:
+      args.selfHosted !== undefined
+        ? args.selfHosted
+        : process.env.OPIK_SELF_HOSTED === 'true' || false,
+    debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
 
     // MCP configuration with fallbacks
-    mcpName: args.mcpName || process.env.MCP_NAME || "opik-manager",
-    mcpVersion: args.mcpVersion || process.env.MCP_VERSION || "1.0.0",
-    mcpPort: args.mcpPort || (process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined),
-    mcpLogging: args.mcpLogging !== undefined ? args.mcpLogging :
-                process.env.MCP_LOGGING === "true" || false,
-    mcpDefaultWorkspace: args.mcpDefaultWorkspace || process.env.MCP_DEFAULT_WORKSPACE || "default",
+    mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',
+    mcpVersion: args.mcpVersion || process.env.MCP_VERSION || '1.0.0',
+    mcpPort:
+      args.mcpPort || (process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined),
+    mcpLogging:
+      args.mcpLogging !== undefined ? args.mcpLogging : process.env.MCP_LOGGING === 'true' || false,
+    mcpDefaultWorkspace: args.mcpDefaultWorkspace || process.env.MCP_DEFAULT_WORKSPACE || 'default',
 
     // Tool enablement with fallbacks - note the logic reversal for the command-line args
-    mcpEnablePromptTools: args.disablePromptTools ? false :
-                         process.env.MCP_ENABLE_PROMPT_TOOLS !== "false", // Enable by default
-    mcpEnableProjectTools: args.disableProjectTools ? false :
-                          process.env.MCP_ENABLE_PROJECT_TOOLS !== "false", // Enable by default
-    mcpEnableTraceTools: args.disableTraceTools ? false :
-                        process.env.MCP_ENABLE_TRACE_TOOLS !== "false", // Enable by default
-    mcpEnableMetricTools: args.disableMetricTools ? false :
-                         process.env.MCP_ENABLE_METRIC_TOOLS !== "false" // Enable by default
+    mcpEnablePromptTools: args.disablePromptTools
+      ? false
+      : process.env.MCP_ENABLE_PROMPT_TOOLS !== 'false', // Enable by default
+    mcpEnableProjectTools: args.disableProjectTools
+      ? false
+      : process.env.MCP_ENABLE_PROJECT_TOOLS !== 'false', // Enable by default
+    mcpEnableTraceTools: args.disableTraceTools
+      ? false
+      : process.env.MCP_ENABLE_TRACE_TOOLS !== 'false', // Enable by default
+    mcpEnableMetricTools: args.disableMetricTools
+      ? false
+      : process.env.MCP_ENABLE_METRIC_TOOLS !== 'false', // Enable by default
   };
 
   // Validate required fields but be much more forgiving
-  const missingFields: string[] = [];
-
   if (!config.apiKey) {
     // Only warn about missing API key, don't throw an error
     writeToLogFile(`Warning: No API key provided - some functionality will be limited`, true);
@@ -186,25 +197,25 @@ function loadConfig(): OpikConfig {
 
   // Log configuration if in debug mode
   if (config.debugMode) {
-    writeToLogFile("Opik MCP Configuration:");
+    writeToLogFile('Opik MCP Configuration:');
     writeToLogFile(`- API Base URL: ${config.apiBaseUrl}`);
-    writeToLogFile(`- Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
+    writeToLogFile(`- Self-hosted: ${config.isSelfHosted ? 'Yes' : 'No'}`);
     if (!config.isSelfHosted) {
       writeToLogFile(`- Workspace: ${config.workspaceName}`);
     }
-    writeToLogFile(`- Debug mode: ${config.debugMode ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- Debug mode: ${config.debugMode ? 'Enabled' : 'Disabled'}`);
 
     // Log MCP configuration
-    writeToLogFile("\nMCP Configuration:");
+    writeToLogFile('\nMCP Configuration:');
     writeToLogFile(`- MCP Name: ${config.mcpName}`);
     writeToLogFile(`- MCP Version: ${config.mcpVersion}`);
     if (config.mcpPort) writeToLogFile(`- MCP Port: ${config.mcpPort}`);
-    writeToLogFile(`- MCP Logging: ${config.mcpLogging ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- MCP Logging: ${config.mcpLogging ? 'Enabled' : 'Disabled'}`);
     writeToLogFile(`- MCP Default Workspace: ${config.mcpDefaultWorkspace}`);
-    writeToLogFile(`- Prompt Tools: ${config.mcpEnablePromptTools ? "Enabled" : "Disabled"}`);
-    writeToLogFile(`- Project Tools: ${config.mcpEnableProjectTools ? "Enabled" : "Disabled"}`);
-    writeToLogFile(`- Trace Tools: ${config.mcpEnableTraceTools ? "Enabled" : "Disabled"}`);
-    writeToLogFile(`- Metric Tools: ${config.mcpEnableMetricTools ? "Enabled" : "Disabled"}`);
+    writeToLogFile(`- Prompt Tools: ${config.mcpEnablePromptTools ? 'Enabled' : 'Disabled'}`);
+    writeToLogFile(`- Project Tools: ${config.mcpEnableProjectTools ? 'Enabled' : 'Disabled'}`);
+    writeToLogFile(`- Trace Tools: ${config.mcpEnableTraceTools ? 'Enabled' : 'Disabled'}`);
+    writeToLogFile(`- Metric Tools: ${config.mcpEnableMetricTools ? 'Enabled' : 'Disabled'}`);
   }
 
   return config;

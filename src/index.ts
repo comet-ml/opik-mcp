@@ -1,9 +1,9 @@
 import fs from 'fs';
 
 // Import other modules
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
 
 // Import environment variables loader - no console output
 import './utils/env.js';
@@ -17,11 +17,13 @@ const config = configImport;
 
 // Clean stdout protocol message - only use this for protocol communication
 function sendProtocolMessage(method: string, message: string) {
-  console.log(JSON.stringify({
-    jsonrpc: "2.0",
-    method,
-    params: { message }
-  }));
+  console.log(
+    JSON.stringify({
+      jsonrpc: '2.0',
+      method,
+      params: { message },
+    })
+  );
 }
 
 // Define logging functions
@@ -45,19 +47,21 @@ if (config.debugMode) {
     // Log process info
     logToFile(`Process ID: ${process.pid}, Node Version: ${process.version}`);
     logToFile(`Arguments: ${process.argv.join(' ')}`);
-    logToFile(`Loaded configuration: API=${config.apiBaseUrl}, Workspace=${config.workspaceName || 'None'}`);
+    logToFile(
+      `Loaded configuration: API=${config.apiBaseUrl}, Workspace=${config.workspaceName || 'None'}`
+    );
 
     // Register error handlers
-    process.on('uncaughtException', (err) => {
+    process.on('uncaughtException', err => {
       logToFile(`UNCAUGHT EXCEPTION: ${err.message}`);
       logToFile(err.stack || 'No stack trace');
     });
 
-    process.on('unhandledRejection', (reason) => {
+    process.on('unhandledRejection', reason => {
       logToFile(`UNHANDLED REJECTION: ${reason}`);
     });
 
-    process.on('exit', (code) => {
+    process.on('exit', code => {
       logToFile(`Process exiting with code ${code}`);
     });
   } catch (error) {
@@ -74,15 +78,11 @@ import {
   TraceResponse,
   SingleTraceResponse,
   TraceStatsResponse,
-  MetricsResponse
+  MetricsResponse,
 } from './types.js';
 
 // Import capabilities module
-import {
-  opikCapabilities,
-  getEnabledCapabilities,
-  getCapabilitiesDescription
-} from './utils/capabilities.js';
+import { getEnabledCapabilities, getCapabilitiesDescription } from './utils/capabilities.js';
 
 // Helper function to make requests to API with file logging
 const makeApiRequest = async <T>(
@@ -92,9 +92,9 @@ const makeApiRequest = async <T>(
 ): Promise<{ data: T | null; error: string | null }> => {
   // Prepare headers based on configuration
   const API_HEADERS: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    authorization: config.apiKey
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    authorization: config.apiKey,
   };
 
   // Add workspace header for cloud version
@@ -107,10 +107,12 @@ const makeApiRequest = async <T>(
       // Project names like "Therapist Chat" are not valid workspace names.
       // The API will return a 400 error if a non-existent workspace is specified.
       const workspaceNameToUse = wsName.trim();
-      logToFile(`DEBUG - Workspace name before setting header: "${workspaceNameToUse}", type: ${typeof workspaceNameToUse}, length: ${workspaceNameToUse.length}`);
+      logToFile(
+        `DEBUG - Workspace name before setting header: "${workspaceNameToUse}", type: ${typeof workspaceNameToUse}, length: ${workspaceNameToUse.length}`
+      );
 
       // Use the raw workspace name - do not encode it
-      API_HEADERS["Comet-Workspace"] = workspaceNameToUse;
+      API_HEADERS['Comet-Workspace'] = workspaceNameToUse;
       logToFile(`Using workspace: ${workspaceNameToUse}`);
     }
   }
@@ -154,8 +156,7 @@ const makeApiRequest = async <T>(
       error: null,
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     logToFile(`Error making API request: ${errorMessage}`);
     return {
       data: null,
@@ -165,68 +166,75 @@ const makeApiRequest = async <T>(
 };
 
 // Create and configure server - no console output here
-const server = new McpServer({
-  name: config.mcpName,
-  version: config.mcpVersion,
-}, {
-  capabilities: {
-    resources: {}, // Enable resources capability
-    tools: {}      // Enable tools capability
+const server = new McpServer(
+  {
+    name: config.mcpName,
+    version: config.mcpVersion,
+  },
+  {
+    capabilities: {
+      resources: {}, // Enable resources capability
+      tools: {}, // Enable tools capability
+    },
   }
-});
+);
 
 // Add resources to the MCP server
 if (config.workspaceName) {
   // Define a workspace info resource
-  server.resource(
-    "workspace-info",
-    "opik://workspace-info",
-    async () => ({
-      contents: [{
-        uri: "opik://workspace-info",
-        text: JSON.stringify({
-          name: config.workspaceName,
-          apiUrl: config.apiBaseUrl,
-          selfHosted: config.isSelfHosted
-        }, null, 2)
-      }]
-    })
-  );
+  server.resource('workspace-info', 'opik://workspace-info', async () => ({
+    contents: [
+      {
+        uri: 'opik://workspace-info',
+        text: JSON.stringify(
+          {
+            name: config.workspaceName,
+            apiUrl: config.apiBaseUrl,
+            selfHosted: config.isSelfHosted,
+          },
+          null,
+          2
+        ),
+      },
+    ],
+  }));
 
   // Define a projects resource that provides the list of projects in the workspace
-  server.resource(
-    "projects-list",
-    "opik://projects-list",
-    async () => {
-      try {
-        const response = await makeApiRequest<ProjectResponse>("/v1/private/projects");
+  server.resource('projects-list', 'opik://projects-list', async () => {
+    try {
+      const response = await makeApiRequest<ProjectResponse>('/v1/private/projects');
 
-        if (!response.data) {
-          return {
-            contents: [{
-              uri: "opik://projects-list",
-              text: `Error: ${response.error || "Unknown error fetching projects"}`
-            }]
-          };
-        }
-
+      if (!response.data) {
         return {
-          contents: [{
-            uri: "opik://projects-list",
-            text: JSON.stringify(response.data, null, 2)
-          }]
-        };
-      } catch (error) {
-        logToFile(`Error fetching projects resource: ${error}`);
-        return {
-          contents: [{
-            uri: "opik://projects-list",
-            text: `Error: Failed to fetch projects data`
-          }]
+          contents: [
+            {
+              uri: 'opik://projects-list',
+              text: `Error: ${response.error || 'Unknown error fetching projects'}`,
+            },
+          ],
         };
       }
+
+      return {
+        contents: [
+          {
+            uri: 'opik://projects-list',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      logToFile(`Error fetching projects resource: ${error}`);
+      return {
+        contents: [
+          {
+            uri: 'opik://projects-list',
+            text: `Error: Failed to fetch projects data`,
+          },
+        ],
+      };
     }
-  );
+  });
 }
 
 // DO NOT send any protocol messages before server initialization
@@ -237,35 +245,33 @@ if (config.mcpEnablePromptTools) {
   // ----------- PROMPTS TOOLS -----------
 
   server.tool(
-    "list-prompts",
-    "Get a list of Opik prompts",
+    'list-prompts',
+    'Get a list of Opik prompts',
     {
-      page: z.number().describe("Page number for pagination"),
-      size: z.number().describe("Number of items per page"),
+      page: z.number().describe('Page number for pagination'),
+      size: z.number().describe('Number of items per page'),
     },
-    async (args) => {
+    async args => {
       const response = await makeApiRequest<PromptResponse>(
         `/v1/private/prompts?page=${args.page}&size=${args.size}`
       );
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch prompts" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch prompts' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Found ${response.data.total} prompts (showing page ${
               response.data.page
             } of ${Math.ceil(response.data.total / response.data.size)})`,
           },
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data.content, null, 2),
           },
         ],
@@ -274,23 +280,23 @@ if (config.mcpEnablePromptTools) {
   );
 
   server.tool(
-    "create-prompt",
-    "Create a new prompt",
+    'create-prompt',
+    'Create a new prompt',
     {
-      name: z.string().describe("Name of the prompt"),
+      name: z.string().describe('Name of the prompt'),
     },
-    async (args) => {
+    async args => {
       const { name } = args;
       const response = await makeApiRequest<void>(`/v1/private/prompts`, {
-        method: "POST",
+        method: 'POST',
         body: JSON.stringify({ name }),
       });
 
       return {
         content: [
           {
-            type: "text",
-            text: response.error || "Successfully created prompt",
+            type: 'text',
+            text: response.error || 'Successfully created prompt',
           },
         ],
       };
@@ -298,19 +304,17 @@ if (config.mcpEnablePromptTools) {
   );
 
   server.tool(
-    "create-prompt-version",
-    "Create a new version of a prompt",
+    'create-prompt-version',
+    'Create a new version of a prompt',
     {
-      name: z.string().describe("Name of the original prompt"),
-      template: z.string().describe("Template content for the prompt version"),
-      commit_message: z
-        .string()
-        .describe("Commit message for the prompt version"),
+      name: z.string().describe('Name of the original prompt'),
+      template: z.string().describe('Template content for the prompt version'),
+      commit_message: z.string().describe('Commit message for the prompt version'),
     },
-    async (args) => {
+    async args => {
       const { name, template, commit_message } = args;
       const response = await makeApiRequest<any>(`/v1/private/prompts/versions`, {
-        method: "POST",
+        method: 'POST',
         body: JSON.stringify({
           name,
           version: { template, change_description: commit_message },
@@ -320,11 +324,10 @@ if (config.mcpEnablePromptTools) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: response.data
-              ? "Successfully created prompt version"
-              : `${response.error} ${JSON.stringify(args)}` ||
-                "Failed to create prompt version",
+              ? 'Successfully created prompt version'
+              : `${response.error} ${JSON.stringify(args)}` || 'Failed to create prompt version',
           },
         ],
       };
@@ -332,12 +335,12 @@ if (config.mcpEnablePromptTools) {
   );
 
   server.tool(
-    "get-prompt-by-id",
-    "Get a single prompt by ID",
+    'get-prompt-by-id',
+    'Get a single prompt by ID',
     {
-      promptId: z.string().describe("ID of the prompt to fetch"),
+      promptId: z.string().describe('ID of the prompt to fetch'),
     },
-    async (args) => {
+    async args => {
       const { promptId } = args;
       const response = await makeApiRequest<SinglePromptResponse>(
         `/v1/private/prompts/${promptId}`
@@ -345,16 +348,14 @@ if (config.mcpEnablePromptTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch prompt" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch prompt' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data, null, 2),
           },
         ],
@@ -363,32 +364,29 @@ if (config.mcpEnablePromptTools) {
   );
 
   server.tool(
-    "update-prompt",
-    "Update a prompt",
+    'update-prompt',
+    'Update a prompt',
     {
-      promptId: z.string().describe("ID of the prompt to update"),
-      name: z.string().describe("New name for the prompt"),
+      promptId: z.string().describe('ID of the prompt to update'),
+      name: z.string().describe('New name for the prompt'),
     },
-    async (args) => {
+    async args => {
       const { promptId, name } = args;
-      const response = await makeApiRequest<void>(
-        `/v1/private/prompts/${promptId}`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ name }),
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await makeApiRequest<void>(`/v1/private/prompts/${promptId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: !response.error
-              ? "Successfully updated prompt"
-              : response.error || "Failed to update prompt",
+              ? 'Successfully updated prompt'
+              : response.error || 'Failed to update prompt',
           },
         ],
       };
@@ -396,27 +394,24 @@ if (config.mcpEnablePromptTools) {
   );
 
   server.tool(
-    "delete-prompt",
-    "Delete a prompt",
+    'delete-prompt',
+    'Delete a prompt',
     {
-      promptId: z.string().describe("ID of the prompt to delete"),
+      promptId: z.string().describe('ID of the prompt to delete'),
     },
-    async (args) => {
+    async args => {
       const { promptId } = args;
-      const response = await makeApiRequest<void>(
-        `/v1/private/prompts/${promptId}`,
-        {
-          method: "DELETE",
-        }
-      );
+      const response = await makeApiRequest<void>(`/v1/private/prompts/${promptId}`, {
+        method: 'DELETE',
+      });
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: !response.error
-              ? "Successfully deleted prompt"
-              : response.error || "Failed to delete prompt",
+              ? 'Successfully deleted prompt'
+              : response.error || 'Failed to delete prompt',
           },
         ],
       };
@@ -427,16 +422,16 @@ if (config.mcpEnablePromptTools) {
 // ----------- PROJECTS/WORKSPACES TOOLS -----------
 if (config.mcpEnableProjectTools) {
   server.tool(
-    "list-projects",
-    "Get a list of projects/workspaces",
+    'list-projects',
+    'Get a list of projects/workspaces',
     {
-      page: z.number().describe("Page number for pagination"),
-      size: z.number().describe("Number of items per page"),
-      sortBy: z.string().optional().describe("Sort projects by this field"),
-      sortOrder: z.string().optional().describe("Sort order (asc or desc)"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      page: z.number().describe('Page number for pagination'),
+      size: z.number().describe('Number of items per page'),
+      sortBy: z.string().optional().describe('Sort projects by this field'),
+      sortOrder: z.string().optional().describe('Sort order (asc or desc)'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { page, size, sortBy, sortOrder, workspaceName } = args;
 
       // Build query string
@@ -448,22 +443,20 @@ if (config.mcpEnableProjectTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch projects" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch projects' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Found ${response.data.total} projects (showing page ${
               response.data.page
             } of ${Math.ceil(response.data.total / response.data.size)})`,
           },
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data.content, null, 2),
           },
         ],
@@ -472,13 +465,13 @@ if (config.mcpEnableProjectTools) {
   );
 
   server.tool(
-    "get-project-by-id",
-    "Get a single project by ID",
+    'get-project-by-id',
+    'Get a single project by ID',
     {
-      projectId: z.string().describe("ID of the project to fetch"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      projectId: z.string().describe('ID of the project to fetch'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { projectId, workspaceName } = args;
 
       const response = await makeApiRequest<SingleProjectResponse>(
@@ -489,16 +482,14 @@ if (config.mcpEnableProjectTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch project" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch project' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data, null, 2),
           },
         ],
@@ -507,25 +498,29 @@ if (config.mcpEnableProjectTools) {
   );
 
   server.tool(
-    "create-project",
-    "Create a new project/workspace",
+    'create-project',
+    'Create a new project/workspace',
     {
-      name: z.string().describe("Name of the project"),
-      description: z.string().optional().describe("Description of the project"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      name: z.string().describe('Name of the project'),
+      description: z.string().optional().describe('Description of the project'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { name, description, workspaceName } = args;
-      const response = await makeApiRequest<void>(`/v1/private/projects`, {
-        method: "POST",
-        body: JSON.stringify({ name, description }),
-      }, workspaceName);
+      const response = await makeApiRequest<void>(
+        `/v1/private/projects`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ name, description }),
+        },
+        workspaceName
+      );
 
       return {
         content: [
           {
-            type: "text",
-            text: response.error || "Successfully created project",
+            type: 'text',
+            text: response.error || 'Successfully created project',
           },
         ],
       };
@@ -533,15 +528,15 @@ if (config.mcpEnableProjectTools) {
   );
 
   server.tool(
-    "update-project",
-    "Update a project",
+    'update-project',
+    'Update a project',
     {
-      projectId: z.string().describe("ID of the project to update"),
-      name: z.string().optional().describe("New project name"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
-      description: z.string().optional().describe("New project description"),
+      projectId: z.string().describe('ID of the project to update'),
+      name: z.string().optional().describe('New project name'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
+      description: z.string().optional().describe('New project description'),
     },
-    async (args) => {
+    async args => {
       const { projectId, name, description, workspaceName } = args;
 
       // Build update data
@@ -552,7 +547,7 @@ if (config.mcpEnableProjectTools) {
       const response = await makeApiRequest<SingleProjectResponse>(
         `/v1/private/projects/${projectId}`,
         {
-          method: "PATCH",
+          method: 'PATCH',
           body: JSON.stringify(updateData),
         },
         workspaceName
@@ -560,20 +555,18 @@ if (config.mcpEnableProjectTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to update project" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to update project' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
-            text: "Project successfully updated",
+            type: 'text',
+            text: 'Project successfully updated',
           },
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data, null, 2),
           },
         ],
@@ -582,18 +575,18 @@ if (config.mcpEnableProjectTools) {
   );
 
   server.tool(
-    "delete-project",
-    "Delete a project",
+    'delete-project',
+    'Delete a project',
     {
-      projectId: z.string().describe("ID of the project to delete"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      projectId: z.string().describe('ID of the project to delete'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { projectId, workspaceName } = args;
       const response = await makeApiRequest<void>(
         `/v1/private/projects/${projectId}`,
         {
-          method: "DELETE",
+          method: 'DELETE',
         },
         workspaceName
       );
@@ -601,10 +594,10 @@ if (config.mcpEnableProjectTools) {
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: !response.error
-              ? "Successfully deleted project"
-              : response.error || "Failed to delete project",
+              ? 'Successfully deleted project'
+              : response.error || 'Failed to delete project',
           },
         ],
       };
@@ -615,16 +608,16 @@ if (config.mcpEnableProjectTools) {
 // ----------- TRACES TOOLS -----------
 if (config.mcpEnableTraceTools) {
   server.tool(
-    "list-traces",
-    "Get a list of traces",
+    'list-traces',
+    'Get a list of traces',
     {
-      page: z.number().describe("Page number for pagination"),
-      size: z.number().describe("Number of items per page"),
-      projectId: z.string().optional().describe("Project ID to filter traces"),
-      projectName: z.string().optional().describe("Project name to filter traces"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      page: z.number().describe('Page number for pagination'),
+      size: z.number().describe('Number of items per page'),
+      projectId: z.string().optional().describe('Project ID to filter traces'),
+      projectName: z.string().optional().describe('Project name to filter traces'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { page, size, projectId, projectName, workspaceName } = args;
       let url = `/v1/private/traces?page=${page}&size=${size}`;
 
@@ -641,16 +634,23 @@ if (config.mcpEnableTraceTools) {
           workspaceName
         );
 
-        if (projectsResponse.data &&
-            projectsResponse.data.content &&
-            projectsResponse.data.content.length > 0) {
+        if (
+          projectsResponse.data &&
+          projectsResponse.data.content &&
+          projectsResponse.data.content.length > 0
+        ) {
           const firstProject = projectsResponse.data.content[0];
           url += `&project_id=${firstProject.id}`;
-          logToFile(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+          logToFile(
+            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
+          );
         } else {
           return {
             content: [
-              { type: "text", text: "Error: No project ID or name provided, and no projects found" },
+              {
+                type: 'text',
+                text: 'Error: No project ID or name provided, and no projects found',
+              },
             ],
           };
         }
@@ -660,22 +660,20 @@ if (config.mcpEnableTraceTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch traces" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch traces' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Found ${response.data.total} traces (showing page ${
               response.data.page
             } of ${Math.ceil(response.data.total / response.data.size)})`,
           },
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data.content, null, 2),
           },
         ],
@@ -684,13 +682,13 @@ if (config.mcpEnableTraceTools) {
   );
 
   server.tool(
-    "get-trace-by-id",
-    "Get a single trace by ID",
+    'get-trace-by-id',
+    'Get a single trace by ID',
     {
-      traceId: z.string().describe("ID of the trace to fetch"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      traceId: z.string().describe('ID of the trace to fetch'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { traceId, workspaceName } = args;
       const response = await makeApiRequest<SingleTraceResponse>(
         `/v1/private/traces/${traceId}`,
@@ -700,9 +698,7 @@ if (config.mcpEnableTraceTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch trace" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch trace' }],
         };
       }
 
@@ -710,22 +706,30 @@ if (config.mcpEnableTraceTools) {
       const formattedResponse: any = { ...response.data };
 
       // Format input/output if they're large
-      if (formattedResponse.input && typeof formattedResponse.input === 'object' && Object.keys(formattedResponse.input).length > 0) {
+      if (
+        formattedResponse.input &&
+        typeof formattedResponse.input === 'object' &&
+        Object.keys(formattedResponse.input).length > 0
+      ) {
         formattedResponse.input = JSON.stringify(formattedResponse.input, null, 2);
       }
 
-      if (formattedResponse.output && typeof formattedResponse.output === 'object' && Object.keys(formattedResponse.output).length > 0) {
+      if (
+        formattedResponse.output &&
+        typeof formattedResponse.output === 'object' &&
+        Object.keys(formattedResponse.output).length > 0
+      ) {
         formattedResponse.output = JSON.stringify(formattedResponse.output, null, 2);
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Trace Details for ID: ${traceId}`,
           },
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(formattedResponse, null, 2),
           },
         ],
@@ -734,16 +738,16 @@ if (config.mcpEnableTraceTools) {
   );
 
   server.tool(
-    "get-trace-stats",
-    "Get statistics for traces",
+    'get-trace-stats',
+    'Get statistics for traces',
     {
-      projectId: z.string().optional().describe("Project ID to filter traces"),
-      projectName: z.string().optional().describe("Project name to filter traces"),
-      startDate: z.string().optional().describe("Start date in ISO format (YYYY-MM-DD)"),
-      endDate: z.string().optional().describe("End date in ISO format (YYYY-MM-DD)"),
-      workspaceName: z.string().optional().describe("Workspace name to use instead of the default"),
+      projectId: z.string().optional().describe('Project ID to filter traces'),
+      projectName: z.string().optional().describe('Project name to filter traces'),
+      startDate: z.string().optional().describe('Start date in ISO format (YYYY-MM-DD)'),
+      endDate: z.string().optional().describe('End date in ISO format (YYYY-MM-DD)'),
+      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
-    async (args) => {
+    async args => {
       const { projectId, projectName, startDate, endDate, workspaceName } = args;
       let url = `/v1/private/traces/stats`;
 
@@ -763,16 +767,23 @@ if (config.mcpEnableTraceTools) {
           workspaceName
         );
 
-        if (projectsResponse.data &&
-            projectsResponse.data.content &&
-            projectsResponse.data.content.length > 0) {
+        if (
+          projectsResponse.data &&
+          projectsResponse.data.content &&
+          projectsResponse.data.content.length > 0
+        ) {
           const firstProject = projectsResponse.data.content[0];
           queryParams.push(`project_id=${firstProject.id}`);
-          logToFile(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+          logToFile(
+            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
+          );
         } else {
           return {
             content: [
-              { type: "text", text: "Error: No project ID or name provided, and no projects found" },
+              {
+                type: 'text',
+                text: 'Error: No project ID or name provided, and no projects found',
+              },
             ],
           };
         }
@@ -789,20 +800,18 @@ if (config.mcpEnableTraceTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch trace statistics" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch trace statistics' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: `Trace Statistics:`,
           },
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data, null, 2),
           },
         ],
@@ -814,16 +823,16 @@ if (config.mcpEnableTraceTools) {
 // ----------- METRICS TOOLS -----------
 if (config.mcpEnableMetricTools) {
   server.tool(
-    "get-metrics",
-    "Get metrics data",
+    'get-metrics',
+    'Get metrics data',
     {
-      metricName: z.string().optional().describe("Optional metric name to filter"),
-      projectId: z.string().optional().describe("Optional project ID to filter metrics"),
-      projectName: z.string().optional().describe("Optional project name to filter metrics"),
-      startDate: z.string().optional().describe("Start date in ISO format (YYYY-MM-DD)"),
-      endDate: z.string().optional().describe("End date in ISO format (YYYY-MM-DD)"),
+      metricName: z.string().optional().describe('Optional metric name to filter'),
+      projectId: z.string().optional().describe('Optional project ID to filter metrics'),
+      projectName: z.string().optional().describe('Optional project name to filter metrics'),
+      startDate: z.string().optional().describe('Start date in ISO format (YYYY-MM-DD)'),
+      endDate: z.string().optional().describe('End date in ISO format (YYYY-MM-DD)'),
     },
-    async (args) => {
+    async args => {
       const { metricName, projectId, projectName, startDate, endDate } = args;
       let url = `/v1/private/metrics`;
 
@@ -841,16 +850,23 @@ if (config.mcpEnableMetricTools) {
           `/v1/private/projects?page=1&size=1`
         );
 
-        if (projectsResponse.data &&
-            projectsResponse.data.content &&
-            projectsResponse.data.content.length > 0) {
+        if (
+          projectsResponse.data &&
+          projectsResponse.data.content &&
+          projectsResponse.data.content.length > 0
+        ) {
           const firstProject = projectsResponse.data.content[0];
           queryParams.push(`project_id=${firstProject.id}`);
-          logToFile(`No project specified, using first available: ${firstProject.name} (${firstProject.id})`);
+          logToFile(
+            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
+          );
         } else {
           return {
             content: [
-              { type: "text", text: "Error: No project ID or name provided, and no projects found" },
+              {
+                type: 'text',
+                text: 'Error: No project ID or name provided, and no projects found',
+              },
             ],
           };
         }
@@ -867,16 +883,14 @@ if (config.mcpEnableMetricTools) {
 
       if (!response.data) {
         return {
-          content: [
-            { type: "text", text: response.error || "Failed to fetch metrics" },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch metrics' }],
         };
       }
 
       return {
         content: [
           {
-            type: "text",
+            type: 'text',
             text: JSON.stringify(response.data, null, 2),
           },
         ],
@@ -888,10 +902,10 @@ if (config.mcpEnableMetricTools) {
 // ----------- SERVER CONFIGURATION TOOLS -----------
 
 server.tool(
-  "get-server-info",
-  "Get information about the Opik server configuration",
+  'get-server-info',
+  'Get information about the Opik server configuration',
   {
-    random_string: z.string().optional().describe("Dummy parameter for no-parameter tools"),
+    random_string: z.string().optional().describe('Dummy parameter for no-parameter tools'),
   },
   async () => {
     // Get capabilities based on current configuration
@@ -901,34 +915,38 @@ server.tool(
     return {
       content: [
         {
-          type: "text",
-          text: JSON.stringify({
-            // API configuration
-            apiBaseUrl: config.apiBaseUrl,
-            isSelfHosted: config.isSelfHosted,
-            hasWorkspace: !!config.workspaceName,
-            workspaceName: config.workspaceName || "none",
+          type: 'text',
+          text: JSON.stringify(
+            {
+              // API configuration
+              apiBaseUrl: config.apiBaseUrl,
+              isSelfHosted: config.isSelfHosted,
+              hasWorkspace: !!config.workspaceName,
+              workspaceName: config.workspaceName || 'none',
 
-            // MCP configuration
-            mcpName: config.mcpName,
-            mcpVersion: config.mcpVersion,
-            mcpDefaultWorkspace: config.mcpDefaultWorkspace,
-            enabledTools: {
-              prompts: config.mcpEnablePromptTools,
-              projects: config.mcpEnableProjectTools,
-              traces: config.mcpEnableTraceTools,
-              metrics: config.mcpEnableMetricTools
+              // MCP configuration
+              mcpName: config.mcpName,
+              mcpVersion: config.mcpVersion,
+              mcpDefaultWorkspace: config.mcpDefaultWorkspace,
+              enabledTools: {
+                prompts: config.mcpEnablePromptTools,
+                projects: config.mcpEnableProjectTools,
+                traces: config.mcpEnableTraceTools,
+                metrics: config.mcpEnableMetricTools,
+              },
+              serverVersion: 'v1',
+
+              // Capabilities information
+              capabilities: capabilities,
             },
-            serverVersion: "v1",
-
-            // Capabilities information
-            capabilities: capabilities
-          }, null, 2),
+            null,
+            2
+          ),
         },
         {
-          type: "text",
-          text: capabilitiesDescription
-        }
+          type: 'text',
+          text: capabilitiesDescription,
+        },
       ],
     };
   }
@@ -936,13 +954,15 @@ server.tool(
 
 // Add a new tool for contextual help about Opik capabilities
 server.tool(
-  "get-opik-help",
+  'get-opik-help',
   "Get contextual help about Opik Comet's capabilities",
   {
-    topic: z.string().describe("The topic to get help about (prompts, projects, traces, metrics, or general)"),
-    subtopic: z.string().optional().describe("Optional subtopic for more specific help"),
+    topic: z
+      .string()
+      .describe('The topic to get help about (prompts, projects, traces, metrics, or general)'),
+    subtopic: z.string().optional().describe('Optional subtopic for more specific help'),
   },
-  async (args) => {
+  async args => {
     const { topic, subtopic } = args;
     const capabilities = getEnabledCapabilities(config);
 
@@ -954,10 +974,10 @@ server.tool(
       return {
         content: [
           {
-            type: "text",
-            text: `Invalid topic: ${topic}. Valid topics are: prompts, projects, traces, metrics, general.`
-          }
-        ]
+            type: 'text',
+            text: `Invalid topic: ${topic}. Valid topics are: prompts, projects, traces, metrics, general.`,
+          },
+        ],
       };
     }
 
@@ -968,10 +988,10 @@ server.tool(
       return {
         content: [
           {
-            type: "text",
-            text: `No information available for topic: ${topic}`
-          }
-        ]
+            type: 'text',
+            text: `No information available for topic: ${topic}`,
+          },
+        ],
       };
     }
 
@@ -980,14 +1000,15 @@ server.tool(
       return {
         content: [
           {
-            type: "text",
-            text: `Opik Comet General Information:\n\n` +
-                  `API Version: ${(topicCapabilities as any).apiVersion}\n` +
-                  `Authentication: ${(topicCapabilities as any).authentication}\n` +
-                  `Rate Limit: ${(topicCapabilities as any).rateLimit}\n` +
-                  `Supported Formats: ${(topicCapabilities as any).supportedFormats?.join(', ') || 'JSON'}`
-          }
-        ]
+            type: 'text',
+            text:
+              `Opik Comet General Information:\n\n` +
+              `API Version: ${(topicCapabilities as any).apiVersion}\n` +
+              `Authentication: ${(topicCapabilities as any).authentication}\n` +
+              `Rate Limit: ${(topicCapabilities as any).rateLimit}\n` +
+              `Supported Formats: ${(topicCapabilities as any).supportedFormats?.join(', ') || 'JSON'}`,
+          },
+        ],
       };
     }
 
@@ -997,10 +1018,10 @@ server.tool(
       return {
         content: [
           {
-            type: "text",
-            text: `${topic} functionality is not enabled in the current configuration.`
-          }
-        ]
+            type: 'text',
+            text: `${topic} functionality is not enabled in the current configuration.`,
+          },
+        ],
       };
     }
 
@@ -1014,22 +1035,24 @@ server.tool(
           return {
             content: [
               {
-                type: "text",
-                text: `${topic} Features:\n\n` +
-                      typedCapabilities.features.map((f: string) => `- ${f}`).join('\n')
-              }
-            ]
+                type: 'text',
+                text:
+                  `${topic} Features:\n\n` +
+                  typedCapabilities.features.map((f: string) => `- ${f}`).join('\n'),
+              },
+            ],
           };
 
         case 'limitations':
           return {
             content: [
               {
-                type: "text",
-                text: `${topic} Limitations:\n\n` +
-                      typedCapabilities.limitations.map((l: string) => `- ${l}`).join('\n')
-              }
-            ]
+                type: 'text',
+                text:
+                  `${topic} Limitations:\n\n` +
+                  typedCapabilities.limitations.map((l: string) => `- ${l}`).join('\n'),
+              },
+            ],
           };
 
         case 'examples':
@@ -1037,20 +1060,21 @@ server.tool(
             return {
               content: [
                 {
-                  type: "text",
-                  text: `${topic} Examples:\n\n` +
-                        typedCapabilities.examples.map((e: string) => `- ${e}`).join('\n')
-                }
-              ]
+                  type: 'text',
+                  text:
+                    `${topic} Examples:\n\n` +
+                    typedCapabilities.examples.map((e: string) => `- ${e}`).join('\n'),
+                },
+              ],
             };
           } else {
             return {
               content: [
                 {
-                  type: "text",
-                  text: `No examples available for ${topic}.`
-                }
-              ]
+                  type: 'text',
+                  text: `No examples available for ${topic}.`,
+                },
+              ],
             };
           }
 
@@ -1059,20 +1083,19 @@ server.tool(
             return {
               content: [
                 {
-                  type: "text",
-                  text: `${topic} Schema:\n\n` +
-                        JSON.stringify(typedCapabilities.schema, null, 2)
-                }
-              ]
+                  type: 'text',
+                  text: `${topic} Schema:\n\n` + JSON.stringify(typedCapabilities.schema, null, 2),
+                },
+              ],
             };
           } else {
             return {
               content: [
                 {
-                  type: "text",
-                  text: `No schema information available for ${topic}.`
-                }
-              ]
+                  type: 'text',
+                  text: `No schema information available for ${topic}.`,
+                },
+              ],
             };
           }
 
@@ -1094,19 +1117,19 @@ server.tool(
             return {
               content: [
                 {
-                  type: "text",
-                  text: `${topic} ${subtopic}:\n\n${formattedValue}`
-                }
-              ]
+                  type: 'text',
+                  text: `${topic} ${subtopic}:\n\n${formattedValue}`,
+                },
+              ],
             };
           } else {
             return {
               content: [
                 {
-                  type: "text",
-                  text: `Invalid subtopic: ${subtopic} for topic: ${topic}`
-                }
-              ]
+                  type: 'text',
+                  text: `Invalid subtopic: ${subtopic} for topic: ${topic}`,
+                },
+              ],
             };
           }
       }
@@ -1115,12 +1138,12 @@ server.tool(
     // If no subtopic is specified, provide general information about the topic
     let response = `${topic.charAt(0).toUpperCase() + topic.slice(1)} Capabilities:\n\n`;
 
-    response += "Features:\n";
+    response += 'Features:\n';
     typedCapabilities.features.forEach((feature: string) => {
       response += `- ${feature}\n`;
     });
 
-    response += "\nLimitations:\n";
+    response += '\nLimitations:\n';
     typedCapabilities.limitations.forEach((limitation: string) => {
       response += `- ${limitation}\n`;
     });
@@ -1166,22 +1189,26 @@ server.tool(
     return {
       content: [
         {
-          type: "text",
-          text: response
-        }
-      ]
+          type: 'text',
+          text: response,
+        },
+      ],
     };
   }
 );
 
 // Add a tool for providing contextual examples of how to use Opik Comet
 server.tool(
-  "get-opik-examples",
+  'get-opik-examples',
   "Get examples of how to use Opik Comet's API for specific tasks",
   {
-    task: z.string().describe("The task to get examples for (e.g., 'create prompt', 'analyze traces', 'monitor costs')"),
+    task: z
+      .string()
+      .describe(
+        "The task to get examples for (e.g., 'create prompt', 'analyze traces', 'monitor costs')"
+      ),
   },
-  async (args) => {
+  async args => {
     const { task } = args;
     const normalizedTask = task.toLowerCase();
 
@@ -1194,12 +1221,12 @@ server.tool(
 
     const examples: Record<string, ExampleData> = {
       // Prompt-related examples
-      "create prompt": {
-        description: "Creating a new prompt template in Opik Comet",
+      'create prompt': {
+        description: 'Creating a new prompt template in Opik Comet',
         steps: [
           "1. Use the 'create-prompt' tool to create a new prompt with a name",
           "2. Use the 'create-prompt-version' tool to add content to the prompt",
-          "3. Retrieve the prompt using 'get-prompt-by-id' to verify it was created"
+          "3. Retrieve the prompt using 'get-prompt-by-id' to verify it was created",
         ],
         code: `// Example: Creating a customer service prompt
 const promptName = "Customer Service Greeting";
@@ -1215,15 +1242,15 @@ await mcp.createPromptVersion({
   name: promptName,
   template: promptTemplate,
   commit_message: commitMessage
-});`
+});`,
       },
 
-      "version prompt": {
-        description: "Creating a new version of an existing prompt",
+      'version prompt': {
+        description: 'Creating a new version of an existing prompt',
         steps: [
           "1. Use the 'list-prompts' tool to find the prompt you want to version",
           "2. Use the 'create-prompt-version' tool to add a new version with updated content",
-          "3. Include a descriptive commit message explaining the changes"
+          '3. Include a descriptive commit message explaining the changes',
         ],
         code: `// Example: Creating a new version of an existing prompt
 const promptName = "Customer Service Greeting";
@@ -1234,15 +1261,15 @@ await mcp.createPromptVersion({
   name: promptName,
   template: newTemplate,
   commit_message: commitMessage
-});`
+});`,
       },
 
       // Project-related examples
-      "create project": {
-        description: "Creating a new project in Opik Comet",
+      'create project': {
+        description: 'Creating a new project in Opik Comet',
         steps: [
           "1. Use the 'create-project' tool to create a new project with a name and description",
-          "2. Retrieve the project using 'get-project-by-id' to verify it was created"
+          "2. Retrieve the project using 'get-project-by-id' to verify it was created",
         ],
         code: `// Example: Creating a new project
 const projectName = "Customer Support Bot";
@@ -1254,15 +1281,15 @@ const createResult = await mcp.createProject({
 });
 
 // The project ID will be in the response
-const projectId = createResult.id;`
+const projectId = createResult.id;`,
       },
 
-      "organize traces": {
-        description: "Organizing traces by project",
+      'organize traces': {
+        description: 'Organizing traces by project',
         steps: [
-          "1. Create projects for different use cases or applications",
-          "2. When recording traces, associate them with the appropriate project",
-          "3. Use the 'list-traces' tool with project filtering to view traces for a specific project"
+          '1. Create projects for different use cases or applications',
+          '2. When recording traces, associate them with the appropriate project',
+          "3. Use the 'list-traces' tool with project filtering to view traces for a specific project",
         ],
         code: `// Example: Listing traces for a specific project
 const projectId = "proj_12345";
@@ -1281,16 +1308,16 @@ const tracesByName = await mcp.listTraces({
   page: page,
   size: size,
   projectName: projectName
-});`
+});`,
       },
 
       // Trace-related examples
-      "log trace": {
-        description: "Logging a trace with the Opik API",
+      'log trace': {
+        description: 'Logging a trace with the Opik API',
         steps: [
-          "1. Create a trace with input and output data",
-          "2. Add spans to the trace to capture detailed steps",
-          "3. Include LLM calls with relevant metadata"
+          '1. Create a trace with input and output data',
+          '2. Add spans to the trace to capture detailed steps',
+          '3. Include LLM calls with relevant metadata',
         ],
         code: `// Example: Logging a trace with spans
 // Based on official Opik documentation
@@ -1379,15 +1406,15 @@ await fetch("/v1/private/spans", {
     "Authorization": "YOUR_API_KEY"
   },
   body: JSON.stringify(span2)
-});`
+});`,
       },
 
-      "analyze traces": {
-        description: "Analyzing trace data to understand usage patterns",
+      'analyze traces': {
+        description: 'Analyzing trace data to understand usage patterns',
         steps: [
           "1. Use the 'list-traces' tool to retrieve traces for a specific project",
           "2. Use the 'get-trace-stats' tool to get aggregated statistics",
-          "3. Filter by date range to analyze trends over time"
+          '3. Filter by date range to analyze trends over time',
         ],
         code: `// Example: Getting trace statistics for a date range
 const projectId = "proj_12345";
@@ -1404,15 +1431,15 @@ const stats = await mcp.getTraceStats({
 // - Total trace count
 // - Total token usage
 // - Cost information
-// - Daily breakdowns`
+// - Daily breakdowns`,
       },
 
-      "view trace details": {
-        description: "Viewing detailed information about a specific trace",
+      'view trace details': {
+        description: 'Viewing detailed information about a specific trace',
         steps: [
           "1. Use the 'list-traces' tool to find the trace you want to examine",
           "2. Use the 'get-trace-by-id' tool with the trace ID to get detailed information",
-          "3. Analyze the input, output, and metadata to understand the interaction"
+          '3. Analyze the input, output, and metadata to understand the interaction',
         ],
         code: `// Example: Getting detailed information about a trace
 const traceId = "trace_67890";
@@ -1427,15 +1454,15 @@ const traceDetails = await mcp.getTraceById({
 // - Timestamps
 // - Metadata
 // - Cost information
-// - Spans (detailed steps within the trace)`
+// - Spans (detailed steps within the trace)`,
       },
 
-      "annotate trace": {
-        description: "Annotating a trace with feedback scores",
+      'annotate trace': {
+        description: 'Annotating a trace with feedback scores',
         steps: [
           "1. Retrieve a trace using 'get-trace-by-id'",
-          "2. Add feedback scores to evaluate the trace quality",
-          "3. Use the feedback for monitoring and improvement"
+          '2. Add feedback scores to evaluate the trace quality',
+          '3. Use the feedback for monitoring and improvement',
         ],
         code: `// Example: Annotating a trace with feedback scores
 // Based on Opik documentation
@@ -1474,16 +1501,16 @@ await fetch(\`/v1/private/traces/\${traceId}/feedback\`, {
     "Authorization": "YOUR_API_KEY"
   },
   body: JSON.stringify(feedbackData)
-});`
+});`,
       },
 
       // Metrics-related examples
-      "monitor costs": {
-        description: "Monitoring costs across projects and time periods",
+      'monitor costs': {
+        description: 'Monitoring costs across projects and time periods',
         steps: [
           "1. Use the 'get-metrics' tool with the 'cost' metric name",
-          "2. Filter by project and date range to focus on specific usage",
-          "3. Analyze trends to identify cost patterns"
+          '2. Filter by project and date range to focus on specific usage',
+          '3. Analyze trends to identify cost patterns',
         ],
         code: `// Example: Monitoring costs for a specific project
 const projectId = "proj_12345";
@@ -1498,15 +1525,15 @@ const costMetrics = await mcp.getMetrics({
   endDate: endDate
 });
 
-// The response will include cost data points over time`
+// The response will include cost data points over time`,
       },
 
-      "track token usage": {
-        description: "Tracking token usage across different models and projects",
+      'track token usage': {
+        description: 'Tracking token usage across different models and projects',
         steps: [
           "1. Use the 'get-metrics' tool with token-related metric names",
-          "2. Filter by project and date range to focus on specific usage",
-          "3. Compare prompt tokens vs. completion tokens to optimize usage"
+          '2. Filter by project and date range to focus on specific usage',
+          '3. Compare prompt tokens vs. completion tokens to optimize usage',
         ],
         code: `// Example: Tracking token usage metrics
 const projectId = "proj_12345";
@@ -1535,15 +1562,15 @@ const completionTokens = await mcp.getMetrics({
   projectId: projectId,
   startDate: startDate,
   endDate: endDate
-});`
+});`,
       },
 
-      "evaluate llm": {
+      'evaluate llm': {
         description: "Evaluating LLM outputs using Opik's evaluation metrics",
         steps: [
-          "1. Set up evaluation metrics for your use case",
-          "2. Apply metrics to trace data to measure performance",
-          "3. Analyze results to identify areas for improvement"
+          '1. Set up evaluation metrics for your use case',
+          '2. Apply metrics to trace data to measure performance',
+          '3. Analyze results to identify areas for improvement',
         ],
         code: `// Example: Evaluating LLM outputs with metrics
 // Based on Opik documentation
@@ -1590,15 +1617,15 @@ const evaluationResponse = await fetch("/v1/private/evaluate", {
 });
 
 const evaluationResults = await evaluationResponse.json();
-// The response will include scores for each metric`
-      }
+// The response will include scores for each metric`,
+      },
     };
 
     // Find the closest matching example
     let bestMatch: string | null = null;
     let bestMatchScore = 0;
 
-    for (const [key, example] of Object.entries(examples)) {
+    for (const [key /* example */] of Object.entries(examples)) {
       // Simple matching algorithm - check if the normalized task contains the key
       if (normalizedTask.includes(key)) {
         const score = key.length; // Longer matches are better
@@ -1614,12 +1641,15 @@ const evaluationResults = await evaluationResponse.json();
       return {
         content: [
           {
-            type: "text",
-            text: `No specific example found for "${task}". Available example categories include:\n\n` +
-                  Object.keys(examples).map(key => `- ${key}`).join('\n') +
-                  `\n\nTry asking for one of these specific tasks.`
-          }
-        ]
+            type: 'text',
+            text:
+              `No specific example found for "${task}". Available example categories include:\n\n` +
+              Object.keys(examples)
+                .map(key => `- ${key}`)
+                .join('\n') +
+              `\n\nTry asking for one of these specific tasks.`,
+          },
+        ],
       };
     }
 
@@ -1629,25 +1659,31 @@ const evaluationResults = await evaluationResponse.json();
     return {
       content: [
         {
-          type: "text",
-          text: `Example: ${bestMatch}\n\n` +
-                `Description: ${matchedExample.description}\n\n` +
-                `Steps:\n${matchedExample.steps.join('\n')}\n\n` +
-                `Code Example:\n\`\`\`javascript\n${matchedExample.code}\n\`\`\``
-        }
-      ]
+          type: 'text',
+          text:
+            `Example: ${bestMatch}\n\n` +
+            `Description: ${matchedExample.description}\n\n` +
+            `Steps:\n${matchedExample.steps.join('\n')}\n\n` +
+            `Code Example:\n\`\`\`javascript\n${matchedExample.code}\n\`\`\``,
+        },
+      ],
     };
   }
 );
 
 // Add a tool for providing information about Opik's tracing capabilities
 server.tool(
-  "get-opik-tracing-info",
+  'get-opik-tracing-info',
   "Get information about Opik's tracing capabilities and how to use them",
   {
-    topic: z.string().optional().describe("Optional specific tracing topic to get information about (e.g., 'spans', 'distributed', 'multimodal', 'annotations')"),
+    topic: z
+      .string()
+      .optional()
+      .describe(
+        "Optional specific tracing topic to get information about (e.g., 'spans', 'distributed', 'multimodal', 'annotations')"
+      ),
   },
-  async (args) => {
+  async args => {
     const { topic } = args;
 
     // Define tracing information
@@ -1661,20 +1697,21 @@ server.tool(
     }
 
     const tracingInfo: Record<string, TracingInfo> = {
-      "basic": {
-        name: "Basic Tracing",
-        description: "Core tracing functionality for recording LLM interactions with input and output data.",
+      basic: {
+        name: 'Basic Tracing',
+        description:
+          'Core tracing functionality for recording LLM interactions with input and output data.',
         key_features: [
-          "Record input and output for LLM calls",
-          "Track token usage and costs",
-          "Organize traces by project",
-          "Add metadata to traces"
+          'Record input and output for LLM calls',
+          'Track token usage and costs',
+          'Organize traces by project',
+          'Add metadata to traces',
         ],
         use_cases: [
-          "Monitoring LLM usage in applications",
-          "Debugging LLM-based systems",
-          "Cost tracking and optimization",
-          "Performance monitoring"
+          'Monitoring LLM usage in applications',
+          'Debugging LLM-based systems',
+          'Cost tracking and optimization',
+          'Performance monitoring',
         ],
         example: `from opik import Opik
 
@@ -1688,23 +1725,24 @@ trace = client.trace(
     output={"answer": "The capital of France is Paris."},
     metadata={"model": "gpt-4", "temperature": 0.7}
 )`,
-        related_topics: ["spans", "annotations", "metadata"]
+        related_topics: ['spans', 'annotations', 'metadata'],
       },
 
-      "spans": {
-        name: "Spans",
-        description: "Detailed tracking of steps within a trace to capture the full flow of an LLM interaction.",
+      spans: {
+        name: 'Spans',
+        description:
+          'Detailed tracking of steps within a trace to capture the full flow of an LLM interaction.',
         key_features: [
-          "Break down traces into logical steps",
-          "Track intermediate processing",
-          "Capture the full chain of operations",
-          "Measure performance of individual steps"
+          'Break down traces into logical steps',
+          'Track intermediate processing',
+          'Capture the full chain of operations',
+          'Measure performance of individual steps',
         ],
         use_cases: [
-          "Debugging complex LLM pipelines",
-          "Performance optimization of multi-step processes",
-          "Visualizing the flow of information",
-          "Identifying bottlenecks in processing"
+          'Debugging complex LLM pipelines',
+          'Performance optimization of multi-step processes',
+          'Visualizing the flow of information',
+          'Identifying bottlenecks in processing',
         ],
         example: `from opik import Opik
 
@@ -1737,23 +1775,23 @@ trace.span(
     input={"prompt": "Based on these documents, answer: What is the capital of France?\\n\\nDocuments:\\n- Paris is the capital of France.\\n- France is a country in Europe."},
     output={"response": "The capital of France is Paris."}
 )`,
-        related_topics: ["basic", "distributed", "context"]
+        related_topics: ['basic', 'distributed', 'context'],
       },
 
-      "distributed": {
-        name: "Distributed Tracing",
-        description: "Tracing across multiple services or components in a distributed system.",
+      distributed: {
+        name: 'Distributed Tracing',
+        description: 'Tracing across multiple services or components in a distributed system.',
         key_features: [
-          "Track LLM interactions across service boundaries",
-          "Maintain context across different components",
-          "Visualize end-to-end flows",
-          "Correlate related traces"
+          'Track LLM interactions across service boundaries',
+          'Maintain context across different components',
+          'Visualize end-to-end flows',
+          'Correlate related traces',
         ],
         use_cases: [
-          "Microservices architectures with LLMs",
-          "Complex multi-component AI systems",
-          "Cross-service debugging",
-          "End-to-end performance monitoring"
+          'Microservices architectures with LLMs',
+          'Complex multi-component AI systems',
+          'Cross-service debugging',
+          'End-to-end performance monitoring',
         ],
         example: `# Service 1: Initial request handler
 from opik import Opik, opik_context
@@ -1805,23 +1843,24 @@ with client.span(name="llm_generation", type="llm") as span:
 
 # Back in Service 1, update the trace with the final output
 trace.update(output={"answer": "The capital of France is Paris."})`,
-        related_topics: ["spans", "context", "opentelemetry"]
+        related_topics: ['spans', 'context', 'opentelemetry'],
       },
 
-      "multimodal": {
-        name: "Multimodal Tracing",
-        description: "Tracing for LLM interactions that involve multiple modalities like text, images, and audio.",
+      multimodal: {
+        name: 'Multimodal Tracing',
+        description:
+          'Tracing for LLM interactions that involve multiple modalities like text, images, and audio.',
         key_features: [
-          "Track inputs and outputs across modalities",
-          "Support for image, audio, and text data",
-          "Visualize multimodal interactions",
-          "Analyze performance across modalities"
+          'Track inputs and outputs across modalities',
+          'Support for image, audio, and text data',
+          'Visualize multimodal interactions',
+          'Analyze performance across modalities',
         ],
         use_cases: [
-          "Vision-language models (VLMs)",
-          "Image generation and analysis",
-          "Audio transcription and processing",
-          "Multimodal chatbots and assistants"
+          'Vision-language models (VLMs)',
+          'Image generation and analysis',
+          'Audio transcription and processing',
+          'Multimodal chatbots and assistants',
         ],
         example: `from opik import Opik
 import base64
@@ -1858,23 +1897,24 @@ trace.span(
     input={"prompt": "Based on this description: 'A tabby cat sitting on a wooden windowsill looking outside.', answer: What objects are in this image?"},
     output={"answer": "The image contains a cat sitting on a windowsill."}
 )`,
-        related_topics: ["basic", "spans"]
+        related_topics: ['basic', 'spans'],
       },
 
-      "annotations": {
-        name: "Trace Annotations",
-        description: "Adding feedback scores and annotations to traces for evaluation and improvement.",
+      annotations: {
+        name: 'Trace Annotations',
+        description:
+          'Adding feedback scores and annotations to traces for evaluation and improvement.',
         key_features: [
-          "Add qualitative and quantitative feedback",
-          "Score trace quality and performance",
-          "Track user satisfaction",
-          "Support continuous improvement"
+          'Add qualitative and quantitative feedback',
+          'Score trace quality and performance',
+          'Track user satisfaction',
+          'Support continuous improvement',
         ],
         use_cases: [
-          "Quality monitoring in production",
-          "User feedback collection",
-          "A/B testing of LLM configurations",
-          "Performance benchmarking"
+          'Quality monitoring in production',
+          'User feedback collection',
+          'A/B testing of LLM configurations',
+          'Performance benchmarking',
         ],
         example: `from opik import Opik
 
@@ -1891,23 +1931,23 @@ trace.add_feedback_score(name="helpfulness", score=0.7)
 
 # Add a qualitative annotation
 trace.add_annotation(text="Response was helpful but could be more concise.")`,
-        related_topics: ["basic", "evaluation"]
+        related_topics: ['basic', 'evaluation'],
       },
 
-      "context": {
-        name: "Context Management",
-        description: "Managing trace context throughout the execution flow of an application.",
+      context: {
+        name: 'Context Management',
+        description: 'Managing trace context throughout the execution flow of an application.',
         key_features: [
-          "Automatic context propagation",
-          "Access current trace and span data",
-          "Update traces and spans dynamically",
-          "Support for async and concurrent operations"
+          'Automatic context propagation',
+          'Access current trace and span data',
+          'Update traces and spans dynamically',
+          'Support for async and concurrent operations',
         ],
         use_cases: [
-          "Complex application flows",
-          "Asynchronous processing",
-          "Middleware integration",
-          "Framework integration"
+          'Complex application flows',
+          'Asynchronous processing',
+          'Middleware integration',
+          'Framework integration',
         ],
         example: `from opik import Opik, opik_context
 
@@ -1933,23 +1973,23 @@ with client.trace(name="main_process") as trace:
 
     # Update the current trace
     opik_context.update_current_trace(output={"final_result": "Complete"})`,
-        related_topics: ["distributed", "spans"]
+        related_topics: ['distributed', 'spans'],
       },
 
-      "opentelemetry": {
-        name: "OpenTelemetry Integration",
-        description: "Integration with the OpenTelemetry standard for distributed tracing.",
+      opentelemetry: {
+        name: 'OpenTelemetry Integration',
+        description: 'Integration with the OpenTelemetry standard for distributed tracing.',
         key_features: [
-          "Compatibility with OpenTelemetry ecosystem",
-          "Standard-compliant trace format",
-          "Integration with existing observability tools",
-          "Support for mixed tracing environments"
+          'Compatibility with OpenTelemetry ecosystem',
+          'Standard-compliant trace format',
+          'Integration with existing observability tools',
+          'Support for mixed tracing environments',
         ],
         use_cases: [
-          "Enterprise observability platforms",
-          "Integration with existing monitoring systems",
-          "Standardized tracing across organizations",
-          "Multi-vendor observability solutions"
+          'Enterprise observability platforms',
+          'Integration with existing monitoring systems',
+          'Standardized tracing across organizations',
+          'Multi-vendor observability solutions',
         ],
         example: `# OpenTelemetry integration example
 from opentelemetry import trace
@@ -1984,23 +2024,23 @@ with tracer.start_as_current_span("main_operation") as span:
     result = process_data()
 
     span.set_attribute("operation.result", result)`,
-        related_topics: ["distributed", "context"]
+        related_topics: ['distributed', 'context'],
       },
 
-      "metadata": {
-        name: "Trace Metadata",
-        description: "Adding contextual metadata to traces for richer analysis and filtering.",
+      metadata: {
+        name: 'Trace Metadata',
+        description: 'Adding contextual metadata to traces for richer analysis and filtering.',
         key_features: [
-          "Add custom metadata to traces and spans",
-          "Tag traces for easier filtering",
-          "Include environment and version information",
-          "Track business-specific metrics"
+          'Add custom metadata to traces and spans',
+          'Tag traces for easier filtering',
+          'Include environment and version information',
+          'Track business-specific metrics',
         ],
         use_cases: [
-          "Environment-specific analysis",
-          "Version comparison",
-          "Business impact tracking",
-          "Custom categorization"
+          'Environment-specific analysis',
+          'Version comparison',
+          'Business impact tracking',
+          'Custom categorization',
         ],
         example: `from opik import Opik
 
@@ -2027,8 +2067,8 @@ trace = client.trace(
 
 # Add tags for easier filtering
 trace.add_tags(["search", "product", "footwear"])`,
-        related_topics: ["basic", "annotations"]
-      }
+        related_topics: ['basic', 'annotations'],
+      },
     };
 
     // If a specific topic is requested, return information about that topic
@@ -2042,36 +2082,38 @@ trace.add_tags(["search", "product", "footwear"])`,
         return {
           content: [
             {
-              type: "text",
-              text: `# ${topicData.name}\n\n` +
-                    `**Description:** ${topicData.description}\n\n` +
-                    `**Key Features:**\n${topicData.key_features.map(f => `- ${f}`).join('\n')}\n\n` +
-                    `**Use Cases:**\n${topicData.use_cases.map(uc => `- ${uc}`).join('\n')}\n\n` +
-                    (topicData.example ?
-                      `**Example:**\n\`\`\`python\n${topicData.example}\n\`\`\`\n\n` :
-                      '') +
-                    (topicData.related_topics && topicData.related_topics.length > 0 ?
-                      `**Related Topics:** ${topicData.related_topics.map(t => `\`${t}\``).join(', ')}` :
-                      '')
-            }
-          ]
+              type: 'text',
+              text:
+                `# ${topicData.name}\n\n` +
+                `**Description:** ${topicData.description}\n\n` +
+                `**Key Features:**\n${topicData.key_features.map(f => `- ${f}`).join('\n')}\n\n` +
+                `**Use Cases:**\n${topicData.use_cases.map(uc => `- ${uc}`).join('\n')}\n\n` +
+                (topicData.example
+                  ? `**Example:**\n\`\`\`python\n${topicData.example}\n\`\`\`\n\n`
+                  : '') +
+                (topicData.related_topics && topicData.related_topics.length > 0
+                  ? `**Related Topics:** ${topicData.related_topics.map(t => `\`${t}\``).join(', ')}`
+                  : ''),
+            },
+          ],
         };
       }
 
       // Try fuzzy match
-      const fuzzyMatches = Object.keys(tracingInfo).filter(k =>
-        k.includes(normalizedTopic) || normalizedTopic.includes(k)
+      const fuzzyMatches = Object.keys(tracingInfo).filter(
+        k => k.includes(normalizedTopic) || normalizedTopic.includes(k)
       );
 
       if (fuzzyMatches.length > 0) {
         return {
           content: [
             {
-              type: "text",
-              text: `No exact match found for "${topic}". Did you mean one of these?\n\n` +
-                    fuzzyMatches.map(m => `- ${tracingInfo[m].name}`).join('\n')
-            }
-          ]
+              type: 'text',
+              text:
+                `No exact match found for "${topic}". Did you mean one of these?\n\n` +
+                fuzzyMatches.map(m => `- ${tracingInfo[m].name}`).join('\n'),
+            },
+          ],
         };
       }
 
@@ -2079,11 +2121,14 @@ trace.add_tags(["search", "product", "footwear"])`,
       return {
         content: [
           {
-            type: "text",
-            text: `No information found for tracing topic "${topic}". Available topics include:\n\n` +
-                  Object.values(tracingInfo).map(t => `- ${t.name}`).join('\n')
-          }
-        ]
+            type: 'text',
+            text:
+              `No information found for tracing topic "${topic}". Available topics include:\n\n` +
+              Object.values(tracingInfo)
+                .map(t => `- ${t.name}`)
+                .join('\n'),
+          },
+        ],
       };
     }
 
@@ -2091,26 +2136,27 @@ trace.add_tags(["search", "product", "footwear"])`,
     return {
       content: [
         {
-          type: "text",
-          text: `# Opik Tracing Capabilities\n\n` +
-                `Opik provides comprehensive tracing capabilities for LLM applications, allowing you to track, analyze, and improve your AI systems.\n\n` +
-
-                `## Core Tracing Features\n\n` +
-                Object.values(tracingInfo)
-                  .map(t => `### ${t.name}\n${t.description}\n\n**Key Features:**\n${t.key_features.map(f => `- ${f}`).join('\n')}\n`)
-                  .join('\n\n') +
-
-                `\n\n## Getting Started with Tracing\n\n` +
-                `To start using Opik's tracing capabilities:\n\n` +
-                `1. Install the Opik SDK: \`pip install opik\`\n` +
-                `2. Configure your API key: \`opik configure\`\n` +
-                `3. Create your first trace using the \`trace()\` method\n` +
-                `4. Add spans to capture detailed steps in your process\n` +
-                `5. View your traces in the Opik dashboard\n\n` +
-
-                `For detailed information about a specific tracing topic, use this tool with the \`topic\` parameter.`
-        }
-      ]
+          type: 'text',
+          text:
+            `# Opik Tracing Capabilities\n\n` +
+            `Opik provides comprehensive tracing capabilities for LLM applications, allowing you to track, analyze, and improve your AI systems.\n\n` +
+            `## Core Tracing Features\n\n` +
+            Object.values(tracingInfo)
+              .map(
+                t =>
+                  `### ${t.name}\n${t.description}\n\n**Key Features:**\n${t.key_features.map(f => `- ${f}`).join('\n')}\n`
+              )
+              .join('\n\n') +
+            `\n\n## Getting Started with Tracing\n\n` +
+            `To start using Opik's tracing capabilities:\n\n` +
+            `1. Install the Opik SDK: \`pip install opik\`\n` +
+            `2. Configure your API key: \`opik configure\`\n` +
+            `3. Create your first trace using the \`trace()\` method\n` +
+            `4. Add spans to capture detailed steps in your process\n` +
+            `5. View your traces in the Opik dashboard\n\n` +
+            `For detailed information about a specific tracing topic, use this tool with the \`topic\` parameter.`,
+        },
+      ],
     };
   }
 );
@@ -2118,32 +2164,32 @@ trace.add_tags(["search", "product", "footwear"])`,
 // Server startup
 async function main() {
   try {
-    logToFile("Starting main function");
+    logToFile('Starting main function');
 
     // Initialize transport with error handling
-    logToFile("Creating StdioServerTransport");
+    logToFile('Creating StdioServerTransport');
     const transport = new StdioServerTransport();
 
     // Add explicit error handlers to the transport
-    transport.onerror = (error) => {
+    transport.onerror = error => {
       logToFile(`Transport error: ${error.message}`);
     };
 
     transport.onclose = () => {
-      logToFile("Transport connection closed");
+      logToFile('Transport connection closed');
     };
 
     // Log configuration for debugging purposes only to file
     logToFile(`API Base URL: ${config.apiBaseUrl}`);
-    logToFile(`Self-hosted: ${config.isSelfHosted ? "Yes" : "No"}`);
-    logToFile(`Workspace: ${config.workspaceName || "None"}`);
+    logToFile(`Self-hosted: ${config.isSelfHosted ? 'Yes' : 'No'}`);
+    logToFile(`Workspace: ${config.workspaceName || 'None'}`);
 
     // Test API call if test flag is set
-    if (process.argv.includes("--test")) {
-      logToFile("Test flag detected, making test API call");
+    if (process.argv.includes('--test')) {
+      logToFile('Test flag detected, making test API call');
 
       // First, let's try to list available workspaces
-      logToFile("Listing available workspaces");
+      logToFile('Listing available workspaces');
       const workspacesResult = await makeApiRequest<any>('/v1/private/workspaces');
       logToFile(`Workspaces API call result: ${JSON.stringify(workspacesResult, null, 2)}`);
 
@@ -2156,35 +2202,33 @@ async function main() {
 
     try {
       // Connect server to transport - This is where the initialization handshake happens
-      logToFile("Connecting server to transport");
+      logToFile('Connecting server to transport');
       await server.connect(transport);
 
-      logToFile("Transport connection established");
+      logToFile('Transport connection established');
 
       // Success message AFTER transport is connected
-      sendProtocolMessage("log", "Opik MCP Server successfully connected and running");
+      sendProtocolMessage('log', 'Opik MCP Server successfully connected and running');
 
-      logToFile("Opik MCP Server running on stdio");
-      logToFile("Main function completed successfully");
+      logToFile('Opik MCP Server running on stdio');
+      logToFile('Main function completed successfully');
 
       // Keep the process alive with a heartbeat
       setInterval(() => {
-        logToFile("Heartbeat ping");
+        logToFile('Heartbeat ping');
       }, 5000);
-
     } catch (connectError: any) {
       logToFile(`Error in server connection: ${connectError?.message || connectError}`);
       process.exit(1);
     }
-
   } catch (mainError: any) {
     logToFile(`Error in main function: ${mainError?.message || mainError}`);
     process.exit(1);
   }
 }
 
-main().catch((error) => {
+main().catch(error => {
   logToFile(`Fatal error in main() catch handler: ${error?.message || error}`);
-  sendProtocolMessage("log", `Fatal error: ${error?.message || error}`);
+  sendProtocolMessage('log', `Fatal error: ${error?.message || error}`);
   process.exit(1);
 });

@@ -1,17 +1,16 @@
-import { jest, describe, test, expect, beforeEach, afterEach } from '@jest/globals';
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { jest, describe, beforeEach, test, expect, afterEach } from '@jest/globals';
 
 // Mock the McpServer class
-jest.mock("@modelcontextprotocol/sdk/server/mcp.js", () => {
+jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
   const mockTool = jest.fn().mockReturnThis();
 
   return {
     McpServer: jest.fn().mockImplementation(() => {
       return {
         tool: mockTool,
-        connect: jest.fn()
+        connect: jest.fn(),
       };
-    })
+    }),
   };
 });
 
@@ -25,7 +24,7 @@ jest.mock('../src/utils/capabilities', () => {
         limitations: ['Limitation 1', 'Limitation 2'],
         examples: ['Example 1', 'Example 2'],
         versionControl: true,
-        templateFormat: 'Test format'
+        templateFormat: 'Test format',
       },
       projects: {
         available: true,
@@ -33,7 +32,7 @@ jest.mock('../src/utils/capabilities', () => {
         limitations: ['Limitation 1', 'Limitation 2'],
         examples: ['Example 1', 'Example 2'],
         hierarchySupport: false,
-        sharingSupport: false
+        sharingSupport: false,
       },
       traces: {
         available: true,
@@ -42,7 +41,7 @@ jest.mock('../src/utils/capabilities', () => {
         examples: ['Example 1', 'Example 2'],
         dataRetention: '90 days',
         searchCapabilities: ['Capability 1', 'Capability 2'],
-        filterOptions: ['Option 1', 'Option 2']
+        filterOptions: ['Option 1', 'Option 2'],
       },
       metrics: {
         available: true,
@@ -51,61 +50,54 @@ jest.mock('../src/utils/capabilities', () => {
         examples: ['Example 1', 'Example 2'],
         availableMetrics: ['Metric 1', 'Metric 2'],
         customMetricsSupport: true,
-        visualizationSupport: true
+        visualizationSupport: true,
       },
       general: {
         apiVersion: 'v1',
         authentication: 'API Key',
         rateLimit: '100 requests per minute',
-        supportedFormats: ['JSON']
-      }
+        supportedFormats: ['JSON'],
+      },
     },
     getEnabledCapabilities: jest.fn().mockReturnValue({
       prompts: {
         available: true,
         features: ['Feature 1', 'Feature 2'],
-        limitations: ['Limitation 1', 'Limitation 2']
+        limitations: ['Limitation 1', 'Limitation 2'],
       },
       projects: {
         available: true,
         features: ['Feature 1', 'Feature 2'],
-        limitations: ['Limitation 1', 'Limitation 2']
+        limitations: ['Limitation 1', 'Limitation 2'],
       },
       traces: {
         available: true,
         features: ['Feature 1', 'Feature 2'],
-        limitations: ['Limitation 1', 'Limitation 2']
+        limitations: ['Limitation 1', 'Limitation 2'],
       },
       metrics: {
         available: true,
         features: ['Feature 1', 'Feature 2'],
-        limitations: ['Limitation 1', 'Limitation 2']
+        limitations: ['Limitation 1', 'Limitation 2'],
       },
       general: {
         apiVersion: 'v1',
         authentication: 'API Key',
         rateLimit: '100 requests per minute',
-        supportedFormats: ['JSON']
-      }
+        supportedFormats: ['JSON'],
+      },
     }),
-    getCapabilitiesDescription: jest.fn().mockReturnValue('Test capabilities description')
+    getCapabilitiesDescription: jest.fn().mockReturnValue('Test capabilities description'),
   };
 });
 
 describe('MCP Tools Tests', () => {
-  let server: any;
   let toolCallback: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Create a new server instance for each test
-    server = new McpServer({
-      name: 'test-server',
-      version: '1.0.0'
-    });
-
-    // Create a mock callback function
+    // Set up a mock tool callback
     toolCallback = jest.fn();
   });
 
@@ -129,7 +121,7 @@ describe('MCP Tools Tests', () => {
       mcpDefaultWorkspace: 'default',
       enabledTools: ['get-server-info', 'get-opik-help'],
       serverVersion: '1.0.0',
-      capabilities: {}
+      capabilities: {},
     };
 
     // Mock the callback function to return our test data
@@ -137,13 +129,13 @@ describe('MCP Tools Tests', () => {
       content: [
         {
           type: 'text',
-          text: JSON.stringify(mockServerInfo)
+          text: JSON.stringify(mockServerInfo),
         },
         {
           type: 'text',
-          text: 'Test capabilities description'
-        }
-      ]
+          text: 'Test capabilities description',
+        },
+      ],
     });
 
     // Call the tool callback
@@ -202,27 +194,27 @@ Opik's prompt management system allows you to create, version, and manage prompt
 
 ## Limitations:
 - Limitation 1
-- Limitation 2`
-            }
-          ]
+- Limitation 2`,
+            },
+          ],
         };
       } else if (params.topic === 'invalid-topic') {
         return {
           content: [
             {
               type: 'text',
-              text: 'No information found for topic: invalid-topic'
-            }
-          ]
+              text: 'No information found for topic: invalid-topic',
+            },
+          ],
         };
       } else {
         return {
           content: [
             {
               type: 'text',
-              text: '# Opik Capabilities:\n\nTest capabilities description'
-            }
-          ]
+              text: '# Opik Capabilities:\n\nTest capabilities description',
+            },
+          ],
         };
       }
     });
@@ -305,18 +297,18 @@ prompt = client.create_prompt(name="My Customer Support Prompt")
 # Store the prompt ID for future use
 prompt_id = prompt["id"]
 print(f"Created prompt with ID: {prompt_id}")
-\`\`\``
-            }
-          ]
+\`\`\``,
+            },
+          ],
         };
       } else {
         return {
           content: [
             {
               type: 'text',
-              text: 'No specific example found for task: invalid-task. Available tasks include: Create Prompt, Version Prompt, Create Project, Log Trace, Analyze Traces, Evaluate Response'
-            }
-          ]
+              text: 'No specific example found for task: invalid-task. Available tasks include: Create Prompt, Version Prompt, Create Project, Log Trace, Analyze Traces, Evaluate Response',
+            },
+          ],
         };
       }
     });
@@ -391,9 +383,9 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where 0 indicates high hallucination and 1 indicates no hallucination
-\`\`\``
-            }
-          ]
+\`\`\``,
+            },
+          ],
         };
       } else {
         return {
@@ -415,9 +407,9 @@ Opik provides a variety of metrics to evaluate LLM outputs:
 - Equals: Simple exact match comparison
 - RegexMatch: Validates answers against regular expression patterns
 - Contains: Checks if the answer contains specific substrings
-- LevenshteinRatio: Measures string similarity using Levenshtein distance`
-            }
-          ]
+- LevenshteinRatio: Measures string similarity using Levenshtein distance`,
+            },
+          ],
         };
       }
     });
@@ -480,9 +472,9 @@ Spans are individual units within a trace that represent discrete operations or 
 - Detailed step-by-step analysis
 - Tracking complex multi-step LLM workflows
 - Measuring time spent in different components
-- Correlating errors with specific operations`
-            }
-          ]
+- Correlating errors with specific operations`,
+            },
+          ],
         };
       } else {
         return {
@@ -498,9 +490,9 @@ Opik provides comprehensive tracing capabilities to help you understand and anal
 - spans: Individual units within a trace
 - feedback: Annotations for traces with evaluations
 - search: Finding specific traces based on content or metadata
-- visualization: Tools to understand traces and spans`
-            }
-          ]
+- visualization: Tools to understand traces and spans`,
+            },
+          ],
         };
       }
     });

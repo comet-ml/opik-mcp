@@ -40,30 +40,33 @@ export function initDebugLog() {
   });
 
   // Set up uncaught exception handler
-  process.on('uncaughtException', (error) => {
+  process.on('uncaughtException', error => {
     logDebug(`UNCAUGHT EXCEPTION: ${error.message}`);
     logDebug(error.stack || 'No stack trace available');
   });
 
   // Set up unhandled rejection handler
-  process.on('unhandledRejection', (reason, promise) => {
+  process.on('unhandledRejection', (reason, _promise) => {
     logDebug(`UNHANDLED REJECTION: ${reason}`);
   });
 
   // Set up exit handler
-  process.on('exit', (code) => {
+  process.on('exit', code => {
     logDebug(`Process exiting with code: ${code}`);
   });
 }
 
-export function logDebug(message: string) {
+export function logDebug(message: string): Promise<void> {
   const logPath = '/tmp/opik-mcp-debug.log';
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] ${message}\n`;
 
-  try {
-    fs.appendFileSync(logPath, logMessage);
-  } catch (error) {
-    console.error('Failed to append to debug log file:', error);
-  }
+  return new Promise(resolve => {
+    try {
+      fs.appendFileSync(logPath, logMessage);
+    } catch (error) {
+      console.error('Failed to append to debug log file:', error);
+    }
+    resolve();
+  });
 }

@@ -19,7 +19,7 @@ export type ProjectResponse = {
   }>;
 };
 
-export type SingleProjectResponse = ProjectResponse["content"][0];
+export type SingleProjectResponse = ProjectResponse['content'][0];
 
 // Prompt types
 export type PromptResponse = {
@@ -38,7 +38,7 @@ export type PromptResponse = {
   }>;
 };
 
-export type SinglePromptResponse = PromptResponse["content"][0];
+export type SinglePromptResponse = PromptResponse['content'][0];
 
 // Trace types
 export type TraceResponse = {

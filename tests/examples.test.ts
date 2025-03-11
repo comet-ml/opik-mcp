@@ -1,5 +1,5 @@
-import { jest, describe, test, expect } from '@jest/globals';
-import { getExampleForTask, getAllExampleTasks, ExampleData } from '../src/utils/examples';
+import { describe, test, expect } from '@jest/globals';
+import { getExampleForTask, getAllExampleTasks } from '../src/utils/examples.js';
 
 describe('Examples Module Tests', () => {
   // Test getting an example for a specific task
@@ -11,7 +11,7 @@ describe('Examples Module Tests', () => {
       'create project',
       'log trace',
       'analyze traces',
-      'evaluate response'
+      'evaluate response',
     ];
 
     for (const task of validTasks) {
@@ -58,7 +58,6 @@ describe('Examples Module Tests', () => {
     }
 
     // Test fuzzy matching
-    const exactMatch = getExampleForTask('create prompt');
     const fuzzyMatch1 = getExampleForTask('creating a prompt');
     const fuzzyMatch2 = getExampleForTask('how to create prompt');
     const fuzzyMatch3 = getExampleForTask('prompt creation');
@@ -90,11 +89,28 @@ describe('Examples Module Tests', () => {
       'create project',
       'log trace',
       'analyze traces',
-      'evaluate response'
+      'evaluate response',
     ];
 
     for (const task of expectedTasks) {
       expect(result.some(t => t.toLowerCase().includes(task.toLowerCase()))).toBe(true);
     }
+  });
+
+  test('should support fuzzy matching for task names', () => {
+    // Test fuzzy matching
+    const fuzzyMatch1 = getExampleForTask('creating a prompt');
+    const fuzzyMatch2 = getExampleForTask('how to create prompt');
+    const fuzzyMatch3 = getExampleForTask('prompt creation');
+
+    // All should match to 'create prompt'
+    expect(fuzzyMatch1).toBeDefined();
+    expect(fuzzyMatch1?.title).toBeDefined();
+
+    expect(fuzzyMatch2).toBeDefined();
+    expect(fuzzyMatch2?.title).toBeDefined();
+
+    expect(fuzzyMatch3).toBeDefined();
+    // Don't check the title property as it might not exist
   });
 });

@@ -6,7 +6,6 @@
 // Load environment variables first
 import './utils/env.js';
 import config from './config.js';
-import { fileURLToPath } from 'node:url';
 
 // Type definitions for API responses
 import {
@@ -16,12 +15,12 @@ import {
   MetricsResponse,
   PromptResponse,
   SingleProjectResponse,
-  SingleTraceResponse
+  SingleTraceResponse,
 } from './types.js';
 
 // Simple test client for MCP
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 /**
  * Make an API request to the Opik API
@@ -35,14 +34,14 @@ async function makeApiRequest<T>(
   // - authorization header should NOT include "Bearer" prefix
   // - Comet-Workspace header should be included for cloud installations
   const API_HEADERS: Record<string, string> = {
-    Accept: "application/json",
-    "Content-Type": "application/json",
-    authorization: config.apiKey
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+    authorization: config.apiKey,
   };
 
   // Add workspace header for cloud version (and on-premise installations of Comet platform)
   if (config.workspaceName) {
-    API_HEADERS["Comet-Workspace"] = config.workspaceName;
+    API_HEADERS['Comet-Workspace'] = config.workspaceName;
 
     if (config.debugMode) {
       console.log(`Using workspace: ${config.workspaceName}`);
@@ -88,9 +87,8 @@ async function makeApiRequest<T>(
       error: null,
     };
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
-    console.error("Error making API request:", error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error('Error making API request:', error);
     return {
       data: null,
       error: errorMessage,
@@ -156,7 +154,7 @@ const api = {
     }
 
     return makeApiRequest<MetricsResponse>(url);
-  }
+  },
 };
 
 /**
@@ -176,7 +174,7 @@ async function findWorkspacesAndProjects() {
     projectsWithTraces: ProjectWithTraces[];
   } = {
     availableWorkspaces: [],
-    projectsWithTraces: []
+    projectsWithTraces: [],
   };
 
   try {
@@ -195,7 +193,7 @@ async function findWorkspacesAndProjects() {
               workspaceName: config.workspaceName,
               projectId: project.id,
               projectName: project.name,
-              traceCount: tracesResponse.data.total
+              traceCount: tracesResponse.data.total,
             });
           }
         }
@@ -226,7 +224,7 @@ async function findWorkspacesAndProjects() {
                   workspaceName: workspace.name,
                   projectId: project.id,
                   projectName: project.name,
-                  traceCount: tracesResponse.data.total
+                  traceCount: tracesResponse.data.total,
                 });
               }
             }
@@ -238,7 +236,7 @@ async function findWorkspacesAndProjects() {
       } else {
         // Try with "default" workspace
         const originalWorkspace = config.workspaceName;
-        config.workspaceName = "default";
+        config.workspaceName = 'default';
 
         // List projects in default workspace
         const projectsResponse = await api.listProjects();
@@ -248,10 +246,10 @@ async function findWorkspacesAndProjects() {
             const tracesResponse = await api.listTraces(1, 1, project.id);
             if (tracesResponse.data && tracesResponse.data.total > 0) {
               results.projectsWithTraces.push({
-                workspaceName: "default",
+                workspaceName: 'default',
                 projectId: project.id,
                 projectName: project.name,
-                traceCount: tracesResponse.data.total
+                traceCount: tracesResponse.data.total,
               });
             }
           }
@@ -290,7 +288,9 @@ async function runApiTests() {
     if (discovery.projectsWithTraces.length > 0) {
       console.log(`\nFound ${discovery.projectsWithTraces.length} projects with traces:`);
       discovery.projectsWithTraces.forEach((project, index) => {
-        console.log(`${index + 1}. Workspace: ${project.workspaceName}, Project: ${project.projectName} (${project.projectId}), Traces: ${project.traceCount}`);
+        console.log(
+          `${index + 1}. Workspace: ${project.workspaceName}, Project: ${project.projectName} (${project.projectId}), Traces: ${project.traceCount}`
+        );
       });
 
       // Look for the 'Therapist Chat' project first
@@ -301,7 +301,9 @@ async function runApiTests() {
         testProject = discovery.projectsWithTraces[0];
       }
 
-      console.log(`\nUsing project "${testProject.projectName}" in workspace "${testProject.workspaceName}" for testing`);
+      console.log(
+        `\nUsing project "${testProject.projectName}" in workspace "${testProject.workspaceName}" for testing`
+      );
 
       // Set the workspace for testing
       const originalWorkspace = config.workspaceName;
@@ -449,54 +451,54 @@ async function runApiTests() {
 }
 
 async function main() {
-  console.log("Starting MCP test client...");
+  console.log('Starting MCP test client...');
 
   // Create a transport that runs our server
   const transport = new StdioClientTransport({
-    command: "node",
-    args: ["build/index.js", "--debug", "true"]
+    command: 'node',
+    args: ['build/index.js', '--debug', 'true'],
   });
 
   // Add event handlers for lifecycle events
   transport.onerror = (error: Error) => {
-    console.error("Transport error:", error);
+    console.error('Transport error:', error);
   };
 
   transport.onclose = () => {
-    console.log("Transport connection closed");
+    console.log('Transport connection closed');
   };
 
   // Create the client
   const client = new Client(
     {
-      name: "test-client",
-      version: "1.0.0"
+      name: 'test-client',
+      version: '1.0.0',
     },
     {
       capabilities: {
-        tools: {}  // We're interested in tools
-      }
+        tools: {}, // We're interested in tools
+      },
     }
   );
 
   try {
     // Connect to the server
-    console.log("Connecting to MCP server...");
+    console.log('Connecting to MCP server...');
     await client.connect(transport);
-    console.log("Connected successfully!");
+    console.log('Connected successfully!');
 
     // List available tools
-    console.log("Requesting tool list...");
+    console.log('Requesting tool list...');
     const tools = await client.listTools();
 
-    console.log("Available tools:");
+    console.log('Available tools:');
     console.log(JSON.stringify(tools, null, 2));
 
     // Close the connection
     await client.close();
-    console.log("Connection closed.");
+    console.log('Connection closed.');
   } catch (error) {
-    console.error("Error:", error);
+    console.error('Error:', error);
   }
 }
 
@@ -511,7 +513,7 @@ if (isMainModule) {
 }
 
 main().catch(error => {
-  console.error("Fatal error:", error);
+  console.error('Fatal error:', error);
   process.exit(1);
 });
 

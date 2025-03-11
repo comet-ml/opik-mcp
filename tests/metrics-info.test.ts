@@ -1,5 +1,5 @@
-import { jest, describe, test, expect } from '@jest/globals';
-import { getMetricInfo, getAllMetricsInfo, MetricInfo } from '../src/utils/metrics-info';
+import { describe, test, expect } from '@jest/globals';
+import { getMetricInfo, getAllMetricsInfo } from '../src/utils/metrics-info.js';
 
 describe('Metrics Info Module Tests', () => {
   // Test getting info for a specific metric
@@ -14,7 +14,7 @@ describe('Metrics Info Module Tests', () => {
       'equals',
       'regexmatch',
       'contains',
-      'levenshteinratio'
+      'levenshteinratio',
     ];
 
     for (const metric of validMetrics) {
@@ -91,7 +91,7 @@ describe('Metrics Info Module Tests', () => {
       'equals',
       'regexmatch',
       'contains',
-      'levenshteinratio'
+      'levenshteinratio',
     ];
 
     for (const metric of expectedMetrics) {

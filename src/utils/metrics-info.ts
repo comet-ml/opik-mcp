@@ -22,11 +22,11 @@ const metricsInfo: Record<string, MetricInfo> = {
       'Fact-checking LLM outputs',
       'Ensuring responses are grounded in provided context',
       'Identifying fabricated information',
-      'Quality control for knowledge-intensive applications'
+      'Quality control for knowledge-intensive applications',
     ],
     parameters: {
       answer: 'The LLM-generated text to evaluate',
-      context: 'Optional reference text to check against (if provided)'
+      context: 'Optional reference text to check against (if provided)',
     },
     example: `
 // Example API call
@@ -38,7 +38,7 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where 0 indicates high hallucination and 1 indicates no hallucination
-`
+`,
   },
 
   answerrelevance: {
@@ -49,11 +49,11 @@ const result = await opik.evaluateMetric({
       'Ensuring LLM responses address the user query',
       'Detecting off-topic or tangential responses',
       'Measuring answer quality for question-answering systems',
-      'Filtering irrelevant content from responses'
+      'Filtering irrelevant content from responses',
     ],
     parameters: {
       question: 'The question or prompt given to the LLM',
-      answer: 'The LLM-generated response to evaluate'
+      answer: 'The LLM-generated response to evaluate',
     },
     example: `
 // Example API call
@@ -65,22 +65,23 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where higher values indicate greater relevance
-`
+`,
   },
 
   contextprecision: {
     name: 'ContextPrecision',
-    description: 'Measures how precisely an answer uses the provided context without including irrelevant information.',
+    description:
+      'Measures how precisely an answer uses the provided context without including irrelevant information.',
     type: 'AI-based',
     use_cases: [
       'Evaluating RAG system outputs',
       'Ensuring responses stay focused on relevant context',
       'Detecting when models add unnecessary information',
-      'Measuring information quality in context-based responses'
+      'Measuring information quality in context-based responses',
     ],
     parameters: {
       answer: 'The LLM-generated response to evaluate',
-      context: 'The context provided to the LLM'
+      context: 'The context provided to the LLM',
     },
     example: `
 // Example API call
@@ -92,22 +93,23 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where higher values indicate better precision
-`
+`,
   },
 
   contextrecall: {
     name: 'ContextRecall',
-    description: 'Assesses how completely an answer captures the relevant information from the provided context.',
+    description:
+      'Assesses how completely an answer captures the relevant information from the provided context.',
     type: 'AI-based',
     use_cases: [
       'Ensuring comprehensive use of relevant context',
       'Detecting when important information is omitted',
       'Evaluating information completeness in summaries',
-      'Measuring context utilization in RAG systems'
+      'Measuring context utilization in RAG systems',
     ],
     parameters: {
       answer: 'The LLM-generated response to evaluate',
-      context: 'The context provided to the LLM'
+      context: 'The context provided to the LLM',
     },
     example: `
 // Example API call
@@ -119,21 +121,22 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where higher values indicate better recall
-`
+`,
   },
 
   moderation: {
     name: 'Moderation',
-    description: 'Detects harmful or inappropriate content in LLM outputs, including toxicity, profanity, and unsafe content.',
+    description:
+      'Detects harmful or inappropriate content in LLM outputs, including toxicity, profanity, and unsafe content.',
     type: 'AI-based',
     use_cases: [
       'Content filtering for user-facing applications',
       'Safety checks for generated content',
       'Identifying policy violations in responses',
-      'Preventing harmful outputs in production systems'
+      'Preventing harmful outputs in production systems',
     ],
     parameters: {
-      text: 'The text to evaluate for harmful content'
+      text: 'The text to evaluate for harmful content',
     },
     example: `
 // Example API call
@@ -144,7 +147,7 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where 0 indicates harmful content and 1 indicates safe content
-`
+`,
   },
 
   equals: {
@@ -155,11 +158,11 @@ const result = await opik.evaluateMetric({
       'Validating exact outputs for deterministic tasks',
       'Testing for specific expected responses',
       'Checking format compliance in structured outputs',
-      'Verifying exact matches in critical applications'
+      'Verifying exact matches in critical applications',
     ],
     parameters: {
       answer: 'The text to evaluate',
-      expected: 'The expected exact value'
+      expected: 'The expected exact value',
     },
     example: `
 // Example API call
@@ -171,7 +174,7 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns 1 for exact match, 0 otherwise
-`
+`,
   },
 
   regexmatch: {
@@ -182,11 +185,11 @@ const result = await opik.evaluateMetric({
       'Validating formatted outputs (emails, phone numbers, etc.)',
       'Checking for pattern compliance',
       'Extracting structured data from responses',
-      'Verifying output format consistency'
+      'Verifying output format consistency',
     ],
     parameters: {
       answer: 'The text to evaluate',
-      pattern: 'The regex pattern to match against'
+      pattern: 'The regex pattern to match against',
     },
     example: `
 // Example API call
@@ -198,7 +201,7 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns 1 if the pattern matches, 0 otherwise
-`
+`,
   },
 
   contains: {
@@ -209,11 +212,11 @@ const result = await opik.evaluateMetric({
       'Verifying key information is included in responses',
       'Checking for required elements in outputs',
       'Testing for inclusion of critical terms',
-      'Basic content validation'
+      'Basic content validation',
     ],
     parameters: {
       answer: 'The text to evaluate',
-      substrings: 'Array of substrings to check for'
+      substrings: 'Array of substrings to check for',
     },
     example: `
 // Example API call
@@ -225,7 +228,7 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1 based on the proportion of substrings found
-`
+`,
   },
 
   levenshteinratio: {
@@ -236,11 +239,11 @@ const result = await opik.evaluateMetric({
       'Fuzzy matching for approximate answers',
       'Evaluating text similarity with tolerance for minor differences',
       'Spell-check validation',
-      'Measuring response closeness to expected outputs'
+      'Measuring response closeness to expected outputs',
     ],
     parameters: {
       answer: 'The text to evaluate',
-      expected: 'The expected text to compare against'
+      expected: 'The expected text to compare against',
     },
     example: `
 // Example API call
@@ -252,8 +255,8 @@ const result = await opik.evaluateMetric({
   }
 });
 // Returns a score between 0-1, where higher values indicate greater similarity
-`
-  }
+`,
+  },
 };
 
 /**

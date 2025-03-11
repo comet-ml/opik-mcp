@@ -1,4 +1,4 @@
-import { jest, describe, beforeEach, afterEach, test, expect } from '@jest/globals';
+import { jest, describe, test, expect } from '@jest/globals';
 
 // Mock console.error
 const originalConsoleError = console.error;
@@ -14,11 +14,11 @@ describe('Opik API Tests', () => {
   test('Project endpoints should have the correct structure', () => {
     // Validate project endpoints
     const endpoints = [
-      '/v1/private/projects',                // List projects
-      '/v1/private/projects/123',            // Get project by ID
-      '/v1/private/projects',                // Create project (POST)
-      '/v1/private/projects/123',            // Update project (PUT)
-      '/v1/private/projects/123'             // Delete project (DELETE)
+      '/v1/private/projects', // List projects
+      '/v1/private/projects/123', // Get project by ID
+      '/v1/private/projects', // Create project (POST)
+      '/v1/private/projects/123', // Update project (PUT)
+      '/v1/private/projects/123', // Delete project (DELETE)
     ];
 
     // Simple validation that the endpoints follow the expected pattern
@@ -30,9 +30,9 @@ describe('Opik API Tests', () => {
   test('Trace endpoints should have the correct structure', () => {
     // Validate trace endpoints
     const endpoints = [
-      '/v1/private/traces?page=1&size=10',             // List traces
-      '/v1/private/traces/123',                        // Get trace by ID
-      '/v1/private/traces/stats?project_id=123',       // Get trace statistics
+      '/v1/private/traces?page=1&size=10', // List traces
+      '/v1/private/traces/123', // Get trace by ID
+      '/v1/private/traces/stats?project_id=123', // Get trace statistics
     ];
 
     // Simple validation that the endpoints follow the expected pattern
@@ -44,12 +44,12 @@ describe('Opik API Tests', () => {
   test('Prompt endpoints should have the correct structure', () => {
     // Validate prompt endpoints
     const endpoints = [
-      '/v1/private/prompts?page=1&size=10',            // List prompts
-      '/v1/private/prompts',                           // Create prompt (POST)
-      '/v1/private/prompts/versions',                  // Create prompt version (POST)
-      '/v1/private/prompts/123',                       // Get prompt by ID
-      '/v1/private/prompts/123',                       // Update prompt (PUT)
-      '/v1/private/prompts/123',                       // Delete prompt (DELETE)
+      '/v1/private/prompts?page=1&size=10', // List prompts
+      '/v1/private/prompts', // Create prompt (POST)
+      '/v1/private/prompts/versions', // Create prompt version (POST)
+      '/v1/private/prompts/123', // Get prompt by ID
+      '/v1/private/prompts/123', // Update prompt (PUT)
+      '/v1/private/prompts/123', // Delete prompt (DELETE)
     ];
 
     // Simple validation that the endpoints follow the expected pattern
@@ -61,7 +61,7 @@ describe('Opik API Tests', () => {
   test('Metrics endpoints should have the correct structure', () => {
     // Validate metrics endpoints
     const endpoints = [
-      '/v1/private/metrics?metric_name=trace_count',   // Get metrics
+      '/v1/private/metrics?metric_name=trace_count', // Get metrics
     ];
 
     // Simple validation that the endpoints follow the expected pattern
@@ -86,9 +86,9 @@ describe('Opik API Tests', () => {
           created_by: 'user1',
           last_updated_at: '2023-01-01T00:00:00Z',
           last_updated_by: 'user1',
-          workspace: 'workspace1'
-        }
-      ]
+          workspace: 'workspace1',
+        },
+      ],
     };
 
     // Validate structure
@@ -124,9 +124,9 @@ describe('Opik API Tests', () => {
           tags: ['test'],
           created_at: '2023-01-01T00:00:00Z',
           created_by: 'user1',
-          project_id: 'proj1'
-        }
-      ]
+          project_id: 'proj1',
+        },
+      ],
     };
 
     // Validate structure
@@ -161,9 +161,9 @@ describe('Opik API Tests', () => {
           date: '2023-04-01',
           trace_count: 50,
           span_count: 250,
-          total_tokens: 5000
-        }
-      ]
+          total_tokens: 5000,
+        },
+      ],
     };
 
     // Validate structure
@@ -190,9 +190,9 @@ describe('Opik API Tests', () => {
           description: 'Number of traces',
           value: 42,
           unit: 'count',
-          timestamp: '2023-01-01T00:00:00Z'
-        }
-      ]
+          timestamp: '2023-01-01T00:00:00Z',
+        },
+      ],
     };
 
     // Validate structure

@@ -19,7 +19,7 @@ const examples: Record<string, ExampleData> = {
       'Initialize the Opik client with your API key',
       'Define a name for your prompt',
       'Call the createPrompt API endpoint',
-      'Store the returned promptId for future reference'
+      'Store the returned promptId for future reference',
     ],
     codeExample: `
 // Python Example
@@ -47,7 +47,7 @@ const prompt = await client.createPrompt({ name: "My Customer Support Prompt" })
 // Store the prompt ID for future use
 const promptId = prompt.id;
 console.log(\`Created prompt with ID: \${promptId}\`);
-`
+`,
   },
 
   'version-prompt': {
@@ -58,7 +58,7 @@ console.log(\`Created prompt with ID: \${promptId}\`);
       'Retrieve the prompt ID of the prompt you want to version',
       'Define the new template content',
       'Add a commit message describing the changes',
-      'Call the createPromptVersion API endpoint'
+      'Call the createPromptVersion API endpoint',
     ],
     codeExample: `
 // Python Example
@@ -110,7 +110,7 @@ const version = await client.createPromptVersion({
 });
 
 console.log(\`Created version \${version.version} of prompt \${promptId}\`);
-`
+`,
   },
 
   'create-project': {
@@ -120,7 +120,7 @@ console.log(\`Created version \${version.version} of prompt \${promptId}\`);
       'Initialize the Opik client with your API key',
       'Define a name and optional description for your project',
       'Call the createProject API endpoint',
-      'Store the returned projectId for future reference'
+      'Store the returned projectId for future reference',
     ],
     codeExample: `
 // Python Example
@@ -154,18 +154,19 @@ const project = await client.createProject({
 // Store the project ID for future use
 const projectId = project.id;
 console.log(\`Created project with ID: \${projectId}\`);
-`
+`,
   },
 
   'log-trace': {
     title: 'Log Trace',
-    description: 'Log a trace of an LLM interaction to capture inputs, outputs, and metadata for analysis.',
+    description:
+      'Log a trace of an LLM interaction to capture inputs, outputs, and metadata for analysis.',
     steps: [
       'Initialize the Opik client with your API key',
       'Prepare the trace data including inputs, outputs, and metadata',
       'Optionally specify a project ID to associate the trace with',
       'Call the logTrace API endpoint',
-      'Store the returned traceId for future reference'
+      'Store the returned traceId for future reference',
     ],
     codeExample: `
 // Python Example
@@ -234,18 +235,19 @@ const trace = await client.logTrace(traceData);
 // Store the trace ID for future use
 const traceId = trace.id;
 console.log(\`Logged trace with ID: \${traceId}\`);
-`
+`,
   },
 
   'analyze-traces': {
     title: 'Analyze Traces',
-    description: 'Search and analyze traces to gain insights into your LLM application performance.',
+    description:
+      'Search and analyze traces to gain insights into your LLM application performance.',
     steps: [
       'Initialize the Opik client with your API key',
       'Define search criteria such as time range, project ID, or content filters',
       'Call the searchTraces API endpoint',
       'Process the returned traces to extract insights',
-      'Optionally use the getTraceStats API for aggregated metrics'
+      'Optionally use the getTraceStats API for aggregated metrics',
     ],
     codeExample: `
 // Python Example
@@ -311,18 +313,19 @@ const stats = await client.getTraceStats({
 
 console.log(\`Average response time: \${stats.avgResponseTime}ms\`);
 console.log(\`Total traces: \${stats.totalTraces}\`);
-`
+`,
   },
 
   'evaluate-response': {
     title: 'Evaluate Response',
-    description: 'Evaluate LLM responses using Opik\'s evaluation metrics to measure quality and performance.',
+    description:
+      "Evaluate LLM responses using Opik's evaluation metrics to measure quality and performance.",
     steps: [
       'Initialize the Opik client with your API key',
       'Select the appropriate evaluation metric',
       'Prepare the parameters for the evaluation',
       'Call the evaluateMetric API endpoint',
-      'Process the evaluation results'
+      'Process the evaluation results',
     ],
     codeExample: `
 // Python Example
@@ -380,8 +383,8 @@ const relevanceResult = await client.evaluateMetric({
 });
 
 console.log(\`Relevance score: \${relevanceResult.score}\`);
-`
-  }
+`,
+  },
 };
 
 /**
@@ -419,8 +422,10 @@ export function getExampleForTask(task?: string): ExampleData | null {
 
   // Check if the task contains any of the example keys
   for (const [key, example] of Object.entries(examples)) {
-    if (normalizedTask.includes(key.replace('-', ' ')) ||
-        key.replace('-', ' ').includes(normalizedTask)) {
+    if (
+      normalizedTask.includes(key.replace('-', ' ')) ||
+      key.replace('-', ' ').includes(normalizedTask)
+    ) {
       return example;
     }
   }

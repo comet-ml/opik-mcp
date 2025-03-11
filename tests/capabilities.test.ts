@@ -1,9 +1,9 @@
-import { jest, describe, test, expect } from '@jest/globals';
+import { describe, test, expect } from '@jest/globals';
 import {
   opikCapabilities,
   getEnabledCapabilities,
-  getCapabilitiesDescription
-} from '../src/utils/capabilities';
+  getCapabilitiesDescription,
+} from '../src/utils/capabilities.js';
 
 describe('Capabilities Module Tests', () => {
   // Test the opikCapabilities object structure
@@ -83,7 +83,7 @@ describe('Capabilities Module Tests', () => {
       mcpEnablePromptTools: true,
       mcpEnableProjectTools: true,
       mcpEnableTraceTools: true,
-      mcpEnableMetricTools: true
+      mcpEnableMetricTools: true,
     };
 
     const fullCapabilities = getEnabledCapabilities(fullConfig);
@@ -97,7 +97,7 @@ describe('Capabilities Module Tests', () => {
       mcpEnablePromptTools: true,
       mcpEnableProjectTools: false,
       mcpEnableTraceTools: true,
-      mcpEnableMetricTools: false
+      mcpEnableMetricTools: false,
     };
 
     const partialCapabilities = getEnabledCapabilities(partialConfig);
@@ -111,7 +111,7 @@ describe('Capabilities Module Tests', () => {
       mcpEnablePromptTools: false,
       mcpEnableProjectTools: false,
       mcpEnableTraceTools: false,
-      mcpEnableMetricTools: false
+      mcpEnableMetricTools: false,
     };
 
     const noCapabilities = getEnabledCapabilities(noConfig);
@@ -128,7 +128,7 @@ describe('Capabilities Module Tests', () => {
       mcpEnablePromptTools: true,
       mcpEnableProjectTools: true,
       mcpEnableTraceTools: true,
-      mcpEnableMetricTools: true
+      mcpEnableMetricTools: true,
     };
 
     const description = getCapabilitiesDescription(fullConfig);
@@ -153,7 +153,7 @@ describe('Capabilities Module Tests', () => {
       mcpEnablePromptTools: false,
       mcpEnableProjectTools: false,
       mcpEnableTraceTools: false,
-      mcpEnableMetricTools: false
+      mcpEnableMetricTools: false,
     };
 
     const emptyDescription = getCapabilitiesDescription(noConfig);
