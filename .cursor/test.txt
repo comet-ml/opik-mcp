@@ -1,7 +1,111 @@
-I wanna test Opik prompt feature
-1. create a new Prompt with name RandomDish, it should generate prompt to get random dish receipt
-2. create a new version with enchanced prompt version, to create the recepies with joke format
-3. Show all list of prompts, sorted by count of versions and names
-4. update the name of RandomDish prompt to EasyDish
-5. get the latest summary data for RandomDish prompt
-6. remove RandomDish prompt and show how much prompt are left
+# Opik Prompt Feature Test Script
+
+## Overview
+This script tests the Opik prompt management capabilities through the MCP server.
+
+## Prerequisites
+- Opik MCP server running
+- Valid API key configured in .env file
+- Default workspace configured
+
+## Test Steps
+
+### 1. Create a new prompt
+- Create a prompt named "RandomDish"
+- Purpose: Generate random dish recipes
+- Command:
+```
+{
+  "name": "create-prompt",
+  "parameters": {
+    "name": "RandomDish"
+  }
+}
+```
+- Expected result: Success response with prompt ID
+
+### 2. Create a new version with enhanced content
+- Add a version to the "RandomDish" prompt
+- Enhancement: Format recipes with jokes
+- Command:
+```
+{
+  "name": "create-prompt-version",
+  "parameters": {
+    "name": "RandomDish",
+    "template": "Generate a random dish recipe with the following format:\n\n1. Dish name\n2. Ingredients list\n3. Step-by-step instructions\n4. A funny joke related to the dish\n5. Serving suggestions",
+    "commit_message": "Added joke format to recipe template"
+  }
+}
+```
+- Expected result: Success response with version details
+
+### 3. List all prompts with sorting
+- Show all prompts sorted by version count and name
+- Command:
+```
+{
+  "name": "list-prompts",
+  "parameters": {
+    "page": 1,
+    "size": 10
+  }
+}
+```
+- Note: Sorting will need to be done client-side as the API doesn't support this directly
+- Expected result: List of prompts including "RandomDish"
+
+### 4. Update prompt name
+- Change prompt name from "RandomDish" to "EasyDish"
+- Command:
+```
+{
+  "name": "update-prompt",
+  "parameters": {
+    "promptId": "<PROMPT_ID>",
+    "name": "EasyDish"
+  }
+}
+```
+- Expected result: Success response with updated prompt details
+
+### 5. Get prompt details
+- Retrieve the latest information for the prompt
+- Command:
+```
+{
+  "name": "get-prompt-by-id",
+  "parameters": {
+    "promptId": "<PROMPT_ID>"
+  }
+}
+```
+- Expected result: Prompt details including version history
+
+### 6. Delete prompt and verify
+- Remove the prompt and confirm deletion
+- Command:
+```
+{
+  "name": "delete-prompt",
+  "parameters": {
+    "promptId": "<PROMPT_ID>"
+  }
+}
+```
+- Then list prompts again to verify deletion:
+```
+{
+  "name": "list-prompts",
+  "parameters": {
+    "page": 1,
+    "size": 10
+  }
+}
+```
+- Expected result: Success response and subsequent list should not include the deleted prompt
+
+## Notes
+- Replace <PROMPT_ID> with the actual ID returned from the create-prompt call
+- All commands should be executed through the MCP interface
+- Verify each step before proceeding to the next

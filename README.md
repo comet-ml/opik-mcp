@@ -623,3 +623,68 @@ For example, to run all tests except the MCP tools tests:
 ```bash
 npm test -- --testPathIgnorePatterns=mcp-tools.test.ts
 ```
+
+## Development Workflow
+
+### Pre-commit Hooks
+
+This project uses pre-commit hooks to ensure code quality before commits. The following checks are run automatically before each commit:
+
+1. **Linting**: Ensures code follows the project's style guidelines
+2. **Testing**: Runs the test suite to catch any regressions
+
+You can run these checks manually with:
+
+```bash
+make precommit
+```
+
+Or individually:
+
+```bash
+# Run linting
+make lint
+
+# Run tests
+make test
+```
+
+### Build Process
+
+The TypeScript code is compiled to JavaScript in the `build` directory. This directory is excluded from Git via `.gitignore`.
+
+To build the project:
+
+```bash
+make build
+```
+
+### Available Commands
+
+The project includes a Makefile with common commands:
+
+```bash
+# Show all available commands
+make help
+
+# Install dependencies
+make install
+
+# Build the project
+make build
+
+# Run tests
+make test
+
+# Run linter
+make lint
+
+# Clean build artifacts
+make clean
+
+# Start the MCP server
+make start
+
+# Start in development mode
+make dev
+```
