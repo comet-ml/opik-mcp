@@ -604,6 +604,10 @@ The project includes comprehensive test coverage for the following components:
    - `get-opik-metrics-info`: Provides information about Opik's evaluation metrics
    - `get-opik-tracing-info`: Provides information about Opik's tracing capabilities
 
+7. **Transport Implementations** (`transports/*.test.ts`): Tests for the various transport mechanisms:
+   - `sse-transport.test.ts`: Unit tests for the SSE transport implementation
+   - `mcp-sse-integration.test.ts`: Integration tests for the MCP server with SSE transport
+
 ### Running Tests
 
 To run the tests, use the following command:
@@ -612,16 +616,24 @@ To run the tests, use the following command:
 npm test
 ```
 
-To run tests excluding specific files:
+To run specific test suites:
 
 ```bash
-npm test -- --testPathIgnorePatterns=<file-pattern>
+# Run only the SSE transport tests
+npm test -- tests/transports/sse-transport.test.ts
+
+# Run only the MCP server integration tests with SSE transport
+npm test -- tests/transports/mcp-sse-integration.test.ts
 ```
 
-For example, to run all tests except the MCP tools tests:
+For debugging purposes, you can run tests with additional flags:
 
 ```bash
-npm test -- --testPathIgnorePatterns=mcp-tools.test.ts
+# Run tests with open handle detection and forced exit
+npm test -- --forceExit --detectOpenHandles
+
+# Run tests with increased timeout
+npm test -- --testTimeout=30000
 ```
 
 ## Development Workflow
@@ -688,3 +700,36 @@ make start
 # Start in development mode
 make dev
 ```
+
+## Transport Options
+
+The MCP server supports multiple transport mechanisms:
+
+### 1. Standard Input/Output (stdio)
+
+The default transport mechanism uses stdio for communication, which is ideal for local integrations where the client and server run on the same machine.
+
+```bash
+# Start with stdio transport
+make start-stdio
+
+# Or directly
+npm run start:stdio
+```
+
+### 2. Server-Sent Events (SSE)
+
+The SSE transport allows the MCP server to accept connections over HTTP, enabling remote access and multiple simultaneous clients.
+
+```bash
+# Start with SSE transport
+make start-sse
+
+# Or directly
+npm run start:sse
+
+# Custom port
+npm run start:sse -- --port 8080
+```
+
+For detailed information about using the SSE transport, see [docs/sse-transport.md](docs/sse-transport.md).
