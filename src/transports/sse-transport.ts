@@ -1,4 +1,3 @@
-
 import { Transport, SSETransportOptions, HealthResponse, MessageResponse } from './types.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import express from 'express';

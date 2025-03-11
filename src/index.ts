@@ -5,6 +5,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 
+// Import custom transports
+import { SSEServerTransport } from './transports/sse-transport.js';
+
 // Import environment variables loader - no console output
 import './utils/env.js';
 
@@ -14,17 +17,6 @@ const logFile = '/tmp/opik-mcp.log';
 // Import configuration
 import configImport from './config.js';
 const config = configImport;
-
-// Clean stdout protocol message - only use this for protocol communication
-function sendProtocolMessage(method: string, message: string) {
-  console.log(
-    JSON.stringify({
-      jsonrpc: '2.0',
-      method,
-      params: { message },
-    })
-  );
-}
 
 // Define logging functions
 function logToFile(message: string) {
@@ -2161,74 +2153,49 @@ trace.add_tags(["search", "product", "footwear"])`,
   }
 );
 
-// Server startup
-async function main() {
-  try {
-    logToFile('Starting main function');
+// Main function to start the server
+export async function main() {
+  logToFile('Starting main function');
 
-    // Initialize transport with error handling
+  // Create the appropriate transport based on configuration
+  let transport;
+  if (config.transport === 'sse') {
+    logToFile(`Creating SSEServerTransport on port ${config.ssePort}`);
+    transport = new SSEServerTransport({
+      port: config.ssePort || 3001,
+    });
+
+    // Explicitly start the SSE transport
+    logToFile('Starting SSE transport');
+    await transport.start();
+  } else {
     logToFile('Creating StdioServerTransport');
-    const transport = new StdioServerTransport();
-
-    // Add explicit error handlers to the transport
-    transport.onerror = error => {
-      logToFile(`Transport error: ${error.message}`);
-    };
-
-    transport.onclose = () => {
-      logToFile('Transport connection closed');
-    };
-
-    // Log configuration for debugging purposes only to file
-    logToFile(`API Base URL: ${config.apiBaseUrl}`);
-    logToFile(`Self-hosted: ${config.isSelfHosted ? 'Yes' : 'No'}`);
-    logToFile(`Workspace: ${config.workspaceName || 'None'}`);
-
-    // Test API call if test flag is set
-    if (process.argv.includes('--test')) {
-      logToFile('Test flag detected, making test API call');
-
-      // First, let's try to list available workspaces
-      logToFile('Listing available workspaces');
-      const workspacesResult = await makeApiRequest<any>('/v1/private/workspaces');
-      logToFile(`Workspaces API call result: ${JSON.stringify(workspacesResult, null, 2)}`);
-
-      // Then try the projects API
-      const testResult = await makeApiRequest<any>('/v1/private/projects?page=1&size=10');
-      logToFile(`Projects API call result: ${JSON.stringify(testResult, null, 2)}`);
-
-      process.exit(0);
-    }
-
-    try {
-      // Connect server to transport - This is where the initialization handshake happens
-      logToFile('Connecting server to transport');
-      await server.connect(transport);
-
-      logToFile('Transport connection established');
-
-      // Success message AFTER transport is connected
-      sendProtocolMessage('log', 'Opik MCP Server successfully connected and running');
-
-      logToFile('Opik MCP Server running on stdio');
-      logToFile('Main function completed successfully');
-
-      // Keep the process alive with a heartbeat
-      setInterval(() => {
-        logToFile('Heartbeat ping');
-      }, 5000);
-    } catch (connectError: any) {
-      logToFile(`Error in server connection: ${connectError?.message || connectError}`);
-      process.exit(1);
-    }
-  } catch (mainError: any) {
-    logToFile(`Error in main function: ${mainError?.message || mainError}`);
-    process.exit(1);
+    transport = new StdioServerTransport();
   }
+
+  // Connect the server to the transport
+  logToFile('Connecting server to transport');
+  server.connect(transport);
+
+  logToFile('Transport connection established');
+
+  // Log server status
+  if (config.transport === 'sse') {
+    logToFile(`Opik MCP Server running on SSE (port ${config.ssePort})`);
+  } else {
+    logToFile('Opik MCP Server running on stdio');
+  }
+
+  logToFile('Main function completed successfully');
+
+  // Start heartbeat for keeping the process alive
+  setInterval(() => {
+    logToFile('Heartbeat ping');
+  }, 5000);
 }
 
+// Start the server
 main().catch(error => {
-  logToFile(`Fatal error in main() catch handler: ${error?.message || error}`);
-  sendProtocolMessage('log', `Fatal error: ${error?.message || error}`);
+  logToFile(`Error starting server: ${error}`);
   process.exit(1);
 });

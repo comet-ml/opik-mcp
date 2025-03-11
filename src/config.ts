@@ -41,6 +41,12 @@ interface OpikConfig {
   isSelfHosted: boolean;
   debugMode: boolean;
 
+  // Transport configuration
+  transport: 'stdio' | 'sse';
+  ssePort?: number;
+  sseHost?: string;
+  sseLogPath?: string;
+
   // MCP server configuration
   mcpName: string;
   mcpVersion: string;
@@ -82,6 +88,28 @@ function parseCommandLineArgs() {
       .option('debug', {
         type: 'boolean',
         description: 'Enable debug mode',
+      })
+      // Transport Configuration
+      .option('transport', {
+        type: 'string',
+        description: 'Transport type (stdio or sse)',
+        choices: ['stdio', 'sse'],
+        default: 'stdio',
+      })
+      .option('ssePort', {
+        type: 'number',
+        description: 'Port for SSE transport',
+        default: 3001,
+      })
+      .option('sseHost', {
+        type: 'string',
+        description: 'Host for SSE transport',
+        default: 'localhost',
+      })
+      .option('sseLogPath', {
+        type: 'string',
+        description: 'Log file path for SSE transport',
+        default: '/tmp/opik-mcp-sse.log',
       })
       // MCP Configuration
       .option('mcpName', {
@@ -128,6 +156,10 @@ function parseCommandLineArgs() {
       workspace?: string;
       selfHosted?: boolean;
       debug?: boolean;
+      transport?: string;
+      ssePort?: number;
+      sseHost?: string;
+      sseLogPath?: string;
       mcpName?: string;
       mcpVersion?: string;
       mcpPort?: number;
@@ -163,6 +195,12 @@ function loadConfig(): OpikConfig {
         ? args.selfHosted
         : process.env.OPIK_SELF_HOSTED === 'true' || false,
     debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
+
+    // Transport configuration
+    transport: (args.transport || process.env.TRANSPORT || 'stdio') as 'stdio' | 'sse',
+    ssePort: args.ssePort || (process.env.SSE_PORT ? parseInt(process.env.SSE_PORT, 10) : 3001),
+    sseHost: args.sseHost || process.env.SSE_HOST || 'localhost',
+    sseLogPath: args.sseLogPath || process.env.SSE_LOG_PATH || '/tmp/opik-mcp-sse.log',
 
     // MCP configuration with fallbacks
     mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',
@@ -204,6 +242,15 @@ function loadConfig(): OpikConfig {
       writeToLogFile(`- Workspace: ${config.workspaceName}`);
     }
     writeToLogFile(`- Debug mode: ${config.debugMode ? 'Enabled' : 'Disabled'}`);
+
+    // Log transport configuration
+    writeToLogFile('\nTransport Configuration:');
+    writeToLogFile(`- Transport: ${config.transport}`);
+    if (config.transport === 'sse') {
+      writeToLogFile(`- SSE Port: ${config.ssePort}`);
+      writeToLogFile(`- SSE Host: ${config.sseHost}`);
+      writeToLogFile(`- SSE Log Path: ${config.sseLogPath}`);
+    }
 
     // Log MCP configuration
     writeToLogFile('\nMCP Configuration:');
