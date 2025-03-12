@@ -22,6 +22,7 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
 [![License](https://img.shields.io/github/license/comet-ml/opik-mcp)](https://github.com/comet-ml/opik-mcp/blob/main/LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.11.0-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-%5E5.8.2-blue)](https://www.typescriptlang.org/)
+<img src="https://badge.mcpx.dev?status=on" title="MCP Enabled"/>
 
 </div>
 
