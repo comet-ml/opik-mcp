@@ -64,6 +64,15 @@ You can use Opik MCP Server for:
 
 ### Installation
 
+#### Installing via Smithery
+
+To install opik-mcp-server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@comet-ml/opik-mcp-server):
+
+```bash
+npx -y @smithery/cli install @comet-ml/opik-mcp-server --client claude
+```
+
+#### Manual Installation
 ```bash
 # Clone the repository
 git clone https://github.com/comet-ml/opik-mcp.git
