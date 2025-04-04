@@ -17,12 +17,6 @@
 A Model Context Protocol (MCP) implementation for the <a href="https://github.com/comet-ml/opik/">Opik platform</a> with support for multiple transport mechanisms, enabling seamless integration with IDEs and providing a unified interface for Opik's capabilities.
 </p>
 
-<p align="center">
-    <a href="https://glama.ai/mcp/servers/@comet-ml/opik-mcp" rel="nofollow" target="_blank">
-      <img width="380" height="200" src="https://glama.ai/mcp/servers/@comet-ml/opik-mcp/badge" alt="Opik Server MCP server" />
-    </a>
-</p>
-
 <div align="center">
 
 [![License](https://img.shields.io/github/license/comet-ml/opik-mcp)](https://github.com/comet-ml/opik-mcp/blob/main/LICENSE)
@@ -37,6 +31,12 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
     <a href="https://chat.comet.com"><b>Slack community</b></a> •
     <a href="https://x.com/Cometml"><b>Twitter</b></a> •
     <a href="https://www.comet.com/docs/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=docs_button&utm_campaign=opik"><b>Documentation</b></a>
+</p>
+
+<p align="center">
+    <a href="https://glama.ai/mcp/servers/@comet-ml/opik-mcp" rel="nofollow" target="_blank">
+      <img width="380" height="200" src="https://glama.ai/mcp/servers/@comet-ml/opik-mcp/badge" alt="Opik Server MCP server" />
+    </a>
 </p>
 
 > **⚠️ Notice:** SSE (Server-Sent Events) transport support is currently experimental and untested. For production use, we recommend using the direct process execution approach shown in the IDE integration examples.
