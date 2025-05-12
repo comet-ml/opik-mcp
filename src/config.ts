@@ -150,6 +150,10 @@ function parseCommandLineArgs() {
         type: 'boolean',
         description: 'Disable metric-related tools',
       })
+      .option('disablePromptOptimizationTools', {
+        type: 'boolean',
+        description: 'Disable prompt optimization tools',
+      })
       .help()
       .parse() as {
       apiUrl?: string;
@@ -170,7 +174,7 @@ function parseCommandLineArgs() {
       disableProjectTools?: boolean;
       disableTraceTools?: boolean;
       disableMetricTools?: boolean;
-      mcpEnablePromptOptimizationTools?: boolean;
+      disablePromptOptimizationTools?: boolean;
       [key: string]: unknown;
     }
   );
