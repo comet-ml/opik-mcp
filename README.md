@@ -205,6 +205,29 @@ make precommit
 - [Configuration](docs/configuration.md) - Advanced configuration options
 - [IDE Integration](docs/ide-integration.md) - Integration with Cursor IDE
 
+## Citation
+
+If you use this project in your research, please cite it as follows:
+
+```
+Comet ML, Inc, Koc, V., & Boiko, Y. (2025). Opik MCP Server. Github. https://doi.org/10.5281/zenodo.15411156
+```
+
+Or use the following BibTeX entry:
+
+```bibtex
+@software{CometML_Opik_MCP_Server_2025,
+  author = {{Comet ML, Inc} and Koc, V. and Boiko, Y.},
+  title = {{Opik MCP Server}},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://doi.org/10.5281/zenodo.15411156},
+  doi = {10.5281/zenodo.15411156}
+}
+```
+
+You can also find citation information in the `CITATION.cff` file in this repository.
+
 ## License
 
 Apache 2.0
