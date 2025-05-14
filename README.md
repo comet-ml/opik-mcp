@@ -23,6 +23,7 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.11.0-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-%5E5.8.2-blue)](https://www.typescriptlang.org/)
 <img src="https://badge.mcpx.dev?status=on" title="MCP Enabled"/>
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15411156.svg)](https://doi.org/10.5281/zenodo.15411156)
 
 </div>
 
