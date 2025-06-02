@@ -57,6 +57,7 @@ interface OpikConfig {
   mcpEnableProjectTools: boolean;
   mcpEnableTraceTools: boolean;
   mcpEnableMetricTools: boolean;
+  mcpEnablePromptOptimizationTools: boolean;
 }
 
 /**
@@ -149,6 +150,10 @@ function parseCommandLineArgs() {
         type: 'boolean',
         description: 'Disable metric-related tools',
       })
+      .option('disablePromptOptimizationTools', {
+        type: 'boolean',
+        description: 'Disable prompt optimization tools',
+      })
       .help()
       .parse() as {
       apiUrl?: string;
@@ -169,6 +174,7 @@ function parseCommandLineArgs() {
       disableProjectTools?: boolean;
       disableTraceTools?: boolean;
       disableMetricTools?: boolean;
+      disablePromptOptimizationTools?: boolean;
       [key: string]: unknown;
     }
   );
@@ -177,7 +183,7 @@ function parseCommandLineArgs() {
 /**
  * Load environment variables with fallbacks
  */
-function loadConfig(): OpikConfig {
+export function loadConfig(): OpikConfig {
   // Parse command-line arguments first
   const args = parseCommandLineArgs();
 
@@ -224,6 +230,9 @@ function loadConfig(): OpikConfig {
     mcpEnableMetricTools: args.disableMetricTools
       ? false
       : process.env.MCP_ENABLE_METRIC_TOOLS !== 'false', // Enable by default
+    mcpEnablePromptOptimizationTools: args.disablePromptOptimizationTools
+      ? false
+      : process.env.MCP_ENABLE_PROMPT_OPTIMIZATION_TOOLS !== 'false', // Enable by default
   };
 
   // Validate required fields but be much more forgiving
