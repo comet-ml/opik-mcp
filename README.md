@@ -2,8 +2,8 @@
     <div>
         <a href="https://www.comet.com/site/products/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=header_img&utm_campaign=opik-mcp">
             <picture>
-                <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark-mode.svg">
-                <source media="(prefers-color-scheme: light)" srcset="docs/assets/logo-light-mode.svg">
+                <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-dark-mode.svg">
+                <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-light-mode.svg">
                 <img alt="Comet Opik logo" src="docs/assets/logo-light-mode.svg" width="200" />
             </picture>
         </a>
