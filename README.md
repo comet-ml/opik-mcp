@@ -25,6 +25,8 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
 <img src="https://badge.mcpx.dev?status=on" title="MCP Enabled"/>
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15411156.svg)](https://doi.org/10.5281/zenodo.15411156)
 
+[![Trust Score](https://archestra.ai/mcp-catalog/api/badge/quality/comet-ml/opik-mcp)](https://archestra.ai/mcp-catalog/comet-ml__opik-mcp)
+
 </div>
 
 <p align="center">
