@@ -1,188 +1,150 @@
 import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { loadConfig } from './../config.js';
-import { PromptResponse, SinglePromptResponse } from './../types.js';
-
-const config = loadConfig();
+import { PromptResponse } from './../types.js';
 
 export const loadPromptTools = (server: any) => {
-  // Conditionally enable tool categories based on configuration
-  if (config.mcpEnablePromptTools) {
-    // ----------- PROMPTS TOOLS -----------
+  server.tool(
+    'get-prompts',
+    'Get a list of prompts with optional filtering',
+    {
+      page: z.number().optional().default(1).describe('Page number for pagination'),
+      size: z.number().optional().default(10).describe('Number of items per page'),
+      name: z.string().optional().describe('Filter by prompt name'),
+    },
+    async (args: any) => {
+      const { page, size, name } = args;
+      let url = `/v1/private/prompts?page=${page}&size=${size}`;
+      if (name) url += `&name=${encodeURIComponent(name)}`;
 
-    server.tool(
-      'list-opik-prompts',
-      'Get a list of Opik prompts',
-      {
-        page: z.number().describe('Page number for pagination'),
-        size: z.number().describe('Number of items per page'),
-      },
-      async (args: any) => {
-        const response = await makeApiRequest<PromptResponse>(
-          `/v1/private/prompts?page=${args.page}&size=${args.size}`
-        );
+      const response = await makeApiRequest<PromptResponse>(url);
 
-        if (!response.data) {
-          return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch prompts' }],
-          };
-        }
-
+      if (!response.data) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: `Found ${response.data.total} prompts (showing page ${
-                response.data.page
-              } of ${Math.ceil(response.data.total / response.data.size)})`,
-            },
-            {
-              type: 'text',
-              text: JSON.stringify(response.data.content, null, 2),
-            },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch prompts' }],
         };
       }
-    );
 
-    server.tool(
-      'save-opik-prompt',
-      'Save a prompt in Opik',
-      {
-        name: z.string().describe('Name of the prompt'),
-      },
-      async (args: any) => {
-        const { name } = args;
-        const response = await makeApiRequest<void>(`/v1/private/prompts`, {
-          method: 'POST',
-          body: JSON.stringify({ name }),
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: response.error || 'Successfully created prompt',
-            },
-          ],
-        };
-      }
-    );
-
-    server.tool(
-      'save-opik-prompt-version',
-      'Save a new version of a prompt in the Opik platform',
-      {
-        name: z.string().describe('Name of the original prompt'),
-        template: z.string().describe('Template content for the prompt version'),
-        commit_message: z.string().describe('Commit message for the prompt version'),
-      },
-      async (args: any) => {
-        const { name, template, commit_message } = args;
-        const response = await makeApiRequest<any>(`/v1/private/prompts/versions`, {
-          method: 'POST',
-          body: JSON.stringify({
-            name,
-            version: { template, change_description: commit_message },
-          }),
-        });
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: response.data
-                ? 'Successfully created prompt version'
-                : `${response.error} ${JSON.stringify(args)}` || 'Failed to create prompt version',
-            },
-          ],
-        };
-      }
-    );
-
-    server.tool(
-      'get-opik-prompt-by-id',
-      'Get a single prompt by ID',
-      {
-        promptId: z.string().describe('ID of the prompt to fetch'),
-      },
-      async (args: any) => {
-        const { promptId } = args;
-        const response = await makeApiRequest<SinglePromptResponse>(
-          `/v1/private/prompts/${promptId}`
-        );
-
-        if (!response.data) {
-          return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch prompt' }],
-          };
-        }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(response.data, null, 2),
-            },
-          ],
-        };
-      }
-    );
-
-    server.tool(
-      'update-opik-prompt',
-      'Update a prompt in the Opik platform',
-      {
-        promptId: z.string().describe('ID of the prompt to update'),
-        name: z.string().describe('New name for the prompt'),
-      },
-      async (args: any) => {
-        const { promptId, name } = args;
-        const response = await makeApiRequest<void>(`/v1/private/prompts/${promptId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ name }),
-          headers: {
-            'Content-Type': 'application/json',
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Found ${response.data.total} prompts (page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
           },
-        });
+          {
+            type: 'text',
+            text: JSON.stringify(response.data.content, null, 2),
+          },
+        ],
+      };
+    }
+  );
 
+  server.tool(
+    'create-prompt',
+    'Create a new prompt',
+    {
+      name: z.string().min(1).describe('Name of the prompt'),
+      description: z.string().optional().describe('Description of the prompt'),
+      tags: z.array(z.string()).optional().describe('List of tags for the prompt'),
+    },
+    async (args: any) => {
+      const { name, description, tags } = args;
+      const requestBody: any = { name };
+      if (description) requestBody.description = description;
+      if (tags) requestBody.tags = tags;
+
+      const response = await makeApiRequest<any>(`/v1/private/prompts`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: response.error || 'Successfully created prompt',
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
+    'get-prompt-version',
+    'Retrieve a specific version of a prompt',
+    {
+      name: z.string().min(1).describe('Name of the prompt'),
+      commit: z.string().optional().describe('Specific commit/version to retrieve'),
+    },
+    async (args: any) => {
+      const { name, commit } = args;
+      const requestBody: any = { name };
+      if (commit) requestBody.commit = commit;
+
+      const response = await makeApiRequest<any>(`/v1/private/prompts/versions/retrieve`, {
+        method: 'POST',
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.data) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: !response.error
-                ? 'Successfully updated prompt'
-                : response.error || 'Failed to update prompt',
-            },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to fetch prompt version' }],
         };
       }
-    );
 
-    server.tool(
-      'delete-opik-prompt',
-      'Delete a prompt in the Opik platform',
-      {
-        promptId: z.string().describe('ID of the prompt to delete'),
-      },
-      async (args: any) => {
-        const { promptId } = args;
-        const response = await makeApiRequest<void>(`/v1/private/prompts/${promptId}`, {
-          method: 'DELETE',
-        });
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    }
+  );
 
+  server.tool(
+    'save-prompt-version',
+    'Save a new version of a prompt',
+    {
+      name: z.string().min(1).describe('Name of the prompt'),
+      template: z.string().describe('Template content for the prompt version'),
+      change_description: z.string().optional().describe('Description of changes in this version'),
+      metadata: z.record(z.any()).optional().describe('Additional metadata for the prompt version'),
+      type: z.enum(['mustache', 'jinja2']).optional().describe('Template type'),
+    },
+    async (args: any) => {
+      const { name, template, change_description, metadata, type } = args;
+      const version: any = { template };
+      if (change_description) version.change_description = change_description;
+      if (metadata) version.metadata = metadata;
+      if (type) version.type = type;
+
+      const response = await makeApiRequest<any>(`/v1/private/prompts/versions`, {
+        method: 'POST',
+        body: JSON.stringify({ name, version }),
+      });
+
+      if (!response.data) {
         return {
-          content: [
-            {
-              type: 'text',
-              text: !response.error
-                ? 'Successfully deleted prompt'
-                : response.error || 'Failed to delete prompt',
-            },
-          ],
+          content: [{ type: 'text', text: response.error || 'Failed to create prompt version' }],
         };
       }
-    );
-  }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: 'Successfully created prompt version',
+          },
+          {
+            type: 'text',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
   return server;
 };

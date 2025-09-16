@@ -17,8 +17,7 @@ import { loadTraceTools } from './tools/trace.js';
 import { loadPromptTools } from './tools/prompt.js';
 import { loadProjectTools } from './tools/project.js';
 import { loadMetricTools } from './tools/metrics.js';
-import { loadCapabilitiesTools } from './tools/capabilities.js';
-import { loadPromptOptimizationTools } from './tools/prompt_optimization.js';
+import { loadIntegrationTools } from './tools/integration.js';
 
 // Import configuration
 import { loadConfig } from './config.js';
@@ -71,13 +70,33 @@ export let server = new McpServer(
   }
 );
 
-// Load tools
-server = loadTraceTools(server);
-server = loadPromptTools(server);
-server = loadProjectTools(server);
-server = loadMetricTools(server);
-server = loadCapabilitiesTools(server);
-server = loadPromptOptimizationTools(server);
+// Load tools based on enabled toolsets
+logToFile(`Loading toolsets: ${config.enabledToolsets.join(', ')}`);
+
+if (config.enabledToolsets.includes('integration')) {
+  server = loadIntegrationTools(server);
+  logToFile('Loaded integration toolset');
+}
+
+if (config.enabledToolsets.includes('prompts')) {
+  server = loadPromptTools(server);
+  logToFile('Loaded prompts toolset');
+}
+
+if (config.enabledToolsets.includes('projects')) {
+  server = loadProjectTools(server);
+  logToFile('Loaded projects toolset');
+}
+
+if (config.enabledToolsets.includes('traces')) {
+  server = loadTraceTools(server);
+  logToFile('Loaded traces toolset');
+}
+
+if (config.enabledToolsets.includes('metrics')) {
+  server = loadMetricTools(server);
+  logToFile('Loaded metrics toolset');
+}
 
 // Add resources to the MCP server
 if (config.workspaceName) {
@@ -136,9 +155,6 @@ if (config.workspaceName) {
     }
   });
 }
-
-// DO NOT send any protocol messages before server initialization
-// REMOVED: sendProtocolMessage("log", "Initializing Opik MCP Server");
 
 // ----------- SERVER CONFIGURATION TOOLS -----------
 
