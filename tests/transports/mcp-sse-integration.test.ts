@@ -1,6 +1,6 @@
 import { expect, jest, test, describe, beforeEach, afterEach } from '@jest/globals';
 import { SSEServerTransport } from '../../src/transports/sse-transport.js';
-import { startServerWithTransport } from '../../src/mcp-server.js';
+import { server } from '../../src/index.js';
 import fetch from 'node-fetch';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
@@ -19,10 +19,6 @@ const debug = (message: string) => {
 
 describe('MCP Server with SSE Transport Integration', () => {
   let transport: SSEServerTransport;
-  // Keep the server variable for clarity even if not directly used in test
-  // The server is needed to handle MCP requests
-  /* eslint-disable-next-line @typescript-eslint/no-unused-vars */
-  let server: any; // Using any type to avoid import issues
   const testPort = 4501; // Using a high port number to avoid conflicts
 
   // Use a different port for each test to avoid conflicts
@@ -39,7 +35,7 @@ describe('MCP Server with SSE Transport Integration', () => {
     debug('Starting SSE transport');
     await transport.start();
     debug('Transport started, connecting MCP server');
-    server = await startServerWithTransport(transport);
+    await server.connect(transport);
     debug('MCP server connected to transport');
   });
 
