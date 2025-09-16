@@ -72,6 +72,61 @@ You can use Opik MCP Server for:
 
 ### Installation
 
+#### Cursor Integration
+
+To integrate with Cursor IDE, open to the Cursor settings page and navigate
+to the Features tab. If you scroll down to the MCP section you will see the
+button `+ Add new MCP server` that will allow you to add the Opik MCP server.
+
+Once the `New MCP server` modal is open, select `command` as the server type and
+enter the command: `npx -y opik-mcp --apiKey YOUR_API_KEY`.
+
+Alternatively, you can create a `.cursor/mcp.json` in your project and add:
+
+```json
+{
+  "mcpServers": {
+    "opik": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "opik-mcp",
+        "--apiKey",
+        "YOUR_API_KEY"
+      ]
+    }
+  }
+}
+```
+
+Note: If you are using the Open-Source version of Opik, you will need to specify
+the `apiBaseUrl` parameter as `http://localhost:5173/api`.
+
+#### Windsurf Installation
+
+To install the MCP server in Windsurf, you will need to open the Windsurf settings
+and navigate to the MCP section. From there, click on `View raw config` and update
+the configuration object to be:
+
+```json
+{
+    "mcpServers": {
+      "opik": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "opik-mcp",
+          "--apiKey",
+          "YOUR_API_KEY"
+        ]
+      }
+    }
+  }
+```
+
+Note: If you are using the Open-Source version of Opik, you will need to specify
+the `apiBaseUrl` parameter as `http://localhost:5173/api`.
+
 #### Manual Installation
 ```bash
 # Clone the repository
@@ -83,7 +138,7 @@ npm install
 npm run build
 ```
 
-### Configuration
+**Configuration**
 
 Create a `.env` file based on the example:
 
@@ -92,7 +147,7 @@ cp .env.example .env
 # Edit .env with your specific configuration
 ```
 
-### Starting the Server
+**Starting the Server**
 
 ```bash
 # Start with stdio transport (default)
@@ -100,61 +155,6 @@ npm run start:stdio
 
 # Start with SSE transport for network access (experimental)
 npm run start:sse
-```
-
-## IDE Integration
-
-### Cursor Integration
-
-To integrate with Cursor IDE, create a `.cursor/mcp.json` file in your project directory with the following configuration:
-
-```json
-{
-  "mcpServers": {
-    "opik": {
-      "command": "/path/to/node",
-      "args": [
-        "/path/to/opik-mcp/build/index.js",
-        "--apiUrl",
-        "https://www.comet.com/opik/api",
-        "--apiKey",
-        "YOUR_API_KEY",
-        "--workspace",
-        "default",
-        "--debug",
-        "true"
-      ],
-      "env": {
-        "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
-        "OPIK_API_KEY": "YOUR_API_KEY",
-        "OPIK_WORKSPACE_NAME": "default",
-      }
-    }
-  }
-}
-```
-
-Replace `/path/to/node` with the path to your Node.js executable and `/path/to/opik-mcp` with the path to your opik-mcp installation. Also replace `YOUR_API_KEY` with your actual Opik API key.
-
-## Available Commands
-
-The project includes a Makefile for common operations:
-
-```bash
-# Display all available commands
-make help
-
-# Run tests
-make test
-
-# Run transport-specific tests
-make test-transport
-
-# Start the server with SSE transport (experimental)
-make start-sse
-
-# Start the server with stdio transport
-make start-stdio
 ```
 
 ## Transport Options

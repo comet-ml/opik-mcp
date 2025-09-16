@@ -50,6 +50,9 @@ describe('SSEServerTransport', () => {
 
     await transport.start();
 
+    // Add a small delay to ensure server is ready
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     const testMessage: JSONRPCMessage = {
       jsonrpc: '2.0',
       id: '1',
@@ -57,19 +60,23 @@ describe('SSEServerTransport', () => {
       params: {},
     };
 
-    const response = await fetch(`http://localhost:${testPort}/send`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(testMessage),
-    });
+    try {
+      const response = await fetch(`http://localhost:${testPort}/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testMessage),
+      });
 
-    const data = (await response.json()) as { status: string };
+      const data = (await response.json()) as { status: string };
 
-    expect(response.status).toBe(200);
-    expect(data.status).toBe('success');
-    expect(mockOnMessage).toHaveBeenCalledWith(testMessage);
+      expect(response.status).toBe(200);
+      expect(data.status).toBe('success');
+      expect(mockOnMessage).toHaveBeenCalledWith(testMessage);
+    } catch (error) {
+      throw new Error(`Failed to send message: ${error}`);
+    }
   });
 
   test('should return error when message handler throws', async () => {
@@ -82,6 +89,9 @@ describe('SSEServerTransport', () => {
     transport.onerror = mockOnError;
 
     await transport.start();
+
+    // Add a small delay to ensure server is ready
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     const testMessage: JSONRPCMessage = {
       jsonrpc: '2.0',
