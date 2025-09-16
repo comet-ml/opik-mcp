@@ -4,7 +4,7 @@
             <picture>
                 <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-dark-mode.svg">
                 <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-light-mode.svg">
-                <img alt="Comet Opik logo" src="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-light-mode.svg" width="200" />
+                <img alt="Comet Opik logo" src="docs/assets/logo-light-mode.svg" width="200" />
             </picture>
         </a>
         <br>
@@ -23,6 +23,7 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.11.0-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-%5E5.8.2-blue)](https://www.typescriptlang.org/)
 <img src="https://badge.mcpx.dev?status=on" title="MCP Enabled"/>
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15411156.svg)](https://doi.org/10.5281/zenodo.15411156)
 
 </div>
 
@@ -31,6 +32,12 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
     <a href="https://chat.comet.com"><b>Slack community</b></a> •
     <a href="https://x.com/Cometml"><b>Twitter</b></a> •
     <a href="https://www.comet.com/docs/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=docs_button&utm_campaign=opik"><b>Documentation</b></a>
+</p>
+
+<p align="center">
+    <a href="https://glama.ai/mcp/servers/@comet-ml/opik-mcp" rel="nofollow" target="_blank">
+      <img width="380" height="200" src="https://glama.ai/mcp/servers/@comet-ml/opik-mcp/badge" alt="Opik Server MCP server" />
+    </a>
 </p>
 
 > **⚠️ Notice:** SSE (Server-Sent Events) transport support is currently experimental and untested. For production use, we recommend using the direct process execution approach shown in the IDE integration examples.
@@ -197,6 +204,29 @@ make precommit
 - [API Reference](docs/api-reference.md) - Complete API documentation
 - [Configuration](docs/configuration.md) - Advanced configuration options
 - [IDE Integration](docs/ide-integration.md) - Integration with Cursor IDE
+
+## Citation
+
+If you use this project in your research, please cite it as follows:
+
+```
+Comet ML, Inc, Koc, V., & Boiko, Y. (2025). Opik MCP Server. Github. https://doi.org/10.5281/zenodo.15411156
+```
+
+Or use the following BibTeX entry:
+
+```bibtex
+@software{CometML_Opik_MCP_Server_2025,
+  author = {{Comet ML, Inc} and Koc, V. and Boiko, Y.},
+  title = {{Opik MCP Server}},
+  year = {2025},
+  publisher = {GitHub},
+  url = {https://doi.org/10.5281/zenodo.15411156},
+  doi = {10.5281/zenodo.15411156}
+}
+```
+
+You can also find citation information in the `CITATION.cff` file in this repository.
 
 ## License
 
