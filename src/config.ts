@@ -7,6 +7,8 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 /**
  * File-based logger
@@ -33,6 +35,85 @@ function writeToLogFile(message: string, forceWrite: boolean = false): void {
   }
 }
 
+// Available toolsets
+export type OpikToolset =
+  | 'capabilities' // Server info and help tools
+  | 'integration' // Integration documentation and guides
+  | 'prompts' // Prompt management tools
+  | 'projects' // Project/workspace management tools
+  | 'traces' // Trace listing and analysis tools
+  | 'metrics'; // Metrics and analytics tools
+
+export const DEFAULT_TOOLSETS: OpikToolset[] = ['integration', 'prompts', 'projects', 'traces'];
+
+interface OpikFileConfig {
+  api_key?: string;
+  workspace?: string;
+  url_override?: string;
+}
+
+/**
+ * Load configuration from ~/.opik.config file
+ */
+function loadOpikConfigFile(): OpikFileConfig {
+  try {
+    const configPath = path.join(os.homedir(), '.opik.config');
+
+    if (!fs.existsSync(configPath)) {
+      return {};
+    }
+
+    const configContent = fs.readFileSync(configPath, 'utf8');
+    const config: OpikFileConfig = {};
+
+    // Parse INI-style format
+    const lines = configContent.split('\n');
+    let inOpikSection = false;
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+
+      // Skip empty lines and comments
+      if (!trimmedLine || trimmedLine.startsWith('#') || trimmedLine.startsWith(';')) {
+        continue;
+      }
+
+      // Check for section headers
+      if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
+        inOpikSection = trimmedLine === '[opik]';
+        continue;
+      }
+
+      // Only parse lines in the [opik] section
+      if (!inOpikSection) {
+        continue;
+      }
+
+      // Parse key = value pairs
+      const equalIndex = trimmedLine.indexOf('=');
+      if (equalIndex > 0) {
+        const key = trimmedLine.substring(0, equalIndex).trim();
+        const value = trimmedLine.substring(equalIndex + 1).trim();
+
+        // Map the config keys to our expected format
+        if (key === 'api_key') {
+          config.api_key = value;
+        } else if (key === 'workspace') {
+          config.workspace = value;
+        } else if (key === 'url_override') {
+          config.url_override = value;
+        }
+      }
+    }
+
+    writeToLogFile(`Loaded config from ~/.opik.config: ${JSON.stringify(config)}`);
+    return config;
+  } catch (error) {
+    writeToLogFile(`Failed to load ~/.opik.config: ${error}`);
+    return {};
+  }
+}
+
 interface OpikConfig {
   // API configuration
   apiBaseUrl: string;
@@ -53,11 +134,9 @@ interface OpikConfig {
   mcpPort?: number;
   mcpLogging: boolean;
   mcpDefaultWorkspace: string;
-  mcpEnablePromptTools: boolean;
-  mcpEnableProjectTools: boolean;
-  mcpEnableTraceTools: boolean;
-  mcpEnableMetricTools: boolean;
-  mcpEnablePromptOptimizationTools: boolean;
+
+  // Toolset configuration - replaces individual tool flags
+  enabledToolsets: OpikToolset[];
 }
 
 /**
@@ -133,22 +212,11 @@ function parseCommandLineArgs() {
         type: 'string',
         description: 'Default workspace name',
       })
-      // Tool enablement
-      .option('disablePromptTools', {
-        type: 'boolean',
-        description: 'Disable prompt-related tools',
-      })
-      .option('disableProjectTools', {
-        type: 'boolean',
-        description: 'Disable project-related tools',
-      })
-      .option('disableTraceTools', {
-        type: 'boolean',
-        description: 'Disable trace-related tools',
-      })
-      .option('disableMetricTools', {
-        type: 'boolean',
-        description: 'Disable metric-related tools',
+      // Toolset configuration
+      .option('toolsets', {
+        type: 'array',
+        description: 'Comma-separated list of toolsets to enable',
+        choices: ['capabilities', 'integration', 'prompts', 'projects', 'traces', 'metrics'],
       })
       .help()
       .parse() as {
@@ -166,11 +234,7 @@ function parseCommandLineArgs() {
       mcpPort?: number;
       mcpLogging?: boolean;
       mcpDefaultWorkspace?: string;
-      disablePromptTools?: boolean;
-      disableProjectTools?: boolean;
-      disableTraceTools?: boolean;
-      disableMetricTools?: boolean;
-      mcpEnablePromptOptimizationTools?: boolean;
+      toolsets?: string[];
       [key: string]: unknown;
     }
   );
@@ -183,15 +247,18 @@ export function loadConfig(): OpikConfig {
   // Parse command-line arguments first
   const args = parseCommandLineArgs();
 
+  // Load config from ~/.opik.config file
+  const opikFileConfig = loadOpikConfigFile();
+
   // Try to load from process.env and command-line args, with command-line taking precedence
   const config: OpikConfig = {
     // API configuration with fallbacks - with much more forgiving defaults
-    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || 'https://www.comet.com/opik/api',
-    workspaceName: (args.workspace || process.env.OPIK_WORKSPACE_NAME || 'default').replace(
+    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || opikFileConfig.url_override || 'https://www.comet.com/opik/api',
+    workspaceName: (args.workspace || process.env.OPIK_WORKSPACE_NAME || opikFileConfig.workspace || 'default').replace(
       /^['"](.*)['"]$/,
       '$1'
     ), // Remove any quotes
-    apiKey: args.apiKey || process.env.OPIK_API_KEY || '',
+    apiKey: args.apiKey || process.env.OPIK_API_KEY || opikFileConfig.api_key || '',
     isSelfHosted:
       args.selfHosted !== undefined
         ? args.selfHosted
@@ -213,22 +280,26 @@ export function loadConfig(): OpikConfig {
       args.mcpLogging !== undefined ? args.mcpLogging : process.env.MCP_LOGGING === 'true' || false,
     mcpDefaultWorkspace: args.mcpDefaultWorkspace || process.env.MCP_DEFAULT_WORKSPACE || 'default',
 
-    // Tool enablement with fallbacks - note the logic reversal for the command-line args
-    mcpEnablePromptTools: args.disablePromptTools
-      ? false
-      : process.env.MCP_ENABLE_PROMPT_TOOLS !== 'false', // Enable by default
-    mcpEnableProjectTools: args.disableProjectTools
-      ? false
-      : process.env.MCP_ENABLE_PROJECT_TOOLS !== 'false', // Enable by default
-    mcpEnableTraceTools: args.disableTraceTools
-      ? false
-      : process.env.MCP_ENABLE_TRACE_TOOLS !== 'false', // Enable by default
-    mcpEnableMetricTools: args.disableMetricTools
-      ? false
-      : process.env.MCP_ENABLE_METRIC_TOOLS !== 'false', // Enable by default
-    mcpEnablePromptOptimizationTools: args.disablePromptOptimizationTools
-      ? false
-      : process.env.MCP_ENABLE_PROMPT_OPTIMIZATION_TOOLS !== 'false', // Enable by default
+    // Toolset configuration with fallbacks
+    enabledToolsets: (() => {
+      // Command line takes precedence
+      if (args.toolsets && args.toolsets.length > 0) {
+        return args.toolsets.filter((t): t is OpikToolset =>
+          ['integration', 'prompts', 'projects', 'traces', 'metrics'].includes(t)
+        );
+      }
+
+      // Environment variable fallback
+      if (process.env.OPIK_TOOLSETS) {
+        const envToolsets = process.env.OPIK_TOOLSETS.split(',').map(t => t.trim());
+        return envToolsets.filter((t): t is OpikToolset =>
+          ['integration', 'prompts', 'projects', 'traces', 'metrics'].includes(t)
+        );
+      }
+
+      // Default toolsets
+      return DEFAULT_TOOLSETS;
+    })(),
   };
 
   // Validate required fields but be much more forgiving
@@ -246,7 +317,16 @@ export function loadConfig(): OpikConfig {
     if (!config.isSelfHosted) {
       writeToLogFile(`- Workspace: ${config.workspaceName}`);
     }
+    writeToLogFile(`- API Key: ${config.apiKey ? '[REDACTED]' : '[NOT SET]'}`);
     writeToLogFile(`- Debug mode: ${config.debugMode ? 'Enabled' : 'Disabled'}`);
+
+    // Log config sources
+    writeToLogFile('\nConfiguration Sources:');
+    if (Object.keys(opikFileConfig).length > 0) {
+      writeToLogFile(`- Found ~/.opik.config with keys: ${Object.keys(opikFileConfig).join(', ')}`);
+    } else {
+      writeToLogFile('- No ~/.opik.config file found');
+    }
 
     // Log transport configuration
     writeToLogFile('\nTransport Configuration:');
@@ -264,10 +344,7 @@ export function loadConfig(): OpikConfig {
     if (config.mcpPort) writeToLogFile(`- MCP Port: ${config.mcpPort}`);
     writeToLogFile(`- MCP Logging: ${config.mcpLogging ? 'Enabled' : 'Disabled'}`);
     writeToLogFile(`- MCP Default Workspace: ${config.mcpDefaultWorkspace}`);
-    writeToLogFile(`- Prompt Tools: ${config.mcpEnablePromptTools ? 'Enabled' : 'Disabled'}`);
-    writeToLogFile(`- Project Tools: ${config.mcpEnableProjectTools ? 'Enabled' : 'Disabled'}`);
-    writeToLogFile(`- Trace Tools: ${config.mcpEnableTraceTools ? 'Enabled' : 'Disabled'}`);
-    writeToLogFile(`- Metric Tools: ${config.mcpEnableMetricTools ? 'Enabled' : 'Disabled'}`);
+    writeToLogFile(`- Enabled Toolsets: ${config.enabledToolsets.join(', ')}`);
   }
 
   return config;
