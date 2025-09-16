@@ -2,8 +2,6 @@
 
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
-import { main } from './index.js';
-
 import configImport from './config.js';
 
 // Parse command line arguments
@@ -34,8 +32,5 @@ if (argv.transport === 'sse') {
   configImport.ssePort = argv.port as number;
 }
 
-// Start the server
-main().catch(error => {
-  console.error(`Fatal error: ${error}`);
-  process.exit(1);
-});
+// Import and start the server (index.js will handle the main() call)
+import './index.js';
