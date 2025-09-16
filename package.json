@@ -28,6 +28,10 @@
   "files": [
     "build"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/comet-ml/opik-mcp"
+  },
   "author": "Opik",
   "license": "Apache-2.0",
   "dependencies": {
