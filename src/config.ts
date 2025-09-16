@@ -253,11 +253,17 @@ export function loadConfig(): OpikConfig {
   // Try to load from process.env and command-line args, with command-line taking precedence
   const config: OpikConfig = {
     // API configuration with fallbacks - with much more forgiving defaults
-    apiBaseUrl: args.apiUrl || process.env.OPIK_API_BASE_URL || opikFileConfig.url_override || 'https://www.comet.com/opik/api',
-    workspaceName: (args.workspace || process.env.OPIK_WORKSPACE_NAME || opikFileConfig.workspace || 'default').replace(
-      /^['"](.*)['"]$/,
-      '$1'
-    ), // Remove any quotes
+    apiBaseUrl:
+      args.apiUrl ||
+      process.env.OPIK_API_BASE_URL ||
+      opikFileConfig.url_override ||
+      'https://www.comet.com/opik/api',
+    workspaceName: (
+      args.workspace ||
+      process.env.OPIK_WORKSPACE_NAME ||
+      opikFileConfig.workspace ||
+      'default'
+    ).replace(/^['"](.*)['"]$/, '$1'), // Remove any quotes
     apiKey: args.apiKey || process.env.OPIK_API_KEY || opikFileConfig.api_key || '',
     isSelfHosted:
       args.selfHosted !== undefined
