@@ -1,7 +1,9 @@
-name: Deploy to NPM
+name: Publish Release
 
 on:
-  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 jobs:
   deploy:
@@ -18,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '20'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
@@ -34,7 +36,36 @@ jobs:
       - name: Build project
         run: npm run build
 
+      - name: Sync server.json version with tag
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
+            echo "This workflow must be triggered from a tag that starts with v"
+            exit 1
+          fi
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          tmp_file="$(mktemp)"
+          jq --arg v "$VERSION" '
+            .version = $v
+            | (if has("packages") and (.packages | length > 0) then
+                .packages = (.packages | map(.version = $v))
+              else
+                .
+              end)
+          ' server.json > "$tmp_file"
+          mv "$tmp_file" server.json
+
       - name: Publish to NPM
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Install MCP Publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Login to MCP Registry
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish to MCP Registry
+        run: ./mcp-publisher publish --file server.json

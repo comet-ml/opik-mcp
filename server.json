@@ -1,0 +1,67 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.comet-ml/opik-mcp",
+  "title": "Opik MCP Server",
+  "description": "Interact with Opik prompts, traces, and metrics through the Model Context Protocol.",
+  "version": "0.1.1",
+  "websiteUrl": "https://www.comet.com/site/products/opik/",
+  "repository": {
+    "source": "github",
+    "url": "https://github.com/comet-ml/opik-mcp"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-light-mode.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ],
+      "theme": "light"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-dark-mode.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": [
+        "any"
+      ],
+      "theme": "dark"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "opik-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-y",
+          "description": "Automatically confirm npm prompts when installing."
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "OPIK_API_KEY",
+          "description": "API key from your Opik workspace for authenticating SDK calls.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "OPIK_API_BASE_URL",
+          "description": "Override the API base URL when using a self-hosted Opik deployment.",
+          "placeholder": "http://localhost:5173/api"
+        },
+        {
+          "name": "OPIK_WORKSPACE_NAME",
+          "description": "Default workspace to scope prompt and trace operations.",
+          "placeholder": "my-workspace"
+        }
+      ]
+    }
+  ]
+}
