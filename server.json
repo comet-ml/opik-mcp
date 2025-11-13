@@ -4,7 +4,7 @@
   "title": "Opik MCP Server",
   "description": "Interact with Opik prompts, traces, and metrics through the Model Context Protocol.",
   "version": "0.1.1",
-  "websiteUrl": "https://www.comet.com/site/products/opik/",
+  "websiteUrl": "https://comet-ml.github.io/opik-mcp/",
   "repository": {
     "source": "github",
     "url": "https://github.com/comet-ml/opik-mcp"
