@@ -56,9 +56,16 @@ jobs:
           mv "$tmp_file" server.json
 
       - name: Publish to NPM
-        run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          if npm view opik-mcp@"$VERSION" version >/dev/null 2>&1; then
+            echo "opik-mcp@$VERSION already exists on npm, skipping publish."
+          else
+            npm publish --provenance --access public
+          fi
 
       - name: Install MCP Publisher
         run: |
