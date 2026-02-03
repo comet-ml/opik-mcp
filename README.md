@@ -50,7 +50,7 @@ Opik MCP Server is an open-source implementation of the Model Context Protocol f
 
 You can use Opik MCP Server for:
 * **IDE Integration:**
-  * Seamlessly integrate with Cursor and other compatible IDEs
+  * Seamlessly integrate with Cursor, VS Code, Windsurf and other compatible IDEs
   * Provide direct access to Opik's capabilities from your development environment
 
 * **Unified API Access:**
@@ -101,6 +101,65 @@ Alternatively, you can create a `.cursor/mcp.json` in your project and add:
 
 Note: If you are using the Open-Source version of Opik, you will need to specify
 the `apiBaseUrl` parameter as `http://localhost:5173/api`.
+
+#### VS Code Integration (GitHub Copilot)
+
+To integrate Opik with VS Code (GitHub Copilot), you need to add the MCP server
+configuration to your workspace or user settings.
+
+1. Create or open the `.vscode/mcp.json` file in your workspace (or run the
+   **MCP: Open User Configuration** command to add it globally).
+
+2. Add the Opik MCP server configuration:
+
+```json
+{
+    "inputs": [
+        {
+            "type": "promptString",
+            "id": "opik-api-key",
+            "description": "Opik API Key",
+            "password": true
+        }
+    ],
+    "servers": {
+        "opik-mcp": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+                "-y",
+                "opik-mcp",
+                "--apiKey",
+                "${input:opik-api-key}"
+            ]
+        }
+    }
+}
+```
+
+3. When you start the MCP server for the first time, VS Code will prompt you
+   to enter your Opik API key. The value is securely stored for subsequent use.
+
+Note: If you are using the Open-Source version of Opik, add the `--apiBaseUrl`
+argument and remove the `--apiKey` argument:
+
+```json
+{
+    "servers": {
+        "opik-mcp": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+                "-y",
+                "opik-mcp",
+                "--apiBaseUrl",
+                "http://localhost:5173/api"
+            ]
+        }
+    },
+    "inputs": []
+}
+```
 
 #### Windsurf Installation
 
