@@ -1,0 +1,26 @@
+name-template: 'v$RESOLVED_VERSION'
+tag-template: 'v$RESOLVED_VERSION'
+
+template: |
+  ## What Changed
+  $CHANGES
+
+categories:
+  - title: 'Transport'
+    labels:
+      - 'transport'
+  - title: 'Security'
+    labels:
+      - 'security'
+  - title: 'Infrastructure'
+    labels:
+      - 'infrastructure'
+  - title: 'Dependencies'
+    labels:
+      - 'dependencies'
+  - title: 'Documentation'
+    labels:
+      - 'documentation'
+
+change-template: '- $TITLE (#$NUMBER)'
+no-changes-template: '- No user-facing changes in this release.'
