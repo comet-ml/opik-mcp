@@ -8,6 +8,7 @@ import {
 import { getAllExampleTasks, getExampleForTask } from '../utils/examples.js';
 import { getAllMetricsInfo, getMetricInfo } from '../utils/metrics-info.js';
 import { getTracingInfo } from '../utils/tracing-info.js';
+import { registerTool } from './registration.js';
 
 function formatTopicHelp(topic: keyof typeof opikCapabilities): string {
   if (topic === 'general') {
@@ -42,7 +43,8 @@ function formatTopicHelp(topic: keyof typeof opikCapabilities): string {
 }
 
 export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
-  server.tool(
+  registerTool(
+    server,
     'get-server-info',
     'Return server configuration and enabled Opik capabilities',
     {},
@@ -71,7 +73,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-opik-help',
     'Return capability docs for Opik. Optionally filter by topic: prompts, projects, traces, metrics, general',
     {
@@ -103,7 +106,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-opik-examples',
     'Return Opik usage examples for a task (prompts, projects, traces, evaluation)',
     {
@@ -151,7 +155,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-opik-metrics-info',
     'Return Opik metric definitions and usage guidance',
     {
@@ -196,7 +201,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-opik-tracing-info',
     'Return tracing guidance for topics like traces, spans, feedback, search, and visualization',
     {

@@ -2,9 +2,11 @@ import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
 import { logToFile } from '../utils/logging.js';
 import { ProjectResponse, MetricsResponse } from './../types.js';
+import { registerTool } from './registration.js';
 
 export const loadMetricTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'get-metrics',
     'Get metrics data',
     {

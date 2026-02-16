@@ -1,9 +1,11 @@
 import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
 import { PromptResponse, SinglePromptResponse } from './../types.js';
+import { registerTool } from './registration.js';
 
 export const loadPromptTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'get-prompts',
     'Get a list of prompts with optional filtering',
     {
@@ -39,7 +41,8 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'create-prompt',
     'Create a new prompt',
     {
@@ -69,7 +72,8 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-prompt-by-id',
     'Retrieve a prompt by ID',
     {
@@ -98,7 +102,8 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-prompt-version',
     'Retrieve a specific version of a prompt',
     {
@@ -132,7 +137,8 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'delete-prompt',
     'Delete a prompt by ID',
     {
@@ -161,7 +167,8 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'save-prompt-version',
     'Save a new version of a prompt',
     {

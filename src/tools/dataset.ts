@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { makeApiRequest } from '../utils/api.js';
 import { DatasetItemsResponse, DatasetResponse, SingleDatasetResponse } from '../types.js';
+import { registerTool } from './registration.js';
 
 export const loadDatasetTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'list-datasets',
     'List datasets with optional filtering',
     {
@@ -41,7 +43,8 @@ export const loadDatasetTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-dataset-by-id',
     'Get details for a specific dataset',
     {
@@ -68,7 +71,8 @@ export const loadDatasetTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'create-dataset',
     'Create a dataset for evaluations and experiments',
     {
@@ -111,7 +115,8 @@ export const loadDatasetTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'delete-dataset',
     'Delete a dataset by ID',
     {
@@ -138,7 +143,8 @@ export const loadDatasetTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'list-dataset-items',
     'List items belonging to a dataset',
     {
@@ -176,7 +182,8 @@ export const loadDatasetTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'create-dataset-item',
     'Create a dataset item with input/output payloads',
     {
@@ -226,7 +233,8 @@ export const loadDatasetTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'delete-dataset-item',
     'Delete a dataset item by ID',
     {

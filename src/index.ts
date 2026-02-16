@@ -20,6 +20,7 @@ import { loadMetricTools } from './tools/metrics.js';
 import { loadIntegrationTools } from './tools/integration.js';
 import { loadCapabilitiesTools } from './tools/capabilities.js';
 import { loadDatasetTools } from './tools/dataset.js';
+import { registerResource } from './tools/registration.js';
 
 // Import configuration
 import { loadConfig } from './config.js';
@@ -113,59 +114,71 @@ if (config.enabledToolsets.includes('metrics')) {
 // Add resources to the MCP server
 if (config.workspaceName) {
   // Define a workspace info resource
-  server.resource('workspace-info', 'opik://workspace-info', async () => ({
-    contents: [
-      {
-        uri: 'opik://workspace-info',
-        text: JSON.stringify(
-          {
-            name: config.workspaceName,
-            apiUrl: config.apiBaseUrl,
-            selfHosted: config.isSelfHosted,
-          },
-          null,
-          2
-        ),
-      },
-    ],
-  }));
+  registerResource(
+    server,
+    'workspace-info',
+    'opik://workspace-info',
+    'Workspace information for the configured Opik MCP server.',
+    async () => ({
+      contents: [
+        {
+          uri: 'opik://workspace-info',
+          text: JSON.stringify(
+            {
+              name: config.workspaceName,
+              apiUrl: config.apiBaseUrl,
+              selfHosted: config.isSelfHosted,
+            },
+            null,
+            2
+          ),
+        },
+      ],
+    })
+  );
 
   // Define a projects resource that provides the list of projects in the workspace
-  server.resource('projects-list', 'opik://projects-list', async () => {
-    try {
-      const response = await makeApiRequest<ProjectResponse>('/v1/private/projects');
+  registerResource(
+    server,
+    'projects-list',
+    'opik://projects-list',
+    'Project listing for the configured Opik workspace.',
+    async () => {
+      try {
+        const response = await makeApiRequest<ProjectResponse>('/v1/private/projects');
 
-      if (!response.data) {
+        if (!response.data) {
+          return {
+            contents: [
+              {
+                uri: 'opik://projects-list',
+                text: `Error: ${response.error || 'Unknown error fetching projects'}`,
+              },
+            ],
+          };
+        }
+
         return {
           contents: [
             {
               uri: 'opik://projects-list',
-              text: `Error: ${response.error || 'Unknown error fetching projects'}`,
+              text: JSON.stringify(response.data, null, 2),
+            },
+          ],
+        };
+      } catch (error) {
+        logToFile(`Error fetching projects resource: ${error}`);
+        return {
+          contents: [
+            {
+              uri: 'opik://projects-list',
+              text: `Error: Failed to fetch projects data`,
             },
           ],
         };
       }
-
-      return {
-        contents: [
-          {
-            uri: 'opik://projects-list',
-            text: JSON.stringify(response.data, null, 2),
-          },
-        ],
-      };
-    } catch (error) {
-      logToFile(`Error fetching projects resource: ${error}`);
-      return {
-        contents: [
-          {
-            uri: 'opik://projects-list',
-            text: `Error: Failed to fetch projects data`,
-          },
-        ],
-      };
     }
-  });
+  );
 }
 
 // ----------- SERVER CONFIGURATION TOOLS -----------
@@ -192,7 +205,7 @@ export async function main() {
 
   // Connect the server to the transport
   logToFile('Connecting server to transport');
-  server.connect(transport);
+  await server.connect(transport);
 
   logToFile('Transport connection established');
 
@@ -204,11 +217,6 @@ export async function main() {
   }
 
   logToFile('Main function completed successfully');
-
-  // Start heartbeat for keeping the process alive
-  setInterval(() => {
-    logToFile('Heartbeat ping');
-  }, 5000);
 }
 
 // Start the server

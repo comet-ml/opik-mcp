@@ -7,9 +7,11 @@ import {
   SingleTraceResponse,
   TraceStatsResponse,
 } from './../types.js';
+import { registerTool } from './registration.js';
 
 export const loadTraceTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'list-traces',
     'Get a list of traces from a project. Use this for basic trace retrieval and overview',
     {
@@ -100,7 +102,8 @@ export const loadTraceTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-trace-by-id',
     'Get detailed information about a specific trace including input, output, metadata, and timing information',
     {
@@ -163,7 +166,8 @@ export const loadTraceTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-trace-stats',
     'Get aggregated statistics for traces including counts, costs, token usage, and performance metrics over time',
     {
@@ -262,7 +266,8 @@ export const loadTraceTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'search-traces',
     'Advanced search for traces with complex filtering and query capabilities',
     {
@@ -395,7 +400,8 @@ export const loadTraceTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'get-trace-threads',
     'Get trace threads (conversation groupings) to view related traces that belong to the same conversation or session',
     {
@@ -500,7 +506,8 @@ export const loadTraceTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'add-trace-feedback',
     'Add feedback scores to a trace for quality evaluation and monitoring. Useful for rating trace quality, relevance, or custom metrics',
     {

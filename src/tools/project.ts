@@ -1,9 +1,11 @@
 import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
 import { ProjectResponse } from './../types.js';
+import { registerTool } from './registration.js';
 
 export const loadProjectTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'list-projects',
     'Get a list of projects with optional filtering',
     {
@@ -38,7 +40,8 @@ export const loadProjectTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'create-project',
     'Create a new project',
     {
