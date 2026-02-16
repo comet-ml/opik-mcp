@@ -30,7 +30,7 @@ node build/index.js \
 | `--debug` | - | Debug logging | `false` |
 | `--transport` | - | `stdio` or `streamable-http` | `stdio` |
 | `--streamableHttpPort` | - | streamable-http port | `3001` |
-| `--streamableHttpHost` | - | streamable-http host | `localhost` |
+| `--streamableHttpHost` | - | streamable-http host | `127.0.0.1` |
 | `--streamableHttpLogPath` | - | streamable-http log file path | `/tmp/opik-mcp-streamable-http.log` |
 | `--mcpName` | - | Server name | `opik-manager` |
 | `--mcpVersion` | - | Server version | `1.0.0` |

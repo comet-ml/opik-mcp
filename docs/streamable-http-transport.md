@@ -23,6 +23,7 @@ Remote mode is fail-closed by default.
   - `x-api-key: <token>`
 - Missing auth returns `401`.
 - Invalid key/workspace returns `401` (when validation is enabled).
+- If `REMOTE_TOKEN_WORKSPACE_MAP` is configured and token is not mapped, request returns `403`.
 
 Workspace resolution is server-side:
 
@@ -54,22 +55,36 @@ STREAMABLE_HTTP_REQUIRE_AUTH=true STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH=true npm 
 Health:
 
 ```bash
-curl -s http://localhost:3001/health
+curl -s http://127.0.0.1:3001/health
 ```
 
-Authenticated MCP request:
+Initialize (capture `mcp-session-id` response header):
 
 ```bash
-curl -i -X POST http://localhost:3001/mcp \
+curl -i -X POST http://127.0.0.1:3001/mcp \
   -H "content-type: application/json" \
+  -H "accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
   -H "Authorization: Bearer <OPIK_API_KEY>" \
-  -d '{"jsonrpc":"2.0","id":"1","method":"tools/list","params":{}}'
+  -d '{"jsonrpc":"2.0","id":"1","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1.0.0"}}}'
+```
+
+Then send follow-up requests with the returned session header:
+
+```bash
+curl -i -X POST http://127.0.0.1:3001/mcp \
+  -H "content-type: application/json" \
+  -H "accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
+  -H "Authorization: Bearer <OPIK_API_KEY>" \
+  -H "mcp-session-id: <SESSION_ID_FROM_INITIALIZE>" \
+  -d '{"jsonrpc":"2.0","id":"2","method":"tools/list","params":{}}'
 ```
 
 Unauthenticated request:
 
 ```bash
-curl -i -X POST http://localhost:3001/mcp \
+curl -i -X POST http://127.0.0.1:3001/mcp \
   -H "content-type: application/json" \
   -d '{"jsonrpc":"2.0","id":"2","method":"tools/list","params":{}}'
 ```
