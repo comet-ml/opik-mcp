@@ -46,15 +46,17 @@ describe('MCP Server with Streamable HTTP integration', () => {
     await transport.close();
   });
 
-  test('accepts initialize over /mcp with auth', async () => {
-    const response = await fetch(`http://localhost:${currentPort}/mcp`, {
+  test('supports initialize, initialized, tools/list, and tools/call', async () => {
+    const baseHeaders = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      'MCP-Protocol-Version': '2024-11-05',
+      'x-api-key': 'test-token',
+    };
+
+    const initializeResponse = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        'MCP-Protocol-Version': '2024-11-05',
-        'x-api-key': 'test-token',
-      },
+      headers: baseHeaders,
       body: JSON.stringify({
         jsonrpc: '2.0',
         id: '1',
@@ -67,32 +69,56 @@ describe('MCP Server with Streamable HTTP integration', () => {
       }),
     });
 
-    expect(response.status).toBe(200);
-  });
+    expect(initializeResponse.status).toBe(200);
 
-  test('returns initialize payload over /mcp', async () => {
-    const response = await fetch(`http://localhost:${currentPort}/mcp`, {
+    const sessionId = initializeResponse.headers.get('mcp-session-id');
+    expect(sessionId).toBeTruthy();
+
+    const sessionHeaders = {
+      ...baseHeaders,
+      'mcp-session-id': sessionId as string,
+    };
+
+    const initializedResponse = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        'MCP-Protocol-Version': '2024-11-05',
-        'x-api-key': 'test-token',
-      },
+      headers: sessionHeaders,
       body: JSON.stringify({
         jsonrpc: '2.0',
-        id: '1',
-        method: 'initialize',
+        method: 'notifications/initialized',
+        params: {},
+      }),
+    });
+    expect(initializedResponse.status).toBe(202);
+
+    const toolsListResponse = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
+      method: 'POST',
+      headers: sessionHeaders,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: '2',
+        method: 'tools/list',
+        params: {},
+      }),
+    });
+    const toolsListBody = await toolsListResponse.text();
+    expect(toolsListResponse.status).toBe(200);
+    expect(toolsListBody).toContain('echo');
+
+    const callResponse = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
+      method: 'POST',
+      headers: sessionHeaders,
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: '3',
+        method: 'tools/call',
         params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: { name: 'test-client', version: '1.0.0' },
+          name: 'echo',
+          arguments: {},
         },
       }),
     });
-
-    const body = await response.text();
-    expect(response.status).toBe(200);
-    expect(body).toContain('serverInfo');
+    const callBody = await callResponse.text();
+    expect(callResponse.status).toBe(200);
+    expect(callBody).toContain('echo:ok');
   });
 });

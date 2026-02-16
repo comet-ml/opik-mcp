@@ -9,14 +9,24 @@ jest.mock('fs', () => ({
 
 describe('StreamableHttpTransport', () => {
   let transport: StreamableHttpTransport;
-  const testPort = 3999;
+  const basePort = 3999;
+  let portOffset = 0;
+  let currentPort: number;
+  const originalRequireAuth = process.env.STREAMABLE_HTTP_REQUIRE_AUTH;
+  const originalValidateAuth = process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH;
 
   beforeEach(() => {
-    transport = new StreamableHttpTransport({ port: testPort });
+    process.env.STREAMABLE_HTTP_REQUIRE_AUTH = 'true';
+    process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH = 'false';
+    currentPort = basePort + portOffset;
+    portOffset += 1;
+    transport = new StreamableHttpTransport({ port: currentPort, host: '127.0.0.1' });
   });
 
   afterEach(async () => {
     await transport.close();
+    process.env.STREAMABLE_HTTP_REQUIRE_AUTH = originalRequireAuth;
+    process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH = originalValidateAuth;
   });
 
   test('initializes with explicit and default options', () => {
@@ -27,7 +37,7 @@ describe('StreamableHttpTransport', () => {
   test('responds to health check', async () => {
     await transport.start();
 
-    const response = await fetch(`http://localhost:${testPort}/health`);
+    const response = await fetch(`http://127.0.0.1:${currentPort}/health`);
     const data = (await response.json()) as { status: string };
 
     expect(response.status).toBe(200);
@@ -37,10 +47,12 @@ describe('StreamableHttpTransport', () => {
   test('rejects unauthenticated MCP requests', async () => {
     await transport.start();
 
-    const response = await fetch(`http://localhost:${testPort}/mcp`, {
+    const response = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        Accept: 'application/json, text/event-stream',
+        'MCP-Protocol-Version': '2024-11-05',
       },
       body: JSON.stringify({
         jsonrpc: '2.0',

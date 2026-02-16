@@ -11,6 +11,7 @@ import express from 'express';
 import http, { IncomingMessage } from 'http';
 import fs from 'fs';
 import cors from 'cors';
+import { randomUUID } from 'node:crypto';
 import {
   authenticateRemoteRequest,
   isRemoteAuthRequired,
@@ -97,13 +98,20 @@ export class StreamableHttpTransport implements Transport {
   private host: string;
   private started = false;
   private mcpTransport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // stateless mode for simple remote deployments
+    // Stateful mode is required for full MCP request flow after initialize.
+    sessionIdGenerator: () => randomUUID(),
   });
 
   constructor(options: StreamableHttpTransportOptions = {}) {
     this.port = options.port || 3001;
-    this.host = options.host || process.env.STREAMABLE_HTTP_HOST || 'localhost';
+    this.host = options.host || process.env.STREAMABLE_HTTP_HOST || '127.0.0.1';
     this.app = createMcpExpressApp({ host: this.host });
+
+    this.mcpTransport.onerror = error => {
+      logToFile(
+        `Streamable HTTP transport error: ${error instanceof Error ? error.stack || error.message : String(error)}`
+      );
+    };
 
     const allowedOrigins = parseCsvEnv(process.env.STREAMABLE_HTTP_CORS_ORIGINS);
     if (allowedOrigins.length > 0) {
