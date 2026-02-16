@@ -1,5 +1,6 @@
 import config from '../config.js';
 import type { RequestContext } from './request-context.js';
+import { extractContextFromHeaders } from './request-context.js';
 
 interface CachedAuthResult {
   expiresAt: number;
@@ -28,6 +29,81 @@ export function isSseAuthRequired(): boolean {
 export function shouldValidateRemoteAuth(): boolean {
   const defaultValue = process.env.NODE_ENV !== 'test';
   return parseBoolean(process.env.SSE_VALIDATE_REMOTE_AUTH, defaultValue);
+}
+
+function parseTokenWorkspaceMap(): Record<string, string> {
+  const raw = process.env.REMOTE_TOKEN_WORKSPACE_MAP;
+  if (!raw) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === 'string' && typeof entry[1] === 'string'
+      )
+    );
+  } catch {
+    return {};
+  }
+}
+
+export function shouldTrustWorkspaceHeaders(): boolean {
+  return parseBoolean(process.env.SSE_TRUST_WORKSPACE_HEADERS, false);
+}
+
+function resolveWorkspaceForToken(token: string, headerWorkspace?: string): string {
+  const tokenWorkspaceMap = parseTokenWorkspaceMap();
+  const hasMappingRules = Object.keys(tokenWorkspaceMap).length > 0;
+  const mappedWorkspace = tokenWorkspaceMap[token];
+
+  if (hasMappingRules) {
+    if (!mappedWorkspace) {
+      throw new Error('Token is not mapped to an allowed workspace.');
+    }
+    return mappedWorkspace;
+  }
+
+  if (shouldTrustWorkspaceHeaders() && headerWorkspace) {
+    return headerWorkspace;
+  }
+
+  return config.workspaceName || config.mcpDefaultWorkspace || 'default';
+}
+
+export function authenticateRemoteRequest(
+  headers: Record<string, string | string[] | undefined>
+): { ok: true; context: RequestContext } | { ok: false; status: number; message: string } {
+  const extracted = extractContextFromHeaders(headers);
+  if (!extracted.apiKey) {
+    return {
+      ok: false,
+      status: 401,
+      message: 'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
+    };
+  }
+
+  try {
+    return {
+      ok: true,
+      context: {
+        apiKey: extracted.apiKey,
+        workspaceName: resolveWorkspaceForToken(extracted.apiKey, extracted.workspaceName),
+      },
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 403,
+      message: error instanceof Error ? error.message : 'Forbidden',
+    };
+  }
 }
 
 export async function validateRemoteAuth(

@@ -50,6 +50,11 @@ export interface SSETransportOptions {
    * @default 3001
    */
   port?: number;
+  /**
+   * Host interface to bind
+   * @default 127.0.0.1
+   */
+  host?: string;
 }
 
 /**

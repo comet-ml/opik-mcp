@@ -40,7 +40,7 @@ export function getOpikApi(): any {
 
 export function getRequestOptions(workspaceName?: string): Record<string, string> {
   const context = getRequestContext();
-  const effectiveWorkspace = workspaceName || context?.workspaceName;
+  const effectiveWorkspace = context?.workspaceName || workspaceName;
   return effectiveWorkspace ? { workspaceName: effectiveWorkspace } : {};
 }
 

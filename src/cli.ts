@@ -10,10 +10,10 @@ const argv = yargs(hideBin(process.argv))
   .usage('$0 [args]')
   .option('transport', {
     alias: 't',
-    description: 'Transport to use (stdio or sse)',
+    description: 'Transport to use (stdio, sse alias, or streamable-http)',
     type: 'string',
     default: 'stdio',
-    choices: ['stdio', 'sse'],
+    choices: ['stdio', 'sse', 'streamable-http'],
   })
   .option('port', {
     alias: 'p',
@@ -27,8 +27,8 @@ const argv = yargs(hideBin(process.argv))
   .parseSync();
 
 // Update config based on CLI arguments
-configImport.transport = argv.transport as 'stdio' | 'sse';
-if (argv.transport === 'sse') {
+configImport.transport = argv.transport as 'stdio' | 'sse' | 'streamable-http';
+if (argv.transport === 'sse' || argv.transport === 'streamable-http') {
   configImport.ssePort = argv.port as number;
 }
 

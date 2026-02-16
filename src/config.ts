@@ -189,7 +189,7 @@ export interface OpikConfig {
   debugMode: boolean;
 
   // Transport configuration
-  transport: 'stdio' | 'sse';
+  transport: 'stdio' | 'sse' | 'streamable-http';
   ssePort?: number;
   sseHost?: string;
   sseLogPath?: string;
@@ -238,8 +238,8 @@ function parseCommandLineArgs() {
       // Transport Configuration
       .option('transport', {
         type: 'string',
-        description: 'Transport type (stdio or sse)',
-        choices: ['stdio', 'sse'],
+        description: 'Transport type (stdio, sse alias, or streamable-http)',
+        choices: ['stdio', 'sse', 'streamable-http'],
         default: 'stdio',
       })
       .option('ssePort', {
@@ -338,7 +338,10 @@ export function loadConfig(): OpikConfig {
     debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
 
     // Transport configuration
-    transport: (args.transport || process.env.TRANSPORT || 'stdio') as 'stdio' | 'sse',
+    transport: (args.transport || process.env.TRANSPORT || 'stdio') as
+      | 'stdio'
+      | 'sse'
+      | 'streamable-http',
     ssePort: args.ssePort || (process.env.SSE_PORT ? parseInt(process.env.SSE_PORT, 10) : 3001),
     sseHost: args.sseHost || process.env.SSE_HOST || 'localhost',
     sseLogPath: args.sseLogPath || process.env.SSE_LOG_PATH || '/tmp/opik-mcp-sse.log',
