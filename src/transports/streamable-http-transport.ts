@@ -51,6 +51,24 @@ function isAccessLogEnabled(): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function setAuthChallengeHeaders(res: express.Response): void {
+  res.setHeader(
+    'WWW-Authenticate',
+    'Bearer realm="opik-mcp", error="invalid_token", error_description="Missing or invalid API key."'
+  );
+  res.setHeader('Cache-Control', 'no-store');
+}
+
+function getBaseUrl(req: express.Request): string {
+  const forwardedProto = req.header('x-forwarded-proto');
+  const proto = forwardedProto || req.protocol || 'http';
+  const host = req.get('host');
+  if (host) {
+    return `${proto}://${host}`;
+  }
+  return `${proto}://127.0.0.1`;
+}
+
 function createRateLimiter() {
   const windowMs = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000);
   const maxRequests = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_MAX || 120);
@@ -163,19 +181,29 @@ export class StreamableHttpTransport implements Transport {
       res.json(response);
     });
 
+    this.app.get(
+      ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'],
+      (req, res) => {
+        const baseUrl = getBaseUrl(req);
+        const metadata = {
+          resource: `${baseUrl}/mcp`,
+          bearer_methods_supported: ['header'],
+          scopes_supported: ['mcp'],
+          // Informative extension for clients/operators: this server uses API-key bearer auth only.
+          opik_auth_mode: 'api_key',
+        };
+        res.json(metadata);
+      }
+    );
+
     const oauthNotSupportedResponse: { error: string; message: string } = {
       error: 'unsupported_auth_flow',
       message:
-        'This server uses API-key bearer auth and does not implement OAuth discovery/registration endpoints.',
+        'OAuth authorization server endpoints are not implemented; authenticate with Authorization: Bearer <OPIK_API_KEY>.',
     };
 
     this.app.get(
-      [
-        '/.well-known/oauth-protected-resource',
-        '/.well-known/oauth-protected-resource/mcp',
-        '/.well-known/oauth-authorization-server',
-        '/.well-known/openid-configuration',
-      ],
+      ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'],
       (_req, res) => {
         res.status(404).json(oauthNotSupportedResponse);
       }
@@ -197,6 +225,9 @@ export class StreamableHttpTransport implements Transport {
               status: 'error',
               message: auth.message,
             };
+            if (auth.status === 401) {
+              setAuthChallengeHeaders(res);
+            }
             res.status(auth.status).json(errorResponse);
             return;
           }
@@ -207,6 +238,9 @@ export class StreamableHttpTransport implements Transport {
               status: 'error',
               message: validation.message || 'Unauthorized',
             };
+            if (validation.status === 401) {
+              setAuthChallengeHeaders(res);
+            }
             res.status(validation.status).json(errorResponse);
             return;
           }

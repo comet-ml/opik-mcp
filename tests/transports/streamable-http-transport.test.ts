@@ -63,7 +63,25 @@ describe('StreamableHttpTransport', () => {
     });
 
     const data = (await response.json()) as { status: string; message: string };
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(data.status).toBe('error');
+  });
+
+  test('serves oauth protected resource metadata without oauth auth-server metadata', async () => {
+    await transport.start();
+
+    const response = await fetch(
+      `http://127.0.0.1:${currentPort}/.well-known/oauth-protected-resource`
+    );
+    const data = (await response.json()) as { resource: string; opik_auth_mode: string };
+
+    expect(response.status).toBe(200);
+    expect(data.resource).toContain('/mcp');
+    expect(data.opik_auth_mode).toBe('api_key');
+
+    const authzServerResponse = await fetch(
+      `http://127.0.0.1:${currentPort}/.well-known/oauth-authorization-server`
+    );
+    expect(authzServerResponse.status).toBe(404);
   });
 });

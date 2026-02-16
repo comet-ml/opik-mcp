@@ -84,7 +84,7 @@ export function authenticateRemoteRequest(
   if (!extracted.apiKey) {
     return {
       ok: false,
-      status: 403,
+      status: 401,
       message: 'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
     };
   }
@@ -112,7 +112,7 @@ export async function validateRemoteAuth(
   if (!context.apiKey) {
     return {
       ok: false,
-      status: 403,
+      status: 401,
       message: 'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
     };
   }
@@ -128,7 +128,7 @@ export async function validateRemoteAuth(
   if (cached && cached.expiresAt > now) {
     return cached.valid
       ? { ok: true, status: 200 }
-      : { ok: false, status: 403, message: 'Invalid API key or workspace.' };
+      : { ok: false, status: 401, message: 'Invalid API key or workspace.' };
   }
 
   const headers: Record<string, string> = {
@@ -166,7 +166,7 @@ export async function validateRemoteAuth(
         valid: false,
         expiresAt: now + INVALID_CACHE_TTL_MS,
       });
-      return { ok: false, status: 403, message: 'Invalid API key or workspace.' };
+      return { ok: false, status: 401, message: 'Invalid API key or workspace.' };
     }
 
     return {
