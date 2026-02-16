@@ -41,7 +41,7 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
 </p>
 
 > **Note:** This repository provides the MCP server implementation. We do not currently provide a hosted remote MCP service for Opik.
-> If you run the SSE transport yourself, authentication is fail-closed by default.
+> If you run streamable-http remotely, authentication is fail-closed by default.
 
 ## 🚀 What is Opik MCP Server?
 
@@ -56,7 +56,7 @@ You can use Opik MCP Server for:
 
 * **Unified API Access:**
   * Access all Opik features through a standardized protocol
-  * Leverage multiple transport options (stdio, SSE) for different integration scenarios
+  * Leverage multiple transport options (stdio, streamable-http) for different integration scenarios
 
 * **Platform Management:**
   * Manage prompts, projects, traces, and metrics through a consistent interface
@@ -213,8 +213,8 @@ cp .env.example .env
 # Start with stdio transport (default)
 npm run start:stdio
 
-# Start with SSE transport for remote/self-hosted access
-npm run start:sse
+# Start with streamable-http transport for remote/self-hosted access
+npm run start:http
 ```
 
 ## Transport Options
@@ -227,7 +227,7 @@ Ideal for local integration where the client and server run on the same machine.
 make start-stdio
 ```
 
-### Streamable HTTP (`sse` transport alias)
+### Streamable HTTP
 
 Enables remote/self-hosted MCP over the standard Streamable HTTP endpoint (`/mcp`).
 
@@ -236,19 +236,18 @@ Remote auth behavior:
 - Workspace is resolved server-side (recommended via token mapping). Header workspaces are not trusted by default.
 - In remote mode, request-context workspace takes precedence over tool `workspaceName` args.
 - Missing auth returns HTTP `401`.
-- Legacy `/events` and `/send` endpoints are removed (HTTP `410`).
 
 Remote auth environment flags:
-- `SSE_REQUIRE_AUTH` (default `true`): require auth headers on `/mcp`.
-- `SSE_VALIDATE_REMOTE_AUTH` (default `true`, except test env): validate bearer/API key against Opik before accepting requests.
+- `STREAMABLE_HTTP_REQUIRE_AUTH` (default `true`): require auth headers on `/mcp`.
+- `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH` (default `true`, except test env): validate bearer/API key against Opik before accepting requests.
 - `REMOTE_TOKEN_WORKSPACE_MAP`: JSON map of token -> workspace for server-side tenant routing.
-- `SSE_TRUST_WORKSPACE_HEADERS` (default `false`): allow workspace headers when token map is not configured.
+- `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS` (default `false`): allow workspace headers when token map is not configured.
 
 ```bash
-make start-sse
+npm run start:http
 ```
 
-For detailed information about the SSE transport, see [docs/sse-transport.md](docs/sse-transport.md).
+For detailed information about streamable-http transport, see [docs/streamable-http-transport.md](docs/streamable-http-transport.md).
 
 ## Development
 
@@ -259,7 +258,7 @@ For detailed information about the SSE transport, see [docs/sse-transport.md](do
 npm test
 
 # Run specific test suite
-npm test -- tests/transports/sse-transport.test.ts
+npm test -- tests/transports/streamable-http-transport.test.ts
 ```
 
 ### Pre-commit Hooks
@@ -273,7 +272,7 @@ make precommit
 
 ## Documentation
 
-- [SSE Transport](docs/sse-transport.md) - Details on using the SSE transport
+- [Streamable HTTP Transport](docs/streamable-http-transport.md) - Details on remote transport
 - [API Reference](docs/api-reference.md) - Complete API documentation
 - [Configuration](docs/configuration.md) - Advanced configuration options
 - [IDE Integration](docs/ide-integration.md) - Integration with Cursor IDE

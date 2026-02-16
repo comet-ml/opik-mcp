@@ -28,10 +28,10 @@ node build/index.js \
 | `--workspace` | `--ws` | Default workspace name | `default` |
 | `--selfHosted` | - | Self-hosted mode flag | `false` |
 | `--debug` | - | Debug logging | `false` |
-| `--transport` | - | `stdio`, `streamable-http`, or `sse` (alias) | `stdio` |
-| `--ssePort` | - | SSE port | `3001` |
-| `--sseHost` | - | SSE host (informational) | `localhost` |
-| `--sseLogPath` | - | SSE log file path | `/tmp/opik-mcp-sse.log` |
+| `--transport` | - | `stdio` or `streamable-http` | `stdio` |
+| `--streamableHttpPort` | - | streamable-http port | `3001` |
+| `--streamableHttpHost` | - | streamable-http host | `localhost` |
+| `--streamableHttpLogPath` | - | streamable-http log file path | `/tmp/opik-mcp-streamable-http.log` |
 | `--mcpName` | - | Server name | `opik-manager` |
 | `--mcpVersion` | - | Server version | `1.0.0` |
 | `--mcpPort` | - | Optional MCP port metadata | unset |
@@ -51,20 +51,20 @@ node build/index.js \
 
 ### Transport settings
 
-- `TRANSPORT` (`stdio`, `streamable-http`, or `sse`)
-- `SSE_PORT`
-- `SSE_HOST`
-- `SSE_LOG_PATH`
+- `TRANSPORT` (`stdio` or `streamable-http`)
+- `STREAMABLE_HTTP_PORT`
+- `STREAMABLE_HTTP_HOST`
+- `STREAMABLE_HTTP_LOG_PATH`
 
 ### Remote transport auth settings
 
-- `SSE_REQUIRE_AUTH` (default `true`)
-- `SSE_VALIDATE_REMOTE_AUTH` (default `true`, except test env)
+- `STREAMABLE_HTTP_REQUIRE_AUTH` (default `true`)
+- `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH` (default `true`, except test env)
 - `REMOTE_TOKEN_WORKSPACE_MAP` (JSON token -> workspace map)
-- `SSE_TRUST_WORKSPACE_HEADERS` (default `false`)
-- `SSE_CORS_ORIGINS` (comma-separated CORS allowlist)
-- `SSE_RATE_LIMIT_WINDOW_MS` (default `60000`)
-- `SSE_RATE_LIMIT_MAX` (default `120`)
+- `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS` (default `false`)
+- `STREAMABLE_HTTP_CORS_ORIGINS` (comma-separated CORS allowlist)
+- `STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS` (default `60000`)
+- `STREAMABLE_HTTP_RATE_LIMIT_MAX` (default `120`)
 
 ### MCP settings
 
@@ -105,15 +105,15 @@ OPIK_API_BASE_URL=https://www.comet.com/opik/api
 OPIK_API_KEY=your-api-key
 OPIK_WORKSPACE_NAME=default
 
-TRANSPORT=sse
-SSE_PORT=3001
-SSE_REQUIRE_AUTH=true
-SSE_VALIDATE_REMOTE_AUTH=true
+TRANSPORT=streamable-http
+STREAMABLE_HTTP_PORT=3001
+STREAMABLE_HTTP_REQUIRE_AUTH=true
+STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH=true
 REMOTE_TOKEN_WORKSPACE_MAP={"token-a":"workspace-a","token-b":"workspace-b"}
-SSE_TRUST_WORKSPACE_HEADERS=false
-SSE_CORS_ORIGINS=https://example.com,https://app.example.com
-SSE_RATE_LIMIT_WINDOW_MS=60000
-SSE_RATE_LIMIT_MAX=120
+STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS=false
+STREAMABLE_HTTP_CORS_ORIGINS=https://example.com,https://app.example.com
+STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS=60000
+STREAMABLE_HTTP_RATE_LIMIT_MAX=120
 
 OPIK_TOOLSETS=core,expert-prompts,expert-datasets,expert-trace-actions,metrics
 ```

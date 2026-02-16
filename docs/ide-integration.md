@@ -93,7 +93,7 @@ You can also use environment variables instead of command-line arguments:
 }
 ```
 
-### Using Remote Streamable HTTP (`sse` alias)
+### Using Remote Streamable HTTP
 
 If you want to run the remote HTTP transport:
 
@@ -105,13 +105,13 @@ If you want to run the remote HTTP transport:
       "args": [
         "/path/to/build/cli.js",
         "serve",
-        "--transport", "sse",
+        "--transport", "streamable-http",
         "--port", "3001"
       ],
       "env": {
         "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
-        "SSE_REQUIRE_AUTH": "true",
-        "SSE_VALIDATE_REMOTE_AUTH": "true"
+        "STREAMABLE_HTTP_REQUIRE_AUTH": "true",
+        "STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH": "true"
       }
     }
   }

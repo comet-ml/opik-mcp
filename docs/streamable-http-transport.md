@@ -8,14 +8,10 @@ This document describes remote/self-hosted transport for `opik-mcp`.
 - There is no managed hosted Opik remote MCP service in this repo.
 - You run this server yourself and expose it behind your own network/security controls.
 
-## Endpoint
+## Endpoints
 
 - `GET /health`
 - `POST|GET|DELETE /mcp` (MCP Streamable HTTP)
-
-Legacy endpoints:
-
-- `/events` and `/send` are removed and return `410`.
 
 ## Auth and Tenant Routing
 
@@ -32,7 +28,7 @@ Workspace resolution is server-side:
 
 1. If `REMOTE_TOKEN_WORKSPACE_MAP` is configured, token must be present in the map and mapped workspace is used.
 2. Else fallback is server default workspace.
-3. Header workspace is ignored by default unless `SSE_TRUST_WORKSPACE_HEADERS=true`.
+3. Header workspace is ignored by default unless `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS=true`.
 
 When a request context workspace is resolved, tool-level `workspaceName` arguments are ignored.
 
@@ -40,19 +36,19 @@ When a request context workspace is resolved, tool-level `workspaceName` argumen
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SSE_REQUIRE_AUTH` | `true` | Require auth headers on `/mcp` |
-| `SSE_VALIDATE_REMOTE_AUTH` | `true` (except test env) | Validate token/workspace against Opik before processing MCP requests |
+| `STREAMABLE_HTTP_REQUIRE_AUTH` | `true` | Require auth headers on `/mcp` |
+| `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH` | `true` (except test env) | Validate token/workspace against Opik before processing MCP requests |
 | `REMOTE_TOKEN_WORKSPACE_MAP` | unset | JSON object mapping API token -> workspace |
-| `SSE_TRUST_WORKSPACE_HEADERS` | `false` | Trust `Comet-Workspace`/`x-workspace-name`/`x-opik-workspace` headers when no token map is configured |
-| `SSE_CORS_ORIGINS` | unset | Comma-separated CORS allowlist |
-| `SSE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window |
-| `SSE_RATE_LIMIT_MAX` | `120` | Max requests per key/path per window |
+| `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS` | `false` | Trust `Comet-Workspace`/`x-workspace-name`/`x-opik-workspace` headers when no token map is configured |
+| `STREAMABLE_HTTP_CORS_ORIGINS` | unset | Comma-separated CORS allowlist |
+| `STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window |
+| `STREAMABLE_HTTP_RATE_LIMIT_MAX` | `120` | Max requests per key/path per window |
 
 ## Verification
 
 ```bash
 npm run build
-SSE_REQUIRE_AUTH=true SSE_VALIDATE_REMOTE_AUTH=true npm run start:sse
+STREAMABLE_HTTP_REQUIRE_AUTH=true STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH=true npm run start:http
 ```
 
 Health:
