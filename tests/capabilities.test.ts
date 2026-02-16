@@ -123,12 +123,12 @@ describe('Capabilities Module Tests', () => {
 
   test('getEnabledCapabilities should support enabledToolsets config', () => {
     const toolsetConfig = {
-      enabledToolsets: ['capabilities', 'prompts', 'traces'] as const,
+      enabledToolsets: ['core', 'expert-prompts'] as const,
     };
 
     const capabilities = getEnabledCapabilities(toolsetConfig);
     expect(capabilities.prompts?.available).toBe(true);
-    expect(capabilities.projects?.available).toBe(false);
+    expect(capabilities.projects?.available).toBe(true);
     expect(capabilities.traces?.available).toBe(true);
     expect(capabilities.metrics?.available).toBe(false);
   });

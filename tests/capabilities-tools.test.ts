@@ -18,7 +18,7 @@ function createConfig(): OpikConfig {
     mcpPort: 3001,
     mcpLogging: false,
     mcpDefaultWorkspace: 'default',
-    enabledToolsets: ['capabilities', 'prompts', 'traces'],
+    enabledToolsets: ['expert-prompts', 'expert-trace-actions'],
   };
 }
 
@@ -55,8 +55,9 @@ describe('Capabilities tools', () => {
 
     const payload = JSON.parse(result.content[0].text);
     expect(payload.hasApiKey).toBe(true);
-    expect(payload.enabledToolsets).toContain('capabilities');
+    expect(payload.enabledToolsets).toContain('expert-prompts');
     expect(payload.capabilities.prompts.available).toBe(true);
     expect(payload.capabilities.projects.available).toBe(false);
+    expect(payload.capabilities.traces.available).toBe(true);
   });
 });
