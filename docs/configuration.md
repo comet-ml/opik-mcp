@@ -30,7 +30,7 @@ node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api
 | `--mcpPort` | - | MCP server port | - |
 | `--mcpLogging` | - | Enable MCP server logging | false |
 | `--mcpDefaultWorkspace` | - | Default workspace name | "default" |
-| `--toolsets` | - | Comma-separated list of toolsets to enable | "capabilities,prompts,projects,traces" |
+| `--toolsets` | - | Comma-separated list of toolsets to enable | "capabilities,datasets,prompts,projects,traces" |
 
 ### Environment Variables
 
@@ -57,11 +57,12 @@ Alternatively, configure via environment variables in a `.env` file:
 - `MCP_SSE_PORT`: Port to use for SSE transport (defaults to 3001)
 
 #### Toolset Configuration
-- `OPIK_TOOLSETS`: Comma-separated list of toolsets to enable (defaults to "capabilities,prompts,projects,traces")
+- `OPIK_TOOLSETS`: Comma-separated list of toolsets to enable (defaults to "capabilities,datasets,prompts,projects,traces")
 
 **Available Toolsets:**
 - `capabilities`: Server info and help tools
 - `integration`: Integration documentation and guides
+- `datasets`: Dataset and evaluation data management tools
 - `prompts`: Prompt management tools
 - `projects`: Project/workspace management tools
 - `traces`: Trace listing and analysis tools
@@ -89,7 +90,7 @@ MCP_VERSION=1.0.0
 MCP_TRANSPORT=stdio
 
 # Toolset Configuration (optional - uses defaults if not specified)
-OPIK_TOOLSETS=capabilities,prompts,projects,traces
+OPIK_TOOLSETS=capabilities,datasets,prompts,projects,traces
 ```
 
 ### Advanced Configuration
@@ -111,7 +112,7 @@ MCP_LOGGING=true
 MCP_DEFAULT_WORKSPACE=default
 
 # Toolset Configuration
-OPIK_TOOLSETS=capabilities,prompts,projects,traces,metrics
+OPIK_TOOLSETS=capabilities,datasets,prompts,projects,traces,metrics
 ```
 
 ## Common Toolset Configurations
@@ -123,17 +124,17 @@ For users just starting with Opik:
 ```
 or
 ```dotenv
-OPIK_TOOLSETS=capabilities,prompts
+OPIK_TOOLSETS=capabilities,prompts,datasets
 ```
 
 ### Development & Debugging
 For developers working with LLM applications:
 ```bash
---toolsets capabilities,prompts,projects,traces
+--toolsets capabilities,datasets,prompts,projects,traces
 ```
 or
 ```dotenv
-OPIK_TOOLSETS=capabilities,prompts,projects,traces
+OPIK_TOOLSETS=capabilities,datasets,prompts,projects,traces
 ```
 
 ### Production Monitoring
@@ -149,19 +150,19 @@ OPIK_TOOLSETS=capabilities,traces,metrics
 ### Full Integration Setup
 For comprehensive integration workflows:
 ```bash
---toolsets integration,capabilities,prompts,projects
+--toolsets integration,capabilities,datasets,prompts,projects
 ```
 or
 ```dotenv
-OPIK_TOOLSETS=integration,capabilities,prompts,projects
+OPIK_TOOLSETS=integration,capabilities,datasets,prompts,projects
 ```
 
 ### Complete Feature Set
 To enable all available toolsets:
 ```bash
---toolsets capabilities,integration,prompts,projects,traces,metrics
+--toolsets capabilities,integration,datasets,prompts,projects,traces,metrics
 ```
 or
 ```dotenv
-OPIK_TOOLSETS=capabilities,integration,prompts,projects,traces,metrics
+OPIK_TOOLSETS=capabilities,integration,datasets,prompts,projects,traces,metrics
 ```

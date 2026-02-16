@@ -52,6 +52,7 @@ The Opik MCP server organizes tools into **toolsets** - logical groups of relate
 |---------|-------------|----------------|
 | `capabilities` | Server info and help tools | Server configuration and documentation |
 | `integration` | Integration documentation and guides | Step-by-step integration workflows |
+| `datasets` | Dataset and evaluation data management | Create/list datasets and manage dataset items |
 | `prompts` | Prompt management tools | Create, retrieve, and version prompts |
 | `projects` | Project/workspace management tools | List and create projects |
 | `traces` | Trace listing and analysis tools | Comprehensive tracing and analytics |
@@ -61,6 +62,7 @@ The Opik MCP server organizes tools into **toolsets** - logical groups of relate
 
 By default, the following toolsets are enabled:
 - `capabilities` - Essential for server information
+- `datasets` - Core dataset and eval-data operations
 - `prompts` - Core prompt management
 - `projects` - Basic project operations
 - `traces` - Trace monitoring and analysis
@@ -71,12 +73,12 @@ You can control which toolsets are enabled using:
 
 **Command Line:**
 ```bash
---toolsets capabilities,prompts,projects,traces
+--toolsets capabilities,datasets,prompts,projects,traces
 ```
 
 **Environment Variable:**
 ```bash
-export OPIK_TOOLSETS=capabilities,prompts,projects,traces
+export OPIK_TOOLSETS=capabilities,datasets,prompts,projects,traces
 ```
 
 See the [Configuration Guide](./configuration.md) for detailed examples and common configurations.
@@ -132,7 +134,33 @@ Retrieves a specific version of a prompt by name and optional commit.
 }
 ```
 
-#### 4. Save Prompt Version
+#### 4. Get Prompt by ID
+
+Retrieves a prompt by ID.
+
+```typescript
+{
+  name: "get-prompt-by-id",
+  parameters: {
+    promptId: string
+  }
+}
+```
+
+#### 5. Delete Prompt
+
+Deletes a prompt by ID.
+
+```typescript
+{
+  name: "delete-prompt",
+  parameters: {
+    promptId: string
+  }
+}
+```
+
+#### 6. Save Prompt Version
 
 Saves a new version of a prompt with template content and metadata.
 
@@ -145,6 +173,103 @@ Saves a new version of a prompt with template content and metadata.
     change_description?: string,       // Optional description of changes in this version
     metadata?: Record<string, any>,    // Optional additional metadata
     type?: "mustache" | "jinja2"      // Optional template type
+  }
+}
+```
+
+### Datasets
+*Requires the `datasets` toolset to be enabled*
+
+#### 1. List Datasets
+
+Lists datasets with optional pagination and name filtering.
+
+```typescript
+{
+  name: "list-datasets",
+  parameters: {
+    page?: number,
+    size?: number,
+    name?: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 2. Get Dataset by ID
+
+```typescript
+{
+  name: "get-dataset-by-id",
+  parameters: {
+    datasetId: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 3. Create Dataset
+
+```typescript
+{
+  name: "create-dataset",
+  parameters: {
+    name: string,
+    description?: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 4. Delete Dataset
+
+```typescript
+{
+  name: "delete-dataset",
+  parameters: {
+    datasetId: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 5. List Dataset Items
+
+```typescript
+{
+  name: "list-dataset-items",
+  parameters: {
+    datasetId: string,
+    page?: number,
+    size?: number,
+    workspaceName?: string
+  }
+}
+```
+
+#### 6. Create Dataset Item
+
+```typescript
+{
+  name: "create-dataset-item",
+  parameters: {
+    datasetId: string,
+    input: Record<string, any>,
+    expectedOutput?: Record<string, any>,
+    metadata?: Record<string, any>,
+    workspaceName?: string
+  }
+}
+```
+
+#### 7. Delete Dataset Item
+
+```typescript
+{
+  name: "delete-dataset-item",
+  parameters: {
+    itemId: string,
+    workspaceName?: string
   }
 }
 ```
