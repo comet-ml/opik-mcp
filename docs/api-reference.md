@@ -289,8 +289,10 @@ Add feedback scores to a trace for quality evaluation and monitoring. Useful for
     traceId: string,              // ID of the trace to add feedback to
     scores: Array<{               // Array of feedback scores to add
       name: string,               // Name of the feedback metric (e.g. "relevance", "accuracy", "helpfulness", "quality")
-      value: number,              // Score value between 0.0 and 1.0 (0.0 = poor, 1.0 = excellent)
-      reason?: string             // Optional explanation for the score
+      value: number,              // Numeric score value (commonly 0.0-1.0, custom scales are allowed)
+      reason?: string,            // Optional explanation for the score
+      source?: "ui" | "sdk" | "online_scoring", // Optional source, defaults to "sdk"
+      categoryName?: string       // Optional category for grouped feedback dimensions
     }>,
     workspaceName?: string        // Optional workspace name override
   }
@@ -327,6 +329,58 @@ Retrieves information about the Opik server configuration.
 {
   name: "get-server-info",
   parameters: {}
+}
+```
+
+#### 2. Get Opik Help
+
+Returns capability documentation, optionally scoped to a specific topic.
+
+```typescript
+{
+  name: "get-opik-help",
+  parameters: {
+    topic?: "prompts" | "projects" | "traces" | "metrics" | "general"
+  }
+}
+```
+
+#### 3. Get Opik Examples
+
+Returns practical examples for common Opik workflows.
+
+```typescript
+{
+  name: "get-opik-examples",
+  parameters: {
+    task?: string  // e.g. "create prompt", "log trace", "evaluate response"
+  }
+}
+```
+
+#### 4. Get Opik Metrics Info
+
+Returns metric definitions and parameter guidance.
+
+```typescript
+{
+  name: "get-opik-metrics-info",
+  parameters: {
+    metric?: string // e.g. "hallucination", "answerrelevance", "moderation"
+  }
+}
+```
+
+#### 5. Get Opik Tracing Info
+
+Returns tracing guidance by topic.
+
+```typescript
+{
+  name: "get-opik-tracing-info",
+  parameters: {
+    topic?: "traces" | "spans" | "feedback" | "search" | "visualization"
+  }
 }
 ```
 
