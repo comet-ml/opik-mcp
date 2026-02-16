@@ -413,14 +413,10 @@ export const loadTraceTools = (server: any) => {
     },
     async (args: any) => {
       const { projectId, projectName, page, size, threadId, workspaceName } = args;
-      let url = `/v1/private/traces/threads?page=${page || 1}&size=${size || 10}`;
+      let resolvedProjectId = projectId;
+      let resolvedProjectName = projectName;
 
-      // Add project filtering
-      if (projectId) {
-        url += `&project_id=${projectId}`;
-      } else if (projectName) {
-        url += `&project_name=${encodeURIComponent(projectName)}`;
-      } else {
+      if (!resolvedProjectId && !resolvedProjectName) {
         // If no project specified, we need to find one for the API to work
         const projectsResponse = await makeApiRequest<ProjectResponse>(
           `/v1/private/projects?page=1&size=1`,
@@ -434,7 +430,7 @@ export const loadTraceTools = (server: any) => {
           projectsResponse.data.content.length > 0
         ) {
           const firstProject = projectsResponse.data.content[0];
-          url += `&project_id=${firstProject.id}`;
+          resolvedProjectId = firstProject.id;
           logToFile(
             `No project specified for threads, using first available: ${firstProject.name} (${firstProject.id})`
           );
@@ -450,12 +446,36 @@ export const loadTraceTools = (server: any) => {
         }
       }
 
-      // Add thread ID filter if specified
+      let response;
       if (threadId) {
-        url += `&thread_id=${encodeURIComponent(threadId)}`;
-      }
+        const requestBody: Record<string, string> = {
+          thread_id: threadId,
+        };
 
-      const response = await makeApiRequest<any>(url, {}, workspaceName);
+        if (resolvedProjectId) {
+          requestBody.project_id = resolvedProjectId;
+        } else if (resolvedProjectName) {
+          requestBody.project_name = resolvedProjectName;
+        }
+
+        response = await makeApiRequest<any>(
+          '/v1/private/traces/threads/retrieve',
+          {
+            method: 'POST',
+            body: JSON.stringify(requestBody),
+          },
+          workspaceName
+        );
+      } else {
+        let url = `/v1/private/traces/threads?page=${page || 1}&size=${size || 10}`;
+        if (resolvedProjectId) {
+          url += `&project_id=${encodeURIComponent(resolvedProjectId)}`;
+        } else if (resolvedProjectName) {
+          url += `&project_name=${encodeURIComponent(resolvedProjectName)}`;
+        }
+
+        response = await makeApiRequest<any>(url, {}, workspaceName);
+      }
 
       if (!response.data) {
         return {
@@ -495,14 +515,21 @@ export const loadTraceTools = (server: any) => {
               ),
             value: z
               .number()
-              .min(0)
-              .max(1)
-              .describe('Score value between 0.0 and 1.0 (0.0 = poor, 1.0 = excellent)'),
+              .describe('Score value. Commonly 0.0-1.0, but custom numeric scales are supported.'),
             reason: z.string().optional().describe('Optional explanation for the score'),
+            source: z
+              .enum(['ui', 'sdk', 'online_scoring'])
+              .optional()
+              .default('sdk')
+              .describe('Feedback source, defaults to "sdk"'),
+            categoryName: z
+              .string()
+              .optional()
+              .describe('Optional category name for grouped feedback dimensions'),
           })
         )
         .describe(
-          'Array of feedback scores to add. Each score should have a name and value between 0-1'
+          'Array of feedback scores to add. Each score should have a metric name and numeric value'
         ),
       workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
     },
@@ -525,24 +552,60 @@ export const loadTraceTools = (server: any) => {
       const feedbackScores = scores.map((score: any) => ({
         name: score.name,
         value: score.value,
+        source: score.source || 'sdk',
+        ...(score.categoryName && { category_name: score.categoryName }),
         ...(score.reason && { reason: score.reason }),
       }));
 
-      const response = await makeApiRequest<any>(
-        `/v1/private/traces/${traceId}/feedback-scores`,
-        {
-          method: 'PUT',
-          body: JSON.stringify({ scores: feedbackScores }),
-        },
-        workspaceName
-      );
+      // Prefer current Opik API behavior: one score per request on trace-specific endpoint.
+      let modernApiError: string | null = null;
+      for (const score of feedbackScores) {
+        const response = await makeApiRequest<any>(
+          `/v1/private/traces/${traceId}/feedback-scores`,
+          {
+            method: 'PUT',
+            body: JSON.stringify(score),
+          },
+          workspaceName
+        );
 
-      if (response.error) {
+        if (response.error) {
+          modernApiError = response.error;
+          break;
+        }
+      }
+
+      if (modernApiError) {
+        // Backward compatibility for older self-hosted deployments that expect batch payloads.
+        const legacyResponse = await makeApiRequest<any>(
+          `/v1/private/traces/${traceId}/feedback-scores`,
+          {
+            method: 'PUT',
+            body: JSON.stringify({ scores: feedbackScores }),
+          },
+          workspaceName
+        );
+
+        if (legacyResponse.error) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Error adding feedback (modern API failed: ${modernApiError}; legacy fallback failed: ${legacyResponse.error})`,
+              },
+            ],
+          };
+        }
+
         return {
           content: [
             {
               type: 'text',
-              text: `Error adding feedback: ${response.error}`,
+              text: `Successfully added ${scores.length} feedback score(s) to trace ${traceId} using legacy fallback`,
+            },
+            {
+              type: 'text',
+              text: `Added scores: ${scores.map((s: any) => `${s.name}: ${s.value}`).join(', ')}`,
             },
           ],
         };
