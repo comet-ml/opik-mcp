@@ -214,11 +214,38 @@ export class StreamableHttpTransport implements Transport {
     await this.mcpTransport.start();
     this.server = http.createServer(this.app);
 
-    return new Promise(resolve => {
-      this.server?.listen(this.port, this.host, () => {
+    return new Promise((resolve, reject) => {
+      if (!this.server) {
+        reject(new Error('HTTP server initialization failed.'));
+        return;
+      }
+
+      const onError = (error: NodeJS.ErrnoException) => {
+        this.server?.off('listening', onListening);
+        this.started = false;
+
+        if (error.code === 'EADDRINUSE') {
+          reject(
+            new Error(
+              `Cannot start streamable-http transport: ${this.host}:${this.port} is already in use. ` +
+                `Stop the existing process or set STREAMABLE_HTTP_PORT/--port to a different value.`
+            )
+          );
+          return;
+        }
+
+        reject(error);
+      };
+
+      const onListening = () => {
+        this.server?.off('error', onError);
         logToFile(`Streamable HTTP transport listening on ${this.host}:${this.port}`);
         resolve();
-      });
+      };
+
+      this.server.once('error', onError);
+      this.server.once('listening', onListening);
+      this.server.listen(this.port, this.host);
     });
   }
 
