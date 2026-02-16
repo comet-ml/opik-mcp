@@ -28,7 +28,7 @@ node build/index.js \
 | `--workspace` | `--ws` | Default workspace name | `default` |
 | `--selfHosted` | - | Self-hosted mode flag | `false` |
 | `--debug` | - | Debug logging | `false` |
-| `--transport` | - | `stdio` or `sse` | `stdio` |
+| `--transport` | - | `stdio`, `streamable-http`, or `sse` (alias) | `stdio` |
 | `--ssePort` | - | SSE port | `3001` |
 | `--sseHost` | - | SSE host (informational) | `localhost` |
 | `--sseLogPath` | - | SSE log file path | `/tmp/opik-mcp-sse.log` |
@@ -51,15 +51,20 @@ node build/index.js \
 
 ### Transport settings
 
-- `TRANSPORT` (`stdio` or `sse`)
+- `TRANSPORT` (`stdio`, `streamable-http`, or `sse`)
 - `SSE_PORT`
 - `SSE_HOST`
 - `SSE_LOG_PATH`
 
-### Remote SSE auth settings
+### Remote transport auth settings
 
 - `SSE_REQUIRE_AUTH` (default `true`)
 - `SSE_VALIDATE_REMOTE_AUTH` (default `true`, except test env)
+- `REMOTE_TOKEN_WORKSPACE_MAP` (JSON token -> workspace map)
+- `SSE_TRUST_WORKSPACE_HEADERS` (default `false`)
+- `SSE_CORS_ORIGINS` (comma-separated CORS allowlist)
+- `SSE_RATE_LIMIT_WINDOW_MS` (default `60000`)
+- `SSE_RATE_LIMIT_MAX` (default `120`)
 
 ### MCP settings
 
@@ -104,6 +109,11 @@ TRANSPORT=sse
 SSE_PORT=3001
 SSE_REQUIRE_AUTH=true
 SSE_VALIDATE_REMOTE_AUTH=true
+REMOTE_TOKEN_WORKSPACE_MAP={"token-a":"workspace-a","token-b":"workspace-b"}
+SSE_TRUST_WORKSPACE_HEADERS=false
+SSE_CORS_ORIGINS=https://example.com,https://app.example.com
+SSE_RATE_LIMIT_WINDOW_MS=60000
+SSE_RATE_LIMIT_MAX=120
 
 OPIK_TOOLSETS=core,expert-prompts,expert-datasets,expert-trace-actions,metrics
 ```

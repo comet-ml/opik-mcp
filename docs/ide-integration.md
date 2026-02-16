@@ -86,16 +86,16 @@ You can also use environment variables instead of command-line arguments:
         "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
         "OPIK_API_KEY": "your-api-key",
         "OPIK_WORKSPACE_NAME": "default",
-        "MCP_TRANSPORT": "stdio"
+        "TRANSPORT": "stdio"
       }
     }
   }
 }
 ```
 
-### Using SSE Transport
+### Using Remote Streamable HTTP (`sse` alias)
 
-If you want to use the SSE transport:
+If you want to run the remote HTTP transport:
 
 ```json
 {
@@ -110,8 +110,8 @@ If you want to use the SSE transport:
       ],
       "env": {
         "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
-        "OPIK_API_KEY": "your-api-key",
-        "OPIK_WORKSPACE_NAME": "default"
+        "SSE_REQUIRE_AUTH": "true",
+        "SSE_VALIDATE_REMOTE_AUTH": "true"
       }
     }
   }
@@ -165,5 +165,5 @@ If you encounter issues with the MCP connection:
 
 1. Check the Cursor console logs for errors (Help > Toggle Developer Tools)
 2. Verify your API key and other configuration settings
-3. Ensure the server can be accessed from Cursor (if using SSE transport)
-4. Check for firewall or network issues (if using SSE transport)
+3. Ensure the server can be accessed from Cursor (if using remote transport)
+4. Check firewall/network and reverse proxy settings (if using remote transport)

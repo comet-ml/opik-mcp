@@ -1,93 +1,81 @@
-# Server-Sent Events (SSE) Transport
+# Streamable HTTP Transport
 
-This document describes how to run `opik-mcp` remotely over HTTP using SSE.
+This document describes remote/self-hosted transport for `opik-mcp`.
 
 ## Scope
 
-- This repository provides the MCP server implementation.
-- There is currently no managed/hosted Opik remote MCP service from this repository.
-- Remote usage means you run this server yourself (VM, container, k8s, etc.).
+- This repository ships the MCP server implementation.
+- There is no managed hosted Opik remote MCP service in this repo.
+- You run this server yourself and expose it behind your own network/security controls.
 
-## Endpoints
+## Endpoint
 
-- `GET /health` - health check
-- `GET /events?clientId=<id>` - SSE event stream
-- `POST /send` - MCP JSON-RPC input
+- `GET /health`
+- `POST|GET|DELETE /mcp` (MCP Streamable HTTP)
 
-## Security Defaults
+Legacy endpoints:
 
-SSE mode is fail-closed by default.
+- `/events` and `/send` are removed and return `410`.
 
-- Auth required on `/events` and `/send`
-- Accepts either:
+## Auth and Tenant Routing
+
+Remote mode is fail-closed by default.
+
+- Require auth on `/mcp`.
+- Supported auth headers:
   - `Authorization: Bearer <token>`
   - `x-api-key: <token>`
-- Workspace header support:
-  - `Comet-Workspace`
-  - `x-workspace-name`
-  - `x-opik-workspace`
-- Missing auth returns `401`
-- Invalid auth/workspace returns `401` when remote validation is enabled
+- Missing auth returns `401`.
+- Invalid key/workspace returns `401` (when validation is enabled).
 
-## Remote Auth Config
+Workspace resolution is server-side:
+
+1. If `REMOTE_TOKEN_WORKSPACE_MAP` is configured, token must be present in the map and mapped workspace is used.
+2. Else fallback is server default workspace.
+3. Header workspace is ignored by default unless `SSE_TRUST_WORKSPACE_HEADERS=true`.
+
+When a request context workspace is resolved, tool-level `workspaceName` arguments are ignored.
+
+## Environment Variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `SSE_REQUIRE_AUTH` | `true` | Require auth headers for SSE endpoints |
-| `SSE_VALIDATE_REMOTE_AUTH` | `true` (except test env) | Validate token/workspace against Opik before accepting requests |
+| `SSE_REQUIRE_AUTH` | `true` | Require auth headers on `/mcp` |
+| `SSE_VALIDATE_REMOTE_AUTH` | `true` (except test env) | Validate token/workspace against Opik before processing MCP requests |
+| `REMOTE_TOKEN_WORKSPACE_MAP` | unset | JSON object mapping API token -> workspace |
+| `SSE_TRUST_WORKSPACE_HEADERS` | `false` | Trust `Comet-Workspace`/`x-workspace-name`/`x-opik-workspace` headers when no token map is configured |
+| `SSE_CORS_ORIGINS` | unset | Comma-separated CORS allowlist |
+| `SSE_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window |
+| `SSE_RATE_LIMIT_MAX` | `120` | Max requests per key/path per window |
 
-## Start Server
+## Verification
 
 ```bash
 npm run build
-npm run start:sse
+SSE_REQUIRE_AUTH=true SSE_VALIDATE_REMOTE_AUTH=true npm run start:sse
 ```
 
-## Local Verification
-
-1. Start server:
-
-```bash
-OPIK_API_BASE_URL=https://www.comet.com/opik/api npm run start:sse
-```
-
-2. Verify health:
+Health:
 
 ```bash
 curl -s http://localhost:3001/health
 ```
 
-3. Open event stream with auth:
+Authenticated MCP request:
 
 ```bash
-curl -N "http://localhost:3001/events?clientId=local-1" \
-  -H "Authorization: Bearer <OPIK_API_KEY>" \
-  -H "Comet-Workspace: <WORKSPACE>"
-```
-
-4. Send request with auth:
-
-```bash
-curl -s -X POST http://localhost:3001/send \
+curl -i -X POST http://localhost:3001/mcp \
   -H "content-type: application/json" \
   -H "Authorization: Bearer <OPIK_API_KEY>" \
-  -H "Comet-Workspace: <WORKSPACE>" \
-  -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"list-projects","arguments":{"page":1,"size":5}}}'
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/list","params":{}}'
 ```
 
-5. Negative test (missing auth):
+Unauthenticated request:
 
 ```bash
-curl -s -X POST http://localhost:3001/send \
+curl -i -X POST http://localhost:3001/mcp \
   -H "content-type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"list-projects","arguments":{"page":1,"size":5}}}'
+  -d '{"jsonrpc":"2.0","id":"2","method":"tools/list","params":{}}'
 ```
 
-Expected: HTTP `401`.
-
-## Deployment Guidance
-
-- Always run behind HTTPS.
-- Prefer API gateway or ingress auth in front of SSE.
-- Use short-lived tokens when possible.
-- Restrict network exposure to trusted clients.
+Expected: `401`.

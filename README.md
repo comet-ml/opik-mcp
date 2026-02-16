@@ -227,19 +227,22 @@ Ideal for local integration where the client and server run on the same machine.
 make start-stdio
 ```
 
-### Server-Sent Events (SSE)
+### Streamable HTTP (`sse` transport alias)
 
-Enables remote/self-hosted access over HTTP.
+Enables remote/self-hosted MCP over the standard Streamable HTTP endpoint (`/mcp`).
 
 Remote auth behavior:
 - `Authorization: Bearer <OPIK_API_KEY>` or `x-api-key` is required by default.
-- Workspace can be passed with `Comet-Workspace` (or `x-workspace-name`, `x-opik-workspace`).
-- Tool `workspaceName` arguments override header workspace values.
+- Workspace is resolved server-side (recommended via token mapping). Header workspaces are not trusted by default.
+- In remote mode, request-context workspace takes precedence over tool `workspaceName` args.
 - Missing auth returns HTTP `401`.
+- Legacy `/events` and `/send` endpoints are removed (HTTP `410`).
 
 Remote auth environment flags:
-- `SSE_REQUIRE_AUTH` (default `true`): require auth headers on `/events` and `/send`.
+- `SSE_REQUIRE_AUTH` (default `true`): require auth headers on `/mcp`.
 - `SSE_VALIDATE_REMOTE_AUTH` (default `true`, except test env): validate bearer/API key against Opik before accepting requests.
+- `REMOTE_TOKEN_WORKSPACE_MAP`: JSON map of token -> workspace for server-side tenant routing.
+- `SSE_TRUST_WORKSPACE_HEADERS` (default `false`): allow workspace headers when token map is not configured.
 
 ```bash
 make start-sse
