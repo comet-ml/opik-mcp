@@ -1,7 +1,11 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { logToFile } from '../utils/logging.js';
-import { ProjectResponse, MetricsResponse } from './../types.js';
+import {
+  callSdk,
+  getOpikApi,
+  getRequestOptions,
+  mapMetricType,
+  resolveProjectIdentifier,
+} from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
 
 export const loadMetricTools = (server: any) => {
@@ -15,55 +19,48 @@ export const loadMetricTools = (server: any) => {
       projectName: z.string().optional().describe('Optional project name to filter metrics'),
       startDate: z.string().optional().describe('Start date in ISO format (YYYY-MM-DD)'),
       endDate: z.string().optional().describe('End date in ISO format (YYYY-MM-DD)'),
+      workspaceName: z.string().optional().describe('Workspace name override'),
     },
     async (args: any) => {
-      const { metricName, projectId, projectName, startDate, endDate } = args;
-      let url = `/v1/private/metrics`;
+      const { metricName, projectId, projectName, startDate, endDate, workspaceName } = args;
 
-      const queryParams = [];
-      if (metricName) queryParams.push(`metric_name=${metricName}`);
-
-      // Add project filtering - API requires either project_id or project_name
-      if (projectId) {
-        queryParams.push(`project_id=${projectId}`);
-      } else if (projectName) {
-        queryParams.push(`project_name=${encodeURIComponent(projectName)}`);
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          queryParams.push(`project_id=${firstProject.id}`);
-          logToFile(
-            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
+      const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+      if (resolved.error || (!resolved.projectId && !resolved.projectName)) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: ${resolved.error || 'No project available for metrics query'}`,
+            },
+          ],
+        };
       }
 
-      if (startDate) queryParams.push(`start_date=${startDate}`);
-      if (endDate) queryParams.push(`end_date=${endDate}`);
-
-      if (queryParams.length > 0) {
-        url += `?${queryParams.join('&')}`;
+      if (!resolved.projectId) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: 'Error: Metrics queries require a resolvable project ID',
+            },
+          ],
+        };
       }
 
-      const response = await makeApiRequest<MetricsResponse>(url);
+      const metricType = mapMetricType(metricName);
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.projects.getProjectMetrics(
+          resolved.projectId as string,
+          {
+            ...(metricType && { metricType }),
+            interval: 'DAILY',
+            ...(startDate && { intervalStart: new Date(startDate) }),
+            ...(endDate && { intervalEnd: new Date(endDate) }),
+          },
+          getRequestOptions(workspaceName)
+        )
+      );
 
       if (!response.data) {
         return {
@@ -71,8 +68,17 @@ export const loadMetricTools = (server: any) => {
         };
       }
 
+      const metricWarning =
+        metricName && !metricType
+          ? `\nNote: metricName \"${metricName}\" is not a known metric type in the SDK and was ignored.`
+          : '';
+
       return {
         content: [
+          {
+            type: 'text',
+            text: `Metrics for project ${resolved.projectId}${metricWarning}`,
+          },
           {
             type: 'text',
             text: JSON.stringify(response.data, null, 2),

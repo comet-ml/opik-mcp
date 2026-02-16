@@ -1,6 +1,5 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { PromptResponse, SinglePromptResponse } from './../types.js';
+import { callSdk, getOpikApi } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
 
 export const loadPromptTools = (server: any) => {
@@ -15,10 +14,8 @@ export const loadPromptTools = (server: any) => {
     },
     async (args: any) => {
       const { page, size, name } = args;
-      let url = `/v1/private/prompts?page=${page}&size=${size}`;
-      if (name) url += `&name=${encodeURIComponent(name)}`;
-
-      const response = await makeApiRequest<PromptResponse>(url);
+      const api = getOpikApi();
+      const response = await callSdk<any>(() => api.prompts.getPrompts({ page, size, name }));
 
       if (!response.data) {
         return {
@@ -52,14 +49,14 @@ export const loadPromptTools = (server: any) => {
     },
     async (args: any) => {
       const { name, description, tags } = args;
-      const requestBody: any = { name };
-      if (description) requestBody.description = description;
-      if (tags) requestBody.tags = tags;
-
-      const response = await makeApiRequest<any>(`/v1/private/prompts`, {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-      });
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.prompts.createPrompt({
+          name,
+          ...(description && { description }),
+          ...(tags && { metadata: { tags } }),
+        })
+      );
 
       return {
         content: [
@@ -81,9 +78,8 @@ export const loadPromptTools = (server: any) => {
     },
     async (args: any) => {
       const { promptId } = args;
-      const response = await makeApiRequest<SinglePromptResponse>(
-        `/v1/private/prompts/${promptId}`
-      );
+      const api = getOpikApi();
+      const response = await callSdk<any>(() => api.prompts.getPromptById(promptId));
 
       if (!response.data) {
         return {
@@ -112,13 +108,13 @@ export const loadPromptTools = (server: any) => {
     },
     async (args: any) => {
       const { name, commit } = args;
-      const requestBody: any = { name };
-      if (commit) requestBody.commit = commit;
-
-      const response = await makeApiRequest<any>(`/v1/private/prompts/versions/retrieve`, {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-      });
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.prompts.retrievePromptVersion({
+          name,
+          ...(commit && { commit }),
+        })
+      );
 
       if (!response.data) {
         return {
@@ -146,9 +142,8 @@ export const loadPromptTools = (server: any) => {
     },
     async (args: any) => {
       const { promptId } = args;
-      const response = await makeApiRequest<any>(`/v1/private/prompts/${promptId}`, {
-        method: 'DELETE',
-      });
+      const api = getOpikApi();
+      const response = await callSdk<any>(() => api.prompts.deletePrompt(promptId));
 
       if (response.error) {
         return {
@@ -180,15 +175,18 @@ export const loadPromptTools = (server: any) => {
     },
     async (args: any) => {
       const { name, template, change_description, metadata, type } = args;
-      const version: any = { template };
-      if (change_description) version.change_description = change_description;
-      if (metadata) version.metadata = metadata;
-      if (type) version.type = type;
-
-      const response = await makeApiRequest<any>(`/v1/private/prompts/versions`, {
-        method: 'POST',
-        body: JSON.stringify({ name, version }),
-      });
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.prompts.createPromptVersion({
+          name,
+          version: {
+            template,
+            ...(change_description && { changeDescription: change_description }),
+            ...(metadata && { metadata }),
+            ...(type && { type }),
+          },
+        })
+      );
 
       if (!response.data) {
         return {

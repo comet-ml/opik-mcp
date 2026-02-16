@@ -1,6 +1,5 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { ProjectResponse } from './../types.js';
+import { callSdk, getOpikApi, getRequestOptions } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
 
 export const loadProjectTools = (server: any) => {
@@ -15,9 +14,10 @@ export const loadProjectTools = (server: any) => {
     },
     async (args: any) => {
       const { page, size, workspaceName } = args;
-      const url = `/v1/private/projects?page=${page}&size=${size}`;
-
-      const response = await makeApiRequest<ProjectResponse>(url, {}, workspaceName);
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.projects.findProjects({ page, size }, getRequestOptions(workspaceName))
+      );
 
       if (!response.data) {
         return {
@@ -51,16 +51,15 @@ export const loadProjectTools = (server: any) => {
     },
     async (args: any) => {
       const { name, description, workspaceName } = args;
-      const requestBody: any = { name };
-      if (description) requestBody.description = description;
-
-      const response = await makeApiRequest<any>(
-        `/v1/private/projects`,
-        {
-          method: 'POST',
-          body: JSON.stringify(requestBody),
-        },
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.projects.createProject(
+          {
+            name,
+            ...(description && { description }),
+          },
+          getRequestOptions(workspaceName)
+        )
       );
 
       return {

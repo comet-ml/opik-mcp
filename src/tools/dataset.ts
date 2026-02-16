@@ -1,6 +1,5 @@
 import { z } from 'zod';
-import { makeApiRequest } from '../utils/api.js';
-import { DatasetItemsResponse, DatasetResponse, SingleDatasetResponse } from '../types.js';
+import { callSdk, getOpikApi, getRequestOptions } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
 
 export const loadDatasetTools = (server: any) => {
@@ -16,12 +15,11 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { page = 1, size = 10, name, workspaceName } = args;
-      let url = `/v1/private/datasets?page=${page}&size=${size}`;
-      if (name) {
-        url += `&name=${encodeURIComponent(name)}`;
-      }
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.findDatasets({ page, size, name }, getRequestOptions(workspaceName))
+      );
 
-      const response = await makeApiRequest<DatasetResponse>(url, {}, workspaceName);
       if (!response.data) {
         return {
           content: [{ type: 'text', text: response.error || 'Failed to fetch datasets' }],
@@ -53,10 +51,9 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { datasetId, workspaceName } = args;
-      const response = await makeApiRequest<SingleDatasetResponse>(
-        `/v1/private/datasets/${datasetId}`,
-        {},
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.getDatasetById(datasetId, getRequestOptions(workspaceName))
       );
 
       if (!response.data) {
@@ -82,19 +79,18 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { name, description, workspaceName } = args;
-      const response = await makeApiRequest<any>(
-        '/v1/private/datasets',
-        {
-          method: 'POST',
-          body: JSON.stringify({
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.createDataset(
+          {
             name,
             ...(description && { description }),
-          }),
-        },
-        workspaceName
+          },
+          getRequestOptions(workspaceName)
+        )
       );
 
-      if (!response.data) {
+      if (response.error) {
         return {
           content: [{ type: 'text', text: response.error || 'Failed to create dataset' }],
         };
@@ -105,10 +101,6 @@ export const loadDatasetTools = (server: any) => {
           {
             type: 'text',
             text: `Successfully created dataset: ${name}`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data, null, 2),
           },
         ],
       };
@@ -125,10 +117,9 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { datasetId, workspaceName } = args;
-      const response = await makeApiRequest<any>(
-        `/v1/private/datasets/${datasetId}`,
-        { method: 'DELETE' },
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.deleteDataset(datasetId, getRequestOptions(workspaceName))
       );
 
       if (response.error) {
@@ -155,10 +146,9 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { datasetId, page = 1, size = 25, workspaceName } = args;
-      const response = await makeApiRequest<DatasetItemsResponse>(
-        `/v1/private/datasets/${datasetId}/items?page=${page}&size=${size}`,
-        {},
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.getDatasetItems(datasetId, { page, size }, getRequestOptions(workspaceName))
       );
 
       if (!response.data) {
@@ -198,21 +188,27 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { datasetId, input, expectedOutput, metadata, workspaceName } = args;
-      const response = await makeApiRequest<any>(
-        '/v1/private/datasets/items',
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            dataset_id: datasetId,
-            input,
-            ...(expectedOutput && { expected_output: expectedOutput }),
-            ...(metadata && { metadata }),
-          }),
-        },
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.createOrUpdateDatasetItems(
+          {
+            datasetId,
+            items: [
+              {
+                source: 'manual',
+                data: {
+                  input,
+                  ...(expectedOutput && { expected_output: expectedOutput }),
+                  ...(metadata && { metadata }),
+                },
+              },
+            ],
+          },
+          getRequestOptions(workspaceName)
+        )
       );
 
-      if (!response.data) {
+      if (response.error) {
         return {
           content: [{ type: 'text', text: response.error || 'Failed to create dataset item' }],
         };
@@ -223,10 +219,6 @@ export const loadDatasetTools = (server: any) => {
           {
             type: 'text',
             text: `Successfully created dataset item in dataset ${datasetId}`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data, null, 2),
           },
         ],
       };
@@ -243,10 +235,14 @@ export const loadDatasetTools = (server: any) => {
     },
     async (args: any) => {
       const { itemId, workspaceName } = args;
-      const response = await makeApiRequest<any>(
-        `/v1/private/datasets/items/${itemId}`,
-        { method: 'DELETE' },
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.datasets.deleteDatasetItems(
+          {
+            itemIds: [itemId],
+          },
+          getRequestOptions(workspaceName)
+        )
       );
 
       if (response.error) {

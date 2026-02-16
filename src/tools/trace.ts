@@ -1,12 +1,11 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { logToFile } from '../utils/logging.js';
 import {
-  ProjectResponse,
-  TraceResponse,
-  SingleTraceResponse,
-  TraceStatsResponse,
-} from './../types.js';
+  buildTraceFilters,
+  callSdk,
+  getOpikApi,
+  getRequestOptions,
+  resolveProjectIdentifier,
+} from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
 
 export const loadTraceTools = (server: any) => {
@@ -40,44 +39,26 @@ export const loadTraceTools = (server: any) => {
     },
     async (args: any) => {
       const { page = 1, size = 10, projectId, projectName, workspaceName } = args;
-      let url = `/v1/private/traces?page=${page}&size=${size}`;
 
-      // Add project filtering - API requires either project_id or project_name
-      if (projectId) {
-        url += `&project_id=${projectId}`;
-      } else if (projectName) {
-        url += `&project_name=${encodeURIComponent(projectName)}`;
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          url += `&project_id=${firstProject.id}`;
-          logToFile(
-            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
+      const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+      if (resolved.error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${resolved.error}` }],
+        };
       }
 
-      const response = await makeApiRequest<TraceResponse>(url, {}, workspaceName);
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.traces.getTracesByProject(
+          {
+            page,
+            size,
+            ...(resolved.projectId && { projectId: resolved.projectId }),
+            ...(resolved.projectName && { projectName: resolved.projectName }),
+          },
+          getRequestOptions(workspaceName)
+        )
+      );
 
       if (!response.data) {
         return {
@@ -89,9 +70,7 @@ export const loadTraceTools = (server: any) => {
         content: [
           {
             type: 'text',
-            text: `Found ${response.data.total} traces (showing page ${
-              response.data.page
-            } of ${Math.ceil(response.data.total / response.data.size)})`,
+            text: `Found ${response.data.total} traces (showing page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
           },
           {
             type: 'text',
@@ -119,10 +98,9 @@ export const loadTraceTools = (server: any) => {
     },
     async (args: any) => {
       const { traceId, workspaceName } = args;
-      const response = await makeApiRequest<SingleTraceResponse>(
-        `/v1/private/traces/${traceId}`,
-        {},
-        workspaceName
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.traces.getTraceById(traceId, getRequestOptions(workspaceName))
       );
 
       if (!response.data) {
@@ -131,10 +109,8 @@ export const loadTraceTools = (server: any) => {
         };
       }
 
-      // Format the response for better readability
       const formattedResponse: any = { ...response.data };
 
-      // Format input/output if they're large
       if (
         formattedResponse.input &&
         typeof formattedResponse.input === 'object' &&
@@ -196,54 +172,26 @@ export const loadTraceTools = (server: any) => {
     },
     async (args: any) => {
       const { projectId, projectName, startDate, endDate, workspaceName } = args;
-      let url = `/v1/private/traces/stats`;
 
-      // Build query parameters
-      const queryParams = [];
-
-      // Add project filtering - API requires either project_id or project_name
-      if (projectId) {
-        queryParams.push(`project_id=${projectId}`);
-      } else if (projectName) {
-        queryParams.push(`project_name=${encodeURIComponent(projectName)}`);
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          queryParams.push(`project_id=${firstProject.id}`);
-          logToFile(
-            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
+      const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+      if (resolved.error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${resolved.error}` }],
+        };
       }
 
-      if (startDate) queryParams.push(`start_date=${startDate}`);
-      if (endDate) queryParams.push(`end_date=${endDate}`);
-
-      if (queryParams.length > 0) {
-        url += `?${queryParams.join('&')}`;
-      }
-
-      const response = await makeApiRequest<TraceStatsResponse>(url, {}, workspaceName);
+      const filters = buildTraceFilters(undefined, undefined, startDate, endDate);
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.traces.getTraceStats(
+          {
+            ...(resolved.projectId && { projectId: resolved.projectId }),
+            ...(resolved.projectName && { projectName: resolved.projectName }),
+            ...(filters && { filters }),
+          },
+          getRequestOptions(workspaceName)
+        )
+      );
 
       if (!response.data) {
         return {
@@ -311,72 +259,28 @@ export const loadTraceTools = (server: any) => {
         workspaceName,
       } = args;
 
-      // Build search request body
-      const searchBody: any = {
-        page: page || 1,
-        size: size || 10,
-      };
-
-      // Add project filtering
-      if (projectId) {
-        searchBody.project_id = projectId;
-      } else if (projectName) {
-        searchBody.project_name = projectName;
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          searchBody.project_id = firstProject.id;
-          logToFile(
-            `No project specified for search, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
+      const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+      if (resolved.error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${resolved.error}` }],
+        };
       }
 
-      // Add query if provided
-      if (query) {
-        searchBody.query = query;
-      }
-
-      // Add filters if provided
-      if (filters) {
-        searchBody.filters = filters;
-      }
-
-      // Add sorting if provided
-      if (sortBy) {
-        searchBody.sort_by = sortBy;
-        if (sortOrder) {
-          searchBody.sort_order = sortOrder;
-        }
-      }
-
-      const response = await makeApiRequest<TraceResponse>(
-        '/v1/private/traces/search',
-        {
-          method: 'POST',
-          body: JSON.stringify(searchBody),
-        },
-        workspaceName
+      const sdkFilters = buildTraceFilters(query, filters);
+      const sorting = sortBy ? `${sortBy}:${sortOrder || 'desc'}` : undefined;
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.traces.getTracesByProject(
+          {
+            page: page || 1,
+            size: size || 10,
+            ...(resolved.projectId && { projectId: resolved.projectId }),
+            ...(resolved.projectName && { projectName: resolved.projectName }),
+            ...(sdkFilters && { filters: sdkFilters }),
+            ...(sorting && { sorting }),
+          },
+          getRequestOptions(workspaceName)
+        )
       );
 
       if (!response.data) {
@@ -419,69 +323,37 @@ export const loadTraceTools = (server: any) => {
     },
     async (args: any) => {
       const { projectId, projectName, page, size, threadId, workspaceName } = args;
-      let resolvedProjectId = projectId;
-      const resolvedProjectName = projectName;
 
-      if (!resolvedProjectId && !resolvedProjectName) {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          resolvedProjectId = firstProject.id;
-          logToFile(
-            `No project specified for threads, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
-      }
-
-      let response;
-      if (threadId) {
-        const requestBody: Record<string, string> = {
-          thread_id: threadId,
+      const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+      if (resolved.error) {
+        return {
+          content: [{ type: 'text', text: `Error: ${resolved.error}` }],
         };
-
-        if (resolvedProjectId) {
-          requestBody.project_id = resolvedProjectId;
-        } else if (resolvedProjectName) {
-          requestBody.project_name = resolvedProjectName;
-        }
-
-        response = await makeApiRequest<any>(
-          '/v1/private/traces/threads/retrieve',
-          {
-            method: 'POST',
-            body: JSON.stringify(requestBody),
-          },
-          workspaceName
-        );
-      } else {
-        let url = `/v1/private/traces/threads?page=${page || 1}&size=${size || 10}`;
-        if (resolvedProjectId) {
-          url += `&project_id=${encodeURIComponent(resolvedProjectId)}`;
-        } else if (resolvedProjectName) {
-          url += `&project_name=${encodeURIComponent(resolvedProjectName)}`;
-        }
-
-        response = await makeApiRequest<any>(url, {}, workspaceName);
       }
+
+      const api = getOpikApi();
+      const response = threadId
+        ? await callSdk<any>(() =>
+            api.traces.getTraceThread(
+              {
+                threadId,
+                ...(resolved.projectId && { projectId: resolved.projectId }),
+                ...(resolved.projectName && { projectName: resolved.projectName }),
+              },
+              getRequestOptions(workspaceName)
+            )
+          )
+        : await callSdk<any>(() =>
+            api.traces.getTraceThreads(
+              {
+                page: page || 1,
+                size: size || 10,
+                ...(resolved.projectId && { projectId: resolved.projectId }),
+                ...(resolved.projectName && { projectName: resolved.projectName }),
+              },
+              getRequestOptions(workspaceName)
+            )
+          );
 
       if (!response.data) {
         return {
@@ -543,7 +415,6 @@ export const loadTraceTools = (server: any) => {
     async (args: any) => {
       const { traceId, scores, workspaceName } = args;
 
-      // Validate scores format
       if (!scores || !Array.isArray(scores) || scores.length === 0) {
         return {
           content: [
@@ -555,67 +426,32 @@ export const loadTraceTools = (server: any) => {
         };
       }
 
-      // Transform scores to the expected API format
-      const feedbackScores = scores.map((score: any) => ({
-        name: score.name,
-        value: score.value,
-        source: score.source || 'sdk',
-        ...(score.categoryName && { category_name: score.categoryName }),
-        ...(score.reason && { reason: score.reason }),
-      }));
-
-      // Prefer current Opik API behavior: one score per request on trace-specific endpoint.
-      let modernApiError: string | null = null;
-      for (const score of feedbackScores) {
-        const response = await makeApiRequest<any>(
-          `/v1/private/traces/${traceId}/feedback-scores`,
-          {
-            method: 'PUT',
-            body: JSON.stringify(score),
-          },
-          workspaceName
+      const api = getOpikApi();
+      for (const score of scores) {
+        const response = await callSdk<any>(() =>
+          api.traces.addTraceFeedbackScore(
+            traceId,
+            {
+              name: score.name,
+              value: score.value,
+              source: score.source || 'sdk',
+              ...(score.reason && { reason: score.reason }),
+              ...(score.categoryName && { categoryName: score.categoryName }),
+            },
+            getRequestOptions(workspaceName)
+          )
         );
 
         if (response.error) {
-          modernApiError = response.error;
-          break;
-        }
-      }
-
-      if (modernApiError) {
-        // Backward compatibility for older self-hosted deployments that expect batch payloads.
-        const legacyResponse = await makeApiRequest<any>(
-          `/v1/private/traces/${traceId}/feedback-scores`,
-          {
-            method: 'PUT',
-            body: JSON.stringify({ scores: feedbackScores }),
-          },
-          workspaceName
-        );
-
-        if (legacyResponse.error) {
           return {
             content: [
               {
                 type: 'text',
-                text: `Error adding feedback (modern API failed: ${modernApiError}; legacy fallback failed: ${legacyResponse.error})`,
+                text: `Error adding feedback: ${response.error}`,
               },
             ],
           };
         }
-
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Successfully added ${scores.length} feedback score(s) to trace ${traceId} using legacy fallback`,
-            },
-            {
-              type: 'text',
-              text: `Added scores: ${scores.map((s: any) => `${s.name}: ${s.value}`).join(', ')}`,
-            },
-          ],
-        };
       }
 
       return {
