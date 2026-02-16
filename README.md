@@ -40,7 +40,8 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
     </a>
 </p>
 
-> **⚠️ Notice:** SSE (Server-Sent Events) transport support is currently experimental and untested. For production use, we recommend using the direct process execution approach shown in the IDE integration examples.
+> **Note:** This repository provides the MCP server implementation. We do not currently provide a hosted remote MCP service for Opik.
+> If you run the SSE transport yourself, authentication is fail-closed by default.
 
 ## 🚀 What is Opik MCP Server?
 
@@ -212,7 +213,7 @@ cp .env.example .env
 # Start with stdio transport (default)
 npm run start:stdio
 
-# Start with SSE transport for network access (experimental)
+# Start with SSE transport for remote/self-hosted access
 npm run start:sse
 ```
 
@@ -228,7 +229,17 @@ make start-stdio
 
 ### Server-Sent Events (SSE)
 
-Enables remote access and multiple simultaneous clients over HTTP. Note that this transport option is experimental.
+Enables remote/self-hosted access over HTTP.
+
+Remote auth behavior:
+- `Authorization: Bearer <OPIK_API_KEY>` or `x-api-key` is required by default.
+- Workspace can be passed with `Comet-Workspace` (or `x-workspace-name`, `x-opik-workspace`).
+- Tool `workspaceName` arguments override header workspace values.
+- Missing auth returns HTTP `401`.
+
+Remote auth environment flags:
+- `SSE_REQUIRE_AUTH` (default `true`): require auth headers on `/events` and `/send`.
+- `SSE_VALIDATE_REMOTE_AUTH` (default `true`, except test env): validate bearer/API key against Opik before accepting requests.
 
 ```bash
 make start-sse

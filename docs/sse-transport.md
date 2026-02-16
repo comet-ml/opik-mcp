@@ -1,110 +1,93 @@
 # Server-Sent Events (SSE) Transport
 
-This document provides detailed information about the Server-Sent Events (SSE) transport implementation for the Opik MCP server.
+This document describes how to run `opik-mcp` remotely over HTTP using SSE.
 
-## Overview
+## Scope
 
-The SSE transport implementation allows the Opik MCP server to be hosted remotely and accessed over HTTP, enabling integration with web clients and remote systems. It uses Server-Sent Events for real-time, one-way communication from the server to clients, and standard HTTP requests for client-to-server communication.
+- This repository provides the MCP server implementation.
+- There is currently no managed/hosted Opik remote MCP service from this repository.
+- Remote usage means you run this server yourself (VM, container, k8s, etc.).
 
-## Features
+## Endpoints
 
-- HTTP-based communication
-- Real-time event streaming using SSE
-- Support for multiple concurrent clients
-- Health check endpoint
-- Secure communication options
-- Configurable port and host
+- `GET /health` - health check
+- `GET /events?clientId=<id>` - SSE event stream
+- `POST /send` - MCP JSON-RPC input
 
-## Configuration
+## Security Defaults
 
-The SSE transport can be configured using the following options:
+SSE mode is fail-closed by default.
 
-| Option | Description | Default Value |
-|--------|-------------|---------------|
-| `ssePort` | The port on which the SSE server will listen | `3001` |
-| `sseHost` | The host address to bind the SSE server | `localhost` |
-| `sseLogPath` | Path to the log file for SSE transport | `/tmp/opik-mcp-sse.log` |
+- Auth required on `/events` and `/send`
+- Accepts either:
+  - `Authorization: Bearer <token>`
+  - `x-api-key: <token>`
+- Workspace header support:
+  - `Comet-Workspace`
+  - `x-workspace-name`
+  - `x-opik-workspace`
+- Missing auth returns `401`
+- Invalid auth/workspace returns `401` when remote validation is enabled
 
-These options can be configured through environment variables or command-line arguments as described in the [configuration documentation](./configuration.md).
+## Remote Auth Config
 
-## Usage
+| Variable | Default | Description |
+| --- | --- | --- |
+| `SSE_REQUIRE_AUTH` | `true` | Require auth headers for SSE endpoints |
+| `SSE_VALIDATE_REMOTE_AUTH` | `true` (except test env) | Validate token/workspace against Opik before accepting requests |
 
-### Starting the server with SSE transport
-
-To start the MCP server with SSE transport, use the following command:
-
-```bash
-npm start -- --transport=sse
-```
-
-Or using the Makefile:
-
-```bash
-make start TRANSPORT=sse
-```
-
-### Connecting to the server
-
-Clients can connect to the SSE server using standard HTTP requests for sending commands and SSE for receiving responses.
-
-#### Health Check
-
-To verify the server is running, you can access the health check endpoint:
+## Start Server
 
 ```bash
-curl http://localhost:3001/health
+npm run build
+npm run start:sse
 ```
 
-A successful response will return:
+## Local Verification
 
-```json
-{
-  "status": "ok"
-}
+1. Start server:
+
+```bash
+OPIK_API_BASE_URL=https://www.comet.com/opik/api npm run start:sse
 ```
 
-#### Example Client
+2. Verify health:
 
-A basic HTML client implementation is provided in the `client/index.html` file. This client demonstrates how to connect to the SSE server and interact with the MCP protocol.
+```bash
+curl -s http://localhost:3001/health
+```
 
-To use the client:
+3. Open event stream with auth:
 
-1. Start the MCP server with SSE transport
-2. Open the `client/index.html` file in a web browser
-3. The client will automatically connect to the SSE server and display available commands
+```bash
+curl -N "http://localhost:3001/events?clientId=local-1" \
+  -H "Authorization: Bearer <OPIK_API_KEY>" \
+  -H "Comet-Workspace: <WORKSPACE>"
+```
 
-### Implementation Details
+4. Send request with auth:
 
-The SSE transport implementation consists of the following components:
+```bash
+curl -s -X POST http://localhost:3001/send \
+  -H "content-type: application/json" \
+  -H "Authorization: Bearer <OPIK_API_KEY>" \
+  -H "Comet-Workspace: <WORKSPACE>" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"list-projects","arguments":{"page":1,"size":5}}}'
+```
 
-1. **HTTP Server**: An Express.js server that handles HTTP requests and serves the SSE endpoint
-2. **SSE Handler**: Manages SSE connections and broadcasts messages to connected clients
-3. **Connection Handler**: Processes incoming MCP messages and forwards them to the MCP server
-4. **Message Formatting**: Converts MCP messages to/from JSON format for transmission
+5. Negative test (missing auth):
 
-## Security Considerations
+```bash
+curl -s -X POST http://localhost:3001/send \
+  -H "content-type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"list-projects","arguments":{"page":1,"size":5}}}'
+```
 
-When exposing the MCP server over HTTP, consider the following security precautions:
+Expected: HTTP `401`.
 
-- Use HTTPS in production environments
-- Implement authentication for accessing the API
-- Restrict access using firewalls or API gateways
-- Do not expose sensitive data through the API
+## Deployment Guidance
 
-## Limitations
-
-The current SSE transport implementation has the following limitations:
-
-- One-way communication from server to client (SSE limitation)
-- No built-in authentication mechanism
-- Limited error handling for network-related issues
-
-## Troubleshooting
-
-Check the SSE log file at `/tmp/opik-mcp-sse.log` (or your configured log path) for detailed information about connections and errors.
-
-Common issues:
-
-- **Port conflicts**: If the port is already in use, the server will fail to start. Change the port using the `ssePort` configuration option.
-- **Connection timeouts**: Long-running SSE connections may time out in certain environments. Consider implementing reconnection logic in clients.
-- **CORS issues**: If accessing from a different domain, you may encounter CORS restrictions. The SSE transport includes CORS headers, but additional configuration may be needed in complex setups.
+- Always run behind HTTPS.
+- Prefer API gateway or ingress auth in front of SSE.
+- Use short-lived tokens when possible.
+- Restrict network exposure to trusted clients.
