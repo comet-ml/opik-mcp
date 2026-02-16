@@ -50,7 +50,8 @@ dev:
 	@echo "  Port: $${STREAMABLE_HTTP_PORT:-3001}"
 	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
 	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
-	npm run dev:http
+	@echo "  Access logs: $${STREAMABLE_HTTP_ACCESS_LOG:-true}"
+	STREAMABLE_HTTP_ACCESS_LOG=$${STREAMABLE_HTTP_ACCESS_LOG:-true} npm run dev:http
 
 # Run all checks (lint and test)
 check: lint test
@@ -65,7 +66,8 @@ start-http:
 	@echo "Starting MCP server with streamable-http transport on port 3001..."
 	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
 	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
-	@npm run start:http
+	@echo "  Access logs: $${STREAMABLE_HTTP_ACCESS_LOG:-false}"
+	@STREAMABLE_HTTP_ACCESS_LOG=$${STREAMABLE_HTTP_ACCESS_LOG:-false} npm run start:http
 
 # Start the MCP server with stdio transport
 start-stdio:

@@ -65,6 +65,7 @@ node build/index.js \
 - `STREAMABLE_HTTP_CORS_ORIGINS` (comma-separated CORS allowlist)
 - `STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS` (default `60000`)
 - `STREAMABLE_HTTP_RATE_LIMIT_MAX` (default `120`)
+- `STREAMABLE_HTTP_ACCESS_LOG` (default `false`; logs request method/path/status/duration when enabled)
 
 ### MCP settings
 

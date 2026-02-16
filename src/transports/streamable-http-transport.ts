@@ -41,6 +41,21 @@ function parseCsvEnv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function isAccessLogEnabled(): boolean {
+  const value = process.env.STREAMABLE_HTTP_ACCESS_LOG;
+  if (value === undefined) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function setAuthChallengeHeaders(res: express.Response): void {
+  res.setHeader('WWW-Authenticate', 'Bearer realm="opik-mcp"');
+  res.setHeader('Cache-Control', 'no-store');
+}
+
 function createRateLimiter() {
   const windowMs = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000);
   const maxRequests = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_MAX || 120);
@@ -128,6 +143,26 @@ export class StreamableHttpTransport implements Transport {
     this.app.use(createRateLimiter());
     this.app.use(express.json({ limit: '1mb' }));
 
+    if (isAccessLogEnabled()) {
+      this.app.use((req, res, next) => {
+        const start = Date.now();
+        const hasAuthHeader = Boolean(req.headers.authorization || req.headers['x-api-key']);
+        res.on('finish', () => {
+          const durationMs = Date.now() - start;
+          const line = [
+            req.method,
+            req.originalUrl,
+            `status=${res.statusCode}`,
+            `duration_ms=${durationMs}`,
+            `auth_header=${hasAuthHeader ? 'yes' : 'no'}`,
+          ].join(' ');
+          console.error(`[opik-mcp] ${line}`);
+          logToFile(`[access] ${line}`);
+        });
+        next();
+      });
+    }
+
     this.app.get('/health', (_req, res) => {
       const response: HealthResponse = { status: 'ok' };
       res.json(response);
@@ -145,6 +180,9 @@ export class StreamableHttpTransport implements Transport {
               status: 'error',
               message: auth.message,
             };
+            if (auth.status === 401) {
+              setAuthChallengeHeaders(res);
+            }
             res.status(auth.status).json(errorResponse);
             return;
           }
@@ -155,6 +193,9 @@ export class StreamableHttpTransport implements Transport {
               status: 'error',
               message: validation.message || 'Unauthorized',
             };
+            if (validation.status === 401) {
+              setAuthChallengeHeaders(res);
+            }
             res.status(validation.status).json(errorResponse);
             return;
           }
