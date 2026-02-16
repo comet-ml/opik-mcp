@@ -86,6 +86,15 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
             },
           ],
         };
+      },
+      {
+        title: 'List Traces',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
     );
 
@@ -147,6 +156,15 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
             },
           ],
         };
+      },
+      {
+        title: 'Get Trace By ID',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
     );
 
@@ -219,6 +237,15 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
             },
           ],
         };
+      },
+      {
+        title: 'Get Trace Stats',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
     );
 
@@ -296,6 +323,15 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
             },
           ],
         };
+      },
+      {
+        title: 'Get Trace Threads',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
     );
   }
@@ -391,6 +427,15 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
             },
           ],
         };
+      },
+      {
+        title: 'Search Traces',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
     );
 
@@ -487,6 +532,15 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
             },
           ],
         };
+      },
+      {
+        title: 'Add Trace Feedback',
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
       }
     );
   }

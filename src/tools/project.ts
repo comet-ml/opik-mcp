@@ -48,6 +48,15 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
             },
           ],
         };
+      },
+      {
+        title: 'List Projects',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
     );
   }
@@ -86,6 +95,15 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
             },
           ],
         };
+      },
+      {
+        title: 'Create Project',
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
       }
     );
   }

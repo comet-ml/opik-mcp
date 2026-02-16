@@ -21,6 +21,7 @@ import { loadCapabilitiesTools } from './tools/capabilities.js';
 import { loadDatasetTools } from './tools/dataset.js';
 import { registerResource } from './tools/registration.js';
 import { callSdk, getOpikApi } from './utils/opik-sdk.js';
+import { loadCorePrompts } from './prompts/core-prompts.js';
 
 // Import configuration
 import { loadConfig } from './config.js';
@@ -82,6 +83,8 @@ if (enabledToolsets.has('integration')) {
 if (enabledToolsets.has('core')) {
   server = loadCapabilitiesTools(server, config);
   logToFile('Loaded core capabilities tools');
+  server = loadCorePrompts(server);
+  logToFile('Loaded core prompts');
 
   server = loadProjectTools(server, { includeReadOps: true, includeMutations: false });
   logToFile('Loaded core project read tools');
@@ -194,14 +197,15 @@ export async function main() {
 
   // Create the appropriate transport based on configuration
   let transport;
-  if (config.transport === 'sse') {
-    logToFile(`Creating SSEServerTransport on port ${config.ssePort}`);
+  if (config.transport === 'sse' || config.transport === 'streamable-http') {
+    logToFile(`Creating Streamable HTTP transport on port ${config.ssePort}`);
     transport = new SSEServerTransport({
       port: config.ssePort || 3001,
+      host: config.sseHost || '127.0.0.1',
     });
 
-    // Explicitly start the SSE transport
-    logToFile('Starting SSE transport');
+    // Explicitly start the remote transport host
+    logToFile('Starting remote transport');
     await transport.start();
   } else {
     logToFile('Creating StdioServerTransport');
@@ -215,8 +219,8 @@ export async function main() {
   logToFile('Transport connection established');
 
   // Log server status
-  if (config.transport === 'sse') {
-    logToFile(`Opik MCP Server running on SSE (port ${config.ssePort})`);
+  if (config.transport === 'sse' || config.transport === 'streamable-http') {
+    logToFile(`Opik MCP Server running on Streamable HTTP (port ${config.ssePort})`);
   } else {
     logToFile('Opik MCP Server running on stdio');
   }

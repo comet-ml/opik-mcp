@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { registerResource, registerTool } from '../src/tools/registration.js';
+import { registerPrompt, registerResource, registerTool } from '../src/tools/registration.js';
 
 describe('registration helpers', () => {
   test('registerTool prefers modern registerTool API when available', () => {
@@ -52,5 +52,31 @@ describe('registration helpers', () => {
     }));
 
     expect(server.resource).toHaveBeenCalledTimes(1);
+  });
+
+  test('registerPrompt prefers modern registerPrompt API when available', () => {
+    const server = {
+      registerPrompt: jest.fn(),
+      prompt: jest.fn(),
+    };
+
+    registerPrompt(server, 'test-prompt', 'desc', {}, async () => ({
+      messages: [{ role: 'user', content: { type: 'text', text: 'ok' } }],
+    }));
+
+    expect(server.registerPrompt).toHaveBeenCalledTimes(1);
+    expect(server.prompt).not.toHaveBeenCalled();
+  });
+
+  test('registerPrompt falls back to legacy prompt API when needed', () => {
+    const server = {
+      prompt: jest.fn(),
+    };
+
+    registerPrompt(server, 'test-prompt', 'desc', {}, async () => ({
+      messages: [{ role: 'user', content: { type: 'text', text: 'ok' } }],
+    }));
+
+    expect(server.prompt).toHaveBeenCalledTimes(1);
   });
 });
