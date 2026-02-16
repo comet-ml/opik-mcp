@@ -14,7 +14,7 @@ describe('remote auth', () => {
   test('rejects missing API key', async () => {
     const result = await validateRemoteAuth({});
     expect(result.ok).toBe(false);
-    expect(result.status).toBe(401);
+    expect(result.status).toBe(403);
   });
 
   test('resolves workspace from token map when configured', () => {

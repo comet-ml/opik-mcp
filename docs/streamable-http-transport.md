@@ -21,8 +21,8 @@ Remote mode is fail-closed by default.
 - Supported auth headers:
   - `Authorization: Bearer <token>`
   - `x-api-key: <token>`
-- Missing auth returns `401`.
-- Invalid key/workspace returns `401` (when validation is enabled).
+- Missing auth returns `403`.
+- Invalid key/workspace returns `403` (when validation is enabled).
 - If `REMOTE_TOKEN_WORKSPACE_MAP` is configured and token is not mapped, request returns `403`.
 - OAuth discovery/registration endpoints are not implemented; this server uses direct API-key bearer auth.
 
@@ -102,4 +102,4 @@ curl -i -X POST http://127.0.0.1:3001/mcp \
   -d '{"jsonrpc":"2.0","id":"2","method":"tools/list","params":{}}'
 ```
 
-Expected: `401`.
+Expected: `403`.

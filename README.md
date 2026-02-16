@@ -236,7 +236,7 @@ Remote auth behavior:
 - `Authorization: Bearer <OPIK_API_KEY>` or `x-api-key` is required by default.
 - Workspace is resolved server-side (recommended via token mapping). Header workspaces are not trusted by default.
 - In remote mode, request-context workspace takes precedence over tool `workspaceName` args.
-- Missing auth returns HTTP `401`.
+- Missing/invalid auth returns HTTP `403`.
 
 Remote auth environment flags:
 - `STREAMABLE_HTTP_REQUIRE_AUTH` (default `true`): require auth headers on `/mcp`.
