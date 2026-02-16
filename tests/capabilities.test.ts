@@ -121,6 +121,18 @@ describe('Capabilities Module Tests', () => {
     expect(noCapabilities.metrics?.available).toBe(false);
   });
 
+  test('getEnabledCapabilities should support enabledToolsets config', () => {
+    const toolsetConfig = {
+      enabledToolsets: ['capabilities', 'prompts', 'traces'] as const,
+    };
+
+    const capabilities = getEnabledCapabilities(toolsetConfig);
+    expect(capabilities.prompts?.available).toBe(true);
+    expect(capabilities.projects?.available).toBe(false);
+    expect(capabilities.traces?.available).toBe(true);
+    expect(capabilities.metrics?.available).toBe(false);
+  });
+
   // Test getCapabilitiesDescription function
   test('getCapabilitiesDescription should generate a description string', () => {
     // Test with all features enabled
