@@ -7,19 +7,28 @@ import {
   resolveProjectIdentifier,
 } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
+import { isoDateSchema, workspaceNameSchema } from './schema.js';
 
 export const loadMetricTools = (server: any) => {
   registerTool(
     server,
     'get-metrics',
-    'Get metrics data',
+    'Get project metrics for a date range and optional metric type.',
     {
-      metricName: z.string().optional().describe('Optional metric name to filter'),
-      projectId: z.string().optional().describe('Optional project ID to filter metrics'),
-      projectName: z.string().optional().describe('Optional project name to filter metrics'),
-      startDate: z.string().optional().describe('Start date in ISO format (YYYY-MM-DD)'),
-      endDate: z.string().optional().describe('End date in ISO format (YYYY-MM-DD)'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      metricName: z
+        .string()
+        .optional()
+        .describe(
+          'Optional metric type/alias (TRACE_COUNT, TOKEN_USAGE, COST, DURATION, FEEDBACK).'
+        ),
+      projectId: z.string().optional().describe('Optional project ID.'),
+      projectName: z
+        .string()
+        .optional()
+        .describe('Optional project name (alternative to projectId).'),
+      startDate: isoDateSchema,
+      endDate: isoDateSchema,
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { metricName, projectId, projectName, startDate, endDate, workspaceName } = args;

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { callSdk, getOpikApi, getRequestOptions } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
+import { pageSchema, sizeSchema, workspaceNameSchema } from './schema.js';
 
 interface ProjectToolOptions {
   includeReadOps?: boolean;
@@ -14,14 +15,11 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
     registerTool(
       server,
       'list-projects',
-      'List projects in the current workspace. Use this first to select a project ID/name for traces and metrics.',
+      'List projects in the active workspace to find IDs for traces and metrics operations.',
       {
-        page: z.number().optional().default(1).describe('Page number for pagination'),
-        size: z.number().optional().default(10).describe('Number of items per page'),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default'),
+        page: pageSchema,
+        size: sizeSchema(10),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { page, size, workspaceName } = args;
@@ -65,14 +63,11 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
     registerTool(
       server,
       'create-project',
-      'Create a project when you need a new logical container for traces and evaluations.',
+      'Create a new project for traces, prompts, and evaluation runs.',
       {
-        name: z.string().min(1).describe('Name of the project'),
-        description: z.string().optional().describe('Description of the project'),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default'),
+        name: z.string().min(1).describe('Project name.'),
+        description: z.string().optional().describe('Optional project description.'),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { name, description, workspaceName } = args;

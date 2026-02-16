@@ -7,6 +7,7 @@ import {
   resolveProjectIdentifier,
 } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
+import { isoDateSchema, pageSchema, sizeSchema, workspaceNameSchema } from './schema.js';
 
 interface TraceToolOptions {
   includeCoreTools?: boolean;
@@ -20,30 +21,19 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
     registerTool(
       server,
       'list-traces',
-      'List traces for a project. Use this for basic retrieval and quick navigation.',
+      'List traces for a project for quick inspection and navigation.',
       {
-        page: z.number().optional().default(1).describe('Page number for pagination (starts at 1)'),
-        size: z
-          .number()
-          .optional()
-          .default(10)
-          .describe('Number of traces per page (1-100, default 10)'),
+        page: pageSchema,
+        size: sizeSchema(10),
         projectId: z
           .string()
           .optional()
-          .describe(
-            'Project ID to filter traces. If not provided, will use the first available project'
-          ),
+          .describe('Optional project ID. If omitted, the first available project is used.'),
         projectName: z
           .string()
           .optional()
-          .describe(
-            'Project name to filter traces (alternative to projectId). Example: "My AI Assistant"'
-          ),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default workspace'),
+          .describe('Optional project name (alternative to projectId).'),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { page = 1, size = 10, projectId, projectName, workspaceName } = args;
@@ -101,17 +91,10 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
     registerTool(
       server,
       'get-trace-by-id',
-      'Get detailed information for a specific trace including input/output and metadata.',
+      'Get full details for a trace, including metadata and serialized input/output.',
       {
-        traceId: z
-          .string()
-          .describe(
-            'ID of the trace to fetch (UUID format, e.g. "123e4567-e89b-12d3-a456-426614174000")'
-          ),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default workspace'),
+        traceId: z.string().min(1).describe('Trace ID.'),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { traceId, workspaceName } = args;
@@ -171,30 +154,19 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
     registerTool(
       server,
       'get-trace-stats',
-      'Get aggregated trace statistics (counts, token usage, cost, and performance) over time.',
+      'Get aggregated trace statistics (count, tokens, cost, and duration) over time.',
       {
         projectId: z
           .string()
           .optional()
-          .describe(
-            'Project ID to filter traces. If not provided, will use the first available project'
-          ),
+          .describe('Optional project ID. If omitted, the first available project is used.'),
         projectName: z
           .string()
           .optional()
-          .describe('Project name to filter traces (alternative to projectId)'),
-        startDate: z
-          .string()
-          .optional()
-          .describe('Start date in ISO format (YYYY-MM-DD). Example: "2024-01-01"'),
-        endDate: z
-          .string()
-          .optional()
-          .describe('End date in ISO format (YYYY-MM-DD). Example: "2024-01-31"'),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default workspace'),
+          .describe('Optional project name (alternative to projectId).'),
+        startDate: isoDateSchema,
+        endDate: isoDateSchema,
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { projectId, projectName, startDate, endDate, workspaceName } = args;
@@ -252,22 +224,19 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
     registerTool(
       server,
       'get-trace-threads',
-      'Get trace threads (conversation/session groupings) for related traces.',
+      'List trace threads (conversation/session groupings) or fetch one thread by ID.',
       {
-        projectId: z.string().optional().describe('Project ID to filter threads'),
-        projectName: z.string().optional().describe('Project name to filter threads'),
-        page: z.number().optional().default(1).describe('Page number for pagination'),
-        size: z.number().optional().default(10).describe('Number of threads per page'),
+        projectId: z.string().optional().describe('Optional project ID filter.'),
+        projectName: z.string().optional().describe('Optional project name filter.'),
+        page: pageSchema,
+        size: sizeSchema(10),
         threadId: z
           .string()
           .optional()
           .describe(
-            'Specific thread ID to retrieve (useful for getting all traces in a conversation)'
+            'Optional thread ID. When set, returns that thread instead of paginated listing.'
           ),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default'),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { projectId, projectName, page, size, threadId, workspaceName } = args;
@@ -340,37 +309,28 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
     registerTool(
       server,
       'search-traces',
-      'Advanced trace search with query/filter/sort controls.',
+      'Search traces with optional text query, structured filters, and sorting.',
       {
-        projectId: z.string().optional().describe('Project ID to search within'),
-        projectName: z.string().optional().describe('Project name to search within'),
+        projectId: z.string().optional().describe('Optional project ID to constrain search.'),
+        projectName: z.string().optional().describe('Optional project name to constrain search.'),
         query: z
           .string()
           .optional()
-          .describe(
-            'Text query to search in trace names, inputs, outputs, and metadata. Example: "error" or "user_query:hello"'
-          ),
+          .describe('Optional free-text query across trace name/input/output/metadata.'),
         filters: z
           .record(z.any())
           .optional()
           .describe(
-            'Advanced filters as key-value pairs. Examples: {"status": "error"}, {"model": "gpt-4"}, {"duration_ms": {"$gt": 1000}}'
+            'Optional advanced filters, e.g. {"status":"error"} or {"duration_ms":{"$gt":1000}}.'
           ),
-        page: z.number().optional().default(1).describe('Page number for pagination'),
-        size: z.number().optional().default(10).describe('Number of traces per page (max 100)'),
+        page: pageSchema,
+        size: sizeSchema(10),
         sortBy: z
-          .string()
+          .enum(['created_at', 'duration', 'name', 'status'])
           .optional()
-          .describe('Field to sort by. Options: "created_at", "duration", "name", "status"'),
-        sortOrder: z
-          .enum(['asc', 'desc'])
-          .optional()
-          .default('desc')
-          .describe('Sort order: ascending or descending'),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default'),
+          .describe('Optional sort field.'),
+        sortOrder: z.enum(['asc', 'desc']).optional().default('desc').describe('Sort direction.'),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const {
@@ -442,41 +402,32 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
     registerTool(
       server,
       'add-trace-feedback',
-      'Add feedback scores to a trace for quality evaluation and monitoring.',
+      'Attach one or more feedback scores to a trace.',
       {
-        traceId: z.string().describe('ID of the trace to add feedback to'),
+        traceId: z.string().min(1).describe('Target trace ID.'),
         scores: z
           .array(
             z.object({
               name: z
                 .string()
-                .describe(
-                  'Name of the feedback metric (e.g., "relevance", "accuracy", "helpfulness", "quality")'
-                ),
-              value: z
-                .number()
-                .describe(
-                  'Score value. Commonly 0.0-1.0, but custom numeric scales are supported.'
-                ),
-              reason: z.string().optional().describe('Optional explanation for the score'),
+                .min(1)
+                .describe('Feedback metric name, e.g. relevance, accuracy, helpfulness.'),
+              value: z.number().finite().describe('Numeric score value.'),
+              reason: z.string().optional().describe('Optional reason for this score.'),
               source: z
                 .enum(['ui', 'sdk', 'online_scoring'])
                 .optional()
                 .default('sdk')
-                .describe('Feedback source, defaults to "sdk"'),
+                .describe('Feedback source.'),
               categoryName: z
                 .string()
                 .optional()
-                .describe('Optional category name for grouped feedback dimensions'),
+                .describe('Optional category for grouped feedback dimensions.'),
             })
           )
-          .describe(
-            'Array of feedback scores to add. Each score should have a metric name and numeric value'
-          ),
-        workspaceName: z
-          .string()
-          .optional()
-          .describe('Workspace name to use instead of the default'),
+          .min(1)
+          .describe('One or more feedback score objects.'),
+        workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
         const { traceId, scores, workspaceName } = args;

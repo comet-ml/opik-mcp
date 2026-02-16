@@ -46,7 +46,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
   registerTool(
     server,
     'get-server-info',
-    'Return server configuration and enabled Opik capabilities',
+    'Return server configuration and enabled Opik capabilities.',
     {},
     async (_args: any) => {
       const serverInfo = {
@@ -76,7 +76,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
   registerTool(
     server,
     'get-opik-help',
-    'Return capability docs for Opik. Optionally filter by topic: prompts, projects, traces, metrics, general',
+    'Return Opik capability documentation, optionally filtered by topic.',
     {
       topic: z
         .enum(['prompts', 'projects', 'traces', 'metrics', 'general'])
@@ -109,7 +109,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
   registerTool(
     server,
     'get-opik-examples',
-    'Return Opik usage examples for a task (prompts, projects, traces, evaluation)',
+    'Return Opik usage examples for a requested task.',
     {
       task: z
         .string()
@@ -158,7 +158,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
   registerTool(
     server,
     'get-opik-metrics-info',
-    'Return Opik metric definitions and usage guidance',
+    'Return Opik metric definitions and usage guidance.',
     {
       metric: z
         .string()
@@ -204,7 +204,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
   registerTool(
     server,
     'get-opik-tracing-info',
-    'Return tracing guidance for topics like traces, spans, feedback, search, and visualization',
+    'Return tracing guidance for traces, spans, feedback, search, and visualization.',
     {
       topic: z
         .enum(['traces', 'spans', 'feedback', 'search', 'visualization'])

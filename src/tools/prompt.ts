@@ -1,16 +1,17 @@
 import { z } from 'zod';
 import { callSdk, getOpikApi } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
+import { pageSchema, sizeSchema } from './schema.js';
 
 export const loadPromptTools = (server: any) => {
   registerTool(
     server,
     'get-prompts',
-    'Get a list of prompts with optional filtering',
+    'List prompts with optional name filtering.',
     {
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(10).describe('Number of items per page'),
-      name: z.string().optional().describe('Filter by prompt name'),
+      page: pageSchema,
+      size: sizeSchema(10),
+      name: z.string().optional().describe('Optional prompt name filter.'),
     },
     async (args: any) => {
       const { page, size, name } = args;
@@ -41,11 +42,11 @@ export const loadPromptTools = (server: any) => {
   registerTool(
     server,
     'create-prompt',
-    'Create a new prompt',
+    'Create a prompt definition.',
     {
-      name: z.string().min(1).describe('Name of the prompt'),
-      description: z.string().optional().describe('Description of the prompt'),
-      tags: z.array(z.string()).optional().describe('List of tags for the prompt'),
+      name: z.string().min(1).describe('Prompt name.'),
+      description: z.string().optional().describe('Optional prompt description.'),
+      tags: z.array(z.string().min(1)).optional().describe('Optional prompt tags.'),
     },
     async (args: any) => {
       const { name, description, tags } = args;
@@ -72,9 +73,9 @@ export const loadPromptTools = (server: any) => {
   registerTool(
     server,
     'get-prompt-by-id',
-    'Retrieve a prompt by ID',
+    'Get a prompt by ID.',
     {
-      promptId: z.string().min(1).describe('Prompt ID'),
+      promptId: z.string().min(1).describe('Prompt ID.'),
     },
     async (args: any) => {
       const { promptId } = args;
@@ -101,10 +102,10 @@ export const loadPromptTools = (server: any) => {
   registerTool(
     server,
     'get-prompt-version',
-    'Retrieve a specific version of a prompt',
+    'Get a specific prompt version by name and optional commit.',
     {
-      name: z.string().min(1).describe('Name of the prompt'),
-      commit: z.string().optional().describe('Specific commit/version to retrieve'),
+      name: z.string().min(1).describe('Prompt name.'),
+      commit: z.string().optional().describe('Optional commit/version identifier.'),
     },
     async (args: any) => {
       const { name, commit } = args;
@@ -136,9 +137,9 @@ export const loadPromptTools = (server: any) => {
   registerTool(
     server,
     'delete-prompt',
-    'Delete a prompt by ID',
+    'Delete a prompt by ID.',
     {
-      promptId: z.string().min(1).describe('Prompt ID'),
+      promptId: z.string().min(1).describe('Prompt ID.'),
     },
     async (args: any) => {
       const { promptId } = args;
@@ -165,23 +166,28 @@ export const loadPromptTools = (server: any) => {
   registerTool(
     server,
     'save-prompt-version',
-    'Save a new version of a prompt',
+    'Create a new prompt version.',
     {
-      name: z.string().min(1).describe('Name of the prompt'),
-      template: z.string().describe('Template content for the prompt version'),
-      change_description: z.string().optional().describe('Description of changes in this version'),
+      name: z.string().min(1).describe('Prompt name.'),
+      template: z.string().min(1).describe('Prompt template body.'),
+      changeDescription: z
+        .string()
+        .optional()
+        .describe('Optional summary of changes in this version.'),
+      change_description: z.string().optional().describe('Deprecated alias for changeDescription.'),
       metadata: z.record(z.any()).optional().describe('Additional metadata for the prompt version'),
-      type: z.enum(['mustache', 'jinja2']).optional().describe('Template type'),
+      type: z.enum(['mustache', 'jinja2']).optional().describe('Template format.'),
     },
     async (args: any) => {
-      const { name, template, change_description, metadata, type } = args;
+      const { name, template, change_description, changeDescription, metadata, type } = args;
+      const resolvedChangeDescription = changeDescription ?? change_description;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
         api.prompts.createPromptVersion({
           name,
           version: {
             template,
-            ...(change_description && { changeDescription: change_description }),
+            ...(resolvedChangeDescription && { changeDescription: resolvedChangeDescription }),
             ...(metadata && { metadata }),
             ...(type && { type }),
           },

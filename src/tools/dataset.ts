@@ -1,17 +1,18 @@
 import { z } from 'zod';
 import { callSdk, getOpikApi, getRequestOptions } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
+import { pageSchema, sizeSchema, workspaceNameSchema } from './schema.js';
 
 export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'list-datasets',
-    'List datasets with optional filtering',
+    'List datasets with optional name filtering.',
     {
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(10).describe('Number of datasets per page'),
-      name: z.string().optional().describe('Optional dataset name filter'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      page: pageSchema,
+      size: sizeSchema(10),
+      name: z.string().optional().describe('Optional dataset name filter.'),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { page = 1, size = 10, name, workspaceName } = args;
@@ -44,10 +45,10 @@ export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'get-dataset-by-id',
-    'Get details for a specific dataset',
+    'Get full details for a dataset by ID.',
     {
-      datasetId: z.string().describe('Dataset ID'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      datasetId: z.string().min(1).describe('Dataset ID.'),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { datasetId, workspaceName } = args;
@@ -71,11 +72,11 @@ export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'create-dataset',
-    'Create a dataset for evaluations and experiments',
+    'Create a dataset for evaluations and experiments.',
     {
-      name: z.string().min(1).describe('Dataset name'),
-      description: z.string().optional().describe('Optional dataset description'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      name: z.string().min(1).describe('Dataset name.'),
+      description: z.string().optional().describe('Optional dataset description.'),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { name, description, workspaceName } = args;
@@ -110,10 +111,10 @@ export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'delete-dataset',
-    'Delete a dataset by ID',
+    'Delete a dataset by ID.',
     {
-      datasetId: z.string().describe('Dataset ID'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      datasetId: z.string().min(1).describe('Dataset ID.'),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { datasetId, workspaceName } = args;
@@ -137,12 +138,12 @@ export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'list-dataset-items',
-    'List items belonging to a dataset',
+    'List items in a dataset.',
     {
-      datasetId: z.string().describe('Dataset ID'),
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(25).describe('Number of items per page'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      datasetId: z.string().min(1).describe('Dataset ID.'),
+      page: pageSchema,
+      size: sizeSchema(25, 500),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { datasetId, page = 1, size = 25, workspaceName } = args;
@@ -175,16 +176,13 @@ export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'create-dataset-item',
-    'Create a dataset item with input/output payloads',
+    'Create one dataset item with input, expected output, and metadata.',
     {
-      datasetId: z.string().describe('Dataset ID'),
-      input: z.record(z.any()).describe('Input payload for the dataset item'),
-      expectedOutput: z
-        .record(z.any())
-        .optional()
-        .describe('Optional expected output/label payload'),
-      metadata: z.record(z.any()).optional().describe('Optional metadata payload'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      datasetId: z.string().min(1).describe('Dataset ID.'),
+      input: z.record(z.any()).describe('Input payload.'),
+      expectedOutput: z.record(z.any()).optional().describe('Optional expected output payload.'),
+      metadata: z.record(z.any()).optional().describe('Optional metadata payload.'),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { datasetId, input, expectedOutput, metadata, workspaceName } = args;
@@ -228,10 +226,10 @@ export const loadDatasetTools = (server: any) => {
   registerTool(
     server,
     'delete-dataset-item',
-    'Delete a dataset item by ID',
+    'Delete a dataset item by ID.',
     {
-      itemId: z.string().describe('Dataset item ID'),
-      workspaceName: z.string().optional().describe('Workspace name override'),
+      itemId: z.string().min(1).describe('Dataset item ID.'),
+      workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
       const { itemId, workspaceName } = args;
