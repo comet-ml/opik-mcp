@@ -19,9 +19,8 @@ import { loadMetricTools } from './tools/metrics.js';
 import { loadIntegrationTools } from './tools/integration.js';
 import { loadCapabilitiesTools } from './tools/capabilities.js';
 import { loadDatasetTools } from './tools/dataset.js';
-import { registerResource } from './tools/registration.js';
-import { callSdk, getOpikApi } from './utils/opik-sdk.js';
 import { loadCorePrompts } from './prompts/core-prompts.js';
+import { loadOpikResources } from './resources/opik-resources.js';
 
 // Import configuration
 import { loadConfig } from './config.js';
@@ -119,75 +118,7 @@ if (enabledToolsets.has('metrics')) {
 }
 
 // Add resources to the MCP server
-if (config.workspaceName) {
-  // Define a workspace info resource
-  registerResource(
-    server,
-    'workspace-info',
-    'opik://workspace-info',
-    'Workspace information for the configured Opik MCP server.',
-    async () => ({
-      contents: [
-        {
-          uri: 'opik://workspace-info',
-          text: JSON.stringify(
-            {
-              name: config.workspaceName,
-              apiUrl: config.apiBaseUrl,
-              selfHosted: config.isSelfHosted,
-            },
-            null,
-            2
-          ),
-        },
-      ],
-    })
-  );
-
-  // Define a projects resource that provides the list of projects in the workspace
-  registerResource(
-    server,
-    'projects-list',
-    'opik://projects-list',
-    'Project listing for the configured Opik workspace.',
-    async () => {
-      try {
-        const api = getOpikApi();
-        const response = await callSdk<any>(() => api.projects.findProjects());
-
-        if (!response.data) {
-          return {
-            contents: [
-              {
-                uri: 'opik://projects-list',
-                text: `Error: ${response.error || 'Unknown error fetching projects'}`,
-              },
-            ],
-          };
-        }
-
-        return {
-          contents: [
-            {
-              uri: 'opik://projects-list',
-              text: JSON.stringify(response.data, null, 2),
-            },
-          ],
-        };
-      } catch (error) {
-        logToFile(`Error fetching projects resource: ${error}`);
-        return {
-          contents: [
-            {
-              uri: 'opik://projects-list',
-              text: `Error: Failed to fetch projects data`,
-            },
-          ],
-        };
-      }
-    }
-  );
-}
+server = loadOpikResources(server, config);
 
 // ----------- SERVER CONFIGURATION TOOLS -----------
 

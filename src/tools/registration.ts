@@ -1,4 +1,5 @@
 import { runWithRequestContext } from '../utils/request-context.js';
+import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 type ToolRegistrationOptions = {
   title?: string;
@@ -109,6 +110,35 @@ export function registerResource(
   }
 
   server.resource(name, uri, wrappedReadCallback);
+}
+
+export function registerResourceTemplate(
+  server: any,
+  name: string,
+  uriTemplate: string,
+  description: string,
+  readCallback: any,
+  listCallback?: any
+): void {
+  const wrappedReadCallback = withRequestContext(readCallback);
+  const wrappedListCallback = listCallback ? withRequestContext(listCallback) : undefined;
+  const template = new ResourceTemplate(uriTemplate, {
+    list: wrappedListCallback,
+  });
+
+  if (typeof server.registerResource === 'function') {
+    server.registerResource(
+      name,
+      template,
+      {
+        description,
+      },
+      wrappedReadCallback
+    );
+    return;
+  }
+
+  server.resource(name, template, wrappedReadCallback);
 }
 
 export function registerPrompt(
