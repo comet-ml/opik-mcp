@@ -1,6 +1,6 @@
 import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { PromptResponse } from './../types.js';
+import { PromptResponse, SinglePromptResponse } from './../types.js';
 
 export const loadPromptTools = (server: any) => {
   server.tool(
@@ -70,6 +70,35 @@ export const loadPromptTools = (server: any) => {
   );
 
   server.tool(
+    'get-prompt-by-id',
+    'Retrieve a prompt by ID',
+    {
+      promptId: z.string().min(1).describe('Prompt ID'),
+    },
+    async (args: any) => {
+      const { promptId } = args;
+      const response = await makeApiRequest<SinglePromptResponse>(
+        `/v1/private/prompts/${promptId}`
+      );
+
+      if (!response.data) {
+        return {
+          content: [{ type: 'text', text: response.error || 'Failed to fetch prompt' }],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
     'get-prompt-version',
     'Retrieve a specific version of a prompt',
     {
@@ -97,6 +126,35 @@ export const loadPromptTools = (server: any) => {
           {
             type: 'text',
             text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  server.tool(
+    'delete-prompt',
+    'Delete a prompt by ID',
+    {
+      promptId: z.string().min(1).describe('Prompt ID'),
+    },
+    async (args: any) => {
+      const { promptId } = args;
+      const response = await makeApiRequest<any>(`/v1/private/prompts/${promptId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.error) {
+        return {
+          content: [{ type: 'text', text: response.error || 'Failed to delete prompt' }],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Successfully deleted prompt ${promptId}`,
           },
         ],
       };
