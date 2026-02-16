@@ -37,22 +37,80 @@ function writeToLogFile(message: string, forceWrite: boolean = false): void {
 
 // Available toolsets
 export type OpikToolset =
-  | 'capabilities' // Server info and help tools
+  | 'core' // Minimal day-to-day read-oriented tools
+  | 'expert-prompts' // Full prompt management
+  | 'expert-datasets' // Full dataset management
+  | 'expert-trace-actions' // Advanced trace actions
+  | 'expert-project-actions' // Project mutations
   | 'integration' // Integration documentation and guides
-  | 'datasets' // Dataset and evaluation data management tools
-  | 'prompts' // Prompt management tools
-  | 'projects' // Project/workspace management tools
-  | 'traces' // Trace listing and analysis tools
   | 'metrics'; // Metrics and analytics tools
 
-export const DEFAULT_TOOLSETS: OpikToolset[] = [
-  'capabilities',
+export const DEFAULT_TOOLSETS: OpikToolset[] = ['core'];
+
+type LegacyToolset =
+  | 'capabilities'
+  | 'prompts'
+  | 'datasets'
+  | 'projects'
+  | 'traces'
+  | 'integration'
+  | 'metrics';
+
+const ALL_TOOLSET_CHOICES = [
+  'core',
+  'expert-prompts',
+  'expert-datasets',
+  'expert-trace-actions',
+  'expert-project-actions',
   'integration',
-  'datasets',
+  'metrics',
+  'capabilities',
   'prompts',
+  'datasets',
   'projects',
   'traces',
-];
+] as const;
+
+export function normalizeToolsets(values: string[]): OpikToolset[] {
+  const normalized = new Set<OpikToolset>();
+
+  for (const value of values.flatMap(v => v.split(',')).map(v => v.trim())) {
+    const toolset = value as OpikToolset | LegacyToolset;
+    switch (toolset) {
+      case 'core':
+      case 'expert-prompts':
+      case 'expert-datasets':
+      case 'expert-trace-actions':
+      case 'expert-project-actions':
+      case 'integration':
+      case 'metrics':
+        normalized.add(toolset);
+        break;
+      // Legacy aliases
+      case 'capabilities':
+        normalized.add('core');
+        break;
+      case 'prompts':
+        normalized.add('expert-prompts');
+        break;
+      case 'datasets':
+        normalized.add('expert-datasets');
+        break;
+      case 'projects':
+        normalized.add('core');
+        normalized.add('expert-project-actions');
+        break;
+      case 'traces':
+        normalized.add('core');
+        normalized.add('expert-trace-actions');
+        break;
+      default:
+        break;
+    }
+  }
+
+  return Array.from(normalized);
+}
 
 interface OpikFileConfig {
   api_key?: string;
@@ -224,15 +282,7 @@ function parseCommandLineArgs() {
       .option('toolsets', {
         type: 'array',
         description: 'Comma-separated list of toolsets to enable',
-        choices: [
-          'capabilities',
-          'integration',
-          'datasets',
-          'prompts',
-          'projects',
-          'traces',
-          'metrics',
-        ],
+        choices: ALL_TOOLSET_CHOICES as unknown as string[],
       })
       .help()
       .parse() as {
@@ -304,30 +354,14 @@ export function loadConfig(): OpikConfig {
 
     // Toolset configuration with fallbacks
     enabledToolsets: (() => {
-      const parseToolsets = (values: string[]): OpikToolset[] =>
-        values
-          .flatMap(value => value.split(','))
-          .map(value => value.trim())
-          .filter((toolset): toolset is OpikToolset =>
-            [
-              'capabilities',
-              'integration',
-              'datasets',
-              'prompts',
-              'projects',
-              'traces',
-              'metrics',
-            ].includes(toolset)
-          );
-
       // Command line takes precedence
       if (args.toolsets && args.toolsets.length > 0) {
-        return parseToolsets(args.toolsets);
+        return normalizeToolsets(args.toolsets);
       }
 
       // Environment variable fallback
       if (process.env.OPIK_TOOLSETS) {
-        return parseToolsets(process.env.OPIK_TOOLSETS.split(','));
+        return normalizeToolsets(process.env.OPIK_TOOLSETS.split(','));
       }
 
       // Default toolsets

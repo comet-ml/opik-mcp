@@ -297,10 +297,28 @@ interface CapabilityConfig {
 
 function isToolsetEnabled(
   config: CapabilityConfig,
-  toolset: Exclude<OpikToolset, 'capabilities' | 'integration'>
+  capability: 'prompts' | 'projects' | 'traces' | 'metrics'
 ): boolean {
   if (Array.isArray(config.enabledToolsets)) {
-    return config.enabledToolsets.includes(toolset);
+    if (capability === 'prompts') {
+      return config.enabledToolsets.includes('expert-prompts');
+    }
+
+    if (capability === 'projects') {
+      return (
+        config.enabledToolsets.includes('core') ||
+        config.enabledToolsets.includes('expert-project-actions')
+      );
+    }
+
+    if (capability === 'traces') {
+      return (
+        config.enabledToolsets.includes('core') ||
+        config.enabledToolsets.includes('expert-trace-actions')
+      );
+    }
+
+    return config.enabledToolsets.includes('metrics');
   }
 
   const hasLegacyFlags =
@@ -313,9 +331,9 @@ function isToolsetEnabled(
     return true;
   }
 
-  if (toolset === 'prompts') return Boolean(config.mcpEnablePromptTools);
-  if (toolset === 'projects') return Boolean(config.mcpEnableProjectTools);
-  if (toolset === 'traces') return Boolean(config.mcpEnableTraceTools);
+  if (capability === 'prompts') return Boolean(config.mcpEnablePromptTools);
+  if (capability === 'projects') return Boolean(config.mcpEnableProjectTools);
+  if (capability === 'traces') return Boolean(config.mcpEnableTraceTools);
 
   return Boolean(config.mcpEnableMetricTools);
 }

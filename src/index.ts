@@ -72,38 +72,45 @@ export let server = new McpServer(
 
 // Load tools based on enabled toolsets
 logToFile(`Loading toolsets: ${config.enabledToolsets.join(', ')}`);
+const enabledToolsets = new Set(config.enabledToolsets);
 
-if (config.enabledToolsets.includes('integration')) {
+if (enabledToolsets.has('integration')) {
   server = loadIntegrationTools(server);
   logToFile('Loaded integration toolset');
 }
 
-if (config.enabledToolsets.includes('capabilities')) {
+if (enabledToolsets.has('core')) {
   server = loadCapabilitiesTools(server, config);
-  logToFile('Loaded capabilities toolset');
+  logToFile('Loaded core capabilities tools');
+
+  server = loadProjectTools(server, { includeReadOps: true, includeMutations: false });
+  logToFile('Loaded core project read tools');
+
+  server = loadTraceTools(server, { includeCoreTools: true, includeExpertActions: false });
+  logToFile('Loaded core trace tools');
 }
 
-if (config.enabledToolsets.includes('prompts')) {
+if (enabledToolsets.has('expert-prompts')) {
   server = loadPromptTools(server);
-  logToFile('Loaded prompts toolset');
+  logToFile('Loaded expert prompts toolset');
 }
 
-if (config.enabledToolsets.includes('datasets')) {
+if (enabledToolsets.has('expert-datasets')) {
   server = loadDatasetTools(server);
-  logToFile('Loaded datasets toolset');
+  logToFile('Loaded expert datasets toolset');
 }
 
-if (config.enabledToolsets.includes('projects')) {
-  server = loadProjectTools(server);
-  logToFile('Loaded projects toolset');
+if (enabledToolsets.has('expert-project-actions')) {
+  server = loadProjectTools(server, { includeReadOps: false, includeMutations: true });
+  logToFile('Loaded expert project actions toolset');
 }
 
-if (config.enabledToolsets.includes('traces')) {
-  server = loadTraceTools(server);
-  logToFile('Loaded traces toolset');
+if (enabledToolsets.has('expert-trace-actions')) {
+  server = loadTraceTools(server, { includeCoreTools: false, includeExpertActions: true });
+  logToFile('Loaded expert trace actions toolset');
 }
 
-if (config.enabledToolsets.includes('metrics')) {
+if (enabledToolsets.has('metrics')) {
   server = loadMetricTools(server);
   logToFile('Loaded metrics toolset');
 }
