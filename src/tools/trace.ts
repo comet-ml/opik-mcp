@@ -414,7 +414,7 @@ export const loadTraceTools = (server: any) => {
     async (args: any) => {
       const { projectId, projectName, page, size, threadId, workspaceName } = args;
       let resolvedProjectId = projectId;
-      let resolvedProjectName = projectName;
+      const resolvedProjectName = projectName;
 
       if (!resolvedProjectId && !resolvedProjectName) {
         // If no project specified, we need to find one for the API to work
