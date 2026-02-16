@@ -51,6 +51,25 @@ function isAccessLogEnabled(): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
+function formatAccessLogLine(
+  req: express.Request,
+  res: express.Response,
+  durationMs: number,
+  hasAuthHeader: boolean
+): string {
+  const timestamp = new Date().toISOString();
+  const forwardedFor = req.header('x-forwarded-for');
+  const clientIp =
+    (forwardedFor ? forwardedFor.split(',')[0]?.trim() : undefined) ||
+    req.ip ||
+    req.socket.remoteAddress ||
+    '-';
+  const clientPort = req.socket.remotePort ? `:${req.socket.remotePort}` : '';
+  const requestLine = `${req.method} ${req.originalUrl} HTTP/${req.httpVersion}`;
+
+  return `${timestamp} INFO: ${clientIp}${clientPort} - "${requestLine}" ${res.statusCode} ${durationMs}ms auth=${hasAuthHeader ? 'yes' : 'no'}`;
+}
+
 function setAuthChallengeHeaders(res: express.Response): void {
   res.setHeader(
     'WWW-Authenticate',
@@ -162,13 +181,7 @@ export class StreamableHttpTransport implements Transport {
         const hasAuthHeader = Boolean(req.headers.authorization || req.headers['x-api-key']);
         res.on('finish', () => {
           const durationMs = Date.now() - start;
-          const line = [
-            req.method,
-            req.originalUrl,
-            `status=${res.statusCode}`,
-            `duration_ms=${durationMs}`,
-            `auth_header=${hasAuthHeader ? 'yes' : 'no'}`,
-          ].join(' ');
+          const line = formatAccessLogLine(req, res, durationMs, hasAuthHeader);
           console.error(`[opik-mcp] ${line}`);
           logToFile(`[access] ${line}`);
         });

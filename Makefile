@@ -10,7 +10,7 @@ help:
 	@echo "  make lint       - Run linter"
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make start      - Start the MCP server"
-	@echo "  make dev        - Start the server in development mode (streamable-http)"
+	@echo "  make dev        - Start the server in development mode with hot reload (streamable-http)"
 	@echo "  make precommit  - Run pre-commit checks manually"
 	@echo "  make start-http  - Start the MCP server with streamable-http transport"
 	@echo "  make start-stdio - Start the MCP server with stdio transport"
