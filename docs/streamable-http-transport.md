@@ -24,6 +24,7 @@ Remote mode is fail-closed by default.
 - Missing auth returns `401`.
 - Invalid key/workspace returns `401` (when validation is enabled).
 - If `REMOTE_TOKEN_WORKSPACE_MAP` is configured and token is not mapped, request returns `403`.
+- OAuth discovery/registration endpoints are not implemented; this server uses direct API-key bearer auth.
 
 Workspace resolution is server-side:
 

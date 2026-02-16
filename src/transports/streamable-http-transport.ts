@@ -51,11 +51,6 @@ function isAccessLogEnabled(): boolean {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
-function setAuthChallengeHeaders(res: express.Response): void {
-  res.setHeader('WWW-Authenticate', 'Bearer realm="opik-mcp"');
-  res.setHeader('Cache-Control', 'no-store');
-}
-
 function createRateLimiter() {
   const windowMs = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000);
   const maxRequests = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_MAX || 120);
@@ -168,6 +163,28 @@ export class StreamableHttpTransport implements Transport {
       res.json(response);
     });
 
+    const oauthNotSupportedResponse: { error: string; message: string } = {
+      error: 'unsupported_auth_flow',
+      message:
+        'This server uses API-key bearer auth and does not implement OAuth discovery/registration endpoints.',
+    };
+
+    this.app.get(
+      [
+        '/.well-known/oauth-protected-resource',
+        '/.well-known/oauth-protected-resource/mcp',
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/openid-configuration',
+      ],
+      (_req, res) => {
+        res.status(404).json(oauthNotSupportedResponse);
+      }
+    );
+
+    this.app.post('/register', (_req, res) => {
+      res.status(404).json(oauthNotSupportedResponse);
+    });
+
     this.app.all('/mcp', async (req, res) => {
       try {
         if (isRemoteAuthRequired()) {
@@ -180,9 +197,6 @@ export class StreamableHttpTransport implements Transport {
               status: 'error',
               message: auth.message,
             };
-            if (auth.status === 401) {
-              setAuthChallengeHeaders(res);
-            }
             res.status(auth.status).json(errorResponse);
             return;
           }
@@ -193,9 +207,6 @@ export class StreamableHttpTransport implements Transport {
               status: 'error',
               message: validation.message || 'Unauthorized',
             };
-            if (validation.status === 401) {
-              setAuthChallengeHeaders(res);
-            }
             res.status(validation.status).json(errorResponse);
             return;
           }
