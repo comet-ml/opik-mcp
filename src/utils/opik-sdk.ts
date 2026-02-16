@@ -101,15 +101,15 @@ export function buildTraceFilters(
 
   if (query && query.trim()) {
     const escaped = query.replace(/"/g, '\\"');
-    clauses.push(`name contains \"${escaped}\"`);
+    clauses.push(`name contains "${escaped}"`);
   }
 
   if (startDate) {
-    clauses.push(`start_time >= \"${startDate}\"`);
+    clauses.push(`start_time >= "${startDate}"`);
   }
 
   if (endDate) {
-    clauses.push(`start_time <= \"${endDate}\"`);
+    clauses.push(`start_time <= "${endDate}"`);
   }
 
   if (filters) {

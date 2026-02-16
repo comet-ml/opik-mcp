@@ -70,7 +70,7 @@ export const loadMetricTools = (server: any) => {
 
       const metricWarning =
         metricName && !metricType
-          ? `\nNote: metricName \"${metricName}\" is not a known metric type in the SDK and was ignored.`
+          ? `\nNote: metricName "${metricName}" is not a known metric type in the SDK and was ignored.`
           : '';
 
       return {
