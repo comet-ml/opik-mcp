@@ -46,8 +46,18 @@ export type OpikToolset =
   | 'metrics'; // Metrics and analytics tools
 
 export const DEFAULT_TOOLSETS: OpikToolset[] = ['core'];
+export const ALL_TOOLSETS: OpikToolset[] = [
+  'core',
+  'expert-prompts',
+  'expert-datasets',
+  'expert-trace-actions',
+  'expert-project-actions',
+  'integration',
+  'metrics',
+];
 
 type LegacyToolset =
+  | 'all'
   | 'capabilities'
   | 'prompts'
   | 'datasets'
@@ -57,6 +67,7 @@ type LegacyToolset =
   | 'metrics';
 
 const ALL_TOOLSET_CHOICES = [
+  'all',
   'core',
   'expert-prompts',
   'expert-datasets',
@@ -77,6 +88,11 @@ export function normalizeToolsets(values: string[]): OpikToolset[] {
   for (const value of values.flatMap(v => v.split(',')).map(v => v.trim())) {
     const toolset = value as OpikToolset | LegacyToolset;
     switch (toolset) {
+      case 'all':
+        for (const item of ALL_TOOLSETS) {
+          normalized.add(item);
+        }
+        break;
       case 'core':
       case 'expert-prompts':
       case 'expert-datasets':

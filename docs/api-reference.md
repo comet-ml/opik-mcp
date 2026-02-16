@@ -69,12 +69,12 @@ You can control which toolsets are enabled using:
 
 **Command Line:**
 ```bash
---toolsets core,expert-prompts,expert-datasets,expert-trace-actions,expert-project-actions,metrics
+--toolsets all
 ```
 
 **Environment Variable:**
 ```bash
-export OPIK_TOOLSETS=core,expert-prompts,expert-datasets,expert-trace-actions,expert-project-actions,metrics
+export OPIK_TOOLSETS=all
 ```
 
 See the [Configuration Guide](./configuration.md) for detailed examples and common configurations.

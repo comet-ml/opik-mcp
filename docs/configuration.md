@@ -83,6 +83,7 @@ node build/index.js \
 
 Current toolsets:
 
+- `all` - alias that enables every modern toolset listed below
 - `core` - day-to-day read tools and capabilities
 - `expert-prompts` - prompt management
 - `expert-datasets` - dataset management
