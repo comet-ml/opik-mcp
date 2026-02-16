@@ -68,6 +68,7 @@ You can use Opik MCP Server for:
 - **Projects/Workspaces Management**: Organize and manage projects
 - **Traces**: Track and analyze trace data
 - **Metrics**: Gather and query metrics data
+- **MCP Resources**: Read-only resources for workspace/project metadata plus resource templates for prompts, datasets, and traces
 
 ## Quick Start
 
@@ -248,6 +249,13 @@ npm run start:http
 ```
 
 For detailed information about streamable-http transport, see [docs/streamable-http-transport.md](docs/streamable-http-transport.md).
+
+## Resources and Prompts Capabilities
+
+- `resources/list` exposes static resources (for example, `opik://workspace-info`, `opik://projects-list`).
+- `resources/templates/list` exposes dynamic URI templates (for example, `opik://projects/{page}/{size}`, `opik://prompt/{name}`).
+- `resources/read` supports both static URIs and filled template URIs.
+- `prompts/list` and `prompts/get` expose workflow prompts (for example, `opik-triage-workflow`).
 
 ## Development
 

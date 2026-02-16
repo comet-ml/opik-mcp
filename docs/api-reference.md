@@ -50,22 +50,18 @@ The Opik MCP server organizes tools into **toolsets** - logical groups of relate
 
 | Toolset | Description | Tools Included |
 |---------|-------------|----------------|
-| `capabilities` | Server info and help tools | Server configuration and documentation |
+| `core` | Day-to-day read-oriented operations | Server info/help, project reads, trace reads, workflow prompts |
 | `integration` | Integration documentation and guides | Step-by-step integration workflows |
-| `datasets` | Dataset and evaluation data management | Create/list datasets and manage dataset items |
-| `prompts` | Prompt management tools | Create, retrieve, and version prompts |
-| `projects` | Project/workspace management tools | List and create projects |
-| `traces` | Trace listing and analysis tools | Comprehensive tracing and analytics |
+| `expert-datasets` | Dataset and evaluation data management | Create/list datasets and manage dataset items |
+| `expert-prompts` | Prompt management tools | Create, retrieve, and version prompts |
+| `expert-project-actions` | Project mutation tools | Create project |
+| `expert-trace-actions` | Advanced trace actions | Search traces and add trace feedback |
 | `metrics` | Metrics and analytics tools | Performance and usage metrics |
 
 ### Default Configuration
 
 By default, the following toolsets are enabled:
-- `capabilities` - Essential for server information
-- `datasets` - Core dataset and eval-data operations
-- `prompts` - Core prompt management
-- `projects` - Basic project operations
-- `traces` - Trace monitoring and analysis
+- `core`
 
 ### Configuring Toolsets
 
@@ -73,12 +69,12 @@ You can control which toolsets are enabled using:
 
 **Command Line:**
 ```bash
---toolsets capabilities,datasets,prompts,projects,traces
+--toolsets core,expert-prompts,expert-datasets,expert-trace-actions,expert-project-actions,metrics
 ```
 
 **Environment Variable:**
 ```bash
-export OPIK_TOOLSETS=capabilities,datasets,prompts,projects,traces
+export OPIK_TOOLSETS=core,expert-prompts,expert-datasets,expert-trace-actions,expert-project-actions,metrics
 ```
 
 See the [Configuration Guide](./configuration.md) for detailed examples and common configurations.
@@ -88,7 +84,7 @@ See the [Configuration Guide](./configuration.md) for detailed examples and comm
 > **Note**: Tools are organized by toolsets. To use tools from a specific category, ensure the corresponding toolset is enabled in your configuration.
 
 ### Prompts
-*Requires the `prompts` toolset to be enabled*
+*Requires the `expert-prompts` toolset to be enabled*
 
 #### 1. Get Prompts
 
@@ -170,12 +166,21 @@ Saves a new version of a prompt with template content and metadata.
   parameters: {
     name: string,                      // Name of the prompt (required, min 1 character)
     template: string,                  // Template content for the prompt version
-    change_description?: string,       // Optional description of changes in this version
+    changeDescription?: string,        // Optional description of changes in this version
+    change_description?: string,       // Deprecated alias for changeDescription
     metadata?: Record<string, any>,    // Optional additional metadata
     type?: "mustache" | "jinja2"      // Optional template type
   }
 }
 ```
+
+## Resources
+
+The server also supports MCP resources:
+
+- `resources/list` for static URIs (for example `opik://workspace-info`, `opik://projects-list`)
+- `resources/templates/list` for dynamic templates (for example `opik://projects/{page}/{size}`, `opik://prompt/{name}`)
+- `resources/read` for both static resources and filled template URIs
 
 ### Datasets
 *Requires the `datasets` toolset to be enabled*

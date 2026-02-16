@@ -81,6 +81,18 @@ curl -i -X POST http://127.0.0.1:3001/mcp \
   -d '{"jsonrpc":"2.0","id":"2","method":"tools/list","params":{}}'
 ```
 
+Resource discovery example:
+
+```bash
+curl -i -X POST http://127.0.0.1:3001/mcp \
+  -H "content-type: application/json" \
+  -H "accept: application/json, text/event-stream" \
+  -H "mcp-protocol-version: 2024-11-05" \
+  -H "Authorization: Bearer <OPIK_API_KEY>" \
+  -H "mcp-session-id: <SESSION_ID_FROM_INITIALIZE>" \
+  -d '{"jsonrpc":"2.0","id":"3","method":"resources/templates/list","params":{}}'
+```
+
 Unauthenticated request:
 
 ```bash
