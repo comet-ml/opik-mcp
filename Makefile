@@ -45,6 +45,11 @@ start:
 
 # Start in development mode
 dev:
+	@echo "Starting MCP server (streamable-http dev mode)"
+	@echo "  Host: $${STREAMABLE_HTTP_HOST:-127.0.0.1}"
+	@echo "  Port: $${STREAMABLE_HTTP_PORT:-3001}"
+	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
+	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
 	npm run dev:http
 
 # Run all checks (lint and test)
@@ -58,6 +63,8 @@ precommit:
 # Start the MCP server with streamable-http transport
 start-http:
 	@echo "Starting MCP server with streamable-http transport on port 3001..."
+	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
+	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
 	@npm run start:http
 
 # Start the MCP server with stdio transport
