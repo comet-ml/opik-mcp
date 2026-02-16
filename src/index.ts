@@ -19,6 +19,7 @@ import { loadProjectTools } from './tools/project.js';
 import { loadMetricTools } from './tools/metrics.js';
 import { loadIntegrationTools } from './tools/integration.js';
 import { loadCapabilitiesTools } from './tools/capabilities.js';
+import { loadDatasetTools } from './tools/dataset.js';
 
 // Import configuration
 import { loadConfig } from './config.js';
@@ -87,6 +88,11 @@ if (config.enabledToolsets.includes('capabilities')) {
 if (config.enabledToolsets.includes('prompts')) {
   server = loadPromptTools(server);
   logToFile('Loaded prompts toolset');
+}
+
+if (config.enabledToolsets.includes('datasets')) {
+  server = loadDatasetTools(server);
+  logToFile('Loaded datasets toolset');
 }
 
 if (config.enabledToolsets.includes('projects')) {

@@ -40,6 +40,41 @@ export type PromptResponse = {
 
 export type SinglePromptResponse = PromptResponse['content'][0];
 
+// Dataset types
+export type DatasetResponse = {
+  page: number;
+  size: number;
+  total: number;
+  content: Array<{
+    id: string;
+    name: string;
+    description?: string;
+    created_at: string;
+    created_by: string;
+    last_updated_at?: string;
+    last_updated_by?: string;
+  }>;
+};
+
+export type SingleDatasetResponse = DatasetResponse['content'][0] & {
+  metadata?: Record<string, any>;
+};
+
+export type DatasetItemsResponse = {
+  page: number;
+  size: number;
+  total: number;
+  content: Array<{
+    id: string;
+    dataset_id: string;
+    input: Record<string, any>;
+    expected_output?: Record<string, any>;
+    metadata?: Record<string, any>;
+    created_at: string;
+    created_by: string;
+  }>;
+};
+
 // Trace types
 export type TraceResponse = {
   page: number;

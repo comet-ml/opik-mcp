@@ -39,6 +39,7 @@ function writeToLogFile(message: string, forceWrite: boolean = false): void {
 export type OpikToolset =
   | 'capabilities' // Server info and help tools
   | 'integration' // Integration documentation and guides
+  | 'datasets' // Dataset and evaluation data management tools
   | 'prompts' // Prompt management tools
   | 'projects' // Project/workspace management tools
   | 'traces' // Trace listing and analysis tools
@@ -47,6 +48,7 @@ export type OpikToolset =
 export const DEFAULT_TOOLSETS: OpikToolset[] = [
   'capabilities',
   'integration',
+  'datasets',
   'prompts',
   'projects',
   'traces',
@@ -222,7 +224,15 @@ function parseCommandLineArgs() {
       .option('toolsets', {
         type: 'array',
         description: 'Comma-separated list of toolsets to enable',
-        choices: ['capabilities', 'integration', 'prompts', 'projects', 'traces', 'metrics'],
+        choices: [
+          'capabilities',
+          'integration',
+          'datasets',
+          'prompts',
+          'projects',
+          'traces',
+          'metrics',
+        ],
       })
       .help()
       .parse() as {
@@ -299,9 +309,15 @@ export function loadConfig(): OpikConfig {
           .flatMap(value => value.split(','))
           .map(value => value.trim())
           .filter((toolset): toolset is OpikToolset =>
-            ['capabilities', 'integration', 'prompts', 'projects', 'traces', 'metrics'].includes(
-              toolset
-            )
+            [
+              'capabilities',
+              'integration',
+              'datasets',
+              'prompts',
+              'projects',
+              'traces',
+              'metrics',
+            ].includes(toolset)
           );
 
       // Command line takes precedence
