@@ -22,10 +22,9 @@
     "check": "npm run lint && npm run test",
     "start": "node build/index.js",
     "inspector": "npx @modelcontextprotocol/inspector build/index.js",
-    "start:sse": "node build/cli.js serve --transport sse",
     "start:http": "node build/cli.js serve --transport streamable-http",
     "start:stdio": "node build/cli.js serve --transport stdio",
-    "dev:sse": "tsc && node build/cli.js serve --transport sse"
+    "dev:http": "tsc && node build/cli.js serve --transport streamable-http"
   },
   "files": [
     "build"

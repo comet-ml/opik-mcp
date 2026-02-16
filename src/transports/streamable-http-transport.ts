@@ -1,4 +1,9 @@
-import { Transport, SSETransportOptions, HealthResponse, MessageResponse } from './types.js';
+import {
+  Transport,
+  StreamableHttpTransportOptions,
+  HealthResponse,
+  MessageResponse,
+} from './types.js';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
@@ -8,12 +13,12 @@ import fs from 'fs';
 import cors from 'cors';
 import {
   authenticateRemoteRequest,
-  isSseAuthRequired,
+  isRemoteAuthRequired,
   validateRemoteAuth,
 } from '../utils/remote-auth.js';
 
 // Setup file-based logging
-const logFile = '/tmp/opik-mcp-sse.log';
+const logFile = '/tmp/opik-mcp-streamable-http.log';
 
 function logToFile(message: string): void {
   try {
@@ -36,8 +41,8 @@ function parseCsvEnv(value: string | undefined): string[] {
 }
 
 function createRateLimiter() {
-  const windowMs = Number(process.env.SSE_RATE_LIMIT_WINDOW_MS || 60_000);
-  const maxRequests = Number(process.env.SSE_RATE_LIMIT_MAX || 120);
+  const windowMs = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000);
+  const maxRequests = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_MAX || 120);
   const buckets = new Map<string, { count: number; resetAt: number }>();
 
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -83,10 +88,9 @@ type NodeRequestWithAuth = IncomingMessage & {
 /**
  * Streamable HTTP transport hosted on Express.
  *
- * Kept under the original class name for backward compatibility with existing
- * imports, but this now serves MCP on `/mcp` using the official transport.
+ * Serves MCP on `/mcp` using the official Streamable HTTP transport.
  */
-export class SSEServerTransport implements Transport {
+export class StreamableHttpTransport implements Transport {
   private app: express.Express;
   private server: http.Server | null = null;
   private port: number;
@@ -96,12 +100,12 @@ export class SSEServerTransport implements Transport {
     sessionIdGenerator: undefined, // stateless mode for simple remote deployments
   });
 
-  constructor(options: SSETransportOptions = {}) {
+  constructor(options: StreamableHttpTransportOptions = {}) {
     this.port = options.port || 3001;
-    this.host = options.host || process.env.SSE_HOST || 'localhost';
+    this.host = options.host || process.env.STREAMABLE_HTTP_HOST || 'localhost';
     this.app = createMcpExpressApp({ host: this.host });
 
-    const allowedOrigins = parseCsvEnv(process.env.SSE_CORS_ORIGINS);
+    const allowedOrigins = parseCsvEnv(process.env.STREAMABLE_HTTP_CORS_ORIGINS);
     if (allowedOrigins.length > 0) {
       this.app.use(
         cors({
@@ -123,7 +127,7 @@ export class SSEServerTransport implements Transport {
 
     this.app.all('/mcp', async (req, res) => {
       try {
-        if (isSseAuthRequired()) {
+        if (isRemoteAuthRequired()) {
           const auth = authenticateRemoteRequest(
             req.headers as Record<string, string | string[] | undefined>
           );
@@ -166,14 +170,6 @@ export class SSEServerTransport implements Transport {
           message: 'Internal server error',
         } satisfies MessageResponse);
       }
-    });
-
-    // Keep explicit response for previous non-standard endpoints.
-    this.app.all(['/events', '/send'], (_req, res) => {
-      res.status(410).json({
-        status: 'error',
-        message: 'Legacy endpoints removed. Use /mcp (Streamable HTTP).',
-      } satisfies MessageResponse);
     });
   }
 

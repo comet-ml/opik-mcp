@@ -1,5 +1,5 @@
 import { expect, jest, test, describe, beforeEach, afterEach } from '@jest/globals';
-import { SSEServerTransport } from '../../src/transports/sse-transport.js';
+import { StreamableHttpTransport } from '../../src/transports/streamable-http-transport.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import fetch from 'node-fetch';
 
@@ -10,7 +10,7 @@ jest.mock('fs', () => ({
 jest.setTimeout(30000);
 
 describe('MCP Server with Streamable HTTP integration', () => {
-  let transport: SSEServerTransport;
+  let transport: StreamableHttpTransport;
   let mcpServer: McpServer;
   const basePort = 4501;
   let portOffset = 0;
@@ -20,7 +20,7 @@ describe('MCP Server with Streamable HTTP integration', () => {
     currentPort = basePort + portOffset;
     portOffset += 1;
 
-    transport = new SSEServerTransport({ port: currentPort });
+    transport = new StreamableHttpTransport({ port: currentPort });
     mcpServer = new McpServer(
       {
         name: 'test-server',

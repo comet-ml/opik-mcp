@@ -22,13 +22,13 @@ function parseBoolean(value: string | undefined, defaultValue: boolean): boolean
   return defaultValue;
 }
 
-export function isSseAuthRequired(): boolean {
-  return parseBoolean(process.env.SSE_REQUIRE_AUTH, true);
+export function isRemoteAuthRequired(): boolean {
+  return parseBoolean(process.env.STREAMABLE_HTTP_REQUIRE_AUTH, true);
 }
 
 export function shouldValidateRemoteAuth(): boolean {
   const defaultValue = process.env.NODE_ENV !== 'test';
-  return parseBoolean(process.env.SSE_VALIDATE_REMOTE_AUTH, defaultValue);
+  return parseBoolean(process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH, defaultValue);
 }
 
 function parseTokenWorkspaceMap(): Record<string, string> {
@@ -55,7 +55,7 @@ function parseTokenWorkspaceMap(): Record<string, string> {
 }
 
 export function shouldTrustWorkspaceHeaders(): boolean {
-  return parseBoolean(process.env.SSE_TRUST_WORKSPACE_HEADERS, false);
+  return parseBoolean(process.env.STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS, false);
 }
 
 function resolveWorkspaceForToken(token: string, headerWorkspace?: string): string {

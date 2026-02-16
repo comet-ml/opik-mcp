@@ -5,7 +5,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 // Import custom transports
-import { SSEServerTransport } from './transports/sse-transport.js';
+import { StreamableHttpTransport } from './transports/streamable-http-transport.js';
 
 // Import environment variables loader - no console output
 import './utils/env.js';
@@ -197,11 +197,11 @@ export async function main() {
 
   // Create the appropriate transport based on configuration
   let transport;
-  if (config.transport === 'sse' || config.transport === 'streamable-http') {
-    logToFile(`Creating Streamable HTTP transport on port ${config.ssePort}`);
-    transport = new SSEServerTransport({
-      port: config.ssePort || 3001,
-      host: config.sseHost || '127.0.0.1',
+  if (config.transport === 'streamable-http') {
+    logToFile(`Creating Streamable HTTP transport on port ${config.streamableHttpPort}`);
+    transport = new StreamableHttpTransport({
+      port: config.streamableHttpPort || 3001,
+      host: config.streamableHttpHost || '127.0.0.1',
     });
 
     // Explicitly start the remote transport host
@@ -219,8 +219,8 @@ export async function main() {
   logToFile('Transport connection established');
 
   // Log server status
-  if (config.transport === 'sse' || config.transport === 'streamable-http') {
-    logToFile(`Opik MCP Server running on Streamable HTTP (port ${config.ssePort})`);
+  if (config.transport === 'streamable-http') {
+    logToFile(`Opik MCP Server running on Streamable HTTP (port ${config.streamableHttpPort})`);
   } else {
     logToFile('Opik MCP Server running on stdio');
   }

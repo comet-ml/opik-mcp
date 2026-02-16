@@ -189,10 +189,10 @@ export interface OpikConfig {
   debugMode: boolean;
 
   // Transport configuration
-  transport: 'stdio' | 'sse' | 'streamable-http';
-  ssePort?: number;
-  sseHost?: string;
-  sseLogPath?: string;
+  transport: 'stdio' | 'streamable-http';
+  streamableHttpPort?: number;
+  streamableHttpHost?: string;
+  streamableHttpLogPath?: string;
 
   // MCP server configuration
   mcpName: string;
@@ -238,24 +238,24 @@ function parseCommandLineArgs() {
       // Transport Configuration
       .option('transport', {
         type: 'string',
-        description: 'Transport type (stdio, sse alias, or streamable-http)',
-        choices: ['stdio', 'sse', 'streamable-http'],
+        description: 'Transport type (stdio or streamable-http)',
+        choices: ['stdio', 'streamable-http'],
         default: 'stdio',
       })
-      .option('ssePort', {
+      .option('streamableHttpPort', {
         type: 'number',
-        description: 'Port for SSE transport',
+        description: 'Port for streamable-http transport',
         default: 3001,
       })
-      .option('sseHost', {
+      .option('streamableHttpHost', {
         type: 'string',
-        description: 'Host for SSE transport',
+        description: 'Host for streamable-http transport',
         default: 'localhost',
       })
-      .option('sseLogPath', {
+      .option('streamableHttpLogPath', {
         type: 'string',
-        description: 'Log file path for SSE transport',
-        default: '/tmp/opik-mcp-sse.log',
+        description: 'Log file path for streamable-http transport',
+        default: '/tmp/opik-mcp-streamable-http.log',
       })
       // MCP Configuration
       .option('mcpName', {
@@ -292,9 +292,9 @@ function parseCommandLineArgs() {
       selfHosted?: boolean;
       debug?: boolean;
       transport?: string;
-      ssePort?: number;
-      sseHost?: string;
-      sseLogPath?: string;
+      streamableHttpPort?: number;
+      streamableHttpHost?: string;
+      streamableHttpLogPath?: string;
       mcpName?: string;
       mcpVersion?: string;
       mcpPort?: number;
@@ -338,13 +338,15 @@ export function loadConfig(): OpikConfig {
     debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
 
     // Transport configuration
-    transport: (args.transport || process.env.TRANSPORT || 'stdio') as
-      | 'stdio'
-      | 'sse'
-      | 'streamable-http',
-    ssePort: args.ssePort || (process.env.SSE_PORT ? parseInt(process.env.SSE_PORT, 10) : 3001),
-    sseHost: args.sseHost || process.env.SSE_HOST || 'localhost',
-    sseLogPath: args.sseLogPath || process.env.SSE_LOG_PATH || '/tmp/opik-mcp-sse.log',
+    transport: (args.transport || process.env.TRANSPORT || 'stdio') as 'stdio' | 'streamable-http',
+    streamableHttpPort:
+      args.streamableHttpPort ||
+      (process.env.STREAMABLE_HTTP_PORT ? parseInt(process.env.STREAMABLE_HTTP_PORT, 10) : 3001),
+    streamableHttpHost: args.streamableHttpHost || process.env.STREAMABLE_HTTP_HOST || 'localhost',
+    streamableHttpLogPath:
+      args.streamableHttpLogPath ||
+      process.env.STREAMABLE_HTTP_LOG_PATH ||
+      '/tmp/opik-mcp-streamable-http.log',
 
     // MCP configuration with fallbacks
     mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',
@@ -401,10 +403,10 @@ export function loadConfig(): OpikConfig {
     // Log transport configuration
     writeToLogFile('\nTransport Configuration:');
     writeToLogFile(`- Transport: ${config.transport}`);
-    if (config.transport === 'sse') {
-      writeToLogFile(`- SSE Port: ${config.ssePort}`);
-      writeToLogFile(`- SSE Host: ${config.sseHost}`);
-      writeToLogFile(`- SSE Log Path: ${config.sseLogPath}`);
+    if (config.transport === 'streamable-http') {
+      writeToLogFile(`- Streamable HTTP Port: ${config.streamableHttpPort}`);
+      writeToLogFile(`- Streamable HTTP Host: ${config.streamableHttpHost}`);
+      writeToLogFile(`- Streamable HTTP Log Path: ${config.streamableHttpLogPath}`);
     }
 
     // Log MCP configuration

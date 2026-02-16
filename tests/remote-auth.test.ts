@@ -1,14 +1,14 @@
 import { describe, expect, test } from '@jest/globals';
 import {
   authenticateRemoteRequest,
-  isSseAuthRequired,
+  isRemoteAuthRequired,
   validateRemoteAuth,
 } from '../src/utils/remote-auth.js';
 
 describe('remote auth', () => {
   test('requires auth by default', () => {
-    delete process.env.SSE_REQUIRE_AUTH;
-    expect(isSseAuthRequired()).toBe(true);
+    delete process.env.STREAMABLE_HTTP_REQUIRE_AUTH;
+    expect(isRemoteAuthRequired()).toBe(true);
   });
 
   test('rejects missing API key', async () => {
