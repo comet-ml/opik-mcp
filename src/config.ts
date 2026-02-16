@@ -172,7 +172,9 @@ function loadOpikConfigFile(): OpikFileConfig {
       }
     }
 
-    writeToLogFile(`Loaded config from ~/.opik.config: ${JSON.stringify(config)}`);
+    writeToLogFile(
+      `Loaded config from ~/.opik.config with keys: ${Object.keys(config).join(', ') || '(none)'}`
+    );
     return config;
   } catch (error) {
     writeToLogFile(`Failed to load ~/.opik.config: ${error}`);
@@ -240,22 +242,18 @@ function parseCommandLineArgs() {
         type: 'string',
         description: 'Transport type (stdio or streamable-http)',
         choices: ['stdio', 'streamable-http'],
-        default: 'stdio',
       })
       .option('streamableHttpPort', {
         type: 'number',
         description: 'Port for streamable-http transport',
-        default: 3001,
       })
       .option('streamableHttpHost', {
         type: 'string',
         description: 'Host for streamable-http transport',
-        default: 'localhost',
       })
       .option('streamableHttpLogPath', {
         type: 'string',
         description: 'Log file path for streamable-http transport',
-        default: '/tmp/opik-mcp-streamable-http.log',
       })
       // MCP Configuration
       .option('mcpName', {
@@ -338,15 +336,14 @@ export function loadConfig(): OpikConfig {
     debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
 
     // Transport configuration
-    transport: (args.transport || process.env.TRANSPORT || 'stdio') as 'stdio' | 'streamable-http',
+    transport: (args.transport ?? process.env.TRANSPORT ?? 'stdio') as 'stdio' | 'streamable-http',
     streamableHttpPort:
-      args.streamableHttpPort ||
+      args.streamableHttpPort ??
       (process.env.STREAMABLE_HTTP_PORT ? parseInt(process.env.STREAMABLE_HTTP_PORT, 10) : 3001),
-    streamableHttpHost: args.streamableHttpHost || process.env.STREAMABLE_HTTP_HOST || 'localhost',
+    streamableHttpHost: args.streamableHttpHost ?? process.env.STREAMABLE_HTTP_HOST ?? '127.0.0.1',
     streamableHttpLogPath:
-      args.streamableHttpLogPath ||
-      process.env.STREAMABLE_HTTP_LOG_PATH ||
-      '/tmp/opik-mcp-streamable-http.log',
+      args.streamableHttpLogPath ??
+      (process.env.STREAMABLE_HTTP_LOG_PATH || '/tmp/opik-mcp-streamable-http.log'),
 
     // MCP configuration with fallbacks
     mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',

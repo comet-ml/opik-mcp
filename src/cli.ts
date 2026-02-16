@@ -12,14 +12,12 @@ const argv = yargs(hideBin(process.argv))
     alias: 't',
     description: 'Transport to use (stdio or streamable-http)',
     type: 'string',
-    default: 'stdio',
     choices: ['stdio', 'streamable-http'],
   })
   .option('port', {
     alias: 'p',
     description: 'Port to listen on (for streamable-http transport)',
     type: 'number',
-    default: 3001,
   })
   .help()
   .alias('help', 'h')
@@ -27,9 +25,13 @@ const argv = yargs(hideBin(process.argv))
   .parseSync();
 
 // Update config based on CLI arguments
-configImport.transport = argv.transport as 'stdio' | 'streamable-http';
-if (argv.transport === 'streamable-http') {
-  configImport.streamableHttpPort = argv.port as number;
+if (argv.transport) {
+  configImport.transport = argv.transport as 'stdio' | 'streamable-http';
+  process.env.TRANSPORT = argv.transport as string;
+}
+if (argv.transport === 'streamable-http' && typeof argv.port === 'number') {
+  configImport.streamableHttpPort = argv.port;
+  process.env.STREAMABLE_HTTP_PORT = String(argv.port);
 }
 
 // Import and start the server (index.js will handle the main() call)
