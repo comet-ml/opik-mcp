@@ -3,7 +3,6 @@ import fs from 'fs';
 // Import other modules
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { makeApiRequest } from './utils/api.js';
 
 // Import custom transports
 import { SSEServerTransport } from './transports/sse-transport.js';
@@ -21,6 +20,7 @@ import { loadIntegrationTools } from './tools/integration.js';
 import { loadCapabilitiesTools } from './tools/capabilities.js';
 import { loadDatasetTools } from './tools/dataset.js';
 import { registerResource } from './tools/registration.js';
+import { callSdk, getOpikApi } from './utils/opik-sdk.js';
 
 // Import configuration
 import { loadConfig } from './config.js';
@@ -55,9 +55,6 @@ if (config.debugMode) {
     // Silently fail if we can't write to the log file
   }
 }
-
-// Rest of imports
-import { ProjectResponse } from './types.js';
 
 // Create and configure server - no console output here
 export let server = new McpServer(
@@ -145,7 +142,8 @@ if (config.workspaceName) {
     'Project listing for the configured Opik workspace.',
     async () => {
       try {
-        const response = await makeApiRequest<ProjectResponse>('/v1/private/projects');
+        const api = getOpikApi();
+        const response = await callSdk<any>(() => api.projects.findProjects());
 
         if (!response.data) {
           return {
