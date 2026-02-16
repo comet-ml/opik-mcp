@@ -26,6 +26,14 @@ import { loadOpikResources } from './resources/opik-resources.js';
 import { loadConfig } from './config.js';
 const config = loadConfig();
 
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
 // Only initialize log file if debug mode is enabled
 if (config.debugMode) {
   try {
@@ -161,6 +169,14 @@ export async function main() {
 
 // Start the server
 main().catch(error => {
-  logToFile(`Error starting server: ${error}`);
+  const message = toErrorMessage(error);
+  logToFile(`Error starting server: ${message}`);
+  console.error(`Failed to start Opik MCP server: ${message}`);
+  if (error instanceof Error && error.stack) {
+    logToFile(error.stack);
+    if (config.debugMode) {
+      console.error(error.stack);
+    }
+  }
   process.exit(1);
 });
