@@ -1,6 +1,6 @@
 import { expect, jest, test, describe, beforeEach, afterEach } from '@jest/globals';
 import { SSEServerTransport } from '../../src/transports/sse-transport.js';
-import { server } from '../../src/index.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import fetch from 'node-fetch';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
@@ -19,6 +19,7 @@ const debug = (message: string) => {
 
 describe('MCP Server with SSE Transport Integration', () => {
   let transport: SSEServerTransport;
+  let mcpServer: McpServer;
   const testPort = 4501; // Using a high port number to avoid conflicts
 
   // Use a different port for each test to avoid conflicts
@@ -30,20 +31,37 @@ describe('MCP Server with SSE Transport Integration', () => {
     debug(`Setting up test environment using port ${currentPort}`);
 
     transport = new SSEServerTransport({ port: currentPort });
+    mcpServer = new McpServer(
+      {
+        name: 'test-server',
+        version: '1.0.0',
+      },
+      {
+        capabilities: {
+          tools: {},
+        },
+      }
+    );
 
     // Start the server with SSE transport
     debug('Starting SSE transport');
     await transport.start();
     debug('Transport started, connecting MCP server');
-    await server.connect(transport);
+    await mcpServer.connect(transport);
     debug('MCP server connected to transport');
   });
 
   afterEach(async () => {
     debug('Cleaning up test environment');
 
-    // The server object doesn't have a disconnect method,
-    // but the transport will handle clean up
+    debug('Closing MCP server connection');
+    try {
+      await mcpServer.close();
+      debug('MCP server closed successfully');
+    } catch (err) {
+      debug(`Error closing MCP server: ${err}`);
+    }
+
     debug('Closing SSE transport');
     try {
       await transport.close();
