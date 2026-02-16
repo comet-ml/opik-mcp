@@ -1,5 +1,10 @@
 import { describe, expect, jest, test } from '@jest/globals';
-import { registerPrompt, registerResource, registerTool } from '../src/tools/registration.js';
+import {
+  registerPrompt,
+  registerResource,
+  registerResourceTemplate,
+  registerTool,
+} from '../src/tools/registration.js';
 
 describe('registration helpers', () => {
   test('registerTool prefers modern registerTool API when available', () => {
@@ -50,6 +55,44 @@ describe('registration helpers', () => {
     registerResource(server, 'test-resource', 'opik://test', 'desc', async () => ({
       contents: [{ uri: 'opik://test', text: 'ok' }],
     }));
+
+    expect(server.resource).toHaveBeenCalledTimes(1);
+  });
+
+  test('registerResourceTemplate prefers modern registerResource API when available', () => {
+    const server = {
+      registerResource: jest.fn(),
+      resource: jest.fn(),
+    };
+
+    registerResourceTemplate(
+      server,
+      'test-resource-template',
+      'opik://projects/{page}/{size}',
+      'desc',
+      async () => ({
+        contents: [{ uri: 'opik://projects/1/10', text: 'ok' }],
+      })
+    );
+
+    expect(server.registerResource).toHaveBeenCalledTimes(1);
+    expect(server.resource).not.toHaveBeenCalled();
+  });
+
+  test('registerResourceTemplate falls back to legacy resource API when needed', () => {
+    const server = {
+      resource: jest.fn(),
+    };
+
+    registerResourceTemplate(
+      server,
+      'test-resource-template',
+      'opik://projects/{page}/{size}',
+      'desc',
+      async () => ({
+        contents: [{ uri: 'opik://projects/1/10', text: 'ok' }],
+      })
+    );
 
     expect(server.resource).toHaveBeenCalledTimes(1);
   });
