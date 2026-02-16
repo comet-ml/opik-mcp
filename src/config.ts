@@ -44,7 +44,13 @@ export type OpikToolset =
   | 'traces' // Trace listing and analysis tools
   | 'metrics'; // Metrics and analytics tools
 
-export const DEFAULT_TOOLSETS: OpikToolset[] = ['integration', 'prompts', 'projects', 'traces'];
+export const DEFAULT_TOOLSETS: OpikToolset[] = [
+  'capabilities',
+  'integration',
+  'prompts',
+  'projects',
+  'traces',
+];
 
 interface OpikFileConfig {
   api_key?: string;
@@ -114,7 +120,7 @@ function loadOpikConfigFile(): OpikFileConfig {
   }
 }
 
-interface OpikConfig {
+export interface OpikConfig {
   // API configuration
   apiBaseUrl: string;
   workspaceName?: string; // Optional for self-hosted version
@@ -288,19 +294,24 @@ export function loadConfig(): OpikConfig {
 
     // Toolset configuration with fallbacks
     enabledToolsets: (() => {
+      const parseToolsets = (values: string[]): OpikToolset[] =>
+        values
+          .flatMap(value => value.split(','))
+          .map(value => value.trim())
+          .filter((toolset): toolset is OpikToolset =>
+            ['capabilities', 'integration', 'prompts', 'projects', 'traces', 'metrics'].includes(
+              toolset
+            )
+          );
+
       // Command line takes precedence
       if (args.toolsets && args.toolsets.length > 0) {
-        return args.toolsets.filter((t): t is OpikToolset =>
-          ['integration', 'prompts', 'projects', 'traces', 'metrics'].includes(t)
-        );
+        return parseToolsets(args.toolsets);
       }
 
       // Environment variable fallback
       if (process.env.OPIK_TOOLSETS) {
-        const envToolsets = process.env.OPIK_TOOLSETS.split(',').map(t => t.trim());
-        return envToolsets.filter((t): t is OpikToolset =>
-          ['integration', 'prompts', 'projects', 'traces', 'metrics'].includes(t)
-        );
+        return parseToolsets(process.env.OPIK_TOOLSETS.split(','));
       }
 
       // Default toolsets
