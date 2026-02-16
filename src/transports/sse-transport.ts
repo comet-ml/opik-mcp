@@ -4,6 +4,7 @@ import express from 'express';
 import http from 'http';
 import fs from 'fs';
 import cors from 'cors';
+import { extractContextFromHeaders, runWithRequestContext } from '../utils/request-context.js';
 
 // Setup file-based logging
 const logFile = '/tmp/opik-mcp-sse.log';
@@ -74,11 +75,16 @@ export class SSEServerTransport implements Transport {
     // Endpoint for sending messages to the MCP server
     this.app.post('/send', (req: express.Request, res: express.Response) => {
       const message = req.body;
+      const requestContext = extractContextFromHeaders(
+        req.headers as Record<string, string | string[] | undefined>
+      );
 
       if (this.onmessage) {
         try {
           // Forward the message to the MCP connection handler
-          this.onmessage(message);
+          runWithRequestContext(requestContext, () => {
+            this.onmessage?.(message);
+          });
           const response: MessageResponse = { status: 'success' };
           res.status(200).json(response);
         } catch (error) {

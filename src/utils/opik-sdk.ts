@@ -1,19 +1,37 @@
 import { Opik } from 'opik';
 import config from '../config.js';
+import { getRequestContext } from './request-context.js';
 
-let opikClient: any;
+const opikClientCache = new Map<string, any>();
+
+function getEffectiveApiKey(): string {
+  const context = getRequestContext();
+  return context?.apiKey || config.apiKey;
+}
+
+function getEffectiveWorkspaceName(): string {
+  const context = getRequestContext();
+  return context?.workspaceName || config.workspaceName || config.mcpDefaultWorkspace || 'default';
+}
 
 function getOpikClient(): any {
-  if (!opikClient) {
-    opikClient = new Opik({
-      apiKey: config.apiKey,
-      apiUrl: config.apiBaseUrl,
-      workspaceName: config.workspaceName || config.mcpDefaultWorkspace || 'default',
-      projectName: config.mcpDefaultWorkspace || 'default',
-    });
+  const apiKey = getEffectiveApiKey();
+  const workspaceName = getEffectiveWorkspaceName();
+  const cacheKey = `${config.apiBaseUrl}::${workspaceName}::${apiKey}`;
+
+  if (!opikClientCache.has(cacheKey)) {
+    opikClientCache.set(
+      cacheKey,
+      new Opik({
+        apiKey,
+        apiUrl: config.apiBaseUrl,
+        workspaceName,
+        projectName: config.mcpDefaultWorkspace || 'default',
+      })
+    );
   }
 
-  return opikClient;
+  return opikClientCache.get(cacheKey);
 }
 
 export function getOpikApi(): any {
@@ -21,7 +39,9 @@ export function getOpikApi(): any {
 }
 
 export function getRequestOptions(workspaceName?: string): Record<string, string> {
-  return workspaceName ? { workspaceName } : {};
+  const context = getRequestContext();
+  const effectiveWorkspace = workspaceName || context?.workspaceName;
+  return effectiveWorkspace ? { workspaceName: effectiveWorkspace } : {};
 }
 
 export async function callSdk<T>(
