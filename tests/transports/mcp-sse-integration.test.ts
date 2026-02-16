@@ -21,13 +21,15 @@ describe('MCP Server with SSE Transport Integration', () => {
   let transport: SSEServerTransport;
   let mcpServer: McpServer;
   const testPort = 4501; // Using a high port number to avoid conflicts
+  let portOffset = 0;
 
   // Use a different port for each test to avoid conflicts
   let currentPort: number;
 
   beforeEach(async () => {
     // Generate a unique port for each test
-    currentPort = testPort + Math.floor(Math.random() * 100);
+    currentPort = testPort + portOffset;
+    portOffset += 1;
     debug(`Setting up test environment using port ${currentPort}`);
 
     transport = new SSEServerTransport({ port: currentPort });
