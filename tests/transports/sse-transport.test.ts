@@ -65,6 +65,7 @@ describe('SSEServerTransport', () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-api-key': 'test-token',
         },
         body: JSON.stringify(testMessage),
       });
@@ -104,6 +105,7 @@ describe('SSEServerTransport', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': 'test-token',
       },
       body: JSON.stringify(testMessage),
     });
@@ -131,6 +133,7 @@ describe('SSEServerTransport', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': 'test-token',
       },
       body: JSON.stringify(testMessage),
     });
@@ -159,6 +162,7 @@ describe('SSEServerTransport', () => {
       method: 'GET',
       headers: {
         Accept: 'text/event-stream',
+        'x-api-key': 'test-token',
       },
     });
 
@@ -191,5 +195,29 @@ describe('SSEServerTransport', () => {
     // Check that the message was received
     expect(receivedEvents.length).toBeGreaterThan(0);
     expect(receivedEvents.some(event => event.includes(JSON.stringify(testMessage)))).toBe(true);
+  });
+
+  test('should reject unauthenticated remote requests', async () => {
+    await transport.start();
+
+    const testMessage: JSONRPCMessage = {
+      jsonrpc: '2.0',
+      id: '1',
+      method: 'test_method',
+      params: {},
+    };
+
+    const response = await fetch(`http://localhost:${testPort}/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(testMessage),
+    });
+
+    const data = (await response.json()) as { status: string; message: string };
+    expect(response.status).toBe(401);
+    expect(data.status).toBe('error');
+    expect(data.message).toContain('Missing authentication token');
   });
 });

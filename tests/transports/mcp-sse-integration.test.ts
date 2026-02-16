@@ -100,6 +100,7 @@ describe('MCP Server with SSE Transport Integration', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': 'test-token',
       },
       body: JSON.stringify(testMessage),
     });
@@ -124,6 +125,7 @@ describe('MCP Server with SSE Transport Integration', () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': 'test-token',
       },
       body: JSON.stringify(invalidMessage),
     });

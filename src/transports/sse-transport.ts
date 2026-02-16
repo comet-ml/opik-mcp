@@ -5,6 +5,7 @@ import http from 'http';
 import fs from 'fs';
 import cors from 'cors';
 import { extractContextFromHeaders, runWithRequestContext } from '../utils/request-context.js';
+import { isSseAuthRequired, validateRemoteAuth } from '../utils/remote-auth.js';
 
 // Setup file-based logging
 const logFile = '/tmp/opik-mcp-sse.log';
@@ -48,7 +49,23 @@ export class SSEServerTransport implements Transport {
     });
 
     // SSE endpoint for receiving MCP messages
-    this.app.get('/events', (req: express.Request, res: express.Response) => {
+    this.app.get('/events', async (req: express.Request, res: express.Response) => {
+      const requestContext = extractContextFromHeaders(
+        req.headers as Record<string, string | string[] | undefined>
+      );
+
+      if (isSseAuthRequired()) {
+        const authResult = await validateRemoteAuth(requestContext);
+        if (!authResult.ok) {
+          const errorResponse: MessageResponse = {
+            status: 'error',
+            message: authResult.message || 'Unauthorized',
+          };
+          res.status(authResult.status).json(errorResponse);
+          return;
+        }
+      }
+
       const clientId = (req.query.clientId as string) || Date.now().toString();
 
       // Set headers for SSE
@@ -73,11 +90,23 @@ export class SSEServerTransport implements Transport {
     });
 
     // Endpoint for sending messages to the MCP server
-    this.app.post('/send', (req: express.Request, res: express.Response) => {
+    this.app.post('/send', async (req: express.Request, res: express.Response) => {
       const message = req.body;
       const requestContext = extractContextFromHeaders(
         req.headers as Record<string, string | string[] | undefined>
       );
+
+      if (isSseAuthRequired()) {
+        const authResult = await validateRemoteAuth(requestContext);
+        if (!authResult.ok) {
+          const errorResponse: MessageResponse = {
+            status: 'error',
+            message: authResult.message || 'Unauthorized',
+          };
+          res.status(authResult.status).json(errorResponse);
+          return;
+        }
+      }
 
       if (this.onmessage) {
         try {
