@@ -1,0 +1,46 @@
+transport:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/transports/**/*'
+      - 'docs/sse-transport.md'
+
+security:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'src/config.ts'
+      - 'src/utils/api.ts'
+      - 'src/tools/**/*'
+      - 'docs/configuration.md'
+      - 'docs/remote-deployment.md'
+
+dependencies:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'package.json'
+      - 'package-lock.json'
+
+infrastructure:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '.github/**/*'
+      - 'Dockerfile'
+      - 'Makefile'
+      - 'server.json'
+
+documentation:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'README.md'
+      - 'docs/**/*'
+      - '**/*.md'
+
+typescript:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '**/*.ts'
+      - '**/*.tsx'
+
+tests:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tests/**/*'
