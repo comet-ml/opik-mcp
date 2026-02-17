@@ -17,11 +17,12 @@ This document describes remote/self-hosted transport for `opik-mcp`.
 
 Remote mode is fail-closed by default.
 
-- Require auth on `/mcp`.
+- Require auth on `/mcp` for write actions.
+- For onboarding, the server now allows keyless `initialize`, `tools/list`, and onboarding-safe `tools/call` calls.
 - Supported auth headers:
   - `Authorization: Bearer <token>`
   - `x-api-key: <token>`
-- Missing auth returns `401`.
+- Missing auth on protected actions returns `401`.
 - Invalid key/workspace returns `401` (when validation is enabled).
 - If `REMOTE_TOKEN_WORKSPACE_MAP` is configured and token is not mapped, request returns `403`.
 - This server publishes OAuth protected-resource metadata endpoints for compatibility:
@@ -97,7 +98,7 @@ curl -i -X POST http://127.0.0.1:3001/mcp \
   -d '{"jsonrpc":"2.0","id":"3","method":"resources/templates/list","params":{}}'
 ```
 
-Unauthenticated request:
+Unauthenticated request (non-onboarding action):
 
 ```bash
 curl -i -X POST http://127.0.0.1:3001/mcp \
@@ -106,3 +107,14 @@ curl -i -X POST http://127.0.0.1:3001/mcp \
 ```
 
 Expected: `401`.
+When no key is configured, clients can still initialize, discover the catalog, and call informational tools:
+- `get-server-info`
+- `get-opik-help`
+- `get-opik-examples`
+- `get-opik-metrics-info`
+- `get-opik-tracing-info`
+- `opik-integration-docs`
+
+All other actions return `401` and require a valid `Authorization`/`x-api-key` value.
+
+```

@@ -70,7 +70,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
           },
         ],
       };
-    }
+    },
+    { requiresApiKey: false }
   );
 
   registerTool(
@@ -103,7 +104,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
           },
         ],
       };
-    }
+    },
+    { requiresApiKey: false }
   );
 
   registerTool(
@@ -152,7 +154,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
           },
         ],
       };
-    }
+    },
+    { requiresApiKey: false }
   );
 
   registerTool(
@@ -198,7 +201,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
           },
         ],
       };
-    }
+    },
+    { requiresApiKey: false }
   );
 
   registerTool(
@@ -233,7 +237,8 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
           },
         ],
       };
-    }
+    },
+    { requiresApiKey: false }
   );
 
   return server;

@@ -7,6 +7,26 @@ interface CachedAuthResult {
   valid: boolean;
 }
 
+export const ONBOARDING_SAFE_TOOLS = new Set([
+  'get-server-info',
+  'get-opik-help',
+  'get-opik-examples',
+  'get-opik-metrics-info',
+  'get-opik-tracing-info',
+  'opik-integration-docs',
+]);
+
+const ONBOARDING_ALLOWED_NO_AUTH_METHODS = new Set([
+  'initialize',
+  'notifications/initialized',
+  'tools/list',
+  'prompts/list',
+  'prompts/get',
+  'resources/list',
+  'resources/read',
+  'resources/templates/list',
+]);
+
 const authCache = new Map<string, CachedAuthResult>();
 const VALID_CACHE_TTL_MS = 60_000;
 const INVALID_CACHE_TTL_MS = 10_000;
@@ -56,6 +76,18 @@ function parseTokenWorkspaceMap(): Record<string, string> {
 
 export function shouldTrustWorkspaceHeaders(): boolean {
   return parseBoolean(process.env.STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS, false);
+}
+
+export function isMethodAllowedWithoutAuth(method: string, toolName?: string): boolean {
+  if (ONBOARDING_ALLOWED_NO_AUTH_METHODS.has(method)) {
+    return true;
+  }
+
+  if (method === 'tools/call' && toolName && ONBOARDING_SAFE_TOOLS.has(toolName)) {
+    return true;
+  }
+
+  return false;
 }
 
 function resolveWorkspaceForToken(token: string, headerWorkspace?: string): string {

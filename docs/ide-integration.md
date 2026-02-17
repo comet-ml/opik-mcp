@@ -93,6 +93,12 @@ You can also use environment variables instead of command-line arguments:
 }
 ```
 
+### Onboarding Without a Key
+
+If you want to install Opik MCP in Cursor before a key is available, start the server with remote transport but no `OPIK_API_KEY` first.
+The server will initialize and return onboarding/help tool catalogues so users can run setup steps.
+When the key is ready, add it to `OPIK_API_KEY` (or configure `Authorization: Bearer` forwarding) and the toolset automatically moves into active mode for real operations.
+
 ### Using Remote Streamable HTTP
 
 If you want to run the remote HTTP transport:

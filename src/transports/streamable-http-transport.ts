@@ -16,6 +16,7 @@ import {
   authenticateRemoteRequest,
   isRemoteAuthRequired,
   validateRemoteAuth,
+  isMethodAllowedWithoutAuth,
 } from '../utils/remote-auth.js';
 
 // Setup file-based logging
@@ -68,6 +69,25 @@ function formatAccessLogLine(
   const requestLine = `${req.method} ${req.originalUrl} HTTP/${req.httpVersion}`;
 
   return `${timestamp} INFO: ${clientIp}${clientPort} - "${requestLine}" ${res.statusCode} ${durationMs}ms auth=${hasAuthHeader ? 'yes' : 'no'}`;
+}
+
+function getMcpMethodFromRequest(req: express.Request): { method?: string; toolName?: string } {
+  const body = req.body as { method?: unknown; params?: { name?: unknown } };
+  if (!body || typeof body !== 'object') {
+    return {};
+  }
+
+  const method = typeof body.method === 'string' ? body.method : undefined;
+  if (!method) {
+    return {};
+  }
+
+  const toolName =
+    method === 'tools/call' && body.params && typeof body.params.name === 'string'
+      ? body.params.name
+      : undefined;
+
+  return { method, toolName };
 }
 
 function setAuthChallengeHeaders(res: express.Response): void {
@@ -228,7 +248,8 @@ export class StreamableHttpTransport implements Transport {
 
     this.app.all('/mcp', async (req, res) => {
       try {
-        if (isRemoteAuthRequired()) {
+        const { method, toolName } = getMcpMethodFromRequest(req);
+        if (isRemoteAuthRequired() && !isMethodAllowedWithoutAuth(method || '', toolName)) {
           const auth = authenticateRemoteRequest(
             req.headers as Record<string, string | string[] | undefined>
           );

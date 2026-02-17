@@ -1,7 +1,17 @@
 import { runWithRequestContext } from '../utils/request-context.js';
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import config from '../config.js';
+
+const MISSING_API_KEY_MESSAGE = [
+  'This Opik MCP request requires an API key.',
+  'Set OPIK_API_KEY in the environment where the server runs,',
+  'or send Authorization: Bearer <token> with MCP requests.',
+  'If you are onboarding in a coding agent or MCP client, start with setup guidance tools',
+  'like get-opik-help or get-server-info, then add your key and retry.',
+].join(' ');
 
 type ToolRegistrationOptions = {
+  requiresApiKey?: boolean;
   title?: string;
   annotations?: {
     readOnlyHint?: boolean;
@@ -38,7 +48,7 @@ function inferAnnotations(name: string): ToolRegistrationOptions['annotations'] 
   return undefined;
 }
 
-function withRequestContext<T extends (...args: any[]) => any>(handler: T) {
+function withRequestContext<T extends (...args: any[]) => any>(handler: T, requiresApiKey = true) {
   return (...args: any[]) => {
     const extra = [...args]
       .reverse()
@@ -48,6 +58,17 @@ function withRequestContext<T extends (...args: any[]) => any>(handler: T) {
       apiKey: authInfo?.token as string | undefined,
       workspaceName: authInfo?.extra?.workspaceName as string | undefined,
     };
+
+    if (requiresApiKey && !(context.apiKey || config.apiKey)) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: MISSING_API_KEY_MESSAGE,
+          },
+        ],
+      };
+    }
 
     return runWithRequestContext(context, () => handler(...args));
   };
@@ -61,7 +82,7 @@ export function registerTool(
   handler: any,
   options: ToolRegistrationOptions = {}
 ): void {
-  const wrappedHandler = withRequestContext(handler);
+  const wrappedHandler = withRequestContext(handler, options.requiresApiKey !== false);
 
   if (typeof server.registerTool === 'function') {
     const inferredAnnotations = inferAnnotations(name);

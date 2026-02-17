@@ -1,125 +1,72 @@
-import { describe, expect, jest, test } from '@jest/globals';
-import {
-  registerPrompt,
-  registerResource,
-  registerResourceTemplate,
-  registerTool,
-} from '../src/tools/registration.js';
+import { describe, expect, test, jest } from '@jest/globals';
+import { loadCapabilitiesTools } from '../src/tools/capabilities.js';
+import { loadProjectTools } from '../src/tools/project.js';
+import type { OpikConfig } from '../src/config.js';
+import appConfig from '../src/config.js';
 
-describe('registration helpers', () => {
-  test('registerTool prefers modern registerTool API when available', () => {
-    const server = {
-      registerTool: jest.fn(),
-      tool: jest.fn(),
-    };
+describe('tool registration auth requirements', () => {
+  const originalApiKey = appConfig.apiKey;
 
-    registerTool(server, 'test-tool', 'desc', {}, async () => ({
-      content: [{ type: 'text', text: 'ok' }],
-    }));
-
-    expect(server.registerTool).toHaveBeenCalledTimes(1);
-    expect(server.tool).not.toHaveBeenCalled();
+  afterEach(() => {
+    appConfig.apiKey = originalApiKey;
   });
 
-  test('registerTool falls back to legacy tool API when needed', () => {
+  test('requires API key for data tools by default', async () => {
+    appConfig.apiKey = '';
+
+    const calls: any[] = [];
     const server = {
-      tool: jest.fn(),
-    };
+      registerTool: jest.fn((...args: any[]) => {
+        calls.push(args);
+      }),
+    } as any;
 
-    registerTool(server, 'test-tool', 'desc', {}, async () => ({
-      content: [{ type: 'text', text: 'ok' }],
-    }));
+    loadProjectTools(server, { includeReadOps: true, includeMutations: true });
+    expect(calls.some(call => call[0] === 'list-projects')).toBe(true);
 
-    expect(server.tool).toHaveBeenCalledTimes(1);
+    const projectToolsCall = calls.find(call => call[0] === 'list-projects');
+    const projectToolsHandler = projectToolsCall?.[2];
+    const result = await projectToolsHandler({ page: 1, size: 10 }, {});
+
+    expect(result).toHaveProperty('content');
+    expect(result.content?.[0]?.text).toContain('This Opik MCP request requires an API key');
   });
 
-  test('registerResource prefers modern registerResource API when available', () => {
+  test('allows onboarding-safe tools when no API key', async () => {
+    appConfig.apiKey = '';
+
+    const calls: any[] = [];
     const server = {
-      registerResource: jest.fn(),
-      resource: jest.fn(),
-    };
+      registerTool: jest.fn((...args: any[]) => {
+        calls.push(args);
+      }),
+    } as any;
 
-    registerResource(server, 'test-resource', 'opik://test', 'desc', async () => ({
-      contents: [{ uri: 'opik://test', text: 'ok' }],
-    }));
+    const serverConfig = {
+      apiBaseUrl: 'https://www.comet.com/opik/api',
+      isSelfHosted: false,
+      debugMode: false,
+      mcpName: 'opik-mcp',
+      mcpVersion: '0.1.3',
+      mcpLogging: false,
+      mcpDefaultWorkspace: 'default',
+      workspaceName: 'default',
+      transport: 'streamable-http',
+      enabledToolsets: ['core'],
+      hasApiKey: false,
+      apiKey: '',
+    } as OpikConfig;
 
-    expect(server.registerResource).toHaveBeenCalledTimes(1);
-    expect(server.resource).not.toHaveBeenCalled();
-  });
+    loadCapabilitiesTools(server, serverConfig);
 
-  test('registerResource falls back to legacy resource API when needed', () => {
-    const server = {
-      resource: jest.fn(),
-    };
+    const safeToolCall = calls.find(call => call[0] === 'get-server-info');
+    const safeToolHandler = safeToolCall?.[2];
+    const safeToolResult = await safeToolHandler({});
 
-    registerResource(server, 'test-resource', 'opik://test', 'desc', async () => ({
-      contents: [{ uri: 'opik://test', text: 'ok' }],
-    }));
-
-    expect(server.resource).toHaveBeenCalledTimes(1);
-  });
-
-  test('registerResourceTemplate prefers modern registerResource API when available', () => {
-    const server = {
-      registerResource: jest.fn(),
-      resource: jest.fn(),
-    };
-
-    registerResourceTemplate(
-      server,
-      'test-resource-template',
-      'opik://projects/{page}/{size}',
-      'desc',
-      async () => ({
-        contents: [{ uri: 'opik://projects/1/10', text: 'ok' }],
-      })
+    expect(safeToolResult).toHaveProperty('content');
+    expect(safeToolResult.content?.[0]?.text).toContain(
+      '"apiBaseUrl": "https://www.comet.com/opik/api"'
     );
-
-    expect(server.registerResource).toHaveBeenCalledTimes(1);
-    expect(server.resource).not.toHaveBeenCalled();
-  });
-
-  test('registerResourceTemplate falls back to legacy resource API when needed', () => {
-    const server = {
-      resource: jest.fn(),
-    };
-
-    registerResourceTemplate(
-      server,
-      'test-resource-template',
-      'opik://projects/{page}/{size}',
-      'desc',
-      async () => ({
-        contents: [{ uri: 'opik://projects/1/10', text: 'ok' }],
-      })
-    );
-
-    expect(server.resource).toHaveBeenCalledTimes(1);
-  });
-
-  test('registerPrompt prefers modern registerPrompt API when available', () => {
-    const server = {
-      registerPrompt: jest.fn(),
-      prompt: jest.fn(),
-    };
-
-    registerPrompt(server, 'test-prompt', 'desc', {}, async () => ({
-      messages: [{ role: 'user', content: { type: 'text', text: 'ok' } }],
-    }));
-
-    expect(server.registerPrompt).toHaveBeenCalledTimes(1);
-    expect(server.prompt).not.toHaveBeenCalled();
-  });
-
-  test('registerPrompt falls back to legacy prompt API when needed', () => {
-    const server = {
-      prompt: jest.fn(),
-    };
-
-    registerPrompt(server, 'test-prompt', 'desc', {}, async () => ({
-      messages: [{ role: 'user', content: { type: 'text', text: 'ok' } }],
-    }));
-
-    expect(server.prompt).toHaveBeenCalledTimes(1);
+    expect(safeToolResult.content?.[0]?.text).toContain('"transport": "streamable-http"');
   });
 });

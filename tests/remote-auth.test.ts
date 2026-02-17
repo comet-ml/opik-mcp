@@ -3,12 +3,20 @@ import {
   authenticateRemoteRequest,
   isRemoteAuthRequired,
   validateRemoteAuth,
+  isMethodAllowedWithoutAuth,
 } from '../src/utils/remote-auth.js';
 
 describe('remote auth', () => {
   test('requires auth by default', () => {
     delete process.env.STREAMABLE_HTTP_REQUIRE_AUTH;
     expect(isRemoteAuthRequired()).toBe(true);
+  });
+
+  test('allows keyless initialize and onboarding-safe tool calls', () => {
+    expect(isMethodAllowedWithoutAuth('initialize')).toBe(true);
+    expect(isMethodAllowedWithoutAuth('tools/list')).toBe(true);
+    expect(isMethodAllowedWithoutAuth('tools/call', 'get-server-info')).toBe(true);
+    expect(isMethodAllowedWithoutAuth('tools/call', 'create-project')).toBe(false);
   });
 
   test('rejects missing API key', async () => {
