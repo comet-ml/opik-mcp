@@ -475,9 +475,7 @@ async function main() {
       version: '1.0.0',
     },
     {
-      capabilities: {
-        tools: {}, // We're interested in tools
-      },
+      capabilities: {},
     }
   );
 

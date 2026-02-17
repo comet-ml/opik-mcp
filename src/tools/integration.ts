@@ -1,4 +1,4 @@
-// No imports needed for this simple documentation tool
+import { registerTool } from './registration.js';
 
 const integrationDocs = `
 # OPIK Agentic Onboarding
@@ -93,7 +93,8 @@ If issues are reported:
 `;
 
 export const loadIntegrationTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'opik-integration-docs',
     'Provides detailed documentation on how to integrate Opik with your LLM application',
     {},
@@ -101,7 +102,8 @@ export const loadIntegrationTools = (server: any) => {
       return {
         content: [{ type: 'text', text: integrationDocs }],
       };
-    }
+    },
+    { requiresApiKey: false }
   );
   return server;
 };

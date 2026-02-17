@@ -6,6 +6,8 @@
  * Based on official Opik documentation: https://www.comet.com/docs/opik/
  */
 
+import type { OpikToolset } from '../config.js';
+
 export interface ApiCapability {
   available: boolean;
   features: string[];
@@ -285,23 +287,74 @@ export const opikCapabilities: OpikCapabilities = {
   },
 };
 
+interface CapabilityConfig {
+  enabledToolsets?: readonly OpikToolset[];
+  mcpEnablePromptTools?: boolean;
+  mcpEnableProjectTools?: boolean;
+  mcpEnableTraceTools?: boolean;
+  mcpEnableMetricTools?: boolean;
+}
+
+function isToolsetEnabled(
+  config: CapabilityConfig,
+  capability: 'prompts' | 'projects' | 'traces' | 'metrics'
+): boolean {
+  if (Array.isArray(config.enabledToolsets)) {
+    if (capability === 'prompts') {
+      return config.enabledToolsets.includes('expert-prompts');
+    }
+
+    if (capability === 'projects') {
+      return (
+        config.enabledToolsets.includes('core') ||
+        config.enabledToolsets.includes('expert-project-actions')
+      );
+    }
+
+    if (capability === 'traces') {
+      return (
+        config.enabledToolsets.includes('core') ||
+        config.enabledToolsets.includes('expert-trace-actions')
+      );
+    }
+
+    return config.enabledToolsets.includes('metrics');
+  }
+
+  const hasLegacyFlags =
+    typeof config.mcpEnablePromptTools === 'boolean' ||
+    typeof config.mcpEnableProjectTools === 'boolean' ||
+    typeof config.mcpEnableTraceTools === 'boolean' ||
+    typeof config.mcpEnableMetricTools === 'boolean';
+
+  if (!hasLegacyFlags) {
+    return true;
+  }
+
+  if (capability === 'prompts') return Boolean(config.mcpEnablePromptTools);
+  if (capability === 'projects') return Boolean(config.mcpEnableProjectTools);
+  if (capability === 'traces') return Boolean(config.mcpEnableTraceTools);
+
+  return Boolean(config.mcpEnableMetricTools);
+}
+
 /**
  * Get capabilities information based on configuration
  * @param config The current configuration
  * @returns Filtered capabilities based on what's enabled
  */
-export function getEnabledCapabilities(config: any): Partial<OpikCapabilities> {
+export function getEnabledCapabilities(config: CapabilityConfig): Partial<OpikCapabilities> {
   return {
-    prompts: config.mcpEnablePromptTools
+    prompts: isToolsetEnabled(config, 'prompts')
       ? opikCapabilities.prompts
       : ({ available: false, features: [], limitations: [] } as any),
-    projects: config.mcpEnableProjectTools
+    projects: isToolsetEnabled(config, 'projects')
       ? opikCapabilities.projects
       : ({ available: false, features: [], limitations: [] } as any),
-    traces: config.mcpEnableTraceTools
+    traces: isToolsetEnabled(config, 'traces')
       ? opikCapabilities.traces
       : ({ available: false, features: [], limitations: [] } as any),
-    metrics: config.mcpEnableMetricTools
+    metrics: isToolsetEnabled(config, 'metrics')
       ? opikCapabilities.metrics
       : ({ available: false, features: [], limitations: [] } as any),
     general: opikCapabilities.general,
@@ -313,7 +366,7 @@ export function getEnabledCapabilities(config: any): Partial<OpikCapabilities> {
  * @param config The current configuration
  * @returns A string description of capabilities
  */
-export function getCapabilitiesDescription(config: any): string {
+export function getCapabilitiesDescription(config: CapabilityConfig): string {
   const capabilities = getEnabledCapabilities(config);
 
   let description = 'Opik Comet Capabilities:\n\n';

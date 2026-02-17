@@ -40,7 +40,8 @@ A Model Context Protocol (MCP) implementation for the <a href="https://github.co
     </a>
 </p>
 
-> **⚠️ Notice:** SSE (Server-Sent Events) transport support is currently experimental and untested. For production use, we recommend using the direct process execution approach shown in the IDE integration examples.
+> **Note:** This repository provides the MCP server implementation. We do not currently provide a hosted remote MCP service for Opik.
+> If you run streamable-http remotely, authentication is fail-closed by default.
 
 ## 🚀 What is Opik MCP Server?
 
@@ -55,7 +56,7 @@ You can use Opik MCP Server for:
 
 * **Unified API Access:**
   * Access all Opik features through a standardized protocol
-  * Leverage multiple transport options (stdio, SSE) for different integration scenarios
+  * Leverage multiple transport options (stdio, streamable-http) for different integration scenarios
 
 * **Platform Management:**
   * Manage prompts, projects, traces, and metrics through a consistent interface
@@ -67,6 +68,7 @@ You can use Opik MCP Server for:
 - **Projects/Workspaces Management**: Organize and manage projects
 - **Traces**: Track and analyze trace data
 - **Metrics**: Gather and query metrics data
+- **MCP Resources**: Read-only resources for workspace/project metadata plus resource templates for prompts, datasets, and traces
 
 ## Quick Start
 
@@ -212,8 +214,8 @@ cp .env.example .env
 # Start with stdio transport (default)
 npm run start:stdio
 
-# Start with SSE transport for network access (experimental)
-npm run start:sse
+# Start with streamable-http transport for remote/self-hosted access
+npm run start:http
 ```
 
 ## Transport Options
@@ -226,15 +228,34 @@ Ideal for local integration where the client and server run on the same machine.
 make start-stdio
 ```
 
-### Server-Sent Events (SSE)
+### Streamable HTTP
 
-Enables remote access and multiple simultaneous clients over HTTP. Note that this transport option is experimental.
+Enables remote/self-hosted MCP over the standard Streamable HTTP endpoint (`/mcp`).
+
+Remote auth behavior:
+- `Authorization: Bearer <OPIK_API_KEY>` or `x-api-key` is required by default.
+- Workspace is resolved server-side (recommended via token mapping). Header workspaces are not trusted by default.
+- In remote mode, request-context workspace takes precedence over tool `workspaceName` args.
+- Missing/invalid auth returns HTTP `401`.
+
+Remote auth environment flags:
+- `STREAMABLE_HTTP_REQUIRE_AUTH` (default `true`): require auth headers on `/mcp`.
+- `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH` (default `true`, except test env): validate bearer/API key against Opik before accepting requests.
+- `REMOTE_TOKEN_WORKSPACE_MAP`: JSON map of token -> workspace for server-side tenant routing.
+- `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS` (default `false`): allow workspace headers when token map is not configured.
 
 ```bash
-make start-sse
+npm run start:http
 ```
 
-For detailed information about the SSE transport, see [docs/sse-transport.md](docs/sse-transport.md).
+For detailed information about streamable-http transport, see [docs/streamable-http-transport.md](docs/streamable-http-transport.md).
+
+## Resources and Prompts Capabilities
+
+- `resources/list` exposes static resources (for example, `opik://workspace-info`, `opik://projects-list`).
+- `resources/templates/list` exposes dynamic URI templates (for example, `opik://projects/{page}/{size}`, `opik://prompt/{name}`).
+- `resources/read` supports both static URIs and filled template URIs.
+- `prompts/list` and `prompts/get` expose workflow prompts (for example, `opik-triage-workflow`).
 
 ## Development
 
@@ -245,7 +266,7 @@ For detailed information about the SSE transport, see [docs/sse-transport.md](do
 npm test
 
 # Run specific test suite
-npm test -- tests/transports/sse-transport.test.ts
+npm test -- tests/transports/streamable-http-transport.test.ts
 ```
 
 ### Pre-commit Hooks
@@ -259,7 +280,7 @@ make precommit
 
 ## Documentation
 
-- [SSE Transport](docs/sse-transport.md) - Details on using the SSE transport
+- [Streamable HTTP Transport](docs/streamable-http-transport.md) - Details on remote transport
 - [API Reference](docs/api-reference.md) - Complete API documentation
 - [Configuration](docs/configuration.md) - Advanced configuration options
 - [IDE Integration](docs/ide-integration.md) - Integration with Cursor IDE
