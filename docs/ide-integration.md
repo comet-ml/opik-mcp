@@ -51,7 +51,7 @@ Here's a comprehensive example with all available configuration options:
 
         // MCP Server Configuration
         "--mcpName", "opik-manager",
-        "--mcpVersion", "1.0.0",
+        "--mcpVersion", "2.0.0",
         "--mcpLogging", "false",
         "--mcpDefaultWorkspace", "default",
 
