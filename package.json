@@ -40,7 +40,7 @@
     "@modelcontextprotocol/sdk": "^1.6.1",
     "ai": "^4.2.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.4.5",
+    "dotenv": "^17.3.1",
     "express": "^5.0.1",
     "node-fetch": "^3.3.2",
     "opik": "^1.6.8",
