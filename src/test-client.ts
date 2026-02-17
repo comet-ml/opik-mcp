@@ -472,7 +472,7 @@ async function main() {
   const client = new Client(
     {
       name: 'test-client',
-      version: '1.0.0',
+      version: '2.0.0',
     },
     {
       capabilities: {

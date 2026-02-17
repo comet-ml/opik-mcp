@@ -26,7 +26,7 @@ node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api
 | `--selfHosted` | - | Whether the instance is self-hosted | false |
 | `--debug` | - | Enable debug mode | false |
 | `--mcpName` | - | MCP server name | "opik-manager" |
-| `--mcpVersion` | - | MCP server version | "1.0.0" |
+| `--mcpVersion` | - | MCP server version | "2.0.0" |
 | `--mcpPort` | - | MCP server port | - |
 | `--mcpLogging` | - | Enable MCP server logging | false |
 | `--mcpDefaultWorkspace` | - | Default workspace name | "default" |
@@ -49,7 +49,7 @@ Alternatively, configure via environment variables in a `.env` file:
 
 #### MCP Server Configuration
 - `MCP_NAME`: Name of the MCP server (defaults to "opik-manager")
-- `MCP_VERSION`: Version of the MCP server (defaults to "1.0.0")
+- `MCP_VERSION`: Version of the MCP server (defaults to "2.0.0")
 - `MCP_PORT`: Optional port for TCP connections if needed
 - `MCP_LOGGING`: Set to "true" to enable MCP-specific logging (defaults to "false")
 - `MCP_DEFAULT_WORKSPACE`: Default workspace to use if none is specified (defaults to "default")
@@ -85,7 +85,7 @@ OPIK_WORKSPACE_NAME=default
 
 # MCP Server Configuration
 MCP_NAME=opik-manager
-MCP_VERSION=1.0.0
+MCP_VERSION=2.0.0
 MCP_TRANSPORT=stdio
 
 # Toolset Configuration (optional - uses defaults if not specified)

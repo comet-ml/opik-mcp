@@ -279,7 +279,7 @@ export function loadConfig(): OpikConfig {
 
     // MCP configuration with fallbacks
     mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',
-    mcpVersion: args.mcpVersion || process.env.MCP_VERSION || '1.0.0',
+    mcpVersion: args.mcpVersion || process.env.MCP_VERSION || '2.0.0',
     mcpPort:
       args.mcpPort || (process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined),
     mcpLogging:
