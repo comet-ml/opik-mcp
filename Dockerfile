@@ -20,5 +20,6 @@ RUN npm run build
 EXPOSE 3001
 
 # Default to streamable-http transport in Docker deployments
-ENV STREAMABLE_HTTP_HOST=0.0.0.0
+ENV STREAMABLE_HTTP_HOST=0.0.0.0 \
+    OPIK_TOOLSETS=all
 CMD ["node", "build/cli.js", "serve", "--transport", "streamable-http", "--port", "3001"]
