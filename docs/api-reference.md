@@ -50,20 +50,18 @@ The Opik MCP server organizes tools into **toolsets** - logical groups of relate
 
 | Toolset | Description | Tools Included |
 |---------|-------------|----------------|
-| `capabilities` | Server info and help tools | Server configuration and documentation |
+| `core` | Day-to-day read-oriented operations | Server info/help, project reads, trace reads, workflow prompts |
 | `integration` | Integration documentation and guides | Step-by-step integration workflows |
-| `prompts` | Prompt management tools | Create, retrieve, and version prompts |
-| `projects` | Project/workspace management tools | List and create projects |
-| `traces` | Trace listing and analysis tools | Comprehensive tracing and analytics |
+| `expert-datasets` | Dataset and evaluation data management | Create/list datasets and manage dataset items |
+| `expert-prompts` | Prompt management tools | Create, retrieve, and version prompts |
+| `expert-project-actions` | Project mutation tools | Create project |
+| `expert-trace-actions` | Advanced trace actions | Search traces and add trace feedback |
 | `metrics` | Metrics and analytics tools | Performance and usage metrics |
 
 ### Default Configuration
 
 By default, the following toolsets are enabled:
-- `capabilities` - Essential for server information
-- `prompts` - Core prompt management
-- `projects` - Basic project operations
-- `traces` - Trace monitoring and analysis
+- `core`
 
 ### Configuring Toolsets
 
@@ -71,12 +69,12 @@ You can control which toolsets are enabled using:
 
 **Command Line:**
 ```bash
---toolsets capabilities,prompts,projects,traces
+--toolsets all
 ```
 
 **Environment Variable:**
 ```bash
-export OPIK_TOOLSETS=capabilities,prompts,projects,traces
+export OPIK_TOOLSETS=all
 ```
 
 See the [Configuration Guide](./configuration.md) for detailed examples and common configurations.
@@ -86,7 +84,7 @@ See the [Configuration Guide](./configuration.md) for detailed examples and comm
 > **Note**: Tools are organized by toolsets. To use tools from a specific category, ensure the corresponding toolset is enabled in your configuration.
 
 ### Prompts
-*Requires the `prompts` toolset to be enabled*
+*Requires the `expert-prompts` toolset to be enabled*
 
 #### 1. Get Prompts
 
@@ -132,7 +130,33 @@ Retrieves a specific version of a prompt by name and optional commit.
 }
 ```
 
-#### 4. Save Prompt Version
+#### 4. Get Prompt by ID
+
+Retrieves a prompt by ID.
+
+```typescript
+{
+  name: "get-prompt-by-id",
+  parameters: {
+    promptId: string
+  }
+}
+```
+
+#### 5. Delete Prompt
+
+Deletes a prompt by ID.
+
+```typescript
+{
+  name: "delete-prompt",
+  parameters: {
+    promptId: string
+  }
+}
+```
+
+#### 6. Save Prompt Version
 
 Saves a new version of a prompt with template content and metadata.
 
@@ -142,9 +166,115 @@ Saves a new version of a prompt with template content and metadata.
   parameters: {
     name: string,                      // Name of the prompt (required, min 1 character)
     template: string,                  // Template content for the prompt version
-    change_description?: string,       // Optional description of changes in this version
+    changeDescription?: string,        // Optional description of changes in this version
+    change_description?: string,       // Deprecated alias for changeDescription
     metadata?: Record<string, any>,    // Optional additional metadata
     type?: "mustache" | "jinja2"      // Optional template type
+  }
+}
+```
+
+## Resources
+
+The server also supports MCP resources:
+
+- `resources/list` for static URIs (for example `opik://workspace-info`, `opik://projects-list`)
+- `resources/templates/list` for dynamic templates (for example `opik://projects/{page}/{size}`, `opik://prompt/{name}`)
+- `resources/read` for both static resources and filled template URIs
+
+### Datasets
+*Requires the `datasets` toolset to be enabled*
+
+#### 1. List Datasets
+
+Lists datasets with optional pagination and name filtering.
+
+```typescript
+{
+  name: "list-datasets",
+  parameters: {
+    page?: number,
+    size?: number,
+    name?: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 2. Get Dataset by ID
+
+```typescript
+{
+  name: "get-dataset-by-id",
+  parameters: {
+    datasetId: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 3. Create Dataset
+
+```typescript
+{
+  name: "create-dataset",
+  parameters: {
+    name: string,
+    description?: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 4. Delete Dataset
+
+```typescript
+{
+  name: "delete-dataset",
+  parameters: {
+    datasetId: string,
+    workspaceName?: string
+  }
+}
+```
+
+#### 5. List Dataset Items
+
+```typescript
+{
+  name: "list-dataset-items",
+  parameters: {
+    datasetId: string,
+    page?: number,
+    size?: number,
+    workspaceName?: string
+  }
+}
+```
+
+#### 6. Create Dataset Item
+
+```typescript
+{
+  name: "create-dataset-item",
+  parameters: {
+    datasetId: string,
+    input: Record<string, any>,
+    expectedOutput?: Record<string, any>,
+    metadata?: Record<string, any>,
+    workspaceName?: string
+  }
+}
+```
+
+#### 7. Delete Dataset Item
+
+```typescript
+{
+  name: "delete-dataset-item",
+  parameters: {
+    itemId: string,
+    workspaceName?: string
   }
 }
 ```
@@ -289,8 +419,10 @@ Add feedback scores to a trace for quality evaluation and monitoring. Useful for
     traceId: string,              // ID of the trace to add feedback to
     scores: Array<{               // Array of feedback scores to add
       name: string,               // Name of the feedback metric (e.g. "relevance", "accuracy", "helpfulness", "quality")
-      value: number,              // Score value between 0.0 and 1.0 (0.0 = poor, 1.0 = excellent)
-      reason?: string             // Optional explanation for the score
+      value: number,              // Numeric score value (commonly 0.0-1.0, custom scales are allowed)
+      reason?: string,            // Optional explanation for the score
+      source?: "ui" | "sdk" | "online_scoring", // Optional source, defaults to "sdk"
+      categoryName?: string       // Optional category for grouped feedback dimensions
     }>,
     workspaceName?: string        // Optional workspace name override
   }
@@ -327,6 +459,58 @@ Retrieves information about the Opik server configuration.
 {
   name: "get-server-info",
   parameters: {}
+}
+```
+
+#### 2. Get Opik Help
+
+Returns capability documentation, optionally scoped to a specific topic.
+
+```typescript
+{
+  name: "get-opik-help",
+  parameters: {
+    topic?: "prompts" | "projects" | "traces" | "metrics" | "general"
+  }
+}
+```
+
+#### 3. Get Opik Examples
+
+Returns practical examples for common Opik workflows.
+
+```typescript
+{
+  name: "get-opik-examples",
+  parameters: {
+    task?: string  // e.g. "create prompt", "log trace", "evaluate response"
+  }
+}
+```
+
+#### 4. Get Opik Metrics Info
+
+Returns metric definitions and parameter guidance.
+
+```typescript
+{
+  name: "get-opik-metrics-info",
+  parameters: {
+    metric?: string // e.g. "hallucination", "answerrelevance", "moderation"
+  }
+}
+```
+
+#### 5. Get Opik Tracing Info
+
+Returns tracing guidance by topic.
+
+```typescript
+{
+  name: "get-opik-tracing-info",
+  parameters: {
+    topic?: "traces" | "spans" | "feedback" | "search" | "visualization"
+  }
 }
 ```
 

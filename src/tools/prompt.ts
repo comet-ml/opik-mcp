@@ -1,22 +1,22 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { PromptResponse } from './../types.js';
+import { callSdk, getOpikApi } from '../utils/opik-sdk.js';
+import { registerTool } from './registration.js';
+import { pageSchema, sizeSchema } from './schema.js';
 
 export const loadPromptTools = (server: any) => {
-  server.tool(
+  registerTool(
+    server,
     'get-prompts',
-    'Get a list of prompts with optional filtering',
+    'List prompts with optional name filtering.',
     {
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(10).describe('Number of items per page'),
-      name: z.string().optional().describe('Filter by prompt name'),
+      page: pageSchema,
+      size: sizeSchema(10),
+      name: z.string().optional().describe('Optional prompt name filter.'),
     },
     async (args: any) => {
       const { page, size, name } = args;
-      let url = `/v1/private/prompts?page=${page}&size=${size}`;
-      if (name) url += `&name=${encodeURIComponent(name)}`;
-
-      const response = await makeApiRequest<PromptResponse>(url);
+      const api = getOpikApi();
+      const response = await callSdk<any>(() => api.prompts.getPrompts({ page, size, name }));
 
       if (!response.data) {
         return {
@@ -39,24 +39,25 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
+  registerTool(
+    server,
     'create-prompt',
-    'Create a new prompt',
+    'Create a prompt definition.',
     {
-      name: z.string().min(1).describe('Name of the prompt'),
-      description: z.string().optional().describe('Description of the prompt'),
-      tags: z.array(z.string()).optional().describe('List of tags for the prompt'),
+      name: z.string().min(1).describe('Prompt name.'),
+      description: z.string().optional().describe('Optional prompt description.'),
+      tags: z.array(z.string().min(1)).optional().describe('Optional prompt tags.'),
     },
     async (args: any) => {
       const { name, description, tags } = args;
-      const requestBody: any = { name };
-      if (description) requestBody.description = description;
-      if (tags) requestBody.tags = tags;
-
-      const response = await makeApiRequest<any>(`/v1/private/prompts`, {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-      });
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.prompts.createPrompt({
+          name,
+          ...(description && { description }),
+          ...(tags && { metadata: { tags } }),
+        })
+      );
 
       return {
         content: [
@@ -69,22 +70,52 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
-    'get-prompt-version',
-    'Retrieve a specific version of a prompt',
+  registerTool(
+    server,
+    'get-prompt-by-id',
+    'Get a prompt by ID.',
     {
-      name: z.string().min(1).describe('Name of the prompt'),
-      commit: z.string().optional().describe('Specific commit/version to retrieve'),
+      promptId: z.string().min(1).describe('Prompt ID.'),
+    },
+    async (args: any) => {
+      const { promptId } = args;
+      const api = getOpikApi();
+      const response = await callSdk<any>(() => api.prompts.getPromptById(promptId));
+
+      if (!response.data) {
+        return {
+          content: [{ type: 'text', text: response.error || 'Failed to fetch prompt' }],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify(response.data, null, 2),
+          },
+        ],
+      };
+    }
+  );
+
+  registerTool(
+    server,
+    'get-prompt-version',
+    'Get a specific prompt version by name and optional commit.',
+    {
+      name: z.string().min(1).describe('Prompt name.'),
+      commit: z.string().optional().describe('Optional commit/version identifier.'),
     },
     async (args: any) => {
       const { name, commit } = args;
-      const requestBody: any = { name };
-      if (commit) requestBody.commit = commit;
-
-      const response = await makeApiRequest<any>(`/v1/private/prompts/versions/retrieve`, {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-      });
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.prompts.retrievePromptVersion({
+          name,
+          ...(commit && { commit }),
+        })
+      );
 
       if (!response.data) {
         return {
@@ -103,27 +134,65 @@ export const loadPromptTools = (server: any) => {
     }
   );
 
-  server.tool(
-    'save-prompt-version',
-    'Save a new version of a prompt',
+  registerTool(
+    server,
+    'delete-prompt',
+    'Delete a prompt by ID.',
     {
-      name: z.string().min(1).describe('Name of the prompt'),
-      template: z.string().describe('Template content for the prompt version'),
-      change_description: z.string().optional().describe('Description of changes in this version'),
-      metadata: z.record(z.any()).optional().describe('Additional metadata for the prompt version'),
-      type: z.enum(['mustache', 'jinja2']).optional().describe('Template type'),
+      promptId: z.string().min(1).describe('Prompt ID.'),
     },
     async (args: any) => {
-      const { name, template, change_description, metadata, type } = args;
-      const version: any = { template };
-      if (change_description) version.change_description = change_description;
-      if (metadata) version.metadata = metadata;
-      if (type) version.type = type;
+      const { promptId } = args;
+      const api = getOpikApi();
+      const response = await callSdk<any>(() => api.prompts.deletePrompt(promptId));
 
-      const response = await makeApiRequest<any>(`/v1/private/prompts/versions`, {
-        method: 'POST',
-        body: JSON.stringify({ name, version }),
-      });
+      if (response.error) {
+        return {
+          content: [{ type: 'text', text: response.error || 'Failed to delete prompt' }],
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Successfully deleted prompt ${promptId}`,
+          },
+        ],
+      };
+    }
+  );
+
+  registerTool(
+    server,
+    'save-prompt-version',
+    'Create a new prompt version.',
+    {
+      name: z.string().min(1).describe('Prompt name.'),
+      template: z.string().min(1).describe('Prompt template body.'),
+      changeDescription: z
+        .string()
+        .optional()
+        .describe('Optional summary of changes in this version.'),
+      change_description: z.string().optional().describe('Deprecated alias for changeDescription.'),
+      metadata: z.record(z.any()).optional().describe('Additional metadata for the prompt version'),
+      type: z.enum(['mustache', 'jinja2']).optional().describe('Template format.'),
+    },
+    async (args: any) => {
+      const { name, template, change_description, changeDescription, metadata, type } = args;
+      const resolvedChangeDescription = changeDescription ?? change_description;
+      const api = getOpikApi();
+      const response = await callSdk<any>(() =>
+        api.prompts.createPromptVersion({
+          name,
+          version: {
+            template,
+            ...(resolvedChangeDescription && { changeDescription: resolvedChangeDescription }),
+            ...(metadata && { metadata }),
+            ...(type && { type }),
+          },
+        })
+      );
 
       if (!response.data) {
         return {

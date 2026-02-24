@@ -1,567 +1,500 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { logToFile } from '../utils/logging.js';
 import {
-  ProjectResponse,
-  TraceResponse,
-  SingleTraceResponse,
-  TraceStatsResponse,
-} from './../types.js';
+  buildTraceFilters,
+  callSdk,
+  getOpikApi,
+  getRequestOptions,
+  resolveProjectIdentifier,
+} from '../utils/opik-sdk.js';
+import { registerTool } from './registration.js';
+import { isoDateSchema, pageSchema, sizeSchema, workspaceNameSchema } from './schema.js';
 
-export const loadTraceTools = (server: any) => {
-  server.tool(
-    'list-traces',
-    'Get a list of traces from a project. Use this for basic trace retrieval and overview',
-    {
-      page: z.number().optional().default(1).describe('Page number for pagination (starts at 1)'),
-      size: z
-        .number()
-        .optional()
-        .default(10)
-        .describe('Number of traces per page (1-100, default 10)'),
-      projectId: z
-        .string()
-        .optional()
-        .describe(
-          'Project ID to filter traces. If not provided, will use the first available project'
-        ),
-      projectName: z
-        .string()
-        .optional()
-        .describe(
-          'Project name to filter traces (alternative to projectId). Example: "My AI Assistant"'
-        ),
-      workspaceName: z
-        .string()
-        .optional()
-        .describe('Workspace name to use instead of the default workspace'),
-    },
-    async (args: any) => {
-      const { page = 1, size = 10, projectId, projectName, workspaceName } = args;
-      let url = `/v1/private/traces?page=${page}&size=${size}`;
+interface TraceToolOptions {
+  includeCoreTools?: boolean;
+  includeExpertActions?: boolean;
+}
 
-      // Add project filtering - API requires either project_id or project_name
-      if (projectId) {
-        url += `&project_id=${projectId}`;
-      } else if (projectName) {
-        url += `&project_name=${encodeURIComponent(projectName)}`;
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
+export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
+  const { includeCoreTools = true, includeExpertActions = true } = options;
 
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          url += `&project_id=${firstProject.id}`;
-          logToFile(
-            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
+  if (includeCoreTools) {
+    registerTool(
+      server,
+      'list-traces',
+      'List traces for a project for quick inspection and navigation.',
+      {
+        page: pageSchema,
+        size: sizeSchema(10),
+        projectId: z
+          .string()
+          .optional()
+          .describe('Optional project ID. If omitted, the first available project is used.'),
+        projectName: z
+          .string()
+          .optional()
+          .describe('Optional project name (alternative to projectId).'),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { page = 1, size = 10, projectId, projectName, workspaceName } = args;
+
+        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        if (resolved.error) {
           return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
+            content: [{ type: 'text', text: `Error: ${resolved.error}` }],
           };
         }
-      }
 
-      const response = await makeApiRequest<TraceResponse>(url, {}, workspaceName);
-
-      if (!response.data) {
-        return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch traces' }],
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Found ${response.data.total} traces (showing page ${
-              response.data.page
-            } of ${Math.ceil(response.data.total / response.data.size)})`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data.content, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  server.tool(
-    'get-trace-by-id',
-    'Get detailed information about a specific trace including input, output, metadata, and timing information',
-    {
-      traceId: z
-        .string()
-        .describe(
-          'ID of the trace to fetch (UUID format, e.g. "123e4567-e89b-12d3-a456-426614174000")'
-        ),
-      workspaceName: z
-        .string()
-        .optional()
-        .describe('Workspace name to use instead of the default workspace'),
-    },
-    async (args: any) => {
-      const { traceId, workspaceName } = args;
-      const response = await makeApiRequest<SingleTraceResponse>(
-        `/v1/private/traces/${traceId}`,
-        {},
-        workspaceName
-      );
-
-      if (!response.data) {
-        return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch trace' }],
-        };
-      }
-
-      // Format the response for better readability
-      const formattedResponse: any = { ...response.data };
-
-      // Format input/output if they're large
-      if (
-        formattedResponse.input &&
-        typeof formattedResponse.input === 'object' &&
-        Object.keys(formattedResponse.input).length > 0
-      ) {
-        formattedResponse.input = JSON.stringify(formattedResponse.input, null, 2);
-      }
-
-      if (
-        formattedResponse.output &&
-        typeof formattedResponse.output === 'object' &&
-        Object.keys(formattedResponse.output).length > 0
-      ) {
-        formattedResponse.output = JSON.stringify(formattedResponse.output, null, 2);
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Trace Details for ID: ${traceId}`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(formattedResponse, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  server.tool(
-    'get-trace-stats',
-    'Get aggregated statistics for traces including counts, costs, token usage, and performance metrics over time',
-    {
-      projectId: z
-        .string()
-        .optional()
-        .describe(
-          'Project ID to filter traces. If not provided, will use the first available project'
-        ),
-      projectName: z
-        .string()
-        .optional()
-        .describe('Project name to filter traces (alternative to projectId)'),
-      startDate: z
-        .string()
-        .optional()
-        .describe('Start date in ISO format (YYYY-MM-DD). Example: "2024-01-01"'),
-      endDate: z
-        .string()
-        .optional()
-        .describe('End date in ISO format (YYYY-MM-DD). Example: "2024-01-31"'),
-      workspaceName: z
-        .string()
-        .optional()
-        .describe('Workspace name to use instead of the default workspace'),
-    },
-    async (args: any) => {
-      const { projectId, projectName, startDate, endDate, workspaceName } = args;
-      let url = `/v1/private/traces/stats`;
-
-      // Build query parameters
-      const queryParams = [];
-
-      // Add project filtering - API requires either project_id or project_name
-      if (projectId) {
-        queryParams.push(`project_id=${projectId}`);
-      } else if (projectName) {
-        queryParams.push(`project_name=${encodeURIComponent(projectName)}`);
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
+        const api = getOpikApi();
+        const response = await callSdk<any>(() =>
+          api.traces.getTracesByProject(
+            {
+              page,
+              size,
+              ...(resolved.projectId && { projectId: resolved.projectId }),
+              ...(resolved.projectName && { projectName: resolved.projectName }),
+            },
+            getRequestOptions(workspaceName)
+          )
         );
 
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          queryParams.push(`project_id=${firstProject.id}`);
-          logToFile(
-            `No project specified, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
+        if (!response.data) {
           return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
+            content: [{ type: 'text', text: response.error || 'Failed to fetch traces' }],
           };
         }
-      }
 
-      if (startDate) queryParams.push(`start_date=${startDate}`);
-      if (endDate) queryParams.push(`end_date=${endDate}`);
-
-      if (queryParams.length > 0) {
-        url += `?${queryParams.join('&')}`;
-      }
-
-      const response = await makeApiRequest<TraceStatsResponse>(url, {}, workspaceName);
-
-      if (!response.data) {
-        return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch trace statistics' }],
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Trace Statistics:`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  server.tool(
-    'search-traces',
-    'Advanced search for traces with complex filtering and query capabilities',
-    {
-      projectId: z.string().optional().describe('Project ID to search within'),
-      projectName: z.string().optional().describe('Project name to search within'),
-      query: z
-        .string()
-        .optional()
-        .describe(
-          'Text query to search in trace names, inputs, outputs, and metadata. Example: "error" or "user_query:hello"'
-        ),
-      filters: z
-        .record(z.any())
-        .optional()
-        .describe(
-          'Advanced filters as key-value pairs. Examples: {"status": "error"}, {"model": "gpt-4"}, {"duration_ms": {"$gt": 1000}}'
-        ),
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(10).describe('Number of traces per page (max 100)'),
-      sortBy: z
-        .string()
-        .optional()
-        .describe('Field to sort by. Options: "created_at", "duration", "name", "status"'),
-      sortOrder: z
-        .enum(['asc', 'desc'])
-        .optional()
-        .default('desc')
-        .describe('Sort order: ascending or descending'),
-      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
-    },
-    async (args: any) => {
-      const {
-        projectId,
-        projectName,
-        query,
-        filters,
-        page,
-        size,
-        sortBy,
-        sortOrder,
-        workspaceName,
-      } = args;
-
-      // Build search request body
-      const searchBody: any = {
-        page: page || 1,
-        size: size || 10,
-      };
-
-      // Add project filtering
-      if (projectId) {
-        searchBody.project_id = projectId;
-      } else if (projectName) {
-        searchBody.project_name = projectName;
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          searchBody.project_id = firstProject.id;
-          logToFile(
-            `No project specified for search, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
-      }
-
-      // Add query if provided
-      if (query) {
-        searchBody.query = query;
-      }
-
-      // Add filters if provided
-      if (filters) {
-        searchBody.filters = filters;
-      }
-
-      // Add sorting if provided
-      if (sortBy) {
-        searchBody.sort_by = sortBy;
-        if (sortOrder) {
-          searchBody.sort_order = sortOrder;
-        }
-      }
-
-      const response = await makeApiRequest<TraceResponse>(
-        '/v1/private/traces/search',
-        {
-          method: 'POST',
-          body: JSON.stringify(searchBody),
-        },
-        workspaceName
-      );
-
-      if (!response.data) {
-        return {
-          content: [{ type: 'text', text: response.error || 'Failed to search traces' }],
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Search found ${response.data.total} traces (page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data.content, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  server.tool(
-    'get-trace-threads',
-    'Get trace threads (conversation groupings) to view related traces that belong to the same conversation or session',
-    {
-      projectId: z.string().optional().describe('Project ID to filter threads'),
-      projectName: z.string().optional().describe('Project name to filter threads'),
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(10).describe('Number of threads per page'),
-      threadId: z
-        .string()
-        .optional()
-        .describe(
-          'Specific thread ID to retrieve (useful for getting all traces in a conversation)'
-        ),
-      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
-    },
-    async (args: any) => {
-      const { projectId, projectName, page, size, threadId, workspaceName } = args;
-      let url = `/v1/private/traces/threads?page=${page || 1}&size=${size || 10}`;
-
-      // Add project filtering
-      if (projectId) {
-        url += `&project_id=${projectId}`;
-      } else if (projectName) {
-        url += `&project_name=${encodeURIComponent(projectName)}`;
-      } else {
-        // If no project specified, we need to find one for the API to work
-        const projectsResponse = await makeApiRequest<ProjectResponse>(
-          `/v1/private/projects?page=1&size=1`,
-          {},
-          workspaceName
-        );
-
-        if (
-          projectsResponse.data &&
-          projectsResponse.data.content &&
-          projectsResponse.data.content.length > 0
-        ) {
-          const firstProject = projectsResponse.data.content[0];
-          url += `&project_id=${firstProject.id}`;
-          logToFile(
-            `No project specified for threads, using first available: ${firstProject.name} (${firstProject.id})`
-          );
-        } else {
-          return {
-            content: [
-              {
-                type: 'text',
-                text: 'Error: No project ID or name provided, and no projects found',
-              },
-            ],
-          };
-        }
-      }
-
-      // Add thread ID filter if specified
-      if (threadId) {
-        url += `&thread_id=${encodeURIComponent(threadId)}`;
-      }
-
-      const response = await makeApiRequest<any>(url, {}, workspaceName);
-
-      if (!response.data) {
-        return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch trace threads' }],
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: threadId
-              ? `Thread details for ID: ${threadId}`
-              : `Found ${response.data.total || response.data.length || 0} trace threads`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  server.tool(
-    'add-trace-feedback',
-    'Add feedback scores to a trace for quality evaluation and monitoring. Useful for rating trace quality, relevance, or custom metrics',
-    {
-      traceId: z.string().describe('ID of the trace to add feedback to'),
-      scores: z
-        .array(
-          z.object({
-            name: z
-              .string()
-              .describe(
-                'Name of the feedback metric (e.g., "relevance", "accuracy", "helpfulness", "quality")'
-              ),
-            value: z
-              .number()
-              .min(0)
-              .max(1)
-              .describe('Score value between 0.0 and 1.0 (0.0 = poor, 1.0 = excellent)'),
-            reason: z.string().optional().describe('Optional explanation for the score'),
-          })
-        )
-        .describe(
-          'Array of feedback scores to add. Each score should have a name and value between 0-1'
-        ),
-      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
-    },
-    async (args: any) => {
-      const { traceId, scores, workspaceName } = args;
-
-      // Validate scores format
-      if (!scores || !Array.isArray(scores) || scores.length === 0) {
         return {
           content: [
             {
               type: 'text',
-              text: 'Error: At least one feedback score is required. Format: [{"name": "relevance", "value": 0.8}]',
+              text: `Found ${response.data.total} traces (showing page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
+            },
+            {
+              type: 'text',
+              text: JSON.stringify(response.data.content, null, 2),
             },
           ],
         };
-      }
-
-      // Transform scores to the expected API format
-      const feedbackScores = scores.map((score: any) => ({
-        name: score.name,
-        value: score.value,
-        ...(score.reason && { reason: score.reason }),
-      }));
-
-      const response = await makeApiRequest<any>(
-        `/v1/private/traces/${traceId}/feedback-scores`,
-        {
-          method: 'PUT',
-          body: JSON.stringify({ scores: feedbackScores }),
+      },
+      {
+        title: 'List Traces',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
         },
-        workspaceName
-      );
+      }
+    );
 
-      if (response.error) {
+    registerTool(
+      server,
+      'get-trace-by-id',
+      'Get full details for a trace, including metadata and serialized input/output.',
+      {
+        traceId: z.string().min(1).describe('Trace ID.'),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { traceId, workspaceName } = args;
+        const api = getOpikApi();
+        const response = await callSdk<any>(() =>
+          api.traces.getTraceById(traceId, getRequestOptions(workspaceName))
+        );
+
+        if (!response.data) {
+          return {
+            content: [{ type: 'text', text: response.error || 'Failed to fetch trace' }],
+          };
+        }
+
+        const formattedResponse: any = { ...response.data };
+
+        if (
+          formattedResponse.input &&
+          typeof formattedResponse.input === 'object' &&
+          Object.keys(formattedResponse.input).length > 0
+        ) {
+          formattedResponse.input = JSON.stringify(formattedResponse.input, null, 2);
+        }
+
+        if (
+          formattedResponse.output &&
+          typeof formattedResponse.output === 'object' &&
+          Object.keys(formattedResponse.output).length > 0
+        ) {
+          formattedResponse.output = JSON.stringify(formattedResponse.output, null, 2);
+        }
+
         return {
           content: [
             {
               type: 'text',
-              text: `Error adding feedback: ${response.error}`,
+              text: `Trace Details for ID: ${traceId}`,
+            },
+            {
+              type: 'text',
+              text: JSON.stringify(formattedResponse, null, 2),
             },
           ],
         };
+      },
+      {
+        title: 'Get Trace By ID',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
       }
+    );
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Successfully added ${scores.length} feedback score(s) to trace ${traceId}`,
-          },
-          {
-            type: 'text',
-            text: `Added scores: ${scores.map((s: any) => `${s.name}: ${s.value}`).join(', ')}`,
-          },
-        ],
-      };
-    }
-  );
+    registerTool(
+      server,
+      'get-trace-stats',
+      'Get aggregated trace statistics (count, tokens, cost, and duration) over time.',
+      {
+        projectId: z
+          .string()
+          .optional()
+          .describe('Optional project ID. If omitted, the first available project is used.'),
+        projectName: z
+          .string()
+          .optional()
+          .describe('Optional project name (alternative to projectId).'),
+        startDate: isoDateSchema,
+        endDate: isoDateSchema,
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { projectId, projectName, startDate, endDate, workspaceName } = args;
+
+        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        if (resolved.error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${resolved.error}` }],
+          };
+        }
+
+        const filters = buildTraceFilters(undefined, undefined, startDate, endDate);
+        const api = getOpikApi();
+        const response = await callSdk<any>(() =>
+          api.traces.getTraceStats(
+            {
+              ...(resolved.projectId && { projectId: resolved.projectId }),
+              ...(resolved.projectName && { projectName: resolved.projectName }),
+              ...(filters && { filters }),
+            },
+            getRequestOptions(workspaceName)
+          )
+        );
+
+        if (!response.data) {
+          return {
+            content: [{ type: 'text', text: response.error || 'Failed to fetch trace statistics' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Trace Statistics:`,
+            },
+            {
+              type: 'text',
+              text: JSON.stringify(response.data, null, 2),
+            },
+          ],
+        };
+      },
+      {
+        title: 'Get Trace Stats',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      }
+    );
+
+    registerTool(
+      server,
+      'get-trace-threads',
+      'List trace threads (conversation/session groupings) or fetch one thread by ID.',
+      {
+        projectId: z.string().optional().describe('Optional project ID filter.'),
+        projectName: z.string().optional().describe('Optional project name filter.'),
+        page: pageSchema,
+        size: sizeSchema(10),
+        threadId: z
+          .string()
+          .optional()
+          .describe(
+            'Optional thread ID. When set, returns that thread instead of paginated listing.'
+          ),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { projectId, projectName, page, size, threadId, workspaceName } = args;
+
+        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        if (resolved.error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${resolved.error}` }],
+          };
+        }
+
+        const api = getOpikApi();
+        const response = threadId
+          ? await callSdk<any>(() =>
+              api.traces.getTraceThread(
+                {
+                  threadId,
+                  ...(resolved.projectId && { projectId: resolved.projectId }),
+                  ...(resolved.projectName && { projectName: resolved.projectName }),
+                },
+                getRequestOptions(workspaceName)
+              )
+            )
+          : await callSdk<any>(() =>
+              api.traces.getTraceThreads(
+                {
+                  page: page || 1,
+                  size: size || 10,
+                  ...(resolved.projectId && { projectId: resolved.projectId }),
+                  ...(resolved.projectName && { projectName: resolved.projectName }),
+                },
+                getRequestOptions(workspaceName)
+              )
+            );
+
+        if (!response.data) {
+          return {
+            content: [{ type: 'text', text: response.error || 'Failed to fetch trace threads' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: threadId
+                ? `Thread details for ID: ${threadId}`
+                : `Found ${response.data.total || response.data.length || 0} trace threads`,
+            },
+            {
+              type: 'text',
+              text: JSON.stringify(response.data, null, 2),
+            },
+          ],
+        };
+      },
+      {
+        title: 'Get Trace Threads',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      }
+    );
+  }
+
+  if (includeExpertActions) {
+    registerTool(
+      server,
+      'search-traces',
+      'Search traces with optional text query, structured filters, and sorting.',
+      {
+        projectId: z.string().optional().describe('Optional project ID to constrain search.'),
+        projectName: z.string().optional().describe('Optional project name to constrain search.'),
+        query: z
+          .string()
+          .optional()
+          .describe('Optional free-text query across trace name/input/output/metadata.'),
+        filters: z
+          .record(z.any())
+          .optional()
+          .describe(
+            'Optional advanced filters, e.g. {"status":"error"} or {"duration_ms":{"$gt":1000}}.'
+          ),
+        page: pageSchema,
+        size: sizeSchema(10),
+        sortBy: z
+          .enum(['created_at', 'duration', 'name', 'status'])
+          .optional()
+          .describe('Optional sort field.'),
+        sortOrder: z.enum(['asc', 'desc']).optional().default('desc').describe('Sort direction.'),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const {
+          projectId,
+          projectName,
+          query,
+          filters,
+          page,
+          size,
+          sortBy,
+          sortOrder,
+          workspaceName,
+        } = args;
+
+        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        if (resolved.error) {
+          return {
+            content: [{ type: 'text', text: `Error: ${resolved.error}` }],
+          };
+        }
+
+        const sdkFilters = buildTraceFilters(query, filters);
+        const sorting = sortBy ? `${sortBy}:${sortOrder || 'desc'}` : undefined;
+        const api = getOpikApi();
+        const response = await callSdk<any>(() =>
+          api.traces.getTracesByProject(
+            {
+              page: page || 1,
+              size: size || 10,
+              ...(resolved.projectId && { projectId: resolved.projectId }),
+              ...(resolved.projectName && { projectName: resolved.projectName }),
+              ...(sdkFilters && { filters: sdkFilters }),
+              ...(sorting && { sorting }),
+            },
+            getRequestOptions(workspaceName)
+          )
+        );
+
+        if (!response.data) {
+          return {
+            content: [{ type: 'text', text: response.error || 'Failed to search traces' }],
+          };
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Search found ${response.data.total} traces (page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
+            },
+            {
+              type: 'text',
+              text: JSON.stringify(response.data.content, null, 2),
+            },
+          ],
+        };
+      },
+      {
+        title: 'Search Traces',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
+        },
+      }
+    );
+
+    registerTool(
+      server,
+      'add-trace-feedback',
+      'Attach one or more feedback scores to a trace.',
+      {
+        traceId: z.string().min(1).describe('Target trace ID.'),
+        scores: z
+          .array(
+            z.object({
+              name: z
+                .string()
+                .min(1)
+                .describe('Feedback metric name, e.g. relevance, accuracy, helpfulness.'),
+              value: z.number().finite().describe('Numeric score value.'),
+              reason: z.string().optional().describe('Optional reason for this score.'),
+              source: z
+                .enum(['ui', 'sdk', 'online_scoring'])
+                .optional()
+                .default('sdk')
+                .describe('Feedback source.'),
+              categoryName: z
+                .string()
+                .optional()
+                .describe('Optional category for grouped feedback dimensions.'),
+            })
+          )
+          .min(1)
+          .describe('One or more feedback score objects.'),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { traceId, scores, workspaceName } = args;
+
+        if (!scores || !Array.isArray(scores) || scores.length === 0) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: 'Error: At least one feedback score is required. Format: [{"name": "relevance", "value": 0.8}]',
+              },
+            ],
+          };
+        }
+
+        const api = getOpikApi();
+        for (const score of scores) {
+          const response = await callSdk<any>(() =>
+            api.traces.addTraceFeedbackScore(
+              traceId,
+              {
+                name: score.name,
+                value: score.value,
+                source: score.source || 'sdk',
+                ...(score.reason && { reason: score.reason }),
+                ...(score.categoryName && { categoryName: score.categoryName }),
+              },
+              getRequestOptions(workspaceName)
+            )
+          );
+
+          if (response.error) {
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Error adding feedback: ${response.error}`,
+                },
+              ],
+            };
+          }
+        }
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Successfully added ${scores.length} feedback score(s) to trace ${traceId}`,
+            },
+            {
+              type: 'text',
+              text: `Added scores: ${scores.map((s: any) => `${s.name}: ${s.value}`).join(', ')}`,
+            },
+          ],
+        };
+      },
+      {
+        title: 'Add Trace Feedback',
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      }
+    );
+  }
 
   return server;
 };

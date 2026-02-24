@@ -1,0 +1,400 @@
+import {
+  Transport,
+  StreamableHttpTransportOptions,
+  HealthResponse,
+  MessageResponse,
+} from './types.js';
+import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
+import express from 'express';
+import http, { IncomingMessage } from 'http';
+import fs from 'fs';
+import cors from 'cors';
+import { randomUUID } from 'node:crypto';
+import {
+  authenticateRemoteRequest,
+  isRemoteAuthRequired,
+  validateRemoteAuth,
+  isMethodAllowedWithoutAuth,
+} from '../utils/remote-auth.js';
+
+// Setup file-based logging
+const logFile = '/tmp/opik-mcp-streamable-http.log';
+
+function logToFile(message: string): void {
+  try {
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logFile, `[${timestamp}] ${message}\n`);
+  } catch {
+    // Silently fail if we can't write to the log file
+  }
+}
+
+function parseCsvEnv(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function isAccessLogEnabled(): boolean {
+  const value = process.env.STREAMABLE_HTTP_ACCESS_LOG;
+  if (value === undefined) {
+    return false;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function formatAccessLogLine(
+  req: express.Request,
+  res: express.Response,
+  durationMs: number,
+  hasAuthHeader: boolean
+): string {
+  const timestamp = new Date().toISOString();
+  const forwardedFor = req.header('x-forwarded-for');
+  const clientIp =
+    (forwardedFor ? forwardedFor.split(',')[0]?.trim() : undefined) ||
+    req.ip ||
+    req.socket.remoteAddress ||
+    '-';
+  const clientPort = req.socket.remotePort ? `:${req.socket.remotePort}` : '';
+  const requestLine = `${req.method} ${req.originalUrl} HTTP/${req.httpVersion}`;
+
+  return `${timestamp} INFO: ${clientIp}${clientPort} - "${requestLine}" ${res.statusCode} ${durationMs}ms auth=${hasAuthHeader ? 'yes' : 'no'}`;
+}
+
+function getMcpMethodFromRequest(req: express.Request): { method?: string; toolName?: string } {
+  const body = req.body as { method?: unknown; params?: { name?: unknown } };
+  if (!body || typeof body !== 'object') {
+    return {};
+  }
+
+  const method = typeof body.method === 'string' ? body.method : undefined;
+  if (!method) {
+    return {};
+  }
+
+  const toolName =
+    method === 'tools/call' && body.params && typeof body.params.name === 'string'
+      ? body.params.name
+      : undefined;
+
+  return { method, toolName };
+}
+
+function setAuthChallengeHeaders(res: express.Response): void {
+  res.setHeader(
+    'WWW-Authenticate',
+    'Bearer realm="opik-mcp", error="invalid_token", error_description="Missing or invalid API key."'
+  );
+  res.setHeader('Cache-Control', 'no-store');
+}
+
+function getBaseUrl(req: express.Request): string {
+  const forwardedProto = req.header('x-forwarded-proto');
+  const proto = forwardedProto || req.protocol || 'http';
+  const host = req.get('host');
+  if (host) {
+    return `${proto}://${host}`;
+  }
+  return `${proto}://127.0.0.1`;
+}
+
+function createRateLimiter() {
+  const windowMs = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000);
+  const maxRequests = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_MAX || 120);
+  const buckets = new Map<string, { count: number; resetAt: number }>();
+
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const token =
+      (req.headers['x-api-key'] as string) ||
+      (req.headers.authorization as string) ||
+      req.ip ||
+      'unknown';
+    const key = `${token}:${req.path}`;
+    const now = Date.now();
+    const existing = buckets.get(key);
+
+    if (!existing || existing.resetAt <= now) {
+      buckets.set(key, { count: 1, resetAt: now + windowMs });
+      next();
+      return;
+    }
+
+    if (existing.count >= maxRequests) {
+      const response: MessageResponse = {
+        status: 'error',
+        message: 'Too many requests. Retry later.',
+      };
+      res.status(429).json(response);
+      return;
+    }
+
+    existing.count += 1;
+    next();
+  };
+}
+
+type NodeRequestWithAuth = IncomingMessage & {
+  auth?: {
+    token: string;
+    clientId: string;
+    scopes: string[];
+    expiresAt?: number;
+    extra?: Record<string, unknown>;
+  };
+};
+
+/**
+ * Streamable HTTP transport hosted on Express.
+ *
+ * Serves MCP on `/mcp` using the official Streamable HTTP transport.
+ */
+export class StreamableHttpTransport implements Transport {
+  private app: express.Express;
+  private server: http.Server | null = null;
+  private port: number;
+  private host: string;
+  private started = false;
+  private mcpTransport = new StreamableHTTPServerTransport({
+    // Stateful mode is required for full MCP request flow after initialize.
+    sessionIdGenerator: () => randomUUID(),
+  });
+
+  constructor(options: StreamableHttpTransportOptions = {}) {
+    this.port = options.port || 3001;
+    this.host = options.host || process.env.STREAMABLE_HTTP_HOST || '127.0.0.1';
+    this.app = createMcpExpressApp({ host: this.host });
+
+    this.mcpTransport.onerror = error => {
+      logToFile(
+        `Streamable HTTP transport error: ${error instanceof Error ? error.stack || error.message : String(error)}`
+      );
+    };
+
+    const allowedOrigins = parseCsvEnv(process.env.STREAMABLE_HTTP_CORS_ORIGINS);
+    if (allowedOrigins.length > 0) {
+      this.app.use(
+        cors({
+          origin: allowedOrigins,
+          methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+          allowedHeaders: ['content-type', 'authorization', 'x-api-key', 'comet-workspace'],
+          credentials: false,
+        })
+      );
+    }
+
+    this.app.use(createRateLimiter());
+    this.app.use(express.json({ limit: '1mb' }));
+
+    if (isAccessLogEnabled()) {
+      this.app.use((req, res, next) => {
+        const start = Date.now();
+        const hasAuthHeader = Boolean(req.headers.authorization || req.headers['x-api-key']);
+        res.on('finish', () => {
+          const durationMs = Date.now() - start;
+          const line = formatAccessLogLine(req, res, durationMs, hasAuthHeader);
+          console.error(`[opik-mcp] ${line}`);
+          logToFile(`[access] ${line}`);
+        });
+        next();
+      });
+    }
+
+    this.app.get('/health', (_req, res) => {
+      const response: HealthResponse = { status: 'ok' };
+      res.json(response);
+    });
+
+    this.app.get(
+      ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'],
+      (req, res) => {
+        const baseUrl = getBaseUrl(req);
+        const metadata = {
+          resource: `${baseUrl}/mcp`,
+          bearer_methods_supported: ['header'],
+          scopes_supported: ['mcp'],
+          // Informative extension for clients/operators: this server uses API-key bearer auth only.
+          opik_auth_mode: 'api_key',
+        };
+        res.json(metadata);
+      }
+    );
+
+    const oauthNotSupportedResponse: { error: string; message: string } = {
+      error: 'unsupported_auth_flow',
+      message:
+        'OAuth authorization server endpoints are not implemented; authenticate with Authorization: Bearer <OPIK_API_KEY>.',
+    };
+
+    this.app.get(
+      ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'],
+      (_req, res) => {
+        res.status(404).json(oauthNotSupportedResponse);
+      }
+    );
+
+    this.app.post('/register', (_req, res) => {
+      res.status(404).json(oauthNotSupportedResponse);
+    });
+
+    this.app.all('/mcp', async (req, res) => {
+      try {
+        const { method, toolName } = getMcpMethodFromRequest(req);
+        if (isRemoteAuthRequired() && !isMethodAllowedWithoutAuth(method || '', toolName)) {
+          const auth = authenticateRemoteRequest(
+            req.headers as Record<string, string | string[] | undefined>
+          );
+
+          if (!auth.ok) {
+            const errorResponse: MessageResponse = {
+              status: 'error',
+              message: auth.message,
+            };
+            if (auth.status === 401) {
+              setAuthChallengeHeaders(res);
+            }
+            res.status(auth.status).json(errorResponse);
+            return;
+          }
+
+          const validation = await validateRemoteAuth(auth.context);
+          if (!validation.ok) {
+            const errorResponse: MessageResponse = {
+              status: 'error',
+              message: validation.message || 'Unauthorized',
+            };
+            if (validation.status === 401) {
+              setAuthChallengeHeaders(res);
+            }
+            res.status(validation.status).json(errorResponse);
+            return;
+          }
+
+          const reqWithAuth = req as NodeRequestWithAuth;
+          reqWithAuth.auth = {
+            token: auth.context.apiKey || '',
+            clientId: 'opik-mcp-remote',
+            scopes: ['mcp'],
+            extra: {
+              workspaceName: auth.context.workspaceName,
+            },
+          };
+        }
+
+        await this.mcpTransport.handleRequest(req as NodeRequestWithAuth, res, req.body);
+      } catch (error) {
+        logToFile(`Error handling /mcp request: ${error}`);
+        res.status(500).json({
+          status: 'error',
+          message: 'Internal server error',
+        } satisfies MessageResponse);
+      }
+    });
+  }
+
+  set onclose(handler: (() => void) | undefined) {
+    this.mcpTransport.onclose = handler;
+  }
+
+  get onclose(): (() => void) | undefined {
+    return this.mcpTransport.onclose;
+  }
+
+  set onerror(handler: ((error: Error) => void) | undefined) {
+    this.mcpTransport.onerror = handler;
+  }
+
+  get onerror(): ((error: Error) => void) | undefined {
+    return this.mcpTransport.onerror;
+  }
+
+  set onmessage(handler: ((message: JSONRPCMessage) => void) | undefined) {
+    this.mcpTransport.onmessage = handler as any;
+  }
+
+  get onmessage(): ((message: JSONRPCMessage) => void) | undefined {
+    return this.mcpTransport.onmessage as any;
+  }
+
+  async start(): Promise<void> {
+    if (this.started) {
+      return;
+    }
+
+    this.started = true;
+    await this.mcpTransport.start();
+    this.server = http.createServer(this.app);
+
+    return new Promise((resolve, reject) => {
+      if (!this.server) {
+        reject(new Error('HTTP server initialization failed.'));
+        return;
+      }
+
+      const onError = (error: NodeJS.ErrnoException) => {
+        this.server?.off('listening', onListening);
+        this.started = false;
+
+        if (error.code === 'EADDRINUSE') {
+          reject(
+            new Error(
+              `Cannot start streamable-http transport: ${this.host}:${this.port} is already in use. ` +
+                `Stop the existing process or set STREAMABLE_HTTP_PORT/--port to a different value.`
+            )
+          );
+          return;
+        }
+
+        reject(error);
+      };
+
+      const onListening = () => {
+        this.server?.off('error', onError);
+        logToFile(`Streamable HTTP transport listening on ${this.host}:${this.port}`);
+        resolve();
+      };
+
+      this.server.once('error', onError);
+      this.server.once('listening', onListening);
+      this.server.listen(this.port, this.host);
+    });
+  }
+
+  async send(message: JSONRPCMessage): Promise<void> {
+    await this.mcpTransport.send(message);
+  }
+
+  async close(): Promise<void> {
+    if (!this.started) {
+      return;
+    }
+
+    this.started = false;
+    await this.mcpTransport.close();
+
+    return new Promise((resolve, reject) => {
+      if (this.server) {
+        this.server.close(err => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          this.server = null;
+          resolve();
+        });
+        return;
+      }
+
+      resolve();
+    });
+  }
+}

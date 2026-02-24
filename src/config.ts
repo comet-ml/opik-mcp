@@ -37,14 +37,96 @@ function writeToLogFile(message: string, forceWrite: boolean = false): void {
 
 // Available toolsets
 export type OpikToolset =
-  | 'capabilities' // Server info and help tools
+  | 'core' // Minimal day-to-day read-oriented tools
+  | 'expert-prompts' // Full prompt management
+  | 'expert-datasets' // Full dataset management
+  | 'expert-trace-actions' // Advanced trace actions
+  | 'expert-project-actions' // Project mutations
   | 'integration' // Integration documentation and guides
-  | 'prompts' // Prompt management tools
-  | 'projects' // Project/workspace management tools
-  | 'traces' // Trace listing and analysis tools
   | 'metrics'; // Metrics and analytics tools
 
-export const DEFAULT_TOOLSETS: OpikToolset[] = ['integration', 'prompts', 'projects', 'traces'];
+export const DEFAULT_TOOLSETS: OpikToolset[] = ['core'];
+export const ALL_TOOLSETS: OpikToolset[] = [
+  'core',
+  'expert-prompts',
+  'expert-datasets',
+  'expert-trace-actions',
+  'expert-project-actions',
+  'integration',
+  'metrics',
+];
+
+type LegacyToolset =
+  | 'all'
+  | 'capabilities'
+  | 'prompts'
+  | 'datasets'
+  | 'projects'
+  | 'traces'
+  | 'integration'
+  | 'metrics';
+
+const ALL_TOOLSET_CHOICES = [
+  'all',
+  'core',
+  'expert-prompts',
+  'expert-datasets',
+  'expert-trace-actions',
+  'expert-project-actions',
+  'integration',
+  'metrics',
+  'capabilities',
+  'prompts',
+  'datasets',
+  'projects',
+  'traces',
+] as const;
+
+export function normalizeToolsets(values: string[]): OpikToolset[] {
+  const normalized = new Set<OpikToolset>();
+
+  for (const value of values.flatMap(v => v.split(',')).map(v => v.trim())) {
+    const toolset = value as OpikToolset | LegacyToolset;
+    switch (toolset) {
+      case 'all':
+        for (const item of ALL_TOOLSETS) {
+          normalized.add(item);
+        }
+        break;
+      case 'core':
+      case 'expert-prompts':
+      case 'expert-datasets':
+      case 'expert-trace-actions':
+      case 'expert-project-actions':
+      case 'integration':
+      case 'metrics':
+        normalized.add(toolset);
+        break;
+      // Legacy aliases
+      case 'capabilities':
+        normalized.add('core');
+        break;
+      case 'prompts':
+        normalized.add('expert-prompts');
+        break;
+      case 'datasets':
+        normalized.add('expert-datasets');
+        break;
+      case 'projects':
+        normalized.add('core');
+        normalized.add('expert-project-actions');
+        break;
+      case 'traces':
+        normalized.add('core');
+        normalized.add('expert-trace-actions');
+        break;
+      default:
+        break;
+    }
+  }
+
+  return Array.from(normalized);
+}
 
 interface OpikFileConfig {
   api_key?: string;
@@ -106,7 +188,9 @@ function loadOpikConfigFile(): OpikFileConfig {
       }
     }
 
-    writeToLogFile(`Loaded config from ~/.opik.config: ${JSON.stringify(config)}`);
+    writeToLogFile(
+      `Loaded config from ~/.opik.config with keys: ${Object.keys(config).join(', ') || '(none)'}`
+    );
     return config;
   } catch (error) {
     writeToLogFile(`Failed to load ~/.opik.config: ${error}`);
@@ -114,7 +198,7 @@ function loadOpikConfigFile(): OpikFileConfig {
   }
 }
 
-interface OpikConfig {
+export interface OpikConfig {
   // API configuration
   apiBaseUrl: string;
   workspaceName?: string; // Optional for self-hosted version
@@ -123,10 +207,10 @@ interface OpikConfig {
   debugMode: boolean;
 
   // Transport configuration
-  transport: 'stdio' | 'sse';
-  ssePort?: number;
-  sseHost?: string;
-  sseLogPath?: string;
+  transport: 'stdio' | 'streamable-http';
+  streamableHttpPort?: number;
+  streamableHttpHost?: string;
+  streamableHttpLogPath?: string;
 
   // MCP server configuration
   mcpName: string;
@@ -172,24 +256,20 @@ function parseCommandLineArgs() {
       // Transport Configuration
       .option('transport', {
         type: 'string',
-        description: 'Transport type (stdio or sse)',
-        choices: ['stdio', 'sse'],
-        default: 'stdio',
+        description: 'Transport type (stdio or streamable-http)',
+        choices: ['stdio', 'streamable-http'],
       })
-      .option('ssePort', {
+      .option('streamableHttpPort', {
         type: 'number',
-        description: 'Port for SSE transport',
-        default: 3001,
+        description: 'Port for streamable-http transport',
       })
-      .option('sseHost', {
+      .option('streamableHttpHost', {
         type: 'string',
-        description: 'Host for SSE transport',
-        default: 'localhost',
+        description: 'Host for streamable-http transport',
       })
-      .option('sseLogPath', {
+      .option('streamableHttpLogPath', {
         type: 'string',
-        description: 'Log file path for SSE transport',
-        default: '/tmp/opik-mcp-sse.log',
+        description: 'Log file path for streamable-http transport',
       })
       // MCP Configuration
       .option('mcpName', {
@@ -216,7 +296,7 @@ function parseCommandLineArgs() {
       .option('toolsets', {
         type: 'array',
         description: 'Comma-separated list of toolsets to enable',
-        choices: ['capabilities', 'integration', 'prompts', 'projects', 'traces', 'metrics'],
+        choices: ALL_TOOLSET_CHOICES as unknown as string[],
       })
       .help()
       .parse() as {
@@ -226,9 +306,9 @@ function parseCommandLineArgs() {
       selfHosted?: boolean;
       debug?: boolean;
       transport?: string;
-      ssePort?: number;
-      sseHost?: string;
-      sseLogPath?: string;
+      streamableHttpPort?: number;
+      streamableHttpHost?: string;
+      streamableHttpLogPath?: string;
       mcpName?: string;
       mcpVersion?: string;
       mcpPort?: number;
@@ -272,10 +352,14 @@ export function loadConfig(): OpikConfig {
     debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
 
     // Transport configuration
-    transport: (args.transport || process.env.TRANSPORT || 'stdio') as 'stdio' | 'sse',
-    ssePort: args.ssePort || (process.env.SSE_PORT ? parseInt(process.env.SSE_PORT, 10) : 3001),
-    sseHost: args.sseHost || process.env.SSE_HOST || 'localhost',
-    sseLogPath: args.sseLogPath || process.env.SSE_LOG_PATH || '/tmp/opik-mcp-sse.log',
+    transport: (args.transport ?? process.env.TRANSPORT ?? 'stdio') as 'stdio' | 'streamable-http',
+    streamableHttpPort:
+      args.streamableHttpPort ??
+      (process.env.STREAMABLE_HTTP_PORT ? parseInt(process.env.STREAMABLE_HTTP_PORT, 10) : 3001),
+    streamableHttpHost: args.streamableHttpHost ?? process.env.STREAMABLE_HTTP_HOST ?? '127.0.0.1',
+    streamableHttpLogPath:
+      args.streamableHttpLogPath ??
+      (process.env.STREAMABLE_HTTP_LOG_PATH || '/tmp/opik-mcp-streamable-http.log'),
 
     // MCP configuration with fallbacks
     mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',
@@ -290,17 +374,12 @@ export function loadConfig(): OpikConfig {
     enabledToolsets: (() => {
       // Command line takes precedence
       if (args.toolsets && args.toolsets.length > 0) {
-        return args.toolsets.filter((t): t is OpikToolset =>
-          ['integration', 'prompts', 'projects', 'traces', 'metrics'].includes(t)
-        );
+        return normalizeToolsets(args.toolsets);
       }
 
       // Environment variable fallback
       if (process.env.OPIK_TOOLSETS) {
-        const envToolsets = process.env.OPIK_TOOLSETS.split(',').map(t => t.trim());
-        return envToolsets.filter((t): t is OpikToolset =>
-          ['integration', 'prompts', 'projects', 'traces', 'metrics'].includes(t)
-        );
+        return normalizeToolsets(process.env.OPIK_TOOLSETS.split(','));
       }
 
       // Default toolsets
@@ -337,10 +416,10 @@ export function loadConfig(): OpikConfig {
     // Log transport configuration
     writeToLogFile('\nTransport Configuration:');
     writeToLogFile(`- Transport: ${config.transport}`);
-    if (config.transport === 'sse') {
-      writeToLogFile(`- SSE Port: ${config.ssePort}`);
-      writeToLogFile(`- SSE Host: ${config.sseHost}`);
-      writeToLogFile(`- SSE Log Path: ${config.sseLogPath}`);
+    if (config.transport === 'streamable-http') {
+      writeToLogFile(`- Streamable HTTP Port: ${config.streamableHttpPort}`);
+      writeToLogFile(`- Streamable HTTP Host: ${config.streamableHttpHost}`);
+      writeToLogFile(`- Streamable HTTP Log Path: ${config.streamableHttpLogPath}`);
     }
 
     // Log MCP configuration
