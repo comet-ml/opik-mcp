@@ -19,7 +19,7 @@ export const loadMetricTools = (server: any) => {
         .string()
         .optional()
         .describe(
-          'Optional metric type/alias (TRACE_COUNT, TOKEN_USAGE, COST, DURATION, FEEDBACK).'
+          'Optional metric type/alias (TRACE_COUNT, TOKEN_USAGE, COST, DURATION, FEEDBACK).',
         ),
       projectId: z.string().optional().describe('Optional project ID.'),
       projectName: z
@@ -31,9 +31,20 @@ export const loadMetricTools = (server: any) => {
       workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
-      const { metricName, projectId, projectName, startDate, endDate, workspaceName } = args;
+      const {
+        metricName,
+        projectId,
+        projectName,
+        startDate,
+        endDate,
+        workspaceName,
+      } = args;
 
-      const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+      const resolved = await resolveProjectIdentifier(
+        projectId,
+        projectName,
+        workspaceName,
+      );
       if (resolved.error || (!resolved.projectId && !resolved.projectName)) {
         return {
           content: [
@@ -67,13 +78,15 @@ export const loadMetricTools = (server: any) => {
             ...(startDate && { intervalStart: new Date(startDate) }),
             ...(endDate && { intervalEnd: new Date(endDate) }),
           },
-          getRequestOptions(workspaceName)
-        )
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch metrics' }],
+          content: [
+            { type: 'text', text: response.error || 'Failed to fetch metrics' },
+          ],
         };
       }
 
@@ -94,7 +107,7 @@ export const loadMetricTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   return server;

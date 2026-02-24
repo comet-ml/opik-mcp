@@ -15,8 +15,12 @@ describe('remote auth', () => {
   test('allows keyless initialize and onboarding-safe tool calls', () => {
     expect(isMethodAllowedWithoutAuth('initialize')).toBe(true);
     expect(isMethodAllowedWithoutAuth('tools/list')).toBe(true);
-    expect(isMethodAllowedWithoutAuth('tools/call', 'get-server-info')).toBe(true);
-    expect(isMethodAllowedWithoutAuth('tools/call', 'create-project')).toBe(false);
+    expect(isMethodAllowedWithoutAuth('tools/call', 'get-server-info')).toBe(
+      true,
+    );
+    expect(isMethodAllowedWithoutAuth('tools/call', 'create-project')).toBe(
+      false,
+    );
   });
 
   test('rejects missing API key', async () => {

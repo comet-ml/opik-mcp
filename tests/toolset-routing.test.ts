@@ -14,7 +14,7 @@ describe('project tool routing', () => {
 
     loadProjectTools(server, { includeReadOps: true, includeMutations: false });
 
-    const names = server.tool.mock.calls.map(call => call[0]);
+    const names = server.tool.mock.calls.map((call) => call[0]);
     expect(names).toEqual(['list-projects']);
   });
 
@@ -23,7 +23,7 @@ describe('project tool routing', () => {
 
     loadProjectTools(server, { includeReadOps: false, includeMutations: true });
 
-    const names = server.tool.mock.calls.map(call => call[0]);
+    const names = server.tool.mock.calls.map((call) => call[0]);
     expect(names).toEqual(['create-project']);
   });
 });
@@ -32,9 +32,12 @@ describe('trace tool routing', () => {
   test('registers only core trace tools', () => {
     const server = createMockServer();
 
-    loadTraceTools(server, { includeCoreTools: true, includeExpertActions: false });
+    loadTraceTools(server, {
+      includeCoreTools: true,
+      includeExpertActions: false,
+    });
 
-    const names = server.tool.mock.calls.map(call => call[0]);
+    const names = server.tool.mock.calls.map((call) => call[0]);
     expect(names).toEqual([
       'list-traces',
       'get-trace-by-id',
@@ -46,9 +49,12 @@ describe('trace tool routing', () => {
   test('registers only expert trace action tools', () => {
     const server = createMockServer();
 
-    loadTraceTools(server, { includeCoreTools: false, includeExpertActions: true });
+    loadTraceTools(server, {
+      includeCoreTools: false,
+      includeExpertActions: true,
+    });
 
-    const names = server.tool.mock.calls.map(call => call[0]);
+    const names = server.tool.mock.calls.map((call) => call[0]);
     expect(names).toEqual(['search-traces', 'add-trace-feedback']);
   });
 });

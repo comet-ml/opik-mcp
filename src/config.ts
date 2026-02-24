@@ -26,9 +26,15 @@ function writeToLogFile(message: string, forceWrite: boolean = false): void {
     if (debugArg || debugEnv || forceWrite) {
       const logFile = '/tmp/opik-mcp.log';
       if (!fs.existsSync(logFile)) {
-        fs.writeFileSync(logFile, `Opik MCP Server Started: ${new Date().toISOString()}\n`);
+        fs.writeFileSync(
+          logFile,
+          `Opik MCP Server Started: ${new Date().toISOString()}\n`,
+        );
       }
-      fs.appendFileSync(logFile, `[${new Date().toISOString()}] [config] ${message}\n`);
+      fs.appendFileSync(
+        logFile,
+        `[${new Date().toISOString()}] [config] ${message}\n`,
+      );
     }
   } catch (error) {
     // Silently fail if we can't write to the log file
@@ -85,7 +91,9 @@ const ALL_TOOLSET_CHOICES = [
 export function normalizeToolsets(values: string[]): OpikToolset[] {
   const normalized = new Set<OpikToolset>();
 
-  for (const value of values.flatMap(v => v.split(',')).map(v => v.trim())) {
+  for (const value of values
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())) {
     const toolset = value as OpikToolset | LegacyToolset;
     switch (toolset) {
       case 'all':
@@ -156,7 +164,11 @@ function loadOpikConfigFile(): OpikFileConfig {
       const trimmedLine = line.trim();
 
       // Skip empty lines and comments
-      if (!trimmedLine || trimmedLine.startsWith('#') || trimmedLine.startsWith(';')) {
+      if (
+        !trimmedLine ||
+        trimmedLine.startsWith('#') ||
+        trimmedLine.startsWith(';')
+      ) {
         continue;
       }
 
@@ -189,7 +201,7 @@ function loadOpikConfigFile(): OpikFileConfig {
     }
 
     writeToLogFile(
-      `Loaded config from ~/.opik.config with keys: ${Object.keys(config).join(', ') || '(none)'}`
+      `Loaded config from ~/.opik.config with keys: ${Object.keys(config).join(', ') || '(none)'}`,
     );
     return config;
   } catch (error) {
@@ -344,31 +356,49 @@ export function loadConfig(): OpikConfig {
       opikFileConfig.workspace ||
       'default'
     ).replace(/^['"](.*)['"]$/, '$1'), // Remove any quotes
-    apiKey: args.apiKey || process.env.OPIK_API_KEY || opikFileConfig.api_key || '',
+    apiKey:
+      args.apiKey || process.env.OPIK_API_KEY || opikFileConfig.api_key || '',
     isSelfHosted:
       args.selfHosted !== undefined
         ? args.selfHosted
         : process.env.OPIK_SELF_HOSTED === 'true' || false,
-    debugMode: args.debug !== undefined ? args.debug : process.env.DEBUG_MODE === 'true' || false,
+    debugMode:
+      args.debug !== undefined
+        ? args.debug
+        : process.env.DEBUG_MODE === 'true' || false,
 
     // Transport configuration
-    transport: (args.transport ?? process.env.TRANSPORT ?? 'stdio') as 'stdio' | 'streamable-http',
+    transport: (args.transport ?? process.env.TRANSPORT ?? 'stdio') as
+      | 'stdio'
+      | 'streamable-http',
     streamableHttpPort:
       args.streamableHttpPort ??
-      (process.env.STREAMABLE_HTTP_PORT ? parseInt(process.env.STREAMABLE_HTTP_PORT, 10) : 3001),
-    streamableHttpHost: args.streamableHttpHost ?? process.env.STREAMABLE_HTTP_HOST ?? '127.0.0.1',
+      (process.env.STREAMABLE_HTTP_PORT
+        ? parseInt(process.env.STREAMABLE_HTTP_PORT, 10)
+        : 3001),
+    streamableHttpHost:
+      args.streamableHttpHost ??
+      process.env.STREAMABLE_HTTP_HOST ??
+      '127.0.0.1',
     streamableHttpLogPath:
       args.streamableHttpLogPath ??
-      (process.env.STREAMABLE_HTTP_LOG_PATH || '/tmp/opik-mcp-streamable-http.log'),
+      (process.env.STREAMABLE_HTTP_LOG_PATH ||
+        '/tmp/opik-mcp-streamable-http.log'),
 
     // MCP configuration with fallbacks
     mcpName: args.mcpName || process.env.MCP_NAME || 'opik-manager',
     mcpVersion: args.mcpVersion || process.env.MCP_VERSION || '2.0.0',
     mcpPort:
-      args.mcpPort || (process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined),
+      args.mcpPort ||
+      (process.env.MCP_PORT ? parseInt(process.env.MCP_PORT, 10) : undefined),
     mcpLogging:
-      args.mcpLogging !== undefined ? args.mcpLogging : process.env.MCP_LOGGING === 'true' || false,
-    mcpDefaultWorkspace: args.mcpDefaultWorkspace || process.env.MCP_DEFAULT_WORKSPACE || 'default',
+      args.mcpLogging !== undefined
+        ? args.mcpLogging
+        : process.env.MCP_LOGGING === 'true' || false,
+    mcpDefaultWorkspace:
+      args.mcpDefaultWorkspace ||
+      process.env.MCP_DEFAULT_WORKSPACE ||
+      'default',
 
     // Toolset configuration with fallbacks
     enabledToolsets: (() => {
@@ -390,7 +420,10 @@ export function loadConfig(): OpikConfig {
   // Validate required fields but be much more forgiving
   if (!config.apiKey) {
     // Only warn about missing API key, don't throw an error
-    writeToLogFile(`Warning: No API key provided - some functionality will be limited`, true);
+    writeToLogFile(
+      `Warning: No API key provided - some functionality will be limited`,
+      true,
+    );
     // Still allow the server to start even without an API key
   }
 
@@ -403,12 +436,16 @@ export function loadConfig(): OpikConfig {
       writeToLogFile(`- Workspace: ${config.workspaceName}`);
     }
     writeToLogFile(`- API Key: ${config.apiKey ? '[REDACTED]' : '[NOT SET]'}`);
-    writeToLogFile(`- Debug mode: ${config.debugMode ? 'Enabled' : 'Disabled'}`);
+    writeToLogFile(
+      `- Debug mode: ${config.debugMode ? 'Enabled' : 'Disabled'}`,
+    );
 
     // Log config sources
     writeToLogFile('\nConfiguration Sources:');
     if (Object.keys(opikFileConfig).length > 0) {
-      writeToLogFile(`- Found ~/.opik.config with keys: ${Object.keys(opikFileConfig).join(', ')}`);
+      writeToLogFile(
+        `- Found ~/.opik.config with keys: ${Object.keys(opikFileConfig).join(', ')}`,
+      );
     } else {
       writeToLogFile('- No ~/.opik.config file found');
     }
@@ -419,7 +456,9 @@ export function loadConfig(): OpikConfig {
     if (config.transport === 'streamable-http') {
       writeToLogFile(`- Streamable HTTP Port: ${config.streamableHttpPort}`);
       writeToLogFile(`- Streamable HTTP Host: ${config.streamableHttpHost}`);
-      writeToLogFile(`- Streamable HTTP Log Path: ${config.streamableHttpLogPath}`);
+      writeToLogFile(
+        `- Streamable HTTP Log Path: ${config.streamableHttpLogPath}`,
+      );
     }
 
     // Log MCP configuration
@@ -427,7 +466,9 @@ export function loadConfig(): OpikConfig {
     writeToLogFile(`- MCP Name: ${config.mcpName}`);
     writeToLogFile(`- MCP Version: ${config.mcpVersion}`);
     if (config.mcpPort) writeToLogFile(`- MCP Port: ${config.mcpPort}`);
-    writeToLogFile(`- MCP Logging: ${config.mcpLogging ? 'Enabled' : 'Disabled'}`);
+    writeToLogFile(
+      `- MCP Logging: ${config.mcpLogging ? 'Enabled' : 'Disabled'}`,
+    );
     writeToLogFile(`- MCP Default Workspace: ${config.mcpDefaultWorkspace}`);
     writeToLogFile(`- Enabled Toolsets: ${config.enabledToolsets.join(', ')}`);
   }

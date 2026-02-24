@@ -1,5 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
-import { ALL_TOOLSETS, DEFAULT_TOOLSETS, normalizeToolsets } from '../src/config.js';
+import {
+  ALL_TOOLSETS,
+  DEFAULT_TOOLSETS,
+  normalizeToolsets,
+} from '../src/config.js';
 
 describe('config toolset defaults', () => {
   test('defaults to core only', () => {
@@ -33,7 +37,10 @@ describe('normalizeToolsets', () => {
   });
 
   test('supports comma-separated values', () => {
-    expect(normalizeToolsets(['core,expert-datasets'])).toEqual(['core', 'expert-datasets']);
+    expect(normalizeToolsets(['core,expert-datasets'])).toEqual([
+      'core',
+      'expert-datasets',
+    ]);
   });
 
   test('expands all alias to every modern toolset', () => {

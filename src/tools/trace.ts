@@ -7,7 +7,12 @@ import {
   resolveProjectIdentifier,
 } from '../utils/opik-sdk.js';
 import { registerTool } from './registration.js';
-import { isoDateSchema, pageSchema, sizeSchema, workspaceNameSchema } from './schema.js';
+import {
+  isoDateSchema,
+  pageSchema,
+  sizeSchema,
+  workspaceNameSchema,
+} from './schema.js';
 
 interface TraceToolOptions {
   includeCoreTools?: boolean;
@@ -28,7 +33,9 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
         projectId: z
           .string()
           .optional()
-          .describe('Optional project ID. If omitted, the first available project is used.'),
+          .describe(
+            'Optional project ID. If omitted, the first available project is used.',
+          ),
         projectName: z
           .string()
           .optional()
@@ -36,9 +43,19 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
         workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
-        const { page = 1, size = 10, projectId, projectName, workspaceName } = args;
+        const {
+          page = 1,
+          size = 10,
+          projectId,
+          projectName,
+          workspaceName,
+        } = args;
 
-        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        const resolved = await resolveProjectIdentifier(
+          projectId,
+          projectName,
+          workspaceName,
+        );
         if (resolved.error) {
           return {
             content: [{ type: 'text', text: `Error: ${resolved.error}` }],
@@ -52,15 +69,22 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
               page,
               size,
               ...(resolved.projectId && { projectId: resolved.projectId }),
-              ...(resolved.projectName && { projectName: resolved.projectName }),
+              ...(resolved.projectName && {
+                projectName: resolved.projectName,
+              }),
             },
-            getRequestOptions(workspaceName)
-          )
+            getRequestOptions(workspaceName),
+          ),
         );
 
         if (!response.data) {
           return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch traces' }],
+            content: [
+              {
+                type: 'text',
+                text: response.error || 'Failed to fetch traces',
+              },
+            ],
           };
         }
 
@@ -85,7 +109,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           idempotentHint: true,
           openWorldHint: false,
         },
-      }
+      },
     );
 
     registerTool(
@@ -100,12 +124,14 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
         const { traceId, workspaceName } = args;
         const api = getOpikApi();
         const response = await callSdk<any>(() =>
-          api.traces.getTraceById(traceId, getRequestOptions(workspaceName))
+          api.traces.getTraceById(traceId, getRequestOptions(workspaceName)),
         );
 
         if (!response.data) {
           return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch trace' }],
+            content: [
+              { type: 'text', text: response.error || 'Failed to fetch trace' },
+            ],
           };
         }
 
@@ -116,7 +142,11 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           typeof formattedResponse.input === 'object' &&
           Object.keys(formattedResponse.input).length > 0
         ) {
-          formattedResponse.input = JSON.stringify(formattedResponse.input, null, 2);
+          formattedResponse.input = JSON.stringify(
+            formattedResponse.input,
+            null,
+            2,
+          );
         }
 
         if (
@@ -124,7 +154,11 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           typeof formattedResponse.output === 'object' &&
           Object.keys(formattedResponse.output).length > 0
         ) {
-          formattedResponse.output = JSON.stringify(formattedResponse.output, null, 2);
+          formattedResponse.output = JSON.stringify(
+            formattedResponse.output,
+            null,
+            2,
+          );
         }
 
         return {
@@ -148,7 +182,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           idempotentHint: true,
           openWorldHint: false,
         },
-      }
+      },
     );
 
     registerTool(
@@ -159,7 +193,9 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
         projectId: z
           .string()
           .optional()
-          .describe('Optional project ID. If omitted, the first available project is used.'),
+          .describe(
+            'Optional project ID. If omitted, the first available project is used.',
+          ),
         projectName: z
           .string()
           .optional()
@@ -169,31 +205,48 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
         workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
-        const { projectId, projectName, startDate, endDate, workspaceName } = args;
+        const { projectId, projectName, startDate, endDate, workspaceName } =
+          args;
 
-        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        const resolved = await resolveProjectIdentifier(
+          projectId,
+          projectName,
+          workspaceName,
+        );
         if (resolved.error) {
           return {
             content: [{ type: 'text', text: `Error: ${resolved.error}` }],
           };
         }
 
-        const filters = buildTraceFilters(undefined, undefined, startDate, endDate);
+        const filters = buildTraceFilters(
+          undefined,
+          undefined,
+          startDate,
+          endDate,
+        );
         const api = getOpikApi();
         const response = await callSdk<any>(() =>
           api.traces.getTraceStats(
             {
               ...(resolved.projectId && { projectId: resolved.projectId }),
-              ...(resolved.projectName && { projectName: resolved.projectName }),
+              ...(resolved.projectName && {
+                projectName: resolved.projectName,
+              }),
               ...(filters && { filters }),
             },
-            getRequestOptions(workspaceName)
-          )
+            getRequestOptions(workspaceName),
+          ),
         );
 
         if (!response.data) {
           return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch trace statistics' }],
+            content: [
+              {
+                type: 'text',
+                text: response.error || 'Failed to fetch trace statistics',
+              },
+            ],
           };
         }
 
@@ -218,7 +271,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           idempotentHint: true,
           openWorldHint: false,
         },
-      }
+      },
     );
 
     registerTool(
@@ -226,22 +279,33 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
       'get-trace-threads',
       'List trace threads (conversation/session groupings) or fetch one thread by ID.',
       {
-        projectId: z.string().optional().describe('Optional project ID filter.'),
-        projectName: z.string().optional().describe('Optional project name filter.'),
+        projectId: z
+          .string()
+          .optional()
+          .describe('Optional project ID filter.'),
+        projectName: z
+          .string()
+          .optional()
+          .describe('Optional project name filter.'),
         page: pageSchema,
         size: sizeSchema(10),
         threadId: z
           .string()
           .optional()
           .describe(
-            'Optional thread ID. When set, returns that thread instead of paginated listing.'
+            'Optional thread ID. When set, returns that thread instead of paginated listing.',
           ),
         workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
-        const { projectId, projectName, page, size, threadId, workspaceName } = args;
+        const { projectId, projectName, page, size, threadId, workspaceName } =
+          args;
 
-        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        const resolved = await resolveProjectIdentifier(
+          projectId,
+          projectName,
+          workspaceName,
+        );
         if (resolved.error) {
           return {
             content: [{ type: 'text', text: `Error: ${resolved.error}` }],
@@ -255,10 +319,12 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
                 {
                   threadId,
                   ...(resolved.projectId && { projectId: resolved.projectId }),
-                  ...(resolved.projectName && { projectName: resolved.projectName }),
+                  ...(resolved.projectName && {
+                    projectName: resolved.projectName,
+                  }),
                 },
-                getRequestOptions(workspaceName)
-              )
+                getRequestOptions(workspaceName),
+              ),
             )
           : await callSdk<any>(() =>
               api.traces.getTraceThreads(
@@ -266,15 +332,22 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
                   page: page || 1,
                   size: size || 10,
                   ...(resolved.projectId && { projectId: resolved.projectId }),
-                  ...(resolved.projectName && { projectName: resolved.projectName }),
+                  ...(resolved.projectName && {
+                    projectName: resolved.projectName,
+                  }),
                 },
-                getRequestOptions(workspaceName)
-              )
+                getRequestOptions(workspaceName),
+              ),
             );
 
         if (!response.data) {
           return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch trace threads' }],
+            content: [
+              {
+                type: 'text',
+                text: response.error || 'Failed to fetch trace threads',
+              },
+            ],
           };
         }
 
@@ -301,7 +374,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           idempotentHint: true,
           openWorldHint: false,
         },
-      }
+      },
     );
   }
 
@@ -311,17 +384,25 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
       'search-traces',
       'Search traces with optional text query, structured filters, and sorting.',
       {
-        projectId: z.string().optional().describe('Optional project ID to constrain search.'),
-        projectName: z.string().optional().describe('Optional project name to constrain search.'),
+        projectId: z
+          .string()
+          .optional()
+          .describe('Optional project ID to constrain search.'),
+        projectName: z
+          .string()
+          .optional()
+          .describe('Optional project name to constrain search.'),
         query: z
           .string()
           .optional()
-          .describe('Optional free-text query across trace name/input/output/metadata.'),
+          .describe(
+            'Optional free-text query across trace name/input/output/metadata.',
+          ),
         filters: z
           .record(z.any())
           .optional()
           .describe(
-            'Optional advanced filters, e.g. {"status":"error"} or {"duration_ms":{"$gt":1000}}.'
+            'Optional advanced filters, e.g. {"status":"error"} or {"duration_ms":{"$gt":1000}}.',
           ),
         page: pageSchema,
         size: sizeSchema(10),
@@ -329,7 +410,11 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           .enum(['created_at', 'duration', 'name', 'status'])
           .optional()
           .describe('Optional sort field.'),
-        sortOrder: z.enum(['asc', 'desc']).optional().default('desc').describe('Sort direction.'),
+        sortOrder: z
+          .enum(['asc', 'desc'])
+          .optional()
+          .default('desc')
+          .describe('Sort direction.'),
         workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
@@ -345,7 +430,11 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           workspaceName,
         } = args;
 
-        const resolved = await resolveProjectIdentifier(projectId, projectName, workspaceName);
+        const resolved = await resolveProjectIdentifier(
+          projectId,
+          projectName,
+          workspaceName,
+        );
         if (resolved.error) {
           return {
             content: [{ type: 'text', text: `Error: ${resolved.error}` }],
@@ -361,17 +450,24 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
               page: page || 1,
               size: size || 10,
               ...(resolved.projectId && { projectId: resolved.projectId }),
-              ...(resolved.projectName && { projectName: resolved.projectName }),
+              ...(resolved.projectName && {
+                projectName: resolved.projectName,
+              }),
               ...(sdkFilters && { filters: sdkFilters }),
               ...(sorting && { sorting }),
             },
-            getRequestOptions(workspaceName)
-          )
+            getRequestOptions(workspaceName),
+          ),
         );
 
         if (!response.data) {
           return {
-            content: [{ type: 'text', text: response.error || 'Failed to search traces' }],
+            content: [
+              {
+                type: 'text',
+                text: response.error || 'Failed to search traces',
+              },
+            ],
           };
         }
 
@@ -396,7 +492,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           idempotentHint: true,
           openWorldHint: false,
         },
-      }
+      },
     );
 
     registerTool(
@@ -411,9 +507,14 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
               name: z
                 .string()
                 .min(1)
-                .describe('Feedback metric name, e.g. relevance, accuracy, helpfulness.'),
+                .describe(
+                  'Feedback metric name, e.g. relevance, accuracy, helpfulness.',
+                ),
               value: z.number().finite().describe('Numeric score value.'),
-              reason: z.string().optional().describe('Optional reason for this score.'),
+              reason: z
+                .string()
+                .optional()
+                .describe('Optional reason for this score.'),
               source: z
                 .enum(['ui', 'sdk', 'online_scoring'])
                 .optional()
@@ -423,7 +524,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
                 .string()
                 .optional()
                 .describe('Optional category for grouped feedback dimensions.'),
-            })
+            }),
           )
           .min(1)
           .describe('One or more feedback score objects.'),
@@ -455,8 +556,8 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
                 ...(score.reason && { reason: score.reason }),
                 ...(score.categoryName && { categoryName: score.categoryName }),
               },
-              getRequestOptions(workspaceName)
-            )
+              getRequestOptions(workspaceName),
+            ),
           );
 
           if (response.error) {
@@ -492,7 +593,7 @@ export const loadTraceTools = (server: any, options: TraceToolOptions = {}) => {
           idempotentHint: false,
           openWorldHint: false,
         },
-      }
+      },
     );
   }
 

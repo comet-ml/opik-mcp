@@ -1,4 +1,11 @@
-import { expect, jest, test, describe, beforeEach, afterEach } from '@jest/globals';
+import {
+  expect,
+  jest,
+  test,
+  describe,
+  beforeEach,
+  afterEach,
+} from '@jest/globals';
 import { StreamableHttpTransport } from '../../src/transports/streamable-http-transport.js';
 import fetch from 'node-fetch';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -22,7 +29,10 @@ describe('StreamableHttpTransport', () => {
     process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH = 'false';
     currentPort = basePort + portOffset;
     portOffset += 1;
-    transport = new StreamableHttpTransport({ port: currentPort, host: '127.0.0.1' });
+    transport = new StreamableHttpTransport({
+      port: currentPort,
+      host: '127.0.0.1',
+    });
 
     mcpServer = new McpServer(
       {
@@ -33,12 +43,17 @@ describe('StreamableHttpTransport', () => {
         capabilities: {
           tools: {},
         },
-      }
+      },
     );
 
-    mcpServer.tool('get-server-info', 'Get server info for onboarding', {}, async () => ({
-      content: [{ type: 'text', text: 'server-info-ok' }],
-    }));
+    mcpServer.tool(
+      'get-server-info',
+      'Get server info for onboarding',
+      {},
+      async () => ({
+        content: [{ type: 'text', text: 'server-info-ok' }],
+      }),
+    );
   });
 
   afterEach(async () => {
@@ -49,8 +64,12 @@ describe('StreamableHttpTransport', () => {
   });
 
   test('initializes with explicit and default options', () => {
-    expect(new StreamableHttpTransport({ port: 4000 })).toBeInstanceOf(StreamableHttpTransport);
-    expect(new StreamableHttpTransport()).toBeInstanceOf(StreamableHttpTransport);
+    expect(new StreamableHttpTransport({ port: 4000 })).toBeInstanceOf(
+      StreamableHttpTransport,
+    );
+    expect(new StreamableHttpTransport()).toBeInstanceOf(
+      StreamableHttpTransport,
+    );
   });
 
   test('responds to health check', async () => {
@@ -95,24 +114,27 @@ describe('StreamableHttpTransport', () => {
     await transport.start();
     await mcpServer.connect(transport);
 
-    const initializeResponse = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        'MCP-Protocol-Version': '2024-11-05',
-      },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: '2',
-        method: 'initialize',
-        params: {
-          protocolVersion: '2024-11-05',
-          capabilities: {},
-          clientInfo: { name: 'test-client', version: '1.0.0' },
+    const initializeResponse = await fetch(
+      `http://127.0.0.1:${currentPort}/mcp`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'MCP-Protocol-Version': '2024-11-05',
         },
-      }),
-    });
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: '2',
+          method: 'initialize',
+          params: {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'test-client', version: '1.0.0' },
+          },
+        }),
+      },
+    );
 
     expect(initializeResponse.status).toBe(200);
 
@@ -121,21 +143,24 @@ describe('StreamableHttpTransport', () => {
     expect(initializeSession).toBeTruthy();
     expect(initializeSession).toEqual(expect.any(String));
 
-    const toolsListResponse = await fetch(`http://127.0.0.1:${currentPort}/mcp`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-        'MCP-Protocol-Version': '2024-11-05',
-        'mcp-session-id': initializeSession as string,
+    const toolsListResponse = await fetch(
+      `http://127.0.0.1:${currentPort}/mcp`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json, text/event-stream',
+          'MCP-Protocol-Version': '2024-11-05',
+          'mcp-session-id': initializeSession as string,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: '3',
+          method: 'tools/list',
+          params: {},
+        }),
       },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: '3',
-        method: 'tools/list',
-        params: {},
-      }),
-    });
+    );
 
     const toolsListBody = await toolsListResponse.text();
     expect(toolsListResponse.status).toBe(200);
@@ -146,16 +171,19 @@ describe('StreamableHttpTransport', () => {
     await transport.start();
 
     const response = await fetch(
-      `http://127.0.0.1:${currentPort}/.well-known/oauth-protected-resource`
+      `http://127.0.0.1:${currentPort}/.well-known/oauth-protected-resource`,
     );
-    const data = (await response.json()) as { resource: string; opik_auth_mode: string };
+    const data = (await response.json()) as {
+      resource: string;
+      opik_auth_mode: string;
+    };
 
     expect(response.status).toBe(200);
     expect(data.resource).toContain('/mcp');
     expect(data.opik_auth_mode).toBe('api_key');
 
     const authzServerResponse = await fetch(
-      `http://127.0.0.1:${currentPort}/.well-known/oauth-authorization-server`
+      `http://127.0.0.1:${currentPort}/.well-known/oauth-authorization-server`,
     );
     expect(authzServerResponse.status).toBe(404);
   });

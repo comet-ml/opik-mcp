@@ -7,7 +7,10 @@ export interface RequestContext {
 
 const requestContextStore = new AsyncLocalStorage<RequestContext>();
 
-export function runWithRequestContext<T>(context: RequestContext, fn: () => T): T {
+export function runWithRequestContext<T>(
+  context: RequestContext,
+  fn: () => T,
+): T {
   return requestContextStore.run(context, fn);
 }
 
@@ -15,7 +18,9 @@ export function getRequestContext(): RequestContext | undefined {
   return requestContextStore.getStore();
 }
 
-function normalizeHeaderValue(value: string | string[] | undefined): string | undefined {
+function normalizeHeaderValue(
+  value: string | string[] | undefined,
+): string | undefined {
   if (!value) {
     return undefined;
   }
@@ -26,7 +31,7 @@ function normalizeHeaderValue(value: string | string[] | undefined): string | un
 }
 
 export function extractContextFromHeaders(
-  headers: Record<string, string | string[] | undefined>
+  headers: Record<string, string | string[] | undefined>,
 ): RequestContext {
   const authorization = normalizeHeaderValue(headers.authorization);
   const xApiKey = normalizeHeaderValue(headers['x-api-key']);

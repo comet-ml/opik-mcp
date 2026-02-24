@@ -72,7 +72,8 @@ export const opikCapabilities: OpikCapabilities = {
       'Managing prompts programmatically with the SDK',
     ],
     versionControl: true,
-    templateFormat: 'String with variable placeholders using {{variable}} syntax',
+    templateFormat:
+      'String with variable placeholders using {{variable}} syntax',
     schema: {
       prompt: {
         id: 'string',
@@ -172,7 +173,14 @@ export const opikCapabilities: OpikCapabilities = {
       'Filter by trace type',
       'Basic text search in trace names',
     ],
-    filterOptions: ['project_id', 'project_name', 'start_date', 'end_date', 'name', 'type'],
+    filterOptions: [
+      'project_id',
+      'project_name',
+      'start_date',
+      'end_date',
+      'name',
+      'type',
+    ],
     schema: {
       trace: {
         id: 'string',
@@ -297,7 +305,7 @@ interface CapabilityConfig {
 
 function isToolsetEnabled(
   config: CapabilityConfig,
-  capability: 'prompts' | 'projects' | 'traces' | 'metrics'
+  capability: 'prompts' | 'projects' | 'traces' | 'metrics',
 ): boolean {
   if (Array.isArray(config.enabledToolsets)) {
     if (capability === 'prompts') {
@@ -343,7 +351,9 @@ function isToolsetEnabled(
  * @param config The current configuration
  * @returns Filtered capabilities based on what's enabled
  */
-export function getEnabledCapabilities(config: CapabilityConfig): Partial<OpikCapabilities> {
+export function getEnabledCapabilities(
+  config: CapabilityConfig,
+): Partial<OpikCapabilities> {
   return {
     prompts: isToolsetEnabled(config, 'prompts')
       ? opikCapabilities.prompts
@@ -389,12 +399,12 @@ export function getCapabilitiesDescription(config: CapabilityConfig): string {
 
     description += `${key.charAt(0).toUpperCase() + key.slice(1)}:\n`;
     description += 'Features:\n';
-    cap.features.forEach(feature => {
+    cap.features.forEach((feature) => {
       description += `- ${feature}\n`;
     });
 
     description += '\nLimitations:\n';
-    cap.limitations.forEach(limitation => {
+    cap.limitations.forEach((limitation) => {
       description += `- ${limitation}\n`;
     });
 

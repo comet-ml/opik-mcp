@@ -25,8 +25,8 @@ export function initDebugLog() {
   // Log environment variables
   logDebug('Environment Variables:');
   Object.keys(process.env)
-    .filter(key => key.startsWith('OPIK_'))
-    .forEach(key => {
+    .filter((key) => key.startsWith('OPIK_'))
+    .forEach((key) => {
       let value = process.env[key];
       // Mask sensitive information
       if (key === 'OPIK_API_KEY') value = '***MASKED***';
@@ -40,7 +40,7 @@ export function initDebugLog() {
   });
 
   // Set up uncaught exception handler
-  process.on('uncaughtException', error => {
+  process.on('uncaughtException', (error) => {
     logDebug(`UNCAUGHT EXCEPTION: ${error.message}`);
     logDebug(error.stack || 'No stack trace available');
   });
@@ -51,7 +51,7 @@ export function initDebugLog() {
   });
 
   // Set up exit handler
-  process.on('exit', code => {
+  process.on('exit', (code) => {
     logDebug(`Process exiting with code: ${code}`);
   });
 }
@@ -61,7 +61,7 @@ export function logDebug(message: string): Promise<void> {
   const timestamp = new Date().toISOString();
   const logMessage = `[${timestamp}] ${message}\n`;
 
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     try {
       fs.appendFileSync(logPath, logMessage);
     } catch (error) {

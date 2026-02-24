@@ -51,7 +51,9 @@ describe('Capabilities Module Tests', () => {
     expect(Array.isArray(opikCapabilities.traces.features)).toBe(true);
     expect(Array.isArray(opikCapabilities.traces.limitations)).toBe(true);
     expect(Array.isArray(opikCapabilities.traces.examples)).toBe(true);
-    expect(Array.isArray(opikCapabilities.traces.searchCapabilities)).toBe(true);
+    expect(Array.isArray(opikCapabilities.traces.searchCapabilities)).toBe(
+      true,
+    );
     expect(Array.isArray(opikCapabilities.traces.filterOptions)).toBe(true);
 
     // Check metrics section

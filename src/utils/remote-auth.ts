@@ -31,7 +31,10 @@ const authCache = new Map<string, CachedAuthResult>();
 const VALID_CACHE_TTL_MS = 60_000;
 const INVALID_CACHE_TTL_MS = 10_000;
 
-function parseBoolean(value: string | undefined, defaultValue: boolean): boolean {
+function parseBoolean(
+  value: string | undefined,
+  defaultValue: boolean,
+): boolean {
   if (value === undefined) {
     return defaultValue;
   }
@@ -48,7 +51,10 @@ export function isRemoteAuthRequired(): boolean {
 
 export function shouldValidateRemoteAuth(): boolean {
   const defaultValue = process.env.NODE_ENV !== 'test';
-  return parseBoolean(process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH, defaultValue);
+  return parseBoolean(
+    process.env.STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH,
+    defaultValue,
+  );
 }
 
 function parseTokenWorkspaceMap(): Record<string, string> {
@@ -66,8 +72,8 @@ function parseTokenWorkspaceMap(): Record<string, string> {
     return Object.fromEntries(
       Object.entries(parsed).filter(
         (entry): entry is [string, string] =>
-          typeof entry[0] === 'string' && typeof entry[1] === 'string'
-      )
+          typeof entry[0] === 'string' && typeof entry[1] === 'string',
+      ),
     );
   } catch {
     return {};
@@ -75,22 +81,35 @@ function parseTokenWorkspaceMap(): Record<string, string> {
 }
 
 export function shouldTrustWorkspaceHeaders(): boolean {
-  return parseBoolean(process.env.STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS, false);
+  return parseBoolean(
+    process.env.STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS,
+    false,
+  );
 }
 
-export function isMethodAllowedWithoutAuth(method: string, toolName?: string): boolean {
+export function isMethodAllowedWithoutAuth(
+  method: string,
+  toolName?: string,
+): boolean {
   if (ONBOARDING_ALLOWED_NO_AUTH_METHODS.has(method)) {
     return true;
   }
 
-  if (method === 'tools/call' && toolName && ONBOARDING_SAFE_TOOLS.has(toolName)) {
+  if (
+    method === 'tools/call' &&
+    toolName &&
+    ONBOARDING_SAFE_TOOLS.has(toolName)
+  ) {
     return true;
   }
 
   return false;
 }
 
-function resolveWorkspaceForToken(token: string, headerWorkspace?: string): string {
+function resolveWorkspaceForToken(
+  token: string,
+  headerWorkspace?: string,
+): string {
   const tokenWorkspaceMap = parseTokenWorkspaceMap();
   const hasMappingRules = Object.keys(tokenWorkspaceMap).length > 0;
   const mappedWorkspace = tokenWorkspaceMap[token];
@@ -110,14 +129,17 @@ function resolveWorkspaceForToken(token: string, headerWorkspace?: string): stri
 }
 
 export function authenticateRemoteRequest(
-  headers: Record<string, string | string[] | undefined>
-): { ok: true; context: RequestContext } | { ok: false; status: number; message: string } {
+  headers: Record<string, string | string[] | undefined>,
+):
+  | { ok: true; context: RequestContext }
+  | { ok: false; status: number; message: string } {
   const extracted = extractContextFromHeaders(headers);
   if (!extracted.apiKey) {
     return {
       ok: false,
       status: 401,
-      message: 'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
+      message:
+        'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
     };
   }
 
@@ -126,7 +148,10 @@ export function authenticateRemoteRequest(
       ok: true,
       context: {
         apiKey: extracted.apiKey,
-        workspaceName: resolveWorkspaceForToken(extracted.apiKey, extracted.workspaceName),
+        workspaceName: resolveWorkspaceForToken(
+          extracted.apiKey,
+          extracted.workspaceName,
+        ),
       },
     };
   } catch (error) {
@@ -139,13 +164,14 @@ export function authenticateRemoteRequest(
 }
 
 export async function validateRemoteAuth(
-  context: RequestContext
+  context: RequestContext,
 ): Promise<{ ok: boolean; status: number; message?: string }> {
   if (!context.apiKey) {
     return {
       ok: false,
       status: 401,
-      message: 'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
+      message:
+        'Missing authentication token. Provide Authorization: Bearer <token> or x-api-key.',
     };
   }
 
@@ -153,7 +179,8 @@ export async function validateRemoteAuth(
     return { ok: true, status: 200 };
   }
 
-  const workspaceName = context.workspaceName || config.workspaceName || config.mcpDefaultWorkspace;
+  const workspaceName =
+    context.workspaceName || config.workspaceName || config.mcpDefaultWorkspace;
   const cacheKey = `${context.apiKey}::${workspaceName || ''}`;
   const now = Date.now();
   const cached = authCache.get(cacheKey);
@@ -177,11 +204,14 @@ export async function validateRemoteAuth(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
 
-    const response = await fetch(`${config.apiBaseUrl}/v1/private/projects?page=1&size=1`, {
-      method: 'GET',
-      headers,
-      signal: controller.signal,
-    });
+    const response = await fetch(
+      `${config.apiBaseUrl}/v1/private/projects?page=1&size=1`,
+      {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
+      },
+    );
 
     clearTimeout(timeout);
 
@@ -198,7 +228,11 @@ export async function validateRemoteAuth(
         valid: false,
         expiresAt: now + INVALID_CACHE_TTL_MS,
       });
-      return { ok: false, status: 401, message: 'Invalid API key or workspace.' };
+      return {
+        ok: false,
+        status: 401,
+        message: 'Invalid API key or workspace.',
+      };
     }
 
     return {

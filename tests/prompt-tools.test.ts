@@ -9,7 +9,7 @@ describe('Prompt tools', () => {
 
     loadPromptTools(server);
 
-    const toolNames = server.tool.mock.calls.map(call => call[0]);
+    const toolNames = server.tool.mock.calls.map((call) => call[0]);
     expect(toolNames).toEqual([
       'get-prompts',
       'create-prompt',

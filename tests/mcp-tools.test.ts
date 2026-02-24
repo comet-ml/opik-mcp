@@ -1,4 +1,11 @@
-import { jest, describe, beforeEach, test, expect, afterEach } from '@jest/globals';
+import {
+  jest,
+  describe,
+  beforeEach,
+  test,
+  expect,
+  afterEach,
+} from '@jest/globals';
 
 // Mock the McpServer class
 jest.mock('@modelcontextprotocol/sdk/server/mcp.js', () => {
@@ -87,7 +94,9 @@ jest.mock('../src/utils/capabilities', () => {
         supportedFormats: ['JSON'],
       },
     }),
-    getCapabilitiesDescription: jest.fn().mockReturnValue('Test capabilities description'),
+    getCapabilitiesDescription: jest
+      .fn()
+      .mockReturnValue('Test capabilities description'),
   };
 });
 
@@ -169,7 +178,10 @@ describe('MCP Tools Tests', () => {
     // The second content item should be the capabilities description
     const secondContent = result.content[1];
     expect(secondContent).toHaveProperty('type', 'text');
-    expect(secondContent).toHaveProperty('text', 'Test capabilities description');
+    expect(secondContent).toHaveProperty(
+      'text',
+      'Test capabilities description',
+    );
   });
 
   // Test the opik-help tool

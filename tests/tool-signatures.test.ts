@@ -35,12 +35,19 @@ describe('Tool signature guards', () => {
 
   test('search-traces sortBy only accepts allowed fields', () => {
     const { server, tools } = createRegisterToolServer();
-    loadTraceTools(server as any, { includeCoreTools: false, includeExpertActions: true });
+    loadTraceTools(server as any, {
+      includeCoreTools: false,
+      includeExpertActions: true,
+    });
 
     const searchTraces = tools.get('search-traces');
     expect(searchTraces).toBeDefined();
-    expect(searchTraces?.config.inputSchema.sortBy.parse('created_at')).toBe('created_at');
-    expect(() => searchTraces?.config.inputSchema.sortBy.parse('random_field')).toThrow();
+    expect(searchTraces?.config.inputSchema.sortBy.parse('created_at')).toBe(
+      'created_at',
+    );
+    expect(() =>
+      searchTraces?.config.inputSchema.sortBy.parse('random_field'),
+    ).toThrow();
   });
 
   test('save-prompt-version keeps both new and legacy change description args', () => {
@@ -49,7 +56,11 @@ describe('Tool signature guards', () => {
 
     const savePromptVersion = tools.get('save-prompt-version');
     expect(savePromptVersion).toBeDefined();
-    expect(savePromptVersion?.config.inputSchema.changeDescription).toBeDefined();
-    expect(savePromptVersion?.config.inputSchema.change_description).toBeDefined();
+    expect(
+      savePromptVersion?.config.inputSchema.changeDescription,
+    ).toBeDefined();
+    expect(
+      savePromptVersion?.config.inputSchema.change_description,
+    ).toBeDefined();
   });
 });

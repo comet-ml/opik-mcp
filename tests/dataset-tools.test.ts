@@ -9,7 +9,7 @@ describe('Dataset tools', () => {
 
     loadDatasetTools(server);
 
-    const toolNames = server.tool.mock.calls.map(call => call[0]);
+    const toolNames = server.tool.mock.calls.map((call) => call[0]);
     expect(toolNames).toEqual([
       'list-datasets',
       'get-dataset-by-id',

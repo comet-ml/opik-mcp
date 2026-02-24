@@ -17,9 +17,15 @@ function writeToLogFile(message: string): void {
     if (process.env.DEBUG_MODE === 'true') {
       const logFile = '/tmp/opik-mcp.log';
       if (!fs.existsSync(logFile)) {
-        fs.writeFileSync(logFile, `Opik MCP Server Started: ${new Date().toISOString()}\n`);
+        fs.writeFileSync(
+          logFile,
+          `Opik MCP Server Started: ${new Date().toISOString()}\n`,
+        );
       }
-      fs.appendFileSync(logFile, `[${new Date().toISOString()}] [env] ${message}\n`);
+      fs.appendFileSync(
+        logFile,
+        `[${new Date().toISOString()}] [env] ${message}\n`,
+      );
     }
   } catch (error) {
     // Silently fail if we can't write to the log file
@@ -41,7 +47,9 @@ export function loadEnv(): void {
     dotenvConfig({ path: envPath });
   } else if (fs.existsSync(examplePath)) {
     // Fall back to .env.example if .env doesn't exist
-    writeToLogFile('Warning: .env file not found, using .env.example as fallback');
+    writeToLogFile(
+      'Warning: .env file not found, using .env.example as fallback',
+    );
     writeToLogFile('Please create a .env file with your actual configuration');
     dotenvConfig({ path: examplePath });
   } else {
