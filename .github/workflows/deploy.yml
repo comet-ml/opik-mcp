@@ -21,7 +21,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
@@ -56,14 +56,13 @@ jobs:
           mv "$tmp_file" server.json
 
       - name: Publish to NPM
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF#refs/tags/v}"
           if npm view opik-mcp@"$VERSION" version >/dev/null 2>&1; then
             echo "opik-mcp@$VERSION already exists on npm, skipping publish."
           else
+            # Trusted Publishing via GitHub OIDC (id-token: write) - no npm token needed.
             npm publish --provenance --access public
           fi
 
