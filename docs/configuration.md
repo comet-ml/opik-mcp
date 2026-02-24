@@ -33,7 +33,7 @@ node build/index.js \
 | `--streamableHttpHost` | - | streamable-http host | `127.0.0.1` |
 | `--streamableHttpLogPath` | - | streamable-http log file path | `/tmp/opik-mcp-streamable-http.log` |
 | `--mcpName` | - | Server name | `opik-manager` |
-| `--mcpVersion` | - | Server version | `2.0.0` |
+| `--mcpVersion` | - | Server version | `1.0.0` |
 | `--mcpPort` | - | Optional MCP port metadata | unset |
 | `--mcpLogging` | - | MCP logging flag | `false` |
 | `--mcpDefaultWorkspace` | - | Fallback workspace | `default` |
