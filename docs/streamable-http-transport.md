@@ -11,6 +11,10 @@ This document describes remote/self-hosted transport for `opik-mcp`.
 ## Endpoints
 
 - `GET /health`
+- `GET /healthz`
+- `GET /ready`
+- `GET /readyz`
+- `GET /ping`
 - `POST|GET|DELETE /mcp` (MCP Streamable HTTP)
 
 ## Auth and Tenant Routing
@@ -61,6 +65,39 @@ Health:
 
 ```bash
 curl -s http://127.0.0.1:3001/health
+```
+
+Ping:
+
+```bash
+curl -s http://127.0.0.1:3001/ping
+```
+
+## Kubernetes Probes (Helm)
+
+Recommended HTTP probes for Kubernetes deployments:
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 3001
+  initialDelaySeconds: 10
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 3001
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: 3001
+  failureThreshold: 30
+  periodSeconds: 5
 ```
 
 Initialize (capture `mcp-session-id` response header):
