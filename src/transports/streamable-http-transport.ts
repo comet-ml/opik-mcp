@@ -234,9 +234,13 @@ export class StreamableHttpTransport implements Transport {
       });
     }
 
-    this.app.get('/health', (_req, res) => {
+    this.app.get(['/health', '/healthz', '/ready', '/readyz'], (_req, res) => {
       const response: HealthResponse = { status: 'ok' };
       res.json(response);
+    });
+
+    this.app.get('/ping', (_req, res) => {
+      res.status(200).type('text/plain').send('pong');
     });
 
     this.app.get(
