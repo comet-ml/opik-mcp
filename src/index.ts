@@ -26,6 +26,8 @@ import { loadOpikResources } from './resources/opik-resources.js';
 // Import configuration
 import { loadConfig } from './config.js';
 const config = loadConfig();
+let activeTransport: { close?: () => Promise<void> | void } | null = null;
+let isShuttingDown = false;
 
 function toErrorMessage(error: unknown): string {
   if (error instanceof Error) {
@@ -170,6 +172,7 @@ export async function main() {
   }
 
   // Connect the server to the transport
+  activeTransport = transport as { close?: () => Promise<void> | void };
   logToFile('Connecting server to transport');
   await server.connect(transport);
 
@@ -185,6 +188,24 @@ export async function main() {
   }
 
   logToFile('Main function completed successfully');
+}
+
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
+  if (isShuttingDown) {
+    return;
+  }
+
+  isShuttingDown = true;
+  logToFile(`Received ${signal}; shutting down transport`);
+
+  try {
+    await Promise.resolve(activeTransport?.close?.());
+    logToFile('Transport closed successfully');
+    process.exit(0);
+  } catch (error) {
+    logToFile(`Error during shutdown: ${toErrorMessage(error)}`);
+    process.exit(1);
+  }
 }
 
 // Used by Smithery capability scanning when importing the module.
@@ -204,6 +225,12 @@ function shouldAutoStart(): boolean {
 
 // Start the server only when this file is the process entrypoint.
 if (shouldAutoStart()) {
+  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(signal, () => {
+      void shutdown(signal);
+    });
+  }
+
   main().catch((error) => {
     const message = toErrorMessage(error);
     logToFile(`Error starting server: ${message}`);
