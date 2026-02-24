@@ -3,6 +3,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import configImport from './config.js';
+import { main } from './index.js';
 
 // Parse command line arguments
 const argv = yargs(hideBin(process.argv))
@@ -34,5 +35,17 @@ if (argv.transport === 'streamable-http' && typeof argv.port === 'number') {
   process.env.STREAMABLE_HTTP_PORT = String(argv.port);
 }
 
-// Import and start the server (index.js will handle the main() call)
-import './index.js';
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+// Start the server after applying CLI overrides.
+main().catch(error => {
+  const message = toErrorMessage(error);
+  console.error(`Failed to start Opik MCP server: ${message}`);
+  process.exit(1);
+});

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { pathToFileURL } from 'node:url';
 
 // Import other modules
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -167,16 +168,33 @@ export async function main() {
   logToFile('Main function completed successfully');
 }
 
-// Start the server
-main().catch(error => {
-  const message = toErrorMessage(error);
-  logToFile(`Error starting server: ${message}`);
-  console.error(`Failed to start Opik MCP server: ${message}`);
-  if (error instanceof Error && error.stack) {
-    logToFile(error.stack);
-    if (config.debugMode) {
-      console.error(error.stack);
-    }
+// Used by Smithery capability scanning when importing the module.
+export function createSandboxServer() {
+  return server;
+}
+
+export default createSandboxServer;
+
+function shouldAutoStart(): boolean {
+  if (!process.argv[1]) {
+    return false;
   }
-  process.exit(1);
-});
+
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+// Start the server only when this file is the process entrypoint.
+if (shouldAutoStart()) {
+  main().catch(error => {
+    const message = toErrorMessage(error);
+    logToFile(`Error starting server: ${message}`);
+    console.error(`Failed to start Opik MCP server: ${message}`);
+    if (error instanceof Error && error.stack) {
+      logToFile(error.stack);
+      if (config.debugMode) {
+        console.error(error.stack);
+      }
+    }
+    process.exit(1);
+  });
+}
