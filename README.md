@@ -33,12 +33,6 @@ Model Context Protocol (MCP) server for <a href="https://github.com/comet-ml/opi
   <a href="https://www.comet.com/docs/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=docs_button&utm_campaign=opik"><b>Documentation</b></a>
 </p>
 
-<p align="center">
-  <a href="https://glama.ai/mcp/servers/@comet-ml/opik-mcp" rel="nofollow" target="_blank">
-    <img width="380" height="200" src="https://glama.ai/mcp/servers/@comet-ml/opik-mcp/badge" alt="Opik MCP server badge" />
-  </a>
-</p>
-
 > [!IMPORTANT]
 > This repository ships the MCP server implementation only. We do not currently provide a hosted remote MCP service for Opik.
 > If you run `streamable-http` remotely, authentication is fail-closed by default.
