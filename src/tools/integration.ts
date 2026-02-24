@@ -103,7 +103,7 @@ export const loadIntegrationTools = (server: any) => {
         content: [{ type: 'text', text: integrationDocs }],
       };
     },
-    { requiresApiKey: false }
+    { requiresApiKey: false },
   );
   return server;
 };

@@ -31,7 +31,7 @@ export function loadCorePrompts(server: any) {
         },
       ],
     }),
-    { title: 'Opik Workflow Triage' }
+    { title: 'Opik Workflow Triage' },
   );
 
   registerPrompt(
@@ -45,7 +45,13 @@ export function loadCorePrompts(server: any) {
         .default('Find low-quality items and produce cleanup actions.')
         .describe('Dataset maintenance objective.'),
     },
-    async ({ datasetName, objective }: { datasetName: string; objective: string }) => ({
+    async ({
+      datasetName,
+      objective,
+    }: {
+      datasetName: string;
+      objective: string;
+    }) => ({
       messages: [
         {
           role: 'user',
@@ -62,7 +68,7 @@ export function loadCorePrompts(server: any) {
         },
       ],
     }),
-    { title: 'Dataset Maintenance' }
+    { title: 'Dataset Maintenance' },
   );
 
   return server;

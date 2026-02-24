@@ -1,5 +1,8 @@
 import { describe, test, expect } from '@jest/globals';
-import { getExampleForTask, getAllExampleTasks } from '../src/utils/examples.js';
+import {
+  getExampleForTask,
+  getAllExampleTasks,
+} from '../src/utils/examples.js';
 
 describe('Examples Module Tests', () => {
   // Test getting an example for a specific task
@@ -93,7 +96,9 @@ describe('Examples Module Tests', () => {
     ];
 
     for (const task of expectedTasks) {
-      expect(result.some(t => t.toLowerCase().includes(task.toLowerCase()))).toBe(true);
+      expect(
+        result.some((t) => t.toLowerCase().includes(task.toLowerCase())),
+      ).toBe(true);
     }
   });
 

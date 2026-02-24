@@ -35,10 +35,10 @@ function formatTopicHelp(topic: keyof typeof opikCapabilities): string {
     `Available: ${section.available ? 'Yes' : 'No'}`,
     '',
     '## Features',
-    ...section.features.map(feature => `- ${feature}`),
+    ...section.features.map((feature) => `- ${feature}`),
     '',
     '## Limitations',
-    ...section.limitations.map(limitation => `- ${limitation}`),
+    ...section.limitations.map((limitation) => `- ${limitation}`),
   ].join('\n');
 }
 
@@ -71,7 +71,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         ],
       };
     },
-    { requiresApiKey: false }
+    { requiresApiKey: false },
   );
 
   registerTool(
@@ -84,7 +84,9 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         .optional()
         .describe('Optional capability topic to describe'),
     },
-    async (args: { topic?: 'prompts' | 'projects' | 'traces' | 'metrics' | 'general' }) => {
+    async (args: {
+      topic?: 'prompts' | 'projects' | 'traces' | 'metrics' | 'general';
+    }) => {
       if (args.topic) {
         return {
           content: [
@@ -105,7 +107,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         ],
       };
     },
-    { requiresApiKey: false }
+    { requiresApiKey: false },
   );
 
   registerTool(
@@ -116,7 +118,9 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
       task: z
         .string()
         .optional()
-        .describe('Optional task name, e.g. "create prompt", "log trace", "evaluate response"'),
+        .describe(
+          'Optional task name, e.g. "create prompt", "log trace", "evaluate response"',
+        ),
     },
     async (args: { task?: string }) => {
       const tasks = getAllExampleTasks();
@@ -155,7 +159,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         ],
       };
     },
-    { requiresApiKey: false }
+    { requiresApiKey: false },
   );
 
   registerTool(
@@ -166,7 +170,9 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
       metric: z
         .string()
         .optional()
-        .describe('Optional metric name (e.g. hallucination, answerrelevance, moderation)'),
+        .describe(
+          'Optional metric name (e.g. hallucination, answerrelevance, moderation)',
+        ),
     },
     async (args: { metric?: string }) => {
       if (args.metric) {
@@ -202,7 +208,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         ],
       };
     },
-    { requiresApiKey: false }
+    { requiresApiKey: false },
   );
 
   registerTool(
@@ -215,7 +221,9 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         .optional()
         .describe('Optional tracing topic'),
     },
-    async (args: { topic?: 'traces' | 'spans' | 'feedback' | 'search' | 'visualization' }) => {
+    async (args: {
+      topic?: 'traces' | 'spans' | 'feedback' | 'search' | 'visualization';
+    }) => {
       const info = getTracingInfo(args.topic);
 
       if (!info) {
@@ -238,7 +246,7 @@ export const loadCapabilitiesTools = (server: any, config: OpikConfig) => {
         ],
       };
     },
-    { requiresApiKey: false }
+    { requiresApiKey: false },
   );
 
   return server;

@@ -30,7 +30,7 @@ describe('Capabilities tools', () => {
 
     loadCapabilitiesTools(server, createConfig());
 
-    const toolNames = server.tool.mock.calls.map(call => call[0]);
+    const toolNames = server.tool.mock.calls.map((call) => call[0]);
     expect(toolNames).toEqual([
       'get-server-info',
       'get-opik-help',
@@ -47,10 +47,14 @@ describe('Capabilities tools', () => {
 
     loadCapabilitiesTools(server, createConfig());
 
-    const serverInfoTool = server.tool.mock.calls.find(call => call[0] === 'get-server-info');
+    const serverInfoTool = server.tool.mock.calls.find(
+      (call) => call[0] === 'get-server-info',
+    );
     expect(serverInfoTool).toBeDefined();
 
-    const handler = serverInfoTool?.[3] as (args: Record<string, unknown>) => Promise<any>;
+    const handler = serverInfoTool?.[3] as (
+      args: Record<string, unknown>,
+    ) => Promise<any>;
     const result = await handler({});
 
     const payload = JSON.parse(result.content[0].text);

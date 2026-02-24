@@ -44,7 +44,7 @@ function toErrorMessage(error: unknown): string {
 }
 
 // Start the server after applying CLI overrides.
-main().catch(error => {
+main().catch((error) => {
   const message = toErrorMessage(error);
   console.error(`Failed to start Opik MCP server: ${message}`);
   process.exit(1);

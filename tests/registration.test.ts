@@ -22,14 +22,16 @@ describe('tool registration auth requirements', () => {
     } as any;
 
     loadProjectTools(server, { includeReadOps: true, includeMutations: true });
-    expect(calls.some(call => call[0] === 'list-projects')).toBe(true);
+    expect(calls.some((call) => call[0] === 'list-projects')).toBe(true);
 
-    const projectToolsCall = calls.find(call => call[0] === 'list-projects');
+    const projectToolsCall = calls.find((call) => call[0] === 'list-projects');
     const projectToolsHandler = projectToolsCall?.[2];
     const result = await projectToolsHandler({ page: 1, size: 10 }, {});
 
     expect(result).toHaveProperty('content');
-    expect(result.content?.[0]?.text).toContain('This Opik MCP request requires an API key');
+    expect(result.content?.[0]?.text).toContain(
+      'This Opik MCP request requires an API key',
+    );
   });
 
   test('allows onboarding-safe tools when no API key', async () => {
@@ -59,14 +61,16 @@ describe('tool registration auth requirements', () => {
 
     loadCapabilitiesTools(server, serverConfig);
 
-    const safeToolCall = calls.find(call => call[0] === 'get-server-info');
+    const safeToolCall = calls.find((call) => call[0] === 'get-server-info');
     const safeToolHandler = safeToolCall?.[2];
     const safeToolResult = await safeToolHandler({});
 
     expect(safeToolResult).toHaveProperty('content');
     expect(safeToolResult.content?.[0]?.text).toContain(
-      '"apiBaseUrl": "https://www.comet.com/opik/api"'
+      '"apiBaseUrl": "https://www.comet.com/opik/api"',
     );
-    expect(safeToolResult.content?.[0]?.text).toContain('"transport": "streamable-http"');
+    expect(safeToolResult.content?.[0]?.text).toContain(
+      '"transport": "streamable-http"',
+    );
   });
 });

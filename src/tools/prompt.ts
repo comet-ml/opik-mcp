@@ -16,11 +16,15 @@ export const loadPromptTools = (server: any) => {
     async (args: any) => {
       const { page, size, name } = args;
       const api = getOpikApi();
-      const response = await callSdk<any>(() => api.prompts.getPrompts({ page, size, name }));
+      const response = await callSdk<any>(() =>
+        api.prompts.getPrompts({ page, size, name }),
+      );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch prompts' }],
+          content: [
+            { type: 'text', text: response.error || 'Failed to fetch prompts' },
+          ],
         };
       }
 
@@ -36,7 +40,7 @@ export const loadPromptTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -45,8 +49,14 @@ export const loadPromptTools = (server: any) => {
     'Create a prompt definition.',
     {
       name: z.string().min(1).describe('Prompt name.'),
-      description: z.string().optional().describe('Optional prompt description.'),
-      tags: z.array(z.string().min(1)).optional().describe('Optional prompt tags.'),
+      description: z
+        .string()
+        .optional()
+        .describe('Optional prompt description.'),
+      tags: z
+        .array(z.string().min(1))
+        .optional()
+        .describe('Optional prompt tags.'),
     },
     async (args: any) => {
       const { name, description, tags } = args;
@@ -56,7 +66,7 @@ export const loadPromptTools = (server: any) => {
           name,
           ...(description && { description }),
           ...(tags && { metadata: { tags } }),
-        })
+        }),
       );
 
       return {
@@ -67,7 +77,7 @@ export const loadPromptTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -80,11 +90,15 @@ export const loadPromptTools = (server: any) => {
     async (args: any) => {
       const { promptId } = args;
       const api = getOpikApi();
-      const response = await callSdk<any>(() => api.prompts.getPromptById(promptId));
+      const response = await callSdk<any>(() =>
+        api.prompts.getPromptById(promptId),
+      );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch prompt' }],
+          content: [
+            { type: 'text', text: response.error || 'Failed to fetch prompt' },
+          ],
         };
       }
 
@@ -96,7 +110,7 @@ export const loadPromptTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -105,7 +119,10 @@ export const loadPromptTools = (server: any) => {
     'Get a specific prompt version by name and optional commit.',
     {
       name: z.string().min(1).describe('Prompt name.'),
-      commit: z.string().optional().describe('Optional commit/version identifier.'),
+      commit: z
+        .string()
+        .optional()
+        .describe('Optional commit/version identifier.'),
     },
     async (args: any) => {
       const { name, commit } = args;
@@ -114,12 +131,17 @@ export const loadPromptTools = (server: any) => {
         api.prompts.retrievePromptVersion({
           name,
           ...(commit && { commit }),
-        })
+        }),
       );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch prompt version' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to fetch prompt version',
+            },
+          ],
         };
       }
 
@@ -131,7 +153,7 @@ export const loadPromptTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -144,11 +166,15 @@ export const loadPromptTools = (server: any) => {
     async (args: any) => {
       const { promptId } = args;
       const api = getOpikApi();
-      const response = await callSdk<any>(() => api.prompts.deletePrompt(promptId));
+      const response = await callSdk<any>(() =>
+        api.prompts.deletePrompt(promptId),
+      );
 
       if (response.error) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to delete prompt' }],
+          content: [
+            { type: 'text', text: response.error || 'Failed to delete prompt' },
+          ],
         };
       }
 
@@ -160,7 +186,7 @@ export const loadPromptTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -174,12 +200,28 @@ export const loadPromptTools = (server: any) => {
         .string()
         .optional()
         .describe('Optional summary of changes in this version.'),
-      change_description: z.string().optional().describe('Deprecated alias for changeDescription.'),
-      metadata: z.record(z.any()).optional().describe('Additional metadata for the prompt version'),
-      type: z.enum(['mustache', 'jinja2']).optional().describe('Template format.'),
+      change_description: z
+        .string()
+        .optional()
+        .describe('Deprecated alias for changeDescription.'),
+      metadata: z
+        .record(z.any())
+        .optional()
+        .describe('Additional metadata for the prompt version'),
+      type: z
+        .enum(['mustache', 'jinja2'])
+        .optional()
+        .describe('Template format.'),
     },
     async (args: any) => {
-      const { name, template, change_description, changeDescription, metadata, type } = args;
+      const {
+        name,
+        template,
+        change_description,
+        changeDescription,
+        metadata,
+        type,
+      } = args;
       const resolvedChangeDescription = changeDescription ?? change_description;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
@@ -187,16 +229,23 @@ export const loadPromptTools = (server: any) => {
           name,
           version: {
             template,
-            ...(resolvedChangeDescription && { changeDescription: resolvedChangeDescription }),
+            ...(resolvedChangeDescription && {
+              changeDescription: resolvedChangeDescription,
+            }),
             ...(metadata && { metadata }),
             ...(type && { type }),
           },
-        })
+        }),
       );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to create prompt version' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to create prompt version',
+            },
+          ],
         };
       }
 
@@ -212,7 +261,7 @@ export const loadPromptTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   return server;

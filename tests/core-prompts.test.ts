@@ -9,7 +9,7 @@ describe('core prompts', () => {
 
     loadCorePrompts(server);
 
-    const names = server.prompt.mock.calls.map(call => call[0]);
+    const names = server.prompt.mock.calls.map((call) => call[0]);
     expect(names).toEqual(['opik-triage-workflow', 'opik-dataset-maintenance']);
   });
 });

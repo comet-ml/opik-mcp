@@ -38,26 +38,29 @@ function toErrorMessage(error: unknown): string {
 // Only initialize log file if debug mode is enabled
 if (config.debugMode) {
   try {
-    fs.writeFileSync(logFile, `Opik MCP Server Started: ${new Date().toISOString()}\n`);
+    fs.writeFileSync(
+      logFile,
+      `Opik MCP Server Started: ${new Date().toISOString()}\n`,
+    );
 
     // Log process info
     logToFile(`Process ID: ${process.pid}, Node Version: ${process.version}`);
     logToFile(`Arguments: ${process.argv.join(' ')}`);
     logToFile(
-      `Loaded configuration: API=${config.apiBaseUrl}, Workspace=${config.workspaceName || 'None'}`
+      `Loaded configuration: API=${config.apiBaseUrl}, Workspace=${config.workspaceName || 'None'}`,
     );
 
     // Register error handlers
-    process.on('uncaughtException', err => {
+    process.on('uncaughtException', (err) => {
       logToFile(`UNCAUGHT EXCEPTION: ${err.message}`);
       logToFile(err.stack || 'No stack trace');
     });
 
-    process.on('unhandledRejection', reason => {
+    process.on('unhandledRejection', (reason) => {
       logToFile(`UNHANDLED REJECTION: ${reason}`);
     });
 
-    process.on('exit', code => {
+    process.on('exit', (code) => {
       logToFile(`Process exiting with code ${code}`);
     });
   } catch (error) {
@@ -76,7 +79,7 @@ export let server = new McpServer(
       resources: {}, // Enable resources capability
       tools: {}, // Enable tools capability
     },
-  }
+  },
 );
 
 // Load tools based on enabled toolsets
@@ -94,10 +97,16 @@ if (enabledToolsets.has('core')) {
   server = loadCorePrompts(server);
   logToFile('Loaded core prompts');
 
-  server = loadProjectTools(server, { includeReadOps: true, includeMutations: false });
+  server = loadProjectTools(server, {
+    includeReadOps: true,
+    includeMutations: false,
+  });
   logToFile('Loaded core project read tools');
 
-  server = loadTraceTools(server, { includeCoreTools: true, includeExpertActions: false });
+  server = loadTraceTools(server, {
+    includeCoreTools: true,
+    includeExpertActions: false,
+  });
   logToFile('Loaded core trace tools');
 }
 
@@ -112,12 +121,18 @@ if (enabledToolsets.has('expert-datasets')) {
 }
 
 if (enabledToolsets.has('expert-project-actions')) {
-  server = loadProjectTools(server, { includeReadOps: false, includeMutations: true });
+  server = loadProjectTools(server, {
+    includeReadOps: false,
+    includeMutations: true,
+  });
   logToFile('Loaded expert project actions toolset');
 }
 
 if (enabledToolsets.has('expert-trace-actions')) {
-  server = loadTraceTools(server, { includeCoreTools: false, includeExpertActions: true });
+  server = loadTraceTools(server, {
+    includeCoreTools: false,
+    includeExpertActions: true,
+  });
   logToFile('Loaded expert trace actions toolset');
 }
 
@@ -138,7 +153,9 @@ export async function main() {
   // Create the appropriate transport based on configuration
   let transport;
   if (config.transport === 'streamable-http') {
-    logToFile(`Creating Streamable HTTP transport on port ${config.streamableHttpPort}`);
+    logToFile(
+      `Creating Streamable HTTP transport on port ${config.streamableHttpPort}`,
+    );
     transport = new StreamableHttpTransport({
       port: config.streamableHttpPort || 3001,
       host: config.streamableHttpHost || '127.0.0.1',
@@ -160,7 +177,9 @@ export async function main() {
 
   // Log server status
   if (config.transport === 'streamable-http') {
-    logToFile(`Opik MCP Server running on Streamable HTTP (port ${config.streamableHttpPort})`);
+    logToFile(
+      `Opik MCP Server running on Streamable HTTP (port ${config.streamableHttpPort})`,
+    );
   } else {
     logToFile('Opik MCP Server running on stdio');
   }
@@ -185,7 +204,7 @@ function shouldAutoStart(): boolean {
 
 // Start the server only when this file is the process entrypoint.
 if (shouldAutoStart()) {
-  main().catch(error => {
+  main().catch((error) => {
     const message = toErrorMessage(error);
     logToFile(`Error starting server: ${message}`);
     console.error(`Failed to start Opik MCP server: ${message}`);

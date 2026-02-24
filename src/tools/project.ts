@@ -8,7 +8,10 @@ interface ProjectToolOptions {
   includeMutations?: boolean;
 }
 
-export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) => {
+export const loadProjectTools = (
+  server: any,
+  options: ProjectToolOptions = {},
+) => {
   const { includeReadOps = true, includeMutations = true } = options;
 
   if (includeReadOps) {
@@ -25,12 +28,20 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
         const { page, size, workspaceName } = args;
         const api = getOpikApi();
         const response = await callSdk<any>(() =>
-          api.projects.findProjects({ page, size }, getRequestOptions(workspaceName))
+          api.projects.findProjects(
+            { page, size },
+            getRequestOptions(workspaceName),
+          ),
         );
 
         if (!response.data) {
           return {
-            content: [{ type: 'text', text: response.error || 'Failed to fetch projects' }],
+            content: [
+              {
+                type: 'text',
+                text: response.error || 'Failed to fetch projects',
+              },
+            ],
           };
         }
 
@@ -55,7 +66,7 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
           idempotentHint: true,
           openWorldHint: false,
         },
-      }
+      },
     );
   }
 
@@ -66,7 +77,10 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
       'Create a new project for traces, prompts, and evaluation runs.',
       {
         name: z.string().min(1).describe('Project name.'),
-        description: z.string().optional().describe('Optional project description.'),
+        description: z
+          .string()
+          .optional()
+          .describe('Optional project description.'),
         workspaceName: workspaceNameSchema,
       },
       async (args: any) => {
@@ -78,8 +92,8 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
               name,
               ...(description && { description }),
             },
-            getRequestOptions(workspaceName)
-          )
+            getRequestOptions(workspaceName),
+          ),
         );
 
         return {
@@ -99,7 +113,7 @@ export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) 
           idempotentHint: false,
           openWorldHint: false,
         },
-      }
+      },
     );
   }
 

@@ -23,11 +23,13 @@ type ToolRegistrationOptions = {
   _meta?: Record<string, unknown>;
 };
 
-function inferAnnotations(name: string): ToolRegistrationOptions['annotations'] {
+function inferAnnotations(
+  name: string,
+): ToolRegistrationOptions['annotations'] {
   const readPrefixes = ['get-', 'list-', 'search-', 'read-'];
   const mutatePrefixes = ['create-', 'delete-', 'update-', 'add-', 'save-'];
 
-  if (readPrefixes.some(prefix => name.startsWith(prefix))) {
+  if (readPrefixes.some((prefix) => name.startsWith(prefix))) {
     return {
       readOnlyHint: true,
       destructiveHint: false,
@@ -36,7 +38,7 @@ function inferAnnotations(name: string): ToolRegistrationOptions['annotations'] 
     };
   }
 
-  if (mutatePrefixes.some(prefix => name.startsWith(prefix))) {
+  if (mutatePrefixes.some((prefix) => name.startsWith(prefix))) {
     return {
       readOnlyHint: false,
       destructiveHint: name.startsWith('delete-'),
@@ -48,11 +50,14 @@ function inferAnnotations(name: string): ToolRegistrationOptions['annotations'] 
   return undefined;
 }
 
-function withRequestContext<T extends (...args: any[]) => any>(handler: T, requiresApiKey = true) {
+function withRequestContext<T extends (...args: any[]) => any>(
+  handler: T,
+  requiresApiKey = true,
+) {
   return (...args: any[]) => {
     const extra = [...args]
       .reverse()
-      .find(arg => arg && typeof arg === 'object' && 'authInfo' in arg);
+      .find((arg) => arg && typeof arg === 'object' && 'authInfo' in arg);
     const authInfo = extra?.authInfo;
     const context = {
       apiKey: authInfo?.token as string | undefined,
@@ -80,9 +85,12 @@ export function registerTool(
   description: string,
   inputSchema: any,
   handler: any,
-  options: ToolRegistrationOptions = {}
+  options: ToolRegistrationOptions = {},
 ): void {
-  const wrappedHandler = withRequestContext(handler, options.requiresApiKey !== false);
+  const wrappedHandler = withRequestContext(
+    handler,
+    options.requiresApiKey !== false,
+  );
 
   if (typeof server.registerTool === 'function') {
     const inferredAnnotations = inferAnnotations(name);
@@ -97,11 +105,13 @@ export function registerTool(
         ...(options.title && { title: options.title }),
         description,
         inputSchema,
-        ...(Object.keys(mergedAnnotations).length > 0 && { annotations: mergedAnnotations }),
+        ...(Object.keys(mergedAnnotations).length > 0 && {
+          annotations: mergedAnnotations,
+        }),
         ...(options.outputSchema && { outputSchema: options.outputSchema }),
         ...(options._meta && { _meta: options._meta }),
       },
-      wrappedHandler
+      wrappedHandler,
     );
     return;
   }
@@ -114,7 +124,7 @@ export function registerResource(
   name: string,
   uri: string,
   description: string,
-  readCallback: any
+  readCallback: any,
 ): void {
   const wrappedReadCallback = withRequestContext(readCallback);
 
@@ -125,7 +135,7 @@ export function registerResource(
       {
         description,
       },
-      wrappedReadCallback
+      wrappedReadCallback,
     );
     return;
   }
@@ -139,10 +149,12 @@ export function registerResourceTemplate(
   uriTemplate: string,
   description: string,
   readCallback: any,
-  listCallback?: any
+  listCallback?: any,
 ): void {
   const wrappedReadCallback = withRequestContext(readCallback);
-  const wrappedListCallback = listCallback ? withRequestContext(listCallback) : undefined;
+  const wrappedListCallback = listCallback
+    ? withRequestContext(listCallback)
+    : undefined;
   const template = new ResourceTemplate(uriTemplate, {
     list: wrappedListCallback,
   });
@@ -154,7 +166,7 @@ export function registerResourceTemplate(
       {
         description,
       },
-      wrappedReadCallback
+      wrappedReadCallback,
     );
     return;
   }
@@ -168,7 +180,7 @@ export function registerPrompt(
   description: string,
   argsSchema: any,
   handler: any,
-  options: { title?: string } = {}
+  options: { title?: string } = {},
 ): void {
   const wrappedHandler = withRequestContext(handler);
 
@@ -180,7 +192,7 @@ export function registerPrompt(
         description,
         argsSchema,
       },
-      wrappedHandler
+      wrappedHandler,
     );
     return;
   }

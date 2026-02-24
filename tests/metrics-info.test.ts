@@ -81,7 +81,7 @@ describe('Metrics Info Module Tests', () => {
     }
 
     // Verify all expected metrics are included
-    const metricNames = result.map(metric => metric.name.toLowerCase());
+    const metricNames = result.map((metric) => metric.name.toLowerCase());
     const expectedMetrics = [
       'hallucination',
       'answerrelevance',

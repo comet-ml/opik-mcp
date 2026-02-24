@@ -7,7 +7,7 @@ const config = loadConfig();
 export const makeApiRequest = async <T>(
   path: string,
   options: RequestInit = {},
-  workspaceName?: string
+  workspaceName?: string,
 ): Promise<{ data: T | null; error: string | null }> => {
   // Prepare headers based on configuration
   const API_HEADERS: Record<string, string> = {
@@ -27,7 +27,7 @@ export const makeApiRequest = async <T>(
       // The API will return a 400 error if a non-existent workspace is specified.
       const workspaceNameToUse = wsName.trim();
       logToFile(
-        `DEBUG - Workspace name before setting header: "${workspaceNameToUse}", type: ${typeof workspaceNameToUse}, length: ${workspaceNameToUse.length}`
+        `DEBUG - Workspace name before setting header: "${workspaceNameToUse}", type: ${typeof workspaceNameToUse}, length: ${workspaceNameToUse.length}`,
       );
 
       // Use the raw workspace name - do not encode it
@@ -75,7 +75,8 @@ export const makeApiRequest = async <T>(
       error: null,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
     logToFile(`Error making API request: ${errorMessage}`);
     return {
       data: null,

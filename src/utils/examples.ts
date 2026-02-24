@@ -14,7 +14,8 @@ export interface ExampleData {
 const examples: Record<string, ExampleData> = {
   'create-prompt': {
     title: 'Create Prompt',
-    description: 'Create a new prompt in Opik to use with your LLM applications.',
+    description:
+      'Create a new prompt in Opik to use with your LLM applications.',
     steps: [
       'Initialize the Opik client with your API key',
       'Define a name for your prompt',
@@ -52,7 +53,8 @@ console.log(\`Created prompt with ID: \${promptId}\`);
 
   'version-prompt': {
     title: 'Version Prompt',
-    description: 'Create a new version of an existing prompt with updated template content.',
+    description:
+      'Create a new version of an existing prompt with updated template content.',
     steps: [
       'Initialize the Opik client with your API key',
       'Retrieve the prompt ID of the prompt you want to version',
@@ -115,7 +117,8 @@ console.log(\`Created version \${version.version} of prompt \${promptId}\`);
 
   'create-project': {
     title: 'Create Project',
-    description: 'Create a new project in Opik to organize your prompts, traces, and evaluations.',
+    description:
+      'Create a new project in Opik to organize your prompts, traces, and evaluations.',
     steps: [
       'Initialize the Opik client with your API key',
       'Define a name and optional description for your project',
@@ -411,8 +414,10 @@ export function getExampleForTask(task?: string): ExampleData | null {
     const taskWords = normalizedTask.split(/\s+/);
 
     // Check if all key words are in the task
-    const allWordsMatch = keyWords.every(word =>
-      taskWords.some(taskWord => taskWord.includes(word) || word.includes(taskWord))
+    const allWordsMatch = keyWords.every((word) =>
+      taskWords.some(
+        (taskWord) => taskWord.includes(word) || word.includes(taskWord),
+      ),
     );
 
     if (allWordsMatch) {
@@ -438,5 +443,5 @@ export function getExampleForTask(task?: string): ExampleData | null {
  * @returns Array of task titles
  */
 export function getAllExampleTasks(): string[] {
-  return Object.values(examples).map(example => example.title);
+  return Object.values(examples).map((example) => example.title);
 }

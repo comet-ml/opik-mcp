@@ -2,7 +2,9 @@ import { describe, expect, jest, test } from '@jest/globals';
 import type { OpikConfig } from '../src/config.js';
 import { loadOpikResources } from '../src/resources/opik-resources.js';
 
-function baseConfig(enabledToolsets: OpikConfig['enabledToolsets']): OpikConfig {
+function baseConfig(
+  enabledToolsets: OpikConfig['enabledToolsets'],
+): OpikConfig {
   return {
     apiBaseUrl: 'https://www.comet.com/opik/api',
     workspaceName: 'default',
@@ -30,7 +32,7 @@ describe('loadOpikResources', () => {
 
     loadOpikResources(server, baseConfig(['core']));
 
-    const names = server.registerResource.mock.calls.map(call => call[0]);
+    const names = server.registerResource.mock.calls.map((call) => call[0]);
     expect(names).toContain('workspace-info');
   });
 
@@ -42,7 +44,7 @@ describe('loadOpikResources', () => {
 
     loadOpikResources(server, baseConfig(['core']));
 
-    const names = server.registerResource.mock.calls.map(call => call[0]);
+    const names = server.registerResource.mock.calls.map((call) => call[0]);
     expect(names).toContain('projects-list');
     expect(names).toContain('projects-page');
     expect(names).toContain('trace-by-id');
@@ -57,9 +59,12 @@ describe('loadOpikResources', () => {
       resource: jest.fn(),
     };
 
-    loadOpikResources(server, baseConfig(['expert-prompts', 'expert-datasets']));
+    loadOpikResources(
+      server,
+      baseConfig(['expert-prompts', 'expert-datasets']),
+    );
 
-    const names = server.registerResource.mock.calls.map(call => call[0]);
+    const names = server.registerResource.mock.calls.map((call) => call[0]);
     expect(names).toContain('prompts-page');
     expect(names).toContain('prompt-latest');
     expect(names).toContain('prompt-commit');
@@ -78,7 +83,7 @@ describe('loadOpikResources', () => {
 
     loadOpikResources(server, baseConfig(['expert-trace-actions']));
 
-    const names = server.registerResource.mock.calls.map(call => call[0]);
+    const names = server.registerResource.mock.calls.map((call) => call[0]);
     expect(names).toContain('trace-by-id');
     expect(names).toContain('traces-by-project-page');
   });

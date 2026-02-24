@@ -11,7 +11,12 @@ function getEffectiveApiKey(): string {
 
 function getEffectiveWorkspaceName(): string {
   const context = getRequestContext();
-  return context?.workspaceName || config.workspaceName || config.mcpDefaultWorkspace || 'default';
+  return (
+    context?.workspaceName ||
+    config.workspaceName ||
+    config.mcpDefaultWorkspace ||
+    'default'
+  );
 }
 
 function getOpikClient(): any {
@@ -27,7 +32,7 @@ function getOpikClient(): any {
         apiUrl: config.apiBaseUrl,
         workspaceName,
         projectName: config.mcpDefaultWorkspace || 'default',
-      })
+      }),
     );
   }
 
@@ -38,14 +43,16 @@ export function getOpikApi(): any {
   return getOpikClient().api;
 }
 
-export function getRequestOptions(workspaceName?: string): Record<string, string> {
+export function getRequestOptions(
+  workspaceName?: string,
+): Record<string, string> {
   const context = getRequestContext();
   const effectiveWorkspace = context?.workspaceName || workspaceName;
   return effectiveWorkspace ? { workspaceName: effectiveWorkspace } : {};
 }
 
 export async function callSdk<T>(
-  fn: () => Promise<T>
+  fn: () => Promise<T>,
 ): Promise<{ data: T | null; error: string | null }> {
   try {
     const data = await fn();
@@ -59,7 +66,7 @@ export async function callSdk<T>(
 export async function resolveProjectIdentifier(
   projectId?: string,
   projectName?: string,
-  workspaceName?: string
+  workspaceName?: string,
 ): Promise<{ projectId?: string; projectName?: string; error?: string }> {
   if (projectId || projectName) {
     return { projectId, projectName };
@@ -72,11 +79,15 @@ export async function resolveProjectIdentifier(
         page: 1,
         size: 1,
       },
-      getRequestOptions(workspaceName)
-    )
+      getRequestOptions(workspaceName),
+    ),
   );
 
-  if (!response.data || !response.data.content || response.data.content.length === 0) {
+  if (
+    !response.data ||
+    !response.data.content ||
+    response.data.content.length === 0
+  ) {
     return { error: response.error || 'No projects found' };
   }
 
@@ -84,8 +95,14 @@ export async function resolveProjectIdentifier(
 }
 
 export function mapMetricType(
-  metricName?: string
-): 'FEEDBACK_SCORES' | 'TRACE_COUNT' | 'TOKEN_USAGE' | 'DURATION' | 'COST' | undefined {
+  metricName?: string,
+):
+  | 'FEEDBACK_SCORES'
+  | 'TRACE_COUNT'
+  | 'TOKEN_USAGE'
+  | 'DURATION'
+  | 'COST'
+  | undefined {
   if (!metricName) {
     return undefined;
   }
@@ -115,7 +132,7 @@ export function buildTraceFilters(
   query?: string,
   filters?: Record<string, any>,
   startDate?: string,
-  endDate?: string
+  endDate?: string,
 ): string | undefined {
   const clauses: string[] = [];
 
@@ -140,11 +157,16 @@ export function buildTraceFilters(
 
       if (typeof value === 'object' && !Array.isArray(value)) {
         for (const [operator, operatorValue] of Object.entries(value)) {
-          if (operator === '$gt') clauses.push(`${key} > ${JSON.stringify(operatorValue)}`);
-          if (operator === '$gte') clauses.push(`${key} >= ${JSON.stringify(operatorValue)}`);
-          if (operator === '$lt') clauses.push(`${key} < ${JSON.stringify(operatorValue)}`);
-          if (operator === '$lte') clauses.push(`${key} <= ${JSON.stringify(operatorValue)}`);
-          if (operator === '$ne') clauses.push(`${key} != ${JSON.stringify(operatorValue)}`);
+          if (operator === '$gt')
+            clauses.push(`${key} > ${JSON.stringify(operatorValue)}`);
+          if (operator === '$gte')
+            clauses.push(`${key} >= ${JSON.stringify(operatorValue)}`);
+          if (operator === '$lt')
+            clauses.push(`${key} < ${JSON.stringify(operatorValue)}`);
+          if (operator === '$lte')
+            clauses.push(`${key} <= ${JSON.stringify(operatorValue)}`);
+          if (operator === '$ne')
+            clauses.push(`${key} != ${JSON.stringify(operatorValue)}`);
         }
       } else {
         clauses.push(`${key} = ${JSON.stringify(value)}`);

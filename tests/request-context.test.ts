@@ -29,7 +29,7 @@ describe('request context helpers', () => {
   test('runWithRequestContext exposes context during execution', () => {
     const result = runWithRequestContext(
       { apiKey: 'scoped-key', workspaceName: 'scoped-workspace' },
-      () => getRequestContext()
+      () => getRequestContext(),
     );
 
     expect(result?.apiKey).toBe('scoped-key');

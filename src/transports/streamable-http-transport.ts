@@ -38,7 +38,7 @@ function parseCsvEnv(value: string | undefined): string[] {
 
   return value
     .split(',')
-    .map(part => part.trim())
+    .map((part) => part.trim())
     .filter(Boolean);
 }
 
@@ -49,14 +49,19 @@ function isAccessLogEnabled(): boolean {
   }
 
   const normalized = value.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+  return (
+    normalized === '1' ||
+    normalized === 'true' ||
+    normalized === 'yes' ||
+    normalized === 'on'
+  );
 }
 
 function formatAccessLogLine(
   req: express.Request,
   res: express.Response,
   durationMs: number,
-  hasAuthHeader: boolean
+  hasAuthHeader: boolean,
 ): string {
   const timestamp = new Date().toISOString();
   const forwardedFor = req.header('x-forwarded-for');
@@ -71,7 +76,10 @@ function formatAccessLogLine(
   return `${timestamp} INFO: ${clientIp}${clientPort} - "${requestLine}" ${res.statusCode} ${durationMs}ms auth=${hasAuthHeader ? 'yes' : 'no'}`;
 }
 
-function getMcpMethodFromRequest(req: express.Request): { method?: string; toolName?: string } {
+function getMcpMethodFromRequest(req: express.Request): {
+  method?: string;
+  toolName?: string;
+} {
   const body = req.body as { method?: unknown; params?: { name?: unknown } };
   if (!body || typeof body !== 'object') {
     return {};
@@ -83,7 +91,9 @@ function getMcpMethodFromRequest(req: express.Request): { method?: string; toolN
   }
 
   const toolName =
-    method === 'tools/call' && body.params && typeof body.params.name === 'string'
+    method === 'tools/call' &&
+    body.params &&
+    typeof body.params.name === 'string'
       ? body.params.name
       : undefined;
 
@@ -93,7 +103,7 @@ function getMcpMethodFromRequest(req: express.Request): { method?: string; toolN
 function setAuthChallengeHeaders(res: express.Response): void {
   res.setHeader(
     'WWW-Authenticate',
-    'Bearer realm="opik-mcp", error="invalid_token", error_description="Missing or invalid API key."'
+    'Bearer realm="opik-mcp", error="invalid_token", error_description="Missing or invalid API key."',
   );
   res.setHeader('Cache-Control', 'no-store');
 }
@@ -109,11 +119,17 @@ function getBaseUrl(req: express.Request): string {
 }
 
 function createRateLimiter() {
-  const windowMs = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000);
+  const windowMs = Number(
+    process.env.STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS || 60_000,
+  );
   const maxRequests = Number(process.env.STREAMABLE_HTTP_RATE_LIMIT_MAX || 120);
   const buckets = new Map<string, { count: number; resetAt: number }>();
 
-  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  return (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction,
+  ) => {
     const token =
       (req.headers['x-api-key'] as string) ||
       (req.headers.authorization as string) ||
@@ -174,21 +190,28 @@ export class StreamableHttpTransport implements Transport {
     this.host = options.host || process.env.STREAMABLE_HTTP_HOST || '127.0.0.1';
     this.app = createMcpExpressApp({ host: this.host });
 
-    this.mcpTransport.onerror = error => {
+    this.mcpTransport.onerror = (error) => {
       logToFile(
-        `Streamable HTTP transport error: ${error instanceof Error ? error.stack || error.message : String(error)}`
+        `Streamable HTTP transport error: ${error instanceof Error ? error.stack || error.message : String(error)}`,
       );
     };
 
-    const allowedOrigins = parseCsvEnv(process.env.STREAMABLE_HTTP_CORS_ORIGINS);
+    const allowedOrigins = parseCsvEnv(
+      process.env.STREAMABLE_HTTP_CORS_ORIGINS,
+    );
     if (allowedOrigins.length > 0) {
       this.app.use(
         cors({
           origin: allowedOrigins,
           methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
-          allowedHeaders: ['content-type', 'authorization', 'x-api-key', 'comet-workspace'],
+          allowedHeaders: [
+            'content-type',
+            'authorization',
+            'x-api-key',
+            'comet-workspace',
+          ],
           credentials: false,
-        })
+        }),
       );
     }
 
@@ -198,7 +221,9 @@ export class StreamableHttpTransport implements Transport {
     if (isAccessLogEnabled()) {
       this.app.use((req, res, next) => {
         const start = Date.now();
-        const hasAuthHeader = Boolean(req.headers.authorization || req.headers['x-api-key']);
+        const hasAuthHeader = Boolean(
+          req.headers.authorization || req.headers['x-api-key'],
+        );
         res.on('finish', () => {
           const durationMs = Date.now() - start;
           const line = formatAccessLogLine(req, res, durationMs, hasAuthHeader);
@@ -215,7 +240,10 @@ export class StreamableHttpTransport implements Transport {
     });
 
     this.app.get(
-      ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'],
+      [
+        '/.well-known/oauth-protected-resource',
+        '/.well-known/oauth-protected-resource/mcp',
+      ],
       (req, res) => {
         const baseUrl = getBaseUrl(req);
         const metadata = {
@@ -226,7 +254,7 @@ export class StreamableHttpTransport implements Transport {
           opik_auth_mode: 'api_key',
         };
         res.json(metadata);
-      }
+      },
     );
 
     const oauthNotSupportedResponse: { error: string; message: string } = {
@@ -236,10 +264,13 @@ export class StreamableHttpTransport implements Transport {
     };
 
     this.app.get(
-      ['/.well-known/oauth-authorization-server', '/.well-known/openid-configuration'],
+      [
+        '/.well-known/oauth-authorization-server',
+        '/.well-known/openid-configuration',
+      ],
       (_req, res) => {
         res.status(404).json(oauthNotSupportedResponse);
-      }
+      },
     );
 
     this.app.post('/register', (_req, res) => {
@@ -249,9 +280,12 @@ export class StreamableHttpTransport implements Transport {
     this.app.all('/mcp', async (req, res) => {
       try {
         const { method, toolName } = getMcpMethodFromRequest(req);
-        if (isRemoteAuthRequired() && !isMethodAllowedWithoutAuth(method || '', toolName)) {
+        if (
+          isRemoteAuthRequired() &&
+          !isMethodAllowedWithoutAuth(method || '', toolName)
+        ) {
           const auth = authenticateRemoteRequest(
-            req.headers as Record<string, string | string[] | undefined>
+            req.headers as Record<string, string | string[] | undefined>,
           );
 
           if (!auth.ok) {
@@ -290,7 +324,11 @@ export class StreamableHttpTransport implements Transport {
           };
         }
 
-        await this.mcpTransport.handleRequest(req as NodeRequestWithAuth, res, req.body);
+        await this.mcpTransport.handleRequest(
+          req as NodeRequestWithAuth,
+          res,
+          req.body,
+        );
       } catch (error) {
         logToFile(`Error handling /mcp request: ${error}`);
         res.status(500).json({
@@ -348,8 +386,8 @@ export class StreamableHttpTransport implements Transport {
           reject(
             new Error(
               `Cannot start streamable-http transport: ${this.host}:${this.port} is already in use. ` +
-                `Stop the existing process or set STREAMABLE_HTTP_PORT/--port to a different value.`
-            )
+                `Stop the existing process or set STREAMABLE_HTTP_PORT/--port to a different value.`,
+            ),
           );
           return;
         }
@@ -359,7 +397,9 @@ export class StreamableHttpTransport implements Transport {
 
       const onListening = () => {
         this.server?.off('error', onError);
-        logToFile(`Streamable HTTP transport listening on ${this.host}:${this.port}`);
+        logToFile(
+          `Streamable HTTP transport listening on ${this.host}:${this.port}`,
+        );
         resolve();
       };
 
@@ -383,7 +423,7 @@ export class StreamableHttpTransport implements Transport {
 
     return new Promise((resolve, reject) => {
       if (this.server) {
-        this.server.close(err => {
+        this.server.close((err) => {
           if (err) {
             reject(err);
             return;

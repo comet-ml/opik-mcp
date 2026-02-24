@@ -27,7 +27,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
  */
 async function makeApiRequest<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<{ data: T | null; error: string | null }> {
   // Prepare headers based on configuration
   // According to the documentation:
@@ -87,7 +87,8 @@ async function makeApiRequest<T>(
       error: null,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    const errorMessage =
+      error instanceof Error ? error.message : 'Unknown error occurred';
     console.error('Error making API request:', error);
     return {
       data: null,
@@ -113,11 +114,15 @@ const api = {
 
   // Projects
   async listProjects(page = 1, size = 10) {
-    return makeApiRequest<ProjectResponse>(`/v1/private/projects?page=${page}&size=${size}`);
+    return makeApiRequest<ProjectResponse>(
+      `/v1/private/projects?page=${page}&size=${size}`,
+    );
   },
 
   async getProject(projectId: string) {
-    return makeApiRequest<SingleProjectResponse>(`/v1/private/projects/${projectId}`);
+    return makeApiRequest<SingleProjectResponse>(
+      `/v1/private/projects/${projectId}`,
+    );
   },
 
   // Traces
@@ -139,7 +144,9 @@ const api = {
 
   // Prompts
   async listPrompts(page = 1, size = 10) {
-    return makeApiRequest<PromptResponse>(`/v1/private/prompts?page=${page}&size=${size}`);
+    return makeApiRequest<PromptResponse>(
+      `/v1/private/prompts?page=${page}&size=${size}`,
+    );
   },
 
   // Metrics
@@ -200,7 +207,9 @@ async function findWorkspacesAndProjects() {
       }
     } else {
       // If no workspace is defined, try to discover available workspaces
-      console.log('No predefined workspace, attempting to discover workspaces...');
+      console.log(
+        'No predefined workspace, attempting to discover workspaces...',
+      );
 
       // This endpoint may not exist, but we can try
       const workspacesResponse = await api.listWorkspaces();
@@ -286,15 +295,19 @@ async function runApiTests() {
     const discovery = await findWorkspacesAndProjects();
 
     if (discovery.projectsWithTraces.length > 0) {
-      console.log(`\nFound ${discovery.projectsWithTraces.length} projects with traces:`);
+      console.log(
+        `\nFound ${discovery.projectsWithTraces.length} projects with traces:`,
+      );
       discovery.projectsWithTraces.forEach((project, index) => {
         console.log(
-          `${index + 1}. Workspace: ${project.workspaceName}, Project: ${project.projectName} (${project.projectId}), Traces: ${project.traceCount}`
+          `${index + 1}. Workspace: ${project.workspaceName}, Project: ${project.projectName} (${project.projectId}), Traces: ${project.traceCount}`,
         );
       });
 
       // Look for the 'Therapist Chat' project first
-      let testProject = discovery.projectsWithTraces.find(p => p.projectName === 'Therapist Chat');
+      let testProject = discovery.projectsWithTraces.find(
+        (p) => p.projectName === 'Therapist Chat',
+      );
 
       // If not found, use the first project with traces
       if (!testProject) {
@@ -302,7 +315,7 @@ async function runApiTests() {
       }
 
       console.log(
-        `\nUsing project "${testProject.projectName}" in workspace "${testProject.workspaceName}" for testing`
+        `\nUsing project "${testProject.projectName}" in workspace "${testProject.workspaceName}" for testing`,
       );
 
       // Set the workspace for testing
@@ -339,7 +352,10 @@ async function runApiTests() {
         console.log(JSON.stringify(tracesResponse.data, null, 2));
 
         // If there are traces, get details for the first one
-        if (tracesResponse.data.content && tracesResponse.data.content.length > 0) {
+        if (
+          tracesResponse.data.content &&
+          tracesResponse.data.content.length > 0
+        ) {
           const traceId = tracesResponse.data.content[0].id;
           console.log(`\nGetting details for trace: ${traceId}`);
 
@@ -353,7 +369,9 @@ async function runApiTests() {
       // Restore original workspace setting
       config.workspaceName = originalWorkspace;
     } else {
-      console.log('\nNo projects with traces found. Continuing with general tests...');
+      console.log(
+        '\nNo projects with traces found. Continuing with general tests...',
+      );
 
       // Default test flow...
       // Test Projects API
@@ -366,7 +384,10 @@ async function runApiTests() {
         console.log(JSON.stringify(projectsResponse.data, null, 2));
 
         // If there are projects, get details for the first one
-        if (projectsResponse.data.content && projectsResponse.data.content.length > 0) {
+        if (
+          projectsResponse.data.content &&
+          projectsResponse.data.content.length > 0
+        ) {
           firstProjectId = projectsResponse.data.content[0].id;
           console.log(`\nGetting details for project: ${firstProjectId}`);
 
@@ -387,7 +408,10 @@ async function runApiTests() {
           console.log('Trace statistics:');
           console.log(JSON.stringify(traceStatsResponse.data, null, 2));
         } else {
-          console.error('Error fetching trace stats:', traceStatsResponse.error);
+          console.error(
+            'Error fetching trace stats:',
+            traceStatsResponse.error,
+          );
         }
       } else {
         console.log('No projects available to test trace stats API');
@@ -418,20 +442,29 @@ async function runApiTests() {
       const therapistChatProjectId = '0194fdd8-de46-73c4-b0ac-381cec5fbf5c';
 
       // Get project details
-      console.log(`\nGetting details for Therapist Chat project: ${therapistChatProjectId}`);
+      console.log(
+        `\nGetting details for Therapist Chat project: ${therapistChatProjectId}`,
+      );
       const therapistChatProject = await api.getProject(therapistChatProjectId);
       if (therapistChatProject.data) {
         console.log(JSON.stringify(therapistChatProject.data, null, 2));
 
         // Get traces for this project
         console.log('\nGetting traces for Therapist Chat project:');
-        const therapistChatTraces = await api.listTraces(1, 10, therapistChatProjectId);
+        const therapistChatTraces = await api.listTraces(
+          1,
+          10,
+          therapistChatProjectId,
+        );
         if (therapistChatTraces.data) {
           console.log(`Found ${therapistChatTraces.data.total} traces`);
           console.log(JSON.stringify(therapistChatTraces.data, null, 2));
 
           // Get details for first trace if available
-          if (therapistChatTraces.data.content && therapistChatTraces.data.content.length > 0) {
+          if (
+            therapistChatTraces.data.content &&
+            therapistChatTraces.data.content.length > 0
+          ) {
             const traceId = therapistChatTraces.data.content[0].id;
             console.log(`\nGetting details for trace: ${traceId}`);
 
@@ -439,10 +472,16 @@ async function runApiTests() {
             console.log(JSON.stringify(traceDetail.data, null, 2));
           }
         } else {
-          console.error('Error fetching Therapist Chat traces:', therapistChatTraces.error);
+          console.error(
+            'Error fetching Therapist Chat traces:',
+            therapistChatTraces.error,
+          );
         }
       } else {
-        console.error('Error fetching Therapist Chat project:', therapistChatProject.error);
+        console.error(
+          'Error fetching Therapist Chat project:',
+          therapistChatProject.error,
+        );
       }
     }
   } catch (err) {
@@ -476,7 +515,7 @@ async function main() {
     },
     {
       capabilities: {},
-    }
+    },
   );
 
   try {
@@ -510,7 +549,7 @@ if (isMainModule) {
   });
 }
 
-main().catch(error => {
+main().catch((error) => {
   console.error('Fatal error:', error);
   process.exit(1);
 });

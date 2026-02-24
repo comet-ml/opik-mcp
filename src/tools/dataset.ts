@@ -18,12 +18,20 @@ export const loadDatasetTools = (server: any) => {
       const { page = 1, size = 10, name, workspaceName } = args;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
-        api.datasets.findDatasets({ page, size, name }, getRequestOptions(workspaceName))
+        api.datasets.findDatasets(
+          { page, size, name },
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch datasets' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to fetch datasets',
+            },
+          ],
         };
       }
 
@@ -39,7 +47,7 @@ export const loadDatasetTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -54,19 +62,26 @@ export const loadDatasetTools = (server: any) => {
       const { datasetId, workspaceName } = args;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
-        api.datasets.getDatasetById(datasetId, getRequestOptions(workspaceName))
+        api.datasets.getDatasetById(
+          datasetId,
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch dataset' }],
+          content: [
+            { type: 'text', text: response.error || 'Failed to fetch dataset' },
+          ],
         };
       }
 
       return {
-        content: [{ type: 'text', text: JSON.stringify(response.data, null, 2) }],
+        content: [
+          { type: 'text', text: JSON.stringify(response.data, null, 2) },
+        ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -75,7 +90,10 @@ export const loadDatasetTools = (server: any) => {
     'Create a dataset for evaluations and experiments.',
     {
       name: z.string().min(1).describe('Dataset name.'),
-      description: z.string().optional().describe('Optional dataset description.'),
+      description: z
+        .string()
+        .optional()
+        .describe('Optional dataset description.'),
       workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
@@ -87,13 +105,18 @@ export const loadDatasetTools = (server: any) => {
             name,
             ...(description && { description }),
           },
-          getRequestOptions(workspaceName)
-        )
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (response.error) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to create dataset' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to create dataset',
+            },
+          ],
         };
       }
 
@@ -105,7 +128,7 @@ export const loadDatasetTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -120,19 +143,26 @@ export const loadDatasetTools = (server: any) => {
       const { datasetId, workspaceName } = args;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
-        api.datasets.deleteDataset(datasetId, getRequestOptions(workspaceName))
+        api.datasets.deleteDataset(datasetId, getRequestOptions(workspaceName)),
       );
 
       if (response.error) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to delete dataset' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to delete dataset',
+            },
+          ],
         };
       }
 
       return {
-        content: [{ type: 'text', text: `Successfully deleted dataset ${datasetId}` }],
+        content: [
+          { type: 'text', text: `Successfully deleted dataset ${datasetId}` },
+        ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -149,12 +179,21 @@ export const loadDatasetTools = (server: any) => {
       const { datasetId, page = 1, size = 25, workspaceName } = args;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
-        api.datasets.getDatasetItems(datasetId, { page, size }, getRequestOptions(workspaceName))
+        api.datasets.getDatasetItems(
+          datasetId,
+          { page, size },
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (!response.data) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch dataset items' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to fetch dataset items',
+            },
+          ],
         };
       }
 
@@ -170,7 +209,7 @@ export const loadDatasetTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -180,12 +219,19 @@ export const loadDatasetTools = (server: any) => {
     {
       datasetId: z.string().min(1).describe('Dataset ID.'),
       input: z.record(z.any()).describe('Input payload.'),
-      expectedOutput: z.record(z.any()).optional().describe('Optional expected output payload.'),
-      metadata: z.record(z.any()).optional().describe('Optional metadata payload.'),
+      expectedOutput: z
+        .record(z.any())
+        .optional()
+        .describe('Optional expected output payload.'),
+      metadata: z
+        .record(z.any())
+        .optional()
+        .describe('Optional metadata payload.'),
       workspaceName: workspaceNameSchema,
     },
     async (args: any) => {
-      const { datasetId, input, expectedOutput, metadata, workspaceName } = args;
+      const { datasetId, input, expectedOutput, metadata, workspaceName } =
+        args;
       const api = getOpikApi();
       const response = await callSdk<any>(() =>
         api.datasets.createOrUpdateDatasetItems(
@@ -202,13 +248,18 @@ export const loadDatasetTools = (server: any) => {
               },
             ],
           },
-          getRequestOptions(workspaceName)
-        )
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (response.error) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to create dataset item' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to create dataset item',
+            },
+          ],
         };
       }
 
@@ -220,7 +271,7 @@ export const loadDatasetTools = (server: any) => {
           },
         ],
       };
-    }
+    },
   );
 
   registerTool(
@@ -239,20 +290,27 @@ export const loadDatasetTools = (server: any) => {
           {
             itemIds: [itemId],
           },
-          getRequestOptions(workspaceName)
-        )
+          getRequestOptions(workspaceName),
+        ),
       );
 
       if (response.error) {
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to delete dataset item' }],
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Failed to delete dataset item',
+            },
+          ],
         };
       }
 
       return {
-        content: [{ type: 'text', text: `Successfully deleted dataset item ${itemId}` }],
+        content: [
+          { type: 'text', text: `Successfully deleted dataset item ${itemId}` },
+        ],
       };
-    }
+    },
   );
 
   return server;

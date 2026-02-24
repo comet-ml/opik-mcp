@@ -30,9 +30,15 @@ describe('Tracing Info Module Tests', () => {
 
         // Check if it has features property
         if ('features' in result) {
-          expect(result.title).toContain(topic.charAt(0).toUpperCase() + topic.slice(1));
-          expect(Array.isArray((result as TracingTopicInfo).features)).toBe(true);
-          expect((result as TracingTopicInfo).features.length).toBeGreaterThan(0);
+          expect(result.title).toContain(
+            topic.charAt(0).toUpperCase() + topic.slice(1),
+          );
+          expect(Array.isArray((result as TracingTopicInfo).features)).toBe(
+            true,
+          );
+          expect((result as TracingTopicInfo).features.length).toBeGreaterThan(
+            0,
+          );
         }
         // No else clause to fail the test
       }
@@ -52,15 +58,24 @@ describe('Tracing Info Module Tests', () => {
       // Check if it has availableTopics property
       if ('availableTopics' in result) {
         expect(result.title).toContain('Tracing');
-        expect(Array.isArray((result as TracingOverviewInfo).availableTopics)).toBe(true);
-        expect((result as TracingOverviewInfo).availableTopics.length).toBeGreaterThan(0);
+        expect(
+          Array.isArray((result as TracingOverviewInfo).availableTopics),
+        ).toBe(true);
+        expect(
+          (result as TracingOverviewInfo).availableTopics.length,
+        ).toBeGreaterThan(0);
 
         // Check if at least one expected topic is included
-        const expectedTopics = ['spans', 'distributed', 'multimodal', 'annotations'];
-        const hasAtLeastOneTopic = expectedTopics.some(topic =>
-          (result as TracingOverviewInfo).availableTopics.some(t =>
-            t.toLowerCase().includes(topic.toLowerCase())
-          )
+        const expectedTopics = [
+          'spans',
+          'distributed',
+          'multimodal',
+          'annotations',
+        ];
+        const hasAtLeastOneTopic = expectedTopics.some((topic) =>
+          (result as TracingOverviewInfo).availableTopics.some((t) =>
+            t.toLowerCase().includes(topic.toLowerCase()),
+          ),
         );
         expect(hasAtLeastOneTopic).toBe(true);
       }

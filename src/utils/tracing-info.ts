@@ -30,7 +30,13 @@ export function getTracingInfo(topic?: string): TracingInfo | null {
       title: 'Opik Tracing Capabilities',
       description:
         'Opik provides comprehensive tracing capabilities to help you understand and analyze your LLM applications. Traces capture the full context of LLM interactions, including inputs, outputs, and metadata.',
-      availableTopics: ['traces', 'spans', 'feedback', 'search', 'visualization'],
+      availableTopics: [
+        'traces',
+        'spans',
+        'feedback',
+        'search',
+        'visualization',
+      ],
     };
   }
 
