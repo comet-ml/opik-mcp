@@ -86,16 +86,22 @@ You can also use environment variables instead of command-line arguments:
         "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
         "OPIK_API_KEY": "your-api-key",
         "OPIK_WORKSPACE_NAME": "default",
-        "MCP_TRANSPORT": "stdio"
+        "TRANSPORT": "stdio"
       }
     }
   }
 }
 ```
 
-### Using SSE Transport
+### Onboarding Without a Key
 
-If you want to use the SSE transport:
+If you want to install Opik MCP in Cursor before a key is available, start the server with remote transport but no `OPIK_API_KEY` first.
+The server will initialize and return onboarding/help tool catalogues so users can run setup steps.
+When the key is ready, add it to `OPIK_API_KEY` (or configure `Authorization: Bearer` forwarding) and the toolset automatically moves into active mode for real operations.
+
+### Using Remote Streamable HTTP
+
+If you want to run the remote HTTP transport:
 
 ```json
 {
@@ -105,13 +111,13 @@ If you want to use the SSE transport:
       "args": [
         "/path/to/build/cli.js",
         "serve",
-        "--transport", "sse",
+        "--transport", "streamable-http",
         "--port", "3001"
       ],
       "env": {
         "OPIK_API_BASE_URL": "https://www.comet.com/opik/api",
-        "OPIK_API_KEY": "your-api-key",
-        "OPIK_WORKSPACE_NAME": "default"
+        "STREAMABLE_HTTP_REQUIRE_AUTH": "true",
+        "STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH": "true"
       }
     }
   }
@@ -165,5 +171,5 @@ If you encounter issues with the MCP connection:
 
 1. Check the Cursor console logs for errors (Help > Toggle Developer Tools)
 2. Verify your API key and other configuration settings
-3. Ensure the server can be accessed from Cursor (if using SSE transport)
-4. Check for firewall or network issues (if using SSE transport)
+3. Ensure the server can be accessed from Cursor (if using remote transport)
+4. Check firewall/network and reverse proxy settings (if using remote transport)

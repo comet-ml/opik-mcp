@@ -1,8 +1,6 @@
 /**
  * Types for the transport layer of the MCP server
  */
-
-import { Response } from 'express';
 import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
 /**
@@ -42,41 +40,30 @@ export interface Transport {
 }
 
 /**
- * Options for the SSE server transport
+ * Options for the Streamable HTTP transport host
  */
-export interface SSETransportOptions {
+export interface StreamableHttpTransportOptions {
   /**
    * Port to listen on
    * @default 3001
    */
   port?: number;
-}
-
-/**
- * Map of connected SSE clients
- */
-export type SSEClientMap = Map<string, Response>;
-
-/**
- * HTTP response for SSE connections
- */
-export interface SSEResponse extends Response {
   /**
-   * Method to send a message to the client
-   * @param data The data to send
+   * Host interface to bind
+   * @default 127.0.0.1
    */
-  sse?: (data: any) => void;
+  host?: string;
 }
 
 /**
- * Response format for SSE health check
+ * Response format for transport health check
  */
 export interface HealthResponse {
   status: string;
 }
 
 /**
- * Response format for SSE message responses
+ * Response format for transport message responses
  */
 export interface MessageResponse {
   status: string;

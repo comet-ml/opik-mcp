@@ -1,167 +1,121 @@
 # Configuration
 
-This document provides detailed information about configuring the Opik MCP server.
+This document covers runtime configuration for the Opik MCP server.
 
-## Configuration Methods
+## Configuration Sources
 
-The MCP server can be configured through environment variables (`.env` file) or command-line arguments. Command-line arguments take precedence over environment variables.
+Priority order:
 
-### Command-line Arguments
+1. CLI arguments
+2. Environment variables
+3. `~/.opik.config` (when present)
+4. Built-in defaults
 
-Run the server with command-line arguments:
+## CLI Arguments
 
 ```bash
-node build/index.js --apiUrl "https://www.comet.com/opik/api" --apiKey "your-api-key" --workspace "default" --toolsets capabilities,prompts,projects
+node build/index.js \
+  --apiUrl "https://www.comet.com/opik/api" \
+  --apiKey "your-api-key" \
+  --workspace "default" \
+  --toolsets core,expert-prompts
 ```
-
-> **Important**: The workspace name should typically be "default" unless you have explicitly created additional workspaces. Do not use project names (like "Therapist Chat") as workspace names, as this will result in API errors.
-
-#### Available Arguments
 
 | Argument | Alias | Description | Default |
-|----------|-------|-------------|---------|
-| `--apiUrl` | `-url` | API base URL | - |
-| `--apiKey` | `-key` | API key for authentication | - |
-| `--workspace` | `-ws` | Workspace name (typically "default") | "default" |
-| `--selfHosted` | - | Whether the instance is self-hosted | false |
-| `--debug` | - | Enable debug mode | false |
-| `--mcpName` | - | MCP server name | "opik-manager" |
-| `--mcpVersion` | - | MCP server version | "1.0.0" |
-| `--mcpPort` | - | MCP server port | - |
-| `--mcpLogging` | - | Enable MCP server logging | false |
-| `--mcpDefaultWorkspace` | - | Default workspace name | "default" |
-| `--toolsets` | - | Comma-separated list of toolsets to enable | "capabilities,prompts,projects,traces" |
+| --- | --- | --- | --- |
+| `--apiUrl` | `--url` | Opik API base URL | `https://www.comet.com/opik/api` |
+| `--apiKey` | `--key` | Opik API key | empty |
+| `--workspace` | `--ws` | Default workspace name | `default` |
+| `--selfHosted` | - | Self-hosted mode flag | `false` |
+| `--debug` | - | Debug logging | `false` |
+| `--transport` | - | `stdio` or `streamable-http` | `stdio` |
+| `--streamableHttpPort` | - | streamable-http port | `3001` |
+| `--streamableHttpHost` | - | streamable-http host | `127.0.0.1` |
+| `--streamableHttpLogPath` | - | streamable-http log file path | `/tmp/opik-mcp-streamable-http.log` |
+| `--mcpName` | - | Server name | `opik-manager` |
+| `--mcpVersion` | - | Server version | `1.0.0` |
+| `--mcpPort` | - | Optional MCP port metadata | unset |
+| `--mcpLogging` | - | MCP logging flag | `false` |
+| `--mcpDefaultWorkspace` | - | Fallback workspace | `default` |
+| `--toolsets` | - | Enabled toolsets | `core` |
 
-### Environment Variables
+## Environment Variables
 
-Alternatively, configure via environment variables in a `.env` file:
+### Core API settings
 
-#### Common Configuration
-- `OPIK_API_BASE_URL`: The base URL for the API
-  - For cloud: "https://comet.com/opik/api"
-  - For self-hosted: "http://localhost:5173/api"
-- `OPIK_API_KEY`: Your API key for authentication
-- `OPIK_SELF_HOSTED`: Set to "true" for self-hosted instances, or "false" for cloud (default is "false")
-- `DEBUG_MODE`: Set to "true" to see detailed API request logs (default is "false")
+- `OPIK_API_BASE_URL`
+- `OPIK_API_KEY`
+- `OPIK_WORKSPACE_NAME`
+- `OPIK_SELF_HOSTED`
+- `DEBUG_MODE`
 
-#### Cloud-specific Configuration
-- `OPIK_WORKSPACE_NAME`: Your workspace name (typically "default" for most users)
+### Transport settings
 
-#### MCP Server Configuration
-- `MCP_NAME`: Name of the MCP server (defaults to "opik-manager")
-- `MCP_VERSION`: Version of the MCP server (defaults to "1.0.0")
-- `MCP_PORT`: Optional port for TCP connections if needed
-- `MCP_LOGGING`: Set to "true" to enable MCP-specific logging (defaults to "false")
-- `MCP_DEFAULT_WORKSPACE`: Default workspace to use if none is specified (defaults to "default")
-- `MCP_TRANSPORT`: Transport to use, either "stdio" or "sse" (defaults to "stdio")
-- `MCP_SSE_PORT`: Port to use for SSE transport (defaults to 3001)
+- `TRANSPORT` (`stdio` or `streamable-http`)
+- `STREAMABLE_HTTP_PORT`
+- `STREAMABLE_HTTP_HOST`
+- `STREAMABLE_HTTP_LOG_PATH`
 
-#### Toolset Configuration
-- `OPIK_TOOLSETS`: Comma-separated list of toolsets to enable (defaults to "capabilities,prompts,projects,traces")
+### Remote transport auth settings
 
-**Available Toolsets:**
-- `capabilities`: Server info and help tools
-- `integration`: Integration documentation and guides
-- `prompts`: Prompt management tools
-- `projects`: Project/workspace management tools
-- `traces`: Trace listing and analysis tools
-- `metrics`: Metrics and analytics tools
+- `STREAMABLE_HTTP_REQUIRE_AUTH` (default `true`)
+- `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH` (default `true`, except test env)
+- `REMOTE_TOKEN_WORKSPACE_MAP` (JSON token -> workspace map)
+- `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS` (default `false`)
+- `STREAMABLE_HTTP_CORS_ORIGINS` (comma-separated CORS allowlist)
+- `STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS` (default `60000`)
+- `STREAMABLE_HTTP_RATE_LIMIT_MAX` (default `120`)
+- `STREAMABLE_HTTP_ACCESS_LOG` (default `false`; logs request method/path/status/duration when enabled)
 
-**Toolset Benefits:**
-- **Focused functionality**: Enable only the tools you need
-- **Reduced context size**: Fewer tools for better AI performance
-- **Faster startup**: Only load necessary components
-- **Cleaner interface**: Less overwhelming for users
+### MCP settings
 
-## Example Configuration
+- `MCP_NAME`
+- `MCP_VERSION`
+- `MCP_PORT`
+- `MCP_LOGGING`
+- `MCP_DEFAULT_WORKSPACE`
 
-### Basic Configuration
+### Toolset settings
+
+- `OPIK_TOOLSETS` (comma-separated)
+
+## Toolsets
+
+Current toolsets:
+
+- `all` - alias that enables every modern toolset listed below
+- `core` - day-to-day read tools and capabilities
+- `expert-prompts` - prompt management
+- `expert-datasets` - dataset management
+- `expert-trace-actions` - advanced trace actions
+- `expert-project-actions` - project mutations
+- `integration` - integration/reference helpers
+- `metrics` - metrics tools
+
+Legacy aliases (accepted for compatibility):
+
+- `capabilities` -> `core`
+- `prompts` -> `expert-prompts`
+- `datasets` -> `expert-datasets`
+- `projects` -> `core,expert-project-actions`
+- `traces` -> `core,expert-trace-actions`
+
+## Example `.env`
 
 ```dotenv
-# API Configuration
 OPIK_API_BASE_URL=https://www.comet.com/opik/api
 OPIK_API_KEY=your-api-key
 OPIK_WORKSPACE_NAME=default
 
-# MCP Server Configuration
-MCP_NAME=opik-manager
-MCP_VERSION=1.0.0
-MCP_TRANSPORT=stdio
+TRANSPORT=streamable-http
+STREAMABLE_HTTP_PORT=3001
+STREAMABLE_HTTP_REQUIRE_AUTH=true
+STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH=true
+REMOTE_TOKEN_WORKSPACE_MAP={"token-a":"workspace-a","token-b":"workspace-b"}
+STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS=false
+STREAMABLE_HTTP_CORS_ORIGINS=https://example.com,https://app.example.com
+STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS=60000
+STREAMABLE_HTTP_RATE_LIMIT_MAX=120
 
-# Toolset Configuration (optional - uses defaults if not specified)
-OPIK_TOOLSETS=capabilities,prompts,projects,traces
-```
-
-### Advanced Configuration
-
-```dotenv
-# API Configuration
-OPIK_API_BASE_URL=https://www.comet.com/opik/api
-OPIK_API_KEY=your-api-key
-OPIK_WORKSPACE_NAME=default
-OPIK_SELF_HOSTED=false
-DEBUG_MODE=true
-
-# MCP Server Configuration
-MCP_NAME=custom-mcp-server
-MCP_VERSION=2.0.0
-MCP_TRANSPORT=sse
-MCP_SSE_PORT=3005
-MCP_LOGGING=true
-MCP_DEFAULT_WORKSPACE=default
-
-# Toolset Configuration
-OPIK_TOOLSETS=capabilities,prompts,projects,traces,metrics
-```
-
-## Common Toolset Configurations
-
-### Minimal Setup (Getting Started)
-For users just starting with Opik:
-```bash
---toolsets capabilities,prompts
-```
-or
-```dotenv
-OPIK_TOOLSETS=capabilities,prompts
-```
-
-### Development & Debugging
-For developers working with LLM applications:
-```bash
---toolsets capabilities,prompts,projects,traces
-```
-or
-```dotenv
-OPIK_TOOLSETS=capabilities,prompts,projects,traces
-```
-
-### Production Monitoring
-For production systems focusing on observability:
-```bash
---toolsets capabilities,traces,metrics
-```
-or
-```dotenv
-OPIK_TOOLSETS=capabilities,traces,metrics
-```
-
-### Full Integration Setup
-For comprehensive integration workflows:
-```bash
---toolsets integration,capabilities,prompts,projects
-```
-or
-```dotenv
-OPIK_TOOLSETS=integration,capabilities,prompts,projects
-```
-
-### Complete Feature Set
-To enable all available toolsets:
-```bash
---toolsets capabilities,integration,prompts,projects,traces,metrics
-```
-or
-```dotenv
-OPIK_TOOLSETS=capabilities,integration,prompts,projects,traces,metrics
+OPIK_TOOLSETS=core,expert-prompts,expert-datasets,expert-trace-actions,metrics
 ```

@@ -1,75 +1,107 @@
-import { makeApiRequest } from '../utils/api.js';
 import { z } from 'zod';
-import { ProjectResponse } from './../types.js';
+import { callSdk, getOpikApi, getRequestOptions } from '../utils/opik-sdk.js';
+import { registerTool } from './registration.js';
+import { pageSchema, sizeSchema, workspaceNameSchema } from './schema.js';
 
-export const loadProjectTools = (server: any) => {
-  server.tool(
-    'list-projects',
-    'Get a list of projects with optional filtering',
-    {
-      page: z.number().optional().default(1).describe('Page number for pagination'),
-      size: z.number().optional().default(10).describe('Number of items per page'),
-      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
-    },
-    async (args: any) => {
-      const { page, size, workspaceName } = args;
-      const url = `/v1/private/projects?page=${page}&size=${size}`;
+interface ProjectToolOptions {
+  includeReadOps?: boolean;
+  includeMutations?: boolean;
+}
 
-      const response = await makeApiRequest<ProjectResponse>(url, {}, workspaceName);
+export const loadProjectTools = (server: any, options: ProjectToolOptions = {}) => {
+  const { includeReadOps = true, includeMutations = true } = options;
 
-      if (!response.data) {
+  if (includeReadOps) {
+    registerTool(
+      server,
+      'list-projects',
+      'List projects in the active workspace to find IDs for traces and metrics operations.',
+      {
+        page: pageSchema,
+        size: sizeSchema(10),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { page, size, workspaceName } = args;
+        const api = getOpikApi();
+        const response = await callSdk<any>(() =>
+          api.projects.findProjects({ page, size }, getRequestOptions(workspaceName))
+        );
+
+        if (!response.data) {
+          return {
+            content: [{ type: 'text', text: response.error || 'Failed to fetch projects' }],
+          };
+        }
+
         return {
-          content: [{ type: 'text', text: response.error || 'Failed to fetch projects' }],
+          content: [
+            {
+              type: 'text',
+              text: `Found ${response.data.total} projects (page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
+            },
+            {
+              type: 'text',
+              text: JSON.stringify(response.data.content, null, 2),
+            },
+          ],
         };
-      }
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Found ${response.data.total} projects (page ${response.data.page} of ${Math.ceil(response.data.total / response.data.size)})`,
-          },
-          {
-            type: 'text',
-            text: JSON.stringify(response.data.content, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  server.tool(
-    'create-project',
-    'Create a new project',
-    {
-      name: z.string().min(1).describe('Name of the project'),
-      description: z.string().optional().describe('Description of the project'),
-      workspaceName: z.string().optional().describe('Workspace name to use instead of the default'),
-    },
-    async (args: any) => {
-      const { name, description, workspaceName } = args;
-      const requestBody: any = { name };
-      if (description) requestBody.description = description;
-
-      const response = await makeApiRequest<any>(
-        `/v1/private/projects`,
-        {
-          method: 'POST',
-          body: JSON.stringify(requestBody),
+      },
+      {
+        title: 'List Projects',
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false,
         },
-        workspaceName
-      );
+      }
+    );
+  }
 
-      return {
-        content: [
-          {
-            type: 'text',
-            text: response.error || 'Successfully created project',
-          },
-        ],
-      };
-    }
-  );
+  if (includeMutations) {
+    registerTool(
+      server,
+      'create-project',
+      'Create a new project for traces, prompts, and evaluation runs.',
+      {
+        name: z.string().min(1).describe('Project name.'),
+        description: z.string().optional().describe('Optional project description.'),
+        workspaceName: workspaceNameSchema,
+      },
+      async (args: any) => {
+        const { name, description, workspaceName } = args;
+        const api = getOpikApi();
+        const response = await callSdk<any>(() =>
+          api.projects.createProject(
+            {
+              name,
+              ...(description && { description }),
+            },
+            getRequestOptions(workspaceName)
+          )
+        );
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: response.error || 'Successfully created project',
+            },
+          ],
+        };
+      },
+      {
+        title: 'Create Project',
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false,
+        },
+      }
+    );
+  }
 
   return server;
 };

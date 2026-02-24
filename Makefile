@@ -1,4 +1,4 @@
-.PHONY: help install build test lint clean start dev precommit start-sse start-stdio test-transport
+.PHONY: help install build test lint clean start dev check precommit start-http start-stdio test-transport
 
 # Default target
 help:
@@ -10,9 +10,9 @@ help:
 	@echo "  make lint       - Run linter"
 	@echo "  make clean      - Remove build artifacts"
 	@echo "  make start      - Start the MCP server"
-	@echo "  make dev        - Start the server in development mode"
+	@echo "  make dev        - Start the server in development mode with hot reload (streamable-http)"
 	@echo "  make precommit  - Run pre-commit checks manually"
-	@echo "  make start-sse   - Start the MCP server with SSE transport"
+	@echo "  make start-http  - Start the MCP server with streamable-http transport"
 	@echo "  make start-stdio - Start the MCP server with stdio transport"
 
 # Install dependencies
@@ -45,7 +45,14 @@ start:
 
 # Start in development mode
 dev:
-	npm run dev
+	@echo "Starting MCP server (streamable-http dev mode)"
+	@echo "  Host: $${STREAMABLE_HTTP_HOST:-127.0.0.1}"
+	@echo "  Port: $${STREAMABLE_HTTP_PORT:-3001}"
+	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
+	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
+	@echo "  Access logs: $${STREAMABLE_HTTP_ACCESS_LOG:-true}"
+	@echo "  Toolsets: $${OPIK_TOOLSETS:-all}"
+	STREAMABLE_HTTP_ACCESS_LOG=$${STREAMABLE_HTTP_ACCESS_LOG:-true} OPIK_TOOLSETS=$${OPIK_TOOLSETS:-all} npm run dev:http
 
 # Run all checks (lint and test)
 check: lint test
@@ -55,10 +62,13 @@ check: lint test
 precommit:
 	npm run lint && npm run test
 
-# Start the MCP server with SSE transport
-start-sse:
-	@echo "Starting MCP server with SSE transport on port 3001..."
-	@npm run start:sse
+# Start the MCP server with streamable-http transport
+start-http:
+	@echo "Starting MCP server with streamable-http transport on port 3001..."
+	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
+	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
+	@echo "  Access logs: $${STREAMABLE_HTTP_ACCESS_LOG:-false}"
+	@STREAMABLE_HTTP_ACCESS_LOG=$${STREAMABLE_HTTP_ACCESS_LOG:-false} npm run start:http
 
 # Start the MCP server with stdio transport
 start-stdio:

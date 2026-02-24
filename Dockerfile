@@ -16,7 +16,10 @@ COPY . .
 # Build the project
 RUN npm run build
 
-# Expose port if needed (SSE transport might require it, but here we're using stdio)
+# Expose default MCP port for streamable-http transport
+EXPOSE 3001
 
-# Use index.js as the entrypoint
-CMD ["node", "build/index.js"]
+# Default to streamable-http transport in Docker deployments
+ENV STREAMABLE_HTTP_HOST=0.0.0.0 \
+    OPIK_TOOLSETS=all
+CMD ["node", "build/cli.js", "serve", "--transport", "streamable-http", "--port", "3001"]
