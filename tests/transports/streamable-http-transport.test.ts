@@ -72,14 +72,26 @@ describe('StreamableHttpTransport', () => {
     );
   });
 
-  test('responds to health check', async () => {
+  test('responds to health and readiness aliases', async () => {
     await transport.start();
 
-    const response = await fetch(`http://127.0.0.1:${currentPort}/health`);
-    const data = (await response.json()) as { status: string };
+    for (const path of ['/health', '/healthz', '/ready', '/readyz']) {
+      const response = await fetch(`http://127.0.0.1:${currentPort}${path}`);
+      const data = (await response.json()) as { status: string };
+
+      expect(response.status).toBe(200);
+      expect(data.status).toBe('ok');
+    }
+  });
+
+  test('responds to ping', async () => {
+    await transport.start();
+
+    const response = await fetch(`http://127.0.0.1:${currentPort}/ping`);
+    const data = await response.text();
 
     expect(response.status).toBe(200);
-    expect(data.status).toBe('ok');
+    expect(data).toBe('pong');
   });
 
   test('rejects unauthenticated MCP requests', async () => {
