@@ -234,3 +234,8 @@ Citation metadata is also available in [CITATION.cff](CITATION.cff).
 ## License
 
 Apache 2.0
+
+## Hosted deployment
+
+A hosted deployment is available on [Fronteir AI](https://fronteir.ai/mcp/comet-ml-opik-mcp).
+
