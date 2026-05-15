@@ -40,6 +40,9 @@ coverage/
 .tmp
 .temp
 
+# Local-only docs (keep on disk, never tracked)
+/docs/
+
 # Legacy TypeScript (scoped paths)
 legacy/typescript/node_modules/
 legacy/typescript/build/
