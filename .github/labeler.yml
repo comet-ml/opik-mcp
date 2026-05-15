@@ -1,31 +1,39 @@
-transport:
+python:
   - changed-files:
     - any-glob-to-any-file:
-      - 'src/transports/**/*'
-      - 'docs/sse-transport.md'
+      - 'src/opik_mcp/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+
+legacy-typescript:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'legacy/typescript/**'
 
 security:
   - changed-files:
     - any-glob-to-any-file:
-      - 'src/config.ts'
-      - 'src/utils/api.ts'
-      - 'src/tools/**/*'
-      - 'docs/configuration.md'
-      - 'docs/remote-deployment.md'
+      - 'src/opik_mcp/config.py'
+      - 'src/opik_mcp/server.py'
+      - 'src/opik_mcp/comet_client.py'
+      - 'src/opik_mcp/opik_client.py'
+      - 'src/opik_mcp/ollie_client.py'
+      - 'docs/auth-flow.md'
 
 dependencies:
   - changed-files:
     - any-glob-to-any-file:
-      - 'package.json'
-      - 'package-lock.json'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'legacy/typescript/package.json'
+      - 'legacy/typescript/package-lock.json'
 
 infrastructure:
   - changed-files:
     - any-glob-to-any-file:
       - '.github/**/*'
-      - 'Dockerfile'
+      - 'legacy/typescript/Dockerfile'
       - 'Makefile'
-      - 'server.json'
 
 documentation:
   - changed-files:
@@ -34,13 +42,8 @@ documentation:
       - 'docs/**/*'
       - '**/*.md'
 
-typescript:
-  - changed-files:
-    - any-glob-to-any-file:
-      - '**/*.ts'
-      - '**/*.tsx'
-
 tests:
   - changed-files:
     - any-glob-to-any-file:
       - 'tests/**/*'
+      - 'legacy/typescript/tests/**/*'

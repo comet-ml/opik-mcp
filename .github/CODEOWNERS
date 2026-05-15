@@ -9,5 +9,4 @@
 # CI/CD and release automation
 .github/workflows/* @comet-ml/comet-devops @comet-ml/comet-opik-devs
 .github/dependabot.yml @comet-ml/comet-devops @comet-ml/comet-opik-devs
-.github/release-drafter.yml @comet-ml/comet-devops @comet-ml/comet-opik-devs
 .github/labeler.yml @comet-ml/comet-opik-devs

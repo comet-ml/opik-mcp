@@ -1,10 +1,30 @@
 version: 2
 updates:
-  - package-ecosystem: "npm"
+  # Python (root)
+  - package-ecosystem: "pip"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "python"
+
+  # Legacy TypeScript (deprecated, maintenance-only)
+  - package-ecosystem: "npm"
+    directory: "/legacy/typescript"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "legacy-typescript"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
     labels:
       - "dependencies"
       - "infrastructure"

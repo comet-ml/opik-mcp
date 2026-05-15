@@ -11,7 +11,7 @@
   },
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-light-mode.svg",
+      "src": "https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/legacy/typescript/docs/assets/logo-light-mode.svg",
       "mimeType": "image/svg+xml",
       "sizes": [
         "any"
@@ -19,7 +19,7 @@
       "theme": "light"
     },
     {
-      "src": "https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-dark-mode.svg",
+      "src": "https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/legacy/typescript/docs/assets/logo-dark-mode.svg",
       "mimeType": "image/svg+xml",
       "sizes": [
         "any"

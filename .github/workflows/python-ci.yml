@@ -1,0 +1,30 @@
+name: Python CI
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - 'legacy/**'
+      - '.github/workflows/legacy-ts-*.yml'
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: 'latest'
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run lint + typecheck + tests
+        run: make check
