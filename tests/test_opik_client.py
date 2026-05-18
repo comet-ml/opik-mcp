@@ -342,3 +342,46 @@ def test_resolve_opik_config_requires_workspace() -> None:
     s = Settings(opik_api_key="k", comet_workspace=None)
     with pytest.raises(MissingConfigError, match="COMET_WORKSPACE"):
         resolve_opik_config(s)
+
+
+# --- execute_experiment ------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_execute_experiment_posts_to_execute_endpoint() -> None:
+    body = {
+        "dataset_name": "suite-a",
+        "dataset_id": "0193a300-0000-7000-8000-000000000123",
+        "prompts": [
+            {
+                "model": "gpt-4o",
+                "messages": [{"role": "user", "content": "Hi"}],
+                "configs": {"temperature": 0.0},
+            }
+        ],
+    }
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/experiments/execute").mock(
+            return_value=httpx.Response(
+                202,
+                json={
+                    "experiments": [
+                        {
+                            "experiment_id": "0193a300-0000-7000-8000-0000000000e1",
+                            "prompt_index": 0,
+                        }
+                    ],
+                    "total_items": 12,
+                },
+            )
+        )
+        resp = await _client().execute_experiment(body)
+
+    assert resp.status_code == 202
+    payload = resp.json()
+    assert payload["total_items"] == 12
+    assert payload["experiments"][0]["prompt_index"] == 0
+    sent = route.calls.last.request
+    assert sent.headers["comet-workspace"] == "ws"
+    # Body is forwarded verbatim:
+    assert sent.read().startswith(b'{"dataset_name":"suite-a"')

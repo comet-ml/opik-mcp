@@ -408,6 +408,20 @@ class OpikClient:
             entity_hint=f"experiment {experiment_id!r}",
         )
 
+    async def execute_experiment(self, body: dict[str, Any]) -> httpx.Response:
+        """``POST /v1/private/experiments/execute`` — fire-and-return experiment run.
+
+        opik-backend runs the experiment asynchronously. Returns 202 on accept
+        with ``{experiments: [{experiment_id, prompt_index}], total_items}``.
+        Does NOT raise on 4xx/5xx — the orchestrator wraps non-2xx into
+        structured ``OpikValidationError`` / ``OpikServerError`` so the model
+        sees the BE's body verbatim alongside the request shape.
+        """
+        url = f"{self._base_url}/v1/private/experiments/execute"
+        content = _json.dumps(body, separators=(",", ":")).encode()
+        async with self._http() as http:
+            return await http.request("POST", url, content=content, headers=self._headers())
+
     # -- reads: prompts --
 
     async def list_prompts(
