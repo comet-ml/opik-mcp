@@ -95,7 +95,7 @@ class ExperimentHandle(_StrictBase):
     prompt_index: int = Field(ge=0)
 
 
-class RunExperimentResult(BaseModel):
+class RunExperimentResult(_StrictBase):
     """Tool result returned the moment opik-backend accepts the request.
 
     Status is intentionally NOT included — the experiment is async; the

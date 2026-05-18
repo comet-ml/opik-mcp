@@ -3,7 +3,12 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from opik_mcp.run_experiment_models import PromptVariant, RunExperimentConfig
+from opik_mcp.run_experiment_models import (
+    ExperimentHandle,
+    PromptVariant,
+    RunExperimentConfig,
+    RunExperimentResult,
+)
 
 
 def test_minimal_valid_config() -> None:
@@ -69,3 +74,43 @@ def test_prompt_versions_wire_shape() -> None:
     assert body["prompts"][0]["prompt_versions"] == [
         {"id": "0193a300-0000-7000-8000-0000000000aa"}
     ]
+
+
+def test_experiment_handle_rejects_negative_prompt_index() -> None:
+    with pytest.raises(ValidationError):
+        ExperimentHandle(
+            experiment_id=UUID("0193a300-0000-7000-8000-0000000000e1"),
+            prompt_index=-1,
+        )
+
+
+def test_experiment_handle_accepts_zero_prompt_index() -> None:
+    h = ExperimentHandle(
+        experiment_id=UUID("0193a300-0000-7000-8000-0000000000e1"),
+        prompt_index=0,
+    )
+    assert h.prompt_index == 0
+
+
+def test_run_experiment_result_forbids_extra_fields() -> None:
+    """After moving RunExperimentResult to _StrictBase, unknown keys must error."""
+    with pytest.raises(ValidationError):
+        RunExperimentResult(
+            experiment_ids=["e1"],
+            prompt_indexes=[0],
+            total_items=3,
+            summary_url="https://example.com",
+            bogus="field",  # type: ignore[call-arg]
+        )
+
+
+def test_run_experiment_result_round_trips() -> None:
+    r = RunExperimentResult(
+        experiment_ids=["0193a300-0000-7000-8000-0000000000e1"],
+        prompt_indexes=[0],
+        total_items=5,
+        summary_url="https://www.comet.com/ws/redirect/experiments?experiments=[e1]",
+    )
+    dumped = r.model_dump()
+    assert dumped["experiment_ids"] == ["0193a300-0000-7000-8000-0000000000e1"]
+    assert dumped["total_items"] == 5
