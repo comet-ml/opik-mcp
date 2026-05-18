@@ -1,15 +1,15 @@
 """Enforce §4.5 — no user prose ever appears in an analytics event.
 
 Drives the *real* MCP tool entry points (server.read, server.list_entities,
-server.score, server.comment, run_ask_ollie) so the wrapper's `props_fn` is
-exercised on every call. Each test:
+server.write, run_ask_ollie) so the wrapper's `props_fn` is exercised on
+every call. Each test:
 
 1. Calls the actual tool with PII-shaped inputs.
 2. Asserts the wrapper emitted `tool_called` (an empty recorder is a bug, not
    a privacy guarantee — that was the old failure mode).
 3. Asserts every FORBIDDEN substring is absent from the serialized event.
 4. Asserts the bucketed signal that REPLACED the raw input is present and
-   correct (`id_kind`, `had_name_filter`, `text_length_bucket`, etc.).
+   correct (`id_kind`, `had_name_filter`, `is_batch`, etc.).
 
 Without (2) and (4), the privacy test passes for any broken implementation
 that simply drops the event entirely.
@@ -25,8 +25,6 @@ import pytest
 
 from opik_mcp.comet_client import PodDiscovery
 from opik_mcp.ollie_client import OnTick, SSEEvent
-from opik_mcp.opik_client import FeedbackScore
-from opik_mcp.score_comment import Target
 
 # Substrings that must NEVER appear in any analytics event. Each one is a
 # realistic free-text payload a user might pass, chosen to be globally unique
@@ -42,8 +40,8 @@ FORBIDDEN = [
     "free-text-read-id-UNIQUE-CANARY-8f3a2b1c",
     # list.name filter canary — must never appear in analytics event properties
     "free-text-list-name-UNIQUE-CANARY-9d4e5f6a",
-    # score.category_name canary
-    "category-name-UNIQUE-CANARY-1a2b3c4d",
+    # write.data canary (PII payload inside the structured object)
+    "write-data-payload-UNIQUE-CANARY-1a2b3c4d",
 ]
 
 
@@ -138,32 +136,6 @@ class _FakeOllie:
         pass
 
 
-class _ScoreStubClient:
-    async def add_trace_feedback_score(self, trace_id: str, score: FeedbackScore) -> None:
-        pass
-
-    async def add_span_feedback_score(self, span_id: str, score: FeedbackScore) -> None:
-        pass
-
-    async def add_thread_feedback_score(
-        self,
-        thread_id: str,
-        score: FeedbackScore,
-        *,
-        project_name: str | None = None,
-    ) -> None:
-        pass
-
-    async def add_trace_comment(self, trace_id: str, text: str) -> None:
-        pass
-
-    async def add_span_comment(self, span_id: str, text: str) -> None:
-        pass
-
-    async def add_thread_comment(self, thread_id: str, text: str) -> None:
-        pass
-
-
 # --- ask_ollie ------------------------------------------------------------ #
 
 
@@ -187,108 +159,101 @@ async def test_ask_ollie_strips_all_user_text(recorder: _Recorder) -> None:
     assert any(et == "opik_mcp_ask_ollie_completed" for et, _ in recorder.events)
 
 
-# --- score / comment: drive server.* so props_fn actually executes -------- #
+# --- write: drive server.write so _write_props executes ------------------ #
 
 
 @pytest.mark.anyio
-async def test_score_props_buckets_reason_and_category_without_leaking(
+async def test_write_props_emits_only_low_cardinality_signals(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """server.score with PII reason+category MUST emit only bucketed flags."""
+    """server.write with a PII data payload MUST emit only bucketed flags."""
     from opik_mcp import server
-    from opik_mcp.score_comment import ScoreResult
 
-    target = Target(type="trace", id="00000000-0000-0000-0000-000000000001")
-    fake_result = ScoreResult(target=target, name="helpfulness", value=0.5)
     monkeypatch.setattr(
-        "opik_mcp.server.run_score",
-        lambda **_kw: _noop_coroutine_result(fake_result),
+        "opik_mcp.server.run_write",
+        lambda **_kw: _noop_coroutine_result({"ok": True, "operation": "comment.create"}),
     )
 
-    await server.score(
-        target=target,
-        name="helpfulness",
-        value=0.5,
-        reason=FORBIDDEN[3],
-        category_name=FORBIDDEN[8],
+    await server.write(
+        operation="comment.create",
+        data={
+            "target": "trace",
+            "target_id": "00000000-0000-0000-0000-000000000001",
+            "text": FORBIDDEN[2] + " " + FORBIDDEN[3],
+        },
     )
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
-    # _score_props turns the raw fields into low-cardinality booleans.
-    assert props["target_type"] == "trace"
-    assert props["score_name_bucket"] == "helpfulness"
-    assert props["has_reason"] == "true"
-    assert props["has_category"] == "true"
+    assert props["operation"] == "comment.create"
+    assert props["is_batch"] == "false"
+    assert props["dry_run"] == "false"
+    assert props["had_idempotency_key"] == "false"
 
 
 @pytest.mark.anyio
-async def test_score_props_emits_has_reason_false_when_absent(
+async def test_write_props_emits_batch_size_bucket(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The negative branch — `reason=None` must yield `has_reason=false`."""
+    """server.write with an array data payload MUST emit is_batch + bucketed size."""
     from opik_mcp import server
-    from opik_mcp.score_comment import ScoreResult
 
-    target = Target(type="span", id="00000000-0000-0000-0000-000000000002")
-    fake_result = ScoreResult(target=target, name="tone", value=1.0)
     monkeypatch.setattr(
-        "opik_mcp.server.run_score",
-        lambda **_kw: _noop_coroutine_result(fake_result),
+        "opik_mcp.server.run_write",
+        lambda **_kw: _noop_coroutine_result({"ok": True, "operation": "trace.create"}),
     )
 
-    await server.score(target=target, name="tone", value=1.0)
-    props = _tool_called(recorder.events)
-    assert props["has_reason"] == "false"
-    assert props["has_category"] == "false"
-    assert props["target_type"] == "span"
-
-
-@pytest.mark.anyio
-async def test_score_non_canonical_name_bucketed(
-    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Non-canonical score names must be bucketed as 'other' AND must not leak."""
-    _FORBIDDEN_SCORE_NAME = "FORBIDDEN_X_custom_score_name_UNIQUE_9a8b7c"
-    from opik_mcp import server
-    from opik_mcp.score_comment import ScoreResult
-
-    target = Target(type="trace", id="00000000-0000-0000-0000-000000000001")
-    fake_result = ScoreResult(target=target, name=_FORBIDDEN_SCORE_NAME, value=0.5)
-    monkeypatch.setattr(
-        "opik_mcp.server.run_score",
-        lambda **_kw: _noop_coroutine_result(fake_result),
-    )
-
-    await server.score(target=target, name=_FORBIDDEN_SCORE_NAME, value=0.5)
-    payload = json.dumps(recorder.events)
-    assert _FORBIDDEN_SCORE_NAME not in payload
-    props = _tool_called(recorder.events)
-    assert props["score_name_bucket"] == "other"
-
-
-@pytest.mark.anyio
-async def test_comment_props_buckets_text_length_without_leaking(
-    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """server.comment with PII text MUST emit only text_length_bucket."""
-    from opik_mcp import server
-    from opik_mcp.score_comment import CommentResult
-
-    target = Target(type="trace", id="00000000-0000-0000-0000-000000000001")
-    long_pii = FORBIDDEN[2] * 50  # well over 1000 chars to hit the largest bucket
-    assert len(long_pii) > 1000  # guard against future shrinkage of FORBIDDEN[2]
-    monkeypatch.setattr(
-        "opik_mcp.server.run_comment",
-        lambda **_kw: _noop_coroutine_result(CommentResult(target=target)),
-    )
-
-    await server.comment(target=target, text=long_pii)
+    payload = [{"name": f"trace-{i}", "input": FORBIDDEN[3]} for i in range(50)]
+    await server.write(operation="trace.create", data=payload)
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
-    assert props["target_type"] == "trace"
-    assert props["text_length_bucket"] == ">1000"
-    # Sanity: the raw text length is gone, replaced by the bucket label.
-    assert str(len(long_pii)) not in props["text_length_bucket"]
+    assert props["operation"] == "trace.create"
+    assert props["is_batch"] == "true"
+    # bucket_count maps 50 into a discrete bucket; the raw "50" must not appear.
+    assert "50" not in json.dumps(props)
+
+
+@pytest.mark.anyio
+async def test_write_props_emits_dry_run_flag(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from opik_mcp import server
+
+    monkeypatch.setattr(
+        "opik_mcp.server.run_write",
+        lambda **_kw: _noop_coroutine_result({"dry_run": True}),
+    )
+
+    await server.write(
+        operation="score.create",
+        data={
+            "target": "trace",
+            "target_id": "00000000-0000-0000-0000-000000000001",
+            "name": "helpfulness",
+            "value": 0.5,
+            "reason": FORBIDDEN[3],
+        },
+        dry_run=True,
+    )
+    props = _tool_called(recorder.events)
+    assert props["dry_run"] == "true"
+    assert props["operation"] == "score.create"
+
+
+@pytest.mark.anyio
+async def test_schema_props_emits_only_operation(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """server.schema MUST only emit `operation` — no input payload to leak."""
+    from opik_mcp import server
+
+    monkeypatch.setattr(
+        "opik_mcp.server.run_schema",
+        lambda operation: {"operation": operation, "schema": {}},
+    )
+
+    await server.schema(operation="trace.create")
+    props = _tool_called(recorder.events)
+    assert props["operation"] == "trace.create"
 
 
 # --- read: drive server.read so _read_props executes ---------------------- #

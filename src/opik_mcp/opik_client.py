@@ -1,10 +1,13 @@
 """Thin async wrapper around Opik's REST API.
 
-Each public method maps 1:1 to a single REST endpoint. The orchestrator
-layer (``score_comment.py``) picks the right method based on target type.
-Workspace is bound at construction time and sent on every request via the
-``Comet-Workspace`` header — the MCP tool surface never takes a workspace
-argument (see design.md §1.5 "Scoping").
+Read methods map 1:1 to a single REST endpoint and are consumed by the
+``read`` / ``list`` registry. Writes go through the universal ``write``
+tool's dispatcher (``writes/dispatch.py``) which calls
+``OpikClient.write_json`` directly with templated paths and pre-built
+bodies — no per-endpoint helper. Workspace is bound at construction time
+and sent on every request via the ``Comet-Workspace`` header; the MCP
+tool surface never takes a workspace argument (see design.md §1.5
+"Scoping").
 """
 
 from __future__ import annotations
@@ -413,14 +416,14 @@ class OpikClient:
 
         opik-backend runs the experiment asynchronously. Returns 202 on accept
         with ``{experiments: [{experiment_id, prompt_index}], total_items}``.
-        Does NOT raise on 4xx/5xx — the orchestrator wraps non-2xx into
-        structured ``OpikValidationError`` / ``OpikServerError`` so the model
-        sees the BE's body verbatim alongside the request shape.
+        Like ``write_json``, this does NOT raise on 4xx/5xx — the orchestrator
+        wraps non-2xx into ``OpikValidationError`` / ``OpikServerError``.
         """
-        url = f"{self._base_url}/v1/private/experiments/execute"
-        content = _json.dumps(body, separators=(",", ":")).encode()
-        async with self._http() as http:
-            return await http.request("POST", url, content=content, headers=self._headers())
+        return await self.write_json(
+            "POST",
+            "/v1/private/experiments/execute",
+            body,
+        )
 
     # -- reads: prompts --
 
@@ -544,6 +547,37 @@ class OpikClient:
                 f"(expected {expected_status})"
             )
         return resp
+
+    async def write_json(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | list[Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> httpx.Response:
+        """Generic write — used by the universal write tool's dispatcher.
+
+        Unlike ``_request``, this does NOT raise on 4xx/5xx; the dispatcher
+        wraps non-2xx responses into structured ``BackendError`` envelopes
+        so the model sees the BE's body verbatim alongside the request
+        shape. 2xx with non-empty body is returned as-is for the caller to
+        parse (some endpoints echo the created entity).
+        """
+        url = f"{self._base_url}{path}"
+        # Stable byte-order serialization (matches ``_request``) so respx-based
+        # tests can assert on the exact request body. The dispatcher's ``_dump``
+        # already JSON-serializes datetimes/UUIDs via ``model_dump(mode='json')``,
+        # so anything reaching here is JSON-primitive — we deliberately omit
+        # ``default=`` so a stray non-JSON value surfaces as ``TypeError`` here
+        # rather than getting silently stringified into a malformed wire shape
+        # the BE would reject far away from the source.
+        content = _json.dumps(body, separators=(",", ":")).encode()
+        headers = self._headers()
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
+        async with self._http() as http:
+            return await http.request(method, url, content=content, headers=headers)
 
 
 def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:

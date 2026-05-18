@@ -10,7 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-from opik_mcp.analytics.events import bucket_count, bucket_text_len
+from opik_mcp.analytics.events import bucket_count
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.config import get_settings
@@ -20,13 +20,13 @@ from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.run_experiment import run_experiment_impl
 from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
-from opik_mcp.score_comment import (
-    CommentResult,
-    ScoreResult,
-    Target,
-    run_comment,
-    run_score,
+from opik_mcp.writes import (
+    SCHEMA_TOOL_DESCRIPTION,
+    WRITE_TOOL_DESCRIPTION,
+    run_schema,
+    run_write,
 )
+from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 logger = logging.getLogger("opik_mcp")
 
@@ -72,25 +72,27 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     }
 
 
-def _score_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-    target = kwargs.get("target")
-    target_type = getattr(target, "type", "") if target is not None else ""
-    name = kwargs.get("name", "")
-    canonical = {"helpfulness", "hallucination", "tone"}
+def _write_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    """Analytics labels for the universal write tool.
+
+    ``operation`` is the high-cardinality dimension that dashboards key off
+    of; pair it with the boolean-ish shape signals so the (tool, operation)
+    label set ADR §4.4 specifies stays useful as Phase 2 grows it.
+    """
+    data = kwargs.get("data")
+    is_batch = isinstance(data, list)
+    batch_size = len(data) if isinstance(data, list) else 1
     return {
-        "target_type": str(target_type),
-        "score_name_bucket": name if name in canonical else "other",
-        "has_reason": str(kwargs.get("reason") is not None).lower(),
-        "has_category": str(kwargs.get("category_name") is not None).lower(),
+        "operation": str(kwargs.get("operation", "")),
+        "is_batch": str(is_batch).lower(),
+        "batch_size_bucket": bucket_count(batch_size),
+        "dry_run": str(bool(kwargs.get("dry_run", False))).lower(),
+        "had_idempotency_key": str(kwargs.get("idempotency_key") is not None).lower(),
     }
 
 
-def _comment_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-    target = kwargs.get("target")
-    return {
-        "target_type": str(getattr(target, "type", "") if target is not None else ""),
-        "text_length_bucket": bucket_text_len(kwargs.get("text", "")),
-    }
+def _schema_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    return {"operation": str(kwargs.get("operation", ""))}
 
 
 def _ask_ollie_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
@@ -144,7 +146,10 @@ async def hello(
 async def read(
     entity_type: Annotated[
         str,
-        Field(description=f"One of: {', '.join(sorted(READABLE_TYPES))}."),
+        Field(
+            description=f"One of: {', '.join(sorted(READABLE_TYPES))}.",
+            json_schema_extra={"enum": sorted(READABLE_TYPES)},
+        ),
     ],
     id: Annotated[
         str,
@@ -199,7 +204,10 @@ async def read(
 async def list_entities(
     entity_type: Annotated[
         str,
-        Field(description=f"One of: {', '.join(sorted(LISTABLE_TYPES))}."),
+        Field(
+            description=f"One of: {', '.join(sorted(LISTABLE_TYPES))}.",
+            json_schema_extra={"enum": sorted(LISTABLE_TYPES)},
+        ),
     ],
     name: Annotated[
         str | None,
@@ -416,133 +424,88 @@ async def run_experiment(
     )
 
 
-# --- score / comment ----------------------------------------------------- #
+# --- write / schema (universal write tool, supersedes score/comment) ---- #
+#
+# Operation is advertised as a JSON-Schema enum but typed as ``str`` so the
+# FastMCP/Pydantic boundary does NOT reject unknown values — we want those
+# to flow into the dispatcher's Stage 1 which raises ``UnknownOperationError``
+# with the full ``valid_operations`` list. The conformance test verifies
+# the advertised enum matches ``WRITE_OPERATIONS`` so drift is caught.
+
+WRITE_OPERATION_ENUM: list[str] = list(WRITE_OPERATIONS)
 
 
-@mcp.tool()
-@instrument_tool("score", props_fn=_score_props)
-async def score(
-    target: Annotated[
-        Target,
-        Field(
-            description=(
-                "What you're annotating. Object with two fields: "
-                "`type` (one of 'trace', 'span', 'thread') and `id` (the entity's UUID). "
-                "For threads, `id` is the thread's UUID (visible on the thread page in "
-                "Opik), not a free-form thread label."
-            ),
-        ),
-    ],
-    name: Annotated[
+@mcp.tool(description=WRITE_TOOL_DESCRIPTION)
+@instrument_tool("write", props_fn=_write_props)
+async def write(
+    operation: Annotated[
         str,
         Field(
             description=(
-                "Score name — short, snake_case-ish identifier. Examples: 'helpfulness', "
-                "'hallucination', 'tone'. Multiple scores with different names can coexist "
-                "on the same entity; scoring with the same `name` again overwrites the "
-                "previous value."
+                "The entity/verb pair to invoke. See tool description for the list. "
+                "Call schema(operation) for the JSON Schema, example, and required scope."
             ),
-            min_length=1,
-            max_length=200,
+            json_schema_extra={"enum": WRITE_OPERATION_ENUM},
         ),
     ],
-    value: Annotated[
-        float,
+    data: Annotated[
+        dict[str, Any] | list[Any],
         Field(
             description=(
-                "Numeric score value. Convention is 0.0-1.0 for graded metrics, 0/1 for "
-                "boolean pass/fail, but any real number is accepted by the backend."
+                "Payload for the operation. Object for a single write, or array "
+                "(max 1000 elements) for batch. Always-envelope operations "
+                "(test_suite_item.upsert, experiment_item.create) take their list "
+                "inside the envelope, not at the top level."
             ),
-            ge=-1_000_000_000.0,
-            le=1_000_000_000.0,
         ),
     ],
-    reason: Annotated[
+    idempotency_key: Annotated[
         str | None,
         Field(
             description=(
-                "Optional free-text justification (≤2000 chars). Shown next to the score "
-                "in the Opik UI."
+                "Optional client-supplied UUID. Re-running with the same key is a "
+                "no-op on the backend. Takes precedence over data.id when both are set."
             ),
-            max_length=2000,
+            max_length=64,
         ),
     ] = None,
-    category_name: Annotated[
-        str | None,
+    dry_run: Annotated[
+        bool,
         Field(
             description=(
-                "Optional bucket label for grouping scores (e.g. 'manual', 'auto', "
-                "'llm-as-judge'). Free-form; the backend does not enforce values."
+                "Validate against the operation's schema and OAuth scope without "
+                "calling the backend. Returns {dry_run: true, would_call: ...}."
             ),
-            max_length=200,
         ),
-    ] = None,
-    project_name: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Only consulted when `target.type` is 'thread'. Disambiguates the thread "
-                "by project if your workspace has the same thread id in multiple projects. "
-                "Ignored for trace/span targets — those are entity-implicit."
-            ),
-            max_length=200,
-        ),
-    ] = None,
+    ] = False,
     ctx: Context[ServerSession, None] | None = None,
-) -> ScoreResult:
-    """Attach a numeric feedback score to a trace, span, or thread.
-
-    Use this for human-in-the-loop or programmatic evaluation labels — anything
-    you'd want to filter or chart later. For investigative "why did X fail?"
-    questions, use `ask_ollie` instead. To attach prose without a number, use
-    `comment`.
-    """
+) -> dict[str, Any]:
     if ctx is not None:
-        await ctx.info(f"score.called target={target.type}:{target.id} name={name}")
-    return await run_score(
-        target=target,
-        name=name,
-        value=value,
-        reason=reason,
-        category_name=category_name,
-        project_name=project_name,
+        is_batch = isinstance(data, list)
+        await ctx.info(f"write.called operation={operation} batch={is_batch} dry_run={dry_run}")
+    return await run_write(
+        operation=operation,
+        data=data,
+        idempotency_key=idempotency_key,
+        dry_run=dry_run,
     )
 
 
-@mcp.tool()
-@instrument_tool("comment", props_fn=_comment_props)
-async def comment(
-    target: Annotated[
-        Target,
-        Field(
-            description=(
-                "What you're commenting on. Object with `type` ('trace', 'span', or "
-                "'thread') and `id` (the entity's UUID)."
-            ),
-        ),
-    ],
-    text: Annotated[
+@mcp.tool(description=SCHEMA_TOOL_DESCRIPTION)
+@instrument_tool("schema", props_fn=_schema_props)
+async def schema(
+    operation: Annotated[
         str,
         Field(
-            description=(
-                "Comment body. Plain text or markdown — the Opik UI renders it. Required "
-                "and non-empty (the backend rejects blank text)."
-            ),
-            min_length=1,
-            max_length=10_000,
+            description="Operation whose schema to return.",
+            json_schema_extra={"enum": WRITE_OPERATION_ENUM},
         ),
     ],
     ctx: Context[ServerSession, None] | None = None,
-) -> CommentResult:
-    """Attach a free-text comment to a trace, span, or thread.
-
-    Use for prose annotations the user wants captured alongside an entity
-    ("retry this with temperature=0", "regression vs. yesterday's run"). For
-    numeric labels use `score`; for investigative questions use `ask_ollie`.
-    """
+) -> dict[str, Any]:
     if ctx is not None:
-        await ctx.info(f"comment.called target={target.type}:{target.id}")
-    return await run_comment(target=target, text=text)
+        await ctx.info(f"schema.called operation={operation}")
+    return run_schema(operation=operation)
 
 
 # --- middleware ---------------------------------------------------------- #
