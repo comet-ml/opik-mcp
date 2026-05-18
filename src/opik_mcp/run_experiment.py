@@ -33,7 +33,10 @@ def _summary_url(*, comet_base_url: str, workspace: str, experiment_ids: list[st
     """Mirror the FE `useNavigateToExperiment` compare URL shape."""
     base = comet_base_url.rstrip("/")
     ids = ",".join(experiment_ids)
-    return f"{base}/{quote(workspace)}/redirect/experiments?experiments=[{ids}]"
+    # Percent-encode the bracketed list — raw ``[`` / ``]`` in a query value is
+    # not RFC 3986 compliant and some proxies/WAFs will reject or normalize it.
+    experiments_param = quote(f"[{ids}]", safe="")
+    return f"{base}/{quote(workspace)}/redirect/experiments?experiments={experiments_param}"
 
 
 def _raise_for_execute_status(resp: httpx.Response) -> None:
@@ -71,7 +74,13 @@ async def run_experiment_impl(
     """
     resp = await client.execute_experiment(config.to_wire_body())
     _raise_for_execute_status(resp)
-    envelope = resp.json()
+    try:
+        envelope = resp.json()
+    except ValueError as exc:
+        raise OpikServerError(
+            "Opik returned a non-JSON body for POST /v1/private/experiments/execute: "
+            f"{resp.text[:200]!r}"
+        ) from exc
 
     handles = [ExperimentHandle.model_validate(e) for e in envelope.get("experiments", [])]
     total_items = int(envelope.get("total_items") or 0)

@@ -64,8 +64,10 @@ async def test_run_experiment_impl_returns_ids_immediately() -> None:
     assert result.experiment_ids == [EXP_ID]
     assert result.prompt_indexes == [0]
     assert result.total_items == 200
-    assert result.summary_url.startswith("https://www.comet.com/ws/")
-    assert EXP_ID in result.summary_url
+    # Brackets are percent-encoded so the URL stays RFC 3986 compliant.
+    assert result.summary_url == (
+        f"https://www.comet.com/ws/redirect/experiments?experiments=%5B{EXP_ID}%5D"
+    )
     assert post_route.call_count == 1
     assert get_route.call_count == 0
 
@@ -122,6 +124,22 @@ async def test_run_experiment_impl_maps_503_to_server() -> None:
             return_value=httpx.Response(503, text="upstream down")
         )
         with pytest.raises(OpikServerError):
+            await run_experiment_impl(
+                config=_config(),
+                client=_client(),
+                comet_base_url="https://www.comet.com",
+                workspace="ws",
+            )
+
+
+@pytest.mark.anyio
+async def test_run_experiment_impl_wraps_non_json_2xx_body_as_server_error() -> None:
+    """A 202 with a malformed body surfaces as OpikServerError, not a raw JSONDecodeError."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/experiments/execute").mock(
+            return_value=httpx.Response(202, text="not json at all")
+        )
+        with pytest.raises(OpikServerError, match="non-JSON"):
             await run_experiment_impl(
                 config=_config(),
                 client=_client(),
