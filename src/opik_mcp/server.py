@@ -15,8 +15,11 @@ from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.config import get_settings
 from opik_mcp.instructions import render_instructions
+from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.run_experiment import run_experiment_impl
+from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
 from opik_mcp.score_comment import (
     CommentResult,
     ScoreResult,
@@ -96,6 +99,21 @@ def _ask_ollie_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "had_page_context": str(kwargs.get("page_context") is not None).lower(),
         "had_project_name": str(kwargs.get("project_name") is not None).lower(),
         "attach_resources_count": bucket_count(len(kwargs.get("attach_resources") or [])),
+    }
+
+
+def _run_experiment_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    cfg = kwargs.get("experiment_config") or {}
+    prompts = cfg.get("prompts") if isinstance(cfg, dict) else None
+    return {
+        "prompt_count_bucket": bucket_count(len(prompts) if isinstance(prompts, list) else 0),
+        "had_dataset_version_id": str(
+            isinstance(cfg, dict) and bool(cfg.get("dataset_version_id"))
+        ).lower(),
+        "had_prompt_version": str(
+            isinstance(prompts, list)
+            and any(isinstance(p, dict) and bool(p.get("prompt_version_id")) for p in prompts)
+        ).lower(),
     }
 
 
@@ -342,6 +360,59 @@ async def ask_ollie(
         thread_id=thread_id,
         project_name=project_name,
         ctx=ctx,
+    )
+
+
+# --- run_experiment ----------------------------------------------------- #
+
+
+_RUN_EXPERIMENT_DESCRIPTION = (
+    "Submit an experiment on a test-suite-backed dataset. opik-backend runs "
+    "each prompt variant against every item in the suite asynchronously and "
+    "applies the suite's scoring assertions. Returns the created "
+    "`experiment_ids` immediately — the run itself typically takes 10-30+ "
+    "minutes server-side.\n\n"
+    "This tool is fire-and-return: it does NOT wait for completion. To check "
+    'progress, the caller uses `read("experiment", <id>)`; the experiment '
+    "record carries `status` and `trace_count`. The result also includes a "
+    "`summary_url` deep-linking the Opik UI compare view.\n\n"
+    "Use for: rerunning an evaluation, trying a prompt on a known test suite, "
+    "comparing models against the same test suite.\n\n"
+    "Does NOT support ad-hoc (non-test-suite) datasets — those require "
+    "client-side LLM execution which this tool intentionally does not do."
+)
+
+
+@mcp.tool(description=_RUN_EXPERIMENT_DESCRIPTION)
+@instrument_tool("run_experiment", props_fn=_run_experiment_props)
+async def run_experiment(
+    experiment_config: Annotated[
+        dict[str, Any],
+        Field(
+            description=(
+                "Experiment-execution config. Required: `dataset_name`, "
+                "`dataset_id` (UUID of a test-suite dataset), `prompts` "
+                "(non-empty list of `{model, messages, configs?, "
+                "prompt_version_id?}`). Optional: `dataset_version_id`, "
+                "`version_hash`, `project_name`. One experiment is created "
+                'per prompt variant. Call `schema("run_experiment")` if '
+                "the shape is unclear."
+            )
+        ),
+    ],
+    ctx: Context[ServerSession, None] | None = None,
+) -> RunExperimentResult:
+    """Run an experiment via opik-backend `/experiments/execute`."""
+    config = RunExperimentConfig.model_validate(experiment_config)
+    settings = get_settings()
+    client = make_opik_client(settings)
+    _, _, workspace = resolve_opik_config(settings)
+    comet_base = settings.comet_url_override.rstrip("/")
+    return await run_experiment_impl(
+        config=config,
+        client=client,
+        comet_base_url=comet_base,
+        workspace=workspace,
     )
 
 
