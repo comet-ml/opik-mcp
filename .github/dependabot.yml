@@ -1,14 +1,18 @@
 version: 2
 updates:
-  # Python (root)
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-      - "python"
+  # Python (root):
+  #   Disabled until Dependabot can update uv.lock alongside pyproject.toml.
+  #   `make check` runs `uv sync --extra dev`, which is strict against the
+  #   lockfile, so every Dependabot bump would fail CI. Tracking upstream:
+  #   https://github.com/dependabot/dependabot-core/issues/10478
+  # - package-ecosystem: "pip"
+  #   directory: "/"
+  #   schedule:
+  #     interval: "weekly"
+  #   open-pull-requests-limit: 10
+  #   labels:
+  #     - "dependencies"
+  #     - "python"
 
   # Legacy TypeScript (deprecated, maintenance-only)
   - package-ecosystem: "npm"

@@ -71,9 +71,7 @@ def test_prompt_versions_wire_shape() -> None:
         ],
     )
     body = cfg.to_wire_body()
-    assert body["prompts"][0]["prompt_versions"] == [
-        {"id": "0193a300-0000-7000-8000-0000000000aa"}
-    ]
+    assert body["prompts"][0]["prompt_versions"] == [{"id": "0193a300-0000-7000-8000-0000000000aa"}]
 
 
 def test_experiment_handle_rejects_negative_prompt_index() -> None:

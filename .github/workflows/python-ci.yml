@@ -3,9 +3,9 @@ name: Python CI
 on:
   pull_request:
     branches: [ main ]
-    paths-ignore:
-      - 'legacy/**'
-      - '.github/workflows/legacy-ts-*.yml'
+  # Runs on every PR so this check resolves even when only top-level files
+  # (README.md, dependabot.yml, this workflow itself) change, which `legacy-ts-ci`'s
+  # `paths:` filter would skip. The lint+typecheck+test cycle is fast enough.
 
 jobs:
   ci:

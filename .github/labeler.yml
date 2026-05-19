@@ -18,7 +18,6 @@ security:
       - 'src/opik_mcp/comet_client.py'
       - 'src/opik_mcp/opik_client.py'
       - 'src/opik_mcp/ollie_client.py'
-      - 'docs/auth-flow.md'
 
 dependencies:
   - changed-files:
@@ -39,7 +38,6 @@ documentation:
   - changed-files:
     - any-glob-to-any-file:
       - 'README.md'
-      - 'docs/**/*'
       - '**/*.md'
 
 tests:

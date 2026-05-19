@@ -9,6 +9,7 @@ from opik_mcp.config import get_settings
 logger = logging.getLogger("opik_mcp")
 
 INSECURE_DEFAULT_TOKEN = "dev-token-123"
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def _configure_logging(level: str) -> None:
@@ -53,6 +54,15 @@ def main() -> None:
     )
 
     if settings.opik_mcp_dev_token == INSECURE_DEFAULT_TOKEN:
+        if settings.opik_mcp_host not in LOOPBACK_HOSTS:
+            logger.error(
+                "Refusing to start: OPIK_MCP_DEV_TOKEN is the insecure default %r "
+                "and OPIK_MCP_HOST=%r is not a loopback address. Set a strong "
+                "OPIK_MCP_DEV_TOKEN secret, or bind to 127.0.0.1/::1/localhost.",
+                INSECURE_DEFAULT_TOKEN,
+                settings.opik_mcp_host,
+            )
+            sys.exit(1)
         logger.warning(
             "OPIK_MCP_DEV_TOKEN is using the insecure default %r. "
             "Set a strong secret before exposing this server beyond localhost.",

@@ -14,7 +14,7 @@ import json
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -23,7 +23,7 @@ from opik_mcp.writes.errors import WriteError
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _uuid() -> str:
@@ -40,16 +40,20 @@ def _uuid7() -> str:
 
 
 # All writes require these scopes — granted unconditionally here for the smoke.
-ALL_SCOPES = frozenset({
-    "trace_span_thread_log",
-    "trace_span_thread_annotate",
-    "prompt_create",
-    "dataset_edit",
-    "experiment_create",
-})
+ALL_SCOPES = frozenset(
+    {
+        "trace_span_thread_log",
+        "trace_span_thread_annotate",
+        "prompt_create",
+        "dataset_edit",
+        "experiment_create",
+    }
+)
 
 
-async def _run(label: str, operation: str, data: Any, *, dry_run: bool = False) -> dict[str, Any] | None:
+async def _run(
+    label: str, operation: str, data: Any, *, dry_run: bool = False
+) -> dict[str, Any] | None:
     print(f"\n--- {label} ({operation}) ---")
     try:
         result = await run_write(
@@ -155,12 +159,11 @@ async def main() -> None:
 
     # 7. test_suite.create
     suite_name = f"mcp_smoke_suite_{uuid4().hex[:8]}"
-    suite_res = await _run(
+    await _run(
         "7. test_suite.create",
         "test_suite.create",
         {"name": suite_name, "description": "smoke test from MCP"},
     )
-    suite_id = suite_res.get("id") if suite_res else None
 
     # 8. test_suite_item.upsert
     await _run(
@@ -187,8 +190,8 @@ async def main() -> None:
     experiment_id = (exp_res.get("backend_body") or {}).get("id") if exp_res else None
 
     # Look up suite_id + a real suite_item_id via the read-side client.
-    from opik_mcp.opik_client import make_opik_client
     from opik_mcp.config import get_settings
+    from opik_mcp.opik_client import make_opik_client
 
     client = make_opik_client(get_settings())
     test_suite_item_id = None
@@ -239,7 +242,10 @@ async def main() -> None:
             },
         )
     else:
-        print(f"\n--- 10. experiment_item.create SKIPPED (exp_id={experiment_id}, item_id={test_suite_item_id}) ---")
+        print(
+            f"\n--- 10. experiment_item.create SKIPPED "
+            f"(exp_id={experiment_id}, item_id={test_suite_item_id}) ---"
+        )
 
     print("\n=== LIVE BE SMOKE COMPLETE ===")
     print(f"trace_id:    {trace_id}")

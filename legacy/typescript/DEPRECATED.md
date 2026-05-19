@@ -6,6 +6,7 @@ This implementation is in maintenance-only mode. The Python implementation at th
 - **Security-patch policy:** critical CVEs only, until **2026-11-15**
 - **End of life:** **2026-11-15**
 - **Migration:** install via `uvx opik-mcp` instead of `npx -y opik-mcp`. Tools, transports, and config env vars are renamed/restructured — see the root [`README.md`](../../README.md) and `docs/` for the new surface.
+- **Release tag prefix:** patches to this package are published from tags matching `npm-v*` (e.g. `npm-v2.0.2`); the Python package uses `py-v*`. Plain `v*` tags do **not** trigger any release workflow.
 
 The TypeScript code remains buildable and testable in place:
 

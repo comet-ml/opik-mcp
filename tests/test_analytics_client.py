@@ -82,9 +82,7 @@ def test_warns_when_onprem_url_with_cloud_source(caplog: pytest.LogCaptureFixtur
     cloud-Comet. The warning fires once at client startup.
     """
     with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
-        client = AnalyticsClient(
-            _settings(comet_url_override="https://opik.acme.internal")
-        )
+        client = AnalyticsClient(_settings(comet_url_override="https://opik.acme.internal"))
         try:
             pass
         finally:

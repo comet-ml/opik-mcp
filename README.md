@@ -12,9 +12,12 @@ Hosted Model Context Protocol server for **Opik** + **Ollie**. Exposes a curated
 |---|---|
 | **Status** | Phase 1 in planning — auth-flow research done, PR opened against `comet-backend` |
 | **Jira** | [OPIK-6439](https://www.atlassian.com/) — _Improve Opik MCP server and include Ollie tool_ |
-| **Team brief** | [`docs/team-brief.md`](./docs/team-brief.md) — shareable narrative + team-by-team build list |
-| **Design doc** | [`docs/design.md`](./docs/design.md) — engineering source-of-truth (sequence diagrams, schemas, full task list) |
-| **Notion mirror** | [Notion page](https://www.notion.so/35f7124010a381ca82a5df67d7474313) — same team brief, easier to share |
+| **Notion mirror** | [Notion page](https://www.notion.so/35f7124010a381ca82a5df67d7474313) — team brief + design doc + ADRs |
+
+> **Note on `docs/`:** internal planning and design notes are kept local and gitignored.
+> They will be re-introduced piecemeal under `docs/` in follow-up PRs as each
+> document becomes user-facing. Until then, the Notion mirror above is the
+> canonical source.
 
 ---
 
@@ -52,7 +55,7 @@ This repo ships both. Phase 1 first.
 | 10 | `run_experiment` | Iterate | Ollie pod | ⬜ |
 | 11 | `save_eval_item` | Iterate | `opik-backend` REST | ⬜ |
 
-Reads use the **two universal `read` / `list` tools** keyed on entity type — same `ENTITY_REGISTRY` codepath as `ollie-assist`. Phase 1 covers `project`, `trace`, `span`, `test_suite`, `experiment`, `prompt`, `test_suite_item`, `prompt_version`. `opik://` URIs are still accepted as `id` input for forward-compat. The MCP `resources` primitive is not published — see [ADR 0004](./docs/decisions/0004-tool-surface.md) for rationale.
+Reads use the **two universal `read` / `list` tools** keyed on entity type — same `ENTITY_REGISTRY` codepath as `ollie-assist`. Phase 1 covers `project`, `trace`, `span`, `test_suite`, `experiment`, `prompt`, `test_suite_item`, `prompt_version`. `opik://` URIs are still accepted as `id` input for forward-compat. The MCP `resources` primitive is not published (see ADR 0004 in the Notion mirror for rationale).
 
 ---
 
@@ -60,7 +63,7 @@ Reads use the **two universal `read` / `list` tools** keyed on entity type — s
 
 | Item | Status |
 |---|---|
-| Auth flow research | ✅ done — see [`docs/auth-flow.md`](./docs/auth-flow.md) |
+| Auth flow research | ✅ done (see Notion mirror) |
 | `comet-backend` patch (API-key-callable pod discovery) | 🟡 PR open — [comet-ml/comet-backend#5555](https://github.com/comet-ml/comet-backend/pull/5555) |
 | Vertical-slice PoC (hello-world MCP) | ⬜ not started |
 | `ask_ollie` over local MCP (no Tasks) | ⬜ not started |
@@ -71,30 +74,26 @@ Reads use the **two universal `read` / `list` tools** keyed on entity type — s
 | `InitializeResult.instructions` per-session context (ADR 0004 D6) | ✅ done |
 | Distribution package (`uvx opik-mcp`) | ⬜ not started |
 
-See [`docs/phase-1.md`](./docs/phase-1.md) for the week-1 build order.
+See the Notion mirror for the week-1 build order.
 
 ---
 
-## Repo layout (planned)
+## Repo layout
 
 ```
 opik-mcp/
 ├── README.md                 ← you are here
-├── docs/
-│   ├── design.md             ← full engineering design (canonical, ~1.4k lines)
-│   ├── team-brief.md         ← shareable narrative + team-by-team build list
-│   ├── architecture.md       ← stack, tools, resources, dispatch model (Phase 1 lens)
-│   ├── phase-1.md            ← Phase 1 scope, build order, week-1 PoC plan
-│   ├── auth-flow.md          ← Comet/Opik auth path verified against code
-│   ├── open-questions.md     ← unresolved decisions
-│   ├── install/              ← per-host MCP config snippets (TBD)
-│   └── decisions/            ← ADRs (Python vs TS, separate repo, etc.)
 ├── src/
-│   └── opik_mcp/             ← Python package (TBD)
+│   └── opik_mcp/             ← Python MCP server
 ├── tests/
-├── pyproject.toml            ← TBD
+├── scripts/                  ← live-BE smoke + MCP-session smoke
+├── legacy/typescript/        ← deprecated v2 TS server (npm `opik-mcp@^2`)
+├── pyproject.toml
 └── Makefile
 ```
+
+Internal planning/design notes live under a gitignored `docs/` directory and will
+be re-introduced piecemeal as each one becomes user-facing.
 
 ---
 
@@ -115,7 +114,7 @@ uvx opik-mcp
 # Note: ask_ollie and run_experiment omitted from tools/list unless you have ollie-assist deployed
 ```
 
-Per-host MCP config snippets will be in [`docs/install/`](./docs/install/) once the package ships.
+Per-host MCP config snippets will land alongside the first published package release.
 
 ---
 
@@ -135,11 +134,11 @@ make inspect        # MCP Inspector in another shell
 
 In the Inspector: connect to `http://127.0.0.1:8080/mcp` with header `Authorization: Bearer dev-token-123`. The `ask_ollie` tool will appear in the tool list — invoke it with `query: "How many traces did I create today?"` and watch the progress notifications during pod warmup.
 
-**YOLO mode (always on).** Writes Ollie performs mid-stream (scores, comments, test-suite items, prompts, etc.) auto-execute without a per-action user confirmation. The pod's `confirm_required` SSE event is acknowledged with `decision="yes"` in-band, and a JSON audit row is emitted on the dedicated `opik_mcp.audit` Python logger (`event: "ollie_write_auto_approved"`). Configure that logger like any other (`logging.getLogger("opik_mcp.audit")`) to route audit lines to a file, journald, etc. Rationale and Phase-2 persistence path: [`docs/decisions/0005-ask-ollie-yolo-mode.md`](./docs/decisions/0005-ask-ollie-yolo-mode.md).
+**YOLO mode (always on).** Writes Ollie performs mid-stream (scores, comments, test-suite items, prompts, etc.) auto-execute without a per-action user confirmation. The pod's `confirm_required` SSE event is acknowledged with `decision="yes"` in-band, and a JSON audit row is emitted on the dedicated `opik_mcp.audit` Python logger (`event: "ollie_write_auto_approved"`). Configure that logger like any other (`logging.getLogger("opik_mcp.audit")`) to route audit lines to a file, journald, etc. Rationale and Phase-2 persistence path are recorded in ADR 0005 (Notion mirror).
 
 ### Privacy & telemetry
 
-`opik-mcp` sends anonymous product-analytics events to `stats.comet.com` so the team can measure adoption and reliability. No tool input prose (queries, comments, scores, page context) is ever sent — only event type, timing buckets, and low-cardinality structural properties. See `docs/superpowers/plans/2026-05-15-mcp-analytics.md` §4.5 for the full "never sent" list.
+`opik-mcp` sends anonymous product-analytics events to `stats.comet.com` so the team can measure adoption and reliability. No tool input prose (queries, comments, scores, page context) is ever sent — only event type, timing buckets, and low-cardinality structural properties. The full "never sent" list lives in the analytics plan in the Notion mirror.
 
 To disable, set `OPIK_MCP_ANALYTICS_ENABLED=false`.
 
@@ -196,7 +195,7 @@ RUN_LIVE_DEV_COMET=1 OPIK_API_KEY=... COMET_WORKSPACE=... COMET_URL_OVERRIDE=htt
 
 Short version: code-share with `ollie-assist` for the SSE event vocabulary. The translator imports `from ollie_assist.types.sse import SessionEvent, ThinkingDelta, ToolCallStart, ConfirmRequired, Navigate` — event-shape drift becomes a CI failure, not a runtime bug. In any other language, every change to Ollie's emitter forces a hand-translation in two repos.
 
-Full reasoning: see the team brief's "Why Python (not TypeScript)" section and [`docs/decisions/0001-python-not-typescript.md`](./docs/decisions/0001-python-not-typescript.md).
+Full reasoning: see the team brief's "Why Python (not TypeScript)" section and ADR 0001 in the Notion mirror.
 
 ---
 
@@ -208,4 +207,4 @@ Three reasons, all hard:
 2. **Cold start is up to two minutes.** MCP hosts time out at ~30 s. We need an always-warm service that returns `CreateTaskResult` in <2 s.
 3. **The per-user pod has no OAuth and no JWT verifier.** Wrong tier to host the public endpoint on.
 
-Full reasoning: see the team brief's "Why this is a separate `ollie-mcp` repo" section and [`docs/decisions/0002-separate-repo.md`](./docs/decisions/0002-separate-repo.md).
+Full reasoning: see the team brief's "Why this is a separate `ollie-mcp` repo" section and ADR 0002 in the Notion mirror.

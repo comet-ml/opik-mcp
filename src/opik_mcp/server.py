@@ -1,4 +1,5 @@
 import logging
+import secrets
 from typing import Annotated, Any
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -514,15 +515,19 @@ async def schema(
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, token: str) -> None:
         super().__init__(app)
-        self._token = token
+        self._expected = f"Bearer {token}"
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.headers.get("authorization", "") != f"Bearer {self._token}":
+        auth = request.headers.get("authorization", "")
+        if not secrets.compare_digest(auth, self._expected):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
 
 
 def build_app() -> Starlette:
+    # The bearer token is captured at construction time and held for the
+    # process lifetime; rotation requires a server restart (Settings is
+    # lru_cache'd). Documented as a Phase-1 limitation; Phase 2 moves to OAuth.
     app = mcp.streamable_http_app()
     app.add_middleware(BearerAuthMiddleware, token=get_settings().opik_mcp_dev_token)
     return app

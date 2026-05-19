@@ -212,7 +212,9 @@ async def test_unknown_operation_returns_structured_envelope() -> None:
     body = _decode_tool_text(result)
     assert body["error"] == "unknown_operation"
     assert body["operation"] == "trace.delete"
-    assert set(body["valid_operations"]) == set(WRITE_OPERATIONS)  # type: ignore[arg-type]
+    valid_ops = body["valid_operations"]
+    assert isinstance(valid_ops, list)
+    assert set(valid_ops) == set(WRITE_OPERATIONS)
 
 
 # --- helpers ------------------------------------------------------------ #

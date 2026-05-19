@@ -1,3 +1,5 @@
+from uuid import UUID
+
 import httpx
 import pytest
 import respx
@@ -13,7 +15,7 @@ from opik_mcp.run_experiment import run_experiment_impl
 from opik_mcp.run_experiment_models import PromptVariant, RunExperimentConfig
 
 OPIK_BASE = "https://opik.test"
-DATASET_ID = "0193a300-0000-7000-8000-000000000123"
+DATASET_ID = UUID("0193a300-0000-7000-8000-000000000123")
 EXP_ID = "0193a300-0000-7000-8000-0000000000e1"
 
 
@@ -30,9 +32,7 @@ def _config() -> RunExperimentConfig:
     return RunExperimentConfig(
         dataset_name="suite-a",
         dataset_id=DATASET_ID,
-        prompts=[
-            PromptVariant(model="gpt-4o", messages=[{"role": "user", "content": "Hi"}])
-        ],
+        prompts=[PromptVariant(model="gpt-4o", messages=[{"role": "user", "content": "Hi"}])],
     )
 
 
@@ -105,9 +105,7 @@ async def test_run_experiment_impl_maps_422_to_validation() -> None:
 @pytest.mark.anyio
 async def test_run_experiment_impl_maps_401_to_auth() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
-        mock.post("/v1/private/experiments/execute").mock(
-            return_value=httpx.Response(401)
-        )
+        mock.post("/v1/private/experiments/execute").mock(return_value=httpx.Response(401))
         with pytest.raises(OpikAuthError):
             await run_experiment_impl(
                 config=_config(),

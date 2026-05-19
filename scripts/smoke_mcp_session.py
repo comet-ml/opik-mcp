@@ -150,7 +150,10 @@ async def main() -> None:
                 print(json.dumps(body, indent=2))
 
         # --- targeted recovery probe: thread-score singleton must surface array example ---
-        print("\n=== score.create target='thread' singleton (expect validation_failed w/ array example) ===\n")
+        print(
+            "\n=== score.create target='thread' singleton "
+            "(expect validation_failed w/ array example) ===\n"
+        )
         bad = await session.call_tool(
             "write",
             {
@@ -167,15 +170,17 @@ async def main() -> None:
         if isinstance(body, dict):
             example = body.get("example")
             ex_tid = example[0].get("target_id") if isinstance(example, list) and example else None
-            print(json.dumps(
-                {
-                    "error": body.get("error"),
-                    "issue_codes": [i.get("code") for i in body.get("issues", [])],
-                    "example_is_array": isinstance(example, list),
-                    "example_carries_callers_thread_id": ex_tid == thread_id,
-                },
-                indent=2,
-            ))
+            print(
+                json.dumps(
+                    {
+                        "error": body.get("error"),
+                        "issue_codes": [i.get("code") for i in body.get("issues", [])],
+                        "example_is_array": isinstance(example, list),
+                        "example_carries_callers_thread_id": ex_tid == thread_id,
+                    },
+                    indent=2,
+                )
+            )
 
         # --- targeted: test_suite_item.upsert top-level array MUST be rejected (no silent loss) ---
         print("\n=== test_suite_item.upsert top-level array (expect batch_unsupported) ===\n")
@@ -191,14 +196,16 @@ async def main() -> None:
         )
         body = _decode(bad2.content)
         if isinstance(body, dict):
-            print(json.dumps(
-                {
-                    "isError": bad2.isError,
-                    "error": body.get("error"),
-                    "issue_codes": [i.get("code") for i in body.get("issues", [])],
-                },
-                indent=2,
-            ))
+            print(
+                json.dumps(
+                    {
+                        "isError": bad2.isError,
+                        "error": body.get("error"),
+                        "issue_codes": [i.get("code") for i in body.get("issues", [])],
+                    },
+                    indent=2,
+                )
+            )
 
         # --- targeted: experiment.create with no test_suite_* → test_suite_parent_missing ---
         print("\n=== experiment.create with neither test_suite_name nor test_suite_id ===\n")
@@ -208,14 +215,16 @@ async def main() -> None:
         )
         body = _decode(bad3.content)
         if isinstance(body, dict):
-            print(json.dumps(
-                {
-                    "isError": bad3.isError,
-                    "error": body.get("error"),
-                    "issue_codes": [i.get("code") for i in body.get("issues", [])],
-                },
-                indent=2,
-            ))
+            print(
+                json.dumps(
+                    {
+                        "isError": bad3.isError,
+                        "error": body.get("error"),
+                        "issue_codes": [i.get("code") for i in body.get("issues", [])],
+                    },
+                    indent=2,
+                )
+            )
 
         # --- targeted: experiment.create with BOTH → test_suite_parent_conflict ---
         print("\n=== experiment.create with both test_suite_name AND test_suite_id ===\n")
@@ -232,14 +241,16 @@ async def main() -> None:
         )
         body = _decode(bad4.content)
         if isinstance(body, dict):
-            print(json.dumps(
-                {
-                    "isError": bad4.isError,
-                    "error": body.get("error"),
-                    "issue_codes": [i.get("code") for i in body.get("issues", [])],
-                },
-                indent=2,
-            ))
+            print(
+                json.dumps(
+                    {
+                        "isError": bad4.isError,
+                        "error": body.get("error"),
+                        "issue_codes": [i.get("code") for i in body.get("issues", [])],
+                    },
+                    indent=2,
+                )
+            )
 
         # --- targeted: legacy dataset.create MUST be rejected at MCP Literal boundary ---
         print("\n=== legacy dataset.create (expect MCP-layer rejection at Literal) ===\n")
@@ -249,13 +260,15 @@ async def main() -> None:
         )
         body = _decode(legacy.content)
         rejected = legacy.isError
-        print(json.dumps(
-            {
-                "isError": rejected,
-                "preview": (str(body)[:300] if rejected else "REGRESSION — accepted!"),
-            },
-            indent=2,
-        ))
+        print(
+            json.dumps(
+                {
+                    "isError": rejected,
+                    "preview": (str(body)[:300] if rejected else "REGRESSION — accepted!"),
+                },
+                indent=2,
+            )
+        )
 
 
 if __name__ == "__main__":

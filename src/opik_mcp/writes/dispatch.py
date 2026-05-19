@@ -429,9 +429,7 @@ def _dump(model: BaseModel) -> dict[str, Any]:
     ``"2026-05-18 18:00:00+00:00"``), which the BE rejects as
     ``DateTimeParseException``.
     """
-    dumped: dict[str, Any] = _stringify_uuids(
-        model.model_dump(exclude_none=True, mode="json")
-    )
+    dumped: dict[str, Any] = _stringify_uuids(model.model_dump(exclude_none=True, mode="json"))
     return dumped
 
 

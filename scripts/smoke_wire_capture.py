@@ -77,24 +77,22 @@ async def main() -> None:
 
         # --- test_suite_item.upsert --------------------------------------- #
         with respx.mock(base_url=OPIK_BASE) as mock:
-            route = mock.put("/v1/private/datasets/items").mock(
-                return_value=httpx.Response(204)
-            )
+            route = mock.put("/v1/private/datasets/items").mock(return_value=httpx.Response(204))
             await session.call_tool(
                 "write",
                 {
                     "operation": "test_suite_item.upsert",
                     "data": {
                         "test_suite_name": "smoke_001",
-                        "items": [
-                            {"input": {"q": "ping"}, "expected_output": {"a": "pong"}}
-                        ],
+                        "items": [{"input": {"q": "ping"}, "expected_output": {"a": "pong"}}],
                     },
                 },
             )
             sent = json.loads(route.calls.last.request.read())
             print("test_suite_item.upsert →", json.dumps(sent, indent=2))
-            assert "dataset_name" in sent, "MCP test_suite_name should translate to wire dataset_name"
+            assert "dataset_name" in sent, (
+                "MCP test_suite_name should translate to wire dataset_name"
+            )
             assert "test_suite_name" not in sent, "test_suite_name should NOT leak to wire"
 
         # --- experiment.create -------------------------------------------- #
