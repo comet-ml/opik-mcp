@@ -14,7 +14,14 @@ URL = "https://stats.comet.com/notify/event/"
 
 
 def _settings(**overrides: Any) -> Settings:
-    base = dict(opik_mcp_analytics_enabled=True, comet_workspace="ws-1")
+    # Explicit None defaults so a stray OPIK_API_KEY / COMET_WORKSPACE_ID in the
+    # developer's shell can't change which branch of `_build_event` the test hits.
+    base: dict[str, Any] = dict(
+        opik_mcp_analytics_enabled=True,
+        comet_workspace="ws-1",
+        opik_api_key=None,
+        comet_workspace_id=None,
+    )
     return Settings(**{**base, **overrides})
 
 
@@ -150,9 +157,9 @@ def test_track_event_emits_custom_source() -> None:
 
 @respx.mock
 def test_track_event_falls_back_to_install_id_without_workspace() -> None:
-    """No workspace → user_id falls back to the persisted install_id, never empty."""
+    """No api_key, no workspace → user_id falls back to install_id, never empty."""
     route = respx.post(URL).mock(return_value=httpx.Response(200))
-    client = AnalyticsClient(_settings(comet_workspace=None))
+    client = AnalyticsClient(_settings(comet_workspace=None, opik_api_key=None))
     try:
         client.track_event("opik_mcp_test", {})
         _drain(client)
@@ -163,6 +170,149 @@ def test_track_event_falls_back_to_install_id_without_workspace() -> None:
     assert body["user_id"]  # never empty / None
     # No workspace was set, so `workspace` must NOT appear in event_properties.
     assert "workspace" not in body["event_properties"]
+    # No api_key was set, so `api_key_sha256` must NOT appear either.
+    assert "api_key_sha256" not in body["event_properties"]
+
+
+# --- pseudonymous user identity (api_key hash + workspace_id) ------------ #
+
+
+@respx.mock
+def test_api_key_hash_stamped_in_event_properties_when_key_set() -> None:
+    """OPIK_API_KEY set → SHA-256 hash appears in event_properties.api_key_sha256.
+
+    The backend retains the raw-key → user-id mapping; BI joins the digest
+    to the auth table to count distinct Comet users. Top-level ``user_id``
+    is intentionally unchanged (workspace name) for dashboard continuity.
+    """
+    from opik_mcp.analytics.identity import api_key_sha256
+
+    raw_key = "sk-some-secret-key"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_api_key=raw_key))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["api_key_sha256"] == api_key_sha256(raw_key)
+    # Top-level user_id stays workspace name — dashboards built against the
+    # pre-Phase-1.5 schema must not see a discontinuous type-flip.
+    assert body["user_id"] == "ws-1"
+    assert body["event_properties"]["workspace"] == "ws-1"
+
+
+@respx.mock
+def test_api_key_hash_absent_when_key_unset() -> None:
+    """No OPIK_API_KEY → field omitted (don't stamp empty / sentinel)."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_api_key=None))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert "api_key_sha256" not in body["event_properties"]
+
+
+@respx.mock
+def test_raw_api_key_never_in_payload_or_logs(caplog: pytest.LogCaptureFixture) -> None:
+    """PRIVACY CONTRACT: the raw OPIK_API_KEY must NEVER appear in any
+    posted payload AND must NEVER appear in any log record / exception text.
+
+    Covers both attack surfaces: a future commit that puts the raw key in an
+    exception message (e.g. ``f"failed to encode: {settings.opik_api_key}"``)
+    would have its traceback dumped via ``exc_info=True`` in the worker's
+    error path — the caplog check catches it before it ships.
+    """
+    raw_key = "sk-DO-NOT-LEAK-canary-9f8e7d6c"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    with caplog.at_level(logging.DEBUG, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(_settings(opik_api_key=raw_key))
+        try:
+            client.track_event("opik_mcp_test", {"foo": "bar"})
+            client.track_event("opik_mcp_other", {})
+            _drain(client)
+        finally:
+            client.close()
+
+    for call in route.calls:
+        body = call.request.content.decode("utf-8", errors="replace")
+        assert raw_key not in body, f"raw api_key leaked in payload: {body!r}"
+    for record in caplog.records:
+        msg = record.getMessage()
+        assert raw_key not in msg, f"raw api_key leaked in log message: {msg!r}"
+        assert raw_key not in (record.exc_text or ""), (
+            f"raw api_key leaked in exception text: {record.exc_text!r}"
+        )
+
+
+@respx.mock
+def test_workspace_id_stamped_when_set() -> None:
+    """COMET_WORKSPACE_ID set → stamped as event_properties.workspace_id."""
+    workspace_uuid = "11111111-2222-3333-4444-555555555555"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace_id=workspace_uuid))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["workspace_id"] == workspace_uuid
+
+
+@respx.mock
+def test_workspace_id_absent_when_unset() -> None:
+    """No COMET_WORKSPACE_ID → field is omitted (don't send empty string)."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings())  # no comet_workspace_id
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert "workspace_id" not in body["event_properties"]
+
+
+@respx.mock
+def test_api_key_hash_and_workspace_id_both_stamped_when_both_set() -> None:
+    """The two identity fields are independent — both stamp simultaneously.
+
+    Guards against a future refactor that gates one on the other (e.g.
+    ``if workspace_id and api_key`` instead of two parallel ifs).
+    """
+    from opik_mcp.analytics.identity import api_key_sha256
+
+    raw_key = "sk-dual-stamp-test"
+    workspace_uuid = "11111111-2222-3333-4444-555555555555"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_api_key=raw_key, comet_workspace_id=workspace_uuid))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["api_key_sha256"] == api_key_sha256(raw_key)
+    assert props["workspace_id"] == workspace_uuid
+    assert props["workspace"] == "ws-1"
+
+
+def test_comet_workspace_id_rejects_non_uuid_at_startup() -> None:
+    """Operator typo (e.g. ``COMET_WORKSPACE_ID=my-workspace``) must fail
+    loudly at Settings construction, not silently corrupt every event.
+    """
+    with pytest.raises(ValueError, match="not a valid UUID"):
+        Settings(comet_workspace_id="not-a-uuid")
 
 
 @respx.mock

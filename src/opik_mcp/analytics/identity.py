@@ -1,10 +1,19 @@
-"""Stable anonymous_id resolver — workspace if set, else persisted install UUID.
+"""Stable identity resolvers for analytics events.
 
-Mirrors `MetadataDAO.ANONYMOUS_ID` in opik-backend, file-backed instead of DB-backed.
+- ``get_install_id()``: per-laptop UUID4 persisted at ``~/.opik-mcp/install-id``.
+  Mirrors ``MetadataDAO.ANONYMOUS_ID`` in opik-backend, file-backed.
+- ``resolve_anonymous_id(settings)``: top-level ``user_id`` for comet-stats —
+  workspace name → install_id. **Kept stable on purpose**; the per-user
+  identity ships as ``event_properties.api_key_sha256`` so BI dashboards
+  built against the old ``user_id`` semantics keep working.
+- ``api_key_sha256(key)``: per-user pseudonymous identity. SHA-256 of the
+  OPIK_API_KEY. The backend retains the raw-key → user-id mapping; BI joins
+  on the digest. The raw key NEVER leaves this module.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -59,5 +68,25 @@ def get_install_id() -> str:
     return _get_install_id()
 
 
+def api_key_sha256(api_key: str) -> str:
+    """SHA-256 hex digest of the API key. Stable, irreversible, per-user.
+
+    The backend retains the raw-key → user-id mapping; BI can JOIN on the
+    digest to recover the Comet user account without ever seeing plaintext.
+    Lowercase hex (64 chars) matches the convention used elsewhere in Comet
+    (e.g. ``hashlib.sha256(...).hexdigest()`` defaults).
+    """
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
 def resolve_anonymous_id(settings: Settings) -> str:
+    """Top-level ``user_id`` for comet-stats: workspace name → install_id.
+
+    Intentionally does NOT include the api_key hash. comet-stats indexes
+    events by ``user_id`` and existing Metabase / Looker dashboards filter
+    and join on workspace strings; flipping that field to a 64-char hex
+    digest would discontinuously break those queries. The per-user identity
+    is exposed as ``event_properties.api_key_sha256`` instead — BI can
+    migrate join keys on its own schedule.
+    """
     return settings.comet_workspace or get_install_id()

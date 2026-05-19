@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -14,6 +15,12 @@ class Settings(BaseSettings):
 
     opik_api_key: str | None = None
     comet_workspace: str | None = None
+    # Optional workspace UUID. Stamped into analytics events as
+    # `workspace_id` when set so BI can JOIN on a stable identifier instead
+    # of the workspace name (which is mutable). Unset means the field is
+    # omitted from events; a future iteration can resolve it from the
+    # backend at startup.
+    comet_workspace_id: str | None = None
     comet_url_override: str = "https://www.comet.com"
 
     # Optional override for the Opik REST base. If unset, derived from
@@ -66,6 +73,22 @@ class Settings(BaseSettings):
     @classmethod
     def _lowercase_auto_approve(cls, v: Any) -> Any:
         return v.lower() if isinstance(v, str) else v
+
+    @field_validator("comet_workspace_id", mode="before")
+    @classmethod
+    def _validate_workspace_uuid(cls, v: Any) -> Any:
+        # Loud at startup beats silently mis-stamping every event with a
+        # garbage workspace id — see comment on the field.
+        if v is None or v == "":
+            return None
+        try:
+            UUID(str(v))
+        except ValueError as e:
+            raise ValueError(
+                f"COMET_WORKSPACE_ID={v!r} is not a valid UUID; "
+                "set it to the workspace UUID or leave it unset"
+            ) from e
+        return str(v)
 
     # Analytics / telemetry
     opik_mcp_analytics_enabled: bool = True

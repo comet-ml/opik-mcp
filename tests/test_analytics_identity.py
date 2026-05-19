@@ -11,6 +11,12 @@ from opik_mcp.config import Settings
 @pytest.fixture(autouse=True)
 def _fresh_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
+    # Identity resolution reads OPIK_API_KEY / COMET_WORKSPACE off the env via
+    # pydantic-settings — clear them so tests construct Settings deterministically
+    # regardless of the developer shell. Each test re-sets what it actually needs.
+    monkeypatch.delenv("OPIK_API_KEY", raising=False)
+    monkeypatch.delenv("COMET_WORKSPACE", raising=False)
+    monkeypatch.delenv("COMET_WORKSPACE_ID", raising=False)
     identity._get_install_id.cache_clear()
     return tmp_path
 
@@ -52,3 +58,59 @@ def test_resolve_anonymous_id_falls_back_to_install_id(_fresh_home: Path) -> Non
     s = Settings(comet_workspace=None)
     val = identity.resolve_anonymous_id(s)
     UUID(val)
+
+
+# --- api_key_sha256 ------------------------------------------------------- #
+
+
+def test_api_key_sha256_is_64char_lowercase_hex() -> None:
+    out = identity.api_key_sha256("sk-secret-abc")
+    assert len(out) == 64
+    assert all(c in "0123456789abcdef" for c in out)
+
+
+def test_api_key_sha256_matches_known_value() -> None:
+    """Known-Answer Test: pin the exact hex for an ASCII input so a future
+    encoding regression (latin-1, trim, casing) breaks this test before it
+    silently breaks the backend JOIN against the auth table.
+    """
+    assert identity.api_key_sha256("test") == (
+        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
+    )
+
+
+def test_api_key_sha256_is_deterministic() -> None:
+    a = identity.api_key_sha256("sk-secret-abc")
+    b = identity.api_key_sha256("sk-secret-abc")
+    assert a == b
+
+
+def test_api_key_sha256_differs_per_key() -> None:
+    assert identity.api_key_sha256("a") != identity.api_key_sha256("b")
+
+
+def test_api_key_sha256_is_not_its_own_preimage() -> None:
+    """Defends against a future broken impl (identity function, no-op hash)
+    that would return the input verbatim — silently logging plaintext keys.
+    """
+    raw = "sk-canary-DO-NOT-LEAK-12345"
+    assert identity.api_key_sha256(raw) != raw
+
+
+def test_api_key_sha256_handles_unicode() -> None:
+    """Non-ASCII keys must hash via UTF-8 without raising."""
+    out = identity.api_key_sha256("sécrët-€-🔑")
+    assert len(out) == 64
+
+
+# --- resolve_anonymous_id (top-level user_id) ---------------------------- #
+
+
+def test_resolve_anonymous_id_treats_empty_api_key_as_unset(_fresh_home: Path) -> None:
+    """OPIK_API_KEY='' MUST behave identically to unset — no hash, fall
+    through to the next priority. Documents that ``if settings.opik_api_key``
+    (the implementation check) is truthy-aware.
+    """
+    s = Settings(opik_api_key="", comet_workspace="ws-1")
+    # user_id stays workspace name (api_key hash is event_properties-only, not user_id)
+    assert identity.resolve_anonymous_id(s) == "ws-1"

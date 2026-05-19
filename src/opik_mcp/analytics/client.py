@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from opik_mcp.analytics.identity import get_install_id, resolve_anonymous_id
+from opik_mcp.analytics.identity import api_key_sha256, get_install_id, resolve_anonymous_id
 from opik_mcp.config import Settings
 
 logger = logging.getLogger("opik_mcp.analytics")
@@ -173,6 +173,15 @@ class AnalyticsClient:
         }
         if self._settings.comet_workspace:
             common["workspace"] = self._settings.comet_workspace
+        if self._settings.comet_workspace_id:
+            # Stable UUID for the workspace — preferred join key in BI; the
+            # workspace `name` is human-readable but mutable.
+            common["workspace_id"] = self._settings.comet_workspace_id
+        if self._settings.opik_api_key:
+            # Pseudonymous per-user identity. The raw key NEVER leaves the
+            # process; the backend retains the raw-key → user-id mapping and
+            # can JOIN on this digest to recover the Comet user account.
+            common["api_key_sha256"] = api_key_sha256(self._settings.opik_api_key)
         if self._settings.opik_mcp_analytics_source:
             # Tells comet-stats to mark `on_prem=False` and skip IP enrichment;
             # matches the `OLLIE_SOURCE` / opik.sh convention.
@@ -182,9 +191,9 @@ class AnalyticsClient:
         # shadow the server-stamped value.  Spread caller properties first so
         # common always wins on key conflicts.
         return {
-            # comet-stats indexes events by top-level `user_id`. We fall back
-            # through workspace → install_id (anonymous laptop identity) → a
-            # stable sentinel so the field is always populated.
+            # comet-stats indexes events by top-level `user_id`. Kept as
+            # workspace name → install_id for dashboard continuity. The
+            # per-user identity is in event_properties.api_key_sha256.
             "user_id": resolve_anonymous_id(self._settings),
             "event_type": event_type,
             "event_properties": {**properties, **common},
