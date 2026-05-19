@@ -53,4 +53,10 @@ def reset_analytics_for_tests() -> None:
     Call sites: pytest fixtures that override env vars and need a fresh client.
     Never call from production code.
     """
+    # Close the cached client first so its worker thread + http session shut
+    # down cleanly. Without this, a test that resets mid-run leaves an orphan
+    # daemon thread draining against a stale http client (harmless thanks to
+    # daemon=True, but it muddies log output).
+    if get_analytics.cache_info().currsize:
+        get_analytics().close()
     get_analytics.cache_clear()

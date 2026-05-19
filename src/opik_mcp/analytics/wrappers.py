@@ -96,6 +96,12 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
         logger.debug("session_initialized emit failed", exc_info=True)
 
 
+# PRIVACY CONTRACT: a `props_fn` MUST return only low-cardinality, bucketed
+# values — never user-supplied free text (queries, names, ids, prose).
+# Concrete implementations live alongside each tool in `server.py`; see
+# `_write_props`, `_read_props`, `_list_props` for the bucketing pattern
+# (`is_batch`, `id_kind`, `had_name_filter`, …). The privacy guarantee is
+# enforced end-to-end by `tests/test_analytics_privacy.py`.
 PropsFn = Callable[[Any, dict[str, Any]], dict[str, str]]
 
 

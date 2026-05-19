@@ -74,6 +74,67 @@ def test_track_event_omits_source_when_blanked() -> None:
     assert "source" not in body["event_properties"]
 
 
+def test_warns_when_onprem_url_with_cloud_source(caplog: pytest.LogCaptureFixture) -> None:
+    """On-prem-looking COMET_URL_OVERRIDE + default source must log a WARNING.
+
+    Safety net: an on-prem operator who sets COMET_URL_OVERRIDE but forgets
+    OPIK_MCP_ANALYTICS_SOURCE='' would otherwise mis-label every event as
+    cloud-Comet. The warning fires once at client startup.
+    """
+    with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(
+            _settings(comet_url_override="https://opik.acme.internal")
+        )
+        try:
+            pass
+        finally:
+            client.close()
+
+    warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("looks on-prem" in m for m in warning_msgs), (
+        f"expected on-prem misconfig warning, got: {warning_msgs!r}"
+    )
+
+
+def test_no_warning_for_cloud_url(caplog: pytest.LogCaptureFixture) -> None:
+    """Default cloud URL must NOT trigger the on-prem warning."""
+    with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(_settings())  # default comet_url_override = www.comet.com
+        try:
+            pass
+        finally:
+            client.close()
+
+    on_prem_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "looks on-prem" in r.getMessage()
+    ]
+    assert not on_prem_warnings, f"unexpected on-prem warning: {on_prem_warnings}"
+
+
+def test_no_warning_when_source_blanked_for_onprem(caplog: pytest.LogCaptureFixture) -> None:
+    """On-prem URL with source explicitly blanked = correctly configured, no warning."""
+    with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(
+            _settings(
+                comet_url_override="https://opik.acme.internal",
+                opik_mcp_analytics_source="",
+            )
+        )
+        try:
+            pass
+        finally:
+            client.close()
+
+    on_prem_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "looks on-prem" in r.getMessage()
+    ]
+    assert not on_prem_warnings, f"unexpected on-prem warning: {on_prem_warnings}"
+
+
 @respx.mock
 def test_track_event_emits_custom_source() -> None:
     """A custom source value (e.g. on-prem domain) propagates verbatim."""

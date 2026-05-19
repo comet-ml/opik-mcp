@@ -59,11 +59,27 @@ class AnalyticsClient:
         self._worker: threading.Thread | None = None
         self._closed = False
         self._closed_lock = threading.Lock()
-        # Signaled by the worker when the queue drains to empty.
-        self._idle_event = threading.Event()
-        self._idle_event.set()  # no events pending at construction
         if self._settings.opik_mcp_analytics_enabled:
+            self._warn_if_misconfigured_for_onprem()
             self._start_worker()
+
+    def _warn_if_misconfigured_for_onprem(self) -> None:
+        """One-shot WARNING when `source` looks cloud but URLs look on-prem.
+
+        Safety net for on-prem deploys that forget to set
+        ``OPIK_MCP_ANALYTICS_SOURCE=""`` — without it, events would phone home
+        to ``stats.comet.com`` self-labelled as a cloud-Comet client.
+        """
+        source = self._settings.opik_mcp_analytics_source
+        comet_url = self._settings.comet_url_override or ""
+        if source == "comet.com" and "comet.com" not in comet_url.lower():
+            logger.warning(
+                "analytics source=%r but COMET_URL_OVERRIDE=%r looks on-prem; "
+                "set OPIK_MCP_ANALYTICS_SOURCE='' (or your domain) to avoid "
+                "mis-labelling events as cloud-Comet.",
+                source,
+                comet_url,
+            )
 
     def track_event(self, event_type: str, properties: dict[str, str]) -> None:
         if not self._settings.opik_mcp_analytics_enabled:
@@ -75,7 +91,6 @@ class AnalyticsClient:
             event = self._build_event(event_type, properties)
             try:
                 self._queue.put_nowait(event)
-                self._idle_event.clear()
             except queue.Full:
                 logger.debug("analytics queue full; dropping event_type=%s", event_type)
         except Exception:
@@ -139,8 +154,6 @@ class AnalyticsClient:
                     logger.warning("analytics POST failed", exc_info=True)
             finally:
                 self._queue.task_done()
-                if self._queue.empty():
-                    self._idle_event.set()
 
     def _build_event(self, event_type: str, properties: dict[str, str]) -> dict[str, Any]:
         common: dict[str, str] = {
