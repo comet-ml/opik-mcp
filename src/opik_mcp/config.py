@@ -73,11 +73,13 @@ class Settings(BaseSettings):
     opik_mcp_analytics_environment: str = "prod"
     opik_mcp_analytics_connect_timeout_s: float = 5.0
     opik_mcp_analytics_total_timeout_s: float = 10.0
-    # When set, propagated as `event_properties.source`. The comet-stats receiver
-    # uses this to mark `on_prem=False` and skip IP enrichment — matches the
-    # `OLLIE_SOURCE` / opik.sh convention so cross-product events share one
-    # routing contract. Empty string = omit (default; receiver will infer).
-    opik_mcp_analytics_source: str = ""
+    # Propagated as `event_properties.source`. The comet-stats receiver uses
+    # this to mark `on_prem=False` and skip IP enrichment; matches the
+    # `OLLIE_SOURCE` convention (codepanels injects `comet.com` at deploy
+    # time for ollie-assist). Defaulting to `comet.com` reflects that
+    # opik-mcp Phase 1 ships as a cloud-Comet client. On-prem installs
+    # should override to "" (omit the field) or to their own domain.
+    opik_mcp_analytics_source: str = "comet.com"
 
 
 @lru_cache(maxsize=1)

@@ -55,15 +55,15 @@ def test_track_event_posts_wire_shape() -> None:
     # ISO-8601 UTC timestamp stamped client-side.
     assert "timestamp" in props
     assert props["timestamp"].endswith("+00:00")
-    # `source` is opt-in — must be absent unless configured.
-    assert "source" not in props
+    # `source` defaults to `comet.com` (cloud-Comet deploy convention).
+    assert props["source"] == "comet.com"
 
 
 @respx.mock
-def test_track_event_emits_source_when_configured() -> None:
-    """When opik_mcp_analytics_source is set, propagate it to event_properties.source."""
+def test_track_event_omits_source_when_blanked() -> None:
+    """Setting opik_mcp_analytics_source='' (e.g. on-prem) drops the field."""
     route = respx.post(URL).mock(return_value=httpx.Response(200))
-    client = AnalyticsClient(_settings(opik_mcp_analytics_source="comet.com"))
+    client = AnalyticsClient(_settings(opik_mcp_analytics_source=""))
     try:
         client.track_event("opik_mcp_test", {})
         _drain(client)
@@ -71,7 +71,22 @@ def test_track_event_emits_source_when_configured() -> None:
         client.close()
 
     body = json.loads(route.calls.last.request.content)
-    assert body["event_properties"]["source"] == "comet.com"
+    assert "source" not in body["event_properties"]
+
+
+@respx.mock
+def test_track_event_emits_custom_source() -> None:
+    """A custom source value (e.g. on-prem domain) propagates verbatim."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_mcp_analytics_source="acme-internal.example"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["source"] == "acme-internal.example"
 
 
 @respx.mock
