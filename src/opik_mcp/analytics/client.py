@@ -11,6 +11,7 @@ import platform
 import queue
 import sys
 import threading
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
@@ -151,15 +152,27 @@ class AnalyticsClient:
                 f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
             ),
             "platform": platform.system(),
+            # Client-stamped timestamp — matches ollie-assist `bi.track()` so
+            # events from both products correlate cleanly in BI. The receiver
+            # also stamps an arrival time, but the client timestamp is what
+            # actually maps to when the user took the action.
+            "timestamp": datetime.now(UTC).isoformat(),
         }
         if self._settings.comet_workspace:
-            common["workspace_id"] = self._settings.comet_workspace
+            common["workspace"] = self._settings.comet_workspace
+        if self._settings.opik_mcp_analytics_source:
+            # Tells comet-stats to mark `on_prem=False` and skip IP enrichment;
+            # matches the `OLLIE_SOURCE` / opik.sh convention.
+            common["source"] = self._settings.opik_mcp_analytics_source
         # Common props (environment, version, transport, …) are authoritative: a
         # call site accidentally passing e.g. "environment" must not silently
         # shadow the server-stamped value.  Spread caller properties first so
         # common always wins on key conflicts.
         return {
-            "anonymous_id": resolve_anonymous_id(self._settings),
+            # comet-stats indexes events by top-level `user_id`. We fall back
+            # through workspace → install_id (anonymous laptop identity) → a
+            # stable sentinel so the field is always populated.
+            "user_id": resolve_anonymous_id(self._settings),
             "event_type": event_type,
             "event_properties": {**properties, **common},
         }

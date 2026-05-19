@@ -36,17 +36,59 @@ def test_track_event_posts_wire_shape() -> None:
     assert route.called
     body = json.loads(route.calls.last.request.content)
     assert body["event_type"] == "opik_mcp_test"
-    assert body["anonymous_id"] == "ws-1"
+    # comet-stats indexes events by top-level `user_id` (ollie-assist contract).
+    assert body["user_id"] == "ws-1"
+    # Legacy `anonymous_id` key must not be sent — receiver wouldn't index it.
+    assert "anonymous_id" not in body
     props = body["event_properties"]
     assert props["foo"] == "bar"
     # Common properties stamped by the client:
     assert props["environment"] == "prod"
-    assert props["workspace_id"] == "ws-1"
+    # `workspace` (not `workspace_id`) so it joins with ollie-assist events.
+    assert props["workspace"] == "ws-1"
+    assert "workspace_id" not in props
     assert "opik_mcp_version" in props
     assert "install_id" in props
     assert "python_version" in props
     assert "platform" in props
     assert "transport" in props
+    # ISO-8601 UTC timestamp stamped client-side.
+    assert "timestamp" in props
+    assert props["timestamp"].endswith("+00:00")
+    # `source` is opt-in — must be absent unless configured.
+    assert "source" not in props
+
+
+@respx.mock
+def test_track_event_emits_source_when_configured() -> None:
+    """When opik_mcp_analytics_source is set, propagate it to event_properties.source."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_mcp_analytics_source="comet.com"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["source"] == "comet.com"
+
+
+@respx.mock
+def test_track_event_falls_back_to_install_id_without_workspace() -> None:
+    """No workspace → user_id falls back to the persisted install_id, never empty."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"]  # never empty / None
+    # No workspace was set, so `workspace` must NOT appear in event_properties.
+    assert "workspace" not in body["event_properties"]
 
 
 @respx.mock
