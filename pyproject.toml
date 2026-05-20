@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opik-mcp"
-version = "0.0.4"
-description = "MCP server for Opik (Phase 1 PoC)."
+version = "0.1.0"
+description = "Model Context Protocol server for Opik (Comet's LLM observability platform)."
 readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
