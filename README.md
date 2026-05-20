@@ -256,6 +256,17 @@ write(operation="score.create", data={
 })
 ```
 
+**Per-write confirmation prompts (opt-in).** Set `OPIK_MCP_CONFIRM_WRITES=enabled`
+to make `write` route every non-dry-run call through the MCP elicitation
+primitive — the host shows a yes/no prompt to the user and the call only
+proceeds on accept. Decline / cancel return a `{"ok": false, "cancelled":
+true, "reason": …}` envelope without touching the backend. Hosts that don't
+advertise the elicitation capability emit a one-shot warning and proceed
+(never silently dropped, never blocked). Dry-run writes always skip the
+prompt — they're validation-only by definition. See the
+`OPIK_MCP_CONFIRM_WRITES` / `OPIK_MCP_ELICIT_TIMEOUT_SECONDS` rows under
+Configuration.
+
 ### `schema`
 
 Inspect the exact JSON shape and required fields of any write operation before
@@ -317,7 +328,9 @@ Every setting is an environment variable. Required ones in **bold**.
 
 | Variable | Default | Notes |
 |---|---|---|
-| `OPIK_MCP_AUTO_APPROVE` | `enabled` | `disabled` to surface Ollie's confirm requests as typed errors instead of auto-approving. |
+| `OPIK_MCP_AUTO_APPROVE` | `enabled` | `disabled` to require a per-action approval before Ollie's mid-stream writes proceed. On hosts that advertise the MCP `elicitation` capability the user sees a yes/no prompt; on dumber hosts the request surfaces as a typed error you can manually re-issue. |
+| `OPIK_MCP_CONFIRM_WRITES` | `disabled` | `enabled` to gate every non-dry-run `write` call on a user confirmation via the MCP elicitation primitive. Hosts without the capability emit a one-shot warning and proceed. Dry-run writes always skip the prompt. |
+| `OPIK_MCP_ELICIT_TIMEOUT_SECONDS` | `60` | How long a confirmation prompt may wait for the user before being treated as a cancel. `0` disables the bound (debug only). Applies to both `write` and `ask_ollie` prompts. |
 | `OPIK_MCP_POD_READY_TIMEOUT_S` | `120` | Ollie pod cold-start poll cap. |
 | `OPIK_MCP_POD_READY_INTERVAL_S` | `2` | Cold-start poll interval. |
 | `OPIK_MCP_HEARTBEAT_INTERVAL_S` | `15.0` | Watchdog cadence — emits a `notifications/progress` tick when the pod is silent, keeping host timeouts at bay. |

@@ -13,6 +13,7 @@ from opik_mcp import audit
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED, bucket_count
 from opik_mcp.comet_client import CometClient, PodDiscovery
 from opik_mcp.config import Settings, get_settings, require_ollie_config
+from opik_mcp.elicitation import confirm_with_user
 from opik_mcp.ollie_client import OllieClient, OllieStreamError, OnTick, SSEEvent
 
 logger = logging.getLogger("opik_mcp.ask_ollie")
@@ -398,24 +399,46 @@ async def run_ask_ollie(
                             raw_input = payload.get("input")
                             tool_input = raw_input if isinstance(raw_input, dict) else {}
 
-                            # Opt-out path (OPIK_MCP_AUTO_APPROVE=disabled): surface
-                            # a typed error carrying the pod's `summary` so the host
-                            # LLM can show the user what was requested. No audit row
-                            # is written (this isn't an approval — the request was
-                            # declined-by-policy) and no confirm POST is sent (the
-                            # pod stream terminates because we raise OllieStreamError).
-                            # We add the (declined) entry to `seen_tool_use_ids` so a
-                            # retry-with-the-same-id wouldn't accidentally bypass the
-                            # opt-out by being re-evaluated as a fresh request.
+                            # Opt-out path (OPIK_MCP_AUTO_APPROVE=disabled).
+                            #
+                            # Two sub-paths now:
+                            #   1. Host supports MCP elicitation → ask the user
+                            #      to approve THIS specific tool. ACCEPT falls
+                            #      through to the normal audit+POST flow below;
+                            #      DENY/CANCEL still raises OllieStreamError so
+                            #      the pod stream terminates cleanly (the pod
+                            #      otherwise hangs waiting for a confirm POST).
+                            #   2. Host without elicitation → keep the legacy
+                            #      hard-error path so behavior on dumb hosts is
+                            #      unchanged.
+                            #
+                            # Either way we add tool_use_id to seen so a retry
+                            # with the same id can't bypass the opt-out by
+                            # being re-evaluated as a fresh request.
                             if settings.opik_mcp_auto_approve == "disabled":
                                 requested = summary or target_tool or tool_use_id
-                                raise OllieStreamError(
-                                    "Auto-approval disabled "
-                                    "(OPIK_MCP_AUTO_APPROVE=disabled). "
-                                    f"Ollie requested: {requested}. "
-                                    "Re-run after deciding manually, or set "
-                                    "OPIK_MCP_AUTO_APPROVE=enabled to allow this turn."
-                                )
+                                approved_via_elicit = False
+                                if ctx is not None:
+                                    outcome = await confirm_with_user(
+                                        ctx,
+                                        prompt=(
+                                            f"Ollie requests to run: {requested}. "
+                                            "Allow this single action?"
+                                        ),
+                                        timeout_s=float(settings.opik_mcp_elicit_timeout_seconds),
+                                        tool="ask_ollie",
+                                        entity_type=target_tool or "tool_use",
+                                        entity_id=tool_use_id,
+                                    )
+                                    approved_via_elicit = outcome.decision.approved
+                                if not approved_via_elicit:
+                                    raise OllieStreamError(
+                                        "Auto-approval disabled "
+                                        "(OPIK_MCP_AUTO_APPROVE=disabled). "
+                                        f"Ollie requested: {requested}. "
+                                        "Re-run after deciding manually, or set "
+                                        "OPIK_MCP_AUTO_APPROVE=enabled to allow this turn."
+                                    )
 
                             # YOLO mode invariant: never send `decision="yes"` to the
                             # pod without an audit row landing first. The audit log

@@ -1,0 +1,61 @@
+{
+  "properties": {
+    "data": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "items": {},
+          "type": "array"
+        }
+      ],
+      "description": "Payload for the operation. Object for a single write, or array (max 1000 elements) for batch. Always-envelope operations (test_suite_item.upsert, experiment_item.create) take their list inside the envelope, not at the top level.",
+      "title": "Data"
+    },
+    "dry_run": {
+      "default": false,
+      "description": "Validate against the operation's schema and OAuth scope without calling the backend. Returns {dry_run: true, would_call: ...}.",
+      "title": "Dry Run",
+      "type": "boolean"
+    },
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional client-supplied UUID. Re-running with the same key is a no-op on the backend. Takes precedence over data.id when both are set.",
+      "title": "Idempotency Key"
+    },
+    "operation": {
+      "description": "The entity/verb pair to invoke. See tool description for the list. Call schema(operation) for the JSON Schema, example, and required scope.",
+      "enum": [
+        "trace.create",
+        "trace.update",
+        "span.create",
+        "score.create",
+        "comment.create",
+        "prompt_version.save",
+        "test_suite.create",
+        "test_suite_item.upsert",
+        "experiment.create",
+        "experiment_item.create"
+      ],
+      "title": "Operation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation",
+    "data"
+  ],
+  "title": "writeArguments",
+  "type": "object"
+}

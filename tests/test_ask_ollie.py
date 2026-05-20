@@ -74,17 +74,61 @@ class FakeOllieClient:
         self.confirms.append((session_id, tool_use_id, decision))
 
 
+class _FakeElicitSession:
+    """Stand-in for ServerSession capability probe (elicitation tests)."""
+
+    def __init__(self, *, supports: bool) -> None:
+        self._supports = supports
+
+    def check_client_capability(self, _capability: Any) -> bool:
+        return self._supports
+
+
+class _FakeRequestContext:
+    def __init__(self, session: _FakeElicitSession) -> None:
+        self.session = session
+
+
+class _AcceptedShape:
+    def __init__(self, confirm: bool) -> None:
+        self.confirm = confirm
+
+
+class _AcceptedElicit:
+    def __init__(self, confirm: bool) -> None:
+        self.action = "accept"
+        self.data = _AcceptedShape(confirm=confirm)
+
+
+class _DeclinedElicit:
+    action = "decline"
+    data = None
+
+
 class FakeContext:
     """Duck-typed stand-in for fastmcp Context — records calls for assertion.
 
-    We exercise `report_progress`/`info`/`warning` only; the real Context has
-    more surface than we use. Typed as Any in call sites via `# type: ignore`.
+    We exercise `report_progress`/`info`/`warning`/`elicit` only; the real
+    Context has more surface than we use. Typed as Any in call sites via
+    `# type: ignore`. By default the host advertises elicitation as
+    UNSUPPORTED, which matches the legacy disabled-mode tests (no prompt
+    surfaces, fast hard-error path).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        supports_elicitation: bool = False,
+        elicit_result: Any = None,
+    ) -> None:
         self.progress: list[tuple[float, str | None]] = []
         self.infos: list[str] = []
         self.warnings: list[str] = []
+        self.elicit_calls: list[str] = []
+        self.request_context = _FakeRequestContext(
+            _FakeElicitSession(supports=supports_elicitation)
+        )
+        self._elicit_result = elicit_result
 
     async def report_progress(
         self,
@@ -99,6 +143,10 @@ class FakeContext:
 
     async def warning(self, msg: str) -> None:
         self.warnings.append(msg)
+
+    async def elicit(self, *, message: str, schema: type) -> Any:
+        self.elicit_calls.append(message)
+        return self._elicit_result
 
 
 class _DelayingOllieClient(FakeOllieClient):
@@ -1244,3 +1292,95 @@ async def test_disabled_mode_skips_audit_row_explicitly(
     finally:
         audit_mod.write_auto_approval = original
     assert write_calls == []
+
+
+# --- Elicitation-augmented disabled mode (OPIK-6567) ------------------- #
+
+
+@pytest.mark.anyio
+async def test_disabled_with_elicit_accept_falls_through_to_normal_flow() -> None:
+    """When the host supports elicitation and the user accepts the prompt,
+    `disabled` mode should land in the normal audit + confirm path -- the
+    user's per-action approval substitutes for the YOLO flag for this one
+    tool call. Without this branch, `disabled` mode is unusable on hosts
+    that DO support elicitation, defeating the point of OPIK-6567."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [
+            _confirm_event("tu-1", summary="add 'foo' to suite 'bar'"),
+            _ev("message_end", {}),
+        ],
+        session_id="sess-1",
+    )
+    ctx = FakeContext(
+        supports_elicitation=True,
+        elicit_result=_AcceptedElicit(confirm=True),
+    )
+    result = await run_ask_ollie(
+        query="q",
+        settings=_settings(opik_mcp_auto_approve="disabled"),
+        comet_client=comet,
+        ollie_client=ollie,
+        ctx=ctx,  # type: ignore[arg-type]
+    )
+    # Confirm POST was sent (the per-action approval routed us into the
+    # normal flow rather than the legacy hard-error path).
+    assert ollie.confirms == [("sess-1", "tu-1", "yes")]
+    # The result stream finished normally -- not aborted via OllieStreamError.
+    assert result.complete is True
+    # The prompt actually reached the host.
+    assert len(ctx.elicit_calls) == 1
+    assert "add 'foo'" in ctx.elicit_calls[0]
+
+
+@pytest.mark.anyio
+async def test_disabled_with_elicit_decline_still_raises() -> None:
+    """User said no via the prompt: same observable behavior as the legacy
+    hard-error path. Pinning this guarantees we can't accidentally swallow
+    a denial into a quiet no-op (which would leave the pod hanging waiting
+    for a confirm POST we never sent)."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [_confirm_event("tu-1", summary="add 'foo'"), _ev("message_end", {})],
+        session_id="sess-1",
+    )
+    ctx = FakeContext(
+        supports_elicitation=True,
+        elicit_result=_DeclinedElicit(),
+    )
+    with pytest.raises(OllieStreamError, match="add 'foo'"):
+        await run_ask_ollie(
+            query="q",
+            settings=_settings(opik_mcp_auto_approve="disabled"),
+            comet_client=comet,
+            ollie_client=ollie,
+            ctx=ctx,  # type: ignore[arg-type]
+        )
+    assert ollie.confirms == []
+    assert len(ctx.elicit_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_disabled_without_elicitation_capability_keeps_legacy_hard_error() -> None:
+    """Hosts without the elicitation capability MUST behave exactly as
+    before OPIK-6567 -- a typed error carrying the pod summary, no audit,
+    no confirm POST. This is the original disabled-mode contract."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [_confirm_event("tu-1", summary="risky"), _ev("message_end", {})],
+        session_id="sess-1",
+    )
+    ctx = FakeContext(
+        supports_elicitation=False,  # legacy host
+        elicit_result=_AcceptedElicit(confirm=True),  # would-be accept if asked
+    )
+    with pytest.raises(OllieStreamError, match="risky"):
+        await run_ask_ollie(
+            query="q",
+            settings=_settings(opik_mcp_auto_approve="disabled"),
+            comet_client=comet,
+            ollie_client=ollie,
+            ctx=ctx,  # type: ignore[arg-type]
+        )
+    assert ollie.confirms == []
+    assert ctx.elicit_calls == []  # the helper bypassed `ctx.elicit` entirely

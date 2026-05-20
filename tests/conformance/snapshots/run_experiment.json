@@ -1,0 +1,15 @@
+{
+  "properties": {
+    "experiment_config": {
+      "additionalProperties": true,
+      "description": "Experiment-execution config. Required: `dataset_name`, `dataset_id` (UUID of a test-suite dataset), `prompts` (non-empty list of `{model, messages, configs?, prompt_version_id?}`). Optional: `dataset_version_id`, `version_hash`, `project_name`. One experiment is created per prompt variant. Call `schema(\"run_experiment\")` if the shape is unclear.",
+      "title": "Experiment Config",
+      "type": "object"
+    }
+  },
+  "required": [
+    "experiment_config"
+  ],
+  "title": "run_experimentArguments",
+  "type": "object"
+}

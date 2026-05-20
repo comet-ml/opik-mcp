@@ -1,0 +1,92 @@
+{
+  "properties": {
+    "entity_type": {
+      "description": "One of: experiment, project, prompt, prompt_version, test_suite, test_suite_item, trace.",
+      "enum": [
+        "experiment",
+        "project",
+        "prompt",
+        "prompt_version",
+        "test_suite",
+        "test_suite_item",
+        "trace"
+      ],
+      "title": "Entity Type",
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional substring filter on entity name. Supported for project, experiment, prompt, test_suite; ignored for sub-collections.",
+      "title": "Name"
+    },
+    "page": {
+      "default": 1,
+      "description": "Page number (1-indexed).",
+      "maximum": 10000,
+      "minimum": 1,
+      "title": "Page",
+      "type": "integer"
+    },
+    "project_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Required when listing traces. UUID of the parent project.",
+      "title": "Project Id"
+    },
+    "prompt_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Required when listing prompt_versions. UUID of the prompt.",
+      "title": "Prompt Id"
+    },
+    "size": {
+      "default": 25,
+      "description": "Items per page. Capped at 100.",
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Size",
+      "type": "integer"
+    },
+    "test_suite_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Required when listing test_suite_items. UUID of the suite.",
+      "title": "Test Suite Id"
+    }
+  },
+  "required": [
+    "entity_type"
+  ],
+  "title": "list_entitiesArguments",
+  "type": "object"
+}
