@@ -1,0 +1,30 @@
+name: Python CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  # Runs on every PR so this check resolves even when only top-level files
+  # (README.md, dependabot.yml, this workflow itself) change, which `legacy-ts-ci`'s
+  # `paths:` filter would skip. The lint+typecheck+test cycle is fast enough.
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: 'latest'
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Run lint + typecheck + tests
+        run: make check

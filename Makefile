@@ -1,80 +1,73 @@
-.PHONY: help install build test lint clean start dev check precommit start-http start-stdio test-transport
+.PHONY: help install run run-dev dev inspect test test-live lint format typecheck check \
+        legacy-install legacy-build legacy-test legacy-lint legacy-start
 
-# Default target
 help:
-	@echo "Available commands:"
-	@echo "  make install    - Install dependencies"
-	@echo "  make build      - Build the project"
-	@echo "  make test       - Run tests"
-	@echo "  make test-transport - Run transport-specific tests"
-	@echo "  make lint       - Run linter"
-	@echo "  make clean      - Remove build artifacts"
-	@echo "  make start      - Start the MCP server"
-	@echo "  make dev        - Start the server in development mode with hot reload (streamable-http)"
-	@echo "  make precommit  - Run pre-commit checks manually"
-	@echo "  make start-http  - Start the MCP server with streamable-http transport"
-	@echo "  make start-stdio - Start the MCP server with stdio transport"
+	@echo "Python (root):"
+	@echo "  make install    - uv sync --extra dev"
+	@echo "  make run        - run the MCP server (stdio by default)"
+	@echo "  make run-dev    - run with DEBUG logging + uvicorn reload"
+	@echo "  make dev        - run via mcp inspector dev"
+	@echo "  make inspect    - launch MCP Inspector against running server"
+	@echo "  make test       - pytest"
+	@echo "  make lint       - ruff check + format check"
+	@echo "  make format     - ruff format + ruff check --fix"
+	@echo "  make typecheck  - mypy"
+	@echo "  make check      - lint + typecheck + test"
+	@echo ""
+	@echo "Legacy TypeScript (legacy/typescript/, deprecated):"
+	@echo "  make legacy-install - npm install in legacy/typescript"
+	@echo "  make legacy-build   - tsc build in legacy/typescript"
+	@echo "  make legacy-test    - jest in legacy/typescript"
+	@echo "  make legacy-lint    - eslint in legacy/typescript"
+	@echo "  make legacy-start   - node build/index.js in legacy/typescript"
 
-# Install dependencies
 install:
-	npm install
+	uv sync --extra dev
 
-# Build the project
-build:
-	npm run build
+run:
+	uv run opik-mcp
 
-# Run tests
-test:
-	npm test
+run-dev:
+	OPIK_MCP_RELOAD=1 OPIK_MCP_LOG_LEVEL=DEBUG uv run opik-mcp
 
-# Run linter
-lint:
-	npm run lint
-
-# Clean build artifacts
-clean:
-	rm -rf build
-	rm -rf dist
-	rm -rf coverage
-	rm -rf .tmp
-	rm -rf *.tsbuildinfo
-
-# Start the server
-start:
-	node build/index.js
-
-# Start in development mode
 dev:
-	@echo "Starting MCP server (streamable-http dev mode)"
-	@echo "  Host: $${STREAMABLE_HTTP_HOST:-127.0.0.1}"
-	@echo "  Port: $${STREAMABLE_HTTP_PORT:-3001}"
-	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
-	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
-	@echo "  Access logs: $${STREAMABLE_HTTP_ACCESS_LOG:-true}"
-	@echo "  Toolsets: $${OPIK_TOOLSETS:-all}"
-	STREAMABLE_HTTP_ACCESS_LOG=$${STREAMABLE_HTTP_ACCESS_LOG:-true} OPIK_TOOLSETS=$${OPIK_TOOLSETS:-all} npm run dev:http
+	uv run mcp dev src/opik_mcp/server.py
 
-# Run all checks (lint and test)
-check: lint test
-	@echo "All checks passed!"
+inspect:
+	npx @modelcontextprotocol/inspector
 
-# Run pre-commit checks manually
-precommit:
-	npm run lint && npm run test
+test:
+	uv run pytest -q
 
-# Start the MCP server with streamable-http transport
-start-http:
-	@echo "Starting MCP server with streamable-http transport on port 3001..."
-	@echo "  Health: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/health"
-	@echo "  MCP: http://$${STREAMABLE_HTTP_HOST:-127.0.0.1}:$${STREAMABLE_HTTP_PORT:-3001}/mcp"
-	@echo "  Access logs: $${STREAMABLE_HTTP_ACCESS_LOG:-false}"
-	@STREAMABLE_HTTP_ACCESS_LOG=$${STREAMABLE_HTTP_ACCESS_LOG:-false} npm run start:http
+test-live:
+	RUN_LIVE_DEV_COMET=1 uv run pytest tests/test_ask_ollie_live.py -v
 
-# Start the MCP server with stdio transport
-start-stdio:
-	@echo "Starting MCP server with stdio transport..."
-	@npm run start:stdio
+lint:
+	uv run ruff check .
+	uv run ruff format --check .
 
-# Run transport-specific tests
-test-transport:
-	npm run test:transport
+format:
+	uv run ruff format .
+	uv run ruff check --fix .
+
+typecheck:
+	uv run mypy
+
+check: lint typecheck test
+
+# --- Legacy TypeScript server (deprecated, kept under legacy/typescript/) ---
+
+legacy-install:
+	$(MAKE) -C legacy/typescript install
+
+legacy-build:
+	$(MAKE) -C legacy/typescript build
+
+legacy-test:
+	$(MAKE) -C legacy/typescript test
+
+legacy-lint:
+	$(MAKE) -C legacy/typescript lint
+
+legacy-start:
+	$(MAKE) -C legacy/typescript start

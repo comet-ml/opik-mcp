@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "opik-mcp"
+version = "0.0.4"
+description = "MCP server for Opik (Phase 1 PoC)."
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Comet ML" }]
+dependencies = [
+    "mcp[cli]>=1.27,<2",
+    "httpx>=0.28",
+    "httpx-sse>=0.4",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.5",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "anyio>=4.13",
+    "asgi-lifespan>=2.1",
+    "mypy>=1.13",
+    "pytest>=8",
+    "respx>=0.21",
+    "ruff>=0.7",
+]
+
+[project.scripts]
+opik-mcp = "opik_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/opik_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+warn_redundant_casts = true
+files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+module = ["mcp.shared.memory"]
+ignore_missing_imports = true

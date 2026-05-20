@@ -1,45 +1,52 @@
-# Dependencies
-/node_modules
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.uv/
+dist/
+build/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# Build output
-/build
-/dist
-*.tsbuildinfo
+# IDE
+.vscode/
+.idea/
+*.swp
+*.code-workspace
 
-# Environment variables
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# IDE and editor files
-.idea/
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-*.code-workspace
-.DS_Store
-
-# Cursor specific
-.cursor/mcp.json
-!.cursor/test.txt
+.env.*.local
 
 # Logs
-logs
 *.log
-
-# Coverage directory used by tools like istanbul
-coverage
+logs/
 *.lcov
+coverage/
 
 # Misc
 .tmp
 .temp
 
-build
+# Local-only docs (keep on disk, never tracked)
+/docs/
+
+# Legacy TypeScript (scoped paths)
+legacy/typescript/node_modules/
+legacy/typescript/build/
+legacy/typescript/dist/
+legacy/typescript/*.tsbuildinfo
+legacy/typescript/coverage/
+legacy/typescript/.cursor/mcp.json

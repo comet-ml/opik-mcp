@@ -1,12 +1,18 @@
-name: CI
+name: Legacy TS CI
 
 on:
   pull_request:
     branches: [ main ]
+    paths:
+      - 'legacy/typescript/**'
+      - '.github/workflows/legacy-ts-ci.yml'
 
 jobs:
   ci:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: legacy/typescript
 
     steps:
       - name: Checkout code
@@ -17,6 +23,7 @@ jobs:
         with:
           node-version: '18'
           cache: 'npm'
+          cache-dependency-path: legacy/typescript/package-lock.json
 
       - name: Install dependencies
         run: npm ci

@@ -1,14 +1,17 @@
-name: Publish Release
+name: Publish Release (Legacy TS)
 
 on:
   push:
     tags:
-      - "v*"
+      - "npm-v*"
   workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: legacy/typescript
 
     permissions:
       contents: read
@@ -24,6 +27,7 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
+          cache-dependency-path: legacy/typescript/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -39,11 +43,11 @@ jobs:
 
       - name: Sync server.json version with tag
         run: |
-          if [[ "${GITHUB_REF}" != refs/tags/v* ]]; then
-            echo "This workflow must be triggered from a tag that starts with v"
+          if [[ "${GITHUB_REF}" != refs/tags/npm-v* ]]; then
+            echo "This workflow must be triggered from a tag that starts with npm-v"
             exit 1
           fi
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          VERSION="${GITHUB_REF#refs/tags/npm-v}"
           tmp_file="$(mktemp)"
           jq --arg v "$VERSION" '
             .version = $v
@@ -58,7 +62,7 @@ jobs:
       - name: Publish to NPM
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          VERSION="${GITHUB_REF#refs/tags/npm-v}"
           if npm view opik-mcp@"$VERSION" version >/dev/null 2>&1; then
             echo "opik-mcp@$VERSION already exists on npm, skipping publish."
           else

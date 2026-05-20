@@ -1,236 +1,210 @@
-<h1 align="center" style="border-bottom: none">
-  <div>
-    <a href="https://www.comet.com/site/products/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=header_img&utm_campaign=opik-mcp">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-dark-mode.svg">
-        <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/comet-ml/opik-mcp/refs/heads/main/docs/assets/logo-light-mode.svg">
-        <img alt="Comet Opik logo" src="docs/assets/logo-light-mode.svg" width="200" />
-      </picture>
-    </a>
-    <br />
-    Opik MCP Server
-  </div>
-</h1>
+# opik-mcp
 
-<p align="center">
-Model Context Protocol (MCP) server for <a href="https://github.com/comet-ml/opik/">Opik</a>, with both local stdio and remote streamable-http transports.
-</p>
+> **Looking for the TypeScript v2 server?** It still ships on npm as `opik-mcp@^2`
+> (`npx -y opik-mcp`) and the source is preserved at
+> [`legacy/typescript/`](./legacy/typescript/). See
+> [`legacy/typescript/DEPRECATED.md`](./legacy/typescript/DEPRECATED.md) for
+> the support policy.
 
-<div align="center">
+Hosted Model Context Protocol server for **Opik** + **Ollie**. Exposes a curated, OAuth-secured surface to external AI hosts (Claude Code, Cursor, claude.ai, VS Code Copilot, MCP Inspector).
 
-[![License](https://img.shields.io/github/license/comet-ml/opik-mcp)](https://github.com/comet-ml/opik-mcp/blob/main/LICENSE)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.11.0-brightgreen)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/typescript-%5E5.8.2-blue)](https://www.typescriptlang.org/)
-<a href="https://www.comet.com/docs/opik/prompt_engineering/mcp_server"><img src="https://badge.mcpx.dev?status=on" title="MCP Enabled" alt="MCP Enabled" /></a>
-<a href="https://doi.org/10.5281/zenodo.15411156"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.15411156.svg" alt="DOI" /></a>
+| | |
+|---|---|
+| **Status** | Phase 1 in planning — auth-flow research done, PR opened against `comet-backend` |
+| **Jira** | [OPIK-6439](https://www.atlassian.com/) — _Improve Opik MCP server and include Ollie tool_ |
+| **Notion mirror** | [Notion page](https://www.notion.so/35f7124010a381ca82a5df67d7474313) — team brief + design doc + ADRs |
 
-</div>
+> **Note on `docs/`:** internal planning and design notes are kept local and gitignored.
+> They will be re-introduced piecemeal under `docs/` in follow-up PRs as each
+> document becomes user-facing. Until then, the Notion mirror above is the
+> canonical source.
 
-<p align="center">
-  <a href="https://www.comet.com/site/products/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=website_button&utm_campaign=opik"><b>Website</b></a> •
-  <a href="https://chat.comet.com"><b>Slack community</b></a> •
-  <a href="https://x.com/Cometml"><b>Twitter</b></a> •
-  <a href="https://www.comet.com/docs/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=docs_button&utm_campaign=opik"><b>Documentation</b></a>
-</p>
+---
 
-> [!IMPORTANT]
-> This repository ships the MCP server implementation only. We do not currently provide a hosted remote MCP service for Opik.
-> If you run `streamable-http` remotely, authentication is fail-closed by default.
+## What is this
 
-## Why this server
+`opik-mcp` is a **Python 3.13 / FastAPI** MCP server that:
 
-Opik MCP Server gives MCP-compatible clients one interface for:
+- Exposes **11 outcome-oriented tools** — `ask_ollie` (LLM-gated) + `read` / `list` (universal reads over 8 Phase-1 entities) + 8 deterministic write tools
+- Speaks **MCP Streamable HTTP** (`modelcontextprotocol/python-sdk ^1.12`)
+- Handles **Ollie pod cold-start** via the MCP Tasks primitive with a blocking-SSE fallback
+- Translates Ollie's pod-side SSE event vocabulary into MCP frames (`notifications/progress`, `notifications/tasks/updated`, `elicitation/create`)
 
-- Prompt lifecycle management
-- Workspace, project, and trace exploration
-- Metrics and dataset operations
-- MCP resources and resource templates for metadata-aware flows
+Two delivery modes:
 
-## Quickstart
+- **Phase 1** — local install, API-key auth, single-user-per-pod, Claude Code / Cursor / VS Code Copilot
+- **Phase 2** — hosted at `https://www.comet.com/api/v1/mcp`, OAuth 2.1 + PKCE + DCR + CIMD, multi-tenant pods, all four hosts including claude.ai
 
-### 1. Run with npx
+This repo ships both. Phase 1 first.
+
+---
+
+## The 11 tools
+
+| # | Tool | Bucket | Dispatch | Phase 1? |
+|---|---|---|---|---|
+| 1 | `ask_ollie` | Investigate | Ollie pod | ✅ (cloud Comet users only) |
+| 2 | `read` | Read | `opik-backend` REST (composite for trace+spans, prompt+versions) | ✅ |
+| 3 | `list` | Read | `opik-backend` REST | ✅ |
+| 4 | `score` | Annotate | `opik-backend` REST | ✅ |
+| 5 | `comment` | Annotate | `opik-backend` REST | ✅ |
+| 6 | `add_test_suite_items` | Curate | `opik-backend` REST | ⬜ |
+| 7 | `save_prompt_version` | Curate | `opik-backend` REST | ⬜ |
+| 8 | `create_trace` | Author | `opik-backend` REST | ⬜ |
+| 9 | `create_span` | Author | `opik-backend` REST | ⬜ |
+| 10 | `run_experiment` | Iterate | Ollie pod | ⬜ |
+| 11 | `save_eval_item` | Iterate | `opik-backend` REST | ⬜ |
+
+Reads use the **two universal `read` / `list` tools** keyed on entity type — same `ENTITY_REGISTRY` codepath as `ollie-assist`. Phase 1 covers `project`, `trace`, `span`, `test_suite`, `experiment`, `prompt`, `test_suite_item`, `prompt_version`. `opik://` URIs are still accepted as `id` input for forward-compat. The MCP `resources` primitive is not published (see ADR 0004 in the Notion mirror for rationale).
+
+---
+
+## Phase 1 status
+
+| Item | Status |
+|---|---|
+| Auth flow research | ✅ done (see Notion mirror) |
+| `comet-backend` patch (API-key-callable pod discovery) | 🟡 PR open — [comet-ml/comet-backend#5555](https://github.com/comet-ml/comet-backend/pull/5555) |
+| Vertical-slice PoC (hello-world MCP) | ⬜ not started |
+| `ask_ollie` over local MCP (no Tasks) | ⬜ not started |
+| `ask_ollie` over local MCP (Tasks primitive) | ⬜ not started |
+| `read` / `list` universal-read tools (8 Phase-1 entities) | ✅ done |
+| `score` / `comment` direct write tools | ✅ done |
+| Remaining write tools (`add_test_suite_items`, `save_prompt_version`, `create_trace`, `create_span`, `save_eval_item`, `run_experiment`) | ⬜ not started |
+| `InitializeResult.instructions` per-session context (ADR 0004 D6) | ✅ done |
+| Distribution package (`uvx opik-mcp`) | ⬜ not started |
+
+See the Notion mirror for the week-1 build order.
+
+---
+
+## Repo layout
+
+```
+opik-mcp/
+├── README.md                 ← you are here
+├── src/
+│   └── opik_mcp/             ← Python MCP server
+├── tests/
+├── scripts/                  ← live-BE smoke + MCP-session smoke
+├── legacy/typescript/        ← deprecated v2 TS server (npm `opik-mcp@^2`)
+├── pyproject.toml
+└── Makefile
+```
+
+Internal planning/design notes live under a gitignored `docs/` directory and will
+be re-introduced piecemeal as each one becomes user-facing.
+
+---
+
+## Getting started (Phase 1, TBD)
+
+Once the PoC lands:
 
 ```bash
-# Opik Cloud
-npx -y opik-mcp --apiKey YOUR_API_KEY
+# Cloud Comet users
+export OPIK_API_KEY=<your-key>
+export COMET_WORKSPACE=<workspace-name>
+uvx opik-mcp
+
+# Self-hosted Opik users
+export OPIK_API_KEY=<your-key>
+export OPIK_URL_OVERRIDE=https://your-opik.example.com
+uvx opik-mcp
+# Note: ask_ollie and run_experiment omitted from tools/list unless you have ollie-assist deployed
 ```
 
-For self-hosted Opik, pass `--apiUrl` (for example `http://localhost:5173/api`) and use your local auth strategy.
+Per-host MCP config snippets will land alongside the first published package release.
 
-### 2. Add to your MCP client
+---
 
-Cursor (`.cursor/mcp.json`):
+## Try `ask_ollie` against `dev.comet.com`
 
-```json
-{
-  "mcpServers": {
-    "opik": {
-      "command": "npx",
-      "args": ["-y", "opik-mcp", "--apiKey", "YOUR_API_KEY"]
-    }
-  }
-}
-```
-
-VS Code / GitHub Copilot (`.vscode/mcp.json`):
-
-```json
-{
-  "inputs": [
-    {
-      "type": "promptString",
-      "id": "opik-api-key",
-      "description": "Opik API Key",
-      "password": true
-    }
-  ],
-  "servers": {
-    "opik-mcp": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "opik-mcp", "--apiKey", "${input:opik-api-key}"]
-    }
-  }
-}
-```
-
-Windsurf (raw config):
-
-```json
-{
-  "mcpServers": {
-    "opik": {
-      "command": "npx",
-      "args": ["-y", "opik-mcp", "--apiKey", "YOUR_API_KEY"]
-    }
-  }
-}
-```
-
-More client-specific examples: [docs/ide-integration.md](docs/ide-integration.md)
-
-## Run from source
+The Day-3-to-5 PoC milestone runs `ask_ollie` end-to-end against `dev.comet.com` (where the `/opik/ollie/compute-api-key` backend fix is deployed).
 
 ```bash
-git clone https://github.com/comet-ml/opik-mcp.git
-cd opik-mcp
-npm install
-npm run build
+export OPIK_API_KEY=<your-key>
+export COMET_WORKSPACE=<workspace-name>
+export COMET_URL_OVERRIDE=https://dev.comet.com
+
+make install        # one-time
+make run-dev        # uvicorn on 127.0.0.1:8080 with --reload + DEBUG logs
+make inspect        # MCP Inspector in another shell
 ```
 
-Optional local config:
+In the Inspector: connect to `http://127.0.0.1:8080/mcp` with header `Authorization: Bearer dev-token-123`. The `ask_ollie` tool will appear in the tool list — invoke it with `query: "How many traces did I create today?"` and watch the progress notifications during pod warmup.
+
+**YOLO mode (always on).** Writes Ollie performs mid-stream (scores, comments, test-suite items, prompts, etc.) auto-execute without a per-action user confirmation. The pod's `confirm_required` SSE event is acknowledged with `decision="yes"` in-band, and a JSON audit row is emitted on the dedicated `opik_mcp.audit` Python logger (`event: "ollie_write_auto_approved"`). Configure that logger like any other (`logging.getLogger("opik_mcp.audit")`) to route audit lines to a file, journald, etc. Rationale and Phase-2 persistence path are recorded in ADR 0005 (Notion mirror).
+
+### Privacy & telemetry
+
+`opik-mcp` sends anonymous product-analytics events to `stats.comet.com` so the team can measure adoption and reliability. No tool input prose (queries, comments, scores, page context) is ever sent — only event type, timing buckets, and low-cardinality structural properties. The full "never sent" list lives in the analytics plan in the Notion mirror.
+
+To disable, set `OPIK_MCP_ANALYTICS_ENABLED=false`.
+
+Configuration env vars:
+
+| Variable | Default | Notes |
+|---|---|---|
+| `OPIK_API_KEY` | — | required to call `ask_ollie` |
+| `COMET_WORKSPACE` | — | required to call `ask_ollie` |
+| `COMET_URL_OVERRIDE` | `https://www.comet.com` | set to `https://dev.comet.com` for the PoC |
+| `OPIK_URL` | derived from `COMET_URL_OVERRIDE` | override for non-standard Opik deployments where Opik lives on a different host/path than the Comet UI |
+| `OPIK_DEFAULT_PROJECT_NAME` | _unset_ | Name of your default project. When set, the session's `instructions` blob tells the LLM to pass it as `project_name` on every tool call unless the user names a different project. Matches the Python/TS SDKs, which expose project by name only. |
+| `OPIK_MCP_DEV_TOKEN` | `dev-token-123` | bearer the MCP transport requires |
+| `OPIK_MCP_POD_READY_TIMEOUT_S` | `120` | cold-start poll cap |
+| `OPIK_MCP_POD_READY_INTERVAL_S` | `2` | cold-start poll interval |
+| `OPIK_MCP_HEARTBEAT_INTERVAL_S` | `15.0` | watchdog cadence — see "Long-running Ollie operations" below |
+| `OPIK_MCP_HOST` / `_PORT` | `127.0.0.1` / `8080` | uvicorn bind |
+| `OPIK_MCP_RELOAD` | _unset_ | `1` to enable `--reload` |
+| `OPIK_MCP_LOG_LEVEL` | `INFO` | stderr logger threshold |
+| `OPIK_MCP_ANALYTICS_ENABLED` | `true` | set to `false` to disable all telemetry |
+| `OPIK_MCP_ANALYTICS_URL` | `https://stats.comet.com/notify/event/` | analytics endpoint (override for staging) |
+| `OPIK_MCP_ANALYTICS_ENVIRONMENT` | `prod` | environment tag on every event (`prod` / `staging` / `dev`) |
+| `OPIK_MCP_ANALYTICS_CONNECT_TIMEOUT_S` | `5.0` | analytics HTTP connect timeout (seconds) |
+| `OPIK_MCP_ANALYTICS_TOTAL_TIMEOUT_S` | `10.0` | analytics HTTP total request timeout (seconds) |
+
+### Long-running Ollie operations
+
+Some Ollie turns take a while — a Python SDK roundtrip against `opik-backend`, a multi-step `add_test_suite_items` flow, a `run_experiment` cold start. While the pod is busy and the SSE stream is silent, MCP hosts can time out the in-flight `tools/call` and return nothing to the user.
+
+opik-mcp keeps the call alive two ways:
+
+1. **One `notifications/progress` per pod SSE event.** Every `thinking_delta`, `tool_call_start`, etc. produces a progress tick — these are what the MCP spec [allows hosts to reset their timeout clock on](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle), unlike info-level log messages.
+2. **A watchdog heartbeat every `OPIK_MCP_HEARTBEAT_INTERVAL_S` seconds (default 15s).** When the pod is silent, an internal task emits a progress tick with `message="streaming"` so hosts that follow the spec see a heartbeat well under their default timeout.
+
+**Known host limitations.** The spec word is "MAY" — not every host resets on progress. As of writing:
+
+- **Cursor** has a hard 60s tool-call timeout that does not reset on progress notifications ([bug report](https://forum.cursor.com/t/mcp-tool-timeout/74465)). Operations that take longer than ~60s will fail on Cursor regardless of heartbeat. Tune your prompt to keep `ask_ollie` turns short on that host.
+- **MCP Inspector** has a `MAX_TOTAL_TIMEOUT` (default 60s) that bounds the *total* tool-call duration. Set it to a larger value via the Inspector UI for long operations.
+- **Claude Code** has no documented tool-call timeout; the heartbeat keeps it indefinitely streaming until `message_end`.
+
+If you need to debug a stuck call, set `OPIK_MCP_LOG_LEVEL=DEBUG` — heartbeat failures (typically host disconnects) are logged on `opik_mcp.ask_ollie` at debug level so they don't tear down the stream.
+
+Run the live end-to-end against `dev.comet.com` (default `make check` skips it):
 
 ```bash
-cp .env.example .env
+RUN_LIVE_DEV_COMET=1 OPIK_API_KEY=... COMET_WORKSPACE=... COMET_URL_OVERRIDE=https://dev.comet.com make test-live
 ```
 
-Start the server:
+> First-call note: `provisionOlliePod()` seeds the pod with your *first* Comet API key. If you authenticate with a different one, opik-backend calls *from inside the pod* will use the seeded key — use one key everywhere for the PoC (open question Q4).
 
-```bash
-npm run start:stdio
-npm run start:http
-```
+---
 
-## Transport modes
+## Why Python (not TypeScript)
 
-| Transport | Use case | Command |
-| --- | --- | --- |
-| `stdio` | Local MCP integration (same machine as client) | `npm run start:stdio` |
-| `streamable-http` | Remote/self-hosted MCP endpoint (`/mcp`) | `npm run start:http` |
+Short version: code-share with `ollie-assist` for the SSE event vocabulary. The translator imports `from ollie_assist.types.sse import SessionEvent, ThinkingDelta, ToolCallStart, ConfirmRequired, Navigate` — event-shape drift becomes a CI failure, not a runtime bug. In any other language, every change to Ollie's emitter forces a hand-translation in two repos.
 
-### Remote auth defaults (`streamable-http`)
+Full reasoning: see the team brief's "Why Python (not TypeScript)" section and ADR 0001 in the Notion mirror.
 
-- `Authorization: Bearer <OPIK_API_KEY>` or `x-api-key` is required by default.
-- Workspace is resolved server-side (token map recommended); workspace headers are not trusted by default.
-- In remote mode, request-context workspace takes precedence over tool `workspaceName`.
-- Missing or invalid auth returns HTTP `401`.
+---
 
-Key environment flags:
+## Why a separate repo (not inside `ollie-assist`)
 
-- `STREAMABLE_HTTP_REQUIRE_AUTH` (default `true`)
-- `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH` (default `true`, except test env)
-- `REMOTE_TOKEN_WORKSPACE_MAP` (JSON token-to-workspace map)
-- `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS` (default `false`)
+Three reasons, all hard:
 
-Deep dive: [docs/streamable-http-transport.md](docs/streamable-http-transport.md)
+1. **Per-user Ollie pods have no stable external URL.** External MCP hosts register one URL in config and can't do per-call workspace→pod discovery.
+2. **Cold start is up to two minutes.** MCP hosts time out at ~30 s. We need an always-warm service that returns `CreateTaskResult` in <2 s.
+3. **The per-user pod has no OAuth and no JWT verifier.** Wrong tier to host the public endpoint on.
 
-## Toolsets
-
-Toolsets let you narrow which capabilities are enabled:
-
-- `core`
-- `integration`
-- `expert-prompts`
-- `expert-datasets`
-- `expert-trace-actions`
-- `expert-project-actions`
-- `metrics`
-- `all` (enables all modern toolsets)
-
-Configure via:
-
-- CLI: `--toolsets all`
-- Env: `OPIK_TOOLSETS=core,expert-prompts,metrics`
-
-Details: [docs/configuration.md](docs/configuration.md)
-
-## MCP resources and prompts
-
-- `resources/list` exposes static URIs (for example `opik://workspace-info`)
-- `resources/templates/list` exposes dynamic URI templates (for example `opik://projects/{page}/{size}`)
-- `resources/read` supports static and templated URIs
-- `prompts/list` and `prompts/get` expose workflow prompts
-
-## Development
-
-```bash
-# Lint
-npm run lint
-
-# Test
-npm test
-
-# Build
-npm run build
-
-# Run precommit checks
-make precommit
-```
-
-## Documentation
-
-- [API Reference](docs/api-reference.md)
-- [Configuration](docs/configuration.md)
-- [IDE Integration](docs/ide-integration.md)
-- [Streamable HTTP Transport](docs/streamable-http-transport.md)
-
-## Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR.
-
-## Citation
-
-If you use this project in research, cite:
-
-```
-Comet ML, Inc, Koc, V., & Boiko, Y. (2025). Opik MCP Server. Github. https://doi.org/10.5281/zenodo.15411156
-```
-
-BibTeX:
-
-```bibtex
-@software{CometML_Opik_MCP_Server_2025,
-  author = {{Comet ML, Inc} and Koc, V. and Boiko, Y.},
-  title = {{Opik MCP Server}},
-  year = {2025},
-  publisher = {GitHub},
-  url = {https://doi.org/10.5281/zenodo.15411156},
-  doi = {10.5281/zenodo.15411156}
-}
-```
-
-Citation metadata is also available in [CITATION.cff](CITATION.cff).
-
-## License
-
-Apache 2.0
+Full reasoning: see the team brief's "Why this is a separate `ollie-mcp` repo" section and ADR 0002 in the Notion mirror.
