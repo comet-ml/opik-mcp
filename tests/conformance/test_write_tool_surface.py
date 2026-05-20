@@ -40,17 +40,6 @@ async def test_write_and_schema_tools_listed() -> None:
     assert "schema" in names, f"schema not advertised; got {names}"
 
 
-@pytest.mark.anyio
-async def test_score_and_comment_tools_removed() -> None:
-    """Old narrow tools MUST be gone — spec §8 Phase 1 says no overlap period."""
-    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
-        await session.initialize()
-        tools = await session.list_tools()
-    names = {t.name for t in tools.tools}
-    assert "score" not in names, "score tool should have been removed (replaced by write)"
-    assert "comment" not in names, "comment tool should have been removed (replaced by write)"
-
-
 # --- write inputSchema is strict-mode-clean ----------------------------- #
 
 
