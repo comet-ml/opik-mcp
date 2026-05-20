@@ -47,10 +47,6 @@ def _looks_like_uuid(s: str) -> bool:
         return False
 
 
-def _hello_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-    return {"name_was_default": str(kwargs.get("name", "world") == "world").lower()}
-
-
 def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     raw_id = kwargs.get("id", "")
     id_kind = (
@@ -125,18 +121,6 @@ def _run_experiment_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str
 # blob as system-prompt context once per session. Rendered eagerly so the
 # server logs any settings issues at startup rather than mid-call.
 mcp = FastMCP("opik-mcp", instructions=render_instructions())
-
-
-@mcp.tool()
-@instrument_tool("hello", props_fn=_hello_props)
-async def hello(
-    name: Annotated[str, Field(description="Who to greet. Defaults to 'world'.")] = "world",
-    ctx: Context[ServerSession, None] | None = None,
-) -> str:
-    """Say hello. Returns a friendly greeting. Useful as a connectivity smoke test."""
-    if ctx is not None:
-        await ctx.info(f"hello.called name={name}")
-    return f"hello, {name}"
 
 
 # --- read / list (ADR 0004 D1) ------------------------------------------ #

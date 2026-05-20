@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 _TEMPLATE = """\
 You're connected to Opik (Comet's LLM observability platform){user_clause} \
@@ -36,10 +37,11 @@ their child collections so one call usually gets the full picture.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). Skip ask_ollie for these — narrower tools are faster and more \
-deterministic. Direct writes covered by Phase 1: score, comment, \
-create_trace, create_span, add_test_suite_items, save_prompt_version, \
-save_eval_item, run_experiment. Always consult tools/list for what's \
-actually advertised on this connection.
+deterministic. The full write surface is two tools: write (takes \
+operation + data; pass a list for batch) and schema (returns an op's JSON \
+Schema + bundled example). Operations covered by Phase 1: \
+{write_operations}. run_experiment is a separate tool. Always consult \
+tools/list for what's actually advertised on this connection.
 - ask_ollie: use for investigative questions ("why is X failing?"), cross-entity \
 synthesis ("compare experiments A and B"), or when authoring / instrumentation \
 requires Opik domain expertise. Returns a thread_id you can pass back for \
@@ -57,8 +59,9 @@ def _render_default_project_clause(s: Settings) -> str:
         return ""
     return (
         f'\nThe user\'s default project is `project_name="{pname}"`. Pass it '
-        "as `project_name` to any tool that accepts one (ask_ollie, score) "
-        "unless the user explicitly names a different project.\n"
+        "as `project_name` to any tool/operation that accepts one (ask_ollie, "
+        "and write operations like score.create / trace.create) unless the "
+        "user explicitly names a different project.\n"
     )
 
 
@@ -94,6 +97,7 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
+        write_operations=", ".join(sorted(WRITE_OPERATIONS)),
     )
 
 

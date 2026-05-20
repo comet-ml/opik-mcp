@@ -1,210 +1,442 @@
 # opik-mcp
 
-> **Looking for the TypeScript v2 server?** It still ships on npm as `opik-mcp@^2`
-> (`npx -y opik-mcp`) and the source is preserved at
-> [`legacy/typescript/`](./legacy/typescript/). See
-> [`legacy/typescript/DEPRECATED.md`](./legacy/typescript/DEPRECATED.md) for
-> the support policy.
+**Model Context Protocol server for [Opik](https://www.comet.com/opik) + Ollie.**
+Plug your AI host (Claude Code, Cursor, VS Code Copilot, MCP Inspector) directly
+into your Opik workspace — read traces, log scores, save prompt versions, and
+ask Ollie investigative questions, all from the chat.
 
-Hosted Model Context Protocol server for **Opik** + **Ollie**. Exposes a curated, OAuth-secured surface to external AI hosts (Claude Code, Cursor, claude.ai, VS Code Copilot, MCP Inspector).
+Built for LLM engineers who already run Opik and want to drive it from the same
+AI assistant they code with.
 
-| | |
+```
+You:    "Why did the experiment 'gpt-4o-rerank-v3' regress on factuality?"
+Claude: → ask_ollie → reads experiment + traces → "Three traces failed because…"
+
+You:    "Score trace 7f2e… 0.9 on helpfulness with reason 'great recovery'."
+Claude: → write(score.create) → done
+```
+
+---
+
+## Install
+
+`opik-mcp` is a Python package (requires Python 3.13+). The recommended way to
+run it is `uvx`, which fetches and runs the latest published version on demand —
+no global install, no virtualenv juggling.
+
+Install [`uv`](https://docs.astral.sh/uv/) once:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
+# or: brew install uv
+```
+
+You'll need two things from your Opik workspace:
+
+- **`OPIK_API_KEY`** — get it from [`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/).
+- **`COMET_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `COMET_WORKSPACE=acme-ai`. Required for `ask_ollie`; optional but recommended everywhere else (used for scoping and analytics).
+
+> **Pre-release note:** `opik-mcp` (Python) is not yet published to PyPI. Until
+> the first PyPI release lands, replace `uvx opik-mcp` in any snippet below with:
+> `uvx --from git+https://github.com/comet-ml/opik-mcp.git opik-mcp`
+
+### Claude Code
+
+Add the server with one command:
+
+```bash
+claude mcp add --transport stdio opik-mcp \
+  --env OPIK_API_KEY=<your-key> \
+  --env COMET_WORKSPACE=<your-workspace> \
+  -- uvx opik-mcp
+```
+
+Or edit `~/.claude.json` directly:
+
+```json
+{
+  "mcpServers": {
+    "opik-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["opik-mcp"],
+      "env": {
+        "OPIK_API_KEY": "<your-key>",
+        "COMET_WORKSPACE": "<your-workspace>"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Code. Verify with `/mcp` — `opik-mcp` should appear as connected.
+Then, in the chat, ask: **"list my Opik projects"** — Claude will call the `list`
+tool and you'll see your workspace's projects.
+
+### Cursor
+
+Edit `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project), or open
+**Cmd+Shift+J → Features → Model Context Protocol**:
+
+```json
+{
+  "mcpServers": {
+    "opik-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["opik-mcp"],
+      "env": {
+        "OPIK_API_KEY": "<your-key>",
+        "COMET_WORKSPACE": "<your-workspace>"
+      }
+    }
+  }
+}
+```
+
+Reload Cursor; the green dot next to `opik-mcp` in the MCP panel confirms the
+connection. Ask in chat: **"list my Opik projects"**.
+
+> **Cursor 60s timeout.** Cursor enforces a hard tool-call timeout that doesn't
+> reset on progress notifications. Long `ask_ollie` turns will fail on Cursor.
+> See [Known host limits](#known-host-limits).
+
+### VS Code Copilot
+
+`.vscode/mcp.json` in your workspace (or User Settings JSON):
+
+```json
+{
+  "servers": {
+    "opik-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["opik-mcp"],
+      "env": {
+        "OPIK_API_KEY": "<your-key>",
+        "COMET_WORKSPACE": "<your-workspace>"
+      }
+    }
+  }
+}
+```
+
+Reload the window; the Copilot Chat **MCP** indicator shows `opik-mcp` once
+the server is reachable. Ask in chat: **"list my Opik projects"**.
+
+### MCP Inspector (manual testing)
+
+```bash
+OPIK_API_KEY=<your-key> COMET_WORKSPACE=<your-workspace> \
+  npx @modelcontextprotocol/inspector uvx opik-mcp
+```
+
+### Self-hosted Opik
+
+Add `COMET_URL_OVERRIDE` (and `OPIK_URL` if Opik lives at a non-default path) to
+the same `env` block in your host config:
+
+```json
+{
+  "mcpServers": {
+    "opik-mcp": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": ["opik-mcp"],
+      "env": {
+        "OPIK_API_KEY": "<your-key>",
+        "COMET_URL_OVERRIDE": "https://opik.your-company.com",
+        "OPIK_MCP_ANALYTICS_SOURCE": ""
+      }
+    }
+  }
+}
+```
+
+`ask_ollie` and `run_experiment` are available on Comet Cloud only — on
+self-hosted those calls will fail at dispatch, so use `read` / `list` / `write`
+directly. Setting `OPIK_MCP_ANALYTICS_SOURCE=""` opts your install out of the
+cloud-Comet source label on telemetry events.
+
+---
+
+## Tools
+
+`opik-mcp` exposes a small, outcome-oriented surface — six tools that cover
+the full lifecycle (read → annotate → curate → author → iterate).
+
+| Tool | Purpose |
 |---|---|
-| **Status** | Phase 1 in planning — auth-flow research done, PR opened against `comet-backend` |
-| **Jira** | [OPIK-6439](https://www.atlassian.com/) — _Improve Opik MCP server and include Ollie tool_ |
-| **Notion mirror** | [Notion page](https://www.notion.so/35f7124010a381ca82a5df67d7474313) — team brief + design doc + ADRs |
+| [`read`](#read) | Universal read by id / name / `opik://` URI |
+| [`list`](#list) | Universal list with optional name filter + pagination |
+| [`ask_ollie`](#ask_ollie) | Investigate / synthesize via the Opik in-product assistant |
+| [`write`](#write) | Universal write — log traces/spans, score, comment, save prompts, manage test suites & experiments |
+| [`schema`](#schema) | Introspect write-operation schemas (used by the LLM to construct valid payloads) |
+| [`run_experiment`](#run_experiment) | Run an evaluation experiment end-to-end via Ollie |
 
-> **Note on `docs/`:** internal planning and design notes are kept local and gitignored.
-> They will be re-introduced piecemeal under `docs/` in follow-up PRs as each
-> document becomes user-facing. Until then, the Notion mirror above is the
-> canonical source.
+### `read`
 
----
+One tool for any "show me X" question. Takes an `entity_type` plus an `id`
+(UUID or, for nameable types, a name) or a full `opik://` URI. Composite reads
+(`trace`, `prompt`) inline their children so a single call returns the full
+picture.
 
-## What is this
+**Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
+`prompt`. Name-based lookup is available for `project`, `experiment`, `prompt`,
+`test_suite` (slower — two API calls — and may return multiple matches).
 
-`opik-mcp` is a **Python 3.13 / FastAPI** MCP server that:
+```python
+read(entity_type="trace", id="7f2e3c8a-…")
+read(entity_type="project", id="demo")          # name lookup
+read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
+```
 
-- Exposes **11 outcome-oriented tools** — `ask_ollie` (LLM-gated) + `read` / `list` (universal reads over 8 Phase-1 entities) + 8 deterministic write tools
-- Speaks **MCP Streamable HTTP** (`modelcontextprotocol/python-sdk ^1.12`)
-- Handles **Ollie pod cold-start** via the MCP Tasks primitive with a blocking-SSE fallback
-- Translates Ollie's pod-side SSE event vocabulary into MCP frames (`notifications/progress`, `notifications/tasks/updated`, `elicitation/create`)
+### `list`
 
-Two delivery modes:
+Browse a collection with optional name filter and pagination. Project-scoped
+types (`trace`, `test_suite_item`, `prompt_version`) require their parent UUID.
 
-- **Phase 1** — local install, API-key auth, single-user-per-pod, Claude Code / Cursor / VS Code Copilot
-- **Phase 2** — hosted at `https://www.comet.com/api/v1/mcp`, OAuth 2.1 + PKCE + DCR + CIMD, multi-tenant pods, all four hosts including claude.ai
+```python
+list(entity_type="experiment", page=1, size=25)
+list(entity_type="experiment", name="rerank")          # name substring filter
+list(entity_type="trace", project_id="<project-uuid>") # traces of one project
+```
 
-This repo ships both. Phase 1 first.
+### `ask_ollie`
 
----
+For investigative questions, cross-entity synthesis, or anything that needs
+Opik domain expertise. Ollie has direct read access to your workspace and can
+execute writes (scores, comments, test-suite items, prompt versions) mid-stream
+when asked.
 
-## The 11 tools
+```python
+ask_ollie(query="Why are spans in project 'demo' slower this week than last?")
+ask_ollie(query="Compare experiments A and B on factuality. Score the bottom 5 traces of A 0.2 with reason.")
+```
 
-| # | Tool | Bucket | Dispatch | Phase 1? |
-|---|---|---|---|---|
-| 1 | `ask_ollie` | Investigate | Ollie pod | ✅ (cloud Comet users only) |
-| 2 | `read` | Read | `opik-backend` REST (composite for trace+spans, prompt+versions) | ✅ |
-| 3 | `list` | Read | `opik-backend` REST | ✅ |
-| 4 | `score` | Annotate | `opik-backend` REST | ✅ |
-| 5 | `comment` | Annotate | `opik-backend` REST | ✅ |
-| 6 | `add_test_suite_items` | Curate | `opik-backend` REST | ⬜ |
-| 7 | `save_prompt_version` | Curate | `opik-backend` REST | ⬜ |
-| 8 | `create_trace` | Author | `opik-backend` REST | ⬜ |
-| 9 | `create_span` | Author | `opik-backend` REST | ⬜ |
-| 10 | `run_experiment` | Iterate | Ollie pod | ⬜ |
-| 11 | `save_eval_item` | Iterate | `opik-backend` REST | ⬜ |
+Returns the assistant's final text plus a `thread_id`. Pass it back on
+follow-ups to preserve context — Ollie has no memory across threads.
 
-Reads use the **two universal `read` / `list` tools** keyed on entity type — same `ENTITY_REGISTRY` codepath as `ollie-assist`. Phase 1 covers `project`, `trace`, `span`, `test_suite`, `experiment`, `prompt`, `test_suite_item`, `prompt_version`. `opik://` URIs are still accepted as `id` input for forward-compat. The MCP `resources` primitive is not published (see ADR 0004 in the Notion mirror for rationale).
+**YOLO mode (default).** Writes Ollie performs mid-stream execute without a
+per-action confirmation. Each auto-approval is logged as a JSON audit row on
+the `opik_mcp.audit` Python logger. To require confirmation instead, set
+`OPIK_MCP_AUTO_APPROVE=disabled` — Ollie's confirm requests then surface as
+typed errors you can manually re-issue.
 
----
+> Available on Comet Cloud only.
 
-## Phase 1 status
+### `write`
 
-| Item | Status |
+Universal write dispatcher. Pass `operation` + `data` and the dispatcher
+validates the payload, applies the right REST verb, and returns the
+backend response.
+
+**Operations:**
+
+| Operation | What it does |
 |---|---|
-| Auth flow research | ✅ done (see Notion mirror) |
-| `comet-backend` patch (API-key-callable pod discovery) | 🟡 PR open — [comet-ml/comet-backend#5555](https://github.com/comet-ml/comet-backend/pull/5555) |
-| Vertical-slice PoC (hello-world MCP) | ⬜ not started |
-| `ask_ollie` over local MCP (no Tasks) | ⬜ not started |
-| `ask_ollie` over local MCP (Tasks primitive) | ⬜ not started |
-| `read` / `list` universal-read tools (8 Phase-1 entities) | ✅ done |
-| `score` / `comment` direct write tools | ✅ done |
-| Remaining write tools (`add_test_suite_items`, `save_prompt_version`, `create_trace`, `create_span`, `save_eval_item`, `run_experiment`) | ⬜ not started |
-| `InitializeResult.instructions` per-session context (ADR 0004 D6) | ✅ done |
-| Distribution package (`uvx opik-mcp`) | ⬜ not started |
+| `trace.create` | Log a single trace (or a batch). Parent for spans / scores / comments. |
+| `trace.update` | Finalize or amend an existing trace. |
+| `span.create` | Log a span on an existing trace (or a batch). |
+| `score.create` | Attach a numeric feedback score to a trace, span, or thread. |
+| `comment.create` | Attach a free-text comment to a trace, span, or thread. |
+| `prompt_version.save` | Save a new prompt version (creates the prompt by name if missing). |
+| `test_suite.create` | Create an evaluation test suite. |
+| `test_suite_item.upsert` | Upsert items into a test suite (always the envelope shape). |
+| `experiment.create` | Create an experiment scoped to a test suite. |
+| `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
 
-See the Notion mirror for the week-1 build order.
+```python
+write(operation="score.create", data={
+  "target": "trace",
+  "target_id": "7f2e3c8a-…",
+  "name": "helpfulness",
+  "value": 0.9,
+  "reason": "great recovery"
+})
+```
+
+### `schema`
+
+Inspect the exact JSON shape and required fields of any write operation before
+you call it — useful when you're not sure what `data` should look like. Returns
+the schema, OAuth scope, and one validated example. Pure lookup, no backend
+call.
+
+```python
+schema(operation="score.create")
+schema(operation="prompt_version.save")
+```
+
+### `run_experiment`
+
+Run an evaluation experiment end-to-end via Ollie. Takes a single
+`experiment_config` dict that mirrors Opik's experiment shape (prompt, test
+suite, scorers); Ollie executes the run and writes results back as an Opik
+experiment.
+
+```python
+run_experiment(experiment_config={
+  "test_suite_name": "qa-eval-v2",
+  "prompt_name": "welcome-msg",
+  # … see `schema(operation="experiment.create")` for the full shape
+})
+```
+
+> Available on Comet Cloud only.
 
 ---
 
-## Repo layout
+## Configuration
+
+Every setting is an environment variable. Required ones in **bold**.
+
+### Identity / endpoint
+
+| Variable | Default | Notes |
+|---|---|---|
+| **`OPIK_API_KEY`** | — | Required for `ask_ollie` and any authenticated read/write. |
+| **`COMET_WORKSPACE`** | — | Workspace name. Required for `ask_ollie`. |
+| `COMET_WORKSPACE_ID` | — | Optional workspace UUID. Stamped into analytics events when set so BI can join on a stable id rather than the (mutable) workspace name. |
+| `COMET_URL_OVERRIDE` | `https://www.comet.com` | Set to your self-hosted Comet host, or `https://dev.comet.com` for staging. |
+| `OPIK_URL` | derived from `COMET_URL_OVERRIDE` + `/opik/api` | Override only if Opik lives on a different host/path than the Comet UI. |
+| `OPIK_DEFAULT_PROJECT_NAME` | _unset_ | When set, the per-session `instructions` blob tells the LLM to pass this as `project_name` on every tool call unless the user names a different project. |
+
+### Server / transport
+
+| Variable | Default | Notes |
+|---|---|---|
+| `OPIK_MCP_TRANSPORT` | `stdio` | `stdio` for host-launched, `streamable-http` to listen on a port. |
+| `OPIK_MCP_HOST` | `127.0.0.1` | uvicorn bind host (`streamable-http` only). |
+| `OPIK_MCP_PORT` | `8080` | uvicorn bind port (`streamable-http` only). |
+| `OPIK_MCP_RELOAD` | `false` | `true` to enable uvicorn `--reload` (dev only). |
+| `OPIK_MCP_DEV_TOKEN` | `dev-token-123` | Bearer token the HTTP transport requires. |
+| `OPIK_MCP_LOG_LEVEL` | `INFO` | stderr logger threshold. |
+
+### Ollie / long calls
+
+| Variable | Default | Notes |
+|---|---|---|
+| `OPIK_MCP_AUTO_APPROVE` | `enabled` | `disabled` to surface Ollie's confirm requests as typed errors instead of auto-approving. |
+| `OPIK_MCP_POD_READY_TIMEOUT_S` | `120` | Ollie pod cold-start poll cap. |
+| `OPIK_MCP_POD_READY_INTERVAL_S` | `2` | Cold-start poll interval. |
+| `OPIK_MCP_HEARTBEAT_INTERVAL_S` | `15.0` | Watchdog cadence — emits a `notifications/progress` tick when the pod is silent, keeping host timeouts at bay. |
+| `OPIK_MCP_STREAM_IDLE_TIMEOUT_S` | `300.0` | Hard ceiling on pod silence before `ask_ollie` aborts. `0` disables (debug only). |
+
+### Telemetry
+
+Anonymous usage events (event type + timing only — no query content). A SHA-256
+digest of your API key is included so support can find your account; the raw
+key never leaves the process. **Opt out:** `OPIK_MCP_ANALYTICS_ENABLED=false`.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `OPIK_MCP_ANALYTICS_ENABLED` | `true` | Set to `false` to disable all telemetry. |
+| `OPIK_MCP_ANALYTICS_URL` | `https://stats.comet.com/notify/event/` | Override for staging. |
+| `OPIK_MCP_ANALYTICS_ENVIRONMENT` | `prod` | Tag on every event (`prod` / `staging` / `dev`). |
+| `OPIK_MCP_ANALYTICS_SOURCE` | `comet.com` | Receiver uses this to mark `on_prem=False`. On-prem installs should override to `""` or their own domain. |
+| `OPIK_MCP_ANALYTICS_CONNECT_TIMEOUT_S` | `5.0` | HTTP connect timeout. |
+| `OPIK_MCP_ANALYTICS_TOTAL_TIMEOUT_S` | `10.0` | HTTP total request timeout. |
+
+---
+
+## Known host limits
+
+The MCP spec lets hosts reset their tool-call timeout on
+`notifications/progress` — `opik-mcp` emits one per Ollie SSE event plus a
+15-second watchdog heartbeat. Reality is uneven:
+
+- **Claude Code** — no documented tool-call timeout; heartbeat keeps the call
+  alive until `message_end`. Recommended.
+- **Cursor** — hard 60s timeout that does **not** reset on progress
+  ([upstream bug](https://forum.cursor.com/t/mcp-tool-timeout/74465)).
+  Long Ollie turns will fail. Keep `ask_ollie` queries focused.
+- **MCP Inspector** — `MAX_TOTAL_TIMEOUT` bounds total duration (default 60s).
+  Raise it in the Inspector UI for long operations.
+
+If a call gets stuck, set `OPIK_MCP_LOG_LEVEL=DEBUG` — heartbeat failures
+(usually host disconnects) are logged on `opik_mcp.ask_ollie` at debug level.
+
+---
+
+## Troubleshooting
+
+**`OPIK_API_KEY is required to use ask_ollie`** — the var isn't reaching the
+server process. In Claude Code / Cursor / VS Code, env vars only apply when
+inside the `env` block of the MCP server config, not your shell. Restart the
+host after editing.
+
+**`ask_ollie` returns "pod not ready" after 2 minutes** — the Ollie pod
+cold-start exceeded `OPIK_MCP_POD_READY_TIMEOUT_S`. Retry — the second call
+usually hits a warm pod.
+
+**`ask_ollie` / `run_experiment` fails with a dispatch error on self-hosted
+Opik** — those tools are available on Comet Cloud only. Use `read` / `list` /
+`write` directly on self-hosted.
+
+**Cursor call times out at 60s** — Cursor's known bug, not `opik-mcp`. Either
+shorten the Ollie query, or run the same operation on Claude Code which has no
+hard cap.
+
+---
+
+## Development
+
+```bash
+git clone git@github.com:comet-ml/opik-mcp.git
+cd opik-mcp
+make install        # uv sync --extra dev
+make check          # lint + typecheck + test
+make run-dev        # uvicorn with --reload + DEBUG logs
+make inspect        # MCP Inspector against the running server
+```
+
+Common targets:
+
+| Target | What it does |
+|---|---|
+| `make install` | `uv sync --extra dev` |
+| `make run` | Run the MCP server (stdio by default). |
+| `make run-dev` | Run with DEBUG logging + uvicorn `--reload`. |
+| `make dev` | Run via `mcp dev` (Inspector dev-mode wrapper). |
+| `make inspect` | Launch MCP Inspector against a running server. |
+| `make test` | `uv run pytest -q`. |
+| `make test-live` | Live end-to-end against `dev.comet.com` (set `OPIK_API_KEY` + `COMET_WORKSPACE`). |
+| `make lint` | `ruff check` + format check. |
+| `make format` | `ruff format` + `ruff check --fix`. |
+| `make typecheck` | `mypy`. |
+| `make check` | `lint + typecheck + test`. |
+
+Repo layout:
 
 ```
 opik-mcp/
-├── README.md                 ← you are here
-├── src/
-│   └── opik_mcp/             ← Python MCP server
-├── tests/
-├── scripts/                  ← live-BE smoke + MCP-session smoke
-├── legacy/typescript/        ← deprecated v2 TS server (npm `opik-mcp@^2`)
+├── src/opik_mcp/        ← server, tools, ask_ollie, analytics
+├── tests/               ← pytest suites
+├── scripts/             ← live-BE smoke + MCP-session smoke
+├── legacy/typescript/   ← deprecated v2 TS server
 ├── pyproject.toml
 └── Makefile
 ```
 
-Internal planning/design notes live under a gitignored `docs/` directory and will
-be re-introduced piecemeal as each one becomes user-facing.
+---
+
+## Get help
+
+- [Open an issue](https://github.com/comet-ml/opik-mcp/issues) for bugs and feature requests
+- [Opik docs](https://www.comet.com/docs/opik/) for SDK / backend documentation
+- [Comet community Slack](https://chat.comet.com/) for questions
 
 ---
 
-## Getting started (Phase 1, TBD)
-
-Once the PoC lands:
-
-```bash
-# Cloud Comet users
-export OPIK_API_KEY=<your-key>
-export COMET_WORKSPACE=<workspace-name>
-uvx opik-mcp
-
-# Self-hosted Opik users
-export OPIK_API_KEY=<your-key>
-export OPIK_URL_OVERRIDE=https://your-opik.example.com
-uvx opik-mcp
-# Note: ask_ollie and run_experiment omitted from tools/list unless you have ollie-assist deployed
-```
-
-Per-host MCP config snippets will land alongside the first published package release.
+> **Upgrading from v2?** The legacy TypeScript server still ships on npm as
+> `opik-mcp@^2` (`npx -y opik-mcp`); source is preserved under
+> [`legacy/typescript/`](./legacy/typescript/). See
+> [`legacy/typescript/DEPRECATED.md`](./legacy/typescript/DEPRECATED.md) for
+> the support policy.
 
 ---
 
-## Try `ask_ollie` against `dev.comet.com`
+## License
 
-The Day-3-to-5 PoC milestone runs `ask_ollie` end-to-end against `dev.comet.com` (where the `/opik/ollie/compute-api-key` backend fix is deployed).
-
-```bash
-export OPIK_API_KEY=<your-key>
-export COMET_WORKSPACE=<workspace-name>
-export COMET_URL_OVERRIDE=https://dev.comet.com
-
-make install        # one-time
-make run-dev        # uvicorn on 127.0.0.1:8080 with --reload + DEBUG logs
-make inspect        # MCP Inspector in another shell
-```
-
-In the Inspector: connect to `http://127.0.0.1:8080/mcp` with header `Authorization: Bearer dev-token-123`. The `ask_ollie` tool will appear in the tool list — invoke it with `query: "How many traces did I create today?"` and watch the progress notifications during pod warmup.
-
-**YOLO mode (always on).** Writes Ollie performs mid-stream (scores, comments, test-suite items, prompts, etc.) auto-execute without a per-action user confirmation. The pod's `confirm_required` SSE event is acknowledged with `decision="yes"` in-band, and a JSON audit row is emitted on the dedicated `opik_mcp.audit` Python logger (`event: "ollie_write_auto_approved"`). Configure that logger like any other (`logging.getLogger("opik_mcp.audit")`) to route audit lines to a file, journald, etc. Rationale and Phase-2 persistence path are recorded in ADR 0005 (Notion mirror).
-
-### Privacy & telemetry
-
-`opik-mcp` sends anonymous product-analytics events to `stats.comet.com` so the team can measure adoption and reliability. No tool input prose (queries, comments, scores, page context) is ever sent — only event type, timing buckets, and low-cardinality structural properties. The full "never sent" list lives in the analytics plan in the Notion mirror.
-
-To disable, set `OPIK_MCP_ANALYTICS_ENABLED=false`.
-
-Configuration env vars:
-
-| Variable | Default | Notes |
-|---|---|---|
-| `OPIK_API_KEY` | — | required to call `ask_ollie` |
-| `COMET_WORKSPACE` | — | required to call `ask_ollie` |
-| `COMET_URL_OVERRIDE` | `https://www.comet.com` | set to `https://dev.comet.com` for the PoC |
-| `OPIK_URL` | derived from `COMET_URL_OVERRIDE` | override for non-standard Opik deployments where Opik lives on a different host/path than the Comet UI |
-| `OPIK_DEFAULT_PROJECT_NAME` | _unset_ | Name of your default project. When set, the session's `instructions` blob tells the LLM to pass it as `project_name` on every tool call unless the user names a different project. Matches the Python/TS SDKs, which expose project by name only. |
-| `OPIK_MCP_DEV_TOKEN` | `dev-token-123` | bearer the MCP transport requires |
-| `OPIK_MCP_POD_READY_TIMEOUT_S` | `120` | cold-start poll cap |
-| `OPIK_MCP_POD_READY_INTERVAL_S` | `2` | cold-start poll interval |
-| `OPIK_MCP_HEARTBEAT_INTERVAL_S` | `15.0` | watchdog cadence — see "Long-running Ollie operations" below |
-| `OPIK_MCP_HOST` / `_PORT` | `127.0.0.1` / `8080` | uvicorn bind |
-| `OPIK_MCP_RELOAD` | _unset_ | `1` to enable `--reload` |
-| `OPIK_MCP_LOG_LEVEL` | `INFO` | stderr logger threshold |
-| `OPIK_MCP_ANALYTICS_ENABLED` | `true` | set to `false` to disable all telemetry |
-| `OPIK_MCP_ANALYTICS_URL` | `https://stats.comet.com/notify/event/` | analytics endpoint (override for staging) |
-| `OPIK_MCP_ANALYTICS_ENVIRONMENT` | `prod` | environment tag on every event (`prod` / `staging` / `dev`) |
-| `OPIK_MCP_ANALYTICS_CONNECT_TIMEOUT_S` | `5.0` | analytics HTTP connect timeout (seconds) |
-| `OPIK_MCP_ANALYTICS_TOTAL_TIMEOUT_S` | `10.0` | analytics HTTP total request timeout (seconds) |
-
-### Long-running Ollie operations
-
-Some Ollie turns take a while — a Python SDK roundtrip against `opik-backend`, a multi-step `add_test_suite_items` flow, a `run_experiment` cold start. While the pod is busy and the SSE stream is silent, MCP hosts can time out the in-flight `tools/call` and return nothing to the user.
-
-opik-mcp keeps the call alive two ways:
-
-1. **One `notifications/progress` per pod SSE event.** Every `thinking_delta`, `tool_call_start`, etc. produces a progress tick — these are what the MCP spec [allows hosts to reset their timeout clock on](https://modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle), unlike info-level log messages.
-2. **A watchdog heartbeat every `OPIK_MCP_HEARTBEAT_INTERVAL_S` seconds (default 15s).** When the pod is silent, an internal task emits a progress tick with `message="streaming"` so hosts that follow the spec see a heartbeat well under their default timeout.
-
-**Known host limitations.** The spec word is "MAY" — not every host resets on progress. As of writing:
-
-- **Cursor** has a hard 60s tool-call timeout that does not reset on progress notifications ([bug report](https://forum.cursor.com/t/mcp-tool-timeout/74465)). Operations that take longer than ~60s will fail on Cursor regardless of heartbeat. Tune your prompt to keep `ask_ollie` turns short on that host.
-- **MCP Inspector** has a `MAX_TOTAL_TIMEOUT` (default 60s) that bounds the *total* tool-call duration. Set it to a larger value via the Inspector UI for long operations.
-- **Claude Code** has no documented tool-call timeout; the heartbeat keeps it indefinitely streaming until `message_end`.
-
-If you need to debug a stuck call, set `OPIK_MCP_LOG_LEVEL=DEBUG` — heartbeat failures (typically host disconnects) are logged on `opik_mcp.ask_ollie` at debug level so they don't tear down the stream.
-
-Run the live end-to-end against `dev.comet.com` (default `make check` skips it):
-
-```bash
-RUN_LIVE_DEV_COMET=1 OPIK_API_KEY=... COMET_WORKSPACE=... COMET_URL_OVERRIDE=https://dev.comet.com make test-live
-```
-
-> First-call note: `provisionOlliePod()` seeds the pod with your *first* Comet API key. If you authenticate with a different one, opik-backend calls *from inside the pod* will use the seeded key — use one key everywhere for the PoC (open question Q4).
-
----
-
-## Why Python (not TypeScript)
-
-Short version: code-share with `ollie-assist` for the SSE event vocabulary. The translator imports `from ollie_assist.types.sse import SessionEvent, ThinkingDelta, ToolCallStart, ConfirmRequired, Navigate` — event-shape drift becomes a CI failure, not a runtime bug. In any other language, every change to Ollie's emitter forces a hand-translation in two repos.
-
-Full reasoning: see the team brief's "Why Python (not TypeScript)" section and ADR 0001 in the Notion mirror.
-
----
-
-## Why a separate repo (not inside `ollie-assist`)
-
-Three reasons, all hard:
-
-1. **Per-user Ollie pods have no stable external URL.** External MCP hosts register one URL in config and can't do per-call workspace→pod discovery.
-2. **Cold start is up to two minutes.** MCP hosts time out at ~30 s. We need an always-warm service that returns `CreateTaskResult` in <2 s.
-3. **The per-user pod has no OAuth and no JWT verifier.** Wrong tier to host the public endpoint on.
-
-Full reasoning: see the team brief's "Why this is a separate `ollie-mcp` repo" section and ADR 0002 in the Notion mirror.
+Apache-2.0.
