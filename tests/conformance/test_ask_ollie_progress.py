@@ -10,8 +10,8 @@ ticks, SSE events, idle heartbeat) into a single shared counter. Any
 future refactor that splits the counter, re-bases the SSE loop at 1,
 or re-orders the counter increment with the `report_progress` await
 will regress this contract. This test is the only one in CI that
-exercises the merged sequence, so it's load-bearing for the strict-host
-matrix in docs/host-conformance.md.
+exercises the merged sequence, so it's load-bearing for strict hosts
+(Cursor, MCP Inspector strict mode).
 """
 
 from __future__ import annotations

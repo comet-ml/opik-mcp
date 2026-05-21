@@ -1,4 +1,4 @@
-"""Conformance — the exact-six-tools rule (docs/host-conformance.md §1).
+"""Conformance — the exact-six-tools rule.
 
 `tools/list` is part of the public MCP contract. Adding a tool is a
 major-version change (every host caches the list); removing one breaks

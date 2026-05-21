@@ -74,9 +74,7 @@ class Settings(BaseSettings):
     # elicitation primitive first — the host shows a yes/no prompt to the user
     # and the call only proceeds on accept. Hosts that don't advertise the
     # elicitation capability fall back to a one-shot `ctx.warning` and proceed
-    # (never silently dropped, never blocked). `prompt_version.save` with
-    # `set_as_production=true` always elicits regardless of this flag because
-    # production-alias flips are the highest-risk Phase 1 write.
+    # (never silently dropped, never blocked).
     opik_mcp_confirm_writes: Literal["enabled", "disabled"] = "disabled"
 
     # Maximum seconds to wait for the user to answer an elicitation prompt.

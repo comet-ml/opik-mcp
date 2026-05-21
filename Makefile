@@ -43,9 +43,9 @@ test:
 test-live:
 	RUN_LIVE_DEV_COMET=1 uv run pytest tests/test_ask_ollie_live.py -v
 
-# Wire-contract suite -- see docs/host-conformance.md. The whole-suite
-# `make check` already runs these (test target is `pytest -q`), this is
-# the focused entrypoint for when you're iterating on the tool surface.
+# Wire-contract suite. The whole-suite `make check` already runs these
+# (test target is `pytest -q`), this is the focused entrypoint for when
+# you're iterating on the tool surface.
 conformance:
 	uv run pytest tests/conformance -v
 
