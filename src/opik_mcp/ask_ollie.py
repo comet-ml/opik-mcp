@@ -425,7 +425,7 @@ async def run_ask_ollie(
                                             f"Ollie requests to run: {requested}. "
                                             "Allow this single action?"
                                         ),
-                                        timeout_s=float(settings.opik_mcp_elicit_timeout_seconds),
+                                        timeout_s=settings.opik_mcp_elicit_timeout_seconds,
                                         tool="ask_ollie",
                                         entity_type=target_tool or "tool_use",
                                         entity_id=tool_use_id,

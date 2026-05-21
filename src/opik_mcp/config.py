@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     # Timeout is treated as a deny ("no") — the safer default; the user can
     # always re-issue the call. 60s matches typical chat-UI attention spans
     # without holding the host's tool-call slot open indefinitely.
-    opik_mcp_elicit_timeout_seconds: int = 60
+    opik_mcp_elicit_timeout_seconds: float = 60.0
 
     @field_validator("opik_mcp_auto_approve", "opik_mcp_confirm_writes", mode="before")
     @classmethod

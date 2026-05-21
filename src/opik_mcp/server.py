@@ -484,7 +484,7 @@ async def write(
         outcome = await confirm_with_user(
             ctx,
             prompt=prompt,
-            timeout_s=float(settings.opik_mcp_elicit_timeout_seconds),
+            timeout_s=settings.opik_mcp_elicit_timeout_seconds,
             tool="write",
             entity_type=operation,
             entity_id=None,
