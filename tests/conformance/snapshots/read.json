@@ -1,0 +1,45 @@
+{
+  "properties": {
+    "entity_type": {
+      "description": "One of: experiment, project, prompt, span, test_suite, trace.",
+      "enum": [
+        "experiment",
+        "project",
+        "prompt",
+        "span",
+        "test_suite",
+        "trace"
+      ],
+      "title": "Entity Type",
+      "type": "string"
+    },
+    "id": {
+      "description": "UUID, entity name (for nameable types), or full opik:// URI (e.g. opik://traces/<uuid>). When a URI is passed, entity_type is overridden from the URI.",
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "max_tokens": {
+      "anyOf": [
+        {
+          "maximum": 200000,
+          "minimum": 100,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Optional token budget. If the entity is under the budget, it's returned in full; otherwise compressed to MEDIUM (long strings truncated with path hints) or SKELETON (structure only). Default ~8k tokens.",
+      "title": "Max Tokens"
+    }
+  },
+  "required": [
+    "entity_type",
+    "id"
+  ],
+  "title": "readArguments",
+  "type": "object"
+}

@@ -1,4 +1,4 @@
-.PHONY: help install run run-dev dev inspect test test-live lint format typecheck check \
+.PHONY: help install run run-dev dev inspect test test-live conformance lint format typecheck check \
         legacy-install legacy-build legacy-test legacy-lint legacy-start
 
 help:
@@ -9,6 +9,7 @@ help:
 	@echo "  make dev        - run via mcp inspector dev"
 	@echo "  make inspect    - launch MCP Inspector against running server"
 	@echo "  make test       - pytest"
+	@echo "  make conformance- pytest tests/conformance (MCP wire contract)"
 	@echo "  make lint       - ruff check + format check"
 	@echo "  make format     - ruff format + ruff check --fix"
 	@echo "  make typecheck  - mypy"
@@ -41,6 +42,12 @@ test:
 
 test-live:
 	RUN_LIVE_DEV_COMET=1 uv run pytest tests/test_ask_ollie_live.py -v
+
+# Wire-contract suite. The whole-suite `make check` already runs these
+# (test target is `pytest -q`), this is the focused entrypoint for when
+# you're iterating on the tool surface.
+conformance:
+	uv run pytest tests/conformance -v
 
 lint:
 	uv run ruff check .

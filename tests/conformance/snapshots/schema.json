@@ -1,0 +1,26 @@
+{
+  "properties": {
+    "operation": {
+      "description": "Operation whose schema to return.",
+      "enum": [
+        "trace.create",
+        "trace.update",
+        "span.create",
+        "score.create",
+        "comment.create",
+        "prompt_version.save",
+        "test_suite.create",
+        "test_suite_item.upsert",
+        "experiment.create",
+        "experiment_item.create"
+      ],
+      "title": "Operation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation"
+  ],
+  "title": "schemaArguments",
+  "type": "object"
+}

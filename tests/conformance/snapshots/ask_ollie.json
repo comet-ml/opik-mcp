@@ -1,0 +1,72 @@
+{
+  "properties": {
+    "attach_resources": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "List of opik:// URIs (traces, spans, experiments, prompts, \u2026) to materialize and hand to Ollie alongside the query. The MCP server pre-resolves each URI with the same parser the `read` tool uses. Currently a no-op pending the `ollie-assist` pod ChatRequest schema accepting the field \u2014 passing it is safe; it'll be wired through once the pod side lands.",
+      "title": "Attach Resources"
+    },
+    "page_context": {
+      "anyOf": [
+        {
+          "maxLength": 30000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free-form markdown describing what the user is currently looking at in Opik (URL, selected trace, visible filters, etc.). This is a human-readable view snapshot \u2014 NOT the place to put structured project scope (use `project_name` for that). Ollie uses this for grounding when prose alone is ambiguous. Max ~30k chars.",
+      "title": "Page Context"
+    },
+    "project_name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Opik project name to scope Ollie's reads to. Without this, Ollie's read tools query the whole workspace. Pass on every call once you know which project the user is working in \u2014 Ollie does not persist project state across messages within a thread.",
+      "title": "Project Name"
+    },
+    "query": {
+      "description": "The user's natural-language question for Ollie, the Opik in-product assistant. Ollie can read the caller's Opik workspace (traces, experiments, projects, prompts, datasets), summarize activity, and help debug LLM apps. Be specific \u2014 Ollie sees the workspace but not the surrounding chat. Example: 'Which traces from project demo failed today and why?'",
+      "maxLength": 10000,
+      "title": "Query",
+      "type": "string"
+    },
+    "thread_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Thread id from a previous ask_ollie response. DEFAULT: reuse the most recent thread_id so Ollie keeps context across follow-ups. Omit ONLY on the first call, or when the user pivots to an unrelated topic (e.g. switches projects, asks about something new). When in doubt, reuse. IMPORTANT: Ollie does NOT persist project state across messages \u2014 if you set `project_name` on the first call, you must pass it again on every follow-up, even when continuing the same thread_id.",
+      "title": "Thread Id"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "ask_ollieArguments",
+  "type": "object"
+}

@@ -69,9 +69,16 @@ class Settings(BaseSettings):
     # auto-approval on when the user thought they opted out.
     opik_mcp_auto_approve: Literal["enabled", "disabled"] = "enabled"
 
+    # Maximum seconds to wait for the user to answer an elicitation prompt
+    # (currently used only by `ask_ollie` mid-stream tool-call confirms).
+    # Timeout is treated as a deny — the safer default; the user can always
+    # re-issue. 60s matches typical chat-UI attention spans without holding
+    # the host's tool-call slot open indefinitely.
+    opik_mcp_elicit_timeout_seconds: float = 60.0
+
     @field_validator("opik_mcp_auto_approve", mode="before")
     @classmethod
-    def _lowercase_auto_approve(cls, v: Any) -> Any:
+    def _lowercase_toggle(cls, v: Any) -> Any:
         return v.lower() if isinstance(v, str) else v
 
     @field_validator("comet_workspace_id", mode="before")
