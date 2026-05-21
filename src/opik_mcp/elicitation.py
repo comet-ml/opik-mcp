@@ -28,7 +28,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from mcp.types import ClientCapabilities, ElicitationCapability
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import Context
@@ -70,17 +70,32 @@ class ElicitDecision(StrEnum):
 class ElicitOutcome:
     decision: ElicitDecision
     latency_ms: int
+    # True iff the user ticked the optional "always_approve" toggle on the
+    # form before pressing Accept. Callers use it to grow a session-scoped
+    # allowlist (see ask_ollie) so they can skip the prompt next time the
+    # same target_tool needs confirmation. Always False on DENY/CANCEL/
+    # UNSUPPORTED — there's no "always reject" semantics.
+    remember: bool = False
 
 
 class _ConfirmForm(BaseModel):
-    """Empty schema — the host renders just Accept/Decline buttons.
+    """Single-optional-field schema.
 
-    Declaring no fields means there's nothing for the user to fill in,
-    so the MCP client doesn't surface a form widget. The action
-    (``accept``/``decline``/``cancel``) is the only signal we need; we
-    don't carry a payload back. Tested on Claude Code ≥ 2.1.76 (no
-    toggle widget, just two buttons).
+    The form has one optional boolean, ``always_approve``, defaulting to
+    False. With the default, the user can just click Accept/Decline like
+    the empty-schema case — toggling on is an opt-in to "approve all
+    future calls to this tool in this MCP session". Tested on Claude
+    Code ≥ 2.1.76: the toggle renders inline above the buttons and stays
+    off unless explicitly flipped.
     """
+
+    always_approve: bool = Field(
+        default=False,
+        description=(
+            "Toggle on to allow all future calls to this tool in the "
+            "current session. Off = approve only this single action."
+        ),
+    )
 
 
 _ELICIT_CAPABILITY: Final = ClientCapabilities(elicitation=ElicitationCapability())
@@ -159,25 +174,32 @@ async def confirm_with_user(
     action = getattr(result, "action", None)
 
     # MCP spec actions: ``accept`` (the Accept button), ``decline``
-    # (Decline button), ``cancel`` (Esc / dismiss). With an empty schema
-    # there's no inner ``confirm`` payload to second-guess — the button
-    # press IS the answer.
+    # (Decline button), ``cancel`` (Esc / dismiss). On accept we also
+    # pull the optional ``always_approve`` flag out of ``data`` — it's
+    # the only payload field on the form.
+    remember = False
     if action == "accept":
         decision = ElicitDecision.ACCEPT
+        data = getattr(result, "data", None)
+        if isinstance(data, dict):
+            remember = bool(data.get("always_approve", False))
+        else:
+            remember = bool(getattr(data, "always_approve", False))
     elif action == "decline":
         decision = ElicitDecision.DENY
     else:  # cancel, or any unexpected value — treat as cancel for safety
         decision = ElicitDecision.CANCEL
 
     logger.info(
-        "event=elicitation tool=%s entity_type=%s id=%s decision=%s latency_ms=%d",
+        "event=elicitation tool=%s entity_type=%s id=%s decision=%s remember=%s latency_ms=%d",
         tool,
         entity_type,
         entity_id,
         decision.value,
+        remember,
         latency_ms,
     )
-    return ElicitOutcome(decision, latency_ms=latency_ms)
+    return ElicitOutcome(decision, latency_ms=latency_ms, remember=remember)
 
 
 __all__ = [

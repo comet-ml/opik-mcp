@@ -1,7 +1,7 @@
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, ClassVar
 
 import anyio
 import pytest
@@ -94,9 +94,36 @@ class _AcceptedElicit:
     data = None
 
 
+class _AcceptedElicitRemember:
+    """Accept + the optional `always_approve` toggle was on.
+
+    Mirrors the SDK payload shape for a form submission: ``data`` is the
+    validated form dict containing whatever fields the schema declared.
+    """
+
+    action = "accept"
+    data: ClassVar[dict[str, Any]] = {"always_approve": True}
+
+
 class _DeclinedElicit:
     action = "decline"
     data = None
+
+
+@pytest.fixture(autouse=True)
+def _reset_ask_ollie_session_allowlist() -> Any:
+    """Clear the process-global session allowlist around every test.
+
+    The allowlist lives at module scope (intentional — it persists
+    across `run_ask_ollie` calls in a single MCP subprocess), so without
+    this fixture a test that flips the toggle would leak state into
+    later tests in the same pytest process and silently mask regressions.
+    """
+    from opik_mcp.ask_ollie import _reset_session_allowlist_for_tests
+
+    _reset_session_allowlist_for_tests()
+    yield
+    _reset_session_allowlist_for_tests()
 
 
 class FakeContext:
@@ -140,6 +167,19 @@ class FakeContext:
 
     async def elicit(self, *, message: str, schema: type) -> Any:
         self.elicit_calls.append(message)
+        # Allow a test to script per-call replies by passing a list as
+        # `elicit_result`; falls back to the single canned value otherwise.
+        # This lets us prove the allowlist bypass on call N+1 without ever
+        # invoking ctx.elicit a second time — the assertion is that the
+        # list is consumed at len 1, not len 2.
+        if isinstance(self._elicit_result, list):
+            idx = len(self.elicit_calls) - 1
+            if idx >= len(self._elicit_result):
+                raise AssertionError(
+                    f"elicit called {idx + 1} times but only "
+                    f"{len(self._elicit_result)} canned replies were provided"
+                )
+            return self._elicit_result[idx]
         return self._elicit_result
 
 
@@ -1378,3 +1418,162 @@ async def test_disabled_without_elicitation_capability_keeps_legacy_hard_error()
         )
     assert ollie.confirms == []
     assert ctx.elicit_calls == []  # the helper bypassed `ctx.elicit` entirely
+
+
+# --- Session-scoped allowlist (always_approve toggle) ------------------ #
+
+
+@pytest.mark.anyio
+async def test_elicit_prompt_carries_tool_name_for_user_visibility() -> None:
+    """The prompt that reaches the host MUST start with the target tool
+    name. The earlier "Ollie requests to run: {requested}" form hid the
+    tool name behind the pod's free-form summary, so the user couldn't
+    tell whether they were approving `comment.create` or `delete_dataset`
+    when both happened to share a phrasing. Pin tool-name-first so a
+    future formatter change can't silently regress to summary-only."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [
+            _confirm_event("tu-1", tool_name="comment.create", summary="add a note"),
+            _ev("message_end", {}),
+        ],
+        session_id="sess-1",
+    )
+    ctx = FakeContext(
+        supports_elicitation=True,
+        elicit_result=_AcceptedElicit(),
+    )
+    await run_ask_ollie(
+        query="q",
+        settings=_settings(opik_mcp_auto_approve="disabled"),
+        comet_client=comet,
+        ollie_client=ollie,
+        ctx=ctx,  # type: ignore[arg-type]
+    )
+    assert len(ctx.elicit_calls) == 1
+    prompt = ctx.elicit_calls[0]
+    assert "comment.create" in prompt
+    assert "add a note" in prompt
+    # The user must be told the toggle exists and what it does --
+    # otherwise it's an invisible feature.
+    assert "always_approve" in prompt
+
+
+@pytest.mark.anyio
+async def test_always_approve_toggle_extends_session_allowlist(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """User flipped `always_approve` on the FIRST `confirm_required` for
+    `comment.create`. The SECOND confirm_required for the same tool
+    MUST NOT re-prompt — the allowlist short-circuits the elicit and
+    routes directly into the audit + confirm POST path. This is the
+    feature ollie-assist's "Yes, during this session" button delivers;
+    we reproduce its semantics here within MCP's two-button protocol."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [
+            _confirm_event("tu-1", tool_name="comment.create", summary="first comment"),
+            _confirm_event("tu-2", tool_name="comment.create", summary="second comment"),
+            _ev("message_end", {}),
+        ],
+        session_id="sess-1",
+    )
+    # Only one scripted reply -- if the helper ever calls elicit a second
+    # time the test will fail loudly via the AssertionError in FakeContext.
+    ctx = FakeContext(
+        supports_elicitation=True,
+        elicit_result=[_AcceptedElicitRemember()],
+    )
+    with caplog.at_level(logging.INFO, logger="opik_mcp.ask_ollie"):
+        result = await run_ask_ollie(
+            query="q",
+            settings=_settings(opik_mcp_auto_approve="disabled"),
+            comet_client=comet,
+            ollie_client=ollie,
+            ctx=ctx,  # type: ignore[arg-type]
+        )
+    # Both pod calls landed in the confirm flow even though only one
+    # elicitation round-trip happened.
+    assert len(ctx.elicit_calls) == 1
+    assert ollie.confirms == [
+        ("sess-1", "tu-1", "yes"),
+        ("sess-1", "tu-2", "yes"),
+    ]
+    assert result.complete is True
+    # Audit-trail discriminator: operators need to be able to grep the
+    # log to see which calls were allowlist-bypassed vs explicitly
+    # approved this turn.
+    log_text = "\n".join(r.message for r in caplog.records)
+    assert "via=session_allowlist" in log_text
+    assert "ask_ollie.allowlist_added tool=comment.create" in log_text
+
+
+@pytest.mark.anyio
+async def test_always_approve_does_not_leak_across_tool_names() -> None:
+    """Allowlisting `comment.create` MUST NOT allow `score.create`. The
+    user's "always approve this tool" intent is scoped to the specific
+    target_tool — a broader scope would let one accepted prompt
+    silently authorize unrelated writes."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [
+            _confirm_event("tu-1", tool_name="comment.create", summary="add note"),
+            _confirm_event("tu-2", tool_name="score.create", summary="score"),
+            _ev("message_end", {}),
+        ],
+        session_id="sess-1",
+    )
+    # First call accepts with remember=True; the second pod confirm is
+    # for a DIFFERENT tool, so we expect a second elicit round-trip
+    # which we'll deny — proving the allowlist is keyed by tool name.
+    ctx = FakeContext(
+        supports_elicitation=True,
+        elicit_result=[_AcceptedElicitRemember(), _DeclinedElicit()],
+    )
+    with pytest.raises(OllieStreamError, match="score"):
+        await run_ask_ollie(
+            query="q",
+            settings=_settings(opik_mcp_auto_approve="disabled"),
+            comet_client=comet,
+            ollie_client=ollie,
+            ctx=ctx,  # type: ignore[arg-type]
+        )
+    # First was accepted, second was denied → only one confirm POST.
+    assert ollie.confirms == [("sess-1", "tu-1", "yes")]
+    assert len(ctx.elicit_calls) == 2
+
+
+@pytest.mark.anyio
+async def test_plain_accept_does_not_extend_allowlist() -> None:
+    """Accept without flipping the toggle must NOT silently allowlist
+    the tool — the user's choice was "approve this one call". A second
+    confirm_required for the same tool must elicit again. Pinning this
+    guards against the "first Accept = implicit always" footgun
+    (option A from the design conversation, which we explicitly chose
+    NOT to ship)."""
+    comet = FakeCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
+    ollie = FakeOllieClient(
+        [
+            _confirm_event("tu-1", tool_name="comment.create", summary="first"),
+            _confirm_event("tu-2", tool_name="comment.create", summary="second"),
+            _ev("message_end", {}),
+        ],
+        session_id="sess-1",
+    )
+    # Two scripted replies — proves the helper prompted twice.
+    ctx = FakeContext(
+        supports_elicitation=True,
+        elicit_result=[_AcceptedElicit(), _AcceptedElicit()],
+    )
+    await run_ask_ollie(
+        query="q",
+        settings=_settings(opik_mcp_auto_approve="disabled"),
+        comet_client=comet,
+        ollie_client=ollie,
+        ctx=ctx,  # type: ignore[arg-type]
+    )
+    assert len(ctx.elicit_calls) == 2
+    assert ollie.confirms == [
+        ("sess-1", "tu-1", "yes"),
+        ("sess-1", "tu-2", "yes"),
+    ]

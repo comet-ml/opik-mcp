@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 
@@ -61,9 +61,31 @@ class _Accepted:
     data = None
 
 
+class _AcceptedWithRemember:
+    """Accept + the optional `always_approve` toggle was flipped on.
+
+    Mirrors what the MCP SDK hands back when the user ticks the toggle
+    on the form: ``data`` is the validated form payload (here, a dict
+    with ``always_approve=True``).
+    """
+
+    action = "accept"
+    data: ClassVar[dict[str, Any]] = {"always_approve": True}
+
+
 class _Declined:
     action = "decline"
     data = None
+
+
+class _DeclinedWithRememberFlag:
+    """Decline path — even if `always_approve` was somehow set, we MUST
+    NOT remember a denial. There's no "always reject" semantics; pinning
+    it here keeps a future refactor from accidentally inverting the
+    flag's meaning."""
+
+    action = "decline"
+    data: ClassVar[dict[str, Any]] = {"always_approve": True}
 
 
 class _Cancelled:
@@ -160,12 +182,62 @@ async def test_confirm_accept_returns_accept(
         )
     assert outcome.decision is ElicitDecision.ACCEPT
     assert outcome.decision.approved is True
+    # Default form payload (toggle untouched) collapses to remember=False --
+    # plain Accept must never silently allowlist the tool.
+    assert outcome.remember is False
     assert ctx.elicit_calls and ctx.elicit_calls[0][0] == "ok?"
     # Audit log shape -- operators grep on `event=elicitation`.
     line = "\n".join(r.message for r in caplog.records)
     assert "event=elicitation" in line
     assert "tool=ask_ollie" in line
     assert "decision=accept" in line
+    assert "remember=False" in line
+
+
+async def test_confirm_accept_with_remember_toggle_returns_remember_true(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """User flipped `always_approve` on then pressed Accept. The outcome must
+    carry remember=True so callers (ask_ollie) can extend their session
+    allowlist. This is the load-bearing contract between the form schema
+    and the caller -- if the field name/shape on the form ever changes,
+    this test must fail."""
+    ctx = _FakeContext(
+        session=_FakeSession(supports=True),
+        elicit_result=_AcceptedWithRemember(),
+    )
+    with caplog.at_level(logging.INFO, logger="opik_mcp.elicitation"):
+        outcome = await confirm_with_user(
+            ctx,  # type: ignore[arg-type]
+            prompt="ok?",
+            timeout_s=5,
+            tool="ask_ollie",
+            entity_type="comment.create",
+            entity_id="abc",
+        )
+    assert outcome.decision is ElicitDecision.ACCEPT
+    assert outcome.remember is True
+    assert any("remember=True" in r.message for r in caplog.records)
+
+
+async def test_confirm_decline_never_sets_remember() -> None:
+    """A decline payload with `always_approve=True` set must NOT propagate
+    as remember=True. "Always reject" is not a supported semantic; the
+    flag is only meaningful when paired with an accept."""
+    ctx = _FakeContext(
+        session=_FakeSession(supports=True),
+        elicit_result=_DeclinedWithRememberFlag(),
+    )
+    outcome = await confirm_with_user(
+        ctx,  # type: ignore[arg-type]
+        prompt="ok?",
+        timeout_s=5,
+        tool="ask_ollie",
+        entity_type="comment.create",
+        entity_id="abc",
+    )
+    assert outcome.decision is ElicitDecision.DENY
+    assert outcome.remember is False
 
 
 async def test_confirm_decline_returns_deny() -> None:

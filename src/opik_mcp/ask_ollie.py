@@ -29,6 +29,50 @@ def _analytics() -> Any:
 FOOTER_MAX_ENTRIES = 5
 
 
+# Session-scoped allowlist of pod target_tool names that the user has
+# previously opted into via the elicit form's "always_approve" toggle.
+# Scope = the MCP subprocess lifetime (= one host connection). Reconnect
+# resets the set. Keyed by `target_tool` (e.g. "comment.create"), NOT by
+# tool_use_id or entity id — the semantics match ollie-assist's
+# "Yes, during this session" button. A None target_tool is never added
+# because we'd have no stable key to match future events against.
+#
+# This is intentionally process-global rather than per-ask_ollie-call:
+# ask_ollie is invoked many times over a single host session, and the
+# user's whole point in flipping the toggle is to avoid re-prompting on
+# the NEXT call too.
+_SESSION_ALLOWLIST: set[str] = set()
+
+
+def _reset_session_allowlist_for_tests() -> None:
+    """Clear the process-global allowlist. Test-only entry point.
+
+    Production code must never call this — the set's lifetime is
+    deliberately tied to the subprocess so a reconnect is the only way
+    a user can withdraw a previously-granted "always approve" decision.
+    """
+    _SESSION_ALLOWLIST.clear()
+
+
+def _format_elicit_prompt(target_tool: str | None, summary: str | None) -> str:
+    """Build the elicitation prompt body.
+
+    Leads with the tool name so the user can see at a glance what's
+    being asked. Summary (when present) follows on its own line so it
+    stays legible in CC's rendering. Closing line tells the user how
+    the optional toggle behaves so they don't have to discover it.
+    """
+    tool_line = target_tool or "<unknown tool>"
+    body = f"Ollie wants to run tool: {tool_line}"
+    if summary:
+        body = f"{body}\n\nSummary: {summary}"
+    body = (
+        f"{body}\n\nToggle 'always_approve' to allow all future calls "
+        "to this tool in the current session."
+    )
+    return body
+
+
 def _format_approval_entry(target_tool: str | None, summary: str | None) -> str:
     """Render one auto-approval as `"<tool> (<summary>)"` (or fallbacks).
 
@@ -418,19 +462,43 @@ async def run_ask_ollie(
                             if settings.opik_mcp_auto_approve == "disabled":
                                 requested = summary or target_tool or tool_use_id
                                 approved_via_elicit = False
-                                if ctx is not None:
+                                # Allowlist short-circuit. If the user previously
+                                # accepted with `always_approve=True` for this
+                                # target_tool, skip the elicit entirely — no
+                                # second prompt for the same tool in this session.
+                                if target_tool is not None and target_tool in _SESSION_ALLOWLIST:
+                                    approved_via_elicit = True
+                                    logger.info(
+                                        "ask_ollie.confirm session_id=%s "
+                                        "tool_use_id=%s tool=%s "
+                                        "via=session_allowlist",
+                                        session_id,
+                                        tool_use_id,
+                                        target_tool,
+                                    )
+                                elif ctx is not None:
                                     outcome = await confirm_with_user(
                                         ctx,
-                                        prompt=(
-                                            f"Ollie requests to run: {requested}. "
-                                            "Allow this single action?"
-                                        ),
+                                        prompt=_format_elicit_prompt(target_tool, summary),
                                         timeout_s=settings.opik_mcp_elicit_timeout_seconds,
                                         tool="ask_ollie",
                                         entity_type=target_tool or "tool_use",
                                         entity_id=tool_use_id,
                                     )
                                     approved_via_elicit = outcome.decision.approved
+                                    if (
+                                        approved_via_elicit
+                                        and outcome.remember
+                                        and target_tool is not None
+                                    ):
+                                        # First accept with the toggle on:
+                                        # remember the tool name for the rest of
+                                        # this MCP subprocess lifetime.
+                                        _SESSION_ALLOWLIST.add(target_tool)
+                                        logger.info(
+                                            "ask_ollie.allowlist_added tool=%s",
+                                            target_tool,
+                                        )
                                 if not approved_via_elicit:
                                     raise OllieStreamError(
                                         "Auto-approval disabled "
