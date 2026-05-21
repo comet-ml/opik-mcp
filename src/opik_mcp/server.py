@@ -465,10 +465,9 @@ async def write(
     ] = False,
     ctx: Context[ServerSession, None] | None = None,
 ) -> dict[str, Any]:
-    is_batch = isinstance(data, list)
     if ctx is not None:
+        is_batch = isinstance(data, list)
         await ctx.info(f"write.called operation={operation} batch={is_batch} dry_run={dry_run}")
-
     return await run_write(
         operation=operation,
         data=data,

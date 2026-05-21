@@ -73,6 +73,22 @@ class _AcceptedWithRemember:
     data: ClassVar[dict[str, Any]] = {"always_approve": True}
 
 
+class _AcceptedWithRememberAsModel:
+    """Accept where ``data`` is a BaseModel-like object (attr access, no dict).
+
+    The MCP SDK's elicit result can return either a validated dict (older /
+    Python paths) or a validated Pydantic model instance (current SDK)
+    depending on version. Exercising both shapes keeps the helper's
+    ``isinstance(data, dict)`` branch from quietly regressing to dict-only.
+    """
+
+    class _Form:
+        always_approve = True
+
+    action = "accept"
+    data: ClassVar[_Form] = _Form()
+
+
 class _Declined:
     action = "decline"
     data = None
@@ -218,6 +234,28 @@ async def test_confirm_accept_with_remember_toggle_returns_remember_true(
     assert outcome.decision is ElicitDecision.ACCEPT
     assert outcome.remember is True
     assert any("remember=True" in r.message for r in caplog.records)
+
+
+async def test_confirm_accept_with_remember_via_model_attr_returns_remember_true() -> None:
+    """The MCP SDK may hand back a Pydantic model instance instead of a dict
+    when the form has schema. The helper's `getattr` fallback must pick the
+    `always_approve` attribute off the model with the same result as the
+    dict path. Pin both shapes so a refactor that locks to dict-only would
+    fail loudly instead of silently dropping the toggle on SDK upgrades."""
+    ctx = _FakeContext(
+        session=_FakeSession(supports=True),
+        elicit_result=_AcceptedWithRememberAsModel(),
+    )
+    outcome = await confirm_with_user(
+        ctx,  # type: ignore[arg-type]
+        prompt="ok?",
+        timeout_s=5,
+        tool="ask_ollie",
+        entity_type="comment.create",
+        entity_id="abc",
+    )
+    assert outcome.decision is ElicitDecision.ACCEPT
+    assert outcome.remember is True
 
 
 async def test_confirm_decline_never_sets_remember() -> None:

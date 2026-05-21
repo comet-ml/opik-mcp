@@ -211,16 +211,19 @@ async def test_progress_values_are_integers_for_strict_hosts() -> None:
 
 
 @pytest.mark.anyio
-async def test_no_progress_emitted_when_ctx_is_absent() -> None:
-    """Belt-and-suspenders: tools called without a Context (unit tests,
-    direct dispatch) MUST NOT raise on the missing report_progress.
-    If this regresses, every test in test_ask_ollie.py that omits ctx
-    fails."""
+async def test_ctx_absent_does_not_crash_and_emits_no_progress() -> None:
+    """Belt-and-suspenders for direct-dispatch callers (unit tests, scripts)
+    that omit Context: the tool MUST NOT raise on the missing
+    ``report_progress`` AND MUST NOT have queued any progress frames for a
+    later "real" ctx to flush. Pinning both halves keeps a refactor that
+    moves progress emission outside the ``if ctx is not None`` guard from
+    leaking notifications onto whichever ctx happens to be around."""
     comet = _StubCometClient(PodDiscovery(compute_url="https://pod", ppauth="ppa"))
     ollie = _TickingOllieClient(
         warmup_ticks=2,
         events=[_ev("message_end", {})],
     )
+    recorder = _ProgressRecorder()  # never wired in — proves no leakage path exists
     # No ctx passed.
     result = await run_ask_ollie(
         query="q",
@@ -229,3 +232,4 @@ async def test_no_progress_emitted_when_ctx_is_absent() -> None:
         ollie_client=ollie,
     )
     assert result.complete is True
+    assert recorder.progress == []
