@@ -15,7 +15,6 @@ from opik_mcp.analytics.events import bucket_count
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.config import get_settings
-from opik_mcp.elicitation import ElicitDecision, confirm_with_user
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
@@ -469,50 +468,6 @@ async def write(
     is_batch = isinstance(data, list)
     if ctx is not None:
         await ctx.info(f"write.called operation={operation} batch={is_batch} dry_run={dry_run}")
-
-    settings = get_settings()
-    # Dry-run is by definition a no-op — never bother the user for a
-    # confirmation; skipping also keeps the validation-only path snappy
-    # in agent loops that probe shape before committing.
-    if ctx is not None and not dry_run and settings.opik_mcp_confirm_writes == "enabled":
-        item_count = len(data) if is_batch else 1
-        prompt = (
-            f"Confirm write `{operation}` "
-            f"({'batch of ' + str(item_count) if is_batch else 'single item'})? "
-            "Reply yes to proceed, no to cancel."
-        )
-        outcome = await confirm_with_user(
-            ctx,
-            prompt=prompt,
-            timeout_s=settings.opik_mcp_elicit_timeout_seconds,
-            tool="write",
-            entity_type=operation,
-            entity_id=None,
-        )
-        if outcome.decision is ElicitDecision.UNSUPPORTED:
-            # Host without elicitation: surface a one-shot warning so the
-            # operator sees the gap, then fall through to the write. Per
-            # ADR — never silently drop the call, never block on a missing
-            # host capability.
-            await ctx.warning(
-                "OPIK_MCP_CONFIRM_WRITES=enabled but host does not advertise "
-                "the elicitation capability — proceeding without confirmation."
-            )
-        elif not outcome.decision.approved:
-            # DENY and CANCEL both land here. The structured log line in
-            # `confirm_with_user` already distinguishes timeout vs. explicit
-            # cancel for the operator; the envelope keeps a coarse reason
-            # so the LLM can react ("user_denied" → don't auto-retry;
-            # "cancelled" → user closed the dialog, retry may be fine).
-            return {
-                "ok": False,
-                "cancelled": True,
-                "operation": operation,
-                "reason": (
-                    "user_denied" if outcome.decision is ElicitDecision.DENY else "cancelled"
-                ),
-                "batch": is_batch,
-            }
 
     return await run_write(
         operation=operation,

@@ -89,15 +89,9 @@ class _FakeRequestContext:
         self.session = session
 
 
-class _AcceptedShape:
-    def __init__(self, confirm: bool) -> None:
-        self.confirm = confirm
-
-
 class _AcceptedElicit:
-    def __init__(self, confirm: bool) -> None:
-        self.action = "accept"
-        self.data = _AcceptedShape(confirm=confirm)
+    action = "accept"
+    data = None
 
 
 class _DeclinedElicit:
@@ -1314,7 +1308,7 @@ async def test_disabled_with_elicit_accept_falls_through_to_normal_flow() -> Non
     )
     ctx = FakeContext(
         supports_elicitation=True,
-        elicit_result=_AcceptedElicit(confirm=True),
+        elicit_result=_AcceptedElicit(),
     )
     result = await run_ask_ollie(
         query="q",
@@ -1372,7 +1366,7 @@ async def test_disabled_without_elicitation_capability_keeps_legacy_hard_error()
     )
     ctx = FakeContext(
         supports_elicitation=False,  # legacy host
-        elicit_result=_AcceptedElicit(confirm=True),  # would-be accept if asked
+        elicit_result=_AcceptedElicit(),  # would-be accept if asked
     )
     with pytest.raises(OllieStreamError, match="risky"):
         await run_ask_ollie(

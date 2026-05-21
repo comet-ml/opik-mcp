@@ -28,7 +28,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Final
 
 from mcp.types import ClientCapabilities, ElicitationCapability
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import Context
@@ -72,18 +72,15 @@ class ElicitOutcome:
     latency_ms: int
 
 
-class _YesNoForm(BaseModel):
-    """Pydantic schema sent to the host for a yes/no confirmation.
+class _ConfirmForm(BaseModel):
+    """Empty schema — the host renders just Accept/Decline buttons.
 
-    Restricted to a single primitive field because the MCP spec only
-    allows primitive types in elicitation schemas — see
-    ``Context.elicit`` docstring in the upstream SDK.
+    Declaring no fields means there's nothing for the user to fill in,
+    so the MCP client doesn't surface a form widget. The action
+    (``accept``/``decline``/``cancel``) is the only signal we need; we
+    don't carry a payload back. Tested on Claude Code ≥ 2.1.76 (no
+    toggle widget, just two buttons).
     """
-
-    confirm: bool = Field(
-        ...,
-        description="Confirm this action? Set true to proceed, false to cancel.",
-    )
 
 
 _ELICIT_CAPABILITY: Final = ClientCapabilities(elicitation=ElicitationCapability())
@@ -143,7 +140,7 @@ async def confirm_with_user(
     started = time.monotonic()
     try:
         result = await asyncio.wait_for(
-            ctx.elicit(message=prompt, schema=_YesNoForm),
+            ctx.elicit(message=prompt, schema=_ConfirmForm),
             timeout=timeout_s if timeout_s > 0 else None,
         )
     except TimeoutError:
@@ -161,15 +158,12 @@ async def confirm_with_user(
     latency_ms = int((time.monotonic() - started) * 1000)
     action = getattr(result, "action", None)
 
-    # The MCP spec uses ``accept`` / ``decline`` / ``cancel``. ``accept``
-    # additionally requires the form data to be present and to set
-    # ``confirm=true`` — a host that sends ``accept`` with ``confirm=false``
-    # is treated as a deny (the user filled the form but explicitly
-    # answered "no").
+    # MCP spec actions: ``accept`` (the Accept button), ``decline``
+    # (Decline button), ``cancel`` (Esc / dismiss). With an empty schema
+    # there's no inner ``confirm`` payload to second-guess — the button
+    # press IS the answer.
     if action == "accept":
-        data = getattr(result, "data", None)
-        confirm = bool(getattr(data, "confirm", False)) if data is not None else False
-        decision = ElicitDecision.ACCEPT if confirm else ElicitDecision.DENY
+        decision = ElicitDecision.ACCEPT
     elif action == "decline":
         decision = ElicitDecision.DENY
     else:  # cancel, or any unexpected value — treat as cancel for safety
