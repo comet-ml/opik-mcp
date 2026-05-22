@@ -5,7 +5,15 @@ import httpx
 
 
 class CometAuthError(RuntimeError):
-    """Comet-backend rejected the API key / workspace."""
+    """Comet-backend rejected the API key (401)."""
+
+
+class CometPermissionError(CometAuthError):
+    """Comet-backend returned 403 — caller is authenticated but the workspace
+    rejects the request. Subclass of ``CometAuthError`` to preserve existing
+    ``except CometAuthError`` callers; analytics distinguishes them via
+    table-order in the kind classifier.
+    """
 
 
 class OllieNotEnabledError(RuntimeError):
@@ -47,10 +55,12 @@ class CometClient:
         else:
             resp = await self._client.get(url, headers=headers)
 
-        if resp.status_code in (401, 403):
-            raise CometAuthError(
-                f"Comet rejected the request ({resp.status_code}). "
-                "Check OPIK_API_KEY and COMET_WORKSPACE."
+        if resp.status_code == 401:
+            raise CometAuthError("Comet rejected the request (401). Check OPIK_API_KEY.")
+        if resp.status_code == 403:
+            raise CometPermissionError(
+                "Comet rejected the request (403). The API key is valid "
+                "but lacks access to this workspace. Check COMET_WORKSPACE."
             )
         if resp.status_code == 400:
             preview = resp.text[:300].replace("\n", " ")

@@ -14,6 +14,8 @@ from typing import Any, TypeVar
 from weakref import WeakSet
 
 import anyio
+import httpx
+from pydantic import ValidationError as PydanticValidationError
 
 from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
@@ -22,6 +24,7 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.comet_client import (
     CometAuthError,
+    CometPermissionError,
     CometProtocolError,
     OllieNotEnabledError,
 )
@@ -30,6 +33,7 @@ from opik_mcp.ollie_client import OllieAuthError, OllieStreamError, PodNotReadyE
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikNotFoundError,
+    OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
@@ -38,18 +42,54 @@ logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
 T = TypeVar("T")
 
+# Linear walk: first matching row wins, so list subclasses BEFORE their parents
+# (OpikPermissionError before OpikAuthError, CometPermissionError before
+# CometAuthError). The httpx network errors are listed *after* the typed-API
+# errors so an authenticated 401 isn't mis-bucketed as a network failure (an
+# OpikAuthError instance is itself not an httpx exception, but ordering keeps
+# the contract explicit if anyone later adds a hybrid type).
+#
+# PRIVACY: the *classifier* (``_classify`` below) keys off exception class
+# only — never ``exc.args`` / ``exc.message`` — so adding a row here is
+# privacy-neutral. This guarantee covers ONLY the ``error_kind`` field. The
+# exception messages themselves DO carry user data (entity ids, workspace
+# names, ~200 chars of response body via ``_error_detail``); they are safe
+# *because* nothing here serializes them. Anyone adding a future field like
+# ``error_detail`` MUST bucket / hash / drop the source string — never
+# ``str(exc)``.
 _ERROR_KIND_TABLE: tuple[tuple[type[BaseException], str], ...] = (
     (MissingConfigError, "missing_config"),
+    # Comet — subclass first
+    (CometPermissionError, "comet_permission_denied"),
     (CometAuthError, "comet_auth_failed"),
     (OllieNotEnabledError, "ollie_not_enabled"),
     (CometProtocolError, "comet_protocol_error"),
-    (OpikAuthError, "opik_http_4xx"),
-    (OpikNotFoundError, "opik_http_4xx"),
-    (OpikValidationError, "opik_http_4xx"),
+    # Opik HTTP — split by status, subclass first
+    (OpikPermissionError, "opik_permission_denied"),
+    (OpikAuthError, "opik_auth_failed"),
+    (OpikNotFoundError, "opik_not_found"),
+    (OpikValidationError, "opik_validation_failed"),
     (OpikServerError, "opik_http_5xx"),
+    # Ollie streaming
     (PodNotReadyError, "pod_warmup_timeout"),
     (OllieAuthError, "ollie_auth_failed"),
     (OllieStreamError, "ollie_stream_error"),
+    # Pydantic validation from INSIDE the tool body — e.g.
+    # ``RunExperimentConfig.model_validate(experiment_config)`` in
+    # ``server.run_experiment`` or ``op.pydantic_model.model_validate(data)``
+    # in the write dispatcher. NOTE: FastMCP's ``Tool.run`` validates the
+    # tool's outer signature BEFORE calling our wrapped function and converts
+    # the resulting ``ValidationError`` into a ``ToolError``, so the very
+    # outermost arg-coercion failure never hits this branch. The bucket only
+    # fires when a tool itself calls ``model_validate`` on a sub-payload.
+    (PydanticValidationError, "tool_args_invalid"),
+    # Network — httpx.RequestError is the common base for ConnectError,
+    # TimeoutException (read/connect/write/pool), ReadError, etc. Catches the
+    # bulk of what used to land in "unknown" on flaky networks. HTTPStatusError
+    # is intentionally NOT here: when we use it, the typed Opik/Comet wrappers
+    # have already classified the status — a raw HTTPStatusError reaching this
+    # layer is a bug, not a network failure.
+    (httpx.RequestError, "network_error"),
 )
 
 

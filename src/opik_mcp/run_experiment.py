@@ -17,6 +17,7 @@ from opik_mcp.opik_client import (
     OpikAuthError,
     OpikClient,
     OpikNotFoundError,
+    OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
@@ -43,10 +44,14 @@ def _raise_for_execute_status(resp: httpx.Response) -> None:
     if 200 <= resp.status_code < 300:
         return
     body_excerpt = (resp.text or "")[:500]
-    if resp.status_code in (401, 403):
+    if resp.status_code == 401:
         raise OpikAuthError(
-            f"Opik rejected the experiment execute request ({resp.status_code}). "
-            "Check OPIK_API_KEY and COMET_WORKSPACE."
+            "Opik rejected the experiment execute request (401). Check OPIK_API_KEY."
+        )
+    if resp.status_code == 403:
+        raise OpikPermissionError(
+            "Opik rejected the experiment execute request (403). The API key is "
+            "valid but lacks permission for this workspace. Check COMET_WORKSPACE."
         )
     if resp.status_code == 404:
         raise OpikNotFoundError(f"Test suite not found (404) — {body_excerpt}")

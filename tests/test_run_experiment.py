@@ -8,6 +8,7 @@ from opik_mcp.opik_client import (
     OpikAuthError,
     OpikClient,
     OpikNotFoundError,
+    OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
@@ -107,6 +108,22 @@ async def test_run_experiment_impl_maps_401_to_auth() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post("/v1/private/experiments/execute").mock(return_value=httpx.Response(401))
         with pytest.raises(OpikAuthError):
+            await run_experiment_impl(
+                config=_config(),
+                client=_client(),
+                comet_base_url="https://www.comet.com",
+                workspace="ws",
+            )
+
+
+@pytest.mark.anyio
+async def test_run_experiment_impl_maps_403_to_permission() -> None:
+    """403 must surface as OpikPermissionError, not generic OpikAuthError —
+    so the analytics layer can bucket it as opik_permission_denied (workspace
+    mismatch) rather than opik_auth_failed (bad key)."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/experiments/execute").mock(return_value=httpx.Response(403))
+        with pytest.raises(OpikPermissionError):
             await run_experiment_impl(
                 config=_config(),
                 client=_client(),
