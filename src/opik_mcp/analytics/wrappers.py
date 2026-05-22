@@ -49,8 +49,14 @@ T = TypeVar("T")
 # OpikAuthError instance is itself not an httpx exception, but ordering keeps
 # the contract explicit if anyone later adds a hybrid type).
 #
-# PRIVACY: classification keys off exception class only, never the .args or
-# .message — so this table is safe to expand without re-auditing for PII.
+# PRIVACY: the *classifier* (``_classify`` below) keys off exception class
+# only — never ``exc.args`` / ``exc.message`` — so adding a row here is
+# privacy-neutral. This guarantee covers ONLY the ``error_kind`` field. The
+# exception messages themselves DO carry user data (entity ids, workspace
+# names, ~200 chars of response body via ``_error_detail``); they are safe
+# *because* nothing here serializes them. Anyone adding a future field like
+# ``error_detail`` MUST bucket / hash / drop the source string — never
+# ``str(exc)``.
 _ERROR_KIND_TABLE: tuple[tuple[type[BaseException], str], ...] = (
     (MissingConfigError, "missing_config"),
     # Comet — subclass first
@@ -68,9 +74,14 @@ _ERROR_KIND_TABLE: tuple[tuple[type[BaseException], str], ...] = (
     (PodNotReadyError, "pod_warmup_timeout"),
     (OllieAuthError, "ollie_auth_failed"),
     (OllieStreamError, "ollie_stream_error"),
-    # Tool-args validation: pydantic raises before user code runs when MCP
-    # coerces the tool's typed args. Bucketed separately so "user passed bad
-    # input" doesn't pollute the genuine-bug bucket.
+    # Pydantic validation from INSIDE the tool body — e.g.
+    # ``RunExperimentConfig.model_validate(experiment_config)`` in
+    # ``server.run_experiment`` or ``op.pydantic_model.model_validate(data)``
+    # in the write dispatcher. NOTE: FastMCP's ``Tool.run`` validates the
+    # tool's outer signature BEFORE calling our wrapped function and converts
+    # the resulting ``ValidationError`` into a ``ToolError``, so the very
+    # outermost arg-coercion failure never hits this branch. The bucket only
+    # fires when a tool itself calls ``model_validate`` on a sub-payload.
     (PydanticValidationError, "tool_args_invalid"),
     # Network — httpx.RequestError is the common base for ConnectError,
     # TimeoutException (read/connect/write/pool), ReadError, etc. Catches the
