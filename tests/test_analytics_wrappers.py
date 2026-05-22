@@ -22,6 +22,15 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.writes.errors import (
+    AuthorizationDeniedError,
+    BackendError,
+    BatchPartialFailureError,
+    BatchTooLargeError,
+    UnknownOperationError,
+    ValidationFailedError,
+    WriteError,
+)
 
 
 def _build_pydantic_error() -> PydanticValidationError:
@@ -99,8 +108,33 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
         (httpx.ConnectError("connect refused"), "network_error"),
         (httpx.ReadTimeout("read timed out"), "network_error"),
         (httpx.ReadError("read error"), "network_error"),
-        # pydantic validation on tool args.
+        # pydantic validation on tool args (raw pydantic, e.g. from
+        # ``RunExperimentConfig.model_validate(...)``).
         (_build_pydantic_error(), "tool_args_invalid"),
+        # `write` tool structured errors — dispatcher wraps inner pydantic
+        # failures in ValidationFailedError, so the bucket must surface as
+        # write_validation_failed rather than tool_args_invalid.
+        (
+            ValidationFailedError.build("score.create", [], expected_schema={}, example={}),
+            "write_validation_failed",
+        ),
+        (UnknownOperationError.build("bogus.op", ("score.create",)), "write_unknown_operation"),
+        (
+            AuthorizationDeniedError.build("score.create", "write:scores"),
+            "write_authorization_denied",
+        ),
+        (BatchTooLargeError.build("score.create", 5000, 1000), "write_batch_too_large"),
+        (
+            BatchPartialFailureError.build("score.create", [], []),
+            "write_batch_partial_failure",
+        ),
+        (
+            BackendError.build("score.create", 500, {}, method="POST", path="/v1/x"),
+            "write_backend_error",
+        ),
+        # Bare WriteError (future subclass / direct instance) falls into the
+        # catch-all bucket rather than "unknown".
+        (WriteError(error="backend_error"), "write_error_other"),
         # Genuine catch-all.
         (ValueError("x"), "unknown"),
     ],
