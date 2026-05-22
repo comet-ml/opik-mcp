@@ -12,6 +12,11 @@ EVENT_SESSION_INITIALIZED = "opik_mcp_session_initialized"
 EVENT_TOOL_CALLED = "opik_mcp_tool_called"
 EVENT_ASK_OLLIE_COMPLETED = "opik_mcp_ask_ollie_completed"
 EVENT_AUTO_APPROVAL = "opik_mcp_auto_approval"
+# Emitted from the startup path when the server fails to come up — settings
+# validation crash, refused HTTP bind, or transport.run() exception. Pairs
+# with ``opik_mcp_server_started`` to form an install-funnel: started without
+# a matching error = healthy boot; either alone signals a problem.
+EVENT_STARTUP_ERROR = "opik_mcp_startup_error"
 
 
 def bucket_tokens(n: int) -> str:

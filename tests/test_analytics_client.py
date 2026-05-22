@@ -27,7 +27,7 @@ def _settings(**overrides: Any) -> Settings:
 
 def _drain(client: AnalyticsClient, deadline_s: float = 2.0) -> None:
     """Wait for the worker thread to finish dispatching everything in the queue."""
-    client._flush(deadline_s=deadline_s)
+    client.flush(deadline_s=deadline_s)
 
 
 @respx.mock
