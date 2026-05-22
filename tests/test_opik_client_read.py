@@ -14,6 +14,7 @@ from opik_mcp.opik_client import (
     OpikAuthError,
     OpikClient,
     OpikNotFoundError,
+    OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
@@ -273,7 +274,7 @@ async def test_list_name_filter_omitted_when_none(method: str, path: str) -> Non
     ("status", "expected_exc"),
     [
         (401, OpikAuthError),
-        (403, OpikAuthError),
+        (403, OpikPermissionError),
         (404, OpikNotFoundError),
         (400, OpikValidationError),
         (422, OpikValidationError),

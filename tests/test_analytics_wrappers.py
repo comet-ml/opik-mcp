@@ -1,18 +1,40 @@
 from typing import Any
 
+import httpx
 import pytest
+from pydantic import BaseModel
+from pydantic import ValidationError as PydanticValidationError
 
 from opik_mcp.analytics import EVENT_TOOL_CALLED
 from opik_mcp.analytics.wrappers import instrument_tool
-from opik_mcp.comet_client import CometAuthError, CometProtocolError, OllieNotEnabledError
+from opik_mcp.comet_client import (
+    CometAuthError,
+    CometPermissionError,
+    CometProtocolError,
+    OllieNotEnabledError,
+)
 from opik_mcp.config import MissingConfigError
 from opik_mcp.ollie_client import OllieAuthError, OllieStreamError, PodNotReadyError
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikNotFoundError,
+    OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
+
+
+def _build_pydantic_error() -> PydanticValidationError:
+    """Construct a real ``pydantic.ValidationError`` (can't be instantiated directly)."""
+
+    class _M(BaseModel):
+        x: int
+
+    try:
+        _M.model_validate({"x": "not-an-int"})
+    except PydanticValidationError as e:
+        return e
+    raise AssertionError("model_validate did not raise — pydantic upgraded?")
 
 
 @pytest.fixture
@@ -54,17 +76,32 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
 @pytest.mark.parametrize(
     "exc, expected_kind",
     [
-        (CometAuthError("x"), "comet_auth_failed"),
-        (OllieNotEnabledError("x"), "ollie_not_enabled"),
-        (CometProtocolError("x"), "comet_protocol_error"),
-        (OpikAuthError("x"), "opik_http_4xx"),
-        (OpikNotFoundError("x"), "opik_http_4xx"),
-        (OpikValidationError("x"), "opik_http_4xx"),
+        # Auth/permission — subclass must match its specific bucket, NOT parent.
+        # OpikPermissionError extends OpikAuthError but must surface as
+        # "opik_permission_denied" so 403 vs 401 stay distinguishable in BI.
+        (OpikAuthError("x"), "opik_auth_failed"),
+        (OpikPermissionError("x"), "opik_permission_denied"),
+        (OpikNotFoundError("x"), "opik_not_found"),
+        (OpikValidationError("x"), "opik_validation_failed"),
         (OpikServerError("x"), "opik_http_5xx"),
+        # Comet — same subclass-first contract as Opik.
+        (CometAuthError("x"), "comet_auth_failed"),
+        (CometPermissionError("x"), "comet_permission_denied"),
+        (CometProtocolError("x"), "comet_protocol_error"),
+        # Ollie streaming.
+        (OllieNotEnabledError("x"), "ollie_not_enabled"),
         (PodNotReadyError("x"), "pod_warmup_timeout"),
         (OllieAuthError("x"), "ollie_auth_failed"),
         (OllieStreamError("x"), "ollie_stream_error"),
+        # Config / network / tool-args.
         (MissingConfigError("x"), "missing_config"),
+        # httpx network errors — common base RequestError covers the family.
+        (httpx.ConnectError("connect refused"), "network_error"),
+        (httpx.ReadTimeout("read timed out"), "network_error"),
+        (httpx.ReadError("read error"), "network_error"),
+        # pydantic validation on tool args.
+        (_build_pydantic_error(), "tool_args_invalid"),
+        # Genuine catch-all.
         (ValueError("x"), "unknown"),
     ],
 )

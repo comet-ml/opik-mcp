@@ -26,7 +26,15 @@ from opik_mcp.config import MissingConfigError, Settings
 
 
 class OpikAuthError(RuntimeError):
-    """Opik rejected the API key or workspace (401/403)."""
+    """Opik rejected the API key (401)."""
+
+
+class OpikPermissionError(OpikAuthError):
+    """Opik returned 403 — caller is authenticated but not allowed for the
+    target workspace / resource. Subclass of ``OpikAuthError`` so existing
+    handlers that catch the auth case continue to catch this too; analytics
+    classification distinguishes them via table-order (specific class first).
+    """
 
 
 class OpikNotFoundError(RuntimeError):
@@ -622,9 +630,14 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
         return
     detail = _error_detail(resp)
     suffix = f" — {detail}" if detail else ""
-    if status in (401, 403):
+    if status == 401:
         raise OpikAuthError(
-            f"Opik rejected the request ({status}). Check OPIK_API_KEY and COMET_WORKSPACE.{suffix}"
+            f"Opik rejected the request (401). Check OPIK_API_KEY and COMET_WORKSPACE.{suffix}"
+        )
+    if status == 403:
+        raise OpikPermissionError(
+            f"Opik rejected the request (403). The API key is valid but lacks "
+            f"permission for {entity_hint}. Check COMET_WORKSPACE access.{suffix}"
         )
     if status == 404:
         raise OpikNotFoundError(f"{entity_hint} not found (404).{suffix}")
