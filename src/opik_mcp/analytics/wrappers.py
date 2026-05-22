@@ -37,6 +37,15 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.writes.errors import (
+    AuthorizationDeniedError,
+    BackendError,
+    BatchPartialFailureError,
+    BatchTooLargeError,
+    UnknownOperationError,
+    ValidationFailedError,
+    WriteError,
+)
 
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
@@ -74,14 +83,30 @@ _ERROR_KIND_TABLE: tuple[tuple[type[BaseException], str], ...] = (
     (PodNotReadyError, "pod_warmup_timeout"),
     (OllieAuthError, "ollie_auth_failed"),
     (OllieStreamError, "ollie_stream_error"),
-    # Pydantic validation from INSIDE the tool body — e.g.
+    # `write` tool's structured error hierarchy — listed BEFORE the generic
+    # pydantic row because the dispatcher catches ``ValidationError`` from
+    # ``op.pydantic_model.model_validate(...)`` and re-raises it as
+    # ``ValidationFailedError`` (not a pydantic subclass), so the inner
+    # pydantic error never reaches this classifier on the write path.
+    # Bucket names mirror the stable ``ErrorCode`` literals declared in
+    # ``writes/errors.py`` so BI dashboards can key off the same enum used
+    # in the tool result envelope.
+    (ValidationFailedError, "write_validation_failed"),
+    (UnknownOperationError, "write_unknown_operation"),
+    (AuthorizationDeniedError, "write_authorization_denied"),
+    (BatchTooLargeError, "write_batch_too_large"),
+    (BatchPartialFailureError, "write_batch_partial_failure"),
+    (BackendError, "write_backend_error"),
+    (WriteError, "write_error_other"),  # catch-all for future subclasses
+    # Pydantic validation from INSIDE the tool body. Active path:
     # ``RunExperimentConfig.model_validate(experiment_config)`` in
-    # ``server.run_experiment`` or ``op.pydantic_model.model_validate(data)``
-    # in the write dispatcher. NOTE: FastMCP's ``Tool.run`` validates the
-    # tool's outer signature BEFORE calling our wrapped function and converts
-    # the resulting ``ValidationError`` into a ``ToolError``, so the very
-    # outermost arg-coercion failure never hits this branch. The bucket only
-    # fires when a tool itself calls ``model_validate`` on a sub-payload.
+    # ``server.run_experiment`` — a raw pydantic error there propagates
+    # directly to us. The write dispatcher's ``model_validate`` calls are
+    # NOT covered here because dispatch wraps them in ``ValidationFailedError``
+    # (handled above). NOTE: FastMCP's ``Tool.run`` validates the tool's
+    # outer signature BEFORE calling our wrapped function and converts the
+    # resulting ``ValidationError`` into a ``ToolError``, so the outermost
+    # arg-coercion failure never hits this branch either.
     (PydanticValidationError, "tool_args_invalid"),
     # Network — httpx.RequestError is the common base for ConnectError,
     # TimeoutException (read/connect/write/pool), ReadError, etc. Catches the
