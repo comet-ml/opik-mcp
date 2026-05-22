@@ -56,9 +56,7 @@ class CometClient:
             resp = await self._client.get(url, headers=headers)
 
         if resp.status_code == 401:
-            raise CometAuthError(
-                "Comet rejected the request (401). Check OPIK_API_KEY."
-            )
+            raise CometAuthError("Comet rejected the request (401). Check OPIK_API_KEY.")
         if resp.status_code == 403:
             raise CometPermissionError(
                 "Comet rejected the request (403). The API key is valid "
