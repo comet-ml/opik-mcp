@@ -97,16 +97,21 @@ class AnalyticsClient:
             # Last-resort guard — track_event MUST NEVER raise.
             logger.warning("analytics.track_event swallowed exception", exc_info=True)
 
-    def _flush(self, *, deadline_s: float = 2.0) -> None:
+    def flush(self, *, deadline_s: float = 2.0) -> None:
         """Block until all enqueued tasks are fully processed or deadline elapses.
 
-        Test-only convenience.  Uses queue.join() semantics (waits until every
-        task_done() has been called) rather than checking queue.empty(), which is
-        non-atomic: a producer mid-enqueue can make the queue look empty while an
+        Production call site: ``__main__`` on the startup-error path, where
+        the process is about to ``sys.exit`` / re-raise and the daemon worker
+        would otherwise be killed mid-POST. Also used by tests to deterministic-
+        ally drain the queue.
+
+        Uses ``queue.join()`` semantics (waits until every ``task_done()`` has
+        been called) rather than checking ``queue.empty()``, which is non-atomic:
+        a producer mid-enqueue can make the queue look empty while an
         unfinished task is still in flight.
 
-        queue.Queue.join() blocks indefinitely; we run it in a daemon thread so
-        we can enforce the deadline from the calling thread.
+        ``queue.Queue.join()`` blocks indefinitely; we run it in a daemon
+        thread so we can enforce the deadline from the calling thread.
         """
         done = threading.Event()
 

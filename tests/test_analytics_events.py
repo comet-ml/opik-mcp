@@ -1,4 +1,16 @@
-from opik_mcp.analytics.events import bucket_count, bucket_text_len, bucket_tokens
+from opik_mcp.analytics.events import (
+    EVENT_STARTUP_ERROR,
+    bucket_count,
+    bucket_text_len,
+    bucket_tokens,
+)
+
+
+def test_startup_error_event_name() -> None:
+    # Wire shape is part of the public BI contract — receiver-side parsers
+    # and dashboards key off the literal string, so a rename is a breaking
+    # change that needs to be noticed in code review.
+    assert EVENT_STARTUP_ERROR == "opik_mcp_startup_error"
 
 
 def test_bucket_tokens_thresholds() -> None:
