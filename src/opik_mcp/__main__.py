@@ -1,5 +1,6 @@
 import logging
 import os
+import socket
 import sys
 
 import uvicorn
@@ -53,8 +54,62 @@ def _configure_logging(level: str) -> None:
 
 
 def _bucket_transport_exception_type(exc: BaseException) -> str:
-    name = type(exc).__name__
-    return name if name in _KNOWN_TRANSPORT_EXCEPTION_NAMES else "unknown"
+    """Map a transport exception to the most specific bucketed name in the allowlist.
+
+    Walks the MRO so common ``OSError`` subclasses — ``PermissionError``
+    (privileged port), ``ConnectionRefusedError``, ``BrokenPipeError`` —
+    bucket as ``"OSError"`` rather than expanding cardinality with each
+    new subclass. Returns ``"unknown"`` only when nothing in the chain
+    matches.
+    """
+    for cls in type(exc).__mro__:
+        if cls.__name__ in _KNOWN_TRANSPORT_EXCEPTION_NAMES:
+            return cls.__name__
+    return "unknown"
+
+
+def _preflight_bind_check(host: str, port: int) -> None:
+    """Bind+release the target socket before handing it to uvicorn.
+
+    Uvicorn handles bind failures (EADDRINUSE, permission denied, …)
+    *internally*: it logs an ``ERROR``, runs the ASGI shutdown lifespan,
+    and returns normally from ``uvicorn.run`` with exit code 0. Our outer
+    ``except BaseException`` never sees the ``OSError``, so the most common
+    real-world transport failure — port already in use — was invisible to
+    BI before this check.
+
+    Performing the bind ourselves surfaces the ``OSError`` to the caller,
+    which our error handler then tags as ``transport_crash`` and re-raises.
+
+    Address-family handling: ``getaddrinfo`` resolves ``host`` to the right
+    ``(AF_INET / AF_INET6, sockaddr)`` so this works for ``127.0.0.1``,
+    ``::1``, and ``localhost`` (which resolves to ``::1`` first on macOS
+    15+ and many modern Linux distros). Hardcoding ``AF_INET`` would
+    either raise a spurious ``Invalid argument`` for ``::1`` (false-
+    positive crash) or silently pass when uvicorn would actually fail.
+
+    The window between releasing this socket and uvicorn binding it is a
+    benign race: a process that grabs the port in that gap will still
+    cause uvicorn to log an error — we just miss the BI event for that
+    extremely narrow case. On Linux there is also a ``SO_REUSEPORT``
+    asymmetry: another process holding the port with only
+    ``SO_REUSEPORT`` can let our preflight succeed while uvicorn's
+    actual bind fails. Both gaps are accepted in exchange for catching
+    the common cases (port already taken at startup, privileged port
+    without permission).
+    """
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    if not infos:
+        return  # Nothing resolved; let uvicorn report any failure itself.
+    af, socktype, proto, _canonname, sockaddr = infos[0]
+    sock = socket.socket(af, socktype, proto)
+    try:
+        # SO_REUSEADDR matches uvicorn's own bind so we don't reject a port
+        # uvicorn would have accepted (e.g. a recently-closed TIME_WAIT).
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(sockaddr)
+    finally:
+        sock.close()
 
 
 def _build_fallback_analytics_client() -> AnalyticsClient:
@@ -218,6 +273,9 @@ def _run_transport(settings: Settings, transport: str) -> None:
 
     # Imported lazily so stdio mode doesn't pay the Starlette import cost.
     from opik_mcp.server import build_app
+
+    # Surface bind failures to our error handler; see _preflight_bind_check.
+    _preflight_bind_check(settings.opik_mcp_host, settings.opik_mcp_port)
 
     if settings.opik_mcp_reload:
         uvicorn.run(

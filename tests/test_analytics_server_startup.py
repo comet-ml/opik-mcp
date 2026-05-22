@@ -205,6 +205,37 @@ def test_startup_error_omits_pii_from_transport_crash_event(
 # --- exception_type bucketing -------------------------------------------- #
 
 
+def test_transport_crash_buckets_oserror_subclass_via_mro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``PermissionError`` (and other ``OSError`` subclasses) must bucket as
+    ``"OSError"`` via MRO walk, not as ``"unknown"``.
+
+    Without MRO walking the most common real-world bind failure — port 80
+    on a non-root user → ``PermissionError`` — surfaces as ``"unknown"``,
+    making BI funnels for bind-permission issues invisible. Bucketing to
+    the parent ``OSError`` keeps cardinality bounded *and* gives BI a
+    semantic group it can act on.
+    """
+    recorder = _install_recorder(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(PermissionError):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
+    assert props["exception_type"] == "OSError", (
+        f"PermissionError should bucket to its OSError parent via MRO walk, "
+        f"got {props['exception_type']!r}"
+    )
+
+
 def test_transport_crash_buckets_unknown_exception_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
