@@ -22,6 +22,7 @@ from opik_mcp.analytics import (
     EVENT_TOOL_CALLED,
     get_analytics,
 )
+from opik_mcp.analytics import transport_probe
 from opik_mcp.comet_client import (
     CometAuthError,
     CometPermissionError,
@@ -105,14 +106,80 @@ def _client() -> Any:
     return get_analytics()
 
 
-# Per-process set of session ids we've already announced. WeakSet so dead
+# Known MCP host allowlist. Exact `startswith` match on the lowercased
+# clientInfo.name → bucket. Anything else → "other". Privacy contract:
+# clientInfo.name is host-controlled string; passing it through raw would
+# uncap cardinality and risk re-identifying users via per-install names
+# (e.g. "acme-internal-wrapper-<user>").
+_MCP_HOST_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("claude-desktop", "claude-desktop"),
+    ("claude-code", "claude-code"),
+    ("cursor", "cursor"),
+    ("cline", "cline"),
+    ("roo", "roo"),
+    ("continue", "continue"),
+    ("windsurf", "windsurf"),
+    ("mcp-inspector", "mcp-inspector"),
+)
+
+
+def _classify_mcp_host(raw: str) -> str:
+    needle = (raw or "").strip().lower()
+    if not needle:
+        return "other"
+    for pattern, bucket in _MCP_HOST_PATTERNS:
+        if needle.startswith(pattern):
+            return bucket
+    return "other"
+
+
+# host_llm_family is DERIVED from the bucketed host name so we never
+# branch on raw input.  Cursor promoted to its own family (paying-user
+# host worth separating); mcp-inspector tagged so probe traffic is
+# distinguishable from real installs.
+_HOST_LLM_FAMILY: dict[str, str] = {
+    "claude-desktop": "anthropic",
+    "claude-code": "anthropic",
+    "cursor": "cursor",
+    "cline": "mixed",
+    "continue": "mixed",
+    "roo": "mixed",
+    "windsurf": "mixed",
+    "mcp-inspector": "inspector",
+}
+
+
+def _classify_host_llm_family(mcp_host_bucket: str) -> str:
+    return _HOST_LLM_FAMILY.get(mcp_host_bucket, "unknown")
+
+
+# Per-process set of sessions we've already announced. WeakSet so dead
 # sessions get garbage-collected and don't leak memory across long uptime.
+# _seen_session_ids is a fallback for objects that don't support weak
+# references (e.g. SimpleNamespace in tests); production fastmcp sessions
+# always support __weakref__ so the WeakSet path is the hot path.
 _seen_sessions: WeakSet[Any] = WeakSet()
+_seen_session_ids: set[int] = set()
 
 
 def _reset_seen_sessions_for_tests() -> None:
     """Drop the seen-sessions cache. Test-only — never call from production."""
     _seen_sessions.clear()
+    _seen_session_ids.clear()
+
+
+def _session_is_seen(session: Any) -> bool:
+    try:
+        return session in _seen_sessions
+    except TypeError:
+        return id(session) in _seen_session_ids
+
+
+def _session_mark_seen(session: Any) -> None:
+    try:
+        _seen_sessions.add(session)
+    except TypeError:
+        _seen_session_ids.add(id(session))
 
 
 def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
@@ -120,15 +187,32 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
     if ctx is None:
         return
     session = getattr(ctx, "session", None)
-    if session is None or session in _seen_sessions:
+    if session is None or _session_is_seen(session):
         return
-    _seen_sessions.add(session)
+    _session_mark_seen(session)
+    # A wrapped tool call running proves both: transport delivered an RPC
+    # AND the host completed the initialize handshake. Flip both flags so
+    # server_shutdown can distinguish probes from real-but-stalled clients.
+    transport_probe.mark_first_rpc()
+    transport_probe.mark_session_reached()
+
     params = getattr(session, "client_params", None)
     client_info = getattr(params, "clientInfo", None) if params is not None else None
+    capabilities = getattr(params, "capabilities", None) if params is not None else None
+    raw_host = getattr(client_info, "name", "") or ""
+    mcp_host_bucket = _classify_mcp_host(raw_host)
+
     props: dict[str, str] = {
-        "mcp_host": getattr(client_info, "name", "") or "",
+        "mcp_host": mcp_host_bucket,
         "mcp_client_version": getattr(client_info, "version", "") or "",
-        "mcp_protocol_version": (getattr(params, "protocolVersion", "") or "" if params else ""),
+        "mcp_protocol_version": (
+            getattr(params, "protocolVersion", "") or "" if params else ""
+        ),
+        "host_llm_family": _classify_host_llm_family(mcp_host_bucket),
+        "caps_sampling": str(getattr(capabilities, "sampling", None) is not None).lower(),
+        "caps_elicitation": str(getattr(capabilities, "elicitation", None) is not None).lower(),
+        "caps_roots": str(getattr(capabilities, "roots", None) is not None).lower(),
+        "caps_tasks": str(getattr(capabilities, "tasks", None) is not None).lower(),
     }
     try:
         _client().track_event(EVENT_SESSION_INITIALIZED, props)

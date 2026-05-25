@@ -159,3 +159,122 @@ async def test_props_fn_merges_extras(recorder: _Recorder) -> None:
     await fn(entity_type="trace")
     _, props = recorder.events[0]
     assert props["entity_type"] == "trace"
+
+
+# --- session_initialized enrichment ------------------------------------- #
+
+from types import SimpleNamespace
+
+from opik_mcp.analytics import EVENT_SESSION_INITIALIZED
+from opik_mcp.analytics import transport_probe
+from opik_mcp.analytics.wrappers import (
+    _classify_host_llm_family,
+    _classify_mcp_host,
+    _maybe_emit_session_initialized,
+    _reset_seen_sessions_for_tests,
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_probe_and_sessions() -> None:
+    transport_probe.reset_for_tests()
+    _reset_seen_sessions_for_tests()
+    yield
+    transport_probe.reset_for_tests()
+    _reset_seen_sessions_for_tests()
+
+
+@pytest.mark.parametrize(
+    "raw, expected_bucket",
+    [
+        ("claude-desktop", "claude-desktop"),
+        ("Claude-Desktop", "claude-desktop"),
+        ("claude-code/0.42", "claude-code"),
+        ("cursor", "cursor"),
+        ("cline-extension", "cline"),
+        ("continue", "continue"),
+        ("windsurf", "windsurf"),
+        ("roo-cline", "roo"),
+        ("mcp-inspector", "mcp-inspector"),
+        ("acme-internal-wrapper-yaro", "other"),
+        ("", "other"),
+    ],
+)
+def test_classify_mcp_host(raw: str, expected_bucket: str) -> None:
+    assert _classify_mcp_host(raw) == expected_bucket
+
+
+@pytest.mark.parametrize(
+    "bucket, family",
+    [
+        ("claude-desktop", "anthropic"),
+        ("claude-code", "anthropic"),
+        ("cursor", "cursor"),
+        ("cline", "mixed"),
+        ("continue", "mixed"),
+        ("roo", "mixed"),
+        ("windsurf", "mixed"),
+        ("mcp-inspector", "inspector"),
+        ("other", "unknown"),
+    ],
+)
+def test_classify_host_llm_family(bucket: str, family: str) -> None:
+    assert _classify_host_llm_family(bucket) == family
+
+
+def test_maybe_emit_session_initialized_full_props(recorder: _Recorder) -> None:
+    """The enriched emit MUST contain bucketed host, family, and caps_* booleans."""
+    client_info = SimpleNamespace(name="claude-desktop", version="1.2.3")
+    capabilities = SimpleNamespace(
+        sampling=SimpleNamespace(), elicitation=None,
+        roots=SimpleNamespace(), tasks=None,
+    )
+    params = SimpleNamespace(
+        clientInfo=client_info, protocolVersion="2025-06-01",
+        capabilities=capabilities,
+    )
+    session_obj = SimpleNamespace(client_params=params)
+    ctx = SimpleNamespace(session=session_obj)
+
+    _maybe_emit_session_initialized({"ctx": ctx})
+
+    assert len(recorder.events) == 1
+    et, props = recorder.events[0]
+    assert et == EVENT_SESSION_INITIALIZED
+    assert props["mcp_host"] == "claude-desktop"
+    assert props["mcp_client_version"] == "1.2.3"
+    assert props["mcp_protocol_version"] == "2025-06-01"
+    assert props["host_llm_family"] == "anthropic"
+    assert props["caps_sampling"] == "true"
+    assert props["caps_elicitation"] == "false"
+    assert props["caps_roots"] == "true"
+    assert props["caps_tasks"] == "false"
+
+
+def test_maybe_emit_session_initialized_marks_handshake(recorder: _Recorder) -> None:
+    """Both transport_probe flags MUST flip when session_initialized fires."""
+    session_obj = SimpleNamespace(client_params=None)
+    ctx = SimpleNamespace(session=session_obj)
+
+    _maybe_emit_session_initialized({"ctx": ctx})
+
+    assert transport_probe.first_rpc_received() is True
+    assert transport_probe.session_reached() is True
+
+
+def test_maybe_emit_session_initialized_buckets_unknown_host(recorder: _Recorder) -> None:
+    """Privacy: a host stamping a per-install name MUST bucket to 'other'."""
+    canary_host = "acme-internal-wrapper-leak-canary-9b2a"
+    client_info = SimpleNamespace(name=canary_host, version="0.1")
+    params = SimpleNamespace(
+        clientInfo=client_info, protocolVersion="", capabilities=None,
+    )
+    session_obj = SimpleNamespace(client_params=params)
+    ctx = SimpleNamespace(session=session_obj)
+
+    _maybe_emit_session_initialized({"ctx": ctx})
+
+    _, props = recorder.events[0]
+    assert props["mcp_host"] == "other"
+    import json
+    assert canary_host not in json.dumps(props), "raw host name leaked"
