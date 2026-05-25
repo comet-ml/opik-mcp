@@ -16,6 +16,7 @@ from opik_mcp.analytics import (
 from opik_mcp.analytics.mcp_client_info import (
     classify_host_llm_family,
     classify_mcp_host,
+    collect_session_props,
 )
 from opik_mcp.analytics.wrappers import (
     _maybe_emit_session_initialized,
@@ -268,6 +269,61 @@ def test_classify_mcp_host(raw: str, expected_bucket: str) -> None:
 )
 def test_classify_host_llm_family(bucket: str, family: str) -> None:
     assert classify_host_llm_family(bucket) == family
+
+
+_EXPECTED_DEFAULT_SESSION_PROPS: dict[str, str] = {
+    "mcp_host": "other",
+    "mcp_client_version": "unknown",
+    "mcp_protocol_version": "unknown",
+    "host_llm_family": "unknown",
+    "caps_sampling": "false",
+    "caps_elicitation": "false",
+    "caps_roots": "false",
+    "caps_tasks": "false",
+}
+
+
+def test_collect_session_props_none_session_returns_defaults() -> None:
+    """A capture path firing before the init handshake MUST NOT crash; the
+    8-key dict still ships, populated with ``"other"`` / ``"unknown"`` / ``"false"``
+    sentinels so downstream consumers can rely on the schema.
+    """
+    assert collect_session_props(None) == _EXPECTED_DEFAULT_SESSION_PROPS
+
+
+def test_collect_session_props_missing_client_params_returns_defaults() -> None:
+    """``session`` present but ``client_params is None`` is the race-condition
+    case: the client opened a stream but hasn't completed ``initialize`` yet.
+    """
+    session_obj = SimpleNamespace(client_params=None)
+    assert collect_session_props(session_obj) == _EXPECTED_DEFAULT_SESSION_PROPS
+
+
+def test_collect_session_props_missing_intermediates_falls_back() -> None:
+    """``client_params`` with missing ``clientInfo`` / ``capabilities`` is what
+    happens when a non-conforming host stamps a partial handshake; defensive
+    ``getattr`` chain MUST NOT raise and MUST emit the defaults dict.
+    """
+    params = SimpleNamespace()  # no clientInfo, no capabilities, no protocolVersion
+    session_obj = SimpleNamespace(client_params=params)
+    assert collect_session_props(session_obj) == _EXPECTED_DEFAULT_SESSION_PROPS
+
+
+def test_collect_session_props_buckets_unknown_host_for_privacy() -> None:
+    """Direct privacy contract: a host stamping a per-install identifier as
+    its ``clientInfo.name`` MUST bucket to ``"other"`` at the source. Mirrors
+    the indirect coverage via ``_maybe_emit_session_initialized`` but pins the
+    contract on the extractor itself so future refactors can't drift one
+    consumer's bucketing without breaking this test.
+    """
+    canary = "acme-internal-wrapper-leak-canary-9b2a"
+    client_info = SimpleNamespace(name=canary, version="0.1")
+    params = SimpleNamespace(clientInfo=client_info, protocolVersion="", capabilities=None)
+    session_obj = SimpleNamespace(client_params=params)
+
+    props = collect_session_props(session_obj)
+    assert props["mcp_host"] == "other"
+    assert canary not in props.values()
 
 
 def test_maybe_emit_session_initialized_full_props(recorder: _Recorder) -> None:

@@ -734,3 +734,64 @@ def test_new_events_carry_no_forbidden_substring(
         assert canary not in payload, (
             f"PRIVACY BREACH on {event_name}: {canary!r} leaked into payload"
         )
+
+
+@pytest.mark.anyio
+async def test_sentry_capture_path_carries_no_forbidden_substring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sweep the Sentry capture path against the FORBIDDEN canary list.
+
+    BI and Sentry consume the SAME ``collect_session_props`` extractor, but
+    they hand the payload to different sinks; a refactor that only updates
+    the BI sink would silently drift Sentry's cardinality contract. This
+    test exercises the actual ``instrument_tool`` → ``_capture_to_sentry``
+    path with canaries stuffed into every host-controlled field, then
+    asserts none reach ``error_tracking.capture_exception``.
+    """
+    from types import SimpleNamespace
+
+    from opik_mcp.analytics.wrappers import instrument_tool
+    from opik_mcp.opik_client import OpikServerError
+
+    captured_tags: dict[str, str] = {}
+    captured_extras: dict[str, Any] = {}
+
+    def _fake_capture(
+        exc: BaseException,
+        *,
+        tags: dict[str, str] | None = None,
+        extras: dict[str, Any] | None = None,
+        transaction: str | None = None,
+        fingerprint: list[str] | None = None,
+    ) -> None:
+        captured_tags.update(tags or {})
+        captured_extras.update(extras or {})
+
+    monkeypatch.setattr("opik_mcp.error_tracking.capture_exception", _fake_capture)
+
+    client_info = SimpleNamespace(
+        name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+        version="FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+    )
+    params = SimpleNamespace(
+        clientInfo=client_info,
+        protocolVersion="FORBIDDEN-CANARY-home-path-5e6f7a8b",
+        capabilities=None,
+    )
+    ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
+
+    @instrument_tool("read")
+    async def fn(*, ctx: Any) -> str:
+        raise OpikServerError("boom")
+
+    with pytest.raises(OpikServerError):
+        await fn(ctx=ctx)
+
+    assert captured_tags, "Sentry capture wasn't called — sweep would pass vacuously"
+
+    payload = json.dumps({"tags": captured_tags, "extras": captured_extras})
+    for canary in FORBIDDEN:
+        assert canary not in payload, (
+            f"PRIVACY BREACH on sentry capture path: {canary!r} leaked into tags/extras"
+        )

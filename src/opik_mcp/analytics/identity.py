@@ -16,12 +16,27 @@ from __future__ import annotations
 import hashlib
 import logging
 from functools import lru_cache
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import UUID, uuid4
 
 from opik_mcp.config import Settings
 
 logger = logging.getLogger("opik_mcp.analytics.identity")
+
+
+def _resolve_opik_mcp_version() -> str:
+    try:
+        return version("opik-mcp")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+# Cached once at import time — package metadata is static for the process
+# lifetime. Single source of truth for both BI (``library_version``) and
+# Sentry (``release`` tag); without this the two channels could drift if
+# one consumer changed the lookup mechanism.
+OPIK_MCP_VERSION: str = _resolve_opik_mcp_version()
 
 # Stable fallback returned when the filesystem is unavailable (HOME unset, read-only).
 # Using the nil UUID makes it visually obvious in analytics dashboards that the

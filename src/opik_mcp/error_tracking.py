@@ -33,14 +33,13 @@ import platform
 import sys
 import threading
 from collections.abc import Callable
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 from urllib.parse import urlparse
 
 import sentry_sdk
 from sentry_sdk.types import Event, Hint
 
-from opik_mcp.analytics.identity import get_install_id
+from opik_mcp.analytics.identity import OPIK_MCP_VERSION, get_install_id
 from opik_mcp.config import Settings
 
 # Cloud-Comet hostnames. Matching opik SDK's strict equality semantics —
@@ -60,16 +59,6 @@ logger = logging.getLogger("opik_mcp.error_tracking")
 # Sentry level — fatal floods are worse to swallow than error floods, and
 # we don't emit non-error events in this codebase anyway.
 _MAX_EVENTS: int = 30
-
-
-def _resolve_version() -> str:
-    try:
-        return version("opik-mcp")
-    except PackageNotFoundError:
-        return "unknown"
-
-
-_OPIK_MCP_VERSION: str = _resolve_version()
 
 
 def _installation_type(settings: Settings) -> str:
@@ -157,7 +146,7 @@ def setup_sentry(settings: Settings) -> bool:
 
     sentry_sdk.init(
         dsn=settings.opik_mcp_sentry_dsn,
-        release=_OPIK_MCP_VERSION,
+        release=OPIK_MCP_VERSION,
         environment=settings.opik_mcp_analytics_environment,
         # Mirrors opik SDK: disable Sentry's built-in atexit/excepthook/
         # logging integrations so we own the capture sites explicitly and
@@ -186,7 +175,7 @@ def _bind_scope(settings: Settings) -> None:
     user_id = settings.comet_workspace_id or settings.comet_workspace or get_install_id()
     sentry_sdk.set_user({"id": user_id})
 
-    sentry_sdk.set_tag("release", _OPIK_MCP_VERSION)
+    sentry_sdk.set_tag("release", OPIK_MCP_VERSION)
     sentry_sdk.set_tag("os_type", platform.system())
     sentry_sdk.set_tag(
         "python_version",

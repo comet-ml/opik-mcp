@@ -12,28 +12,21 @@ import queue
 import sys
 import threading
 from datetime import UTC, datetime
-from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
 import httpx
 
-from opik_mcp.analytics.identity import api_key_sha256, get_install_id, resolve_anonymous_id
+from opik_mcp.analytics.identity import (
+    OPIK_MCP_VERSION,
+    api_key_sha256,
+    get_install_id,
+    resolve_anonymous_id,
+)
 from opik_mcp.config import Settings
 
 logger = logging.getLogger("opik_mcp.analytics")
 
 _QUEUE_SENTINEL: Any = object()
-
-
-def _resolve_version() -> str:
-    try:
-        return version("opik-mcp")
-    except PackageNotFoundError:
-        return "unknown"
-
-
-# Cached once at import time — package metadata is static for the process lifetime.
-_OPIK_MCP_VERSION: str = _resolve_version()
 
 
 class AnalyticsClient:
@@ -163,7 +156,7 @@ class AnalyticsClient:
     def _build_event(self, event_type: str, properties: dict[str, str]) -> dict[str, Any]:
         common: dict[str, str] = {
             "environment": self._settings.opik_mcp_analytics_environment,
-            "opik_mcp_version": _OPIK_MCP_VERSION,
+            "opik_mcp_version": OPIK_MCP_VERSION,
             "transport": self._settings.opik_mcp_transport,
             "install_id": get_install_id(),
             "python_version": (
