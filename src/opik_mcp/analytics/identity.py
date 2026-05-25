@@ -34,14 +34,21 @@ def _install_id_path() -> Path:
 
 
 @lru_cache(maxsize=1)
-def _get_install_id() -> str:
+def _get_install_id() -> tuple[str, bool]:
+    """Returns ``(install_id, was_freshly_generated_this_process)``.
+
+    The boolean flag enables BI to distinguish brand-new installs (flag True
+    on the first process after install) from returning users (flag False).
+    Process-stable thanks to ``lru_cache``: every emit during this process
+    sees the same answer.
+    """
     try:
         path = _install_id_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         if path.exists():
             try:
                 raw = path.read_text().strip()
-                return str(UUID(raw))
+                return (str(UUID(raw)), False)
             except (ValueError, OSError):
                 logger.warning("install-id file unreadable or malformed; regenerating")
         new_id = str(uuid4())
@@ -49,23 +56,26 @@ def _get_install_id() -> str:
         try:
             path.chmod(0o600)
         except OSError:
-            # On Windows / odd filesystems chmod may not apply — best-effort, not fatal.
             logger.debug("could not chmod install-id file", exc_info=True)
-        return new_id
+        return (new_id, True)
     except Exception:
-        # HOME unset or filesystem is read-only — log once (lru_cache ensures this
-        # body runs only once per process) and return a stable sentinel value so the
-        # caller never sees an exception and analytics still has a consistent id.
+        # Fallback is NOT "freshly generated" — it's an unwritable-fs sentinel
+        # and treating it as "new" would inflate the install-funnel.
         logger.warning(
             "install-id unavailable (HOME unset or read-only filesystem); using fallback id=%s",
             _FALLBACK_INSTALL_ID,
             exc_info=True,
         )
-        return _FALLBACK_INSTALL_ID
+        return (_FALLBACK_INSTALL_ID, False)
 
 
 def get_install_id() -> str:
-    return _get_install_id()
+    return _get_install_id()[0]
+
+
+def install_id_was_freshly_generated() -> bool:
+    """True iff this process is the one that just wrote the install-id file."""
+    return _get_install_id()[1]
 
 
 def api_key_sha256(api_key: str) -> str:

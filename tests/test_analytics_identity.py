@@ -114,3 +114,50 @@ def test_resolve_anonymous_id_treats_empty_api_key_as_unset(_fresh_home: Path) -
     s = Settings(opik_api_key="", comet_workspace="ws-1")
     # user_id stays workspace name (api_key hash is event_properties-only, not user_id)
     assert identity.resolve_anonymous_id(s) == "ws-1"
+
+
+# --- install_id_was_freshly_generated ----------------------------------- #
+
+
+def test_freshly_generated_true_on_first_create(_fresh_home: Path) -> None:
+    """A brand-new HOME with no install-id file → flag is True."""
+    ident, was_new = identity._get_install_id()
+    UUID(ident)  # uuid-shaped
+    assert was_new is True
+    assert identity.install_id_was_freshly_generated() is True
+
+
+def test_freshly_generated_false_on_existing_file(_fresh_home: Path) -> None:
+    """install-id file already exists → flag is False."""
+    (_fresh_home / ".opik-mcp").mkdir()
+    (_fresh_home / ".opik-mcp" / "install-id").write_text(
+        "11111111-2222-3333-4444-555555555555"
+    )
+    identity._get_install_id.cache_clear()
+
+    ident, was_new = identity._get_install_id()
+    assert ident == "11111111-2222-3333-4444-555555555555"
+    assert was_new is False
+    assert identity.install_id_was_freshly_generated() is False
+
+
+def test_freshly_generated_false_on_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unwritable HOME → fallback id, flag is False (not 'new')."""
+
+    def _boom(*_a, **_kw):
+        raise OSError("read-only fs")
+
+    monkeypatch.setattr(identity.Path, "home", lambda: identity.Path("/nonexistent"))
+    monkeypatch.setattr(identity.Path, "mkdir", _boom)
+    identity._get_install_id.cache_clear()
+
+    ident, was_new = identity._get_install_id()
+    assert ident == identity._FALLBACK_INSTALL_ID
+    assert was_new is False
+
+
+def test_get_install_id_returns_string_only(_fresh_home: Path) -> None:
+    """Public get_install_id() must still return a bare string (back-compat)."""
+    result = identity.get_install_id()
+    assert isinstance(result, str)
+    assert len(result) == 36  # UUID4 hex with dashes
