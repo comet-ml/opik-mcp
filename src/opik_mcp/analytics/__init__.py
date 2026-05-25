@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from opik_mcp.analytics import transport_probe
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.events import (
     EVENT_ASK_OLLIE_COMPLETED,
@@ -42,6 +43,7 @@ __all__ = [
     "get_analytics",
     "reset_analytics_for_tests",
     "track_event",
+    "transport_probe",
 ]
 
 

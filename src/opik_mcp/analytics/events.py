@@ -3,9 +3,98 @@
 Buckets are deliberate: they give actionable distributions without leaking
 identifiable values. Thresholds picked to align with common LLM-context budgets
 (~2k / ~8k / ~32k tokens) and to keep `tool_called` properties stringifiable.
+
+# Allowlist enums (privacy contract)
+
+Every analytics property is either a boolean string, a hardcoded-allowlist
+string, or a bucketed integer/duration. The allowlists below MUST stay in sync
+with the classifiers in ``environment.py`` and ``wrappers.py`` — adding a new
+bucket is a BI schema change and requires updating both the classifier and the
+corresponding Literal here. Tests that pin the BI shape live in
+``tests/test_analytics_privacy.py`` and ``tests/test_analytics_lifespan.py``.
+
+Each Literal documents the *only* values the receiver will ever see for that
+property. Anything outside the allowlist is bucketed to a fallback ("other",
+"unknown", "") at the emit site — the receiver never sees raw host input.
 """
 
 from __future__ import annotations
+
+from typing import Literal
+
+# ``launch_method``: bucketed ``sys.executable`` path. See
+# ``environment._LAUNCH_METHOD_PATTERNS``.
+LaunchMethod = Literal[
+    "uvx",
+    "pipx",
+    "venv",
+    "system",
+    "unknown",
+]
+
+# ``parent_process``: bucketed parent-process comm name. See
+# ``environment._PARENT_PROCESS_PATTERNS``.
+ParentProcess = Literal[
+    "docker-entrypoint",
+    "claude",
+    "cursor",
+    "vscode",
+    "jetbrains",
+    "bash",
+    "zsh",
+    "fish",
+    "python",
+    "node",
+    "sshd",
+    "systemd",
+    "launchd",
+    "other",
+]
+
+# ``mcp_host``: bucketed MCP host (clientInfo.name). See
+# ``wrappers._MCP_HOST_PATTERNS``.
+McpHost = Literal[
+    "claude-desktop",
+    "claude-code",
+    "cursor",
+    "roo",
+    "cline",
+    "continue",
+    "windsurf",
+    "mcp-inspector",
+    "other",
+]
+
+# ``host_llm_family``: derived from the bucketed ``mcp_host``. See
+# ``wrappers._HOST_LLM_FAMILY``.
+HostLlmFamily = Literal[
+    "anthropic",
+    "cursor",
+    "mixed",
+    "inspector",
+    "unknown",
+]
+
+# ``reason``: shutdown classification. See ``__main__._emit_server_shutdown``
+# call sites in ``main()``.
+ShutdownReason = Literal[
+    "clean_exit",
+    "transport_error",
+    "keyboard_interrupt",
+    "sys_exit",
+]
+
+# ``lifespan_seconds_bucket``: discrete duration buckets. See ``bucket_seconds``
+# below — values MUST match the return values of that function.
+LifespanSecondsBucket = Literal[
+    "<5s",
+    "5-60s",
+    "1-10m",
+    "10-60m",
+    "1-24h",
+    ">24h",
+]
+
 
 EVENT_SERVER_STARTED = "opik_mcp_server_started"
 EVENT_SESSION_INITIALIZED = "opik_mcp_session_initialized"
