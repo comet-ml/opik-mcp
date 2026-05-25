@@ -360,6 +360,8 @@ async def _noop_coroutine_result(result: Any) -> Any:
     [
         "opik_mcp_server_started",
         "opik_mcp_session_initialized",
+        "opik_mcp_tools_listed",
+        "opik_mcp_server_shutdown",
     ],
 )
 def test_new_events_carry_no_forbidden_substring(
@@ -425,6 +427,41 @@ def test_new_events_carry_no_forbidden_substring(
         )
         ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
         _maybe_emit_session_initialized({"ctx": ctx})
+
+    elif event_name == "opik_mcp_tools_listed":
+        from mcp.server.fastmcp import FastMCP
+        from mcp.types import ListToolsRequest
+        from opik_mcp.analytics.wrappers import (
+            _reset_seen_tools_listed_for_tests,
+            install_tools_listed_emitter,
+        )
+        _reset_seen_tools_listed_for_tests()
+        mcp = FastMCP("privacy-probe")
+
+        @mcp.tool()
+        def hi() -> str:
+            return "x"
+
+        monkeypatch.setattr(
+            "opik_mcp.analytics.wrappers._client", lambda: recorder
+        )
+        install_tools_listed_emitter(mcp)
+        handler = mcp._mcp_server.request_handlers[ListToolsRequest]
+        req = ListToolsRequest(method="tools/list")
+        import anyio
+        anyio.run(handler, req)
+
+    elif event_name == "opik_mcp_server_shutdown":
+        from opik_mcp.analytics import EVENT_SERVER_SHUTDOWN, track_event
+        from opik_mcp.analytics.events import bucket_seconds
+        from opik_mcp.analytics import transport_probe
+        monkeypatch.setattr("opik_mcp.analytics.get_analytics", lambda: recorder)
+        track_event(EVENT_SERVER_SHUTDOWN, {
+            "reason": "clean_exit",
+            "lifespan_seconds_bucket": bucket_seconds(42.0),
+            "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
+            "session_reached": str(transport_probe.session_reached()).lower(),
+        })
 
     # An empty recorder would let the canary check pass vacuously, hiding the
     # case where the emit path silently no-ops (e.g. a future regression that
