@@ -15,9 +15,8 @@ from weakref import WeakSet
 
 import anyio
 import httpx
-from pydantic import ValidationError as PydanticValidationError
-
 from mcp.types import ListToolsRequest
+from pydantic import ValidationError as PydanticValidationError
 
 from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
@@ -315,6 +314,7 @@ def _maybe_emit_tools_listed(result: Any) -> None:
     session = None
     try:
         from mcp.server.lowlevel.server import request_ctx
+
         ctx = request_ctx.get()
         session = getattr(ctx, "session", None)
     except (ImportError, LookupError, AttributeError):
