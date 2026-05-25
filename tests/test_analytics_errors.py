@@ -183,9 +183,13 @@ def test_bucket_exception_class_only(exc: Exception, expected: str) -> None:
         (401, "auth"),
         (403, "permission"),
         (404, "not_found"),
+        # 408 + 504 both bypass the broad 4xx/5xx arms and land in "timeout";
+        # both branches need integration coverage so a regression that drops
+        # the explicit ``status in (408, 504)`` check fails loudly here.
+        (408, "timeout"),
+        (504, "timeout"),
         (422, "validation"),
         (500, "upstream_5xx"),
-        (504, "timeout"),
     ],
 )
 def test_bucket_exception_routes_http_status_errors(status: int, expected: str) -> None:

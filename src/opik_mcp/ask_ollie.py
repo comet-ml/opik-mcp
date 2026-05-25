@@ -212,7 +212,7 @@ async def run_ask_ollie(
     # below assigns real values when ``errored`` flips to True.
     error_kind: str = "unknown"
     error_exception_type: str = ""
-    error_upstream_code: Any = None
+    error_upstream_code: str | None = None
 
     try:
         settings = settings or get_settings()
@@ -676,7 +676,12 @@ async def run_ask_ollie(
             # read at any emit site.
             error_exception_type = type(exc).__name__
             error_kind = bucket_exception(exc) if isinstance(exc, Exception) else "unknown"
-            error_upstream_code = getattr(exc, "upstream_code", None)
+            # ``getattr`` returns ``Any`` — narrow to ``str`` here so the
+            # finally block doesn't need to re-check the type and so a future
+            # refactor that accidentally stores a non-string would be caught
+            # by mypy on this assignment.
+            upstream_code = getattr(exc, "upstream_code", None)
+            error_upstream_code = upstream_code if isinstance(upstream_code, str) else None
         raise
     finally:
         ttfe_ms: int = int((first_event_at - t0) * 1000) if first_event_at is not None else -1
@@ -701,7 +706,7 @@ async def run_ask_ollie(
         if errored:
             props["error_kind"] = error_kind
             props["exception_type"] = error_exception_type
-            if isinstance(error_upstream_code, str) and error_upstream_code:
+            if error_upstream_code:
                 # Length-cap as a defense against a misbehaving pod that
                 # stamps a long string into ``code``. 64 chars is enough
                 # for every legitimate code we ship while staying well

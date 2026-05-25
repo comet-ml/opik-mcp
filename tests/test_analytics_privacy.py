@@ -498,6 +498,53 @@ async def test_ask_ollie_failure_strips_stream_error_message(recorder: _Recorder
     assert props["upstream_error_code"] == fake.canary_code[:64]
 
 
+class _LongCodeOllieClient(_CanaryOllieClient):
+    """Same canary stream as ``_CanaryOllieClient`` but with a code field
+    longer than the 64-char cap. Used to verify the length-cap actually
+    fires (the base class's canary is only 36 chars long, which would
+    pass the assertion even if the slicing were removed)."""
+
+    # 100 chars — comfortably over the 64-char cap. The trailing canary
+    # tail (positions 64..) must be sliced off; if it appears in props,
+    # the cap regressed.
+    canary_code: str = "x" * 64 + "TAIL-MUST-BE-CHOPPED-UNIQUE-CANARY-d4e5f6a7"
+
+
+@pytest.mark.anyio
+async def test_ask_ollie_failure_caps_upstream_error_code_at_64_chars(
+    recorder: _Recorder,
+) -> None:
+    """Production cap at ``ask_ollie.py``: ``upstream_error_code`` MUST be
+    truncated to 64 chars before emit. Pod-controlled field — without the
+    cap, a misbehaving pod could stamp arbitrary text into ``code`` and
+    smuggle it past the message-stripping privacy contract."""
+    from opik_mcp.ask_ollie import run_ask_ollie
+    from opik_mcp.config import Settings
+    from opik_mcp.ollie_client import OllieStreamError
+
+    fake = _LongCodeOllieClient()
+    assert len(fake.canary_code) > 64  # guard the test itself
+
+    with pytest.raises(OllieStreamError):
+        await run_ask_ollie(
+            query="placeholder-query",
+            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
+            comet_client=_FakeComet(),
+            ollie_client=fake,
+        )
+
+    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
+    assert completed
+    code = completed[0]["upstream_error_code"]
+    assert len(code) == 64, f"expected 64-char cap, got len={len(code)}: {code!r}"
+    assert code == fake.canary_code[:64]
+    # The truncated tail must not appear anywhere in the recorded payload —
+    # if it does, the cap fired but something else (a duplicate field,
+    # a log line, etc.) is still leaking the raw value.
+    payload = json.dumps(recorder.events)
+    assert "TAIL-MUST-BE-CHOPPED" not in payload
+
+
 @pytest.mark.anyio
 async def test_ask_ollie_failure_typed_exception_bucketed_correctly(
     recorder: _Recorder,
