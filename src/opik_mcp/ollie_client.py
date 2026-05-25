@@ -17,7 +17,19 @@ class OllieAuthError(RuntimeError):
 
 
 class OllieStreamError(RuntimeError):
-    """The Ollie pod emitted an `error` SSE event."""
+    """The Ollie pod emitted an `error` SSE event.
+
+    ``upstream_code`` carries the optional structured ``code`` from the SSE
+    error frame (e.g. ``"rate_limited"``, ``"model_unavailable"``) so
+    analytics can group failures without sniffing the human-readable
+    message. ``None`` when the frame omitted it or when the error was
+    raised from an internal control-flow path (confirm-POST failure, etc.)
+    rather than a server-side error frame.
+    """
+
+    def __init__(self, message: str, *, upstream_code: str | None = None) -> None:
+        super().__init__(message)
+        self.upstream_code = upstream_code
 
 
 @dataclass
