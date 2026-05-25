@@ -80,8 +80,11 @@ def test_main_emits_server_started_then_runs(monkeypatch: pytest.MonkeyPatch) ->
     # Spot-check bucketed values
     assert started["is_ci"] in {"true", "false"}
     assert started["is_container"] in {"true", "false", "unknown"}
+    # Mirrors `_LAUNCH_METHOD_PATTERNS` in `analytics/environment.py` exactly —
+    # any new bucket added there must appear here too, or a typo introducing a
+    # phantom value would slip through CI.
     assert started["launch_method"] in {
-        "uvx", "pipx", "venv", "system", "pip", "npx", "unknown",
+        "uvx", "pipx", "venv", "system", "unknown",
     }
     assert started["install_id_freshly_generated"] in {"true", "false"}
 
