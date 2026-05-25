@@ -190,7 +190,8 @@ def collect_environment_fingerprint() -> dict[str, str]:
         try:
             return fn()
         except Exception:
-            _logger.debug("environment detector %s raised", fn.__name__, exc_info=True)
+            name = getattr(fn, "__name__", repr(fn))
+            _logger.debug("environment detector %s raised", name, exc_info=True)
             return default
 
     out: dict[str, str] = {
