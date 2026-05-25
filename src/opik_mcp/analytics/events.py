@@ -17,6 +17,12 @@ EVENT_AUTO_APPROVAL = "opik_mcp_auto_approval"
 # with ``opik_mcp_server_started`` to form an install-funnel: started without
 # a matching error = healthy boot; either alone signals a problem.
 EVENT_STARTUP_ERROR = "opik_mcp_startup_error"
+EVENT_TOOLS_LISTED = "opik_mcp_tools_listed"
+# Pairs with server_started. Carries handshake-progress flags
+# (first_rpc_received, session_reached) and lifespan bucket so BI can
+# slice the dark cohort into {pure probe, handshake-failed, healthy-short,
+# healthy-long}.
+EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
 
 
 def bucket_tokens(n: int) -> str:
@@ -48,3 +54,19 @@ def bucket_count(n: int) -> str:
     if n <= 1_000:
         return "101-1000"
     return ">1000"
+
+
+def bucket_seconds(n: float) -> str:
+    # <5s isolates probe / crash-loop traffic from "real client connected
+    # and disconnected before completing the handshake" (5-60s).
+    if n < 5:
+        return "<5s"
+    if n < 60:
+        return "5-60s"
+    if n < 600:
+        return "1-10m"
+    if n < 3600:
+        return "10-60m"
+    if n < 86400:
+        return "1-24h"
+    return ">24h"
