@@ -10,6 +10,7 @@ this module — see ``tests/test_analytics_environment.py`` and
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 # CI-platform env vars. Detection is OR across the list: any one set → "true".
@@ -68,3 +69,104 @@ def _detect_container() -> str:
         # /proc/1/cgroup unreadable (rare — e.g. minimal init namespaces).
         # Best-effort: "false" rather than failing the emit.
         return "false"
+
+
+# Launch-method substring patterns. Order matters: first match wins, so
+# more-specific patterns ("uv/archive") must precede less-specific ones
+# ("python"). The bucket value is the second element.
+_LAUNCH_METHOD_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("/uv/archive", "uvx"),
+    ("/.local/share/uv/", "uvx"),
+    ("/pipx/venvs/", "pipx"),
+    ("/.venv/", "venv"),
+    ("/venv/", "venv"),
+    ("/usr/bin/", "system"),
+    ("/usr/local/bin/", "system"),
+)
+
+
+def _detect_launch_method() -> str:
+    """Bucket `sys.executable` into a launch-method enum.
+
+    PRIVACY: never returns raw `sys.executable`. Anything not matching the
+    allowlist falls through to "unknown" — the path is dropped, not echoed.
+    """
+    exe = (sys.executable or "").lower()
+    for needle, bucket in _LAUNCH_METHOD_PATTERNS:
+        if needle in exe:
+            return bucket
+    return "unknown"
+
+
+# Parent-process allowlist. Substring match on the raw comm value
+# (lowercased) → bucket name. Anything not matching → "other".
+#
+# Order: most specific first. "docker-entrypoint" before any single token
+# to keep the bucket cardinality bounded.
+_PARENT_PROCESS_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("docker-entrypoint", "docker-entrypoint"),
+    ("claude", "claude"),
+    ("cursor", "cursor"),
+    ("code helper", "vscode"),
+    ("code", "vscode"),
+    ("vscode", "vscode"),
+    ("idea", "jetbrains"),
+    ("pycharm", "jetbrains"),
+    ("webstorm", "jetbrains"),
+    ("bash", "bash"),
+    ("zsh", "zsh"),
+    ("fish", "fish"),
+    ("python", "python"),
+    ("node", "node"),
+    ("sshd", "sshd"),
+    ("systemd", "systemd"),
+    ("launchd", "launchd"),
+)
+
+
+def _classify_parent_process_name(raw: str) -> str:
+    """Map a raw /proc/<ppid>/comm (or `ps -o comm=`) value to the allowlist.
+
+    PRIVACY: the raw value never appears in the return; it's bucketed or
+    dropped. Tests inject adversarial inputs containing the local username
+    to assert this.
+    """
+    needle = (raw or "").strip().lower()
+    if not needle:
+        return "other"
+    for pattern, bucket in _PARENT_PROCESS_PATTERNS:
+        if pattern in needle:
+            return bucket
+    return "other"
+
+
+def _read_parent_process_name() -> str:
+    """Best-effort fetch of the parent process's command name.
+
+    Returns "" on any failure. Never raises — the caller treats "" as
+    "unknown parent" and buckets it to "other".
+    """
+    try:
+        ppid = os.getppid()
+    except OSError:
+        return ""
+    if sys.platform == "linux":
+        try:
+            with open(f"/proc/{ppid}/comm", encoding="utf-8") as f:
+                return f.read().strip()
+        except OSError:
+            return ""
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(
+                ["ps", "-o", "comm=", "-p", str(ppid)],
+                capture_output=True, text=True, timeout=1.0, check=False,
+            )
+            return out.stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+    return ""
+
+
+def _detect_parent_process() -> str:
+    return _classify_parent_process_name(_read_parent_process_name())
