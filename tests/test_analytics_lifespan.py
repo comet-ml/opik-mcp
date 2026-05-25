@@ -10,6 +10,7 @@ from opik_mcp import __main__ as main_mod
 from opik_mcp.analytics import (
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
+    EVENT_STARTUP_ERROR,
     transport_probe,
 )
 
@@ -103,6 +104,8 @@ def test_keyboard_interrupt_emits_shutdown(monkeypatch) -> None:
 
     props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
     assert props["reason"] == "keyboard_interrupt"
+    # KI is user-initiated, not a crash — startup_error must not fire.
+    assert EVENT_STARTUP_ERROR not in [et for et, _ in recorder.events]
 
 
 def test_transport_crash_emits_shutdown_with_reason_transport_error(monkeypatch) -> None:
