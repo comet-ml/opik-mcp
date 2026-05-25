@@ -130,9 +130,7 @@ def test_freshly_generated_true_on_first_create(_fresh_home: Path) -> None:
 def test_freshly_generated_false_on_existing_file(_fresh_home: Path) -> None:
     """install-id file already exists → flag is False."""
     (_fresh_home / ".opik-mcp").mkdir()
-    (_fresh_home / ".opik-mcp" / "install-id").write_text(
-        "11111111-2222-3333-4444-555555555555"
-    )
+    (_fresh_home / ".opik-mcp" / "install-id").write_text("11111111-2222-3333-4444-555555555555")
     identity._get_install_id.cache_clear()
 
     ident, was_new = identity._get_install_id()

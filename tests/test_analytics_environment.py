@@ -23,15 +23,17 @@ def _clear_env(monkeypatch, names: list[str]) -> None:
     ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL"],
 )
 def test_detect_ci_true_when_any_known_var_set(monkeypatch, var: str) -> None:
-    _clear_env(monkeypatch, ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE",
-                             "CIRCLECI", "JENKINS_URL"])
+    _clear_env(
+        monkeypatch, ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL"]
+    )
     monkeypatch.setenv(var, "1")
     assert env._detect_ci() == "true"
 
 
 def test_detect_ci_false_when_no_var_set(monkeypatch) -> None:
-    _clear_env(monkeypatch, ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE",
-                             "CIRCLECI", "JENKINS_URL"])
+    _clear_env(
+        monkeypatch, ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL"]
+    )
     assert env._detect_ci() == "false"
 
 
@@ -192,8 +194,19 @@ def test_detect_parent_process_never_leaks_raw_name(monkeypatch) -> None:
     # Whatever bucket we land in, the raw per-user suffix must be dropped.
     assert canary not in result
     assert result in {
-        "claude", "cursor", "vscode", "jetbrains", "bash", "zsh", "fish",
-        "python", "node", "sshd", "systemd", "launchd", "docker-entrypoint",
+        "claude",
+        "cursor",
+        "vscode",
+        "jetbrains",
+        "bash",
+        "zsh",
+        "fish",
+        "python",
+        "node",
+        "sshd",
+        "systemd",
+        "launchd",
+        "docker-entrypoint",
         "other",
     }
 
@@ -206,8 +219,16 @@ def test_collect_environment_fingerprint_keys_and_value_shape(monkeypatch) -> No
     monkeypatch.setattr(env.sys, "platform", "linux")
     monkeypatch.setattr(env, "_DOCKERENV_PATH", "/nonexistent")
     monkeypatch.setattr(env, "_CGROUP_PATH", "/nonexistent")
-    for v in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI",
-              "JENKINS_URL", "CODESPACES", "GITPOD_WORKSPACE_ID"):
+    for v in (
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "CIRCLECI",
+        "JENKINS_URL",
+        "CODESPACES",
+        "GITPOD_WORKSPACE_ID",
+    ):
         monkeypatch.delenv(v, raising=False)
 
     out = env.collect_environment_fingerprint()
@@ -235,6 +256,7 @@ def test_collect_environment_fingerprint_never_raises(monkeypatch) -> None:
     Same fire-and-forget contract as track_event — instrumentation must
     never crash the host.
     """
+
     def _boom() -> str:
         raise RuntimeError("detector blew up")
 

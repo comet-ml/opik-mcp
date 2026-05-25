@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -7,8 +8,18 @@ import pytest
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from opik_mcp.analytics import EVENT_TOOL_CALLED
-from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.analytics import (
+    EVENT_SESSION_INITIALIZED,
+    EVENT_TOOL_CALLED,
+    transport_probe,
+)
+from opik_mcp.analytics.wrappers import (
+    _classify_host_llm_family,
+    _classify_mcp_host,
+    _maybe_emit_session_initialized,
+    _reset_seen_sessions_for_tests,
+    instrument_tool,
+)
 from opik_mcp.comet_client import (
     CometAuthError,
     CometPermissionError,
@@ -165,17 +176,6 @@ async def test_props_fn_merges_extras(recorder: _Recorder) -> None:
 
 # --- session_initialized enrichment ------------------------------------- #
 
-from types import SimpleNamespace
-
-from opik_mcp.analytics import EVENT_SESSION_INITIALIZED
-from opik_mcp.analytics import transport_probe
-from opik_mcp.analytics.wrappers import (
-    _classify_host_llm_family,
-    _classify_mcp_host,
-    _maybe_emit_session_initialized,
-    _reset_seen_sessions_for_tests,
-)
-
 
 @pytest.fixture(autouse=True)
 def _reset_probe_and_sessions() -> Iterator[None]:
@@ -228,11 +228,14 @@ def test_maybe_emit_session_initialized_full_props(recorder: _Recorder) -> None:
     """The enriched emit MUST contain bucketed host, family, and caps_* booleans."""
     client_info = SimpleNamespace(name="claude-desktop", version="1.2.3")
     capabilities = SimpleNamespace(
-        sampling=SimpleNamespace(), elicitation=None,
-        roots=SimpleNamespace(), tasks=None,
+        sampling=SimpleNamespace(),
+        elicitation=None,
+        roots=SimpleNamespace(),
+        tasks=None,
     )
     params = SimpleNamespace(
-        clientInfo=client_info, protocolVersion="2025-06-01",
+        clientInfo=client_info,
+        protocolVersion="2025-06-01",
         capabilities=capabilities,
     )
     session_obj = SimpleNamespace(client_params=params)
@@ -269,7 +272,9 @@ def test_maybe_emit_session_initialized_buckets_unknown_host(recorder: _Recorder
     canary_host = "acme-internal-wrapper-leak-canary-9b2a"
     client_info = SimpleNamespace(name=canary_host, version="0.1")
     params = SimpleNamespace(
-        clientInfo=client_info, protocolVersion="", capabilities=None,
+        clientInfo=client_info,
+        protocolVersion="",
+        capabilities=None,
     )
     session_obj = SimpleNamespace(client_params=params)
     ctx = SimpleNamespace(session=session_obj)

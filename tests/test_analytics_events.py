@@ -52,6 +52,7 @@ def test_event_constants_exist() -> None:
         EVENT_SERVER_SHUTDOWN,
         EVENT_TOOLS_LISTED,
     )
+
     assert EVENT_TOOLS_LISTED == "opik_mcp_tools_listed"
     assert EVENT_SERVER_SHUTDOWN == "opik_mcp_server_shutdown"
 
@@ -75,4 +76,5 @@ def test_event_constants_exist() -> None:
 )
 def test_bucket_seconds(elapsed: float, expected: str) -> None:
     from opik_mcp.analytics.events import bucket_seconds
+
     assert bucket_seconds(elapsed) == expected

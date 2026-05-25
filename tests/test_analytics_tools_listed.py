@@ -54,14 +54,28 @@ async def test_emitter_wraps_existing_handler(recorder: _Recorder) -> None:
         return "hi"
 
     lowlevel = mcp._mcp_server
-    original = lowlevel.request_handlers[ListToolsRequest]
+
+    # Replace the original handler with a stub that returns a sentinel object.
+    # This lets us assert exact identity (`is`) on the wrapper's return — the
+    # weaker `hasattr(result, "root")` check accepted any object with that
+    # attribute, including a transformed/rebuilt one.
+    sentinel = object()
+
+    async def _stub(_req: object) -> object:
+        return sentinel
+
+    lowlevel.request_handlers[ListToolsRequest] = _stub  # type: ignore[index]
+
     install_tools_listed_emitter(mcp)
-    assert lowlevel.request_handlers[ListToolsRequest] is not original
+    assert lowlevel.request_handlers[ListToolsRequest] is not _stub
 
     req = ListToolsRequest(method="tools/list")
     result = await lowlevel.request_handlers[ListToolsRequest](req)
-    assert hasattr(result, "root"), "wrapper must preserve original return"
+    assert result is sentinel, "wrapper must return the original handler's value unchanged"
 
+    # The sentinel has no `.root.tools`, so _maybe_emit_tools_listed walked the
+    # defensive fallback path. The emit itself MUST still fire — tools_listed
+    # counts the listing, not the contents.
     assert any(et == EVENT_TOOLS_LISTED for et, _ in recorder.events)
     assert transport_probe.first_rpc_received() is True
 
