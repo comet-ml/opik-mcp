@@ -42,6 +42,12 @@ FORBIDDEN = [
     "free-text-list-name-UNIQUE-CANARY-9d4e5f6a",
     # write.data canary (PII payload inside the structured object)
     "write-data-payload-UNIQUE-CANARY-1a2b3c4d",
+    # PR1 fingerprint canaries — install env values that MUST never appear
+    # in any analytics event payload.
+    "FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+    "FORBIDDEN-CANARY-socket-hostname-9d3e5f4a",
+    "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+    "FORBIDDEN-CANARY-home-path-5e6f7a8b",
 ]
 
 
@@ -344,3 +350,84 @@ async def _noop_coroutine(result: str) -> str:
 
 async def _noop_coroutine_result(result: Any) -> Any:
     return result
+
+
+# --- cross-event privacy sweep ------------------------------------------ #
+
+
+@pytest.mark.parametrize(
+    "event_name",
+    [
+        "opik_mcp_server_started",
+        "opik_mcp_session_initialized",
+    ],
+)
+def test_new_events_carry_no_forbidden_substring(
+    monkeypatch: pytest.MonkeyPatch, recorder: _Recorder, event_name: str
+) -> None:
+    """Sweep PR1 event vocabulary against the FORBIDDEN canary list.
+
+    Drives each event's emit path with monkeypatched leak sources (HOME,
+    getpass.getuser, socket.gethostname, os.uname().nodename) and asserts
+    none of the canaries surface in the recorded property dicts.
+    """
+    import getpass
+    import os
+    import socket
+
+    monkeypatch.setenv("HOME", "/tmp/FORBIDDEN-CANARY-home-path-5e6f7a8b")
+    monkeypatch.setattr(
+        getpass, "getuser",
+        lambda: "FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+    )
+    monkeypatch.setattr(
+        socket, "gethostname",
+        lambda: "FORBIDDEN-CANARY-socket-hostname-9d3e5f4a",
+    )
+    if hasattr(os, "uname"):
+        fake = os.uname_result(
+            ("Linux", "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+             "5.0", "#1", "x86_64"),
+        )
+        monkeypatch.setattr(os, "uname", lambda: fake)
+
+    if event_name == "opik_mcp_server_started":
+        from opik_mcp.analytics import EVENT_SERVER_STARTED
+        from opik_mcp.analytics.environment import collect_environment_fingerprint
+        from opik_mcp.analytics.identity import install_id_was_freshly_generated
+        # The other tests in this module patch `analytics.wrappers._client`,
+        # but server_started emits via the top-level `track_event` -> singleton
+        # path, so we patch `get_analytics` to redirect to the recorder.
+        monkeypatch.setattr(
+            "opik_mcp.analytics.get_analytics", lambda: recorder
+        )
+        from opik_mcp.analytics import track_event
+        track_event(EVENT_SERVER_STARTED, {
+            "transport": "stdio",
+            "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+            **collect_environment_fingerprint(),
+        })
+    elif event_name == "opik_mcp_session_initialized":
+        from types import SimpleNamespace
+
+        from opik_mcp.analytics.wrappers import (
+            _maybe_emit_session_initialized,
+            _reset_seen_sessions_for_tests,
+        )
+        _reset_seen_sessions_for_tests()
+        client_info = SimpleNamespace(
+            name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+            version="0.1",
+        )
+        params = SimpleNamespace(
+            clientInfo=client_info, protocolVersion="2025-06-01",
+            capabilities=None,
+        )
+        ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
+        _maybe_emit_session_initialized({"ctx": ctx})
+
+    payload = json.dumps(recorder.events)
+    for canary in FORBIDDEN:
+        assert canary not in payload, (
+            f"PRIVACY BREACH on {event_name}: {canary!r} leaked into payload"
+        )
