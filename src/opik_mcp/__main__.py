@@ -254,6 +254,12 @@ def main() -> None:
         # Re-raise without wrapping — the exit was deliberate and any
         # startup_error was already emitted at the decision point below.
         raise
+    except KeyboardInterrupt:
+        # User-initiated stop (SIGINT / Ctrl-C). Not a crash, so we do NOT
+        # emit startup_error — just record the shutdown reason and re-raise
+        # so the process exits with the standard SIGINT exit code.
+        _emit_server_shutdown(reason="keyboard_interrupt", started_monotonic=started_monotonic)
+        raise
     except BaseException as e:
         _emit_startup_error(
             phase="transport_start",

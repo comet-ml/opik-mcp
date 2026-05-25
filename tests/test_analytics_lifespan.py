@@ -86,3 +86,37 @@ def test_shutdown_reflects_first_rpc_when_flag_set(monkeypatch) -> None:
     props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
     assert props["first_rpc_received"] == "true"
     assert props["session_reached"] == "true"
+
+
+def test_keyboard_interrupt_emits_shutdown(monkeypatch) -> None:
+    recorder = _install_recorder(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(KeyboardInterrupt):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert props["reason"] == "keyboard_interrupt"
+
+
+def test_transport_crash_emits_shutdown_with_reason_transport_error(monkeypatch) -> None:
+    recorder = _install_recorder(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise OSError("address already in use")
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(OSError):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert props["reason"] == "transport_error"
