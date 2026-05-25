@@ -17,12 +17,15 @@ import anyio
 import httpx
 from pydantic import ValidationError as PydanticValidationError
 
+from mcp.types import ListToolsRequest
+
 from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
     EVENT_TOOL_CALLED,
     get_analytics,
     transport_probe,
 )
+from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
 from opik_mcp.comet_client import (
     CometAuthError,
     CometPermissionError,
@@ -282,3 +285,97 @@ def instrument_tool(
         return wrapper
 
     return decorator
+
+
+# Per-process dedup for tools_listed. WeakSet keyed by the request context's
+# session when available; otherwise a process-global single-shot fallback.
+# Same shape as _seen_sessions for _maybe_emit_session_initialized.
+_seen_tools_listed_sessions: WeakSet[Any] = WeakSet()
+_tools_listed_fired_processwide: bool = False
+
+
+def _reset_seen_tools_listed_for_tests() -> None:
+    """Drop the dedup state. Test-only — never call from production."""
+    global _tools_listed_fired_processwide
+    _seen_tools_listed_sessions.clear()
+    _tools_listed_fired_processwide = False
+
+
+def _maybe_emit_tools_listed(result: Any) -> None:
+    """Emit tools_listed once per session (or once per process if no session
+    is available in the request context).
+
+    Counts the tools in ``result`` and buckets via ``bucket_count``. ``result``
+    is the FastMCP ``ListToolsResult`` — ``.root.tools`` is the canonical
+    structure; we walk defensively because the lowlevel handler may pass back
+    a plain ``ServerResult`` envelope.
+    """
+    global _tools_listed_fired_processwide
+
+    session = None
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+        ctx = request_ctx.get()
+        session = getattr(ctx, "session", None)
+    except (ImportError, LookupError, AttributeError):
+        session = None
+
+    if session is not None:
+        try:
+            if session in _seen_tools_listed_sessions:
+                return
+            _seen_tools_listed_sessions.add(session)
+        except TypeError:
+            # Session not weak-referenceable (e.g. SimpleNamespace in tests).
+            # Fall through to process-wide one-shot.
+            if _tools_listed_fired_processwide:
+                return
+            _tools_listed_fired_processwide = True
+    else:
+        if _tools_listed_fired_processwide:
+            return
+        _tools_listed_fired_processwide = True
+
+    tools: list[Any] = []
+    inner = getattr(result, "root", None) or result
+    candidate = getattr(inner, "tools", None)
+    if isinstance(candidate, list):
+        tools = candidate
+
+    transport_probe.mark_first_rpc()
+
+    props = {"tool_count_bucket": bucket_count(len(tools))}
+    try:
+        _client().track_event(EVENT_TOOLS_LISTED, props)
+    except Exception:
+        logger.debug("tools_listed emit failed", exc_info=True)
+
+
+def install_tools_listed_emitter(mcp: Any) -> None:
+    """Replace the registered ListToolsRequest handler on a FastMCP instance.
+
+    FastMCP wires its request handlers in ``_setup_handlers`` during
+    construction, exposing them on ``mcp._mcp_server.request_handlers``.
+    There's no decorator slot for ``tools/list``, so we swap the live handler
+    in place — preserving its return value and firing tools_listed on every
+    successful call. Per-session dedup happens inside _maybe_emit_tools_listed.
+    """
+    try:
+        lowlevel = mcp._mcp_server
+    except AttributeError:
+        logger.debug("install_tools_listed_emitter: mcp has no _mcp_server attribute")
+        return
+    original = lowlevel.request_handlers.get(ListToolsRequest)
+    if original is None:
+        logger.debug("install_tools_listed_emitter: no ListToolsRequest handler registered")
+        return
+
+    async def wrapped(req: Any) -> Any:
+        result = await original(req)
+        try:
+            _maybe_emit_tools_listed(result)
+        except Exception:
+            logger.debug("tools_listed wrapper raised", exc_info=True)
+        return result
+
+    lowlevel.request_handlers[ListToolsRequest] = wrapped

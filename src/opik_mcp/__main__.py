@@ -243,6 +243,8 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # OPIK_MCP_DEV_TOKEN is only relevant in HTTP mode (see below).
         from opik_mcp.server import mcp
 
+        from opik_mcp.analytics.wrappers import install_tools_listed_emitter
+        install_tools_listed_emitter(mcp)
         logger.info("startup transport=stdio")
         mcp.run(transport="stdio")
         return
