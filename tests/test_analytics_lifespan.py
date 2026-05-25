@@ -41,7 +41,7 @@ def _reset() -> Iterator[None]:
     transport_probe.reset_for_tests()
 
 
-def _install_recorder(monkeypatch) -> _RecorderClient:
+def _install_recorder(monkeypatch: pytest.MonkeyPatch) -> _RecorderClient:
     r = _RecorderClient()
     monkeypatch.setattr("opik_mcp.analytics.get_analytics", lambda: r)
     monkeypatch.setattr("opik_mcp.__main__.get_analytics", lambda: r)
@@ -49,7 +49,7 @@ def _install_recorder(monkeypatch) -> _RecorderClient:
     return r
 
 
-def test_clean_exit_emits_server_shutdown(monkeypatch) -> None:
+def test_clean_exit_emits_server_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder = _install_recorder(monkeypatch)
 
     class _StubMcp:
@@ -72,7 +72,7 @@ def test_clean_exit_emits_server_shutdown(monkeypatch) -> None:
     assert props["session_reached"] == "false"
 
 
-def test_shutdown_reflects_first_rpc_when_flag_set(monkeypatch) -> None:
+def test_shutdown_reflects_first_rpc_when_flag_set(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder = _install_recorder(monkeypatch)
 
     class _StubMcp:
@@ -90,7 +90,7 @@ def test_shutdown_reflects_first_rpc_when_flag_set(monkeypatch) -> None:
     assert props["session_reached"] == "true"
 
 
-def test_keyboard_interrupt_emits_shutdown(monkeypatch) -> None:
+def test_keyboard_interrupt_emits_shutdown(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder = _install_recorder(monkeypatch)
 
     class _BoomMcp:
@@ -109,7 +109,9 @@ def test_keyboard_interrupt_emits_shutdown(monkeypatch) -> None:
     assert EVENT_STARTUP_ERROR not in [et for et, _ in recorder.events]
 
 
-def test_transport_crash_emits_shutdown_with_reason_transport_error(monkeypatch) -> None:
+def test_transport_crash_emits_shutdown_with_reason_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     recorder = _install_recorder(monkeypatch)
 
     class _BoomMcp:
@@ -126,7 +128,7 @@ def test_transport_crash_emits_shutdown_with_reason_transport_error(monkeypatch)
     assert props["reason"] == "transport_error"
 
 
-def test_sys_exit_emits_shutdown_with_reason_sys_exit(monkeypatch) -> None:
+def test_sys_exit_emits_shutdown_with_reason_sys_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     """sys.exit() inside the transport path must still record shutdown.
 
     The insecure-token guard in __main__._run_transport calls sys.exit(1); BI

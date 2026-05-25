@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 
 from opik_mcp.analytics import transport_probe
 
 
 @pytest.fixture(autouse=True)
-def _reset() -> None:
+def _reset() -> Iterator[None]:
     transport_probe.reset_for_tests()
     yield
     transport_probe.reset_for_tests()

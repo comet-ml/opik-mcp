@@ -15,6 +15,13 @@ import subprocess
 import sys
 from collections.abc import Callable
 
+# ``sys.platform`` is a Literal type that mypy narrows per-host, so platform-
+# dispatch branches get flagged unreachable on whichever host runs CI (Linux
+# kills the macOS branch, macOS kills the Linux branch). Aliasing once to a
+# plain ``str`` keeps the dispatch readable while stripping the narrowing,
+# so the same source typechecks on every host.
+_PLATFORM: str = sys.platform
+
 # CI-platform env vars. Detection is OR across the list: any one set → "true".
 _CI_ENV_VARS: tuple[str, ...] = (
     "CI",
@@ -59,13 +66,9 @@ _CONTAINER_TOKENS = ("docker", "containerd", "kubepods")
 
 
 def _detect_container() -> str:
-    if sys.platform != "linux":
+    if _PLATFORM != "linux":
         return "unknown"
-    # mypy on non-Linux considers everything below unreachable because
-    # `sys.platform` is platform-typed; the code IS reachable at runtime on
-    # Linux. Keep the platform dispatch explicit; we accept the type-checker
-    # noise rather than restructuring around it.
-    try:  # type: ignore[unreachable]
+    try:
         if os.path.exists(_DOCKERENV_PATH):
             return "true"
         with open(_CGROUP_PATH, encoding="utf-8") as f:
@@ -156,13 +159,13 @@ def _read_parent_process_name() -> str:
         ppid = os.getppid()
     except OSError:
         return ""
-    if sys.platform == "linux":
+    if _PLATFORM == "linux":
         try:
             with open(f"/proc/{ppid}/comm", encoding="utf-8") as f:
                 return f.read().strip()
         except OSError:
             return ""
-    if sys.platform == "darwin":
+    if _PLATFORM == "darwin":
         try:
             out = subprocess.run(
                 ["ps", "-o", "comm=", "-p", str(ppid)],
@@ -174,7 +177,7 @@ def _read_parent_process_name() -> str:
             return out.stdout.strip()
         except (OSError, subprocess.SubprocessError):
             return ""
-    return ""  # type: ignore[unreachable]
+    return ""
 
 
 def _detect_parent_process() -> str:

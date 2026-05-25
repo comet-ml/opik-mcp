@@ -64,7 +64,7 @@ async def test_emitter_wraps_existing_handler(recorder: _Recorder) -> None:
     async def _stub(_req: object) -> object:
         return sentinel
 
-    lowlevel.request_handlers[ListToolsRequest] = _stub  # type: ignore[index]
+    lowlevel.request_handlers[ListToolsRequest] = _stub  # type: ignore[assignment]
 
     install_tools_listed_emitter(mcp)
     assert lowlevel.request_handlers[ListToolsRequest] is not _stub

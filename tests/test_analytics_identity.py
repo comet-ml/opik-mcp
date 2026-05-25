@@ -142,11 +142,11 @@ def test_freshly_generated_false_on_existing_file(_fresh_home: Path) -> None:
 def test_freshly_generated_false_on_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unwritable HOME → fallback id, flag is False (not 'new')."""
 
-    def _boom(*_a, **_kw):
+    def _boom(*_a: object, **_kw: object) -> None:
         raise OSError("read-only fs")
 
-    monkeypatch.setattr(identity.Path, "home", lambda: identity.Path("/nonexistent"))
-    monkeypatch.setattr(identity.Path, "mkdir", _boom)
+    monkeypatch.setattr("opik_mcp.analytics.identity.Path.home", lambda: Path("/nonexistent"))
+    monkeypatch.setattr("opik_mcp.analytics.identity.Path.mkdir", _boom)
     identity._get_install_id.cache_clear()
 
     ident, was_new = identity._get_install_id()

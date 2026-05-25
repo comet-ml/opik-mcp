@@ -8,12 +8,15 @@ not just at the property-dict boundary.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import pytest
 
 from opik_mcp.analytics import environment as env
 
 
-def _clear_env(monkeypatch, names: list[str]) -> None:
+def _clear_env(monkeypatch: pytest.MonkeyPatch, names: list[str]) -> None:
     for n in names:
         monkeypatch.delenv(n, raising=False)
 
@@ -22,7 +25,7 @@ def _clear_env(monkeypatch, names: list[str]) -> None:
     "var",
     ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL"],
 )
-def test_detect_ci_true_when_any_known_var_set(monkeypatch, var: str) -> None:
+def test_detect_ci_true_when_any_known_var_set(monkeypatch: pytest.MonkeyPatch, var: str) -> None:
     _clear_env(
         monkeypatch, ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL"]
     )
@@ -30,34 +33,34 @@ def test_detect_ci_true_when_any_known_var_set(monkeypatch, var: str) -> None:
     assert env._detect_ci() == "true"
 
 
-def test_detect_ci_false_when_no_var_set(monkeypatch) -> None:
+def test_detect_ci_false_when_no_var_set(monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_env(
         monkeypatch, ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI", "JENKINS_URL"]
     )
     assert env._detect_ci() == "false"
 
 
-def test_detect_codespaces_true(monkeypatch) -> None:
+def test_detect_codespaces_true(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CODESPACES", "true")
     assert env._detect_codespaces() == "true"
 
 
-def test_detect_codespaces_false(monkeypatch) -> None:
+def test_detect_codespaces_false(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("CODESPACES", raising=False)
     assert env._detect_codespaces() == "false"
 
 
-def test_detect_gitpod_true(monkeypatch) -> None:
+def test_detect_gitpod_true(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GITPOD_WORKSPACE_ID", "ws-xyz")
     assert env._detect_gitpod() == "true"
 
 
-def test_detect_gitpod_false(monkeypatch) -> None:
+def test_detect_gitpod_false(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GITPOD_WORKSPACE_ID", raising=False)
     assert env._detect_gitpod() == "false"
 
 
-def test_detect_pipe_signals_returns_two_booleans(monkeypatch) -> None:
+def test_detect_pipe_signals_returns_two_booleans(monkeypatch: pytest.MonkeyPatch) -> None:
     out = env._detect_pipe_signals()
     assert set(out.keys()) == {"stdin_is_pipe", "stdout_is_pipe"}
     for v in out.values():
@@ -67,14 +70,16 @@ def test_detect_pipe_signals_returns_two_booleans(monkeypatch) -> None:
 # --- container detection ------------------------------------------------- #
 
 
-def test_detect_container_unknown_on_non_linux(monkeypatch) -> None:
+def test_detect_container_unknown_on_non_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     """macOS/Windows: /proc/1/cgroup doesn't exist; emit 'unknown' not 'false'."""
-    monkeypatch.setattr(env.sys, "platform", "darwin")
+    monkeypatch.setattr(env, "_PLATFORM", "darwin")
     assert env._detect_container() == "unknown"
 
 
-def test_detect_container_true_when_dockerenv_exists(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(env.sys, "platform", "linux")
+def test_detect_container_true_when_dockerenv_exists(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
     fake_dockerenv = tmp_path / ".dockerenv"
     fake_dockerenv.touch()
     monkeypatch.setattr(env, "_DOCKERENV_PATH", str(fake_dockerenv))
@@ -82,8 +87,10 @@ def test_detect_container_true_when_dockerenv_exists(monkeypatch, tmp_path) -> N
     assert env._detect_container() == "true"
 
 
-def test_detect_container_true_when_cgroup_mentions_docker(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(env.sys, "platform", "linux")
+def test_detect_container_true_when_cgroup_mentions_docker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
     cgroup = tmp_path / "cgroup"
     cgroup.write_text("12:cpu:/docker/abc123\n")
     monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
@@ -91,8 +98,10 @@ def test_detect_container_true_when_cgroup_mentions_docker(monkeypatch, tmp_path
     assert env._detect_container() == "true"
 
 
-def test_detect_container_true_when_cgroup_mentions_kubepods(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(env.sys, "platform", "linux")
+def test_detect_container_true_when_cgroup_mentions_kubepods(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
     cgroup = tmp_path / "cgroup"
     cgroup.write_text("12:memory:/kubepods/burstable/podabc/xyz\n")
     monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
@@ -100,8 +109,10 @@ def test_detect_container_true_when_cgroup_mentions_kubepods(monkeypatch, tmp_pa
     assert env._detect_container() == "true"
 
 
-def test_detect_container_false_on_bare_linux(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(env.sys, "platform", "linux")
+def test_detect_container_false_on_bare_linux(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
     cgroup = tmp_path / "cgroup"
     cgroup.write_text("12:cpu:/user.slice/user-1000.slice\n")
     monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
@@ -109,9 +120,11 @@ def test_detect_container_false_on_bare_linux(monkeypatch, tmp_path) -> None:
     assert env._detect_container() == "false"
 
 
-def test_detect_container_false_when_cgroup_unreadable(monkeypatch, tmp_path) -> None:
+def test_detect_container_false_when_cgroup_unreadable(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Unreadable cgroup file MUST NOT raise; emits 'false' (best-effort)."""
-    monkeypatch.setattr(env.sys, "platform", "linux")
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
     monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
     monkeypatch.setattr(env, "_CGROUP_PATH", "/proc/nonexistent/cgroup-7f4a")
     assert env._detect_container() == "false"
@@ -136,17 +149,19 @@ def test_detect_container_false_when_cgroup_unreadable(monkeypatch, tmp_path) ->
         ("/opt/weird-homebrew/python-${USER}-build/bin/python", "opik-mcp", "unknown"),
     ],
 )
-def test_detect_launch_method(monkeypatch, executable: str, argv0: str, expected: str) -> None:
-    monkeypatch.setattr(env.sys, "executable", executable)
-    monkeypatch.setattr(env.sys, "argv", [argv0])
+def test_detect_launch_method(
+    monkeypatch: pytest.MonkeyPatch, executable: str, argv0: str, expected: str
+) -> None:
+    monkeypatch.setattr(sys, "executable", executable)
+    monkeypatch.setattr(sys, "argv", [argv0])
     assert env._detect_launch_method() == expected
 
 
-def test_detect_launch_method_never_returns_raw_path(monkeypatch) -> None:
+def test_detect_launch_method_never_returns_raw_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Adversarial input must bucket to 'unknown', not echo the path."""
     pii = "/home/secret-user-canary-9b2a/.weird-installer/bin/python"
-    monkeypatch.setattr(env.sys, "executable", pii)
-    monkeypatch.setattr(env.sys, "argv", ["opik-mcp"])
+    monkeypatch.setattr(sys, "executable", pii)
+    monkeypatch.setattr(sys, "argv", ["opik-mcp"])
     result = env._detect_launch_method()
     assert result == "unknown"
     assert "secret-user-canary-9b2a" not in result
@@ -185,7 +200,7 @@ def test_classify_parent_process_name(raw: str, expected: str) -> None:
     assert env._classify_parent_process_name(raw) == expected
 
 
-def test_detect_parent_process_never_leaks_raw_name(monkeypatch) -> None:
+def test_detect_parent_process_never_leaks_raw_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """Raw /proc/<ppid>/comm carrying a username MUST be bucketed; the raw
     canary substring MUST NOT appear in the classifier's return value."""
     canary = "claude-mcp-wrapper-leak-canary-7c4a"
@@ -214,9 +229,11 @@ def test_detect_parent_process_never_leaks_raw_name(monkeypatch) -> None:
 # --- public aggregator --------------------------------------------------- #
 
 
-def test_collect_environment_fingerprint_keys_and_value_shape(monkeypatch) -> None:
+def test_collect_environment_fingerprint_keys_and_value_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Aggregator returns exactly the documented key set, all str-valued."""
-    monkeypatch.setattr(env.sys, "platform", "linux")
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
     monkeypatch.setattr(env, "_DOCKERENV_PATH", "/nonexistent")
     monkeypatch.setattr(env, "_CGROUP_PATH", "/nonexistent")
     for v in (
@@ -250,7 +267,7 @@ def test_collect_environment_fingerprint_keys_and_value_shape(monkeypatch) -> No
     assert out["is_container"] in {"true", "false", "unknown"}
 
 
-def test_collect_environment_fingerprint_never_raises(monkeypatch) -> None:
+def test_collect_environment_fingerprint_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     """If any detector raises, the aggregator MUST still return a dict.
 
     Same fire-and-forget contract as track_event — instrumentation must
