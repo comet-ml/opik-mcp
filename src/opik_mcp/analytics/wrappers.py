@@ -17,6 +17,7 @@ import anyio
 import httpx
 from pydantic import ValidationError as PydanticValidationError
 
+from opik_mcp import error_tracking
 from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
     EVENT_TOOL_CALLED,
@@ -41,6 +42,33 @@ from opik_mcp.opik_client import (
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
 T = TypeVar("T")
+
+# Buckets that represent user-input or user-config problems — already
+# surfaced to the host LLM as a tool error and counted in BI under their
+# explicit ``error_kind``. Sentry only carries the kinds that need a human
+# to investigate: server errors, contract drifts, network failures, and the
+# catch-all "unknown".
+#
+# Why a string-keyed allowlist here rather than an exception-class tuple
+# in ``error_tracking.py``: every capture site in this codebase is one of
+# ours (we own the wrapper and the startup path), so deciding *not* to
+# capture is cleaner than capturing + dropping in ``before_send``. Keeps
+# the policy next to the bucket taxonomy in ``_ERROR_KIND_TABLE``.
+_USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
+    {
+        "missing_config",
+        "opik_auth_failed",
+        "opik_permission_denied",
+        "opik_validation_failed",
+        "opik_not_found",
+        "comet_auth_failed",
+        "comet_permission_denied",
+        "ollie_not_enabled",
+        "ollie_auth_failed",
+        "tool_args_invalid",
+    }
+)
+
 
 # Linear walk: first matching row wins, so list subclasses BEFORE their parents
 # (OpikPermissionError before OpikAuthError, CometPermissionError before
@@ -145,6 +173,63 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
 PropsFn = Callable[[Any, dict[str, Any]], dict[str, str]]
 
 
+def _report_to_sentry(
+    exc: BaseException,
+    *,
+    tool_name: str,
+    error_kind: str,
+    duration_ms: int,
+    props_fn: PropsFn | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Capture a tool-call failure with the bucket context BI already tracks.
+
+    ``props_fn`` is invoked with ``result=None`` on the failure path — every
+    current implementation derives its bucket props from ``kwargs`` only
+    (the ``result`` argument is underscore-prefixed in all six sites). If
+    that contract ever changes, the inner try/except swallows the failure
+    so we still get the bare exception instead of nothing.
+
+    MCP host fingerprint (``mcp_host`` / ``mcp_client_version``) is attached
+    when available — invaluable when triaging which client (Claude Code,
+    Cursor, custom) hit a given Sentry issue.
+    """
+    tags: dict[str, str] = {"tool_name": tool_name, "error_kind": error_kind}
+    extras: dict[str, Any] = {"duration_ms": duration_ms}
+    if props_fn is not None:
+        try:
+            tags.update(props_fn(None, kwargs))
+        except Exception:
+            logger.debug("props_fn raised during sentry context; skipping", exc_info=True)
+    _attach_mcp_client_tags(kwargs, tags)
+    # transaction = which tool failed (visible in Sentry's issue listing).
+    # fingerprint = default stacktrace grouping + tool_name so a shared
+    # helper raising the same exception from two tools splits into two
+    # issues instead of merging into one.
+    error_tracking.capture_exception(
+        exc,
+        tags=tags,
+        extras=extras,
+        transaction=tool_name,
+        fingerprint=["{{ default }}", tool_name],
+    )
+
+
+def _attach_mcp_client_tags(kwargs: dict[str, Any], tags: dict[str, str]) -> None:
+    ctx = kwargs.get("ctx")
+    session = getattr(ctx, "session", None) if ctx is not None else None
+    params = getattr(session, "client_params", None) if session is not None else None
+    client_info = getattr(params, "clientInfo", None) if params is not None else None
+    if client_info is None:
+        return
+    host = getattr(client_info, "name", "") or ""
+    version = getattr(client_info, "version", "") or ""
+    if host:
+        tags["mcp_host"] = host
+    if version:
+        tags["mcp_client_version"] = version
+
+
 def instrument_tool(
     name: str,
     *,
@@ -171,6 +256,19 @@ def instrument_tool(
                     error_kind = "cancelled"
                 elif isinstance(exc, Exception):
                     error_kind = _classify(exc)
+                    if error_kind not in _USER_SIDE_ERROR_KINDS:
+                        # Push the same shape of context BI already has so a
+                        # Sentry issue tells you which tool failed, how it
+                        # was classified, how far it got, and the low-card
+                        # call shape — not just a bare stack trace.
+                        _report_to_sentry(
+                            exc,
+                            tool_name=name,
+                            error_kind=error_kind,
+                            duration_ms=int((time.monotonic() - t0) * 1000),
+                            props_fn=props_fn,
+                            kwargs=kwargs,
+                        )
                 raise
             finally:
                 props: dict[str, str] = {

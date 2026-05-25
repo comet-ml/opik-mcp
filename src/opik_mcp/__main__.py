@@ -6,6 +6,7 @@ import sys
 import uvicorn
 from pydantic import ValidationError
 
+from opik_mcp import error_tracking
 from opik_mcp.analytics import (
     EVENT_SERVER_STARTED,
     EVENT_STARTUP_ERROR,
@@ -189,7 +190,9 @@ def main() -> None:
         # UUID or an unrecognised OPIK_MCP_AUTO_APPROVE literal. The singleton
         # route would re-construct Settings and re-raise; use a dedicated
         # fallback client that doesn't depend on the broken config so the
-        # event still lands.
+        # event still lands. Sentry isn't informed here — the values that
+        # drive validation are hardcoded in the deploy pipeline, so this
+        # path is dev/test territory and the BI bucket is sufficient.
         fallback = _build_fallback_analytics_client()
         try:
             _emit_startup_error(
@@ -204,6 +207,11 @@ def main() -> None:
 
     _configure_logging(settings.opik_mcp_log_level)
     transport = settings.opik_mcp_transport.lower()
+
+    # Initialize Sentry BEFORE the first track_event / any user code path
+    # that might raise. No-op when OPIK_MCP_SENTRY_ENABLED=false; see
+    # error_tracking.py.
+    error_tracking.setup_sentry(settings)
 
     track_event(
         EVENT_SERVER_STARTED,
@@ -223,12 +231,31 @@ def main() -> None:
         # startup_error was already emitted at the decision point below.
         raise
     except BaseException as e:
+        bucketed_type = _bucket_transport_exception_type(e)
         _emit_startup_error(
             phase="transport_start",
             error_kind="transport_crash",
-            exception_type=_bucket_transport_exception_type(e),
+            exception_type=bucketed_type,
             transport=transport,
         )
+        # A transport crash is exactly the kind of failure Sentry exists for.
+        # Mirror the analytics props so Sentry events have the same shape as
+        # tool-call captures: ``phase``/``error_kind``/``exception_type`` as
+        # filterable tags, ``startup`` as the transaction (groups alongside
+        # ``read``/``write``/... in the issue list), and a fingerprint that
+        # splits transport_crash from any future startup buckets.
+        if isinstance(e, Exception):
+            error_tracking.capture_exception(
+                e,
+                tags={
+                    "phase": "transport_start",
+                    "error_kind": "transport_crash",
+                    "exception_type": bucketed_type,
+                    "transport": transport,
+                },
+                transaction="startup",
+                fingerprint=["{{ default }}", "startup", "transport_crash"],
+            )
         raise
 
 
