@@ -1,0 +1,43 @@
+"""Environment-fingerprint detectors merged into ``server_started``.
+
+Every public/private helper returns a value from a hardcoded allowlist
+(boolean strings ``"true"``/``"false"``, ``"unknown"``, or a bucket enum).
+Raw paths, usernames, hostnames, and process command lines never leave
+this module — see ``tests/test_analytics_environment.py`` and
+``tests/test_analytics_privacy.py`` for the contract.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+# CI-platform env vars. Detection is OR across the list: any one set → "true".
+_CI_ENV_VARS: tuple[str, ...] = (
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "BUILDKITE",
+    "CIRCLECI",
+    "JENKINS_URL",
+)
+
+
+def _detect_ci() -> str:
+    return "true" if any(os.environ.get(v) for v in _CI_ENV_VARS) else "false"
+
+
+def _detect_codespaces() -> str:
+    return "true" if os.environ.get("CODESPACES") else "false"
+
+
+def _detect_gitpod() -> str:
+    return "true" if os.environ.get("GITPOD_WORKSPACE_ID") else "false"
+
+
+def _detect_pipe_signals() -> dict[str, str]:
+    """Stamp whether stdin/stdout are pipes (vs ttys)."""
+    return {
+        "stdin_is_pipe": str(not sys.stdin.isatty()).lower(),
+        "stdout_is_pipe": str(not sys.stdout.isatty()).lower(),
+    }
