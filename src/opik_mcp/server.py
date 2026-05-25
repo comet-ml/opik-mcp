@@ -552,9 +552,12 @@ async def _readiness(_request: Request) -> JSONResponse:
             resp = await client.head(base, follow_redirects=False)
     except httpx.TimeoutException:
         reason = "timeout"
-    except httpx.ConnectError:
-        reason = "network_error"
-    except httpx.HTTPError:
+    except httpx.NetworkError:
+        # Genuine network failures only: ConnectError, ReadError, WriteError,
+        # CloseError. Config bugs (InvalidURL, UnsupportedProtocol) are NOT
+        # NetworkError and intentionally bubble to a 500 so a typo in
+        # COMET_URL_OVERRIDE surfaces loudly instead of pinning the pod to
+        # not_ready/network_error forever.
         reason = "network_error"
     else:
         if resp.status_code >= 500:

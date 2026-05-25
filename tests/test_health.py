@@ -87,3 +87,17 @@ async def test_readiness_503_on_connect_error(
         r = await http_client.get("/health/ready")
     assert r.status_code == 503
     assert r.json() == {"status": "not_ready", "reason": "network_error"}
+
+
+@pytest.mark.anyio
+async def test_readiness_does_not_swallow_config_errors(
+    http_client: httpx.AsyncClient, comet_base: str
+) -> None:
+    # UnsupportedProtocol (and InvalidURL) signal a typo in COMET_URL_OVERRIDE.
+    # They must NOT silently bucket as network_error and pin the pod
+    # not_ready forever — operators need a loud failure (the ASGI server
+    # turns the uncaught exception into a 500) so the config bug surfaces.
+    with respx.mock(assert_all_called=False) as mock:
+        mock.head(comet_base).mock(side_effect=httpx.UnsupportedProtocol("ftp://"))
+        with pytest.raises(httpx.UnsupportedProtocol):
+            await http_client.get("/health/ready")
