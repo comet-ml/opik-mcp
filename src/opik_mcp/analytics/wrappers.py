@@ -14,14 +14,18 @@ from typing import Any, TypeVar
 from weakref import WeakSet
 
 import anyio
+from mcp.types import ListToolsRequest
 
 from opik_mcp import error_tracking
 from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
     EVENT_TOOL_CALLED,
     get_analytics,
+    transport_probe,
 )
 from opik_mcp.analytics.errors import bucket_exception, derive_http_status
+from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
+from opik_mcp.analytics.mcp_client_info import collect_session_props
 from opik_mcp.comet_client import OllieNotEnabledError
 from opik_mcp.config import MissingConfigError
 
@@ -65,14 +69,38 @@ def _client() -> Any:
     return get_analytics()
 
 
-# Per-process set of session ids we've already announced. WeakSet so dead
+# Per-process set of sessions we've already announced. WeakSet so dead
 # sessions get garbage-collected and don't leak memory across long uptime.
+# _seen_session_ids is a TEST-ONLY fallback for objects that don't support
+# weak references (e.g. types.SimpleNamespace in our tests): on Python
+# 3.13 `WeakSet.add(SimpleNamespace())` raises TypeError. Production
+# fastmcp ``ServerSession`` instances always support ``__weakref__`` so the
+# WeakSet path is the hot path and dead sessions are reclaimed promptly.
+# NOTE: ``id()`` values can be reused after deallocation, so this fallback
+# is unsuitable for long-lived production use — but by construction it
+# never fires there.
 _seen_sessions: WeakSet[Any] = WeakSet()
+_seen_session_ids: set[int] = set()
 
 
 def _reset_seen_sessions_for_tests() -> None:
     """Drop the seen-sessions cache. Test-only — never call from production."""
     _seen_sessions.clear()
+    _seen_session_ids.clear()
+
+
+def _session_is_seen(session: Any) -> bool:
+    try:
+        return session in _seen_sessions
+    except TypeError:
+        return id(session) in _seen_session_ids
+
+
+def _session_mark_seen(session: Any) -> None:
+    try:
+        _seen_sessions.add(session)
+    except TypeError:
+        _seen_session_ids.add(id(session))
 
 
 def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
@@ -80,19 +108,21 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
     if ctx is None:
         return
     session = getattr(ctx, "session", None)
-    if session is None or session in _seen_sessions:
+    if session is None or _session_is_seen(session):
         return
-    _seen_sessions.add(session)
-    params = getattr(session, "client_params", None)
-    client_info = getattr(params, "clientInfo", None) if params is not None else None
-    props: dict[str, str] = {
-        "mcp_host": getattr(client_info, "name", "") or "",
-        "mcp_client_version": getattr(client_info, "version", "") or "",
-        "mcp_protocol_version": (getattr(params, "protocolVersion", "") or "" if params else ""),
-    }
+    _session_mark_seen(session)
+    # A wrapped tool call running proves both: transport delivered an RPC
+    # AND the host completed the initialize handshake. Flip both flags so
+    # server_shutdown can distinguish probes from real-but-stalled clients.
+    transport_probe.mark_first_rpc()
+    transport_probe.mark_session_reached()
+
     try:
-        _client().track_event(EVENT_SESSION_INITIALIZED, props)
-    except Exception:
+        _client().track_event(EVENT_SESSION_INITIALIZED, collect_session_props(session))
+    except BaseException:
+        # Telemetry MUST NEVER tear down a live MCP session; swallow even
+        # BaseException (SystemExit from a misbehaving sink, KeyboardInterrupt
+        # racing the emit) so the in-flight tool call continues normally.
         logger.debug("session_initialized emit failed", exc_info=True)
 
 
@@ -148,18 +178,26 @@ def _report_to_sentry(
 
 
 def _attach_mcp_client_tags(kwargs: dict[str, Any], tags: dict[str, str]) -> None:
+    """Stamp Sentry tags with the SAME bucketed host/version BI uses.
+
+    Reuses ``collect_session_props`` so a host stamping
+    ``"acme-internal-wrapper-<user>"`` collapses to ``"other"`` on both
+    channels — drift between BI and Sentry would re-introduce the privacy
+    leak ``classify_mcp_host`` exists to prevent. Skips emit when there's
+    no live ``clientInfo`` so we don't tag every event with the
+    ``"other"``/``"unknown"`` defaults.
+    """
     ctx = kwargs.get("ctx")
     session = getattr(ctx, "session", None) if ctx is not None else None
-    params = getattr(session, "client_params", None) if session is not None else None
+    if session is None:
+        return
+    params = getattr(session, "client_params", None)
     client_info = getattr(params, "clientInfo", None) if params is not None else None
     if client_info is None:
         return
-    host = getattr(client_info, "name", "") or ""
-    version = getattr(client_info, "version", "") or ""
-    if host:
-        tags["mcp_host"] = host
-    if version:
-        tags["mcp_client_version"] = version
+    props = collect_session_props(session)
+    tags["mcp_host"] = props["mcp_host"]
+    tags["mcp_client_version"] = props["mcp_client_version"]
 
 
 def instrument_tool(
@@ -237,3 +275,104 @@ def instrument_tool(
         return wrapper
 
     return decorator
+
+
+# Per-process dedup for tools_listed. WeakSet keyed by the request context's
+# session when available; otherwise a process-global single-shot fallback.
+# Same shape as _seen_sessions for _maybe_emit_session_initialized.
+_seen_tools_listed_sessions: WeakSet[Any] = WeakSet()
+_tools_listed_fired_processwide: bool = False
+
+
+def _reset_seen_tools_listed_for_tests() -> None:
+    """Drop the dedup state. Test-only — never call from production."""
+    global _tools_listed_fired_processwide
+    _seen_tools_listed_sessions.clear()
+    _tools_listed_fired_processwide = False
+
+
+def _maybe_emit_tools_listed(result: Any) -> None:
+    """Emit tools_listed once per session (or once per process if no session
+    is available in the request context).
+
+    Counts the tools in ``result`` and buckets via ``bucket_count``. ``result``
+    is the FastMCP ``ListToolsResult`` — ``.root.tools`` is the canonical
+    structure; we walk defensively because the lowlevel handler may pass back
+    a plain ``ServerResult`` envelope.
+    """
+    global _tools_listed_fired_processwide
+
+    session = None
+    try:
+        from mcp.server.lowlevel.server import request_ctx
+
+        ctx = request_ctx.get()
+        session = getattr(ctx, "session", None)
+    except (ImportError, LookupError, AttributeError):
+        session = None
+
+    if session is not None:
+        try:
+            if session in _seen_tools_listed_sessions:
+                return
+            _seen_tools_listed_sessions.add(session)
+        except TypeError:
+            # Session not weak-referenceable (e.g. SimpleNamespace in tests).
+            # Fall through to process-wide one-shot.
+            if _tools_listed_fired_processwide:
+                return
+            _tools_listed_fired_processwide = True
+    else:
+        if _tools_listed_fired_processwide:
+            return
+        _tools_listed_fired_processwide = True
+
+    tools: list[Any] = []
+    inner = getattr(result, "root", None) or result
+    candidate = getattr(inner, "tools", None)
+    if isinstance(candidate, list):
+        tools = candidate
+
+    transport_probe.mark_first_rpc()
+
+    props = {"tool_count_bucket": bucket_count(len(tools))}
+    try:
+        _client().track_event(EVENT_TOOLS_LISTED, props)
+    except BaseException:
+        # Same contract as session_initialized: a telemetry-side failure must
+        # never propagate out of the request handler and break tools/list.
+        logger.debug("tools_listed emit failed", exc_info=True)
+
+
+def install_tools_listed_emitter(mcp: Any) -> None:
+    """Replace the registered ListToolsRequest handler on a FastMCP instance.
+
+    FastMCP wires its request handlers in ``_setup_handlers`` during
+    construction, exposing them on ``mcp._mcp_server.request_handlers``.
+    There's no decorator slot for ``tools/list``, so we swap the live handler
+    in place — preserving its return value and firing tools_listed on every
+    successful call. Per-session dedup happens inside _maybe_emit_tools_listed.
+    """
+    try:
+        lowlevel = mcp._mcp_server
+    except AttributeError:
+        logger.debug("install_tools_listed_emitter: mcp has no _mcp_server attribute")
+        return
+    original = lowlevel.request_handlers.get(ListToolsRequest)
+    if original is None:
+        logger.debug("install_tools_listed_emitter: no ListToolsRequest handler registered")
+        return
+
+    async def wrapped(req: Any) -> Any:
+        result = await original(req)
+        try:
+            _maybe_emit_tools_listed(result)
+        except BaseException:
+            # Belt-and-braces: _maybe_emit_tools_listed already swallows its
+            # own emit errors, but anything raised by the dedup bookkeeping
+            # (WeakSet membership, request_ctx lookup) must NEVER replace the
+            # successful tools/list result on its way back to the client.
+            logger.debug("tools_listed wrapper raised", exc_info=True)
+        return result
+
+    lowlevel.request_handlers[ListToolsRequest] = wrapped

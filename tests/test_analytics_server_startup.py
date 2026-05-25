@@ -71,6 +71,34 @@ def test_main_emits_server_started_then_runs(monkeypatch: pytest.MonkeyPatch) ->
     assert started["has_workspace"] in {"true", "false"}
     assert started["has_api_key"] in {"true", "false"}
     assert started["has_default_project"] in {"true", "false"}
+    # Tier 1 fingerprint: every key MUST be present, every value a string.
+    for key in (
+        "is_ci",
+        "is_container",
+        "is_codespaces",
+        "is_gitpod",
+        "launch_method",
+        "parent_process",
+        "stdin_is_pipe",
+        "stdout_is_pipe",
+        "install_id_freshly_generated",
+    ):
+        assert key in started, f"missing fingerprint key: {key}"
+        assert isinstance(started[key], str)
+    # Spot-check bucketed values
+    assert started["is_ci"] in {"true", "false"}
+    assert started["is_container"] in {"true", "false", "unknown"}
+    # Mirrors `_LAUNCH_METHOD_PATTERNS` in `analytics/environment.py` exactly —
+    # any new bucket added there must appear here too, or a typo introducing a
+    # phantom value would slip through CI.
+    assert started["launch_method"] in {
+        "uvx",
+        "pipx",
+        "venv",
+        "system",
+        "unknown",
+    }
+    assert started["install_id_freshly_generated"] in {"true", "false"}
 
 
 # --- startup_error: config validation -------------------------------------- #
@@ -311,7 +339,7 @@ def test_transport_crash_buckets_unknown_exception_type(
 
     Without bucketing the `exception_type` cardinality grows with every new
     transport plugin, breaking BI dashboards built on the existing low-
-    cardinality contract used by ``_ERROR_KIND_TABLE`` in wrappers.py.
+    cardinality contract used by ``bucket_exception`` in analytics/errors.py.
     """
     recorder = _install_recorder(monkeypatch)
 

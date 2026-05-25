@@ -2,18 +2,24 @@ import logging
 import os
 import socket
 import sys
+import time
 
 import uvicorn
 from pydantic import ValidationError
 
 from opik_mcp import error_tracking
 from opik_mcp.analytics import (
+    EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
     EVENT_STARTUP_ERROR,
     get_analytics,
     track_event,
+    transport_probe,
 )
 from opik_mcp.analytics.client import AnalyticsClient
+from opik_mcp.analytics.environment import collect_environment_fingerprint
+from opik_mcp.analytics.events import bucket_seconds
+from opik_mcp.analytics.identity import install_id_was_freshly_generated
 from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
@@ -26,10 +32,15 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 # so we must block long enough for the in-flight POST to land — but not so
 # long that a broken receiver hangs the user-facing crash.
 _STARTUP_ERROR_FLUSH_DEADLINE_S = 2.0
+# Shutdown shares the same constraint (daemon worker about to be killed) but
+# is intentionally a separate constant so the startup and shutdown budgets
+# can evolve independently — e.g. shutdown may need a longer drain once we
+# add larger trailing event payloads (lifespan stats, session summaries).
+_SHUTDOWN_FLUSH_DEADLINE_S = 2.0
 
 # Bounded allowlist for ``exception_type`` on the transport-crash path. Any
 # class outside this set is bucketed to ``"unknown"`` to preserve the low-
-# cardinality contract used by ``_ERROR_KIND_TABLE`` in analytics/wrappers.py —
+# cardinality contract used by ``bucket_exception`` in analytics/errors.py —
 # otherwise a future uvicorn middleware exception subclass would expand the
 # cardinality of this field unboundedly in BI.
 _KNOWN_TRANSPORT_EXCEPTION_NAMES: frozenset[str] = frozenset(
@@ -176,10 +187,39 @@ def _emit_startup_error(
         # Synchronous drain: without this the daemon worker thread is killed
         # by SystemExit / process unwind before httpx finishes the POST.
         target.flush(deadline_s=_STARTUP_ERROR_FLUSH_DEADLINE_S)
-    except Exception:
+    except BaseException:
         # track_event MUST NEVER mask the real startup failure — swallow any
-        # analytics-side problem and let the original exception propagate.
+        # analytics-side problem (including SystemExit from a broken flush)
+        # and let the ORIGINAL exception propagate to the caller.
         logger.debug("startup_error emit failed", exc_info=True)
+
+
+def _emit_server_shutdown(*, reason: str, started_monotonic: float) -> None:
+    """Fire ``opik_mcp_server_shutdown`` and synchronously drain the queue.
+
+    Same drain pattern as ``_emit_startup_error`` — the daemon worker
+    thread is killed by SystemExit / process unwind before httpx finishes
+    the POST, so we block briefly to make sure the event lands.
+    """
+    try:
+        elapsed = time.monotonic() - started_monotonic
+        track_event(
+            EVENT_SERVER_SHUTDOWN,
+            {
+                "reason": reason,
+                "lifespan_seconds_bucket": bucket_seconds(elapsed),
+                "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
+                "session_reached": str(transport_probe.session_reached()).lower(),
+            },
+        )
+        get_analytics().flush(deadline_s=_SHUTDOWN_FLUSH_DEADLINE_S)
+    except BaseException:
+        # Shutdown emit MUST NEVER mask the real exit reason — swallow any
+        # analytics-side failure (network, queue, settings) and let the
+        # process unwind normally. BaseException covers SystemExit raised
+        # by a misbehaving flush implementation; we never want a probe
+        # event to escalate process exit.
+        logger.debug("server_shutdown emit failed", exc_info=True)
 
 
 def main() -> None:
@@ -213,6 +253,14 @@ def main() -> None:
     # error_tracking.py.
     error_tracking.setup_sentry(settings)
 
+    # Collect fingerprint BEFORE capturing the monotonic anchor. The
+    # fingerprint calls out to subprocess + lsof on macOS (parent-process
+    # bucketing) which can add tens-to-hundreds of milliseconds; counting
+    # that toward lifespan_seconds_bucket would push real-but-tiny sessions
+    # out of the "<5s" probe bucket and obscure the dark-cohort signal.
+    fingerprint_props = collect_environment_fingerprint()
+    started_monotonic = time.monotonic()
+
     track_event(
         EVENT_SERVER_STARTED,
         {
@@ -221,14 +269,25 @@ def main() -> None:
             "has_workspace": str(settings.comet_workspace is not None).lower(),
             "has_api_key": str(settings.opik_api_key is not None).lower(),
             "has_default_project": str(settings.opik_default_project_name is not None).lower(),
+            "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+            **fingerprint_props,
         },
     )
 
     try:
         _run_transport(settings, transport)
     except SystemExit:
-        # Re-raise without wrapping — the exit was deliberate and any
-        # startup_error was already emitted at the decision point below.
+        # Deliberate exit (sys.exit(...) inside _run_transport, e.g. the
+        # insecure-token guard). Any startup_error was already emitted at
+        # the decision point, but BI also needs the matching shutdown event
+        # to close the start/stop funnel — emit it before re-raising.
+        _emit_server_shutdown(reason="sys_exit", started_monotonic=started_monotonic)
+        raise
+    except KeyboardInterrupt:
+        # User-initiated stop (SIGINT / Ctrl-C). Not a crash, so we do NOT
+        # emit startup_error — just record the shutdown reason and re-raise
+        # so the process exits with the standard SIGINT exit code.
+        _emit_server_shutdown(reason="keyboard_interrupt", started_monotonic=started_monotonic)
         raise
     except BaseException as e:
         bucketed_type = _bucket_transport_exception_type(e)
@@ -256,7 +315,10 @@ def main() -> None:
                 transaction="startup",
                 fingerprint=["{{ default }}", "startup", "transport_crash"],
             )
+        _emit_server_shutdown(reason="transport_error", started_monotonic=started_monotonic)
         raise
+    else:
+        _emit_server_shutdown(reason="clean_exit", started_monotonic=started_monotonic)
 
 
 def _run_transport(settings: Settings, transport: str) -> None:
@@ -264,8 +326,10 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # Default: Claude Code (or any MCP client) launches this process and
         # speaks MCP over stdin/stdout. No port, no bearer token, no uvicorn.
         # OPIK_MCP_DEV_TOKEN is only relevant in HTTP mode (see below).
+        from opik_mcp.analytics.wrappers import install_tools_listed_emitter
         from opik_mcp.server import mcp
 
+        install_tools_listed_emitter(mcp)
         logger.info("startup transport=stdio")
         mcp.run(transport="stdio")
         return

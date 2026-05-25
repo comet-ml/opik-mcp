@@ -14,7 +14,7 @@ from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from opik_mcp.analytics.events import bucket_count
-from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.config import get_settings
 from opik_mcp.instructions import render_instructions
@@ -568,6 +568,7 @@ async def _readiness(_request: Request) -> JSONResponse:
 
 
 def build_app() -> Starlette:
+    install_tools_listed_emitter(mcp)
     # The bearer token is captured at construction time and held for the
     # process lifetime; rotation requires a server restart (Settings is
     # lru_cache'd). Documented as a Phase-1 limitation; Phase 2 moves to OAuth.

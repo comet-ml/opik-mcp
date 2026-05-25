@@ -1,3 +1,5 @@
+import pytest
+
 from opik_mcp.analytics.events import (
     EVENT_STARTUP_ERROR,
     bucket_count,
@@ -40,3 +42,39 @@ def test_bucket_count_thresholds() -> None:
     assert bucket_count(100) == "11-100"
     assert bucket_count(101) == "101-1000"
     assert bucket_count(10_000) == ">1000"
+
+
+# --- PR2 additions ------------------------------------------------------- #
+
+
+def test_event_constants_exist() -> None:
+    from opik_mcp.analytics import (
+        EVENT_SERVER_SHUTDOWN,
+        EVENT_TOOLS_LISTED,
+    )
+
+    assert EVENT_TOOLS_LISTED == "opik_mcp_tools_listed"
+    assert EVENT_SERVER_SHUTDOWN == "opik_mcp_server_shutdown"
+
+
+@pytest.mark.parametrize(
+    "elapsed, expected",
+    [
+        (0.0, "<5s"),
+        (4.9, "<5s"),
+        (5.0, "5-60s"),
+        (59.9, "5-60s"),
+        (60.0, "1-10m"),
+        (599.9, "1-10m"),
+        (600.0, "10-60m"),
+        (3599.0, "10-60m"),
+        (3600.0, "1-24h"),
+        (86399.0, "1-24h"),
+        (86400.0, ">24h"),
+        (1_000_000.0, ">24h"),
+    ],
+)
+def test_bucket_seconds(elapsed: float, expected: str) -> None:
+    from opik_mcp.analytics.events import bucket_seconds
+
+    assert bucket_seconds(elapsed) == expected

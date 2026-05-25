@@ -1,3 +1,6 @@
+import json
+from collections.abc import Iterator
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -5,8 +8,21 @@ import pytest
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
-from opik_mcp.analytics import EVENT_TOOL_CALLED
-from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.analytics import (
+    EVENT_SESSION_INITIALIZED,
+    EVENT_TOOL_CALLED,
+    transport_probe,
+)
+from opik_mcp.analytics.mcp_client_info import (
+    classify_host_llm_family,
+    classify_mcp_host,
+    collect_session_props,
+)
+from opik_mcp.analytics.wrappers import (
+    _maybe_emit_session_initialized,
+    _reset_seen_sessions_for_tests,
+    instrument_tool,
+)
 from opik_mcp.comet_client import (
     CometAuthError,
     CometPermissionError,
@@ -203,6 +219,179 @@ async def test_props_fn_merges_extras(recorder: _Recorder) -> None:
     await fn(entity_type="trace")
     _, props = recorder.events[0]
     assert props["entity_type"] == "trace"
+
+
+# --- session_initialized enrichment ------------------------------------- #
+
+
+@pytest.fixture(autouse=True)
+def _reset_probe_and_sessions() -> Iterator[None]:
+    transport_probe.reset_for_tests()
+    _reset_seen_sessions_for_tests()
+    yield
+    transport_probe.reset_for_tests()
+    _reset_seen_sessions_for_tests()
+
+
+@pytest.mark.parametrize(
+    "raw, expected_bucket",
+    [
+        ("claude-desktop", "claude-desktop"),
+        ("Claude-Desktop", "claude-desktop"),
+        ("claude-code/0.42", "claude-code"),
+        ("cursor", "cursor"),
+        ("cline-extension", "cline"),
+        ("continue", "continue"),
+        ("windsurf", "windsurf"),
+        ("roo-cline", "roo"),
+        ("mcp-inspector", "mcp-inspector"),
+        ("acme-internal-wrapper-yaro", "other"),
+        ("", "other"),
+    ],
+)
+def test_classify_mcp_host(raw: str, expected_bucket: str) -> None:
+    assert classify_mcp_host(raw) == expected_bucket
+
+
+@pytest.mark.parametrize(
+    "bucket, family",
+    [
+        ("claude-desktop", "anthropic"),
+        ("claude-code", "anthropic"),
+        ("cursor", "cursor"),
+        ("cline", "mixed"),
+        ("continue", "mixed"),
+        ("roo", "mixed"),
+        ("windsurf", "mixed"),
+        ("mcp-inspector", "inspector"),
+        ("other", "unknown"),
+    ],
+)
+def test_classify_host_llm_family(bucket: str, family: str) -> None:
+    assert classify_host_llm_family(bucket) == family
+
+
+_EXPECTED_DEFAULT_SESSION_PROPS: dict[str, str] = {
+    "mcp_host": "other",
+    "mcp_client_version": "unknown",
+    "mcp_protocol_version": "unknown",
+    "host_llm_family": "unknown",
+    "caps_sampling": "false",
+    "caps_elicitation": "false",
+    "caps_roots": "false",
+    "caps_tasks": "false",
+}
+
+
+def test_collect_session_props_none_session_returns_defaults() -> None:
+    """A capture path firing before the init handshake MUST NOT crash; the
+    8-key dict still ships, populated with ``"other"`` / ``"unknown"`` / ``"false"``
+    sentinels so downstream consumers can rely on the schema.
+    """
+    assert collect_session_props(None) == _EXPECTED_DEFAULT_SESSION_PROPS
+
+
+def test_collect_session_props_missing_client_params_returns_defaults() -> None:
+    """``session`` present but ``client_params is None`` is the race-condition
+    case: the client opened a stream but hasn't completed ``initialize`` yet.
+    """
+    session_obj = SimpleNamespace(client_params=None)
+    assert collect_session_props(session_obj) == _EXPECTED_DEFAULT_SESSION_PROPS
+
+
+def test_collect_session_props_missing_intermediates_falls_back() -> None:
+    """``client_params`` with missing ``clientInfo`` / ``capabilities`` is what
+    happens when a non-conforming host stamps a partial handshake; defensive
+    ``getattr`` chain MUST NOT raise and MUST emit the defaults dict.
+    """
+    params = SimpleNamespace()  # no clientInfo, no capabilities, no protocolVersion
+    session_obj = SimpleNamespace(client_params=params)
+    assert collect_session_props(session_obj) == _EXPECTED_DEFAULT_SESSION_PROPS
+
+
+def test_collect_session_props_buckets_unknown_host_for_privacy() -> None:
+    """Direct privacy contract: a host stamping a per-install identifier as
+    its ``clientInfo.name`` MUST bucket to ``"other"`` at the source. Mirrors
+    the indirect coverage via ``_maybe_emit_session_initialized`` but pins the
+    contract on the extractor itself so future refactors can't drift one
+    consumer's bucketing without breaking this test.
+    """
+    canary = "acme-internal-wrapper-leak-canary-9b2a"
+    client_info = SimpleNamespace(name=canary, version="0.1")
+    params = SimpleNamespace(clientInfo=client_info, protocolVersion="", capabilities=None)
+    session_obj = SimpleNamespace(client_params=params)
+
+    props = collect_session_props(session_obj)
+    assert props["mcp_host"] == "other"
+    assert canary not in props.values()
+
+
+def test_maybe_emit_session_initialized_full_props(recorder: _Recorder) -> None:
+    """The enriched emit MUST contain bucketed host, family, and caps_* booleans."""
+    client_info = SimpleNamespace(name="claude-desktop", version="1.2.3")
+    capabilities = SimpleNamespace(
+        sampling=SimpleNamespace(),
+        elicitation=None,
+        roots=SimpleNamespace(),
+        tasks=None,
+    )
+    params = SimpleNamespace(
+        clientInfo=client_info,
+        protocolVersion="2025-06-01",
+        capabilities=capabilities,
+    )
+    session_obj = SimpleNamespace(client_params=params)
+    ctx = SimpleNamespace(session=session_obj)
+
+    _maybe_emit_session_initialized({"ctx": ctx})
+
+    assert len(recorder.events) == 1
+    et, props = recorder.events[0]
+    assert et == EVENT_SESSION_INITIALIZED
+    assert props["mcp_host"] == "claude-desktop"
+    assert props["mcp_client_version"] == "1.2.3"
+    assert props["mcp_protocol_version"] == "2025-06-01"
+    assert props["host_llm_family"] == "anthropic"
+    assert props["caps_sampling"] == "true"
+    assert props["caps_elicitation"] == "false"
+    assert props["caps_roots"] == "true"
+    assert props["caps_tasks"] == "false"
+
+
+def test_maybe_emit_session_initialized_marks_handshake(recorder: _Recorder) -> None:
+    """Both transport_probe flags MUST flip when session_initialized fires."""
+    session_obj = SimpleNamespace(client_params=None)
+    ctx = SimpleNamespace(session=session_obj)
+
+    _maybe_emit_session_initialized({"ctx": ctx})
+
+    assert transport_probe.first_rpc_received() is True
+    assert transport_probe.session_reached() is True
+
+
+def test_maybe_emit_session_initialized_buckets_unknown_host(recorder: _Recorder) -> None:
+    """Privacy: a host stamping a per-install name MUST bucket to 'other'."""
+    canary_host = "acme-internal-wrapper-leak-canary-9b2a"
+    client_info = SimpleNamespace(name=canary_host, version="0.1")
+    params = SimpleNamespace(
+        clientInfo=client_info,
+        protocolVersion="",
+        capabilities=None,
+    )
+    session_obj = SimpleNamespace(client_params=params)
+    ctx = SimpleNamespace(session=session_obj)
+
+    _maybe_emit_session_initialized({"ctx": ctx})
+
+    _, props = recorder.events[0]
+    assert props["mcp_host"] == "other"
+    # capabilities=None must surface all caps_* as "false" so a downstream
+    # change that flipped this to "true" would break BI signal.
+    assert props["caps_sampling"] == "false"
+    assert props["caps_elicitation"] == "false"
+    assert props["caps_roots"] == "false"
+    assert props["caps_tasks"] == "false"
+    assert canary_host not in json.dumps(props), "raw host name leaked"
 
 
 # --- Sentry capture wiring ------------------------------------------------ #
@@ -426,6 +615,50 @@ async def test_sentry_capture_attaches_mcp_client_tags_when_ctx_present(
     _, tags, _, _, _ = sentry_recorder.calls[0]
     assert tags["mcp_host"] == "claude-code"
     assert tags["mcp_client_version"] == "0.4.2"
+
+
+@pytest.mark.anyio
+async def test_sentry_capture_buckets_raw_mcp_host_for_privacy(
+    sentry_recorder: _SentryRecorder,
+) -> None:
+    """Privacy parity with BI: a host stamping a per-install name MUST
+    bucket to ``"other"`` in Sentry tags too. Without ``collect_session_props``
+    the raw string would land in Sentry verbatim, drifting from the BI
+    cardinality contract that ``classify_mcp_host`` enforces.
+    """
+    canary_host = "acme-internal-wrapper-leak-canary-9b2a"
+
+    class _ClientInfo:
+        def __init__(self) -> None:
+            self.name = canary_host
+            # A long, non-semver build hash — must bucket to "unknown".
+            self.version = "deadbeef-not-a-semver-suspicious-long"
+
+    class _Params:
+        def __init__(self) -> None:
+            self.clientInfo = _ClientInfo()
+            self.protocolVersion = ""
+            self.capabilities = None
+
+    class _Session:
+        def __init__(self) -> None:
+            self.client_params = _Params()
+
+    class _Ctx:
+        def __init__(self) -> None:
+            self.session = _Session()
+
+    @instrument_tool("read")
+    async def fn(*, ctx: Any) -> str:
+        raise OpikServerError("boom")
+
+    with pytest.raises(OpikServerError):
+        await fn(ctx=_Ctx())
+
+    _, tags, _, _, _ = sentry_recorder.calls[0]
+    assert tags["mcp_host"] == "other"
+    assert tags["mcp_client_version"] == "unknown"
+    assert canary_host not in json.dumps(tags), "raw host leaked into Sentry tags"
 
 
 @pytest.mark.anyio

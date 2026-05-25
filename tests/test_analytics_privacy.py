@@ -42,6 +42,12 @@ FORBIDDEN = [
     "free-text-list-name-UNIQUE-CANARY-9d4e5f6a",
     # write.data canary (PII payload inside the structured object)
     "write-data-payload-UNIQUE-CANARY-1a2b3c4d",
+    # PR1 fingerprint canaries — install env values that MUST never appear
+    # in any analytics event payload.
+    "FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+    "FORBIDDEN-CANARY-socket-hostname-9d3e5f4a",
+    "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+    "FORBIDDEN-CANARY-home-path-5e6f7a8b",
 ]
 
 
@@ -590,3 +596,202 @@ async def _noop_coroutine(result: str) -> str:
 
 async def _noop_coroutine_result(result: Any) -> Any:
     return result
+
+
+# --- cross-event privacy sweep ------------------------------------------ #
+
+
+@pytest.mark.parametrize(
+    "event_name",
+    [
+        "opik_mcp_server_started",
+        "opik_mcp_session_initialized",
+        "opik_mcp_tools_listed",
+        "opik_mcp_server_shutdown",
+    ],
+)
+def test_new_events_carry_no_forbidden_substring(
+    monkeypatch: pytest.MonkeyPatch, recorder: _Recorder, event_name: str
+) -> None:
+    """Sweep PR1 event vocabulary against the FORBIDDEN canary list.
+
+    Drives each event's emit path with monkeypatched leak sources (HOME,
+    getpass.getuser, socket.gethostname, os.uname().nodename) and asserts
+    none of the canaries surface in the recorded property dicts.
+    """
+    import getpass
+    import os
+    import socket
+
+    monkeypatch.setenv("HOME", "/tmp/FORBIDDEN-CANARY-home-path-5e6f7a8b")
+    monkeypatch.setattr(
+        getpass,
+        "getuser",
+        lambda: "FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+    )
+    monkeypatch.setattr(
+        socket,
+        "gethostname",
+        lambda: "FORBIDDEN-CANARY-socket-hostname-9d3e5f4a",
+    )
+    if hasattr(os, "uname"):
+        fake = os.uname_result(
+            ("Linux", "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e", "5.0", "#1", "x86_64"),
+        )
+        monkeypatch.setattr(os, "uname", lambda: fake)
+
+    if event_name == "opik_mcp_server_started":
+        from opik_mcp.analytics import EVENT_SERVER_STARTED
+        from opik_mcp.analytics.environment import collect_environment_fingerprint
+        from opik_mcp.analytics.identity import install_id_was_freshly_generated
+
+        # The other tests in this module patch `analytics.wrappers._client`,
+        # but server_started emits via the top-level `track_event` -> singleton
+        # path, so we patch `get_analytics` to redirect to the recorder.
+        monkeypatch.setattr("opik_mcp.analytics.get_analytics", lambda: recorder)
+        from opik_mcp.analytics import track_event
+
+        track_event(
+            EVENT_SERVER_STARTED,
+            {
+                "transport": "stdio",
+                "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+                **collect_environment_fingerprint(),
+            },
+        )
+    elif event_name == "opik_mcp_session_initialized":
+        from types import SimpleNamespace
+
+        from opik_mcp.analytics.wrappers import (
+            _maybe_emit_session_initialized,
+            _reset_seen_sessions_for_tests,
+        )
+
+        _reset_seen_sessions_for_tests()
+        # Push canaries through EVERY host-controlled string field: name,
+        # clientInfo.version, and protocolVersion. A regression that drops
+        # the bucketing on version fields would surface here.
+        client_info = SimpleNamespace(
+            name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+            version="FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+        )
+        params = SimpleNamespace(
+            clientInfo=client_info,
+            protocolVersion="FORBIDDEN-CANARY-home-path-5e6f7a8b",
+            capabilities=None,
+        )
+        ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
+        _maybe_emit_session_initialized({"ctx": ctx})
+
+    elif event_name == "opik_mcp_tools_listed":
+        import anyio
+        from mcp.server.fastmcp import FastMCP
+        from mcp.types import ListToolsRequest
+
+        from opik_mcp.analytics.wrappers import (
+            _reset_seen_tools_listed_for_tests,
+            install_tools_listed_emitter,
+        )
+
+        _reset_seen_tools_listed_for_tests()
+        mcp = FastMCP("privacy-probe")
+
+        @mcp.tool()
+        def hi() -> str:
+            return "x"
+
+        monkeypatch.setattr("opik_mcp.analytics.wrappers._client", lambda: recorder)
+        install_tools_listed_emitter(mcp)
+        handler = mcp._mcp_server.request_handlers[ListToolsRequest]
+        req = ListToolsRequest(method="tools/list")
+        anyio.run(handler, req)
+
+    elif event_name == "opik_mcp_server_shutdown":
+        from opik_mcp.analytics import EVENT_SERVER_SHUTDOWN, track_event, transport_probe
+        from opik_mcp.analytics.events import bucket_seconds
+
+        monkeypatch.setattr("opik_mcp.analytics.get_analytics", lambda: recorder)
+        track_event(
+            EVENT_SERVER_SHUTDOWN,
+            {
+                "reason": "clean_exit",
+                "lifespan_seconds_bucket": bucket_seconds(42.0),
+                "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
+                "session_reached": str(transport_probe.session_reached()).lower(),
+            },
+        )
+
+    # An empty recorder would let the canary check pass vacuously, hiding the
+    # case where the emit path silently no-ops (e.g. a future regression that
+    # short-circuits before track_event). Pin the emit shape before scanning.
+    assert recorder.events, (
+        f"no event recorded for {event_name} — privacy sweep would pass vacuously"
+    )
+    assert recorder.events[0][0] == event_name
+
+    payload = json.dumps(recorder.events)
+    for canary in FORBIDDEN:
+        assert canary not in payload, (
+            f"PRIVACY BREACH on {event_name}: {canary!r} leaked into payload"
+        )
+
+
+@pytest.mark.anyio
+async def test_sentry_capture_path_carries_no_forbidden_substring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sweep the Sentry capture path against the FORBIDDEN canary list.
+
+    BI and Sentry consume the SAME ``collect_session_props`` extractor, but
+    they hand the payload to different sinks; a refactor that only updates
+    the BI sink would silently drift Sentry's cardinality contract. This
+    test exercises the actual ``instrument_tool`` → ``_capture_to_sentry``
+    path with canaries stuffed into every host-controlled field, then
+    asserts none reach ``error_tracking.capture_exception``.
+    """
+    from types import SimpleNamespace
+
+    from opik_mcp.analytics.wrappers import instrument_tool
+    from opik_mcp.opik_client import OpikServerError
+
+    captured_tags: dict[str, str] = {}
+    captured_extras: dict[str, Any] = {}
+
+    def _fake_capture(
+        exc: BaseException,
+        *,
+        tags: dict[str, str] | None = None,
+        extras: dict[str, Any] | None = None,
+        transaction: str | None = None,
+        fingerprint: list[str] | None = None,
+    ) -> None:
+        captured_tags.update(tags or {})
+        captured_extras.update(extras or {})
+
+    monkeypatch.setattr("opik_mcp.error_tracking.capture_exception", _fake_capture)
+
+    client_info = SimpleNamespace(
+        name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+        version="FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+    )
+    params = SimpleNamespace(
+        clientInfo=client_info,
+        protocolVersion="FORBIDDEN-CANARY-home-path-5e6f7a8b",
+        capabilities=None,
+    )
+    ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
+
+    @instrument_tool("read")
+    async def fn(*, ctx: Any) -> str:
+        raise OpikServerError("boom")
+
+    with pytest.raises(OpikServerError):
+        await fn(ctx=ctx)
+
+    assert captured_tags, "Sentry capture wasn't called — sweep would pass vacuously"
+
+    payload = json.dumps({"tags": captured_tags, "extras": captured_extras})
+    for canary in FORBIDDEN:
+        assert canary not in payload, (
+            f"PRIVACY BREACH on sentry capture path: {canary!r} leaked into tags/extras"
+        )
