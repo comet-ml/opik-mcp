@@ -2,18 +2,22 @@ import logging
 import os
 import socket
 import sys
+import time
 
 import uvicorn
 from pydantic import ValidationError
 
 from opik_mcp.analytics import (
+    EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
     EVENT_STARTUP_ERROR,
     get_analytics,
     track_event,
+    transport_probe,
 )
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
+from opik_mcp.analytics.events import bucket_seconds
 from opik_mcp.analytics.identity import install_id_was_freshly_generated
 from opik_mcp.config import Settings, get_settings
 
@@ -183,6 +187,29 @@ def _emit_startup_error(
         logger.debug("startup_error emit failed", exc_info=True)
 
 
+def _emit_server_shutdown(*, reason: str, started_monotonic: float) -> None:
+    """Fire ``opik_mcp_server_shutdown`` and synchronously drain the queue.
+
+    Same drain pattern as ``_emit_startup_error`` — the daemon worker
+    thread is killed by SystemExit / process unwind before httpx finishes
+    the POST, so we block briefly to make sure the event lands.
+    """
+    try:
+        elapsed = time.monotonic() - started_monotonic
+        track_event(
+            EVENT_SERVER_SHUTDOWN,
+            {
+                "reason": reason,
+                "lifespan_seconds_bucket": bucket_seconds(elapsed),
+                "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
+                "session_reached": str(transport_probe.session_reached()).lower(),
+            },
+        )
+        get_analytics().flush(deadline_s=_STARTUP_ERROR_FLUSH_DEADLINE_S)
+    except Exception:
+        logger.debug("server_shutdown emit failed", exc_info=True)
+
+
 def main() -> None:
     try:
         settings = get_settings()
@@ -207,6 +234,7 @@ def main() -> None:
     _configure_logging(settings.opik_mcp_log_level)
     transport = settings.opik_mcp_transport.lower()
 
+    started_monotonic = time.monotonic()
     track_event(
         EVENT_SERVER_STARTED,
         {
@@ -233,7 +261,10 @@ def main() -> None:
             exception_type=_bucket_transport_exception_type(e),
             transport=transport,
         )
+        _emit_server_shutdown(reason="transport_error", started_monotonic=started_monotonic)
         raise
+    else:
+        _emit_server_shutdown(reason="clean_exit", started_monotonic=started_monotonic)
 
 
 def _run_transport(settings: Settings, transport: str) -> None:
