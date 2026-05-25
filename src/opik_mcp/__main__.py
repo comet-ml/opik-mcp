@@ -31,6 +31,11 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 # so we must block long enough for the in-flight POST to land — but not so
 # long that a broken receiver hangs the user-facing crash.
 _STARTUP_ERROR_FLUSH_DEADLINE_S = 2.0
+# Shutdown shares the same constraint (daemon worker about to be killed) but
+# is intentionally a separate constant so the startup and shutdown budgets
+# can evolve independently — e.g. shutdown may need a longer drain once we
+# add larger trailing event payloads (lifespan stats, session summaries).
+_SHUTDOWN_FLUSH_DEADLINE_S = 2.0
 
 # Bounded allowlist for ``exception_type`` on the transport-crash path. Any
 # class outside this set is bucketed to ``"unknown"`` to preserve the low-
@@ -181,9 +186,10 @@ def _emit_startup_error(
         # Synchronous drain: without this the daemon worker thread is killed
         # by SystemExit / process unwind before httpx finishes the POST.
         target.flush(deadline_s=_STARTUP_ERROR_FLUSH_DEADLINE_S)
-    except Exception:
+    except BaseException:
         # track_event MUST NEVER mask the real startup failure — swallow any
-        # analytics-side problem and let the original exception propagate.
+        # analytics-side problem (including SystemExit from a broken flush)
+        # and let the ORIGINAL exception propagate to the caller.
         logger.debug("startup_error emit failed", exc_info=True)
 
 
@@ -205,8 +211,13 @@ def _emit_server_shutdown(*, reason: str, started_monotonic: float) -> None:
                 "session_reached": str(transport_probe.session_reached()).lower(),
             },
         )
-        get_analytics().flush(deadline_s=_STARTUP_ERROR_FLUSH_DEADLINE_S)
-    except Exception:
+        get_analytics().flush(deadline_s=_SHUTDOWN_FLUSH_DEADLINE_S)
+    except BaseException:
+        # Shutdown emit MUST NEVER mask the real exit reason — swallow any
+        # analytics-side failure (network, queue, settings) and let the
+        # process unwind normally. BaseException covers SystemExit raised
+        # by a misbehaving flush implementation; we never want a probe
+        # event to escalate process exit.
         logger.debug("server_shutdown emit failed", exc_info=True)
 
 
@@ -234,6 +245,12 @@ def main() -> None:
     _configure_logging(settings.opik_mcp_log_level)
     transport = settings.opik_mcp_transport.lower()
 
+    # Collect fingerprint BEFORE capturing the monotonic anchor. The
+    # fingerprint calls out to subprocess + lsof on macOS (parent-process
+    # bucketing) which can add tens-to-hundreds of milliseconds; counting
+    # that toward lifespan_seconds_bucket would push real-but-tiny sessions
+    # out of the "<5s" probe bucket and obscure the dark-cohort signal.
+    fingerprint_props = collect_environment_fingerprint()
     started_monotonic = time.monotonic()
     track_event(
         EVENT_SERVER_STARTED,
@@ -244,15 +261,18 @@ def main() -> None:
             "has_api_key": str(settings.opik_api_key is not None).lower(),
             "has_default_project": str(settings.opik_default_project_name is not None).lower(),
             "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
-            **collect_environment_fingerprint(),
+            **fingerprint_props,
         },
     )
 
     try:
         _run_transport(settings, transport)
     except SystemExit:
-        # Re-raise without wrapping — the exit was deliberate and any
-        # startup_error was already emitted at the decision point below.
+        # Deliberate exit (sys.exit(...) inside _run_transport, e.g. the
+        # insecure-token guard). Any startup_error was already emitted at
+        # the decision point, but BI also needs the matching shutdown event
+        # to close the start/stop funnel — emit it before re-raising.
+        _emit_server_shutdown(reason="sys_exit", started_monotonic=started_monotonic)
         raise
     except KeyboardInterrupt:
         # User-initiated stop (SIGINT / Ctrl-C). Not a crash, so we do NOT

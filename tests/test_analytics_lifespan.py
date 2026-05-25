@@ -33,6 +33,7 @@ class _RecorderClient:
 @pytest.fixture(autouse=True)
 def _reset() -> Iterator[None]:
     from opik_mcp.config import get_settings
+
     get_settings.cache_clear()
     transport_probe.reset_for_tests()
     yield
@@ -123,3 +124,28 @@ def test_transport_crash_emits_shutdown_with_reason_transport_error(monkeypatch)
 
     props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
     assert props["reason"] == "transport_error"
+
+
+def test_sys_exit_emits_shutdown_with_reason_sys_exit(monkeypatch) -> None:
+    """sys.exit() inside the transport path must still record shutdown.
+
+    The insecure-token guard in __main__._run_transport calls sys.exit(1); BI
+    needs the matching shutdown event to close the start/stop funnel — without
+    this arm, sys.exit traffic would look like a "missing shutdown" anomaly.
+    """
+    recorder = _install_recorder(monkeypatch)
+
+    class _ExitingMcp:
+        def run(self, *, transport: str) -> None:
+            raise SystemExit(1)
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _ExitingMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(SystemExit):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert props["reason"] == "sys_exit"
+    # SystemExit is a deliberate exit, not a crash — startup_error must not fire.
+    assert EVENT_STARTUP_ERROR not in [et for et, _ in recorder.events]
