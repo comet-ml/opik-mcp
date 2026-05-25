@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from uuid import UUID
 
 from pydantic import field_validator
@@ -110,6 +110,24 @@ class Settings(BaseSettings):
     # opik-mcp Phase 1 ships as a cloud-Comet client. On-prem installs
     # should override to "" (omit the field) or to their own domain.
     opik_mcp_analytics_source: str = "comet.com"
+
+    # Sentry error tracking. Separate from analytics on purpose: analytics
+    # ships low-cardinality buckets to the BI funnel; Sentry ships stack
+    # traces for the bugs that need a human. Users can opt out of either
+    # one independently (mirrors the opik SDK's `sentry_enable` flag).
+    opik_mcp_sentry_enabled: bool = True
+
+    # Hardcoded DSN for the opik-mcp Sentry project. Public ingest key, not
+    # a secret — it identifies the destination project, never grants reads.
+    #
+    # ``ClassVar`` is deliberate: it tells pydantic-settings to treat this
+    # as a class-level constant and skip env-binding. Without it, anyone
+    # could redirect their (or a coworker's) crash reports to an
+    # attacker-controlled Sentry project by setting ``OPIK_MCP_SENTRY_DSN``.
+    # The only supported opt-out is ``OPIK_MCP_SENTRY_ENABLED=false``.
+    opik_mcp_sentry_dsn: ClassVar[str] = (
+        "https://0b191296a0c2e1369da34e7d8fa85322@o168229.ingest.us.sentry.io/4511450607910912"
+    )
 
 
 @lru_cache(maxsize=1)

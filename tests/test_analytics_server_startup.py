@@ -180,6 +180,73 @@ def test_startup_error_on_transport_crash(monkeypatch: pytest.MonkeyPatch) -> No
     assert recorder.flush_calls, "must flush before re-raising"
 
 
+def test_transport_crash_propagates_full_context_to_sentry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sentry must see the same shape of context the analytics event has.
+
+    Without the tags/transaction/fingerprint plumbing, a transport_start
+    crash lands as a bare ``OSError`` issue with no indication of phase,
+    error_kind, or which transport was being started — tool-call failures
+    would be richly tagged while startup failures would be opaque.
+    """
+    _install_recorder(monkeypatch)
+
+    captured_calls: list[dict[str, object]] = []
+
+    def _spy(
+        exc: BaseException,
+        *,
+        tags: dict[str, str] | None = None,
+        extras: dict[str, object] | None = None,
+        transaction: str | None = None,
+        fingerprint: list[str] | None = None,
+    ) -> None:
+        captured_calls.append(
+            {
+                "exc": exc,
+                "tags": dict(tags or {}),
+                "transaction": transaction,
+                "fingerprint": list(fingerprint) if fingerprint is not None else None,
+            }
+        )
+
+    # Patch at the source module — covers every caller (here ``__main__``
+    # via ``error_tracking.capture_exception(...)``) without needing per-
+    # call-site shims.
+    monkeypatch.setattr("opik_mcp.error_tracking.capture_exception", _spy)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise OSError("address already in use")
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(OSError):
+        main_mod.main()
+
+    assert len(captured_calls) == 1
+    call = captured_calls[0]
+    assert isinstance(call["exc"], OSError)
+    # Same shape as analytics props — one source of truth on what context
+    # describes a startup crash. ``exception_type`` is the MRO-bucketed
+    # name so cardinality stays bounded (PermissionError → OSError, …).
+    assert call["tags"] == {
+        "phase": "transport_start",
+        "error_kind": "transport_crash",
+        "exception_type": "OSError",
+        "transport": "stdio",
+    }
+    # Transaction puts ``startup`` next to the exception type in Sentry's
+    # issue listing, alongside ``read`` / ``write`` / ``ask_ollie`` for
+    # tool failures.
+    assert call["transaction"] == "startup"
+    # Fingerprint splits transport_crash from any future startup-phase
+    # buckets (e.g. a "watchdog_crash" added later).
+    assert call["fingerprint"] == ["{{ default }}", "startup", "transport_crash"]
+
+
 def test_startup_error_omits_pii_from_transport_crash_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
