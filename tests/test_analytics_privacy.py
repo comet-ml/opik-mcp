@@ -429,8 +429,10 @@ def test_new_events_carry_no_forbidden_substring(
         _maybe_emit_session_initialized({"ctx": ctx})
 
     elif event_name == "opik_mcp_tools_listed":
+        import anyio
         from mcp.server.fastmcp import FastMCP
         from mcp.types import ListToolsRequest
+
         from opik_mcp.analytics.wrappers import (
             _reset_seen_tools_listed_for_tests,
             install_tools_listed_emitter,
@@ -448,7 +450,6 @@ def test_new_events_carry_no_forbidden_substring(
         install_tools_listed_emitter(mcp)
         handler = mcp._mcp_server.request_handlers[ListToolsRequest]
         req = ListToolsRequest(method="tools/list")
-        import anyio
         anyio.run(handler, req)
 
     elif event_name == "opik_mcp_server_shutdown":
