@@ -39,7 +39,7 @@ _SHUTDOWN_FLUSH_DEADLINE_S = 2.0
 
 # Bounded allowlist for ``exception_type`` on the transport-crash path. Any
 # class outside this set is bucketed to ``"unknown"`` to preserve the low-
-# cardinality contract used by ``_ERROR_KIND_TABLE`` in analytics/wrappers.py —
+# cardinality contract used by ``bucket_exception`` in analytics/errors.py —
 # otherwise a future uvicorn middleware exception subclass would expand the
 # cardinality of this field unboundedly in BI.
 _KNOWN_TRANSPORT_EXCEPTION_NAMES: frozenset[str] = frozenset(

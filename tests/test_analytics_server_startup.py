@@ -272,7 +272,7 @@ def test_transport_crash_buckets_unknown_exception_type(
 
     Without bucketing the `exception_type` cardinality grows with every new
     transport plugin, breaking BI dashboards built on the existing low-
-    cardinality contract used by ``_ERROR_KIND_TABLE`` in wrappers.py.
+    cardinality contract used by ``bucket_exception`` in analytics/errors.py.
     """
     recorder = _install_recorder(monkeypatch)
 
