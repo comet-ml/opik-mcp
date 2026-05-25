@@ -1,3 +1,5 @@
+import json
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -176,7 +178,7 @@ from opik_mcp.analytics.wrappers import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_probe_and_sessions() -> None:
+def _reset_probe_and_sessions() -> Iterator[None]:
     transport_probe.reset_for_tests()
     _reset_seen_sessions_for_tests()
     yield
@@ -276,5 +278,10 @@ def test_maybe_emit_session_initialized_buckets_unknown_host(recorder: _Recorder
 
     _, props = recorder.events[0]
     assert props["mcp_host"] == "other"
-    import json
+    # capabilities=None must surface all caps_* as "false" so a downstream
+    # change that flipped this to "true" would break BI signal.
+    assert props["caps_sampling"] == "false"
+    assert props["caps_elicitation"] == "false"
+    assert props["caps_roots"] == "false"
+    assert props["caps_tasks"] == "false"
     assert canary_host not in json.dumps(props), "raw host name leaked"

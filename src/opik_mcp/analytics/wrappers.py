@@ -106,11 +106,13 @@ def _client() -> Any:
     return get_analytics()
 
 
-# Known MCP host allowlist. Exact `startswith` match on the lowercased
+# Known MCP host allowlist. Prefix match (`startswith`) on the lowercased
 # clientInfo.name → bucket. Anything else → "other". Privacy contract:
 # clientInfo.name is host-controlled string; passing it through raw would
 # uncap cardinality and risk re-identifying users via per-install names
-# (e.g. "acme-internal-wrapper-<user>").
+# (e.g. "acme-internal-wrapper-<user>"). Order matters: list more-specific
+# prefixes BEFORE shorter ones that they would match (e.g. roo BEFORE cline
+# so "roo-cline" → "roo", not "cline").
 _MCP_HOST_PATTERNS: tuple[tuple[str, str], ...] = (
     ("claude-desktop", "claude-desktop"),
     ("claude-code", "claude-code"),
@@ -155,9 +157,14 @@ def _classify_host_llm_family(mcp_host_bucket: str) -> str:
 
 # Per-process set of sessions we've already announced. WeakSet so dead
 # sessions get garbage-collected and don't leak memory across long uptime.
-# _seen_session_ids is a fallback for objects that don't support weak
-# references (e.g. SimpleNamespace in tests); production fastmcp sessions
-# always support __weakref__ so the WeakSet path is the hot path.
+# _seen_session_ids is a TEST-ONLY fallback for objects that don't support
+# weak references (e.g. types.SimpleNamespace in our tests): on Python
+# 3.13 `WeakSet.add(SimpleNamespace())` raises TypeError. Production
+# fastmcp ``ServerSession`` instances always support ``__weakref__`` so the
+# WeakSet path is the hot path and dead sessions are reclaimed promptly.
+# NOTE: ``id()`` values can be reused after deallocation, so this fallback
+# is unsuitable for long-lived production use — but by construction it
+# never fires there.
 _seen_sessions: WeakSet[Any] = WeakSet()
 _seen_session_ids: set[int] = set()
 
