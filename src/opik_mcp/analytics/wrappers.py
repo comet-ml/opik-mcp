@@ -17,6 +17,7 @@ from weakref import WeakSet
 import anyio
 from mcp.types import ListToolsRequest
 
+from opik_mcp import error_tracking
 from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
     EVENT_TOOL_CALLED,
@@ -25,10 +26,42 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.errors import bucket_exception, derive_http_status
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
+from opik_mcp.comet_client import OllieNotEnabledError
+from opik_mcp.config import MissingConfigError
 
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
 T = TypeVar("T")
+
+
+# Sentry skip-list: buckets representing user-input or user-config problems.
+# These are surfaced to the host LLM as a tool error and counted in BI under
+# their explicit ``error_kind``; Sentry only carries the kinds that need a
+# human stack trace (server errors, network failures, contract drifts,
+# unexpected bugs).
+#
+# Lives next to the wrapper's capture site rather than inside
+# ``error_tracking.py`` because every Sentry capture in this codebase is
+# one of ours — deciding *not* to capture is cleaner than capturing then
+# dropping server-side in ``before_send``.
+_USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
+    {
+        "auth",  # 401 — bad API key / wrong workspace
+        "permission",  # 403 — workspace access denied
+        "validation",  # 400/422 — payload rejected by Opik or pydantic
+        "not_found",  # 404 — entity doesn't exist
+    }
+)
+
+
+# A few exceptions bucket to ``"unknown"`` (alongside real bugs like
+# ``CometProtocolError`` and ``OllieStreamError``) but actually represent
+# user-config problems Sentry shouldn't carry. Class-based skip because
+# the coarse ``"unknown"`` bucket can't distinguish them from the bugs.
+_USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    MissingConfigError,
+    OllieNotEnabledError,
+)
 
 
 # Indirection so tests can patch the singleton.
@@ -205,6 +238,63 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
 PropsFn = Callable[[Any, dict[str, Any]], dict[str, str]]
 
 
+def _report_to_sentry(
+    exc: BaseException,
+    *,
+    tool_name: str,
+    error_kind: str,
+    duration_ms: int,
+    props_fn: PropsFn | None,
+    kwargs: dict[str, Any],
+) -> None:
+    """Capture a tool-call failure with the bucket context BI already tracks.
+
+    ``props_fn`` is invoked with ``result=None`` on the failure path — every
+    current implementation derives its bucket props from ``kwargs`` only
+    (the ``result`` argument is underscore-prefixed in all six sites). If
+    that contract ever changes, the inner try/except swallows the failure
+    so we still get the bare exception instead of nothing.
+
+    MCP host fingerprint (``mcp_host`` / ``mcp_client_version``) is attached
+    when available — invaluable when triaging which client (Claude Code,
+    Cursor, custom) hit a given Sentry issue.
+    """
+    tags: dict[str, str] = {"tool_name": tool_name, "error_kind": error_kind}
+    extras: dict[str, Any] = {"duration_ms": duration_ms}
+    if props_fn is not None:
+        try:
+            tags.update(props_fn(None, kwargs))
+        except Exception:
+            logger.debug("props_fn raised during sentry context; skipping", exc_info=True)
+    _attach_mcp_client_tags(kwargs, tags)
+    # transaction = which tool failed (visible in Sentry's issue listing).
+    # fingerprint = default stacktrace grouping + tool_name so a shared
+    # helper raising the same exception from two tools splits into two
+    # issues instead of merging into one.
+    error_tracking.capture_exception(
+        exc,
+        tags=tags,
+        extras=extras,
+        transaction=tool_name,
+        fingerprint=["{{ default }}", tool_name],
+    )
+
+
+def _attach_mcp_client_tags(kwargs: dict[str, Any], tags: dict[str, str]) -> None:
+    ctx = kwargs.get("ctx")
+    session = getattr(ctx, "session", None) if ctx is not None else None
+    params = getattr(session, "client_params", None) if session is not None else None
+    client_info = getattr(params, "clientInfo", None) if params is not None else None
+    if client_info is None:
+        return
+    host = getattr(client_info, "name", "") or ""
+    version = getattr(client_info, "version", "") or ""
+    if host:
+        tags["mcp_host"] = host
+    if version:
+        tags["mcp_client_version"] = version
+
+
 def instrument_tool(
     name: str,
     *,
@@ -239,6 +329,21 @@ def instrument_tool(
                 elif isinstance(exc, Exception):
                     error_kind = bucket_exception(exc)
                     http_status = derive_http_status(exc)
+                    # Sentry carries only the kinds worth a human stack trace.
+                    # Skip the user-side buckets + the few user-config classes
+                    # that collapse into ``"unknown"`` (the coarse bucket can't
+                    # distinguish them from real bugs like ``CometProtocolError``).
+                    if error_kind not in _USER_SIDE_ERROR_KINDS and not isinstance(
+                        exc, _USER_SIDE_EXCEPTIONS
+                    ):
+                        _report_to_sentry(
+                            exc,
+                            tool_name=name,
+                            error_kind=error_kind,
+                            duration_ms=int((time.monotonic() - t0) * 1000),
+                            props_fn=props_fn,
+                            kwargs=kwargs,
+                        )
                 raise
             finally:
                 props: dict[str, str] = {

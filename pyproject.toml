@@ -16,6 +16,7 @@ dependencies = [
     "httpx-sse>=0.4",
     "pydantic>=2.7",
     "pydantic-settings>=2.5",
+    "sentry-sdk>=2,<3",
     "uvicorn>=0.30",
 ]
 
