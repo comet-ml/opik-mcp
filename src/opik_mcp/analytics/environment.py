@@ -13,6 +13,7 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 
 # CI-platform env vars. Detection is OR across the list: any one set → "true".
 _CI_ENV_VARS: tuple[str, ...] = (
@@ -60,7 +61,11 @@ _CONTAINER_TOKENS = ("docker", "containerd", "kubepods")
 def _detect_container() -> str:
     if sys.platform != "linux":
         return "unknown"
-    try:
+    # mypy on non-Linux considers everything below unreachable because
+    # `sys.platform` is platform-typed; the code IS reachable at runtime on
+    # Linux. Keep the platform dispatch explicit; we accept the type-checker
+    # noise rather than restructuring around it.
+    try:  # type: ignore[unreachable]
         if os.path.exists(_DOCKERENV_PATH):
             return "true"
         with open(_CGROUP_PATH, encoding="utf-8") as f:
@@ -161,12 +166,15 @@ def _read_parent_process_name() -> str:
         try:
             out = subprocess.run(
                 ["ps", "-o", "comm=", "-p", str(ppid)],
-                capture_output=True, text=True, timeout=1.0, check=False,
+                capture_output=True,
+                text=True,
+                timeout=1.0,
+                check=False,
             )
             return out.stdout.strip()
         except (OSError, subprocess.SubprocessError):
             return ""
-    return ""
+    return ""  # type: ignore[unreachable]
 
 
 def _detect_parent_process() -> str:
@@ -184,9 +192,10 @@ def collect_environment_fingerprint() -> dict[str, str]:
     (filesystem oddity, missing tool, …), the field falls back to
     ``"unknown"`` so the aggregator never breaks the emit path.
     """
+
     # Wrap each detector individually so one failure doesn't take the whole
     # fingerprint down. Same fire-and-forget contract as ``track_event``.
-    def _safe(fn, default: str) -> str:
+    def _safe(fn: Callable[[], str], default: str) -> str:
         try:
             return fn()
         except Exception:

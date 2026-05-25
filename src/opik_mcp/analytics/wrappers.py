@@ -21,8 +21,8 @@ from opik_mcp.analytics import (
     EVENT_SESSION_INITIALIZED,
     EVENT_TOOL_CALLED,
     get_analytics,
+    transport_probe,
 )
-from opik_mcp.analytics import transport_probe
 from opik_mcp.comet_client import (
     CometAuthError,
     CometPermissionError,
@@ -212,9 +212,7 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
     props: dict[str, str] = {
         "mcp_host": mcp_host_bucket,
         "mcp_client_version": getattr(client_info, "version", "") or "",
-        "mcp_protocol_version": (
-            getattr(params, "protocolVersion", "") or "" if params else ""
-        ),
+        "mcp_protocol_version": (getattr(params, "protocolVersion", "") or "" if params else ""),
         "host_llm_family": _classify_host_llm_family(mcp_host_bucket),
         "caps_sampling": str(getattr(capabilities, "sampling", None) is not None).lower(),
         "caps_elicitation": str(getattr(capabilities, "elicitation", None) is not None).lower(),
