@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import time
+from collections.abc import Iterator
 
 import pytest
 
@@ -30,11 +30,12 @@ class _RecorderClient:
 
 
 @pytest.fixture(autouse=True)
-def _reset() -> None:
+def _reset() -> Iterator[None]:
     from opik_mcp.config import get_settings
     get_settings.cache_clear()
     transport_probe.reset_for_tests()
     yield
+    get_settings.cache_clear()
     transport_probe.reset_for_tests()
 
 
