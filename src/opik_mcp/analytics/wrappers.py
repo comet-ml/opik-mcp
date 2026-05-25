@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import functools
 import logging
-import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
@@ -26,6 +25,7 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.errors import bucket_exception, derive_http_status
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
+from opik_mcp.analytics.mcp_client_info import collect_session_props
 from opik_mcp.comet_client import OllieNotEnabledError
 from opik_mcp.config import MissingConfigError
 
@@ -67,91 +67,6 @@ _USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (
 # Indirection so tests can patch the singleton.
 def _client() -> Any:
     return get_analytics()
-
-
-# Known MCP host allowlist. Prefix match (`startswith`) on the lowercased
-# clientInfo.name → bucket. Anything else → "other". Privacy contract:
-# clientInfo.name is host-controlled string; passing it through raw would
-# uncap cardinality and risk re-identifying users via per-install names
-# (e.g. "acme-internal-wrapper-<user>"). Order matters: list more-specific
-# prefixes BEFORE shorter ones that they would match (e.g. roo BEFORE cline
-# so "roo-cline" → "roo", not "cline").
-_MCP_HOST_PATTERNS: tuple[tuple[str, str], ...] = (
-    ("claude-desktop", "claude-desktop"),
-    ("claude-code", "claude-code"),
-    ("cursor", "cursor"),
-    ("roo", "roo"),
-    ("cline", "cline"),
-    ("continue", "continue"),
-    ("windsurf", "windsurf"),
-    ("mcp-inspector", "mcp-inspector"),
-)
-
-
-def _classify_mcp_host(raw: str) -> str:
-    needle = (raw or "").strip().lower()
-    if not needle:
-        return "other"
-    for pattern, bucket in _MCP_HOST_PATTERNS:
-        if needle.startswith(pattern):
-            return bucket
-    return "other"
-
-
-# host_llm_family is DERIVED from the bucketed host name so we never
-# branch on raw input.  Cursor promoted to its own family (paying-user
-# host worth separating); mcp-inspector tagged so probe traffic is
-# distinguishable from real installs.
-_HOST_LLM_FAMILY: dict[str, str] = {
-    "claude-desktop": "anthropic",
-    "claude-code": "anthropic",
-    "cursor": "cursor",
-    "cline": "mixed",
-    "continue": "mixed",
-    "roo": "mixed",
-    "windsurf": "mixed",
-    "mcp-inspector": "inspector",
-}
-
-
-def _classify_host_llm_family(mcp_host_bucket: str) -> str:
-    return _HOST_LLM_FAMILY.get(mcp_host_bucket, "unknown")
-
-
-# Privacy: clientInfo.version and protocolVersion are host-controlled strings.
-# A host could stamp anything in there — a build hash with a username substring,
-# a per-install token, a path. We allow ONLY shapes that match a public versioning
-# convention and bucket everything else to "unknown". Length cap is a belt-and-
-# braces guard so an attacker can't sneak past the regex with a 200-char value
-# that happens to start with digits.
-_SEMVER_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-zA-Z0-9.-]+)?$")
-_PROTOCOL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_VERSION_MAX_LEN = 32
-
-
-def _bucket_mcp_client_version(raw: str | None) -> str:
-    """Return ``raw`` if it matches a semver shape, else ``"unknown"``.
-
-    MCP host clients (Claude Desktop, Cursor, Cline, Continue, …) stamp their
-    own version into ``clientInfo.version``. Allowlisting the semver shape
-    preserves the analytical signal (which version of the host is connecting)
-    while refusing arbitrary strings that could carry PII.
-    """
-    if not raw or len(raw) > _VERSION_MAX_LEN:
-        return "unknown"
-    return raw if _SEMVER_RE.match(raw) else "unknown"
-
-
-def _bucket_mcp_protocol_version(raw: str | None) -> str:
-    """Return ``raw`` if it matches the MCP ``YYYY-MM-DD`` date shape, else ``"unknown"``.
-
-    The MCP spec uses date-stamped protocol versions (e.g. ``"2025-06-01"``).
-    Anything else is either an unknown future format or host-supplied garbage,
-    so we collapse it to ``"unknown"`` rather than letting it widen cardinality.
-    """
-    if not raw or len(raw) > _VERSION_MAX_LEN:
-        return "unknown"
-    return raw if _PROTOCOL_DATE_RE.match(raw) else "unknown"
 
 
 # Per-process set of sessions we've already announced. WeakSet so dead
@@ -202,26 +117,8 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
     transport_probe.mark_first_rpc()
     transport_probe.mark_session_reached()
 
-    params = getattr(session, "client_params", None)
-    client_info = getattr(params, "clientInfo", None) if params is not None else None
-    capabilities = getattr(params, "capabilities", None) if params is not None else None
-    raw_host = getattr(client_info, "name", "") or ""
-    mcp_host_bucket = _classify_mcp_host(raw_host)
-
-    raw_client_version = getattr(client_info, "version", "") or ""
-    raw_protocol_version = (getattr(params, "protocolVersion", "") or "") if params else ""
-    props: dict[str, str] = {
-        "mcp_host": mcp_host_bucket,
-        "mcp_client_version": _bucket_mcp_client_version(raw_client_version),
-        "mcp_protocol_version": _bucket_mcp_protocol_version(raw_protocol_version),
-        "host_llm_family": _classify_host_llm_family(mcp_host_bucket),
-        "caps_sampling": str(getattr(capabilities, "sampling", None) is not None).lower(),
-        "caps_elicitation": str(getattr(capabilities, "elicitation", None) is not None).lower(),
-        "caps_roots": str(getattr(capabilities, "roots", None) is not None).lower(),
-        "caps_tasks": str(getattr(capabilities, "tasks", None) is not None).lower(),
-    }
     try:
-        _client().track_event(EVENT_SESSION_INITIALIZED, props)
+        _client().track_event(EVENT_SESSION_INITIALIZED, collect_session_props(session))
     except BaseException:
         # Telemetry MUST NEVER tear down a live MCP session; swallow even
         # BaseException (SystemExit from a misbehaving sink, KeyboardInterrupt
@@ -281,18 +178,26 @@ def _report_to_sentry(
 
 
 def _attach_mcp_client_tags(kwargs: dict[str, Any], tags: dict[str, str]) -> None:
+    """Stamp Sentry tags with the SAME bucketed host/version BI uses.
+
+    Reuses ``collect_session_props`` so a host stamping
+    ``"acme-internal-wrapper-<user>"`` collapses to ``"other"`` on both
+    channels — drift between BI and Sentry would re-introduce the privacy
+    leak ``classify_mcp_host`` exists to prevent. Skips emit when there's
+    no live ``clientInfo`` so we don't tag every event with the
+    ``"other"``/``"unknown"`` defaults.
+    """
     ctx = kwargs.get("ctx")
     session = getattr(ctx, "session", None) if ctx is not None else None
-    params = getattr(session, "client_params", None) if session is not None else None
+    if session is None:
+        return
+    params = getattr(session, "client_params", None)
     client_info = getattr(params, "clientInfo", None) if params is not None else None
     if client_info is None:
         return
-    host = getattr(client_info, "name", "") or ""
-    version = getattr(client_info, "version", "") or ""
-    if host:
-        tags["mcp_host"] = host
-    if version:
-        tags["mcp_client_version"] = version
+    props = collect_session_props(session)
+    tags["mcp_host"] = props["mcp_host"]
+    tags["mcp_client_version"] = props["mcp_client_version"]
 
 
 def instrument_tool(

@@ -13,9 +13,11 @@ from opik_mcp.analytics import (
     EVENT_TOOL_CALLED,
     transport_probe,
 )
+from opik_mcp.analytics.mcp_client_info import (
+    classify_host_llm_family,
+    classify_mcp_host,
+)
 from opik_mcp.analytics.wrappers import (
-    _classify_host_llm_family,
-    _classify_mcp_host,
     _maybe_emit_session_initialized,
     _reset_seen_sessions_for_tests,
     instrument_tool,
@@ -247,7 +249,7 @@ def _reset_probe_and_sessions() -> Iterator[None]:
     ],
 )
 def test_classify_mcp_host(raw: str, expected_bucket: str) -> None:
-    assert _classify_mcp_host(raw) == expected_bucket
+    assert classify_mcp_host(raw) == expected_bucket
 
 
 @pytest.mark.parametrize(
@@ -265,7 +267,7 @@ def test_classify_mcp_host(raw: str, expected_bucket: str) -> None:
     ],
 )
 def test_classify_host_llm_family(bucket: str, family: str) -> None:
-    assert _classify_host_llm_family(bucket) == family
+    assert classify_host_llm_family(bucket) == family
 
 
 def test_maybe_emit_session_initialized_full_props(recorder: _Recorder) -> None:
@@ -557,6 +559,50 @@ async def test_sentry_capture_attaches_mcp_client_tags_when_ctx_present(
     _, tags, _, _, _ = sentry_recorder.calls[0]
     assert tags["mcp_host"] == "claude-code"
     assert tags["mcp_client_version"] == "0.4.2"
+
+
+@pytest.mark.anyio
+async def test_sentry_capture_buckets_raw_mcp_host_for_privacy(
+    sentry_recorder: _SentryRecorder,
+) -> None:
+    """Privacy parity with BI: a host stamping a per-install name MUST
+    bucket to ``"other"`` in Sentry tags too. Without ``collect_session_props``
+    the raw string would land in Sentry verbatim, drifting from the BI
+    cardinality contract that ``classify_mcp_host`` enforces.
+    """
+    canary_host = "acme-internal-wrapper-leak-canary-9b2a"
+
+    class _ClientInfo:
+        def __init__(self) -> None:
+            self.name = canary_host
+            # A long, non-semver build hash — must bucket to "unknown".
+            self.version = "deadbeef-not-a-semver-suspicious-long"
+
+    class _Params:
+        def __init__(self) -> None:
+            self.clientInfo = _ClientInfo()
+            self.protocolVersion = ""
+            self.capabilities = None
+
+    class _Session:
+        def __init__(self) -> None:
+            self.client_params = _Params()
+
+    class _Ctx:
+        def __init__(self) -> None:
+            self.session = _Session()
+
+    @instrument_tool("read")
+    async def fn(*, ctx: Any) -> str:
+        raise OpikServerError("boom")
+
+    with pytest.raises(OpikServerError):
+        await fn(ctx=_Ctx())
+
+    _, tags, _, _, _ = sentry_recorder.calls[0]
+    assert tags["mcp_host"] == "other"
+    assert tags["mcp_client_version"] == "unknown"
+    assert canary_host not in json.dumps(tags), "raw host leaked into Sentry tags"
 
 
 @pytest.mark.anyio
