@@ -2,6 +2,7 @@ import logging
 import secrets
 from typing import Annotated, Any
 
+import httpx
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from pydantic import Field
@@ -9,6 +10,7 @@ from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from opik_mcp.analytics.events import bucket_count
@@ -496,16 +498,73 @@ async def schema(
 # --- middleware ---------------------------------------------------------- #
 
 
+# Probes are unauthenticated by design — Kubernetes liveness/readiness probes
+# can't carry the bearer token and must remain reachable even when auth
+# misconfiguration would otherwise return 401.
+_HEALTH_PATHS = frozenset({"/health", "/health/ready"})
+
+# Bounded total budget for the upstream reachability check used by
+# /health/ready. Probes run every 5-10s; a hung upstream must not stall the
+# probe past the probe's own timeout, or readiness flips to "unknown" instead
+# of "not ready" and traffic keeps flowing.
+_READY_PROBE_TIMEOUT_S = 2.0
+
+
 class BearerAuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: ASGIApp, token: str) -> None:
         super().__init__(app)
         self._expected = f"Bearer {token}"
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path in _HEALTH_PATHS:
+            return await call_next(request)
         auth = request.headers.get("authorization", "")
         if not secrets.compare_digest(auth, self._expected):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
+
+
+# --- health endpoints ---------------------------------------------------- #
+
+
+async def _liveness(_request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok"})
+
+
+async def _readiness(_request: Request) -> JSONResponse:
+    """Probe comet-backend reachability; fail closed.
+
+    The MCP server is a thin relay to comet-backend / opik-backend, so
+    "ready to serve" reduces to "upstream is reachable from this pod". A
+    HEAD against the configured Comet base accepts any non-5xx as evidence
+    the host is up — 4xx still means the TCP+TLS+HTTP stack works, which is
+    what readiness actually cares about.
+
+    The HTTP client is built per-request (no module-level singleton) so DNS
+    changes — e.g., a comet-backend service IP rotation in Kubernetes —
+    take effect on the next probe without a pod restart. Cost is negligible
+    at probe frequency.
+    """
+    base = get_settings().comet_url_override.rstrip("/") or "https://www.comet.com"
+    reason: str
+    try:
+        async with httpx.AsyncClient(timeout=_READY_PROBE_TIMEOUT_S) as client:
+            resp = await client.head(base, follow_redirects=False)
+    except httpx.TimeoutException:
+        reason = "timeout"
+    except httpx.NetworkError:
+        # Genuine network failures only: ConnectError, ReadError, WriteError,
+        # CloseError. Config bugs (InvalidURL, UnsupportedProtocol) are NOT
+        # NetworkError and intentionally bubble to a 500 so a typo in
+        # COMET_URL_OVERRIDE surfaces loudly instead of pinning the pod to
+        # not_ready/network_error forever.
+        reason = "network_error"
+    else:
+        if resp.status_code >= 500:
+            reason = "upstream_5xx"
+        else:
+            return JSONResponse({"status": "ready"})
+    return JSONResponse({"status": "not_ready", "reason": reason}, status_code=503)
 
 
 def build_app() -> Starlette:
@@ -513,5 +572,7 @@ def build_app() -> Starlette:
     # process lifetime; rotation requires a server restart (Settings is
     # lru_cache'd). Documented as a Phase-1 limitation; Phase 2 moves to OAuth.
     app = mcp.streamable_http_app()
+    app.router.routes.append(Route("/health", _liveness, methods=["GET"]))
+    app.router.routes.append(Route("/health/ready", _readiness, methods=["GET"]))
     app.add_middleware(BearerAuthMiddleware, token=get_settings().opik_mcp_dev_token)
     return app

@@ -1,4 +1,5 @@
 .PHONY: help install run run-dev dev inspect test test-live conformance lint format typecheck check \
+        docker-build docker-run \
         legacy-install legacy-build legacy-test legacy-lint legacy-start
 
 help:
@@ -14,6 +15,10 @@ help:
 	@echo "  make format     - ruff format + ruff check --fix"
 	@echo "  make typecheck  - mypy"
 	@echo "  make check      - lint + typecheck + test"
+	@echo ""
+	@echo "Docker:"
+	@echo "  make docker-build - build opik-mcp:dev image"
+	@echo "  make docker-run   - run opik-mcp:dev on :8080 (loopback)"
 	@echo ""
 	@echo "Legacy TypeScript (legacy/typescript/, deprecated):"
 	@echo "  make legacy-install - npm install in legacy/typescript"
@@ -61,6 +66,20 @@ typecheck:
 	uv run mypy
 
 check: lint typecheck test
+
+# --- Docker image (deployable per OPIK-6667) -------------------------------
+
+docker-build:
+	docker build -t opik-mcp:dev .
+
+docker-run:
+	# Explicit 127.0.0.1 binding: on Linux, `-p 8080:8080` listens on
+	# 0.0.0.0, which combined with the dev-token-123 default token would
+	# expose MCP on every network interface of a dev VM or CI runner.
+	docker run --rm -p 127.0.0.1:8080:8080 \
+	  -e OPIK_MCP_DEV_TOKEN=$${OPIK_MCP_DEV_TOKEN:-dev-token-123} \
+	  -e COMET_URL_OVERRIDE=$${COMET_URL_OVERRIDE:-https://www.comet.com} \
+	  --name opik-mcp opik-mcp:dev
 
 # --- Legacy TypeScript server (deprecated, kept under legacy/typescript/) ---
 
