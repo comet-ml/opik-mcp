@@ -13,6 +13,8 @@ from opik_mcp.analytics import (
     track_event,
 )
 from opik_mcp.analytics.client import AnalyticsClient
+from opik_mcp.analytics.environment import collect_environment_fingerprint
+from opik_mcp.analytics.identity import install_id_was_freshly_generated
 from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
@@ -213,6 +215,8 @@ def main() -> None:
             "has_workspace": str(settings.comet_workspace is not None).lower(),
             "has_api_key": str(settings.opik_api_key is not None).lower(),
             "has_default_project": str(settings.opik_default_project_name is not None).lower(),
+            "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+            **collect_environment_fingerprint(),
         },
     )
 
