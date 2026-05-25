@@ -196,3 +196,49 @@ def test_detect_parent_process_never_leaks_raw_name(monkeypatch) -> None:
         "python", "node", "sshd", "systemd", "launchd", "docker-entrypoint",
         "other",
     }
+
+
+# --- public aggregator --------------------------------------------------- #
+
+
+def test_collect_environment_fingerprint_keys_and_value_shape(monkeypatch) -> None:
+    """Aggregator returns exactly the documented key set, all str-valued."""
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    monkeypatch.setattr(env, "_DOCKERENV_PATH", "/nonexistent")
+    monkeypatch.setattr(env, "_CGROUP_PATH", "/nonexistent")
+    for v in ("CI", "GITHUB_ACTIONS", "GITLAB_CI", "BUILDKITE", "CIRCLECI",
+              "JENKINS_URL", "CODESPACES", "GITPOD_WORKSPACE_ID"):
+        monkeypatch.delenv(v, raising=False)
+
+    out = env.collect_environment_fingerprint()
+    expected_keys = {
+        "is_ci",
+        "is_container",
+        "is_codespaces",
+        "is_gitpod",
+        "launch_method",
+        "parent_process",
+        "stdin_is_pipe",
+        "stdout_is_pipe",
+    }
+    assert set(out.keys()) == expected_keys
+    for k, v in out.items():
+        assert isinstance(v, str), f"{k} must be str, got {type(v)}"
+    # Sanity: low-cardinality bucketed values only
+    assert out["is_ci"] in {"true", "false"}
+    assert out["is_container"] in {"true", "false", "unknown"}
+
+
+def test_collect_environment_fingerprint_never_raises(monkeypatch) -> None:
+    """If any detector raises, the aggregator MUST still return a dict.
+
+    Same fire-and-forget contract as track_event — instrumentation must
+    never crash the host.
+    """
+    def _boom() -> str:
+        raise RuntimeError("detector blew up")
+
+    monkeypatch.setattr(env, "_detect_parent_process", _boom)
+    out = env.collect_environment_fingerprint()
+    assert isinstance(out, dict)
+    assert out.get("parent_process") == "unknown"  # graceful default

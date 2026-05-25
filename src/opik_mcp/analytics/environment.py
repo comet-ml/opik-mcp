@@ -9,6 +9,7 @@ this module — see ``tests/test_analytics_environment.py`` and
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -170,3 +171,40 @@ def _read_parent_process_name() -> str:
 
 def _detect_parent_process() -> str:
     return _classify_parent_process_name(_read_parent_process_name())
+
+
+_logger = logging.getLogger("opik_mcp.analytics.environment")
+
+
+def collect_environment_fingerprint() -> dict[str, str]:
+    """Bucketed environment signals to merge into ``server_started`` properties.
+
+    Every value is from a hardcoded allowlist (booleans or bucket enums) —
+    never a raw path, username, or process command. If a detector raises
+    (filesystem oddity, missing tool, …), the field falls back to
+    ``"unknown"`` so the aggregator never breaks the emit path.
+    """
+    # Wrap each detector individually so one failure doesn't take the whole
+    # fingerprint down. Same fire-and-forget contract as ``track_event``.
+    def _safe(fn, default: str) -> str:
+        try:
+            return fn()
+        except Exception:
+            _logger.debug("environment detector %s raised", fn.__name__, exc_info=True)
+            return default
+
+    out: dict[str, str] = {
+        "is_ci": _safe(_detect_ci, "false"),
+        "is_container": _safe(_detect_container, "unknown"),
+        "is_codespaces": _safe(_detect_codespaces, "false"),
+        "is_gitpod": _safe(_detect_gitpod, "false"),
+        "launch_method": _safe(_detect_launch_method, "unknown"),
+        "parent_process": _safe(_detect_parent_process, "unknown"),
+    }
+    try:
+        out.update(_detect_pipe_signals())
+    except Exception:
+        _logger.debug("pipe-signals detector raised", exc_info=True)
+        out["stdin_is_pipe"] = "unknown"
+        out["stdout_is_pipe"] = "unknown"
+    return out
