@@ -426,6 +426,14 @@ def test_new_events_carry_no_forbidden_substring(
         ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
         _maybe_emit_session_initialized({"ctx": ctx})
 
+    # An empty recorder would let the canary check pass vacuously, hiding the
+    # case where the emit path silently no-ops (e.g. a future regression that
+    # short-circuits before track_event). Pin the emit shape before scanning.
+    assert recorder.events, (
+        f"no event recorded for {event_name} — privacy sweep would pass vacuously"
+    )
+    assert recorder.events[0][0] == event_name
+
     payload = json.dumps(recorder.events)
     for canary in FORBIDDEN:
         assert canary not in payload, (
