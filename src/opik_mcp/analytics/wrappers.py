@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
@@ -157,6 +158,42 @@ def _classify_host_llm_family(mcp_host_bucket: str) -> str:
     return _HOST_LLM_FAMILY.get(mcp_host_bucket, "unknown")
 
 
+# Privacy: clientInfo.version and protocolVersion are host-controlled strings.
+# A host could stamp anything in there — a build hash with a username substring,
+# a per-install token, a path. We allow ONLY shapes that match a public versioning
+# convention and bucket everything else to "unknown". Length cap is a belt-and-
+# braces guard so an attacker can't sneak past the regex with a 200-char value
+# that happens to start with digits.
+_SEMVER_RE = re.compile(r"^\d+\.\d+(\.\d+)?(-[a-zA-Z0-9.-]+)?$")
+_PROTOCOL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_VERSION_MAX_LEN = 32
+
+
+def _bucket_mcp_client_version(raw: str | None) -> str:
+    """Return ``raw`` if it matches a semver shape, else ``"unknown"``.
+
+    MCP host clients (Claude Desktop, Cursor, Cline, Continue, …) stamp their
+    own version into ``clientInfo.version``. Allowlisting the semver shape
+    preserves the analytical signal (which version of the host is connecting)
+    while refusing arbitrary strings that could carry PII.
+    """
+    if not raw or len(raw) > _VERSION_MAX_LEN:
+        return "unknown"
+    return raw if _SEMVER_RE.match(raw) else "unknown"
+
+
+def _bucket_mcp_protocol_version(raw: str | None) -> str:
+    """Return ``raw`` if it matches the MCP ``YYYY-MM-DD`` date shape, else ``"unknown"``.
+
+    The MCP spec uses date-stamped protocol versions (e.g. ``"2025-06-01"``).
+    Anything else is either an unknown future format or host-supplied garbage,
+    so we collapse it to ``"unknown"`` rather than letting it widen cardinality.
+    """
+    if not raw or len(raw) > _VERSION_MAX_LEN:
+        return "unknown"
+    return raw if _PROTOCOL_DATE_RE.match(raw) else "unknown"
+
+
 # Per-process set of sessions we've already announced. WeakSet so dead
 # sessions get garbage-collected and don't leak memory across long uptime.
 # _seen_session_ids is a TEST-ONLY fallback for objects that don't support
@@ -211,10 +248,12 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
     raw_host = getattr(client_info, "name", "") or ""
     mcp_host_bucket = _classify_mcp_host(raw_host)
 
+    raw_client_version = getattr(client_info, "version", "") or ""
+    raw_protocol_version = (getattr(params, "protocolVersion", "") or "") if params else ""
     props: dict[str, str] = {
         "mcp_host": mcp_host_bucket,
-        "mcp_client_version": getattr(client_info, "version", "") or "",
-        "mcp_protocol_version": (getattr(params, "protocolVersion", "") or "" if params else ""),
+        "mcp_client_version": _bucket_mcp_client_version(raw_client_version),
+        "mcp_protocol_version": _bucket_mcp_protocol_version(raw_protocol_version),
         "host_llm_family": _classify_host_llm_family(mcp_host_bucket),
         "caps_sampling": str(getattr(capabilities, "sampling", None) is not None).lower(),
         "caps_elicitation": str(getattr(capabilities, "elicitation", None) is not None).lower(),
@@ -223,7 +262,10 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
     }
     try:
         _client().track_event(EVENT_SESSION_INITIALIZED, props)
-    except Exception:
+    except BaseException:
+        # Telemetry MUST NEVER tear down a live MCP session; swallow even
+        # BaseException (SystemExit from a misbehaving sink, KeyboardInterrupt
+        # racing the emit) so the in-flight tool call continues normally.
         logger.debug("session_initialized emit failed", exc_info=True)
 
 
@@ -347,7 +389,9 @@ def _maybe_emit_tools_listed(result: Any) -> None:
     props = {"tool_count_bucket": bucket_count(len(tools))}
     try:
         _client().track_event(EVENT_TOOLS_LISTED, props)
-    except Exception:
+    except BaseException:
+        # Same contract as session_initialized: a telemetry-side failure must
+        # never propagate out of the request handler and break tools/list.
         logger.debug("tools_listed emit failed", exc_info=True)
 
 
@@ -374,7 +418,11 @@ def install_tools_listed_emitter(mcp: Any) -> None:
         result = await original(req)
         try:
             _maybe_emit_tools_listed(result)
-        except Exception:
+        except BaseException:
+            # Belt-and-braces: _maybe_emit_tools_listed already swallows its
+            # own emit errors, but anything raised by the dedup bookkeeping
+            # (WeakSet membership, request_ctx lookup) must NEVER replace the
+            # successful tools/list result on its way back to the client.
             logger.debug("tools_listed wrapper raised", exc_info=True)
         return result
 

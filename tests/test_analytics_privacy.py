@@ -379,17 +379,18 @@ def test_new_events_carry_no_forbidden_substring(
 
     monkeypatch.setenv("HOME", "/tmp/FORBIDDEN-CANARY-home-path-5e6f7a8b")
     monkeypatch.setattr(
-        getpass, "getuser",
+        getpass,
+        "getuser",
         lambda: "FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
     )
     monkeypatch.setattr(
-        socket, "gethostname",
+        socket,
+        "gethostname",
         lambda: "FORBIDDEN-CANARY-socket-hostname-9d3e5f4a",
     )
     if hasattr(os, "uname"):
         fake = os.uname_result(
-            ("Linux", "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
-             "5.0", "#1", "x86_64"),
+            ("Linux", "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e", "5.0", "#1", "x86_64"),
         )
         monkeypatch.setattr(os, "uname", lambda: fake)
 
@@ -397,18 +398,21 @@ def test_new_events_carry_no_forbidden_substring(
         from opik_mcp.analytics import EVENT_SERVER_STARTED
         from opik_mcp.analytics.environment import collect_environment_fingerprint
         from opik_mcp.analytics.identity import install_id_was_freshly_generated
+
         # The other tests in this module patch `analytics.wrappers._client`,
         # but server_started emits via the top-level `track_event` -> singleton
         # path, so we patch `get_analytics` to redirect to the recorder.
-        monkeypatch.setattr(
-            "opik_mcp.analytics.get_analytics", lambda: recorder
-        )
+        monkeypatch.setattr("opik_mcp.analytics.get_analytics", lambda: recorder)
         from opik_mcp.analytics import track_event
-        track_event(EVENT_SERVER_STARTED, {
-            "transport": "stdio",
-            "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
-            **collect_environment_fingerprint(),
-        })
+
+        track_event(
+            EVENT_SERVER_STARTED,
+            {
+                "transport": "stdio",
+                "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+                **collect_environment_fingerprint(),
+            },
+        )
     elif event_name == "opik_mcp_session_initialized":
         from types import SimpleNamespace
 
@@ -416,13 +420,18 @@ def test_new_events_carry_no_forbidden_substring(
             _maybe_emit_session_initialized,
             _reset_seen_sessions_for_tests,
         )
+
         _reset_seen_sessions_for_tests()
+        # Push canaries through EVERY host-controlled string field: name,
+        # clientInfo.version, and protocolVersion. A regression that drops
+        # the bucketing on version fields would surface here.
         client_info = SimpleNamespace(
             name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
-            version="0.1",
+            version="FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
         )
         params = SimpleNamespace(
-            clientInfo=client_info, protocolVersion="2025-06-01",
+            clientInfo=client_info,
+            protocolVersion="FORBIDDEN-CANARY-home-path-5e6f7a8b",
             capabilities=None,
         )
         ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
@@ -437,6 +446,7 @@ def test_new_events_carry_no_forbidden_substring(
             _reset_seen_tools_listed_for_tests,
             install_tools_listed_emitter,
         )
+
         _reset_seen_tools_listed_for_tests()
         mcp = FastMCP("privacy-probe")
 
@@ -444,25 +454,26 @@ def test_new_events_carry_no_forbidden_substring(
         def hi() -> str:
             return "x"
 
-        monkeypatch.setattr(
-            "opik_mcp.analytics.wrappers._client", lambda: recorder
-        )
+        monkeypatch.setattr("opik_mcp.analytics.wrappers._client", lambda: recorder)
         install_tools_listed_emitter(mcp)
         handler = mcp._mcp_server.request_handlers[ListToolsRequest]
         req = ListToolsRequest(method="tools/list")
         anyio.run(handler, req)
 
     elif event_name == "opik_mcp_server_shutdown":
-        from opik_mcp.analytics import EVENT_SERVER_SHUTDOWN, track_event
+        from opik_mcp.analytics import EVENT_SERVER_SHUTDOWN, track_event, transport_probe
         from opik_mcp.analytics.events import bucket_seconds
-        from opik_mcp.analytics import transport_probe
+
         monkeypatch.setattr("opik_mcp.analytics.get_analytics", lambda: recorder)
-        track_event(EVENT_SERVER_SHUTDOWN, {
-            "reason": "clean_exit",
-            "lifespan_seconds_bucket": bucket_seconds(42.0),
-            "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
-            "session_reached": str(transport_probe.session_reached()).lower(),
-        })
+        track_event(
+            EVENT_SERVER_SHUTDOWN,
+            {
+                "reason": "clean_exit",
+                "lifespan_seconds_bucket": bucket_seconds(42.0),
+                "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
+                "session_reached": str(transport_probe.session_reached()).lower(),
+            },
+        )
 
     # An empty recorder would let the canary check pass vacuously, hiding the
     # case where the emit path silently no-ops (e.g. a future regression that
