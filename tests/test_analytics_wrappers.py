@@ -74,39 +74,48 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
 
 
 @pytest.mark.parametrize(
-    "exc, expected_kind",
+    "exc, expected_kind, expected_status",
     [
-        # Auth/permission — subclass must match its specific bucket, NOT parent.
-        # OpikPermissionError extends OpikAuthError but must surface as
-        # "opik_permission_denied" so 403 vs 401 stay distinguishable in BI.
-        (OpikAuthError("x"), "opik_auth_failed"),
-        (OpikPermissionError("x"), "opik_permission_denied"),
-        (OpikNotFoundError("x"), "opik_not_found"),
-        (OpikValidationError("x"), "opik_validation_failed"),
-        (OpikServerError("x"), "opik_http_5xx"),
-        # Comet — same subclass-first contract as Opik.
-        (CometAuthError("x"), "comet_auth_failed"),
-        (CometPermissionError("x"), "comet_permission_denied"),
-        (CometProtocolError("x"), "comet_protocol_error"),
-        # Ollie streaming.
-        (OllieNotEnabledError("x"), "ollie_not_enabled"),
-        (PodNotReadyError("x"), "pod_warmup_timeout"),
-        (OllieAuthError("x"), "ollie_auth_failed"),
-        (OllieStreamError("x"), "ollie_stream_error"),
-        # Config / network / tool-args.
-        (MissingConfigError("x"), "missing_config"),
-        # httpx network errors — common base RequestError covers the family.
-        (httpx.ConnectError("connect refused"), "network_error"),
-        (httpx.ReadTimeout("read timed out"), "network_error"),
-        (httpx.ReadError("read error"), "network_error"),
-        # pydantic validation on tool args.
-        (_build_pydantic_error(), "tool_args_invalid"),
+        # Permission vs. auth: ``OpikPermissionError`` extends ``OpikAuthError``,
+        # so the more-specific class MUST resolve first. A regression that flips
+        # this order would mask every 403 as a 401 in BI.
+        (OpikAuthError("x"), "auth", 401),
+        (OpikPermissionError("x"), "permission", 403),
+        (OpikNotFoundError("x"), "not_found", 404),
+        (OpikValidationError("x"), "validation", 400),
+        (OpikServerError("x"), "upstream_5xx", 500),
+        # Comet hierarchy mirrors Opik's: permission before auth, both class-keyed.
+        (CometAuthError("x"), "auth", 401),
+        (CometPermissionError("x"), "permission", 403),
+        # Control-flow errors that don't map to an upstream status — these
+        # signal "our client gave up before we got a real HTTP response".
+        (CometProtocolError("x"), "unknown", None),
+        (OllieNotEnabledError("x"), "unknown", None),
+        (OllieStreamError("x"), "unknown", None),
+        (MissingConfigError("x"), "unknown", None),
+        # Timeouts: pod warmup timeout and httpx network timeouts both fall in
+        # the "timeout" bucket; httpx.TimeoutException is the family base.
+        (PodNotReadyError("x"), "timeout", None),
+        (httpx.ReadTimeout("read timed out"), "timeout", None),
+        # Network-level failures (no HTTP response received).
+        (OllieAuthError("x"), "auth", None),
+        (httpx.ConnectError("connect refused"), "network", None),
+        (httpx.ReadError("read error"), "network", None),
+        # Validation: typed Opik validation + pydantic argument validation
+        # both land in the same coarse bucket — exception_type lets analytics
+        # distinguish them downstream.
+        (_build_pydantic_error(), "validation", None),
         # Genuine catch-all.
-        (ValueError("x"), "unknown"),
+        (ValueError("x"), "unknown", None),
     ],
 )
 @pytest.mark.anyio
-async def test_error_kind_mapping(recorder: _Recorder, exc: Exception, expected_kind: str) -> None:
+async def test_error_kind_mapping(
+    recorder: _Recorder,
+    exc: Exception,
+    expected_kind: str,
+    expected_status: int | None,
+) -> None:
     @instrument_tool("read")
     async def fn() -> str:
         raise exc
@@ -116,10 +125,41 @@ async def test_error_kind_mapping(recorder: _Recorder, exc: Exception, expected_
     _et, props = recorder.events[0]
     assert props["success"] == "false"
     assert props["error_kind"] == expected_kind
+    # ``exception_type`` carries the granular class name alongside the coarse
+    # bucket so dashboards can drill in without re-introducing per-class kinds.
+    assert props["exception_type"] == type(exc).__name__
+    if expected_status is None:
+        assert "http_status" not in props
+    else:
+        assert props["http_status"] == str(expected_status)
+
+
+@pytest.mark.anyio
+async def test_http_status_error_uses_response_status(recorder: _Recorder) -> None:
+    """``httpx.HTTPStatusError`` carries its status on the response object."""
+    request = httpx.Request("GET", "https://example.invalid/")
+    response = httpx.Response(422, request=request)
+    exc = httpx.HTTPStatusError("unprocessable", request=request, response=response)
+
+    @instrument_tool("read")
+    async def fn() -> str:
+        raise exc
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await fn()
+    _et, props = recorder.events[0]
+    # 422 → 4xx that isn't auth/permission/not-found/timeout → "validation".
+    assert props["error_kind"] == "validation"
+    assert props["http_status"] == "422"
+    assert props["exception_type"] == "HTTPStatusError"
 
 
 @pytest.mark.anyio
 async def test_baseexception_marks_failure_without_error_kind(recorder: _Recorder) -> None:
+    """Non-``Exception`` ``BaseException`` (KeyboardInterrupt, SystemExit) is
+    bucketing-exempt: only the class name surfaces on ``exception_type`` so the
+    cancellation/error_kind contract isn't muddied by VM-level interrupts."""
+
     @instrument_tool("hello")
     async def fn() -> str:
         raise KeyboardInterrupt
@@ -129,6 +169,8 @@ async def test_baseexception_marks_failure_without_error_kind(recorder: _Recorde
     _, props = recorder.events[0]
     assert props["success"] == "false"
     assert "error_kind" not in props
+    assert props["exception_type"] == "KeyboardInterrupt"
+    assert "http_status" not in props
 
 
 @pytest.mark.anyio
@@ -145,6 +187,8 @@ async def test_cancelled_error_sets_error_kind_cancelled(recorder: _Recorder) ->
     _, props = recorder.events[0]
     assert props["success"] == "false"
     assert props["error_kind"] == "cancelled"
+    assert props["exception_type"] == "CancelledError"
+    assert "http_status" not in props
 
 
 @pytest.mark.anyio

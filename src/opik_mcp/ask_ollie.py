@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from opik_mcp import audit
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED, bucket_count
+from opik_mcp.analytics.errors import bucket_exception
 from opik_mcp.comet_client import CometClient, PodDiscovery
 from opik_mcp.config import Settings, get_settings, require_ollie_config
 from opik_mcp.elicitation import confirm_with_user
@@ -206,6 +207,12 @@ async def run_ask_ollie(
     errored = False
     saw_message_end = False
     cancelled = False
+    # Initialize the error-emit locals so the finally clause can reference
+    # them on the happy path without UnboundLocalError. The except arm
+    # below assigns real values when ``errored`` flips to True.
+    error_kind: str = "unknown"
+    error_exception_type: str = ""
+    error_upstream_code: Any = None
 
     try:
         settings = settings or get_settings()
@@ -578,7 +585,13 @@ async def run_ask_ollie(
                                 if isinstance(raw_message, str) and raw_message
                                 else "Unknown pod error"
                             )
-                            raise OllieStreamError(message)
+                            # ``code`` is an optional structured field on the SSE
+                            # error frame. Captured here (str only, length-capped
+                            # at the bucketing layer) so analytics can group
+                            # upstream failures without leaking the message.
+                            raw_code = payload.get("code")
+                            upstream_code = raw_code if isinstance(raw_code, str) else None
+                            raise OllieStreamError(message, upstream_code=upstream_code)
 
                         elif evt == "message_end":
                             saw_message_end = True
@@ -657,32 +670,44 @@ async def run_ask_ollie(
             cancelled = True
         else:
             errored = True
+            # Stash class + bucketed kind here so the finally block can
+            # emit them without needing to read sys.exc_info(). Privacy:
+            # class-name and class-keyed bucket only — exc.args is never
+            # read at any emit site.
+            error_exception_type = type(exc).__name__
+            error_kind = bucket_exception(exc) if isinstance(exc, Exception) else "unknown"
+            error_upstream_code = getattr(exc, "upstream_code", None)
         raise
     finally:
         ttfe_ms: int = int((first_event_at - t0) * 1000) if first_event_at is not None else -1
+        props: dict[str, str] = {
+            "success": "false" if errored else "true",
+            "total_duration_ms": str(int((time.monotonic() - t0) * 1000)),
+            "pod_warmup_ms": str(pod_warmup_ms),
+            "time_to_first_event_ms": str(ttfe_ms),
+            "event_count": str(events_seen),
+            "had_continuation": str(thread_id is not None).lower(),
+            "had_page_context": str(page_context is not None).lower(),
+            "had_project_name": str(project_name is not None).lower(),
+            "attach_resources_count": bucket_count(len(attach_resources or [])),
+            "completion_state": _completion_state(
+                saw_message_end=saw_message_end,
+                cancelled=cancelled,
+                errored=errored,
+            ),
+            "auto_approvals_count": str(len(auto_approval_details)),
+            "auto_approval_tools": ",".join(sorted({t for t, _ in auto_approval_details if t})),
+        }
+        if errored:
+            props["error_kind"] = error_kind
+            props["exception_type"] = error_exception_type
+            if isinstance(error_upstream_code, str) and error_upstream_code:
+                # Length-cap as a defense against a misbehaving pod that
+                # stamps a long string into ``code``. 64 chars is enough
+                # for every legitimate code we ship while staying well
+                # under any plausible PII leak.
+                props["upstream_error_code"] = error_upstream_code[:64]
         try:
-            _analytics().track_event(
-                EVENT_ASK_OLLIE_COMPLETED,
-                {
-                    "success": "false" if errored else "true",
-                    "total_duration_ms": str(int((time.monotonic() - t0) * 1000)),
-                    "pod_warmup_ms": str(pod_warmup_ms),
-                    "time_to_first_event_ms": str(ttfe_ms),
-                    "event_count": str(events_seen),
-                    "had_continuation": str(thread_id is not None).lower(),
-                    "had_page_context": str(page_context is not None).lower(),
-                    "had_project_name": str(project_name is not None).lower(),
-                    "attach_resources_count": bucket_count(len(attach_resources or [])),
-                    "completion_state": _completion_state(
-                        saw_message_end=saw_message_end,
-                        cancelled=cancelled,
-                        errored=errored,
-                    ),
-                    "auto_approvals_count": str(len(auto_approval_details)),
-                    "auto_approval_tools": ",".join(
-                        sorted({t for t, _ in auto_approval_details if t})
-                    ),
-                },
-            )
+            _analytics().track_event(EVENT_ASK_OLLIE_COMPLETED, props)
         except Exception:
             logger.debug("ask_ollie_completed emit failed", exc_info=True)
