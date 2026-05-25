@@ -41,3 +41,30 @@ def _detect_pipe_signals() -> dict[str, str]:
         "stdin_is_pipe": str(not sys.stdin.isatty()).lower(),
         "stdout_is_pipe": str(not sys.stdout.isatty()).lower(),
     }
+
+
+# Container detection. Linux-only — /proc/1/cgroup doesn't exist on
+# macOS/Windows and detection there is unreliable (Lima/OrbStack don't all
+# leak signals). Emit "unknown" rather than misleading "false".
+#
+# Paths are module-level so tests can monkeypatch them. The token set is
+# intentionally small: matches the three most common container substrates
+# (Docker, containerd via cgroup v1 names, Kubernetes pod controller paths).
+_DOCKERENV_PATH = "/.dockerenv"
+_CGROUP_PATH = "/proc/1/cgroup"
+_CONTAINER_TOKENS = ("docker", "containerd", "kubepods")
+
+
+def _detect_container() -> str:
+    if sys.platform != "linux":
+        return "unknown"
+    try:
+        if os.path.exists(_DOCKERENV_PATH):
+            return "true"
+        with open(_CGROUP_PATH, encoding="utf-8") as f:
+            data = f.read().lower()
+        return "true" if any(tok in data for tok in _CONTAINER_TOKENS) else "false"
+    except OSError:
+        # /proc/1/cgroup unreadable (rare — e.g. minimal init namespaces).
+        # Best-effort: "false" rather than failing the emit.
+        return "false"

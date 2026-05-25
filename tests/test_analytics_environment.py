@@ -60,3 +60,56 @@ def test_detect_pipe_signals_returns_two_booleans(monkeypatch) -> None:
     assert set(out.keys()) == {"stdin_is_pipe", "stdout_is_pipe"}
     for v in out.values():
         assert v in {"true", "false"}
+
+
+# --- container detection ------------------------------------------------- #
+
+
+def test_detect_container_unknown_on_non_linux(monkeypatch) -> None:
+    """macOS/Windows: /proc/1/cgroup doesn't exist; emit 'unknown' not 'false'."""
+    monkeypatch.setattr(env.sys, "platform", "darwin")
+    assert env._detect_container() == "unknown"
+
+
+def test_detect_container_true_when_dockerenv_exists(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    fake_dockerenv = tmp_path / ".dockerenv"
+    fake_dockerenv.touch()
+    monkeypatch.setattr(env, "_DOCKERENV_PATH", str(fake_dockerenv))
+    monkeypatch.setattr(env, "_CGROUP_PATH", str(tmp_path / "no-such-file"))
+    assert env._detect_container() == "true"
+
+
+def test_detect_container_true_when_cgroup_mentions_docker(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    cgroup = tmp_path / "cgroup"
+    cgroup.write_text("12:cpu:/docker/abc123\n")
+    monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
+    monkeypatch.setattr(env, "_CGROUP_PATH", str(cgroup))
+    assert env._detect_container() == "true"
+
+
+def test_detect_container_true_when_cgroup_mentions_kubepods(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    cgroup = tmp_path / "cgroup"
+    cgroup.write_text("12:memory:/kubepods/burstable/podabc/xyz\n")
+    monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
+    monkeypatch.setattr(env, "_CGROUP_PATH", str(cgroup))
+    assert env._detect_container() == "true"
+
+
+def test_detect_container_false_on_bare_linux(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    cgroup = tmp_path / "cgroup"
+    cgroup.write_text("12:cpu:/user.slice/user-1000.slice\n")
+    monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
+    monkeypatch.setattr(env, "_CGROUP_PATH", str(cgroup))
+    assert env._detect_container() == "false"
+
+
+def test_detect_container_false_when_cgroup_unreadable(monkeypatch, tmp_path) -> None:
+    """Unreadable cgroup file MUST NOT raise; emits 'false' (best-effort)."""
+    monkeypatch.setattr(env.sys, "platform", "linux")
+    monkeypatch.setattr(env, "_DOCKERENV_PATH", str(tmp_path / "missing"))
+    monkeypatch.setattr(env, "_CGROUP_PATH", "/proc/nonexistent/cgroup-7f4a")
+    assert env._detect_container() == "false"
