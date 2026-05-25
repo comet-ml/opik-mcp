@@ -341,6 +341,252 @@ async def test_list_props_emits_had_name_filter_false_when_absent(
     assert props["had_name_filter"] == "false"
 
 
+# --- failure paths: error_kind / exception_type / http_status MUST be bucketed -- #
+#
+# When a tool raises, the wrapper emits ``error_kind`` + ``exception_type`` (+
+# optional ``http_status``). The privacy contract says NONE of those props may
+# embed the exception message — only the class-keyed bucket, the class name
+# itself, and a numeric status. These tests stuff canary substrings into the
+# exception message and assert they never surface in the analytics payload.
+
+
+class _CanaryAuthError(Exception):
+    """Stand-in for an Opik 401 carrying a PII-shaped message body."""
+
+
+@pytest.mark.anyio
+async def test_tool_called_failure_strips_exception_message(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tool that raises with a PII-shaped message MUST NOT surface that
+    text in the analytics event — only the class-keyed bucket and class name.
+    Drives ``server.read`` so ``_read_props`` + the wrapper's error-emit arm
+    both execute on the real tool surface."""
+    from opik_mcp import server
+    from opik_mcp.opik_client import OpikAuthError
+
+    canary = "raw-error-message-UNIQUE-CANARY-7e1f2a3b"
+
+    async def _raise(**_kw: Any) -> str:
+        raise OpikAuthError(canary)
+
+    monkeypatch.setattr("opik_mcp.server.run_read", _raise)
+
+    with pytest.raises(OpikAuthError):
+        await server.read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
+
+    # Canary must not appear anywhere in the recorded payload.
+    payload = json.dumps(recorder.events)
+    assert canary not in payload, (
+        f"PRIVACY BREACH: raw exception message {canary!r} leaked into analytics"
+    )
+    props = _tool_called(recorder.events)
+    assert props["success"] == "false"
+    assert props["error_kind"] == "auth"
+    assert props["exception_type"] == "OpikAuthError"
+    assert props["http_status"] == "401"
+    # Defense in depth: even an http_status of "401" must not be confused
+    # with a PII substring leak — the props_fn must not have populated
+    # anything that contains "raw-error-message".
+    for v in props.values():
+        assert "UNIQUE-CANARY" not in v
+
+
+@pytest.mark.anyio
+async def test_tool_called_failure_unknown_class_uses_class_name_only(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A custom Exception class falls through to ``error_kind=unknown``. The
+    only granular signal is ``exception_type`` (the class name), which is
+    fixed by the class declaration — never an attacker-controlled string."""
+    from opik_mcp import server
+
+    canary = "unknown-class-message-UNIQUE-CANARY-c4d5e6f7"
+
+    async def _raise(**_kw: Any) -> str:
+        raise _CanaryAuthError(canary)
+
+    monkeypatch.setattr("opik_mcp.server.run_read", _raise)
+
+    with pytest.raises(_CanaryAuthError):
+        await server.read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
+
+    payload = json.dumps(recorder.events)
+    assert canary not in payload
+    props = _tool_called(recorder.events)
+    assert props["error_kind"] == "unknown"
+    assert props["exception_type"] == "_CanaryAuthError"
+    assert "http_status" not in props
+
+
+class _CanaryOllieClient:
+    """``_OllieClientProto`` fake that fires an SSE ``error`` frame whose
+    ``message`` field is a unique canary. Used to verify the pod's error
+    message never reaches the ``ask_ollie_completed`` analytics event."""
+
+    canary_message: str = "ollie-stream-error-UNIQUE-CANARY-9a8b7c6d"
+    canary_code: str = "rate_limited_canary_UNIQUE-2f3e4d5c"
+
+    async def wait_ready(
+        self, compute_url: str, ppauth: str, *, on_tick: OnTick | None = None
+    ) -> None:
+        pass
+
+    async def create_session(
+        self, compute_url: str, ppauth: str, workspace: str, body: dict[str, Any]
+    ) -> str:
+        return "sess-canary"
+
+    def stream_events(
+        self,
+        compute_url: str,
+        ppauth: str,
+        workspace: str,
+        session_id: str,
+        *,
+        last_event_id: int | None = None,
+    ) -> AsyncIterator[SSEEvent]:
+        return self._error_iter()
+
+    async def _error_iter(self) -> AsyncIterator[SSEEvent]:
+        yield SSEEvent(
+            event="error",
+            data={"payload": {"message": self.canary_message, "code": self.canary_code}},
+        )
+
+    async def confirm_session(
+        self,
+        compute_url: str,
+        ppauth: str,
+        workspace: str,
+        session_id: str,
+        *,
+        tool_use_id: str,
+        decision: str,
+    ) -> None:
+        pass
+
+
+@pytest.mark.anyio
+async def test_ask_ollie_failure_strips_stream_error_message(recorder: _Recorder) -> None:
+    """A pod-side SSE ``error`` frame carries a free-text ``message`` plus
+    an optional structured ``code``. The completed event MUST surface only
+    the coarse bucket + class name + (length-capped) code — never the
+    message body."""
+    from opik_mcp.ask_ollie import run_ask_ollie
+    from opik_mcp.config import Settings
+    from opik_mcp.ollie_client import OllieStreamError
+
+    fake = _CanaryOllieClient()
+    with pytest.raises(OllieStreamError):
+        await run_ask_ollie(
+            query="placeholder-query",
+            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
+            comet_client=_FakeComet(),
+            ollie_client=fake,
+        )
+
+    payload = json.dumps(recorder.events)
+    assert fake.canary_message not in payload, (
+        f"PRIVACY BREACH: pod error message {fake.canary_message!r} leaked into analytics"
+    )
+
+    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
+    assert completed, "ask_ollie must emit a completed event on the error path"
+    props = completed[0]
+    assert props["completion_state"] == "error"
+    assert props["error_kind"] == "unknown"
+    assert props["exception_type"] == "OllieStreamError"
+    # ``code`` IS allowlisted into analytics (length-capped) — it's the one
+    # field pod authors are expected to keep enum-shaped. The test passes
+    # an obviously-not-PII canary to confirm the wire-up; downstream BI is
+    # the place to enforce the actual enum.
+    assert props["upstream_error_code"] == fake.canary_code[:64]
+
+
+class _LongCodeOllieClient(_CanaryOllieClient):
+    """Same canary stream as ``_CanaryOllieClient`` but with a code field
+    longer than the 64-char cap. Used to verify the length-cap actually
+    fires (the base class's canary is only 36 chars long, which would
+    pass the assertion even if the slicing were removed)."""
+
+    # 100 chars — comfortably over the 64-char cap. The trailing canary
+    # tail (positions 64..) must be sliced off; if it appears in props,
+    # the cap regressed.
+    canary_code: str = "x" * 64 + "TAIL-MUST-BE-CHOPPED-UNIQUE-CANARY-d4e5f6a7"
+
+
+@pytest.mark.anyio
+async def test_ask_ollie_failure_caps_upstream_error_code_at_64_chars(
+    recorder: _Recorder,
+) -> None:
+    """Production cap at ``ask_ollie.py``: ``upstream_error_code`` MUST be
+    truncated to 64 chars before emit. Pod-controlled field — without the
+    cap, a misbehaving pod could stamp arbitrary text into ``code`` and
+    smuggle it past the message-stripping privacy contract."""
+    from opik_mcp.ask_ollie import run_ask_ollie
+    from opik_mcp.config import Settings
+    from opik_mcp.ollie_client import OllieStreamError
+
+    fake = _LongCodeOllieClient()
+    assert len(fake.canary_code) > 64  # guard the test itself
+
+    with pytest.raises(OllieStreamError):
+        await run_ask_ollie(
+            query="placeholder-query",
+            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
+            comet_client=_FakeComet(),
+            ollie_client=fake,
+        )
+
+    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
+    assert completed
+    code = completed[0]["upstream_error_code"]
+    assert len(code) == 64, f"expected 64-char cap, got len={len(code)}: {code!r}"
+    assert code == fake.canary_code[:64]
+    # The truncated tail must not appear anywhere in the recorded payload —
+    # if it does, the cap fired but something else (a duplicate field,
+    # a log line, etc.) is still leaking the raw value.
+    payload = json.dumps(recorder.events)
+    assert "TAIL-MUST-BE-CHOPPED" not in payload
+
+
+@pytest.mark.anyio
+async def test_ask_ollie_failure_typed_exception_bucketed_correctly(
+    recorder: _Recorder,
+) -> None:
+    """A typed pod-discovery failure (``CometPermissionError``) must surface
+    as ``error_kind=permission`` even when the exception message is PII."""
+    from opik_mcp.ask_ollie import run_ask_ollie
+    from opik_mcp.comet_client import CometPermissionError
+    from opik_mcp.config import Settings
+
+    canary = "comet-permission-message-UNIQUE-CANARY-5e6f7a8b"
+
+    class _PermissionComet:
+        async def discover_pod(self, workspace: str) -> PodDiscovery:
+            raise CometPermissionError(canary)
+
+    with pytest.raises(CometPermissionError):
+        await run_ask_ollie(
+            query="placeholder-query",
+            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
+            comet_client=_PermissionComet(),
+            ollie_client=_FakeOllie(),
+        )
+
+    payload = json.dumps(recorder.events)
+    assert canary not in payload
+    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
+    assert completed
+    props = completed[0]
+    assert props["completion_state"] == "error"
+    assert props["error_kind"] == "permission"
+    assert props["exception_type"] == "CometPermissionError"
+    # No SSE error frame on this path → no upstream_error_code.
+    assert "upstream_error_code" not in props
+
+
 # --- helpers -------------------------------------------------------------- #
 
 
