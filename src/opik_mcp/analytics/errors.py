@@ -19,9 +19,11 @@ We still need special-case branches for:
   ``httpx.HTTPStatusError`` (status comes from the response), other
   ``httpx`` network errors, and ``pydantic.ValidationError``.
 
-PRIVACY: every public function in this module keys off the exception CLASS
-only — never on ``exc.args`` / ``str(exc)`` / response body. The contract
-is machine-checked by ``tests/test_analytics_privacy.py``.
+PRIVACY: public functions never read ``exc.args`` / ``str(exc)`` / response
+body. Classification is class-level (ClassVar reads) plus a tightly-scoped
+whitelist of integer-only instance fields: ``httpx.Response.status_code``
+and ``BackendError.extra["backend_error"]["status"]``. The contract is
+machine-checked by ``tests/test_analytics_privacy.py``.
 """
 
 from __future__ import annotations
@@ -118,6 +120,7 @@ def _class_attr(exc: BaseException, name: str) -> Any:
     set as ``ClassVar``. Avoids accidentally treating a stray instance attr
     (potentially smuggled in from user-controlled data on some future class)
     as a taxonomy signal.
+    (Instance reads are handled separately by ``_instance_http_status``.)
     """
     value = getattr(type(exc), name, None)
     return value

@@ -578,6 +578,9 @@ def _backend_error(status: int) -> BackendError:
 @pytest.mark.parametrize(
     "status, expected_bucket, expected_http",
     [
+        # status=0 is malformed/absent; routed safely via bucket_http_status → "unknown".
+        # Pins the ``is not None`` guard intent so falsy-zero refactors fail loudly.
+        (0, "unknown", 0),
         (401, "auth", 401),
         (403, "permission", 403),
         (404, "not_found", 404),
