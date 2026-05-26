@@ -42,8 +42,10 @@ def run_schema(operation: str) -> dict[str, Any]:
         # Mirror the structured envelope ``write`` raises so callers get
         # the same recovery surface (``valid_operations`` + fuzzy
         # ``did_you_mean``) on either tool — no asymmetric error shapes
-        # for the model to learn.
-        raise ToolError(UnknownOperationError.build(operation, WRITE_OPERATIONS).to_json())
+        # for the model to learn. The ``from err`` chain lets analytics
+        # unwrap to the typed cause and bucket as validation/400.
+        err = UnknownOperationError.build(operation, WRITE_OPERATIONS)
+        raise ToolError(err.to_json()) from err
     return {
         "operation": op.name,
         "schema": op.pydantic_model.model_json_schema(),

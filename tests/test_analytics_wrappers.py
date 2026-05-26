@@ -929,3 +929,42 @@ async def test_sentry_captures_non_user_side_failures_through_tool_error_wrapper
     assert isinstance(captured_exc, ToolError)
     # But the bucket tag reflects the unwrapped cause.
     assert tags["error_kind"] == expected_kind
+
+
+# --- End-to-end: BackendError instance-status routing -------------------- #
+
+
+@pytest.mark.anyio
+async def test_instrument_tool_buckets_backend_error_by_instance_status(
+    recorder: _Recorder,
+) -> None:
+    """End-to-end: a write tool failure surfaced as ``ToolError`` chained
+    from ``BackendError(status=503)`` must emit ``error_kind="upstream_5xx"``,
+    ``http_status="503"``, ``cause_type="BackendError"`` — verifying the
+    _instance_http_status helper is reachable from the wrapper layer.
+
+    The per-layer unit tests pin bucket_exception and the wrapper separately;
+    this test is the unique end-to-end seam that catches a regression where
+    the helper's call site shifts (e.g. moves below the ClassVar lookup
+    again) and the bucket silently collapses to "unknown"."""
+    from opik_mcp.writes.errors import BackendError
+
+    @instrument_tool("write")
+    async def fake_write(**kwargs: object) -> dict[str, object]:
+        cause = BackendError.build(
+            "trace.create", 503, {"detail": "down"}, method="POST", path="/v1/private/traces"
+        )
+        raise ToolError(cause.to_json()) from cause
+
+    with pytest.raises(ToolError):
+        await fake_write()
+
+    assert len(recorder.events) == 1
+    name, props = recorder.events[0]
+    assert name == EVENT_TOOL_CALLED
+    assert props["tool_name"] == "write"
+    assert props["success"] == "false"
+    assert props["error_kind"] == "upstream_5xx"
+    assert props["http_status"] == "503"
+    assert props["exception_type"] == "ToolError"
+    assert props["cause_type"] == "BackendError"

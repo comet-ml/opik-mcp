@@ -19,9 +19,11 @@ We still need special-case branches for:
   ``httpx.HTTPStatusError`` (status comes from the response), other
   ``httpx`` network errors, and ``pydantic.ValidationError``.
 
-PRIVACY: every public function in this module keys off the exception CLASS
-only — never on ``exc.args`` / ``str(exc)`` / response body. The contract
-is machine-checked by ``tests/test_analytics_privacy.py``.
+PRIVACY: public functions never read ``exc.args`` / ``str(exc)`` / response
+body. Classification is class-level (ClassVar reads) plus a tightly-scoped
+whitelist of integer-only instance fields: ``httpx.Response.status_code``
+and ``BackendError.extra["backend_error"]["status"]``. The contract is
+machine-checked by ``tests/test_analytics_privacy.py``.
 """
 
 from __future__ import annotations
@@ -34,6 +36,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from opik_mcp.error_kinds import ErrorKind
 from opik_mcp.ollie_client import OllieStreamError
+from opik_mcp.writes.errors import BackendError
 
 # Re-export so existing call sites (and downstream readers) keep their
 # ``from opik_mcp.analytics.errors import ErrorKind`` import working.
@@ -117,24 +120,53 @@ def _class_attr(exc: BaseException, name: str) -> Any:
     set as ``ClassVar``. Avoids accidentally treating a stray instance attr
     (potentially smuggled in from user-controlled data on some future class)
     as a taxonomy signal.
+    (Instance reads are handled separately by ``_instance_http_status``.)
     """
     value = getattr(type(exc), name, None)
     return value
 
 
+def _instance_http_status(real: BaseException) -> int | None:
+    """Return the upstream HTTP status for classes that carry it on the
+    instance, else ``None``.
+
+    Two classes need this instance-level read:
+    - ``httpx.HTTPStatusError``: status on ``.response.status_code``. Third
+      party, can't add a ClassVar.
+    - ``BackendError`` (write tool): status on ``.extra["backend_error"]
+      ["status"]``. Ours, but each instance wraps a different upstream
+      status — a ClassVar would lock the bucket to one value.
+
+    Treating them as the same pattern lets ``bucket_exception`` route both
+    via the same arm before any ClassVar lookup.
+
+    PRIVACY: integer-only instance reads, parallel to one another. No
+    message text or response body is inspected.
+    """
+    if isinstance(real, httpx.HTTPStatusError):
+        return real.response.status_code
+    if isinstance(real, BackendError):
+        status = real.extra.get("backend_error", {}).get("status")
+        if isinstance(status, int):
+            return status
+    return None
+
+
 def derive_http_status(exc: BaseException) -> int | None:
     """Return the canonical HTTP status for a typed exception, else ``None``.
 
-    Reads ``type(exc).http_status`` — the ClassVar each typed Opik/Comet/
-    Ollie exception declares. ``httpx.HTTPStatusError`` is handled
-    specially because the status lives on the response, not the class.
-
-    Unwraps through pure-envelope wrappers (``ToolError``, ``OllieStreamError``)
-    so a ``ToolError`` carrying an ``OpikAuthError`` still resolves to 401.
+    Resolution order:
+    1. Unwrap pure-envelope wrappers (``ToolError`` / ``OllieStreamError``)
+       to the real cause.
+    2. Try the instance-level status (``_instance_http_status``) — httpx
+       responses and ``BackendError.extra`` both vary per call.
+    3. Fall back to ``type(real).http_status`` (the ClassVar each typed
+       Opik/Comet/Ollie/Write exception declares).
     """
     real = unwrap_to_real_cause(exc)
-    if isinstance(real, httpx.HTTPStatusError):
-        return real.response.status_code
+    instance_status = _instance_http_status(real)
+    if instance_status is not None:
+        return instance_status
     status = _class_attr(real, "http_status")
     return status if isinstance(status, int) else None
 
@@ -160,10 +192,13 @@ def bucket_http_status(status: int) -> ErrorKind:
     return "unknown"
 
 
-# Buckets for non-controllable classes we can't put a ClassVar on. Ordered
-# subclass-first by virtue of how the function reads them. ``httpx`` is the
-# only third-party hierarchy we route on; pydantic gets a single match.
 def _bucket_external(real: BaseException) -> ErrorKind | None:
+    """Bucket external classes we can't annotate with ClassVars.
+
+    Status-bearing classes (``httpx.HTTPStatusError``, ``BackendError``) are
+    handled earlier in ``bucket_exception`` via ``_instance_http_status``; by
+    the time control reaches here, ``real`` is a non-status external class.
+    """
     if isinstance(real, PydanticValidationError):
         return "validation"
     # ``httpx.TimeoutException`` is the base for connect/read/write/pool
@@ -171,8 +206,6 @@ def _bucket_external(real: BaseException) -> ErrorKind | None:
     # ``ReadTimeout`` lands in ``timeout``, not ``network``.
     if isinstance(real, httpx.TimeoutException):
         return "timeout"
-    if isinstance(real, httpx.HTTPStatusError):
-        return bucket_http_status(real.response.status_code)
     if isinstance(real, httpx.RequestError):
         return "network"
     return None
@@ -184,22 +217,27 @@ def bucket_exception(exc: BaseException, http_status: int | None = None) -> Erro
     Resolution order:
     1. Unwrap pure-envelope wrappers (``ToolError`` / ``OllieStreamError``)
        to the real upstream cause.
-    2. Read ``type(real).error_kind`` if our codebase declared one (every
-       typed Opik/Comet/Ollie/Pod/Config exception does).
-    3. Special-case external hierarchies we can't annotate
-       (``httpx`` / ``pydantic``).
-    4. Caller-supplied ``http_status`` (lets a future tool surface a 422-
+    2. Instance-level status (``_instance_http_status``) — httpx responses
+       and ``BackendError`` carry the status on instance state that varies
+       per call; this arm runs BEFORE the ClassVar lookup so the per-call
+       status wins over any class-level fallback.
+    3. Class-level taxonomy (``type(real).error_kind``) — every typed
+       Opik/Comet/Ollie/Write exception declares this ClassVar.
+    4. Special-case external hierarchies we can't annotate (``pydantic``,
+       non-status ``httpx`` errors).
+    5. Caller-supplied ``http_status`` (lets a future tool surface a 422-
        style validation error via return value rather than raise).
-    5. Fall through to ``"unknown"``.
+    6. Fall through to ``"unknown"``.
 
-    PRIVACY: never reads ``exc.args`` / ``str(exc)``. The ``getattr`` reads
-    a class-level ClassVar; the unwrap inspects ``__cause__`` / ``__context__``
-    references, not their messages.
+    PRIVACY: never reads ``exc.args`` / ``str(exc)``. The ClassVar read is
+    class-level; the instance-status read is integer-only and the unwrap
+    inspects ``__cause__`` / ``__context__`` references, not their messages.
     """
     real = unwrap_to_real_cause(exc)
+    instance_status = _instance_http_status(real)
+    if instance_status is not None:
+        return bucket_http_status(instance_status)
     kind = _class_attr(real, "error_kind")
-    # The ClassVar is bound to ``ErrorKind`` (a Literal) in every declaring
-    # class, so a string at this point IS one of the allowlist values.
     if isinstance(kind, str):
         return kind  # type: ignore[return-value]
     external = _bucket_external(real)

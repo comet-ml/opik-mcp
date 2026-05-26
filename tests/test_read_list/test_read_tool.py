@@ -13,6 +13,7 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.opik_client import OpikNotFoundError
+from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.read_tool import run_read
 
 
@@ -196,6 +197,7 @@ async def test_read_project_by_ambiguous_name_lists_candidates() -> None:
     assert "Multiple projects match" in str(exc.value)
     assert "p-1" in str(exc.value)
     assert "p-2" in str(exc.value)
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
 
 
 @pytest.mark.anyio
@@ -256,3 +258,27 @@ async def test_read_respects_max_tokens() -> None:
     fake = FakeOpikClient(projects_by_id={UUID: {"id": UUID, "blob": "x" * 50_000}})
     out = await run_read("project", UUID, max_tokens=100, client=fake)
     assert "compression=MEDIUM" in out
+
+
+# --- exception chain assertions ------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_read_list_only_entity_chains_typed_cause() -> None:
+    """``read('test_suite_item', '<uuid>')`` — list-only entity surfaced as
+    ToolError chained from EntityArgValidationError so the analytics wrapper
+    buckets it as validation/400 instead of unknown."""
+    with pytest.raises(ToolError) as ei:
+        await run_read("test_suite_item", "00000000-0000-0000-0000-000000000000")
+
+    assert isinstance(ei.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_read_invalid_entity_type_chains_typed_cause() -> None:
+    """``read('not_real', '<uuid>')`` — invalid entity_type chained from
+    EntityArgValidationError so the bucket is validation/400, not unknown."""
+    with pytest.raises(ToolError) as ei:
+        await run_read("not_real", "00000000-0000-0000-0000-000000000000")
+
+    assert isinstance(ei.value.__cause__, EntityArgValidationError)

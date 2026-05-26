@@ -35,6 +35,16 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.uri import InvalidURI
+from opik_mcp.writes.errors import (
+    AuthorizationDeniedError,
+    BackendError,
+    BatchTooLargeError,
+    UnknownOperationError,
+    ValidationFailedError,
+    WriteError,
+)
 
 
 def _pydantic_error() -> PydanticValidationError:
@@ -230,6 +240,22 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     (CometProtocolError, "unknown", None),
     (PodNotReadyError, "timeout", None),
     (MissingConfigError, "unknown", None),
+    # Write-tool envelope: base "unknown" since concrete code never raises bare
+    # WriteError; each live subclass shadows the bucket.
+    (WriteError, "unknown", None),
+    (UnknownOperationError, "validation", 400),
+    (ValidationFailedError, "validation", 400),
+    (AuthorizationDeniedError, "permission", 403),
+    # BackendError ClassVars are fallbacks; the real bucket comes from the
+    # instance.extra status — covered by a dedicated test block in Task 2.
+    (BackendError, "unknown", None),
+    (BatchTooLargeError, "validation", 400),
+    (InvalidURI, "validation", 400),
+    (EntityArgValidationError, "validation", 400),
+    # NOTE: BatchPartialFailureError intentionally omitted — never raised in
+    # the codebase. Adding a ClassVar would expose us to a Sentry-firing edge
+    # case ("unknown" is not in _USER_SIDE_ERROR_KINDS) for a class that
+    # currently produces zero events. Revisit when the first raise site lands.
 )
 
 
@@ -531,3 +557,91 @@ def test_bucket_exception_unwrap_does_not_read_message() -> None:
         ValueError("would-be-unknown"),
     )
     assert bucket_exception(chain) == "unknown"
+
+
+# --- BackendError instance-status routing -------------------------------- #
+#
+# Unlike every other typed exception, BackendError's bucket depends on the
+# upstream HTTP status it received — that status lives on instance.extra,
+# not a ClassVar. The classifier reads it via _instance_http_status, the
+# same helper that handles httpx.HTTPStatusError. Privacy contract preserved:
+# we read an integer status, never the response body or error message.
+
+
+def _backend_error(status: int) -> BackendError:
+    """Build a real BackendError instance with the given upstream status."""
+    return BackendError.build(
+        operation="trace.create",
+        status=status,
+        body={"detail": "synthetic"},
+        method="POST",
+        path="/v1/private/traces",
+    )
+
+
+@pytest.mark.parametrize(
+    "status, expected_bucket, expected_http",
+    [
+        # status=0 is malformed/absent; routed safely via bucket_http_status → "unknown".
+        # Pins the ``is not None`` guard intent so falsy-zero refactors fail loudly.
+        (0, "unknown", 0),
+        (401, "auth", 401),
+        (403, "permission", 403),
+        (404, "not_found", 404),
+        (408, "timeout", 408),
+        (422, "validation", 422),
+        (429, "validation", 429),
+        (500, "upstream_5xx", 500),
+        (502, "upstream_5xx", 502),
+        (503, "upstream_5xx", 503),
+        (504, "timeout", 504),
+    ],
+)
+def test_backend_error_instance_status_routes_bucket(
+    status: int, expected_bucket: str, expected_http: int
+) -> None:
+    """BackendError(status=X) must bucket the same as bucket_http_status(X)
+    and derive_http_status must surface the wire status. The classifier reads
+    the instance status BEFORE the ClassVar fallback, so the "unknown"
+    ClassVar never wins for an instance with a valid extra payload."""
+    exc = _backend_error(status)
+    assert bucket_exception(exc) == expected_bucket
+    assert derive_http_status(exc) == expected_http
+
+
+def test_backend_error_through_tool_error_chain() -> None:
+    """The production raise path: write_tool wraps BackendError in ToolError
+    via ``raise ToolError(we.to_json()) from we``. The unwrap must surface
+    the BackendError, and the instance-status branch must route the bucket."""
+    chain = _raise_chain(ToolError("backend rejected"), _backend_error(503))
+    assert bucket_exception(chain) == "upstream_5xx"
+    assert derive_http_status(chain) == 503
+
+
+def test_invalid_uri_through_tool_error_chain() -> None:
+    """read_tool.py raises ``ToolError(str(e)) from InvalidURI(...)`` — the
+    unwrap surfaces the typed cause and the ClassVars set the bucket."""
+    chain = _raise_chain(ToolError("bad uri"), InvalidURI("opik://nope/x"))
+    assert bucket_exception(chain) == "validation"
+    assert derive_http_status(chain) == 400
+
+
+def test_entity_arg_validation_error_through_tool_error_chain() -> None:
+    """list_tool / read_tool wrap ``EntityArgValidationError`` in ``ToolError``
+    when the caller passes an unknown entity_type or omits a required parent
+    id — the unwrap must reach it and bucket as validation/400."""
+    chain = _raise_chain(
+        ToolError("user-facing"),
+        EntityArgValidationError("Cannot list 'wat'. Listable types: ..."),
+    )
+    assert bucket_exception(chain) == "validation"
+    assert derive_http_status(chain) == 400
+
+
+def test_backend_error_without_extra_status_falls_back_to_classvar() -> None:
+    """A BackendError missing the extra payload (e.g. constructed by hand in
+    a test, or a future refactor that forgets the status) falls back to the
+    ClassVar — "unknown" / None — rather than crashing the classifier."""
+    bare = BackendError(operation="trace.create")
+    assert bucket_exception(bare) == "unknown"
+    assert derive_http_status(bare) is None

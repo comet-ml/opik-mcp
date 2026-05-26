@@ -21,11 +21,19 @@ toward the ``list`` tool — ``read`` is for singletons.
 from __future__ import annotations
 
 import re
-from typing import NamedTuple
+from typing import ClassVar, NamedTuple
+
+from opik_mcp.error_kinds import ErrorKind
 
 
 class InvalidURI(ValueError):
     """The string was prefixed ``opik://`` but didn't match any known shape."""
+
+    # Read-tool callers raise this when a user-supplied identifier looks like
+    # an opik:// URI but doesn't match any known shape — squarely a payload
+    # validation failure, same bucket as a malformed UUID.
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = 400
 
 
 class ParsedURI(NamedTuple):
