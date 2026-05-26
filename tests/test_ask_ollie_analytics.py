@@ -9,7 +9,8 @@ from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED
 from opik_mcp.ask_ollie import run_ask_ollie
 from opik_mcp.comet_client import CometAuthError, PodDiscovery
 from opik_mcp.config import Settings
-from opik_mcp.ollie_client import OllieAuthError, PodNotReadyError, SSEEvent
+from opik_mcp.ollie_client import OllieAuthError, OllieStreamError, PodNotReadyError, SSEEvent
+from opik_mcp.opik_client import OpikAuthError, OpikServerError
 
 
 @pytest.fixture
@@ -158,6 +159,94 @@ async def test_create_session_auth_failure_emits_completed_error(recorder: _Reco
     assert int(p["pod_warmup_ms"]) >= 0
 
 
+def _raise_wrapper_with_cause(wrapper: Exception, cause: Exception) -> Exception:
+    """Materialize ``raise wrapper from cause`` and return the caught wrapper.
+
+    Mirrors what ``ollie_client.py`` and ``ask_ollie.py`` do at every SSE
+    error frame and HTTP error — using a real ``raise … from`` keeps the
+    ``__cause__`` / ``__suppress_context__`` slots set the way Python does.
+    """
+    try:
+        raise wrapper from cause
+    except Exception as e:
+        return e
+
+
+@pytest.mark.anyio
+async def test_ollie_stream_error_wrapping_upstream_5xx_unwraps_to_cause(
+    recorder: _Recorder,
+) -> None:
+    """Production shape: the pod surfaces an upstream 500 as an ``error`` SSE
+    frame; ``ask_ollie.py`` raises ``OllieStreamError`` with the real cause
+    chained. The analytics emit must bucket by the cause (``upstream_5xx``)
+    and stash both the wrapper class name (``OllieStreamError`` — where in our
+    code the failure surfaced) and the leaf class (``OpikServerError`` — what
+    actually broke)."""
+    chained = _raise_wrapper_with_cause(
+        OllieStreamError("pod error frame"),
+        OpikServerError("backend exploded"),
+    )
+    comet = AsyncMock()
+    comet.discover_pod.side_effect = chained
+    ollie = AsyncMock()
+
+    with pytest.raises(OllieStreamError):
+        await _run_with(comet, ollie, recorder)
+
+    completed = [p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED]
+    assert len(completed) == 1
+    p = completed[0]
+    assert p["success"] == "false"
+    assert p["error_kind"] == "upstream_5xx"
+    assert p["exception_type"] == "OllieStreamError"
+    assert p["cause_type"] == "OpikServerError"
+
+
+@pytest.mark.anyio
+async def test_bare_ollie_stream_error_emits_no_cause_type(recorder: _Recorder) -> None:
+    """A bare ``OllieStreamError`` (e.g. ``ollie_client.py:132`` raising
+    'POST /sessions returned no session_id') has no upstream cause. The
+    bucket stays ``unknown`` — same as pre-unwrap — and ``cause_type`` is
+    absent, signalling 'no recoverable upstream' to dashboards rather than
+    misleading them with a leaf class that wasn't really the failure."""
+    comet = AsyncMock()
+    comet.discover_pod.side_effect = OllieStreamError("no session_id")
+    ollie = AsyncMock()
+
+    with pytest.raises(OllieStreamError):
+        await _run_with(comet, ollie, recorder)
+
+    completed = [p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED]
+    p = completed[0]
+    assert p["error_kind"] == "unknown"
+    assert p["exception_type"] == "OllieStreamError"
+    assert "cause_type" not in p
+
+
+@pytest.mark.anyio
+async def test_ollie_stream_error_wrapping_auth_unwraps_to_cause(recorder: _Recorder) -> None:
+    """A realistic mid-stream failure: PPAUTH expires between session create
+    and stream start, surfacing as ``OllieStreamError from OpikAuthError``.
+    Must route to ``auth`` so dashboards page the user-config gauge, not the
+    server-bug gauge."""
+    chained = _raise_wrapper_with_cause(
+        OllieStreamError("stream rejected mid-flight"),
+        OpikAuthError("ppauth expired"),
+    )
+    comet = AsyncMock()
+    comet.discover_pod.side_effect = chained
+    ollie = AsyncMock()
+
+    with pytest.raises(OllieStreamError):
+        await _run_with(comet, ollie, recorder)
+
+    completed = [p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED]
+    p = completed[0]
+    assert p["error_kind"] == "auth"
+    assert p["exception_type"] == "OllieStreamError"
+    assert p["cause_type"] == "OpikAuthError"
+
+
 @pytest.mark.anyio
 async def test_host_cancellation_emits_cancelled_state(recorder: _Recorder) -> None:
     """Host-level CancelledError (injected from outside the task group) must be
@@ -176,3 +265,48 @@ async def test_host_cancellation_emits_cancelled_state(recorder: _Recorder) -> N
     p = completed[0]
     assert p["completion_state"] == "cancelled"
     assert p["success"] == "true"  # cancellation is not an error
+
+
+@pytest.mark.anyio
+async def test_stream_loop_wrapped_failure_preserves_cause_chain(
+    recorder: _Recorder,
+) -> None:
+    """Production raise site: ``ollie_client.stream_events`` raises
+    ``OllieStreamError from OpikAuthError`` from inside the anyio task group.
+    The BaseExceptionGroup unwrap at ask_ollie.py:615 used to re-raise with
+    ``from None`` which clobbered ``__cause__`` — making every wrapped
+    failure look like ``unknown / OllieStreamError`` in BI.
+
+    This pins the corrected behavior: the cause chain MUST survive the
+    task-group unwrap so analytics can route on the leaf class."""
+    comet = AsyncMock()
+    comet.discover_pod.return_value = PodDiscovery(compute_url="http://c", ppauth="p")
+    ollie = AsyncMock()
+    ollie.create_session.return_value = "sess-1"
+
+    async def _stream(*_a: Any, **_kw: Any) -> AsyncIterator[SSEEvent]:
+        # Yield once so the loop enters; then raise the production-shape
+        # chained exception. The raise happens INSIDE the task group, so
+        # anyio wraps it in a BaseExceptionGroup — that's the path we need
+        # to exercise to verify the cause-preservation fix.
+        yield SSEEvent(event="message_delta", data={"payload": {"delta": "hi"}})
+        try:
+            raise OpikAuthError("ppauth expired mid-stream")
+        except OpikAuthError as inner:
+            raise OllieStreamError("stream rejected") from inner
+
+    ollie.stream_events = _stream
+
+    with pytest.raises(OllieStreamError):
+        await _run_with(comet, ollie, recorder)
+
+    completed = [p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED]
+    assert len(completed) == 1
+    p = completed[0]
+    # The whole point of preserving __cause__: a wrapped auth failure must
+    # bucket as "auth" (so dashboards flag a user-config issue), not the
+    # opaque "unknown" the bug used to produce.
+    assert p["error_kind"] == "auth"
+    assert p["exception_type"] == "OllieStreamError"
+    assert p["cause_type"] == "OpikAuthError"
+    assert p["success"] == "false"

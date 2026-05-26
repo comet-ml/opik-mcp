@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
@@ -700,3 +701,231 @@ async def test_sentry_capture_survives_props_fn_failure(
     # Wrapper-provided tags still land.
     assert tags["tool_name"] == "read"
     assert tags["error_kind"] == "upstream_5xx"
+
+
+# --- Wrapper-exception unwrap (the real production shape) ---------------- #
+#
+# Every read/list/write tool in this codebase ends a failure with:
+#     raise ToolError(_format_client_error(...)) from e
+# Until the analytics classifier learned to unwrap, every one of these
+# events showed up in BI as "unknown / ToolError" — masking auth, not_found,
+# upstream_5xx, and timeout patterns indiscriminately. These tests pin the
+# end-to-end contract through the decorator surface (not just the bucket
+# helper) so a regression that drops the unwrap fails close to production.
+
+
+def _wrap_with_cause(wrapper: Exception, inner: Exception) -> Exception:
+    """Materialize ``raise wrapper from inner`` and return the caught wrapper.
+
+    Mirrors the shape every tool's error path produces in production. Using
+    a real ``raise ... from`` (vs. setting ``__cause__`` by hand) keeps the
+    test honest about ``__suppress_context__`` and the implicit context slot.
+    """
+    try:
+        raise wrapper from inner
+    except Exception as e:
+        return e
+
+
+@pytest.mark.parametrize(
+    "inner, expected_kind, expected_status",
+    [
+        # The full Phase-1 taxonomy, repeated through a ToolError wrapper.
+        # If any cell here regresses to "unknown" the unwrap is broken.
+        (OpikAuthError("x"), "auth", 401),
+        (OpikPermissionError("x"), "permission", 403),
+        (OpikNotFoundError("x"), "not_found", 404),
+        (OpikValidationError("x"), "validation", 400),
+        (OpikServerError("x"), "upstream_5xx", 500),
+        (CometAuthError("x"), "auth", 401),
+        (CometPermissionError("x"), "permission", 403),
+        (PodNotReadyError("x"), "timeout", None),
+        (httpx.ReadTimeout("x"), "timeout", None),
+        (httpx.ConnectError("x"), "network", None),
+        (OllieAuthError("x"), "auth", None),
+        # MissingConfigError stays "unknown" — but the Sentry skip-list still
+        # has to recognize it through the wrapper (covered separately below).
+        (MissingConfigError("x"), "unknown", None),
+    ],
+)
+@pytest.mark.anyio
+async def test_tool_error_wrapper_unwraps_to_real_cause(
+    recorder: _Recorder,
+    inner: Exception,
+    expected_kind: str,
+    expected_status: int | None,
+) -> None:
+    """A ``ToolError`` carrying a real cause must surface the cause's bucket
+    + status, while ``exception_type`` keeps the wrapper class (where in our
+    code the failure surfaced) and ``cause_type`` carries the leaf class
+    (what actually broke). Both pieces are needed to split dashboards by
+    "which tool boundary" AND "which upstream"."""
+    wrapper = ToolError("user-facing error message")
+
+    @instrument_tool("read")
+    async def fn() -> str:
+        raise _wrap_with_cause(wrapper, inner)
+
+    with pytest.raises(ToolError):
+        await fn()
+
+    _, props = recorder.events[0]
+    assert props["success"] == "false"
+    assert props["error_kind"] == expected_kind
+    # Wrapper class preserved — tells dashboards "this came through a tool
+    # boundary" rather than escaping from somewhere unexpected.
+    assert props["exception_type"] == "ToolError"
+    # Cause class preserved — the actual upstream class.
+    assert props["cause_type"] == type(inner).__name__
+    if expected_status is None:
+        assert "http_status" not in props
+    else:
+        assert props["http_status"] == str(expected_status)
+
+
+@pytest.mark.anyio
+async def test_bare_tool_error_emits_no_cause_type(recorder: _Recorder) -> None:
+    """A ``ToolError`` raised standalone (e.g. ``read_tool.py`` formatting an
+    ambiguous-ID hint) has nothing to unwrap. ``error_kind`` stays
+    ``"unknown"`` — same as pre-unwrap — and ``cause_type`` is absent."""
+
+    @instrument_tool("read")
+    async def fn() -> str:
+        raise ToolError("no cause")
+
+    with pytest.raises(ToolError):
+        await fn()
+
+    _, props = recorder.events[0]
+    assert props["error_kind"] == "unknown"
+    assert props["exception_type"] == "ToolError"
+    # No cause means no cause_type — the prop is only emitted when the
+    # unwrap actually finds a distinct upstream.
+    assert "cause_type" not in props
+
+
+@pytest.mark.anyio
+async def test_tool_error_wrapping_http_status_error_routes_by_wire_status(
+    recorder: _Recorder,
+) -> None:
+    """``httpx.HTTPStatusError`` carries the wire status on its response, not
+    a typed class. Through the wrapper that lookup must still happen so a
+    422 lands in ``validation`` and not ``unknown``."""
+    request = httpx.Request("GET", "https://example.invalid/")
+    response = httpx.Response(422, request=request)
+    inner = httpx.HTTPStatusError("unprocessable", request=request, response=response)
+
+    @instrument_tool("write")
+    async def fn() -> str:
+        raise _wrap_with_cause(ToolError("payload rejected"), inner)
+
+    with pytest.raises(ToolError):
+        await fn()
+
+    _, props = recorder.events[0]
+    assert props["error_kind"] == "validation"
+    assert props["http_status"] == "422"
+    assert props["exception_type"] == "ToolError"
+    assert props["cause_type"] == "HTTPStatusError"
+
+
+@pytest.mark.anyio
+async def test_ollie_stream_error_unwraps_to_upstream_cause(recorder: _Recorder) -> None:
+    """``OllieStreamError`` is raised both as a leaf and as a wrapper around
+    upstream HTTP failures (``ollie_client.py`` raising from a 404; pod error
+    SSE frames carrying an HTTP cause). Wrapped case must route by cause."""
+
+    @instrument_tool("ask_ollie")
+    async def fn() -> str:
+        raise _wrap_with_cause(OllieStreamError("stream died"), OpikServerError("upstream 500"))
+
+    with pytest.raises(OllieStreamError):
+        await fn()
+
+    _, props = recorder.events[0]
+    assert props["error_kind"] == "upstream_5xx"
+    assert props["http_status"] == "500"
+    assert props["exception_type"] == "OllieStreamError"
+    assert props["cause_type"] == "OpikServerError"
+
+
+# --- Sentry routing follows the unwrapped cause -------------------------- #
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        # The full user-side allowlist — every one must skip Sentry even
+        # when transported through a ToolError envelope (which is how they
+        # actually arrive in production from read/list/write tools).
+        OpikAuthError("x"),
+        OpikPermissionError("x"),
+        OpikValidationError("x"),
+        OpikNotFoundError("x"),
+        CometAuthError("x"),
+        CometPermissionError("x"),
+        OllieAuthError("x"),
+        # Class-level user-side skip via _USER_SIDE_EXCEPTIONS. Pre-unwrap
+        # the isinstance check ran against the wrapper class and failed open
+        # — Sentry got paged for every MissingConfigError-via-ToolError.
+        MissingConfigError("x"),
+        OllieNotEnabledError("x"),
+    ],
+)
+@pytest.mark.anyio
+async def test_sentry_skips_user_side_failures_through_tool_error_wrapper(
+    sentry_recorder: _SentryRecorder, inner: Exception
+) -> None:
+    """Production read/list/write tools always wrap. The Sentry skip-list
+    used to run isinstance against the wrapper (always False) — so every
+    user-side failure paged Sentry. After the unwrap, the check runs on the
+    real cause and the skip applies as designed."""
+
+    @instrument_tool("read")
+    async def fn() -> str:
+        raise _wrap_with_cause(ToolError("user-facing"), inner)
+
+    with pytest.raises(ToolError):
+        await fn()
+
+    assert sentry_recorder.calls == [], (
+        f"user-side {type(inner).__name__}-via-ToolError must not page Sentry"
+    )
+
+
+@pytest.mark.parametrize(
+    "inner, expected_kind",
+    [
+        # Server-side bugs and infra failures — Sentry's intended payload.
+        # Each one is the wrapped equivalent of the bare-cause tests above.
+        (OpikServerError("x"), "upstream_5xx"),
+        (PodNotReadyError("x"), "timeout"),
+        (httpx.ConnectError("x"), "network"),
+        (CometProtocolError("x"), "unknown"),
+        # An unexpected RuntimeError carrying nothing typed — the classic
+        # "real bug" shape. Even through a wrapper, must reach Sentry.
+        (RuntimeError("unexpected"), "unknown"),
+    ],
+)
+@pytest.mark.anyio
+async def test_sentry_captures_non_user_side_failures_through_tool_error_wrapper(
+    sentry_recorder: _SentryRecorder, inner: Exception, expected_kind: str
+) -> None:
+    """The mirror of the skip test: causes that aren't user-side still
+    page Sentry through a wrapper. ``error_kind`` reflects the unwrapped
+    cause; the captured exception is the wrapper (so the Sentry stack trace
+    shows the chain Python rendered)."""
+
+    @instrument_tool("read")
+    async def fn() -> str:
+        raise _wrap_with_cause(ToolError("user-facing"), inner)
+
+    with pytest.raises(ToolError):
+        await fn()
+
+    assert len(sentry_recorder.calls) == 1
+    captured_exc, tags, _extras, _transaction, _fingerprint = sentry_recorder.calls[0]
+    # The wrapper goes to Sentry (its chain renders the cause in the trace).
+    assert isinstance(captured_exc, ToolError)
+    # But the bucket tag reflects the unwrapped cause.
+    assert tags["error_kind"] == expected_kind

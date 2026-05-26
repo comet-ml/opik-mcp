@@ -1,89 +1,142 @@
 """Shared error taxonomy for analytics events.
 
 Both ``opik_mcp_tool_called`` and ``opik_mcp_ask_ollie_completed`` emit an
-``error_kind`` drawn from the ``ErrorKind`` allowlist below. The granular
-exception class is preserved as ``exception_type`` — coarse bucketing for
-"what should we fix next?" dashboards, granular class names for follow-up
-investigation.
+``error_kind`` drawn from the ``ErrorKind`` allowlist (see
+``opik_mcp.error_kinds``). The granular exception class is preserved as
+``exception_type`` — coarse bucketing for "what should we fix next?"
+dashboards, granular class names for follow-up investigation.
+
+Classification model: each of our typed exception classes carries
+``error_kind: ClassVar[ErrorKind]`` and ``http_status: ClassVar[int | None]``
+as ClassVars. The classifier reads those attributes via ``getattr`` — no
+``isinstance`` cascade. Python's MRO does the work, so subclasses like
+``OpikPermissionError`` automatically shadow the parent's bucket.
+
+We still need special-case branches for:
+- pure-envelope wrappers (``ToolError``, ``OllieStreamError`` when chained):
+  the unwrap walks past them to find the real cause first.
+- non-controllable classes we can't put attributes on:
+  ``httpx.HTTPStatusError`` (status comes from the response), other
+  ``httpx`` network errors, and ``pydantic.ValidationError``.
 
 PRIVACY: every public function in this module keys off the exception CLASS
-only — never on ``exc.args`` / ``str(exc)`` / response body. That guarantees
-no exception message ever surfaces in an analytics property. The contract is
-machine-checked by ``tests/test_analytics_privacy.py``.
+only — never on ``exc.args`` / ``str(exc)`` / response body. The contract
+is machine-checked by ``tests/test_analytics_privacy.py``.
 """
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any
 
 import httpx
+from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import ValidationError as PydanticValidationError
 
-from opik_mcp.comet_client import (
-    CometAuthError,
-    CometPermissionError,
-    CometProtocolError,
-    OllieNotEnabledError,
-)
-from opik_mcp.config import MissingConfigError
-from opik_mcp.ollie_client import OllieAuthError, OllieStreamError, PodNotReadyError
-from opik_mcp.opik_client import (
-    OpikAuthError,
-    OpikNotFoundError,
-    OpikPermissionError,
-    OpikServerError,
-    OpikValidationError,
-)
+from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.ollie_client import OllieStreamError
 
-# The receiver only ever sees one of these values. Adding a new bucket is a
-# BI schema change — extend cautiously and keep the Literal in sync.
-ErrorKind = Literal[
-    "auth",
-    "validation",
-    "not_found",
-    "permission",
-    "timeout",
-    "network",
-    "upstream_5xx",
-    "cancelled",
-    "unknown",
+# Re-export so existing call sites (and downstream readers) keep their
+# ``from opik_mcp.analytics.errors import ErrorKind`` import working.
+__all__ = [
+    "ErrorKind",
+    "bucket_exception",
+    "bucket_http_status",
+    "derive_http_status",
+    "unwrap_to_real_cause",
 ]
 
 
-# Canonical HTTP status for each typed Opik/Comet exception. Our client
-# layers raise these in place of carrying ``status_code`` on the exception
-# instance, so we recover the status here from the class itself. Sub-
-# classes are intentionally listed BEFORE their parents (``OpikPermissionError``
-# extends ``OpikAuthError``) so ``isinstance`` walks resolve to the more-
-# specific status first.
-_EXC_TO_HTTP_STATUS: tuple[tuple[type[BaseException], int], ...] = (
-    (OpikPermissionError, 403),
-    (OpikAuthError, 401),
-    (OpikNotFoundError, 404),
-    (OpikValidationError, 400),
-    (OpikServerError, 500),
-    (CometPermissionError, 403),
-    (CometAuthError, 401),
+# Pure-envelope exception classes — these wrap a real upstream cause via
+# ``raise X from e`` (or implicit ``__context__``) and never carry their own
+# bucketing signal beyond ``"unknown"``. ``bucket_exception`` walks past
+# them to find the real culprit; emit sites preserve the wrapper class name
+# in ``exception_type`` and the unwrapped class in ``cause_type``.
+#
+# Why ``ToolError``: FastMCP's contract is that tool handlers surface failures
+# to the host via ``ToolError`` (see ``read_list/``, ``writes/``). Without the
+# unwrap, every read/list/write failure showed up as ``unknown / ToolError``
+# in BI, masking auth/not_found/upstream_5xx patterns.
+#
+# Why ``OllieStreamError``: a ``RuntimeError`` subclass we raise both as a
+# leaf (e.g. protocol-drift "no session_id") AND as a wrapper around upstream
+# HTTP failures. Its own ``error_kind`` ClassVar is ``"unknown"`` so the
+# bare-leaf case still buckets correctly; the wrapper case routes by cause.
+_WRAPPER_CLASSES: tuple[type[BaseException], ...] = (
+    ToolError,
+    OllieStreamError,
 )
+
+
+# Cap on chain depth to keep cycles / deeply-nested wrappers from turning the
+# classifier into a runtime hazard. 4 hops is well past anything our codebase
+# produces (the deepest natural chain is ToolError ← OllieStreamError ← real,
+# 3 hops) and any longer chain almost certainly indicates a protocol bug
+# rather than a meaningful bucket-by-leaf signal.
+_UNWRAP_MAX_DEPTH = 4
+
+
+def unwrap_to_real_cause(
+    exc: BaseException, *, max_depth: int = _UNWRAP_MAX_DEPTH
+) -> BaseException:
+    """Walk ``__cause__`` / ``__context__`` through pure-envelope wrapper
+    exceptions and return the innermost non-wrapper, or ``exc`` if no unwrap
+    applies.
+
+    Preference order (matches Python's traceback display):
+    1. ``__cause__`` if set — the explicit ``raise X from e`` chain.
+    2. ``__context__`` if ``__suppress_context__`` is False — the implicit
+       chain Python sets when raising inside an ``except`` block.
+    3. Stop — the wrapper has no recoverable cause; treat it as the leaf.
+
+    The walk also stops at the first non-wrapper exception (a meaningful leaf)
+    and at chain cycles (defensive — ``__cause__`` can be set to anything).
+
+    PRIVACY: inspects ``type(...)``, ``__cause__``, ``__context__``,
+    ``__suppress_context__`` only — never reads ``args`` / ``str(exc)``.
+    """
+    seen: set[int] = {id(exc)}
+    current: BaseException = exc
+    for _ in range(max_depth):
+        if not isinstance(current, _WRAPPER_CLASSES):
+            return current
+        nxt: BaseException | None = current.__cause__
+        if nxt is None and not current.__suppress_context__:
+            nxt = current.__context__
+        if nxt is None or id(nxt) in seen:
+            return current
+        seen.add(id(nxt))
+        current = nxt
+    return current
+
+
+def _class_attr(exc: BaseException, name: str) -> Any:
+    """Return ``type(exc).<name>`` if defined as a class-level attribute on
+    one of our typed exception classes, else ``None``.
+
+    We deliberately do NOT read instance attributes — only class-level ones
+    set as ``ClassVar``. Avoids accidentally treating a stray instance attr
+    (potentially smuggled in from user-controlled data on some future class)
+    as a taxonomy signal.
+    """
+    value = getattr(type(exc), name, None)
+    return value
 
 
 def derive_http_status(exc: BaseException) -> int | None:
     """Return the canonical HTTP status for a typed exception, else ``None``.
 
-    Designed for ``opik_mcp_tool_called`` / ``ask_ollie_completed`` emit
-    sites: the BI receiver needs the status alongside ``error_kind`` so a
-    dashboard can split, e.g., ``auth`` failures into 401 vs 403 without
-    losing the coarse bucket.
+    Reads ``type(exc).http_status`` — the ClassVar each typed Opik/Comet/
+    Ollie exception declares. ``httpx.HTTPStatusError`` is handled
+    specially because the status lives on the response, not the class.
+
+    Unwraps through pure-envelope wrappers (``ToolError``, ``OllieStreamError``)
+    so a ``ToolError`` carrying an ``OpikAuthError`` still resolves to 401.
     """
-    # ``httpx.HTTPStatusError`` carries the real status on the response.
-    # Other httpx network errors (ConnectError, TimeoutException, …) have
-    # no status — they failed before getting one.
-    if isinstance(exc, httpx.HTTPStatusError):
-        return exc.response.status_code
-    for cls, status in _EXC_TO_HTTP_STATUS:
-        if isinstance(exc, cls):
-            return status
-    return None
+    real = unwrap_to_real_cause(exc)
+    if isinstance(real, httpx.HTTPStatusError):
+        return real.response.status_code
+    status = _class_attr(real, "http_status")
+    return status if isinstance(status, int) else None
 
 
 def bucket_http_status(status: int) -> ErrorKind:
@@ -107,47 +160,51 @@ def bucket_http_status(status: int) -> ErrorKind:
     return "unknown"
 
 
-def bucket_exception(exc: BaseException, http_status: int | None = None) -> ErrorKind:
-    """Bucket an exception into the coarse ``ErrorKind`` allowlist.
-
-    ``http_status`` lets callers supersede the class-based mapping when they
-    have a more specific signal (e.g. an ``httpx.HTTPStatusError`` they
-    already inspected). When omitted, the function derives a status from
-    typed Opik/Comet/Ollie exceptions via ``derive_http_status``.
-
-    PRIVACY: never reads ``exc.args`` / ``str(exc)``. Class-only.
-    """
-    # 1) Permission BEFORE auth — OpikPermissionError extends OpikAuthError,
-    #    so a 403 must not be miscategorized as "auth" (which means 401).
-    if isinstance(exc, (OpikPermissionError, CometPermissionError)):
-        return "permission"
-    if isinstance(exc, (OpikAuthError, CometAuthError, OllieAuthError)):
-        return "auth"
-    if isinstance(exc, OpikNotFoundError):
-        return "not_found"
-    if isinstance(exc, (OpikValidationError, PydanticValidationError)):
+# Buckets for non-controllable classes we can't put a ClassVar on. Ordered
+# subclass-first by virtue of how the function reads them. ``httpx`` is the
+# only third-party hierarchy we route on; pydantic gets a single match.
+def _bucket_external(real: BaseException) -> ErrorKind | None:
+    if isinstance(real, PydanticValidationError):
         return "validation"
-    if isinstance(exc, OpikServerError):
-        return "upstream_5xx"
-    if isinstance(exc, PodNotReadyError):
-        return "timeout"
     # ``httpx.TimeoutException`` is the base for connect/read/write/pool
     # timeouts. Keep it BEFORE the broader ``RequestError`` arm so a
     # ``ReadTimeout`` lands in ``timeout``, not ``network``.
-    if isinstance(exc, httpx.TimeoutException):
+    if isinstance(real, httpx.TimeoutException):
         return "timeout"
-    if isinstance(exc, httpx.HTTPStatusError):
-        return bucket_http_status(exc.response.status_code)
-    if isinstance(exc, httpx.RequestError):
+    if isinstance(real, httpx.HTTPStatusError):
+        return bucket_http_status(real.response.status_code)
+    if isinstance(real, httpx.RequestError):
         return "network"
-    # MissingConfigError, OllieStreamError, OllieNotEnabledError, CometProtocolError
-    # don't map cleanly to the receiver's taxonomy — they're our own
-    # control-flow errors, not upstream failures. Caller-supplied status
-    # takes precedence when available.
+    return None
+
+
+def bucket_exception(exc: BaseException, http_status: int | None = None) -> ErrorKind:
+    """Bucket an exception into the coarse ``ErrorKind`` allowlist.
+
+    Resolution order:
+    1. Unwrap pure-envelope wrappers (``ToolError`` / ``OllieStreamError``)
+       to the real upstream cause.
+    2. Read ``type(real).error_kind`` if our codebase declared one (every
+       typed Opik/Comet/Ollie/Pod/Config exception does).
+    3. Special-case external hierarchies we can't annotate
+       (``httpx`` / ``pydantic``).
+    4. Caller-supplied ``http_status`` (lets a future tool surface a 422-
+       style validation error via return value rather than raise).
+    5. Fall through to ``"unknown"``.
+
+    PRIVACY: never reads ``exc.args`` / ``str(exc)``. The ``getattr`` reads
+    a class-level ClassVar; the unwrap inspects ``__cause__`` / ``__context__``
+    references, not their messages.
+    """
+    real = unwrap_to_real_cause(exc)
+    kind = _class_attr(real, "error_kind")
+    # The ClassVar is bound to ``ErrorKind`` (a Literal) in every declaring
+    # class, so a string at this point IS one of the allowlist values.
+    if isinstance(kind, str):
+        return kind  # type: ignore[return-value]
+    external = _bucket_external(real)
+    if external is not None:
+        return external
     if http_status is not None:
         return bucket_http_status(http_status)
-    if isinstance(
-        exc, (OllieStreamError, OllieNotEnabledError, CometProtocolError, MissingConfigError)
-    ):
-        return "unknown"
     return "unknown"

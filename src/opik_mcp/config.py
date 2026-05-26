@@ -5,9 +5,14 @@ from uuid import UUID
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from opik_mcp.error_kinds import ErrorKind
+
 
 class MissingConfigError(RuntimeError):
     """Raised when an ask_ollie call is attempted without required env vars."""
+
+    error_kind: ClassVar[ErrorKind] = "unknown"
+    http_status: ClassVar[int | None] = None
 
 
 class Settings(BaseSettings):

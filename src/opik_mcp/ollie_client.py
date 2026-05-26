@@ -1,19 +1,27 @@
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import anyio
 import httpx
 from httpx_sse import aconnect_sse
 
+from opik_mcp.error_kinds import ErrorKind
+
 
 class PodNotReadyError(RuntimeError):
     """Pod did not become ready within the configured timeout."""
 
+    error_kind: ClassVar[ErrorKind] = "timeout"
+    http_status: ClassVar[int | None] = None
+
 
 class OllieAuthError(RuntimeError):
     """Pod rejected the PPAUTH cookie."""
+
+    error_kind: ClassVar[ErrorKind] = "auth"
+    http_status: ClassVar[int | None] = None
 
 
 class OllieStreamError(RuntimeError):
@@ -25,7 +33,15 @@ class OllieStreamError(RuntimeError):
     message. ``None`` when the frame omitted it or when the error was
     raised from an internal control-flow path (confirm-POST failure, etc.)
     rather than a server-side error frame.
+
+    Bucketed as ``"unknown"`` at the leaf — it's a wrapper class, and when
+    it carries a chained cause the analytics layer unwraps to that cause's
+    bucket via ``unwrap_to_real_cause``. A bare ``OllieStreamError`` (no
+    cause) stays ``"unknown"``: it's our own protocol-drift signal.
     """
+
+    error_kind: ClassVar[ErrorKind] = "unknown"
+    http_status: ClassVar[int | None] = None
 
     def __init__(self, message: str, *, upstream_code: str | None = None) -> None:
         super().__init__(message)

@@ -419,6 +419,56 @@ async def test_tool_called_failure_unknown_class_uses_class_name_only(
     assert "http_status" not in props
 
 
+@pytest.mark.anyio
+async def test_tool_called_cause_type_is_class_only(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Production raise site: ``read_tool.py`` wraps every upstream failure as
+    ``raise ToolError(...) from <typed exc>``. The new ``cause_type`` prop
+    must carry the leaf class name and NOTHING from either the wrapper's
+    user-facing message OR the cause's exception message — both are tested
+    here with distinct canaries so a regression in either path fails loudly.
+
+    This is the privacy guard for the unwrap-to-real-cause change. Without
+    this test, a future refactor that started reading ``str(real)`` /
+    ``real.args`` could silently exfiltrate exception messages into BI."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from opik_mcp import server
+    from opik_mcp.opik_client import OpikAuthError
+
+    wrapper_canary = "tool-error-wrapper-msg-UNIQUE-CANARY-1f2e3d4c"
+    cause_canary = "opik-auth-cause-msg-UNIQUE-CANARY-5b6a7980"
+
+    async def _raise(**_kw: Any) -> str:
+        try:
+            raise OpikAuthError(cause_canary)
+        except OpikAuthError as e:
+            raise ToolError(wrapper_canary) from e
+
+    monkeypatch.setattr("opik_mcp.server.run_read", _raise)
+
+    with pytest.raises(ToolError):
+        await server.read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
+
+    payload = json.dumps(recorder.events)
+    assert wrapper_canary not in payload, (
+        f"PRIVACY BREACH: ToolError message {wrapper_canary!r} leaked into analytics"
+    )
+    assert cause_canary not in payload, (
+        f"PRIVACY BREACH: cause message {cause_canary!r} leaked into analytics"
+    )
+    props = _tool_called(recorder.events)
+    # exception_type captures the wrapper (where in our code the failure
+    # surfaced); cause_type captures the leaf (what actually broke).
+    assert props["exception_type"] == "ToolError"
+    assert props["cause_type"] == "OpikAuthError"
+    # Unwrap routing kicks in — auth bucket comes from the cause, not the
+    # opaque ToolError wrapper.
+    assert props["error_kind"] == "auth"
+    assert props["http_status"] == "401"
+
+
 class _CanaryOllieClient:
     """``_OllieClientProto`` fake that fires an SSE ``error`` frame whose
     ``message`` field is a unique canary. Used to verify the pod's error

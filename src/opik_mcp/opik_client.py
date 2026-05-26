@@ -16,37 +16,60 @@ import json as _json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from typing import Any, Final, Literal, Protocol
+from typing import Any, ClassVar, Final, Literal, Protocol
 
 import httpx
 
 from opik_mcp.config import MissingConfigError, Settings
+from opik_mcp.error_kinds import ErrorKind
 
 # --- errors --------------------------------------------------------------- #
+#
+# Each class carries its own ``error_kind`` + ``http_status`` as a
+# ``ClassVar`` so ``analytics/errors.py`` can route via ``getattr`` instead
+# of an ``isinstance`` cascade. ``OpikPermissionError`` shadows its parent's
+# values — Python's attribute resolution picks the subclass automatically,
+# so the analytics layer needs no special "permission before auth" ordering.
 
 
 class OpikAuthError(RuntimeError):
     """Opik rejected the API key (401)."""
 
+    error_kind: ClassVar[ErrorKind] = "auth"
+    http_status: ClassVar[int | None] = 401
+
 
 class OpikPermissionError(OpikAuthError):
     """Opik returned 403 — caller is authenticated but not allowed for the
     target workspace / resource. Subclass of ``OpikAuthError`` so existing
-    handlers that catch the auth case continue to catch this too; analytics
-    classification distinguishes them via table-order (specific class first).
+    handlers that catch the auth case continue to catch this too; the
+    ``error_kind`` / ``http_status`` ClassVars shadow the parent's so
+    analytics still distinguish the two.
     """
+
+    error_kind: ClassVar[ErrorKind] = "permission"
+    http_status: ClassVar[int | None] = 403
 
 
 class OpikNotFoundError(RuntimeError):
     """Target entity does not exist (404). Wraps the entity hint."""
 
+    error_kind: ClassVar[ErrorKind] = "not_found"
+    http_status: ClassVar[int | None] = 404
+
 
 class OpikValidationError(RuntimeError):
     """Opik rejected the request body (400/422)."""
 
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = 400
+
 
 class OpikServerError(RuntimeError):
     """Opik returned a 5xx response."""
+
+    error_kind: ClassVar[ErrorKind] = "upstream_5xx"
+    http_status: ClassVar[int | None] = 500
 
 
 # --- types ---------------------------------------------------------------- #

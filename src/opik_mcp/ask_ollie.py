@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from opik_mcp import audit
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED, bucket_count
-from opik_mcp.analytics.errors import bucket_exception
+from opik_mcp.analytics.errors import bucket_exception, unwrap_to_real_cause
 from opik_mcp.comet_client import CometClient, PodDiscovery
 from opik_mcp.config import Settings, get_settings, require_ollie_config
 from opik_mcp.elicitation import confirm_with_user
@@ -212,6 +212,7 @@ async def run_ask_ollie(
     # below assigns real values when ``errored`` flips to True.
     error_kind: str = "unknown"
     error_exception_type: str = ""
+    error_cause_type: str = ""
     error_upstream_code: str | None = None
 
     try:
@@ -618,10 +619,21 @@ async def run_ask_ollie(
             # Cancellation exceptions (`anyio.get_cancelled_exc_class()`) can leak
             # from the heartbeat task when the SSE body raises — filter them out
             # so they don't mask the user-facing error or block the unwrap.
+            #
+            # Plain ``raise real[0]`` (no ``from``) preserves the inner
+            # ``__cause__`` chain — production ``OllieStreamError`` instances are
+            # raised via ``raise OllieStreamError(...) from OpikAuthError(...)``
+            # and the analytics emit relies on ``unwrap_to_real_cause`` walking
+            # that chain. An earlier ``from None`` here clobbered ``__cause__``
+            # and made every wrapped failure look like ``unknown`` in BI.
             cancelled_cls = anyio.get_cancelled_exc_class()
             real = [e for e in eg.exceptions if not isinstance(e, cancelled_cls)]
             if len(real) == 1 and isinstance(real[0], Exception):
-                raise real[0] from None
+                # ``raise real[0]`` (no ``from``) is intentional. ``from eg``
+                # would overwrite the inner ``__cause__`` with the task group;
+                # ``from None`` would drop the chain entirely. Neither is what
+                # analytics need — see the block-level comment above.
+                raise real[0]  # noqa: B904
             raise
 
         if not saw_message_end and not cancelled:
@@ -675,7 +687,18 @@ async def run_ask_ollie(
             # class-name and class-keyed bucket only — exc.args is never
             # read at any emit site.
             error_exception_type = type(exc).__name__
-            error_kind = bucket_exception(exc) if isinstance(exc, Exception) else "unknown"
+            if isinstance(exc, Exception):
+                error_kind = bucket_exception(exc)
+                # Unwrap pure-envelope wrappers (OllieStreamError, ToolError)
+                # so dashboards can split on the real upstream culprit. Only
+                # populated when the unwrap actually finds a distinct cause
+                # — a bare ``OllieStreamError`` with no chained cause leaves
+                # ``cause_type`` empty and the event carries the wrapper only.
+                real_cause = unwrap_to_real_cause(exc)
+                if real_cause is not exc:
+                    error_cause_type = type(real_cause).__name__
+            else:
+                error_kind = "unknown"
             # ``getattr`` returns ``Any`` — narrow to ``str`` here so the
             # finally block doesn't need to re-check the type and so a future
             # refactor that accidentally stores a non-string would be caught
@@ -706,6 +729,8 @@ async def run_ask_ollie(
         if errored:
             props["error_kind"] = error_kind
             props["exception_type"] = error_exception_type
+            if error_cause_type:
+                props["cause_type"] = error_cause_type
             if error_upstream_code:
                 # Length-cap as a defense against a misbehaving pod that
                 # stamps a long string into ``code``. 64 chars is enough
