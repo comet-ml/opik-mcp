@@ -11,7 +11,9 @@ from __future__ import annotations
 import difflib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal
+from typing import Any, ClassVar, Final, Literal
+
+from opik_mcp.error_kinds import ErrorKind
 
 ErrorCode = Literal[
     "validation_failed",
@@ -47,6 +49,12 @@ class ValidationIssue:
 class WriteError(Exception):
     """Base for all structured write errors. Renders as the JSON body."""
 
+    # Class-level taxonomy used by analytics/errors.bucket_exception. Subclasses
+    # shadow these with their own canonical bucket; the base falls through to
+    # "unknown" since concrete code never raises bare WriteError.
+    error_kind: ClassVar[ErrorKind] = "unknown"
+    http_status: ClassVar[int | None] = None
+
     error: ErrorCode
     operation: str | None = None
     message: str = ""
@@ -71,6 +79,8 @@ class WriteError(Exception):
 
 @dataclass
 class UnknownOperationError(WriteError):
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = 400
     error: ErrorCode = field(default=CODE_UNKNOWN_OPERATION, init=False)
 
     @classmethod
@@ -91,6 +101,8 @@ class UnknownOperationError(WriteError):
 
 @dataclass
 class ValidationFailedError(WriteError):
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = 400
     error: ErrorCode = field(default=CODE_VALIDATION_FAILED, init=False)
 
     @classmethod
@@ -114,6 +126,8 @@ class ValidationFailedError(WriteError):
 
 @dataclass
 class AuthorizationDeniedError(WriteError):
+    error_kind: ClassVar[ErrorKind] = "permission"
+    http_status: ClassVar[int | None] = 403
     error: ErrorCode = field(default=CODE_AUTHORIZATION_DENIED, init=False)
 
     @classmethod
@@ -131,6 +145,14 @@ class AuthorizationDeniedError(WriteError):
 
 @dataclass
 class BackendError(WriteError):
+    # ClassVar defaults are intentional fallbacks — the real bucket comes from
+    # the upstream HTTP status carried on ``instance.extra["backend_error"]
+    # ["status"]``. analytics/errors._instance_http_status reads that integer
+    # BEFORE the ClassVar lookup runs. These defaults exist for defense in
+    # depth — a hand-constructed BackendError missing the extra payload
+    # collapses safely into "unknown" instead of crashing the classifier.
+    error_kind: ClassVar[ErrorKind] = "unknown"
+    http_status: ClassVar[int | None] = None
     error: ErrorCode = field(default=CODE_BACKEND_ERROR, init=False)
 
     @classmethod
@@ -159,6 +181,8 @@ class BackendError(WriteError):
 
 @dataclass
 class BatchTooLargeError(WriteError):
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = 400
     error: ErrorCode = field(default=CODE_BATCH_TOO_LARGE, init=False)
 
     @classmethod

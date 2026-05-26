@@ -35,6 +35,14 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.writes.errors import (
+    AuthorizationDeniedError,
+    BackendError,
+    BatchTooLargeError,
+    UnknownOperationError,
+    ValidationFailedError,
+    WriteError,
+)
 
 
 def _pydantic_error() -> PydanticValidationError:
@@ -230,6 +238,20 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     (CometProtocolError, "unknown", None),
     (PodNotReadyError, "timeout", None),
     (MissingConfigError, "unknown", None),
+    # Write-tool envelope: base "unknown" since concrete code never raises bare
+    # WriteError; each live subclass shadows the bucket.
+    (WriteError, "unknown", None),
+    (UnknownOperationError, "validation", 400),
+    (ValidationFailedError, "validation", 400),
+    (AuthorizationDeniedError, "permission", 403),
+    # BackendError ClassVars are fallbacks; the real bucket comes from the
+    # instance.extra status — covered by a dedicated test block in Task 2.
+    (BackendError, "unknown", None),
+    (BatchTooLargeError, "validation", 400),
+    # NOTE: BatchPartialFailureError intentionally omitted — never raised in
+    # the codebase. Adding a ClassVar would expose us to a Sentry-firing edge
+    # case ("unknown" is not in _USER_SIDE_ERROR_KINDS) for a class that
+    # currently produces zero events. Revisit when the first raise site lands.
 )
 
 
