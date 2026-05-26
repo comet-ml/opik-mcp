@@ -29,6 +29,7 @@ from opik_mcp.opik_client import (
     make_opik_client,
 )
 from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
+from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
@@ -124,12 +125,16 @@ async def run_read(
 
     if entity_type not in READABLE_TYPES:
         if entity_type in ENTITY_REGISTRY:
-            raise ToolError(
+            err = EntityArgValidationError(
                 f"Entity {entity_type!r} is list-only — use list({entity_type!r}, "
                 f"<parent_id>=…) to enumerate, or read the parent entity instead."
             )
+            raise ToolError(str(err)) from err
         valid = ", ".join(sorted(READABLE_TYPES))
-        raise ToolError(f"Invalid entity_type {entity_type!r}. Readable types: {valid}")
+        err = EntityArgValidationError(
+            f"Invalid entity_type {entity_type!r}. Readable types: {valid}"
+        )
+        raise ToolError(str(err)) from err
 
     handler = ENTITY_REGISTRY[entity_type]
 
