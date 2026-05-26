@@ -553,3 +553,68 @@ def test_bucket_exception_unwrap_does_not_read_message() -> None:
         ValueError("would-be-unknown"),
     )
     assert bucket_exception(chain) == "unknown"
+
+
+# --- BackendError instance-status routing -------------------------------- #
+#
+# Unlike every other typed exception, BackendError's bucket depends on the
+# upstream HTTP status it received — that status lives on instance.extra,
+# not a ClassVar. The classifier reads it via _instance_http_status, the
+# same helper that handles httpx.HTTPStatusError. Privacy contract preserved:
+# we read an integer status, never the response body or error message.
+
+
+def _backend_error(status: int) -> BackendError:
+    """Build a real BackendError instance with the given upstream status."""
+    return BackendError.build(
+        operation="trace.create",
+        status=status,
+        body={"detail": "synthetic"},
+        method="POST",
+        path="/v1/private/traces",
+    )
+
+
+@pytest.mark.parametrize(
+    "status, expected_bucket, expected_http",
+    [
+        (401, "auth", 401),
+        (403, "permission", 403),
+        (404, "not_found", 404),
+        (408, "timeout", 408),
+        (422, "validation", 422),
+        (429, "validation", 429),
+        (500, "upstream_5xx", 500),
+        (502, "upstream_5xx", 502),
+        (503, "upstream_5xx", 503),
+        (504, "timeout", 504),
+    ],
+)
+def test_backend_error_instance_status_routes_bucket(
+    status: int, expected_bucket: str, expected_http: int
+) -> None:
+    """BackendError(status=X) must bucket the same as bucket_http_status(X)
+    and derive_http_status must surface the wire status. The classifier reads
+    the instance status BEFORE the ClassVar fallback, so the "unknown"
+    ClassVar never wins for an instance with a valid extra payload."""
+    exc = _backend_error(status)
+    assert bucket_exception(exc) == expected_bucket
+    assert derive_http_status(exc) == expected_http
+
+
+def test_backend_error_through_tool_error_chain() -> None:
+    """The production raise path: write_tool wraps BackendError in ToolError
+    via ``raise ToolError(we.to_json()) from we``. The unwrap must surface
+    the BackendError, and the instance-status branch must route the bucket."""
+    chain = _raise_chain(ToolError("backend rejected"), _backend_error(503))
+    assert bucket_exception(chain) == "upstream_5xx"
+    assert derive_http_status(chain) == 503
+
+
+def test_backend_error_without_extra_status_falls_back_to_classvar() -> None:
+    """A BackendError missing the extra payload (e.g. constructed by hand in
+    a test, or a future refactor that forgets the status) falls back to the
+    ClassVar — "unknown" / None — rather than crashing the classifier."""
+    bare = BackendError(operation="trace.create")
+    assert bucket_exception(bare) == "unknown"
+    assert derive_http_status(bare) is None
