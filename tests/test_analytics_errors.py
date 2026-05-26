@@ -207,6 +207,65 @@ def test_bucket_exception_caller_supplied_status_wins_for_neutral_class() -> Non
     assert bucket_exception(RuntimeError("x"), http_status=503) == "upstream_5xx"
 
 
+# --- ClassVar contract --------------------------------------------------- #
+#
+# Each typed exception class owns its ``error_kind`` / ``http_status`` as a
+# ClassVar. These tests pin the contract directly so a future class that
+# forgets the attribute (or sets the wrong type) regresses the bucketing
+# surface in a localized, easy-to-read failure rather than a downstream
+# test that just says "expected auth, got unknown".
+
+
+_TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...] = (
+    (OpikAuthError, "auth", 401),
+    (OpikPermissionError, "permission", 403),
+    (OpikNotFoundError, "not_found", 404),
+    (OpikValidationError, "validation", 400),
+    (OpikServerError, "upstream_5xx", 500),
+    (CometAuthError, "auth", 401),
+    (CometPermissionError, "permission", 403),
+    (OllieAuthError, "auth", None),
+    (OllieStreamError, "unknown", None),
+    (OllieNotEnabledError, "unknown", None),
+    (CometProtocolError, "unknown", None),
+    (PodNotReadyError, "timeout", None),
+    (MissingConfigError, "unknown", None),
+)
+
+
+@pytest.mark.parametrize("cls, expected_kind, expected_status", _TYPED_EXCEPTION_CLASSES)
+def test_typed_exception_classvars_define_bucket_and_status(
+    cls: type[BaseException], expected_kind: str, expected_status: int | None
+) -> None:
+    """Every typed exception class declares its bucket + status as ClassVars.
+
+    This is what lets ``bucket_exception`` use ``getattr(type(exc), ...)``
+    instead of a cascade. A regression here (forgotten attribute, typo in
+    the bucket name) localizes the failure to the exception class itself.
+    """
+    assert cls.error_kind == expected_kind, (  # type: ignore[attr-defined]
+        f"{cls.__name__}.error_kind should be {expected_kind!r}"
+    )
+    assert cls.http_status == expected_status, (  # type: ignore[attr-defined]
+        f"{cls.__name__}.http_status should be {expected_status!r}"
+    )
+
+
+def test_subclass_classvar_shadows_parent() -> None:
+    """``OpikPermissionError`` extends ``OpikAuthError`` — the subclass's
+    ClassVar shadows the parent so analytics returns ``"permission"`` for
+    the 403 case. This pins the load-bearing inheritance behavior."""
+    # Sanity-check Python's attribute resolution does the right thing.
+    assert OpikPermissionError.error_kind == "permission"
+    assert OpikAuthError.error_kind == "auth"
+    # Same for http_status.
+    assert OpikPermissionError.http_status == 403
+    assert OpikAuthError.http_status == 401
+    # And — most importantly — the bucketing surface honors the override.
+    assert bucket_exception(OpikPermissionError("x")) == "permission"
+    assert derive_http_status(OpikPermissionError("x")) == 403
+
+
 def test_bucket_exception_never_reads_args_or_str() -> None:
     """The PRIVACY contract: ``bucket_exception`` must be class-only — the
     coarse bucket cannot depend on free-form message text. Smuggle a payload
