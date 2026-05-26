@@ -1,27 +1,48 @@
 import http.cookies
 from dataclasses import dataclass
+from typing import ClassVar
 
 import httpx
+
+from opik_mcp.error_kinds import ErrorKind
 
 
 class CometAuthError(RuntimeError):
     """Comet-backend rejected the API key (401)."""
 
+    error_kind: ClassVar[ErrorKind] = "auth"
+    http_status: ClassVar[int | None] = 401
+
 
 class CometPermissionError(CometAuthError):
     """Comet-backend returned 403 — caller is authenticated but the workspace
     rejects the request. Subclass of ``CometAuthError`` to preserve existing
-    ``except CometAuthError`` callers; analytics distinguishes them via
-    table-order in the kind classifier.
+    ``except CometAuthError`` callers; the ``error_kind`` / ``http_status``
+    ClassVars shadow the parent's so analytics still distinguish the two.
     """
+
+    error_kind: ClassVar[ErrorKind] = "permission"
+    http_status: ClassVar[int | None] = 403
 
 
 class OllieNotEnabledError(RuntimeError):
-    """Workspace does not have ollie-assist enabled."""
+    """Workspace does not have ollie-assist enabled.
+
+    Bucketed as ``"unknown"`` — it's a user-config problem with no clean
+    place in the upstream-failure taxonomy. The Sentry skip-list in
+    ``analytics/wrappers.py`` covers it separately by class.
+    """
+
+    error_kind: ClassVar[ErrorKind] = "unknown"
+    http_status: ClassVar[int | None] = None
 
 
 class CometProtocolError(RuntimeError):
-    """Comet-backend response was not in the expected shape."""
+    """Comet-backend response was not in the expected shape — our own
+    contract-drift signal, not an upstream HTTP failure."""
+
+    error_kind: ClassVar[ErrorKind] = "unknown"
+    http_status: ClassVar[int | None] = None
 
 
 @dataclass(frozen=True)
