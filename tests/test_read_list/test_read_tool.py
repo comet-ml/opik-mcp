@@ -197,6 +197,7 @@ async def test_read_project_by_ambiguous_name_lists_candidates() -> None:
     assert "Multiple projects match" in str(exc.value)
     assert "p-1" in str(exc.value)
     assert "p-2" in str(exc.value)
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
 
 
 @pytest.mark.anyio

@@ -174,7 +174,10 @@ async def _fetch_with_name_lookup(
         if len(candidates) == 1:
             entity_id = candidates[0]["id"]
         elif len(candidates) > 1:
-            raise ToolError(_format_ambiguous(handler.entity_type, entity_id, candidates))
+            err = EntityArgValidationError(
+                _format_ambiguous(handler.entity_type, entity_id, candidates)
+            )
+            raise ToolError(str(err)) from err
         # 0 candidates: fall through with the raw id; the fetch call below
         # will 404 with a clear message if it really doesn't exist.
 
