@@ -23,7 +23,11 @@ from opik_mcp.analytics import (
     get_analytics,
     transport_probe,
 )
-from opik_mcp.analytics.errors import bucket_exception, derive_http_status
+from opik_mcp.analytics.errors import (
+    bucket_exception,
+    derive_http_status,
+    unwrap_to_real_cause,
+)
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
 from opik_mcp.analytics.mcp_client_info import collect_session_props
 from opik_mcp.comet_client import OllieNotEnabledError
@@ -140,6 +144,7 @@ def _report_to_sentry(
     *,
     tool_name: str,
     error_kind: str,
+    cause_type: str | None,
     duration_ms: int,
     props_fn: PropsFn | None,
     kwargs: dict[str, Any],
@@ -155,8 +160,14 @@ def _report_to_sentry(
     MCP host fingerprint (``mcp_host`` / ``mcp_client_version``) is attached
     when available — invaluable when triaging which client (Claude Code,
     Cursor, custom) hit a given Sentry issue.
+
+    ``cause_type`` mirrors the BI prop — when the raise site wraps a real
+    upstream class via ``ToolError`` / ``OllieStreamError``, the leaf class
+    is what Sentry triage actually cares about, so we tag both.
     """
     tags: dict[str, str] = {"tool_name": tool_name, "error_kind": error_kind}
+    if cause_type:
+        tags["cause_type"] = cause_type
     extras: dict[str, Any] = {"duration_ms": duration_ms}
     if props_fn is not None:
         try:
@@ -214,6 +225,7 @@ def instrument_tool(
             t0 = time.monotonic()
             error_kind: str | None = None
             exception_type: str | None = None
+            cause_type: str | None = None
             http_status: int | None = None
             result: T | None = None
             completed = False
@@ -232,19 +244,31 @@ def instrument_tool(
                     # so dashboards can distinguish cancellations from errors.
                     error_kind = "cancelled"
                 elif isinstance(exc, Exception):
+                    # Unwrap pure-envelope wrappers (ToolError, OllieStreamError)
+                    # so the bucket reflects the real cause. ``exception_type``
+                    # keeps the wrapper class (where in our code the failure
+                    # surfaced); ``cause_type`` carries the leaf (what actually
+                    # broke upstream). Both emit only when distinct.
+                    real = unwrap_to_real_cause(exc)
+                    if real is not exc:
+                        cause_type = type(real).__name__
                     error_kind = bucket_exception(exc)
                     http_status = derive_http_status(exc)
                     # Sentry carries only the kinds worth a human stack trace.
                     # Skip the user-side buckets + the few user-config classes
                     # that collapse into ``"unknown"`` (the coarse bucket can't
                     # distinguish them from real bugs like ``CometProtocolError``).
+                    # The class-level skip-list runs against ``real`` so a
+                    # ToolError wrapping ``MissingConfigError`` is recognized
+                    # as user-side and not paged to Sentry.
                     if error_kind not in _USER_SIDE_ERROR_KINDS and not isinstance(
-                        exc, _USER_SIDE_EXCEPTIONS
+                        real, _USER_SIDE_EXCEPTIONS
                     ):
                         _report_to_sentry(
                             exc,
                             tool_name=name,
                             error_kind=error_kind,
+                            cause_type=cause_type,
                             duration_ms=int((time.monotonic() - t0) * 1000),
                             props_fn=props_fn,
                             kwargs=kwargs,
@@ -260,6 +284,8 @@ def instrument_tool(
                     props["error_kind"] = error_kind
                 if exception_type:
                     props["exception_type"] = exception_type
+                if cause_type:
+                    props["cause_type"] = cause_type
                 if http_status is not None:
                     props["http_status"] = str(http_status)
                 if props_fn is not None and completed:
