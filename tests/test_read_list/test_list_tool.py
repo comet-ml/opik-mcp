@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 
 
@@ -170,3 +171,24 @@ async def test_list_clamps_size_to_max() -> None:
     fake = FakeOpikClient()
     await run_list("project", size=500, client=fake)
     assert fake.last_kwargs.get("size") == 100
+
+
+@pytest.mark.anyio
+async def test_list_unknown_entity_type_chains_typed_cause() -> None:
+    """``list('wat')`` raises ToolError, but the cause must be the typed
+    EntityArgValidationError so the analytics wrapper buckets it as
+    validation/400 rather than unknown."""
+    with pytest.raises(ToolError) as ei:
+        await run_list("not_a_real_type")
+
+    assert isinstance(ei.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_missing_required_kwarg_chains_typed_cause() -> None:
+    """``list('trace')`` without ``project_id`` raises ToolError; the cause
+    must be the typed EntityArgValidationError. Same chaining contract."""
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace")
+
+    assert isinstance(ei.value.__cause__, EntityArgValidationError)

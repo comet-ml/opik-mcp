@@ -35,6 +35,7 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.uri import InvalidURI
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
@@ -250,6 +251,7 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     (BackendError, "unknown", None),
     (BatchTooLargeError, "validation", 400),
     (InvalidURI, "validation", 400),
+    (EntityArgValidationError, "validation", 400),
     # NOTE: BatchPartialFailureError intentionally omitted — never raised in
     # the codebase. Adding a ClassVar would expose us to a Sentry-firing edge
     # case ("unknown" is not in _USER_SIDE_ERROR_KINDS) for a class that
@@ -620,6 +622,18 @@ def test_invalid_uri_through_tool_error_chain() -> None:
     """read_tool.py raises ``ToolError(str(e)) from InvalidURI(...)`` — the
     unwrap surfaces the typed cause and the ClassVars set the bucket."""
     chain = _raise_chain(ToolError("bad uri"), InvalidURI("opik://nope/x"))
+    assert bucket_exception(chain) == "validation"
+    assert derive_http_status(chain) == 400
+
+
+def test_entity_arg_validation_error_through_tool_error_chain() -> None:
+    """list_tool / read_tool wrap ``EntityArgValidationError`` in ``ToolError``
+    when the caller passes an unknown entity_type or omits a required parent
+    id — the unwrap must reach it and bucket as validation/400."""
+    chain = _raise_chain(
+        ToolError("user-facing"),
+        EntityArgValidationError("Cannot list 'wat'. Listable types: ..."),
+    )
     assert bucket_exception(chain) == "validation"
     assert derive_http_status(chain) == 400
 

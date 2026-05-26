@@ -26,6 +26,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     make_opik_client,
 )
+from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 
 logger = logging.getLogger("opik_mcp.read_list.list")
@@ -50,7 +51,8 @@ async def run_list(
     handler = ENTITY_REGISTRY.get(entity_type)
     if handler is None or handler.list_fn is None:
         valid = ", ".join(sorted(LISTABLE_TYPES))
-        raise ToolError(f"Cannot list {entity_type!r}. Listable types: {valid}")
+        err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
+        raise ToolError(str(err)) from err
 
     size = max(1, min(size, _MAX_SIZE))
     page = max(1, page)
@@ -67,10 +69,11 @@ async def run_list(
 
     for required in handler.list_required_kwargs:
         if kw.get(required) is None:
-            raise ToolError(
+            err = EntityArgValidationError(
                 f"list({entity_type!r}) requires {required}. "
                 f"E.g. list({entity_type!r}, {required}='<uuid>', …)."
             )
+            raise ToolError(str(err)) from err
 
     opik = client if client is not None else make_opik_client(settings or get_settings())
 
