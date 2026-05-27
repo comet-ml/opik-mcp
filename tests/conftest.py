@@ -1,9 +1,19 @@
+import os
 from collections.abc import AsyncIterator, Generator
 
 import httpx
 import pytest
 from asgi_lifespan import LifespanManager
 from httpx import ASGITransport
+
+# Analytics is disabled by default for the whole test process. Tests that
+# exercise analytics opt in explicitly (monkeypatch / respx mocks); leaving it
+# on would let the process-wide singleton spawn a daemon worker that phones
+# home to stats.comet.com over the real network. Beyond being slow and flaky,
+# an in-flight POST from one test can land in a *later* test's ``@respx.mock``
+# window and corrupt ``route.calls.last`` assertions. ``setdefault`` so an
+# explicit override in the environment still wins.
+os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 
 
 @pytest.fixture(autouse=True)
@@ -16,17 +26,29 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     inherit ``_tools_listed_fired_processwide=True`` from a previous file
     and silently no-op. Centralising the reset here keeps every test
     independent regardless of which globals it ends up touching.
+
+    Also drops the process-wide ``get_analytics()`` singleton between tests so
+    its emit worker (a daemon thread posting over httpx) never survives a test
+    boundary. Analytics is disabled by default for the whole test process (see
+    the ``OPIK_MCP_ANALYTICS_ENABLED`` default set at the top of this module),
+    so the singleton built here never spawns a worker or phones home — but a
+    test that explicitly enables analytics still gets a clean singleton each
+    time rather than inheriting another test's live worker, whose in-flight
+    POST could otherwise land in a *later* test's ``@respx.mock`` window and
+    break assertions keyed on ``route.calls.last``.
     """
-    from opik_mcp.analytics import transport_probe
+    from opik_mcp.analytics import reset_analytics_for_tests, transport_probe
     from opik_mcp.analytics.wrappers import (
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
     )
 
+    reset_analytics_for_tests()
     _reset_seen_sessions_for_tests()
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
     yield
+    reset_analytics_for_tests()
     _reset_seen_sessions_for_tests()
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()

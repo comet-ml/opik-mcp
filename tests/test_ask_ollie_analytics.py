@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED
-from opik_mcp.ask_ollie import run_ask_ollie
+from opik_mcp.ask_ollie import _bucket_auto_approval_tools, run_ask_ollie
 from opik_mcp.comet_client import CometAuthError, PodDiscovery
 from opik_mcp.config import Settings
 from opik_mcp.ollie_client import OllieAuthError, OllieStreamError, PodNotReadyError, SSEEvent
@@ -71,6 +71,59 @@ async def test_message_end_emits_completed_success(recorder: _Recorder) -> None:
     assert int(p["pod_warmup_ms"]) >= 0
     assert int(p["total_duration_ms"]) >= 0
     assert int(p["event_count"]) == 2
+
+
+def test_bucket_auto_approval_tools_allowlists_pod_strings() -> None:
+    """``target_tool`` is pod-controlled free text; only known write operations
+    survive into analytics, everything else collapses to ``"other"`` so a
+    misbehaving pod can't stamp arbitrary strings into the event."""
+    details: list[tuple[str | None, str | None]] = [
+        ("comment.create", "add note"),
+        ("score.create", "score 0.9"),
+        ("delete_dataset", "DROP everything"),  # not a known op → "other"
+        ("FORBIDDEN-CANARY-username-7c4a2b1c", "leak"),  # pod free text → "other"
+        (None, "no tool"),  # None target_tool skipped entirely
+    ]
+    out = _bucket_auto_approval_tools(details)
+    assert out == "comment.create,other,score.create"
+    # Privacy: no raw pod string survives.
+    assert "delete_dataset" not in out
+    assert "FORBIDDEN-CANARY-username-7c4a2b1c" not in out
+
+
+def test_bucket_auto_approval_tools_empty() -> None:
+    assert _bucket_auto_approval_tools([]) == ""
+
+
+@pytest.mark.anyio
+async def test_completed_carries_session_context(recorder: _Recorder) -> None:
+    """ask_ollie_completed must carry the same 6-field session-context block
+    tool_called does, so BI can segment Ollie usage on a single table."""
+    comet = AsyncMock()
+    comet.discover_pod.return_value = PodDiscovery(compute_url="http://c", ppauth="p")
+    ollie = AsyncMock()
+    ollie.create_session.return_value = "sess-1"
+
+    async def _stream(*_a: Any, **_kw: Any) -> AsyncIterator[SSEEvent]:
+        yield SSEEvent(event="message_end", data={"payload": {}})
+
+    ollie.stream_events = _stream
+
+    await _run_with(comet, ollie, recorder)
+
+    p = next(p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED)
+    for key in (
+        "is_ci",
+        "is_container",
+        "launch_method",
+        "install_id_freshly_generated",
+        "mcp_host",
+        "host_llm_family",
+    ):
+        assert key in p, f"missing session-context field {key!r}"
+    # No ctx passed by _run_with → host fields fall back to defaults.
+    assert p["mcp_host"] == "other"
+    assert p["host_llm_family"] == "unknown"
 
 
 @pytest.mark.anyio

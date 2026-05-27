@@ -14,8 +14,12 @@ session-initialized emit and the Sentry capture path) in lock-step.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from typing import Any
+from weakref import WeakKeyDictionary
+
+from opik_mcp.analytics.environment import cached_call_context_env
 
 # Known MCP host allowlist. Prefix match (``startswith``) on the lower-
 # cased ``clientInfo.name`` → bucket. Anything else → "other". Order
@@ -120,3 +124,60 @@ def collect_session_props(session: Any) -> dict[str, str]:
         "caps_roots": str(getattr(capabilities, "roots", None) is not None).lower(),
         "caps_tasks": str(getattr(capabilities, "tasks", None) is not None).lower(),
     }
+
+
+# Per-session cache of the bucketed host block. The MCP handshake is fixed for
+# the life of a session, so ``clientInfo`` is read and bucketed once, then
+# reused on every per-call emit — keeps the privacy-sensitive classification
+# off the hot path. ``WeakKeyDictionary`` so dead sessions are reclaimed;
+# stand-ins that don't support weak references (e.g. ``SimpleNamespace`` in
+# tests) skip the cache and recompute, which is cheap and pure.
+_session_host_cache: WeakKeyDictionary[Any, dict[str, str]] = WeakKeyDictionary()
+
+
+def _host_context(session: Any) -> dict[str, str]:
+    """The two handshake-derived fields (``mcp_host`` / ``host_llm_family``),
+    cached per session.
+
+    Only these two fields are cached — NOT the full 8-key
+    ``collect_session_props`` block. A caller that needs the version / caps
+    fields too should call ``collect_session_props`` directly (the
+    ``session_initialized`` emit does); don't layer it on top of this and
+    re-extract twice.
+    """
+    try:
+        cached = _session_host_cache.get(session)
+    except TypeError:
+        cached = None
+    if cached is not None:
+        return cached
+    props = collect_session_props(session)
+    host = {"mcp_host": props["mcp_host"], "host_llm_family": props["host_llm_family"]}
+    with contextlib.suppress(TypeError):
+        _session_host_cache[session] = host
+    return host
+
+
+def call_context_props(session: Any) -> dict[str, str]:
+    """The session-context block stamped on every per-call analytics event.
+
+    Six fields BI uses to segment ``tool_called`` / ``ask_ollie_completed`` by
+    real-user cohort and MCP host WITHOUT joining back to ``server_started`` /
+    ``session_initialized`` on ``install_id``:
+
+    - ``is_ci`` / ``is_container`` / ``launch_method`` /
+      ``install_id_freshly_generated`` — process-stable env (cached once)
+    - ``mcp_host`` / ``host_llm_family`` — per-session handshake (cached on
+      first read)
+
+    Every value is a boolean string or an allowlisted enum — never a raw path,
+    hostname, or ``clientInfo`` string. ``session`` may be ``None`` (no
+    handshake yet); the host fields fall back to ``"other"`` / ``"unknown"``.
+    """
+    return {**cached_call_context_env(), **_host_context(session)}
+
+
+def _reset_call_context_cache_for_tests() -> None:
+    """Drop both context caches. Test-only — never call from production."""
+    _session_host_cache.clear()
+    cached_call_context_env.cache_clear()

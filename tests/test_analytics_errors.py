@@ -124,7 +124,7 @@ def test_bucket_http_status_boundaries(status: int, expected: str) -> None:
         (OllieNotEnabledError("x"), None),
         (CometProtocolError("x"), None),
         (PodNotReadyError("x"), None),
-        (MissingConfigError("x"), None),
+        (MissingConfigError("x"), 400),
         (httpx.ConnectError("refused"), None),
         (httpx.ReadTimeout("slow"), None),
         (ValueError("x"), None),
@@ -179,7 +179,8 @@ def test_derive_http_status_reads_httpx_response() -> None:
         (OllieStreamError("x"), "unknown"),
         (OllieNotEnabledError("x"), "unknown"),
         (CometProtocolError("x"), "unknown"),
-        (MissingConfigError("x"), "unknown"),
+        # Deterministic setup failure (missing api_key/workspace) → validation.
+        (MissingConfigError("x"), "validation"),
         # Catch-all.
         (ValueError("x"), "unknown"),
         (RuntimeError("x"), "unknown"),
@@ -239,7 +240,7 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     (OllieNotEnabledError, "unknown", None),
     (CometProtocolError, "unknown", None),
     (PodNotReadyError, "timeout", None),
-    (MissingConfigError, "unknown", None),
+    (MissingConfigError, "validation", 400),
     # Write-tool envelope: base "unknown" since concrete code never raises bare
     # WriteError; each live subclass shadows the bucket.
     (WriteError, "unknown", None),
@@ -490,7 +491,7 @@ _WRAPPED_BUCKET_MATRIX = [
     (httpx.ReadTimeout("slow"), "timeout", None),
     (httpx.ConnectError("refused"), "network", None),
     (OllieAuthError("ppauth"), "auth", None),
-    (MissingConfigError("no key"), "unknown", None),
+    (MissingConfigError("no key"), "validation", 400),
 ]
 
 
