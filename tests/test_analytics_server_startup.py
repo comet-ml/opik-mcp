@@ -56,6 +56,9 @@ def test_main_emits_server_started_then_runs(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
     monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    # The test process disables analytics by default (see conftest). Opt back
+    # in here so the emitted ``analytics_enabled`` flag is exercised as "true".
+    monkeypatch.setenv("OPIK_MCP_ANALYTICS_ENABLED", "true")
 
     main_mod.main()
 
@@ -384,6 +387,9 @@ def test_startup_error_emits_via_fallback_when_settings_validation_fails(
     )
     monkeypatch.setenv("COMET_WORKSPACE_ID", "not-a-uuid")
     monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    # The test process disables analytics by default (see conftest); this test
+    # is specifically about proving the fallback client POSTs, so opt back in.
+    monkeypatch.setenv("OPIK_MCP_ANALYTICS_ENABLED", "true")
 
     with pytest.raises(ValidationError):
         main_mod.main()
