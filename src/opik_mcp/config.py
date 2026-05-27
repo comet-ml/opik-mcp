@@ -9,10 +9,15 @@ from opik_mcp.error_kinds import ErrorKind
 
 
 class MissingConfigError(RuntimeError):
-    """Raised when an ask_ollie call is attempted without required env vars."""
+    """Raised when an ask_ollie call is attempted without required env vars.
 
-    error_kind: ClassVar[ErrorKind] = "unknown"
-    http_status: ClassVar[int | None] = None
+    Deterministic and classifiable (the server is missing api_key/workspace),
+    so it buckets as ``validation`` rather than ``unknown`` — it's a malformed
+    setup the user can fix, not an unexpected fault.
+    """
+
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = 400
 
 
 class Settings(BaseSettings):

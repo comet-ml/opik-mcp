@@ -12,10 +12,12 @@ from pydantic import BaseModel
 from opik_mcp import audit
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED, bucket_count
 from opik_mcp.analytics.errors import bucket_exception, unwrap_to_real_cause
+from opik_mcp.analytics.mcp_client_info import call_context_props
 from opik_mcp.comet_client import CometClient, PodDiscovery
 from opik_mcp.config import Settings, get_settings, require_ollie_config
 from opik_mcp.elicitation import confirm_with_user
 from opik_mcp.ollie_client import OllieClient, OllieStreamError, OnTick, SSEEvent
+from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 logger = logging.getLogger("opik_mcp.ask_ollie")
 
@@ -28,6 +30,21 @@ def _analytics() -> Any:
 
 
 FOOTER_MAX_ENTRIES = 5
+
+
+# Allowlist for the ``auto_approval_tools`` analytics field. ``target_tool``
+# arrives in the pod's ``confirm_required`` SSE frame (``tool_name``) and is
+# host/pod-controlled free text, so it must never reach analytics verbatim —
+# the privacy contract is bucketed enums only. Names on the write-operation
+# allowlist pass through; anything else collapses to ``"other"``.
+_KNOWN_TARGET_TOOLS: frozenset[str] = frozenset(WRITE_OPERATIONS)
+
+
+def _bucket_auto_approval_tools(details: list[tuple[str | None, str | None]]) -> str:
+    """Comma-join the distinct auto-approved tool names, allowlisted to known
+    write operations (unknown / pod-supplied names → ``"other"``)."""
+    buckets = {(t if t in _KNOWN_TARGET_TOOLS else "other") for t, _ in details if t}
+    return ",".join(sorted(buckets))
 
 
 # Session-scoped allowlist of pod target_tool names that the user has
@@ -724,8 +741,13 @@ async def run_ask_ollie(
                 errored=errored,
             ),
             "auto_approvals_count": str(len(auto_approval_details)),
-            "auto_approval_tools": ",".join(sorted({t for t, _ in auto_approval_details if t})),
+            "auto_approval_tools": _bucket_auto_approval_tools(auto_approval_details),
         }
+        # Stamp the bucketed session context (env cohort + MCP host) so BI can
+        # segment ask_ollie usage on a single table — same block tool_called
+        # carries. ctx (hence session) may be None when invoked outside a host.
+        session = getattr(ctx, "session", None) if ctx is not None else None
+        props.update(call_context_props(session))
         if errored:
             props["error_kind"] = error_kind
             props["exception_type"] = error_exception_type

@@ -109,7 +109,7 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
         (CometProtocolError("x"), "unknown", None),
         (OllieNotEnabledError("x"), "unknown", None),
         (OllieStreamError("x"), "unknown", None),
-        (MissingConfigError("x"), "unknown", None),
+        (MissingConfigError("x"), "validation", 400),
         # Timeouts: pod warmup timeout and httpx network timeouts both fall in
         # the "timeout" bucket; httpx.TimeoutException is the family base.
         (PodNotReadyError("x"), "timeout", None),
@@ -743,9 +743,9 @@ def _wrap_with_cause(wrapper: Exception, inner: Exception) -> Exception:
         (httpx.ReadTimeout("x"), "timeout", None),
         (httpx.ConnectError("x"), "network", None),
         (OllieAuthError("x"), "auth", None),
-        # MissingConfigError stays "unknown" — but the Sentry skip-list still
-        # has to recognize it through the wrapper (covered separately below).
-        (MissingConfigError("x"), "unknown", None),
+        # MissingConfigError buckets "validation" through the wrapper — and the
+        # Sentry skip-list still has to recognize it (covered separately below).
+        (MissingConfigError("x"), "validation", 400),
     ],
 )
 @pytest.mark.anyio

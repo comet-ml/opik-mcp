@@ -637,6 +637,85 @@ async def test_ask_ollie_failure_typed_exception_bucketed_correctly(
     assert "upstream_error_code" not in props
 
 
+# --- per-call session context: bucketed host + env, no raw strings -------- #
+
+
+def test_call_context_props_buckets_host_without_leak(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The per-call session-context block (stamped on tool_called /
+    ask_ollie_completed) must bucket the MCP host and env cohort — never echo
+    a raw ``clientInfo.name``, version, protocolVersion, or HOME path."""
+    from types import SimpleNamespace
+
+    from opik_mcp.analytics.mcp_client_info import (
+        _reset_call_context_cache_for_tests,
+        call_context_props,
+    )
+
+    _reset_call_context_cache_for_tests()
+    monkeypatch.setenv("HOME", "/tmp/FORBIDDEN-CANARY-home-path-5e6f7a8b")
+
+    client_info = SimpleNamespace(
+        name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+        version="FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+    )
+    params = SimpleNamespace(
+        clientInfo=client_info,
+        protocolVersion="FORBIDDEN-CANARY-home-path-5e6f7a8b",
+        capabilities=None,
+    )
+    session = SimpleNamespace(client_params=params)
+
+    props = call_context_props(session)
+    # Unknown host name → "other"; nothing host-controlled survives.
+    assert props["mcp_host"] == "other"
+    assert props["host_llm_family"] == "unknown"
+    payload = json.dumps(props)
+    for canary in FORBIDDEN:
+        assert canary not in payload, f"PRIVACY BREACH: {canary!r} leaked into call context"
+    _reset_call_context_cache_for_tests()
+
+
+@pytest.mark.anyio
+async def test_tool_called_session_context_buckets_canary_host(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drive the real ``instrument_tool`` emit path with a canary-laden
+    ``clientInfo`` and assert the recorded tool_called carries only bucketed
+    host/env signals — the raw host strings must never reach the event."""
+    from types import SimpleNamespace
+
+    from opik_mcp.analytics.mcp_client_info import _reset_call_context_cache_for_tests
+    from opik_mcp.analytics.wrappers import _reset_seen_sessions_for_tests, instrument_tool
+
+    _reset_call_context_cache_for_tests()
+    _reset_seen_sessions_for_tests()
+
+    client_info = SimpleNamespace(
+        name="FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
+        version="FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
+    )
+    params = SimpleNamespace(
+        clientInfo=client_info,
+        protocolVersion="FORBIDDEN-CANARY-home-path-5e6f7a8b",
+        capabilities=None,
+    )
+    ctx = SimpleNamespace(session=SimpleNamespace(client_params=params))
+
+    @instrument_tool("read")
+    async def fn(*, ctx: Any) -> str:
+        return "ok"
+
+    await fn(ctx=ctx)
+
+    _assert_no_leak(recorder.events)
+    props = _tool_called(recorder.events)
+    assert props["mcp_host"] == "other"
+    assert props["host_llm_family"] == "unknown"
+    assert props["is_ci"] in {"true", "false"}
+    assert props["install_id_freshly_generated"] in {"true", "false"}
+    _reset_call_context_cache_for_tests()
+
+
 # --- helpers -------------------------------------------------------------- #
 
 

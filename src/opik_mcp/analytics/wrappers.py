@@ -29,7 +29,7 @@ from opik_mcp.analytics.errors import (
     unwrap_to_real_cause,
 )
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
-from opik_mcp.analytics.mcp_client_info import collect_session_props
+from opik_mcp.analytics.mcp_client_info import call_context_props, collect_session_props
 from opik_mcp.comet_client import OllieNotEnabledError
 from opik_mcp.config import MissingConfigError
 
@@ -58,10 +58,12 @@ _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
 )
 
 
-# A few exceptions bucket to ``"unknown"`` (alongside real bugs like
-# ``CometProtocolError`` and ``OllieStreamError``) but actually represent
-# user-config problems Sentry shouldn't carry. Class-based skip because
-# the coarse ``"unknown"`` bucket can't distinguish them from the bugs.
+# User-config problems Sentry shouldn't carry. ``OllieNotEnabledError`` buckets
+# to ``"unknown"`` (indistinguishable from real bugs like ``CometProtocolError``
+# at the kind level), so it NEEDS this class-based skip. ``MissingConfigError``
+# now buckets to ``"validation"`` and is already skipped via
+# ``_USER_SIDE_ERROR_KINDS``; it stays here as belt-and-braces so a future
+# re-classification can't silently start paging Sentry.
 _USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     MissingConfigError,
     OllieNotEnabledError,
@@ -280,6 +282,12 @@ def instrument_tool(
                     "success": "true" if completed else "false",
                     "duration_ms": str(int((time.monotonic() - t0) * 1000)),
                 }
+                # Stamp the bucketed session context (env cohort + MCP host) so
+                # BI can segment this event without joining to server_started /
+                # session_initialized on install_id. session may be None.
+                ctx = kwargs.get("ctx")
+                session = getattr(ctx, "session", None) if ctx is not None else None
+                props.update(call_context_props(session))
                 if error_kind:
                     props["error_kind"] = error_kind
                 if exception_type:

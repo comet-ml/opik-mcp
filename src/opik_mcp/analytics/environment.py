@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 from collections.abc import Callable
+from functools import lru_cache
 
 # ``sys.platform`` is a Literal type that mypy narrows per-host, so platform-
 # dispatch branches get flagged unreachable on whichever host runs CI (Linux
@@ -187,6 +188,20 @@ def _detect_parent_process() -> str:
 _logger = logging.getLogger("opik_mcp.analytics.environment")
 
 
+def _safe(fn: Callable[[], str], default: str) -> str:
+    """Run a detector, falling back to ``default`` if it raises.
+
+    Wraps each detector individually so one failure doesn't take the whole
+    fingerprint down. Same fire-and-forget contract as ``track_event``.
+    """
+    try:
+        return fn()
+    except Exception:
+        name = getattr(fn, "__name__", repr(fn))
+        _logger.debug("environment detector %s raised", name, exc_info=True)
+        return default
+
+
 def collect_environment_fingerprint() -> dict[str, str]:
     """Bucketed environment signals to merge into ``server_started`` properties.
 
@@ -195,17 +210,6 @@ def collect_environment_fingerprint() -> dict[str, str]:
     (filesystem oddity, missing tool, …), the field falls back to
     ``"unknown"`` so the aggregator never breaks the emit path.
     """
-
-    # Wrap each detector individually so one failure doesn't take the whole
-    # fingerprint down. Same fire-and-forget contract as ``track_event``.
-    def _safe(fn: Callable[[], str], default: str) -> str:
-        try:
-            return fn()
-        except Exception:
-            name = getattr(fn, "__name__", repr(fn))
-            _logger.debug("environment detector %s raised", name, exc_info=True)
-            return default
-
     out: dict[str, str] = {
         "is_ci": _safe(_detect_ci, "false"),
         "is_container": _safe(_detect_container, "unknown"),
@@ -221,3 +225,31 @@ def collect_environment_fingerprint() -> dict[str, str]:
         out["stdin_is_pipe"] = "unknown"
         out["stdout_is_pipe"] = "unknown"
     return out
+
+
+@lru_cache(maxsize=1)
+def cached_call_context_env() -> dict[str, str]:
+    """Process-stable env subset stamped on every per-call analytics event.
+
+    ``tool_called`` / ``ask_ollie_completed`` carry these so BI can segment by
+    real-user cohort (``is_ci='false' AND is_container='false'``) on a single
+    table — without joining each call back to ``server_started`` on
+    ``install_id`` (a join that drops ~35% of calls in practice).
+
+    Memoised: resolved once per process and reused on the hot path. Only the
+    cheap, stable detectors are included — ``parent_process`` (a subprocess on
+    macOS) stays startup-only on ``server_started`` and is deliberately not
+    here.
+    """
+    # Imported lazily so this module stays free of ``config`` (and its
+    # pydantic-settings machinery) at import time — ``identity`` pulls in
+    # ``config``, heavier than this hot-path module wants to load eagerly.
+    # There is no import cycle; this is purely about import cost.
+    from opik_mcp.analytics.identity import install_id_was_freshly_generated
+
+    return {
+        "is_ci": _safe(_detect_ci, "false"),
+        "is_container": _safe(_detect_container, "unknown"),
+        "launch_method": _safe(_detect_launch_method, "unknown"),
+        "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+    }
