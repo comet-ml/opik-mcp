@@ -1,3 +1,18 @@
+<!--
+  This README is preserved from the v2.0.1 release for historical reference.
+  The authoritative deprecation notice lives in DEPRECATED.md next to this file.
+-->
+
+> ## ⚠️ Deprecated — migrate to the Python server
+>
+> This TypeScript MCP server (npm `opik-mcp`) is **deprecated** and will stop
+> serving MCP requests on **2026-11-15**.
+>
+> In your MCP client config, replace `npx -y opik-mcp` with
+> **`uvx opik-mcp@latest`**.
+> Full migration guide: [`MIGRATION.md`](./MIGRATION.md)
+> · Deprecation policy: [`DEPRECATED.md`](./DEPRECATED.md)
+
 <h1 align="center" style="border-bottom: none">
   <div>
     <a href="https://www.comet.com/site/products/opik/?from=llm&utm_source=opik&utm_medium=github&utm_content=header_img&utm_campaign=opik-mcp">
