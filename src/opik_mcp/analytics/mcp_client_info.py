@@ -34,6 +34,14 @@ _MCP_HOST_PATTERNS: tuple[tuple[str, str], ...] = (
     ("continue", "continue"),
     ("windsurf", "windsurf"),
     ("mcp-inspector", "mcp-inspector"),
+    ("zed", "zed"),
+    ("vscode", "vscode"),
+    ("goose", "goose"),
+    ("librechat", "librechat"),
+    ("5ire", "5ire"),
+    ("opencode", "opencode"),
+    ("codex", "codex"),
+    ("gemini-cli", "gemini-cli"),
 )
 
 
@@ -60,6 +68,14 @@ _HOST_LLM_FAMILY: dict[str, str] = {
     "roo": "mixed",
     "windsurf": "mixed",
     "mcp-inspector": "inspector",
+    "zed": "mixed",
+    "vscode": "mixed",
+    "goose": "mixed",
+    "librechat": "mixed",
+    "5ire": "mixed",
+    "opencode": "mixed",
+    "codex": "openai",
+    "gemini-cli": "google",
 }
 
 
