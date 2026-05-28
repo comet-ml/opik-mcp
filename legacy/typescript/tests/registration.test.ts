@@ -3,6 +3,10 @@ import { loadCapabilitiesTools } from '../src/tools/capabilities.js';
 import { loadProjectTools } from '../src/tools/project.js';
 import type { OpikConfig } from '../src/config.js';
 import appConfig from '../src/config.js';
+import {
+  DEPRECATION_DESCRIPTION_SUFFIX,
+  DEPRECATION_RESPONSE_BLOCK,
+} from '../src/utils/deprecation.js';
 
 describe('tool registration auth requirements', () => {
   const originalApiKey = appConfig.apiKey;
@@ -72,5 +76,52 @@ describe('tool registration auth requirements', () => {
     expect(safeToolResult.content?.[0]?.text).toContain(
       '"transport": "streamable-http"',
     );
+  });
+});
+
+describe('tool registration deprecation notice (Phase 2)', () => {
+  const originalApiKey = appConfig.apiKey;
+
+  afterEach(() => {
+    appConfig.apiKey = originalApiKey;
+  });
+
+  test('appends DEPRECATED suffix to every tool description', () => {
+    const calls: any[] = [];
+    const server = {
+      registerTool: jest.fn((...args: any[]) => {
+        calls.push(args);
+      }),
+    } as any;
+
+    loadProjectTools(server, { includeReadOps: true, includeMutations: true });
+
+    expect(calls.length).toBeGreaterThan(0);
+    for (const call of calls) {
+      const description = call[1]?.description;
+      expect(typeof description).toBe('string');
+      expect(description.endsWith(DEPRECATION_DESCRIPTION_SUFFIX)).toBe(true);
+    }
+  });
+
+  test('appends deprecation block to tool response content', async () => {
+    appConfig.apiKey = '';
+
+    const calls: any[] = [];
+    const server = {
+      registerTool: jest.fn((...args: any[]) => {
+        calls.push(args);
+      }),
+    } as any;
+
+    loadProjectTools(server, { includeReadOps: true, includeMutations: true });
+    const handler = calls.find((call) => call[0] === 'list-projects')?.[2];
+
+    const result = await handler({ page: 1, size: 10 }, {});
+
+    const last = result.content?.at(-1);
+    expect(last?.type).toBe(DEPRECATION_RESPONSE_BLOCK.type);
+    expect(last?.text).toBe(DEPRECATION_RESPONSE_BLOCK.text);
+    expect(result.content.length).toBeGreaterThanOrEqual(2);
   });
 });

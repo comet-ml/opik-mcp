@@ -1,5 +1,9 @@
 # opik-mcp
 
+> **Migrating from the old `npx opik-mcp`?** The TypeScript server is deprecated
+> and sunsets on **2026-11-15**. Swap `npx -y opik-mcp` for **`uvx opik-mcp@latest`**
+> in your MCP client config. Full guide: [`legacy/typescript/MIGRATION.md`](./legacy/typescript/MIGRATION.md).
+
 **Model Context Protocol server for [Opik](https://www.comet.com/opik) + Ollie.**
 Plug your AI host (Claude Code, Cursor, VS Code Copilot, MCP Inspector) directly
 into your Opik workspace — read traces, log scores, save prompt versions, and

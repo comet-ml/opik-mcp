@@ -1,7 +1,7 @@
 {
   "name": "opik-mcp",
   "version": "2.0.1",
-  "description": "MCP server to interact with Opik - Enables automated prompt optimization",
+  "description": "[DEPRECATED — use `uvx opik-mcp@latest` instead, sunset 2026-11-15] MCP server to interact with Opik - Enables automated prompt optimization",
   "type": "module",
   "bin": {
     "opik-mcp": "./build/cli.js"

@@ -4,6 +4,14 @@ import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import configImport from './config.js';
 import { main } from './index.js';
+import { DEPRECATION_NOTICE } from './utils/deprecation.js';
+
+// Deprecation banner — stderr only, so stdio transport framing stays
+// clean. Note: this does NOT appear on ``--help`` because ``config.ts``
+// runs ``loadConfig()`` at module-load (ESM import ordering) and yargs
+// inside it calls ``process.exit(0)`` on --help before this line ever
+// executes. Accepted limitation — see commit message and OPIK-6713.
+process.stderr.write(`${DEPRECATION_NOTICE.full}\n`);
 
 // Parse command line arguments
 const argv = yargs(hideBin(process.argv))

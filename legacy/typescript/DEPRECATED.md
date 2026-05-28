@@ -19,4 +19,4 @@ npm test
 
 Or from the repo root via `make legacy-install`, `make legacy-build`, etc.
 
-The `legacy/typescript/README.md` is preserved verbatim from the v2.0.1 release for reference; it does not reflect that the package is deprecated. This file is the authoritative deprecation notice.
+The body of `legacy/typescript/README.md` is preserved from the v2.0.1 release; a deprecation banner has been prepended on top. This file (`DEPRECATED.md`) and [`MIGRATION.md`](./MIGRATION.md) remain the authoritative deprecation notice and migration guide respectively.

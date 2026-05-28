@@ -11,6 +11,7 @@ import { StreamableHttpTransport } from './transports/streamable-http-transport.
 // Import environment variables loader - no console output
 import './utils/env.js';
 import { logToFile, logFile } from './utils/logging.js';
+import { DEPRECATION_NOTICE } from './utils/deprecation.js';
 
 // Import tool loaders
 import { loadTraceTools } from './tools/trace.js';
@@ -68,7 +69,10 @@ if (config.debugMode) {
   }
 }
 
-// Create and configure server - no console output here
+// Create and configure server - no console output here.
+// ``instructions`` is sent on ``initialize`` and is the highest-leverage
+// channel: the host LLM reads it and surfaces the migration message to
+// the user. See ``utils/deprecation.ts`` for the canonical wording.
 export let server = new McpServer(
   {
     name: config.mcpName,
@@ -79,6 +83,7 @@ export let server = new McpServer(
       resources: {}, // Enable resources capability
       tools: {}, // Enable tools capability
     },
+    instructions: DEPRECATION_NOTICE.full,
   },
 );
 
