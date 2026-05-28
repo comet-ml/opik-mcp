@@ -1,12 +1,17 @@
 import asyncio
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED
-from opik_mcp.ask_ollie import _bucket_auto_approval_tools, run_ask_ollie
+from opik_mcp.ask_ollie import (
+    _bucket_auto_approval_tools,
+    _bucket_upstream_code,
+    run_ask_ollie,
+)
 from opik_mcp.comet_client import CometAuthError, PodDiscovery
 from opik_mcp.config import Settings
 from opik_mcp.ollie_client import OllieAuthError, OllieStreamError, PodNotReadyError, SSEEvent
@@ -95,6 +100,57 @@ def test_bucket_auto_approval_tools_empty() -> None:
     assert _bucket_auto_approval_tools([]) == ""
 
 
+@pytest.mark.parametrize(
+    "code",
+    [
+        "rate_limited",
+        "model_unavailable",
+        "context_too_long",
+        "code-with-dash",
+        "a",  # single-char alphanumeric
+        "0aA",  # leading digit fine; uppercase NOT — see below
+    ],
+)
+def test_bucket_upstream_code_passes_through_identifier_shape(code: str) -> None:
+    """Pod codes that look like stable identifiers (alnum + ``_-``, ≤ 32
+    chars) pass through unchanged so dashboards can split on them."""
+    # The "uppercase" parameter actually exercises the rejection arm — we
+    # double-check below. Build the assertion off the regex itself.
+    import re as _re
+
+    valid = bool(_re.match(r"^[a-z0-9][a-z0-9_-]{0,31}$", code))
+    assert _bucket_upstream_code(code) == (code if valid else "other")
+
+
+@pytest.mark.parametrize(
+    "code",
+    [
+        "",  # empty string — fails the leading-char anchor
+        "RATE_LIMITED",  # uppercase rejected
+        "rate limited",  # space rejected
+        "rate.limited",  # dot rejected
+        "_leading-underscore",  # leading underscore rejected (must start alnum)
+        "-leading-dash",  # leading dash rejected
+        "a" * 33,  # over 32-char cap
+        "you are unauthorized to access this resource ID 7c4a-canary",  # long sentence
+        "rate_limited\nstack trace line 2",  # newline rejected
+        "https://evil.example/leak?u=alice",  # URL rejected
+        "alice@example.com",  # email rejected
+        "{json: like}",  # punctuation rejected
+    ],
+)
+def test_bucket_upstream_code_rejects_anything_outside_shape(code: str) -> None:
+    """Pod-controlled free text that doesn't match the identifier shape MUST
+    collapse to ``"other"`` — BI cardinality and privacy guarantee. Length
+    caps alone were insufficient; the shape check is the load-bearing fix."""
+    assert _bucket_upstream_code(code) == "other"
+
+
+def test_bucket_upstream_code_none_preserved() -> None:
+    """``None`` is preserved (the emit site uses it to skip the field)."""
+    assert _bucket_upstream_code(None) is None
+
+
 @pytest.mark.anyio
 async def test_completed_carries_session_context(recorder: _Recorder) -> None:
     """ask_ollie_completed must carry the same 6-field session-context block
@@ -124,6 +180,44 @@ async def test_completed_carries_session_context(recorder: _Recorder) -> None:
     # No ctx passed by _run_with → host fields fall back to defaults.
     assert p["mcp_host"] == "other"
     assert p["host_llm_family"] == "unknown"
+
+
+@pytest.mark.anyio
+async def test_completed_stamps_known_host_when_ctx_provided(recorder: _Recorder) -> None:
+    """Production shape: ``run_ask_ollie`` is called with a real ``ctx``
+    whose ``session.client_params.clientInfo`` identifies the host
+    (Claude Code, Cursor, …). The completed event MUST surface the
+    bucketed host so dashboards can split ask_ollie usage by host —
+    parallel to ``test_tools_listed_stamps_known_host_from_request_ctx``.
+    Without this, every event would collapse into ``"other"``."""
+    comet = AsyncMock()
+    comet.discover_pod.return_value = PodDiscovery(compute_url="http://c", ppauth="p")
+    ollie = AsyncMock()
+    ollie.create_session.return_value = "sess-1"
+
+    async def _stream(*_a: Any, **_kw: Any) -> AsyncIterator[SSEEvent]:
+        yield SSEEvent(event="message_end", data={"payload": {}})
+
+    ollie.stream_events = _stream
+
+    client_info = SimpleNamespace(name="cursor", version="0.42.0")
+    params = SimpleNamespace(
+        clientInfo=client_info, protocolVersion="2025-06-01", capabilities=None
+    )
+    session = SimpleNamespace(client_params=params)
+    # ``run_ask_ollie`` calls ``ctx.info(...)`` for progress lines — mock it
+    # so the call site doesn't blow up. The session attribute is what the
+    # analytics emit actually consumes.
+    ctx = AsyncMock()
+    ctx.session = session
+
+    await _run_with(comet, ollie, recorder, ctx=ctx)
+
+    p = next(p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED)
+    assert p["mcp_host"] == "cursor"
+    # Cursor gets its own ``host_llm_family`` bucket — see
+    # ``_HOST_LLM_FAMILY`` in mcp_client_info.
+    assert p["host_llm_family"] == "cursor"
 
 
 @pytest.mark.anyio
@@ -257,11 +351,10 @@ async def test_ollie_stream_error_wrapping_upstream_5xx_unwraps_to_cause(
 
 @pytest.mark.anyio
 async def test_bare_ollie_stream_error_emits_no_cause_type(recorder: _Recorder) -> None:
-    """A bare ``OllieStreamError`` (e.g. ``ollie_client.py:132`` raising
-    'POST /sessions returned no session_id') has no upstream cause. The
-    bucket stays ``unknown`` — same as pre-unwrap — and ``cause_type`` is
-    absent, signalling 'no recoverable upstream' to dashboards rather than
-    misleading them with a leaf class that wasn't really the failure."""
+    """A bare ``OllieStreamError`` has no upstream cause. The bucket is its
+    own ClassVar value ``stream_protocol`` — the bare-leaf raise signals a
+    protocol-drift event on the pod side. ``cause_type`` is absent,
+    signalling 'no recoverable upstream' to dashboards."""
     comet = AsyncMock()
     comet.discover_pod.side_effect = OllieStreamError("no session_id")
     ollie = AsyncMock()
@@ -271,7 +364,7 @@ async def test_bare_ollie_stream_error_emits_no_cause_type(recorder: _Recorder) 
 
     completed = [p for et, p in recorder.events if et == EVENT_ASK_OLLIE_COMPLETED]
     p = completed[0]
-    assert p["error_kind"] == "unknown"
+    assert p["error_kind"] == "stream_protocol"
     assert p["exception_type"] == "OllieStreamError"
     assert "cause_type" not in p
 

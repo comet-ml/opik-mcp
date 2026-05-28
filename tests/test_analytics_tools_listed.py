@@ -4,9 +4,11 @@ and the wrapper emits opik_mcp_tools_listed once per session."""
 from __future__ import annotations
 
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from mcp.server.lowlevel.server import request_ctx
 from mcp.types import ListToolsRequest
 
 from opik_mcp.analytics import EVENT_TOOLS_LISTED, transport_probe
@@ -115,3 +117,54 @@ async def test_tools_listed_props_shape(recorder: _Recorder) -> None:
     _et, props = next(e for e in recorder.events if e[0] == EVENT_TOOLS_LISTED)
     assert "tool_count_bucket" in props
     assert props["tool_count_bucket"] in {"0", "1-10", "11-100", "101-1000", ">1000"}
+    # Session-context block: stamped on every per-call event so BI can
+    # segment tools_listed on the same dimensions as tool_called /
+    # ask_ollie_completed without joining back to session_initialized.
+    # No session in this test path → host falls back to defaults but the
+    # env keys are always present.
+    assert props["mcp_host"] == "other"
+    assert props["host_llm_family"] == "unknown"
+    for key in ("is_ci", "is_container", "launch_method", "install_id_freshly_generated"):
+        assert key in props, f"call_context_props key {key!r} missing from tools_listed"
+
+
+@pytest.mark.anyio
+async def test_tools_listed_stamps_known_host_from_request_ctx(recorder: _Recorder) -> None:
+    """When the lowlevel ``request_ctx`` carries a real session with a known
+    ``clientInfo`` (Claude Code, Cursor, …), the wrapper must surface the
+    bucketed host on the event so dashboards can split tools_listed by host.
+
+    This is the hot path in production: every tools/list RPC runs inside a
+    request context with ``ctx.session`` populated. The no-session test
+    above exercises the defensive fallback; this one pins the contract for
+    the real shape so a regression that drops the ContextVar read would
+    silently collapse every host into ``"other"``.
+    """
+    mcp = FastMCP("test")
+
+    @mcp.tool()
+    def hello() -> str:
+        return "hi"
+
+    install_tools_listed_emitter(mcp)
+    handler = mcp._mcp_server.request_handlers[ListToolsRequest]
+
+    client_info = SimpleNamespace(name="claude-code", version="1.2.3")
+    params = SimpleNamespace(
+        clientInfo=client_info, protocolVersion="2025-06-01", capabilities=None
+    )
+    session = SimpleNamespace(client_params=params)
+    ctx = SimpleNamespace(session=session)
+
+    token = request_ctx.set(ctx)  # type: ignore[arg-type]
+    try:
+        await handler(ListToolsRequest(method="tools/list"))
+    finally:
+        request_ctx.reset(token)
+
+    _et, props = next(e for e in recorder.events if e[0] == EVENT_TOOLS_LISTED)
+    assert props["mcp_host"] == "claude-code"
+    assert props["host_llm_family"] == "anthropic"
+    # Env-cohort keys still present so the schema doesn't drift between paths.
+    for key in ("is_ci", "is_container", "launch_method", "install_id_freshly_generated"):
+        assert key in props

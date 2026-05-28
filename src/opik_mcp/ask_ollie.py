@@ -1,4 +1,5 @@
 import logging
+import re
 import time
 from collections.abc import AsyncIterator
 from typing import Any, Protocol
@@ -11,12 +12,25 @@ from pydantic import BaseModel
 
 from opik_mcp import audit
 from opik_mcp.analytics import EVENT_ASK_OLLIE_COMPLETED, bucket_count
+from opik_mcp.analytics.ask_ollie_reason import (
+    AskOlliePhase,
+    derive_failure_reason,
+)
 from opik_mcp.analytics.errors import bucket_exception, unwrap_to_real_cause
 from opik_mcp.analytics.mcp_client_info import call_context_props
 from opik_mcp.comet_client import CometClient, PodDiscovery
 from opik_mcp.config import Settings, get_settings, require_ollie_config
 from opik_mcp.elicitation import confirm_with_user
-from opik_mcp.ollie_client import OllieClient, OllieStreamError, OnTick, SSEEvent
+from opik_mcp.ollie_client import (
+    ConfirmDeclinedError,
+    ConfirmPostError,
+    OllieClient,
+    OllieStreamError,
+    OnTick,
+    PodErrorEventError,
+    PodStreamIdleError,
+    SSEEvent,
+)
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 logger = logging.getLogger("opik_mcp.ask_ollie")
@@ -45,6 +59,28 @@ def _bucket_auto_approval_tools(details: list[tuple[str | None, str | None]]) ->
     write operations (unknown / pod-supplied names → ``"other"``)."""
     buckets = {(t if t in _KNOWN_TARGET_TOOLS else "other") for t, _ in details if t}
     return ",".join(sorted(buckets))
+
+
+# ``upstream_error_code`` on ``EVENT_ASK_OLLIE_COMPLETED`` is the optional
+# ``code`` field on the pod's SSE ``error`` frame. Pod-controlled free text →
+# CONTRACT: must look like a stable identifier (lowercase alnum, ``_`` / ``-``
+# separators, ≤ 32 chars). Anything outside the shape — a long sentence, a
+# stack trace, a UUID, a URL, an email — collapses to ``"other"`` so BI
+# cardinality can't be blown up by a future pod release shipping arbitrary
+# strings. ``None`` is preserved so the emit site can omit the field entirely.
+#
+# 32 chars is well above any legitimate code we've seen (``"rate_limited"``,
+# ``"model_unavailable"``, ``"context_too_long"``) and tight enough that a
+# misbehaving pod can't slip a PII payload through.
+_UPSTREAM_CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+
+
+def _bucket_upstream_code(code: str | None) -> str | None:
+    """Pass-through for shape-valid pod codes, ``"other"`` for anything that
+    doesn't match the identifier pattern, ``None`` for absent codes."""
+    if code is None:
+        return None
+    return code if _UPSTREAM_CODE_PATTERN.match(code) else "other"
 
 
 # Session-scoped allowlist of pod target_tool names that the user has
@@ -231,6 +267,13 @@ async def run_ask_ollie(
     error_exception_type: str = ""
     error_cause_type: str = ""
     error_upstream_code: str | None = None
+    error_failure_reason: str = "unknown"
+    # Phase tracker for ``failure_reason`` derivation. Updated immediately
+    # before each await boundary that can raise so the analytics layer can
+    # attribute typed exceptions (e.g. OllieAuthError) to the right phase
+    # (warmup vs create_session vs stream). Starts at ``"config"`` so a
+    # pre-discovery MissingConfigError still carries a phase.
+    phase: AskOlliePhase = "config"
 
     try:
         settings = settings or get_settings()
@@ -259,6 +302,7 @@ async def run_ask_ollie(
             workspace,
             settings.comet_url_override,
         )
+        phase = "discover"
         discovery = await comet.discover_pod(workspace)
 
         if ctx is not None:
@@ -284,6 +328,7 @@ async def run_ask_ollie(
             )
 
         warmup_start = time.monotonic()
+        phase = "warmup"
         await ollie.wait_ready(discovery.compute_url, discovery.ppauth, on_tick=on_tick)
         pod_warmup_ms = int((time.monotonic() - warmup_start) * 1000)
 
@@ -316,10 +361,12 @@ async def run_ask_ollie(
             # structured `context` envelope above.
             body["snapshot"] = page_context
 
+        phase = "create_session"
         session_id = await ollie.create_session(
             discovery.compute_url, discovery.ppauth, workspace, body
         )
         logger.info("ask_ollie.session_created session_id=%s", session_id)
+        phase = "stream"
 
         if ctx is not None:
             await ctx.info(f"Streaming events for session {session_id}...")
@@ -379,7 +426,7 @@ async def run_ask_ollie(
                     # cancels the SSE consumer. The BaseExceptionGroup unwrap below
                     # filters the resulting CancelledError so callers see the
                     # OllieStreamError with the diagnostic message.
-                    raise OllieStreamError(
+                    raise PodStreamIdleError(
                         f"Ollie pod stream idle for {idle_for:.0f}s "
                         f"(threshold {stream_idle_timeout:.0f}s); aborting."
                     )
@@ -525,7 +572,7 @@ async def run_ask_ollie(
                                             target_tool,
                                         )
                                 if not approved_via_elicit:
-                                    raise OllieStreamError(
+                                    raise ConfirmDeclinedError(
                                         "Auto-approval disabled "
                                         "(OPIK_MCP_AUTO_APPROVE=disabled). "
                                         f"Ollie requested: {requested}. "
@@ -545,6 +592,9 @@ async def run_ask_ollie(
                                     target_tool=target_tool,
                                     summary=summary,
                                     input=tool_input,
+                                    mcp_session=getattr(ctx, "session", None)
+                                    if ctx is not None
+                                    else None,
                                 )
                             except Exception:
                                 logger.error(
@@ -568,6 +618,7 @@ async def run_ask_ollie(
                                 await ctx.info(
                                     f"Ollie auto-approved: {summary or target_tool or tool_use_id}"
                                 )
+                            phase = "confirm"
                             try:
                                 await ollie.confirm_session(
                                     discovery.compute_url,
@@ -582,10 +633,11 @@ async def run_ask_ollie(
                                 # transient confirm POST failure leaves the pod
                                 # stalled — surface a typed error instead of bubbling
                                 # the raw httpx exception to the host LLM.
-                                raise OllieStreamError(
+                                raise ConfirmPostError(
                                     f"Ollie confirm POST failed for"
                                     f" tool_use_id={tool_use_id}: {exc}"
                                 ) from exc
+                            phase = "stream"
 
                         elif evt == "navigate":
                             url = _navigate_url(payload)
@@ -609,7 +661,7 @@ async def run_ask_ollie(
                             # upstream failures without leaking the message.
                             raw_code = payload.get("code")
                             upstream_code = raw_code if isinstance(raw_code, str) else None
-                            raise OllieStreamError(message, upstream_code=upstream_code)
+                            raise PodErrorEventError(message, upstream_code=upstream_code)
 
                         elif evt == "message_end":
                             saw_message_end = True
@@ -714,6 +766,20 @@ async def run_ask_ollie(
                 real_cause = unwrap_to_real_cause(exc)
                 if real_cause is not exc:
                     error_cause_type = type(real_cause).__name__
+                # Phase-aware ask_ollie-specific bucket. Routes typed
+                # exceptions (CometAuthError, PodSessionLostError, …) to a
+                # single failure_reason per raise site so dashboards can
+                # split "wrong env" (ollie_not_available) from "session
+                # evicted" (session_lost) — both surface as not_found in
+                # the coarse error_kind.
+                error_upstream_code_for_reason = getattr(exc, "upstream_code", None)
+                error_failure_reason = derive_failure_reason(
+                    exc,
+                    phase,
+                    upstream_code=error_upstream_code_for_reason
+                    if isinstance(error_upstream_code_for_reason, str)
+                    else None,
+                )
             else:
                 error_kind = "unknown"
             # ``getattr`` returns ``Any`` — narrow to ``str`` here so the
@@ -751,14 +817,21 @@ async def run_ask_ollie(
         if errored:
             props["error_kind"] = error_kind
             props["exception_type"] = error_exception_type
+            # ``failure_reason`` is the ask_ollie-specific phase-aware bucket;
+            # ``error_kind`` is the coarse cross-tool bucket. Always emit both
+            # so dashboards can pivot either way.
+            props["failure_reason"] = error_failure_reason
+            props["phase"] = phase
             if error_cause_type:
                 props["cause_type"] = error_cause_type
-            if error_upstream_code:
-                # Length-cap as a defense against a misbehaving pod that
-                # stamps a long string into ``code``. 64 chars is enough
-                # for every legitimate code we ship while staying well
-                # under any plausible PII leak.
-                props["upstream_error_code"] = error_upstream_code[:64]
+            bucketed_code = _bucket_upstream_code(error_upstream_code)
+            if bucketed_code is not None:
+                # Pod-controlled free text — bucket to a stable identifier
+                # shape (alnum + ``_-``, ≤ 32 chars) or ``"other"``. See
+                # ``_bucket_upstream_code`` for the privacy/cardinality
+                # rationale; raw length-capping wasn't enough to bound
+                # what a misbehaving pod could ship.
+                props["upstream_error_code"] = bucketed_code
         try:
             _analytics().track_event(EVENT_ASK_OLLIE_COMPLETED, props)
         except Exception:

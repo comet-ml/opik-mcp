@@ -51,23 +51,42 @@ __all__ = [
 
 # Pure-envelope exception classes — these wrap a real upstream cause via
 # ``raise X from e`` (or implicit ``__context__``) and never carry their own
-# bucketing signal beyond ``"unknown"``. ``bucket_exception`` walks past
-# them to find the real culprit; emit sites preserve the wrapper class name
-# in ``exception_type`` and the unwrapped class in ``cause_type``.
+# bucketing signal beyond their default bucket. ``bucket_exception`` walks
+# past them to find the real culprit; emit sites preserve the wrapper class
+# name in ``exception_type`` and the unwrapped class in ``cause_type``.
 #
 # Why ``ToolError``: FastMCP's contract is that tool handlers surface failures
 # to the host via ``ToolError`` (see ``read_list/``, ``writes/``). Without the
 # unwrap, every read/list/write failure showed up as ``unknown / ToolError``
 # in BI, masking auth/not_found/upstream_5xx patterns.
 #
-# Why ``OllieStreamError``: a ``RuntimeError`` subclass we raise both as a
-# leaf (e.g. protocol-drift "no session_id") AND as a wrapper around upstream
-# HTTP failures. Its own ``error_kind`` ClassVar is ``"unknown"`` so the
-# bare-leaf case still buckets correctly; the wrapper case routes by cause.
+# Why bare ``OllieStreamError``: a ``RuntimeError`` we raise as a leaf for
+# protocol-drift signals AND (historically) as a wrapper around upstream
+# HTTP failures. Its own bucket is ``"stream_protocol"`` so the bare-leaf
+# case still buckets correctly; the wrapper case routes by cause.
+#
+# NOTE: typed subclasses of ``OllieStreamError`` (``PodSessionLostError``,
+# ``PodStreamIdleError``, ``ConfirmPostError``, …) own their own bucket
+# (``session_evicted``, ``stream_idle``, ``confirm_failed``, …). They are
+# NOT wrappers — see ``_is_wrapper_exception`` below: the wrapper test is
+# type-exact, not ``isinstance``. This is what lets ``ConfirmPostError``
+# (raised ``from exc``) surface as ``confirm_failed`` rather than being
+# unwrapped to its httpx cause's bucket.
 _WRAPPER_CLASSES: tuple[type[BaseException], ...] = (
     ToolError,
     OllieStreamError,
 )
+
+
+def _is_wrapper_exception(exc: BaseException) -> bool:
+    """``True`` iff ``exc`` is one of the pure-envelope wrapper classes.
+
+    Type-exact match (``type(exc) in _WRAPPER_CLASSES``) — subclasses are
+    treated as typed leaves with their own ``error_kind`` ClassVar. Without
+    this, a ``ConfirmPostError`` raised ``from`` an httpx error would unwrap
+    to the httpx cause and lose its ``confirm_failed`` signal.
+    """
+    return type(exc) in _WRAPPER_CLASSES
 
 
 # Cap on chain depth to keep cycles / deeply-nested wrappers from turning the
@@ -100,7 +119,7 @@ def unwrap_to_real_cause(
     seen: set[int] = {id(exc)}
     current: BaseException = exc
     for _ in range(max_depth):
-        if not isinstance(current, _WRAPPER_CLASSES):
+        if not _is_wrapper_exception(current):
             return current
         nxt: BaseException | None = current.__cause__
         if nxt is None and not current.__suppress_context__:
