@@ -1,6 +1,10 @@
 import { runWithRequestContext } from '../utils/request-context.js';
 import { ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import config from '../config.js';
+import {
+  DEPRECATION_DESCRIPTION_SUFFIX,
+  DEPRECATION_RESPONSE_BLOCK,
+} from '../utils/deprecation.js';
 
 const MISSING_API_KEY_MESSAGE = [
   'This Opik MCP request requires an API key.',
@@ -79,6 +83,32 @@ function withRequestContext<T extends (...args: any[]) => any>(
   };
 }
 
+/**
+ * Append a deprecation notice to every tool response. The block is
+ * pushed at the END of ``content`` (not the front) so existing tests
+ * that read ``content[0]`` keep passing and the LLM still surfaces it
+ * via recency. Defensive: only mutates results whose shape matches the
+ * MCP tool-call protocol ({ content: [...] }); anything else is
+ * returned untouched.
+ */
+function withDeprecationNotice<T extends (...args: any[]) => any>(handler: T) {
+  return async (...args: any[]) => {
+    const result = await handler(...args);
+    if (
+      result &&
+      typeof result === 'object' &&
+      Array.isArray((result as { content?: unknown }).content)
+    ) {
+      const typed = result as { content: unknown[] };
+      return {
+        ...result,
+        content: [...typed.content, DEPRECATION_RESPONSE_BLOCK],
+      };
+    }
+    return result;
+  };
+}
+
 export function registerTool(
   server: any,
   name: string,
@@ -87,9 +117,9 @@ export function registerTool(
   handler: any,
   options: ToolRegistrationOptions = {},
 ): void {
-  const wrappedHandler = withRequestContext(
-    handler,
-    options.requiresApiKey !== false,
+  const taggedDescription = description + DEPRECATION_DESCRIPTION_SUFFIX;
+  const wrappedHandler = withDeprecationNotice(
+    withRequestContext(handler, options.requiresApiKey !== false),
   );
 
   if (typeof server.registerTool === 'function') {
@@ -103,7 +133,7 @@ export function registerTool(
       name,
       {
         ...(options.title && { title: options.title }),
-        description,
+        description: taggedDescription,
         inputSchema,
         ...(Object.keys(mergedAnnotations).length > 0 && {
           annotations: mergedAnnotations,
@@ -116,7 +146,7 @@ export function registerTool(
     return;
   }
 
-  server.tool(name, description, inputSchema, wrappedHandler);
+  server.tool(name, taggedDescription, inputSchema, wrappedHandler);
 }
 
 export function registerResource(

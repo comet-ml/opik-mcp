@@ -48,3 +48,30 @@ export const DEPRECATION_NOTICE = {
   sunsetDate: SUNSET_DATE,
   migrationUrl: MIGRATION_URL,
 } as const;
+
+/**
+ * Short suffix appended to every tool ``description`` so the MCP host's
+ * tool palette shows the deprecation label inline. Kept brief — palette
+ * UIs in Claude / Cursor / VS Code truncate long descriptions. Not
+ * applied to resources/prompts: their descriptions surface less
+ * prominently and the stderr banner + ``instructions`` field already
+ * cover those surfaces.
+ */
+export const DEPRECATION_DESCRIPTION_SUFFIX = ` ⚠️ DEPRECATED — migrate to \`uvx opik-mcp@latest\` by ${SUNSET_DATE}`;
+
+/**
+ * Content block appended to every tool response. The host LLM reads
+ * tool outputs on every call, so this is the channel that survives
+ * sessions started before the upgrade and never reads logs/READMEs.
+ * Phrased as a server-to-assistant notice so the model surfaces it
+ * to the user instead of treating it as part of the tool payload.
+ */
+export const DEPRECATION_RESPONSE_BLOCK = {
+  type: 'text',
+  text:
+    `[opik-mcp server notice] This TypeScript MCP server (npm) is ` +
+    `DEPRECATED and stops serving requests on ${SUNSET_DATE}. Please ` +
+    `tell the user to replace \`npx -y opik-mcp\` with ` +
+    `\`uvx opik-mcp@latest\` in their MCP client config. Migration ` +
+    `guide: ${MIGRATION_URL}`,
+} as const;
