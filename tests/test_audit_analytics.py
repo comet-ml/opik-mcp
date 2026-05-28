@@ -61,7 +61,9 @@ def test_write_auto_approval_stamps_host_context_with_session(
     monkeypatch.setattr("opik_mcp.audit._analytics_for_audit", lambda: recorder)
 
     client_info = SimpleNamespace(name="claude-desktop", version="1.2.3")
-    params = SimpleNamespace(clientInfo=client_info, protocolVersion="2025-06-01", capabilities=None)
+    params = SimpleNamespace(
+        clientInfo=client_info, protocolVersion="2025-06-01", capabilities=None
+    )
     session = SimpleNamespace(client_params=params)
 
     write_auto_approval(

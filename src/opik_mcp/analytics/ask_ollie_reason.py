@@ -164,7 +164,7 @@ def derive_failure_reason(
     exc: BaseException,
     phase: AskOlliePhase,
     *,
-    upstream_code: str | None = None,  # noqa: ARG001 (reserved for future sub-bucketing)
+    upstream_code: str | None = None,
 ) -> AskOllieFailureReason:
     """Derive a phase-aware ``failure_reason`` for an ``ask_ollie`` failure.
 
@@ -179,7 +179,7 @@ def derive_failure_reason(
     2. Match against ``_TYPED_REASONS`` (typed leaf classes pinned at their
        raise sites).
     3. Status-bearing exceptions (``httpx.HTTPStatusError`` etc.): bucket
-       by status × phase via ``_comet_http_reason`` / ``_pod_http_reason``.
+       by status x phase via ``_comet_http_reason`` / ``_pod_http_reason``.
     4. Non-status network/timeout (``httpx.TimeoutException`` etc.): bucket
        by ``_network_reason``.
     5. ``unknown`` fall-through.

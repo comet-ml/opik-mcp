@@ -25,7 +25,6 @@ from opik_mcp.ollie_client import (
     ConfirmDeclinedError,
     ConfirmPostError,
     OllieClient,
-    OllieStreamError,
     OnTick,
     PodErrorEventError,
     PodStreamIdleError,
