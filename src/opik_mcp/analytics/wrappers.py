@@ -50,20 +50,31 @@ T = TypeVar("T")
 # dropping server-side in ``before_send``.
 _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
     {
+        # Cross-tool coarse buckets (read / list / write / schema)
         "auth",  # 401 — bad API key / wrong workspace
         "permission",  # 403 — workspace access denied
         "validation",  # 400/422 — payload rejected by Opik or pydantic
         "not_found",  # 404 — entity doesn't exist
+        # ask_ollie-specific user-config buckets. These are all
+        # caller-actionable (bad key, missing workspace access, ollie not
+        # turned on, user declined an elicit prompt) — Sentry would only
+        # surface noise.
+        "comet_auth",  # bad/expired OPIK_API_KEY at the Comet layer
+        "comet_permission",  # workspace access denied at the Comet layer
+        "ollie_not_enabled",  # workspace doesn't have ollie-assist enabled
+        "pod_auth",  # PPAUTH cookie rejected by the pod
+        "cancelled",  # user-initiated cancellation (ConfirmDeclinedError)
     }
 )
 
 
-# User-config problems Sentry shouldn't carry. ``OllieNotEnabledError`` buckets
-# to ``"unknown"`` (indistinguishable from real bugs like ``CometProtocolError``
-# at the kind level), so it NEEDS this class-based skip. ``MissingConfigError``
-# now buckets to ``"validation"`` and is already skipped via
-# ``_USER_SIDE_ERROR_KINDS``; it stays here as belt-and-braces so a future
-# re-classification can't silently start paging Sentry.
+# Belt-and-braces class-based Sentry skip-list. Both classes already bucket
+# into ``_USER_SIDE_ERROR_KINDS`` via their ``ClassVar[ErrorKind]``
+# (``MissingConfigError`` → ``"validation"``, ``OllieNotEnabledError`` →
+# ``"ollie_not_enabled"``), so the bucket-based filter above is the primary
+# gate. This list stays as a defensive backstop — a future re-classification
+# of either class (e.g. ``MissingConfigError`` reclassified to ``"unknown"``)
+# would silently start paging Sentry otherwise.
 _USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     MissingConfigError,
     OllieNotEnabledError,
@@ -370,6 +381,11 @@ def _maybe_emit_tools_listed(result: Any) -> None:
     transport_probe.mark_first_rpc()
 
     props = {"tool_count_bucket": bucket_count(len(tools))}
+    # Stamp env cohort + bucketed MCP host so tools_listed segments on the
+    # same dimensions as tool_called and ask_ollie_completed. ``session``
+    # may be None when invoked outside a host (HTTP probe, test); the
+    # helper returns empty dict in that case.
+    props.update(call_context_props(session))
     try:
         _client().track_event(EVENT_TOOLS_LISTED, props)
     except BaseException:

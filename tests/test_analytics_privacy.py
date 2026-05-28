@@ -475,7 +475,10 @@ class _CanaryOllieClient:
     message never reaches the ``ask_ollie_completed`` analytics event."""
 
     canary_message: str = "ollie-stream-error-UNIQUE-CANARY-9a8b7c6d"
-    canary_code: str = "rate_limited_canary_UNIQUE-2f3e4d5c"
+    # Shape-valid identifier: lowercase alnum + ``_-``, ≤ 32 chars. Matches
+    # ``_UPSTREAM_CODE_PATTERN`` in ask_ollie.py — passes through to BI
+    # unchanged so the test can assert the wire-up actually surfaces it.
+    canary_code: str = "rate_limited_canary"
 
     async def wait_ready(
         self, compute_url: str, ppauth: str, *, on_tick: OnTick | None = None
@@ -545,41 +548,47 @@ async def test_ask_ollie_failure_strips_stream_error_message(recorder: _Recorder
     assert completed, "ask_ollie must emit a completed event on the error path"
     props = completed[0]
     assert props["completion_state"] == "error"
-    assert props["error_kind"] == "unknown"
-    assert props["exception_type"] == "OllieStreamError"
-    # ``code`` IS allowlisted into analytics (length-capped) — it's the one
-    # field pod authors are expected to keep enum-shaped. The test passes
-    # an obviously-not-PII canary to confirm the wire-up; downstream BI is
-    # the place to enforce the actual enum.
-    assert props["upstream_error_code"] == fake.canary_code[:64]
+    # Pod error frame surfaces as ``PodErrorEventError`` (subclass of
+    # ``OllieStreamError`` raised at the SSE ``error`` event site) — its
+    # ClassVar pins ``error_kind`` to ``stream_error_frame``.
+    assert props["error_kind"] == "stream_error_frame"
+    assert props["exception_type"] == "PodErrorEventError"
+    # ``code`` IS allowlisted into analytics — it's the one field pod authors
+    # are expected to keep enum-shaped. Shape-valid codes (alnum + ``_-``,
+    # ≤ 32 chars) pass through unchanged; anything else collapses to
+    # ``"other"`` so a misbehaving pod can't smuggle text past the cap. The
+    # canary here is shape-valid by construction; the long/uppercase rejection
+    # path has its own test below.
+    assert props["upstream_error_code"] == fake.canary_code
 
 
 class _LongCodeOllieClient(_CanaryOllieClient):
     """Same canary stream as ``_CanaryOllieClient`` but with a code field
-    longer than the 64-char cap. Used to verify the length-cap actually
-    fires (the base class's canary is only 36 chars long, which would
-    pass the assertion even if the slicing were removed)."""
+    that violates the identifier shape (uppercase, > 32 chars, dashes after
+    uppercase). Used to verify the shape-check bucket fires."""
 
-    # 100 chars — comfortably over the 64-char cap. The trailing canary
-    # tail (positions 64..) must be sliced off; if it appears in props,
-    # the cap regressed.
+    # 100 chars + uppercase + sentence punctuation — comfortably outside the
+    # ``^[a-z0-9][a-z0-9_-]{0,31}$`` shape. If any character of the canary
+    # tail appears in the recorded props, the shape-check regressed.
     canary_code: str = "x" * 64 + "TAIL-MUST-BE-CHOPPED-UNIQUE-CANARY-d4e5f6a7"
 
 
 @pytest.mark.anyio
-async def test_ask_ollie_failure_caps_upstream_error_code_at_64_chars(
+async def test_ask_ollie_failure_buckets_misshaped_upstream_error_code_to_other(
     recorder: _Recorder,
 ) -> None:
-    """Production cap at ``ask_ollie.py``: ``upstream_error_code`` MUST be
-    truncated to 64 chars before emit. Pod-controlled field — without the
-    cap, a misbehaving pod could stamp arbitrary text into ``code`` and
-    smuggle it past the message-stripping privacy contract."""
+    """Pod-controlled ``code`` that doesn't match the stable-identifier shape
+    (alnum + ``_-``, ≤ 32 chars) MUST collapse to ``"other"`` on emit — the
+    earlier 64-char truncation was insufficient because uppercase, spaces,
+    and punctuation could still slip ~64 chars of pod-controlled text past
+    the message-stripping privacy contract. The shape check is the load-
+    bearing fix; this test pins it on the end-to-end emit path."""
     from opik_mcp.ask_ollie import run_ask_ollie
     from opik_mcp.config import Settings
     from opik_mcp.ollie_client import OllieStreamError
 
     fake = _LongCodeOllieClient()
-    assert len(fake.canary_code) > 64  # guard the test itself
+    assert len(fake.canary_code) > 32  # guard the test itself: must violate cap
 
     with pytest.raises(OllieStreamError):
         await run_ask_ollie(
@@ -592,11 +601,11 @@ async def test_ask_ollie_failure_caps_upstream_error_code_at_64_chars(
     completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
     assert completed
     code = completed[0]["upstream_error_code"]
-    assert len(code) == 64, f"expected 64-char cap, got len={len(code)}: {code!r}"
-    assert code == fake.canary_code[:64]
-    # The truncated tail must not appear anywhere in the recorded payload —
-    # if it does, the cap fired but something else (a duplicate field,
-    # a log line, etc.) is still leaking the raw value.
+    assert code == "other", f"expected misshaped code bucketed to 'other', got: {code!r}"
+    # Belt-and-braces: NO substring of the canary may appear anywhere in
+    # the recorded payload — the bucket helper is the only path that
+    # touches the field, but if a future change adds a second emit site,
+    # this catches the leak.
     payload = json.dumps(recorder.events)
     assert "TAIL-MUST-BE-CHOPPED" not in payload
 
@@ -631,7 +640,10 @@ async def test_ask_ollie_failure_typed_exception_bucketed_correctly(
     assert completed
     props = completed[0]
     assert props["completion_state"] == "error"
-    assert props["error_kind"] == "permission"
+    # CometPermissionError's ClassVar pins ``error_kind`` to
+    # ``comet_permission`` (ask_ollie-specific bucket) — distinct from a
+    # generic write/read 403 which buckets as ``permission``.
+    assert props["error_kind"] == "comet_permission"
     assert props["exception_type"] == "CometPermissionError"
     # No SSE error frame on this path → no upstream_error_code.
     assert "upstream_error_code" not in props

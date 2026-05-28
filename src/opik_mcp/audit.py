@@ -15,6 +15,26 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from opik_mcp.analytics.events import EVENT_AUTO_APPROVAL
+from opik_mcp.analytics.mcp_client_info import call_context_props
+from opik_mcp.writes.registry import WRITE_OPERATIONS
+
+# Allowlist of legitimate ``target_tool`` values for the analytics emit.
+# ``target_tool`` arrives in the pod's ``confirm_required`` SSE frame as a
+# free-text ``tool_name`` and is pod-controlled — never let it reach BI raw,
+# or a future pod release shipping arbitrary strings would blow up our
+# event cardinality. Mirrors ``ask_ollie._KNOWN_TARGET_TOOLS`` so the two
+# emit sites bucket the same set. The audit ROW (logged + Phase 2 hosted
+# ingest) keeps the raw value — only the analytics emit is bucketed.
+_KNOWN_TARGET_TOOLS: frozenset[str] = frozenset(WRITE_OPERATIONS)
+
+
+def _bucket_target_tool(target_tool: str | None) -> str:
+    """Pass-through for allowlisted write ops, ``"other"`` for unknown
+    pod-supplied names, ``""`` for None. Parallel to
+    ``_bucket_auto_approval_tools`` on the ``ask_ollie_completed`` event."""
+    if target_tool is None:
+        return ""
+    return target_tool if target_tool in _KNOWN_TARGET_TOOLS else "other"
 
 
 def _analytics_for_audit() -> Any:
@@ -66,11 +86,19 @@ def write_auto_approval(
     target_tool: str | None,
     summary: str | None,
     input: dict[str, Any],
+    mcp_session: Any = None,
 ) -> AuditRow:
     """Record that `opik-mcp` auto-approved a pod ``confirm_required`` event.
 
     Returns the constructed row so callers (and tests) can introspect it
     without re-parsing the log line.
+
+    ``mcp_session`` is the host-side ServerSession (``ctx.session`` in
+    ask_ollie). Threaded through so the analytics emit stamps the same
+    env-cohort + bucketed-host block as ``tool_called`` /
+    ``ask_ollie_completed``. ``None`` is safe — ``call_context_props``
+    falls back to the ``other``/``unknown`` defaults so the schema is
+    stable.
     """
     row = AuditRow(
         event="ollie_write_auto_approved",
@@ -85,14 +113,13 @@ def write_auto_approval(
     )
     _audit_logger.info("audit %s", row.model_dump_json())
     try:
-        _analytics_for_audit().track_event(
-            EVENT_AUTO_APPROVAL,
-            {
-                "tool": "ask_ollie",
-                "target_tool": target_tool or "",
-                "had_summary": str(summary is not None).lower(),
-            },
-        )
+        props = {
+            "tool": "ask_ollie",
+            "target_tool": _bucket_target_tool(target_tool),
+            "had_summary": str(summary is not None).lower(),
+        }
+        props.update(call_context_props(mcp_session))
+        _analytics_for_audit().track_event(EVENT_AUTO_APPROVAL, props)
     except Exception:
         # Audit row is the source of truth; analytics is a secondary signal.
         # Never let analytics fail the auto-approval write.
