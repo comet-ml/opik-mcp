@@ -1,6 +1,6 @@
 {
   "name": "opik-mcp",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "[DEPRECATED — use `uvx opik-mcp@latest` instead, sunset 2026-11-15] MCP server to interact with Opik - Enables automated prompt optimization",
   "type": "module",
   "bin": {
@@ -80,7 +80,9 @@
         {
           "useESM": true,
           "diagnostics": {
-            "ignoreCodes": [151002]
+            "ignoreCodes": [
+              151002
+            ]
           }
         }
       ]
