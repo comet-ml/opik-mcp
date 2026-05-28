@@ -120,9 +120,7 @@ def _pod_http_reason(status: int | None) -> AskOllieFailureReason:
     return "unknown"
 
 
-def _network_reason(
-    real: BaseException, phase: AskOlliePhase
-) -> AskOllieFailureReason | None:
+def _network_reason(real: BaseException, phase: AskOlliePhase) -> AskOllieFailureReason | None:
     """Map non-status httpx errors to the phase-appropriate bucket."""
     if isinstance(real, httpx.TimeoutException):
         return "comet_timeout" if phase == "discover" else "pod_timeout"
