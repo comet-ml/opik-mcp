@@ -1,14 +1,13 @@
 name: CI
 run-name: "CI ${{ github.ref_name }} by @${{ github.actor }}"
 
-# Public-repo, GitHub-hosted runners. code-panels-style flow, inlined (gha-tools
-# is private and unusable from a public repo).
+# CI on GitHub-hosted runners: validate, build the multi-arch image, tag releases.
 #
 # Version = <version.txt MAJOR.MINOR>.<patch>, patch = (max existing x.y tag) + 1,
 # so it starts at 0 and resets per minor:
-#   main      -> ghcr.io/comet-ml/opik-mcp:0.2.0  (+ :main, + git tag 0.2.0)
-#   branch    -> ghcr.io/comet-ml/opik-mcp:0.2.<next>-<branch>   (no git tag)
-#   PR        -> build only (no push, no secrets — fork-safe)
+#   push to main -> ghcr.io/comet-ml/opik-mcp:0.2.0  (+ :main, + git tag 0.2.0)
+#   PR           -> build only (no push, no secrets — fork-safe); version
+#                   carries a -<branch> suffix for the image tag if built
 #
 # Bump version.txt (e.g. 0.2 -> 0.3) to start a new minor line; patch resets to 0.
 # Release is manual (release.yaml): pick a git tag, promote its image, publish.
@@ -20,7 +19,7 @@ on:
       - main
   push:
     branches:
-      - '**'
+      - main
 
 permissions:
   contents: read
@@ -87,8 +86,10 @@ jobs:
             done
           else
             PATCH=$(( $(find_max_patch) + 1 ))
+            # Normalize: lowercase, non-alnum -> '-', cap at 20 chars,
+            # strip trailing dashes.
             SLUG=$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#^-+##; s#-+$##')
-            SLUG=${SLUG:0:30}; SLUG=${SLUG%-}
+            SLUG=${SLUG:0:20}; SLUG=${SLUG%-}
             VERSION="$BASE.$PATCH-$SLUG"
           fi
           # The image tag may carry a -branch suffix (fine for Docker tags), but
@@ -100,6 +101,7 @@ jobs:
           fi
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "pyver=$PYVER" | tee -a "$GITHUB_OUTPUT"
+          echo "### Version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
 
   python-checks:
     runs-on: ubuntu-latest
