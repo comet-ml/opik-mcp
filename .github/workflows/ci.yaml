@@ -35,7 +35,8 @@ jobs:
     permissions:
       contents: write   # push the git tag on main builds
     outputs:
-      version: ${{ steps.v.outputs.version }}
+      version: ${{ steps.v.outputs.version }}   # image tag (may carry -branch)
+      pyver: ${{ steps.v.outputs.pyver }}        # PEP 440 form for the wheel
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,12 +91,22 @@ jobs:
             SLUG=${SLUG:0:30}; SLUG=${SLUG%-}
             VERSION="$BASE.$PATCH-$SLUG"
           fi
+          # The image tag may carry a -branch suffix (fine for Docker tags), but
+          # the wheel/_version.py must be PEP 440 — so branch builds use .devN.
+          if [ "$REF_NAME" = "main" ] && [ "$EVENT" = "push" ]; then
+            PYVER="$BASE.$PATCH"
+          else
+            PYVER="$BASE.$PATCH.dev0"
+          fi
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "pyver=$PYVER" | tee -a "$GITHUB_OUTPUT"
 
   python-checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Generate _version.py (required before any uv build)
+        run: make version
       - uses: astral-sh/setup-uv@v6
         with:
           version: 'latest'
@@ -126,6 +137,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
+      - name: Generate _version.py (baked into the image via COPY src)
+        run: VERSION="${{ needs.version.outputs.pyver }}" make version
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - name: Login to GHCR

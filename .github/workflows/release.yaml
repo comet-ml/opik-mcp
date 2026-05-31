@@ -82,7 +82,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
       - name: Stamp the release version + build
         run: |
-          echo "${{ needs.validate.outputs.version }}" > version.txt
+          VERSION="${{ needs.validate.outputs.version }}" make version
           uv build
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
