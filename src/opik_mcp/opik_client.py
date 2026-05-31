@@ -20,6 +20,7 @@ from typing import Any, ClassVar, Final, Literal, Protocol
 
 import httpx
 
+from opik_mcp.auth_context import inbound_authorization, inbound_workspace
 from opik_mcp.config import MissingConfigError, Settings
 from opik_mcp.error_kinds import ErrorKind
 
@@ -618,11 +619,28 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:
     ``OPIK_URL`` override or ``COMET_URL_OVERRIDE + "/opik/api"``. Both the
     score/comment orchestrator and the resource layer call this so the config
     contract lives in exactly one place.
+
+    **Per-request bearer + workspace forwarding.** When the process is
+    serving an inbound HTTP request that carried an ``Authorization``
+    header (OAuth-passthrough mode), the middleware populates
+    :mod:`opik_mcp.auth_context` ContextVars and we prefer those over the
+    env-bound ``OPIK_API_KEY`` / ``COMET_WORKSPACE``. opik-backend's
+    ``AuthFilter`` accepts both shapes (API key and ``Bearer opik_at_…``)
+    and enforces ``@RequiredPermissions`` per endpoint, so opik-mcp is a
+    thin forwarder either way.
     """
-    if not settings.opik_api_key:
-        raise MissingConfigError("OPIK_API_KEY is required to call Opik REST")
-    if not settings.comet_workspace:
-        raise MissingConfigError("COMET_WORKSPACE is required to call Opik REST")
+    inbound_auth = inbound_authorization.get()
+    inbound_ws = inbound_workspace.get()
+    api_key = inbound_auth if inbound_auth else settings.opik_api_key
+    workspace = inbound_ws if inbound_ws else settings.comet_workspace
+    if not api_key:
+        raise MissingConfigError(
+            "OPIK_API_KEY (or an inbound Authorization header) is required to call Opik REST"
+        )
+    if not workspace:
+        raise MissingConfigError(
+            "COMET_WORKSPACE (or an inbound Comet-Workspace header) is required to call Opik REST"
+        )
     if settings.opik_url:
         base = settings.opik_url.rstrip("/")
     else:
@@ -633,7 +651,7 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:
         if not settings.comet_url_override:
             raise MissingConfigError("OPIK_URL or COMET_URL_OVERRIDE is required to call Opik REST")
         base = f"{settings.comet_url_override.rstrip('/')}/opik/api"
-    return base, settings.opik_api_key, settings.comet_workspace
+    return base, api_key, workspace
 
 
 def make_opik_client(settings: Settings) -> OpikClient:

@@ -16,7 +16,8 @@ from starlette.types import ASGIApp
 from opik_mcp.analytics.events import bucket_count
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
-from opik_mcp.config import get_settings
+from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+from opik_mcp.config import Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
@@ -503,6 +504,12 @@ async def schema(
 # misconfiguration would otherwise return 401.
 _HEALTH_PATHS = frozenset({"/health", "/health/ready"})
 
+# Protected-resource metadata is the bootstrap entry point for the OAuth
+# dance: MCP hosts fetch it (per RFC 9728) before they have any credentials,
+# so it must be reachable without an Authorization header.
+_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+_UNAUTH_PATHS = _HEALTH_PATHS | frozenset({_PROTECTED_RESOURCE_METADATA_PATH})
+
 # Bounded total budget for the upstream reachability check used by
 # /health/ready. Probes run every 5-10s; a hung upstream must not stall the
 # probe past the probe's own timeout, or readiness flips to "unknown" instead
@@ -511,17 +518,81 @@ _READY_PROBE_TIMEOUT_S = 2.0
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, token: str) -> None:
+    """Inbound auth + per-request bearer-capture for outbound forwarding.
+
+    Two modes selected at construction time from ``OPIK_MCP_DEV_TOKEN_ENABLED``:
+
+    * **OAuth-passthrough (default).** Any well-formed
+      ``Authorization: Bearer …`` header is accepted. The full header value
+      is captured into a ContextVar and forwarded verbatim on the outbound
+      call to opik-backend (see :mod:`opik_mcp.auth_context`). opik-backend's
+      ``AuthFilter`` validates the bearer (API key or ``opik_at_…`` OAuth
+      token) and enforces ``@RequiredPermissions`` on the data API endpoint;
+      opik-mcp performs no local validation.
+
+    * **Dev-token mode** (``OPIK_MCP_DEV_TOKEN_ENABLED=true``). Strict
+      ``constant_time`` comparison against ``OPIK_MCP_DEV_TOKEN``. Local
+      testing scaffolding; ``__main__`` refuses to start when this mode is
+      enabled with the default token on a non-loopback bind.
+
+    In both modes, missing/empty ``Authorization`` returns 401 with a
+    ``WWW-Authenticate`` header that points MCP hosts at
+    ``/.well-known/oauth-protected-resource`` so they can bootstrap the
+    OAuth dance per RFC 6750 + RFC 9728. Health probes and the metadata
+    endpoint are exempt from auth.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        dev_token_enabled: bool,
+        dev_token: str,
+        resource_metadata_url: str | None,
+    ) -> None:
         super().__init__(app)
-        self._expected = f"Bearer {token}"
+        self._dev_token_enabled = dev_token_enabled
+        self._expected_dev_token = f"Bearer {dev_token}"
+        self._resource_metadata_url = resource_metadata_url
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path in _HEALTH_PATHS:
+        if request.url.path in _UNAUTH_PATHS:
             return await call_next(request)
+
         auth = request.headers.get("authorization", "")
-        if not secrets.compare_digest(auth, self._expected):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return await call_next(request)
+        if not auth:
+            return self._unauthorized()
+
+        if self._dev_token_enabled:
+            if not secrets.compare_digest(auth, self._expected_dev_token):
+                return self._unauthorized()
+        elif not auth.lower().startswith("bearer "):
+            # OAuth-passthrough still requires the canonical "Bearer …" shape
+            # so the WWW-Authenticate hint we return on failure is consistent
+            # with what the host expects to send next.
+            return self._unauthorized()
+
+        # Capture the inbound auth + workspace headers for the duration of
+        # this request so the outbound :class:`OpikClient` can forward them.
+        auth_token = inbound_authorization.set(auth)
+        workspace = request.headers.get("comet-workspace")
+        workspace_token = inbound_workspace.set(workspace)
+        try:
+            return await call_next(request)
+        finally:
+            inbound_authorization.reset(auth_token)
+            inbound_workspace.reset(workspace_token)
+
+    def _unauthorized(self) -> Response:
+        # RFC 6750 §3 + RFC 9728: pointing MCP hosts at protected-resource
+        # metadata is what kicks off automatic OAuth discovery — without
+        # this, hosts have no way to find the AS without out-of-band config.
+        headers: dict[str, str] = {}
+        if self._resource_metadata_url:
+            headers["WWW-Authenticate"] = (
+                f'Bearer realm="opik-mcp", resource_metadata="{self._resource_metadata_url}"'
+            )
+        return JSONResponse({"error": "unauthorized"}, status_code=401, headers=headers)
 
 
 # --- health endpoints ---------------------------------------------------- #
@@ -567,13 +638,57 @@ async def _readiness(_request: Request) -> JSONResponse:
     return JSONResponse({"status": "not_ready", "reason": reason}, status_code=503)
 
 
+async def _oauth_protected_resource(_request: Request) -> JSONResponse:
+    """RFC 9728 protected-resource metadata.
+
+    Returned to MCP hosts so they can discover the Authorization Server and
+    run the OAuth dance against it without needing the AS URL preconfigured.
+
+    When ``OPIK_MCP_AS_URL`` is unset, the discovery doc is unavailable —
+    this opik-mcp instance is then only useful with ``OPIK_API_KEY``-style
+    auth (or dev-token mode). Returning 503 makes the misconfiguration loud
+    and steers operators to set ``OPIK_MCP_AS_URL``.
+    """
+    s = get_settings()
+    if not s.opik_mcp_as_url:
+        return JSONResponse({"error": "OPIK_MCP_AS_URL not configured"}, status_code=503)
+    body: dict[str, Any] = {
+        "authorization_servers": [s.opik_mcp_as_url],
+    }
+    if s.opik_mcp_resource_uri:
+        body["resource"] = s.opik_mcp_resource_uri
+    return JSONResponse(body)
+
+
+def _resource_metadata_url(settings: Settings) -> str | None:
+    """Build the absolute URL we advertise in ``WWW-Authenticate``.
+
+    Prefers ``OPIK_MCP_RESOURCE_URI + /.well-known/oauth-protected-resource``;
+    falls back to a relative path when no public URI is configured, which is
+    still useful for hosts that resolve relative to the 401 URL.
+    """
+    if settings.opik_mcp_resource_uri:
+        return f"{settings.opik_mcp_resource_uri.rstrip('/')}{_PROTECTED_RESOURCE_METADATA_PATH}"
+    return _PROTECTED_RESOURCE_METADATA_PATH
+
+
 def build_app() -> Starlette:
     install_tools_listed_emitter(mcp)
-    # The bearer token is captured at construction time and held for the
-    # process lifetime; rotation requires a server restart (Settings is
-    # lru_cache'd). Documented as a Phase-1 limitation; Phase 2 moves to OAuth.
     app = mcp.streamable_http_app()
     app.router.routes.append(Route("/health", _liveness, methods=["GET"]))
     app.router.routes.append(Route("/health/ready", _readiness, methods=["GET"]))
-    app.add_middleware(BearerAuthMiddleware, token=get_settings().opik_mcp_dev_token)
+    app.router.routes.append(
+        Route(
+            _PROTECTED_RESOURCE_METADATA_PATH,
+            _oauth_protected_resource,
+            methods=["GET"],
+        )
+    )
+    s = get_settings()
+    app.add_middleware(
+        BearerAuthMiddleware,
+        dev_token_enabled=s.opik_mcp_dev_token_enabled,
+        dev_token=s.opik_mcp_dev_token,
+        resource_metadata_url=_resource_metadata_url(s),
+    )
     return app

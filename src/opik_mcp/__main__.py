@@ -341,12 +341,21 @@ def _run_transport(settings: Settings, transport: str) -> None:
         settings.opik_mcp_reload,
     )
 
-    if settings.opik_mcp_dev_token == INSECURE_DEFAULT_TOKEN:
+    # Dev-token bind check applies only when dev-token mode is opted in.
+    # OAuth-passthrough mode (the default) doesn't carry a server-side
+    # secret — opik-backend validates the forwarded bearer — so binding to
+    # non-loopback is safe there.
+    if (
+        settings.opik_mcp_dev_token_enabled
+        and settings.opik_mcp_dev_token == INSECURE_DEFAULT_TOKEN
+    ):
         if settings.opik_mcp_host not in LOOPBACK_HOSTS:
             logger.error(
-                "Refusing to start: OPIK_MCP_DEV_TOKEN is the insecure default %r "
-                "and OPIK_MCP_HOST=%r is not a loopback address. Set a strong "
-                "OPIK_MCP_DEV_TOKEN secret, or bind to 127.0.0.1/::1/localhost.",
+                "Refusing to start: OPIK_MCP_DEV_TOKEN_ENABLED=true with the insecure "
+                "default OPIK_MCP_DEV_TOKEN %r and OPIK_MCP_HOST=%r is not a loopback "
+                "address. Either disable dev-token mode (OPIK_MCP_DEV_TOKEN_ENABLED=false, "
+                "the default), set a strong OPIK_MCP_DEV_TOKEN secret, or bind to "
+                "127.0.0.1/::1/localhost.",
                 INSECURE_DEFAULT_TOKEN,
                 settings.opik_mcp_host,
             )
@@ -357,7 +366,7 @@ def _run_transport(settings: Settings, transport: str) -> None:
             )
             sys.exit(1)
         logger.warning(
-            "OPIK_MCP_DEV_TOKEN is using the insecure default %r. "
+            "OPIK_MCP_DEV_TOKEN_ENABLED=true with the insecure default token %r. "
             "Set a strong secret before exposing this server beyond localhost.",
             INSECURE_DEFAULT_TOKEN,
         )
