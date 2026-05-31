@@ -1,0 +1,149 @@
+name: CI
+run-name: "CI ${{ github.ref_name }} by @${{ github.actor }}"
+
+# Public-repo, GitHub-hosted runners. code-panels-style flow, inlined (gha-tools
+# is private and unusable from a public repo).
+#
+# Version = <version.txt MAJOR.MINOR>.<patch>, patch = (max existing x.y tag) + 1,
+# so it starts at 0 and resets per minor:
+#   main      -> ghcr.io/comet-ml/opik-mcp:0.2.0  (+ :main, + git tag 0.2.0)
+#   branch    -> ghcr.io/comet-ml/opik-mcp:0.2.<next>-<branch>   (no git tag)
+#   PR        -> build only (no push, no secrets — fork-safe)
+#
+# Bump version.txt (e.g. 0.2 -> 0.3) to start a new minor line; patch resets to 0.
+# Release is manual (release.yaml): pick a git tag, promote its image, publish.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/comet-ml/opik-mcp
+
+jobs:
+
+  version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # push the git tag on main builds
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Compute version (patch = max x.y tag + 1; tag on main)
+        id: v
+        env:
+          REF_NAME: ${{ github.head_ref || github.ref_name }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          BASE=$(tr -d ' \t\r\n' < version.txt)
+          if ! echo "$BASE" | grep -qE '^[0-9]+\.[0-9]+$'; then
+            echo "::error::version.txt must be MAJOR.MINOR (x.y), got '$BASE'"; exit 1
+          fi
+
+          # Highest existing patch among tags exactly "BASE.<digits>" (-1 if none → next is 0).
+          find_max_patch() {
+            local max=-1 rem
+            while IFS= read -r t; do
+              [ -z "$t" ] && continue
+              rem="${t#"$BASE."}"
+              if [[ "$rem" =~ ^[0-9]+$ ]] && (( rem > max )); then max=$rem; fi
+            done < <(git tag --list "$BASE.*")
+            echo "$max"
+          }
+
+          if [ "$REF_NAME" = "main" ] && [ "$EVENT" = "push" ]; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@comet.com"
+            # Retry to stay race-safe if two main builds tag at once.
+            for attempt in 1 2 3 4 5; do
+              if [ "$attempt" -gt 1 ]; then
+                git fetch --tags --force >/dev/null 2>&1 || true
+                sleep $(( RANDOM % 3 + 1 ))
+              fi
+              PATCH=$(( $(find_max_patch) + 1 ))
+              VERSION="$BASE.$PATCH"
+              if git tag "$VERSION" 2>/dev/null && git push origin "refs/tags/$VERSION" 2>/dev/null; then
+                echo "Tagged $VERSION"
+                break
+              fi
+              git tag -d "$VERSION" 2>/dev/null || true
+              if [ "$attempt" -eq 5 ]; then
+                echo "::error::failed to create tag after 5 attempts"; exit 1
+              fi
+            done
+          else
+            PATCH=$(( $(find_max_patch) + 1 ))
+            SLUG=$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#^-+##; s#-+$##')
+            SLUG=${SLUG:0:30}; SLUG=${SLUG%-}
+            VERSION="$BASE.$PATCH-$SLUG"
+          fi
+          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+
+  python-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 'latest'
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Run lint + typecheck + tests
+        run: make check
+
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Helm lint
+        run: helm lint helm/opik-mcp -f helm/opik-mcp/values.yaml
+      - name: Helm template
+        run: helm template opik-mcp helm/opik-mcp -f helm/opik-mcp/values.yaml > /dev/null
+
+  build-image:
+    needs: version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (push only off PRs)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.version.outputs.version }}
+            ${{ github.ref_name == 'main' && format('{0}:main', env.IMAGE) || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

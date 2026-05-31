@@ -1,0 +1,12 @@
+apiVersion: v2
+name: opik-mcp
+description: Helm Chart for the Opik MCP server.
+type: application
+# Placeholders only — the real chart version is injected at publish time by the
+# release workflow (`helm package --version <tag> --app-version <tag>`). These
+# defaults are used solely for `helm lint`/`template` in CI.
+version: 0.0.0
+appVersion: "0.0.0"
+maintainers:
+  - name: Comet ML
+    url: https://github.com/comet-ml/opik-mcp

@@ -1,0 +1,111 @@
+name: Release
+run-name: "Release ${{ inputs.tag }} by @${{ github.actor }}"
+
+# Manual release of a CI-built version. Pick a git tag created by a main build
+# (x.y.z). Nothing is rebuilt: the existing GHCR image is promoted to :latest,
+# and the chart + PyPI package are published at that version from the tag's source.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        type: string
+        required: true
+        description: "Git tag to release (x.y.z, created by a main build — e.g. 0.2.42)"
+
+permissions:
+  contents: write   # create the GitHub release
+  id-token: write   # PyPI Trusted Publishing
+  packages: write   # retag image + push chart to GHCR
+
+env:
+  IMAGE: ghcr.io/comet-ml/opik-mcp
+
+jobs:
+
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - name: Validate tag format
+        id: v
+        run: |
+          TAG=$(echo "${{ inputs.tag }}" | tr -d ' \t\r\n')
+          if ! echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag must be x.y.z (a main-build tag), got '$TAG'"; exit 1
+          fi
+          echo "version=$TAG" | tee -a "$GITHUB_OUTPUT"
+
+  promote-image:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag released image as :latest (no rebuild)
+        run: |
+          docker buildx imagetools create \
+            -t "${IMAGE}:latest" \
+            "${IMAGE}:${{ needs.validate.outputs.version }}"
+
+  publish-chart:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.version }}
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.2
+      - name: Package + push chart to GHCR (OCI)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package helm/opik-mcp \
+            --version "${{ needs.validate.outputs.version }}" \
+            --app-version "${{ needs.validate.outputs.version }}"
+          helm push "opik-mcp-${{ needs.validate.outputs.version }}.tgz" oci://ghcr.io/comet-ml/charts
+
+  pypi:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.version }}
+      - uses: astral-sh/setup-uv@v6
+      - name: Stamp the release version + build
+        run: |
+          echo "${{ needs.validate.outputs.version }}" > version.txt
+          uv build
+      - name: Publish to PyPI (Trusted Publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: [validate, promote-image, publish-chart, pypi]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.version }}
+          fetch-depth: 0
+      - name: Create GitHub release for the tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ needs.validate.outputs.version }}" \
+            --title "${{ needs.validate.outputs.version }}" \
+            --generate-notes
+
+      # Remove the rolling draft maintained by release-drafter now that a real
+      # release exists, so the next cycle starts a fresh draft.
+      - name: Delete leftover release draft(s)
+        uses: hugo19941994/delete-draft-releases@v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

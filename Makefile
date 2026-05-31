@@ -1,6 +1,8 @@
-.PHONY: help install run run-dev dev inspect test test-live conformance lint format typecheck check \
+.PHONY: help version install run run-dev dev inspect test test-live conformance lint format typecheck check \
         docker-build docker-run \
         legacy-install legacy-build legacy-test legacy-lint legacy-start
+
+VERSION_FILE := src/opik_mcp/_version.py
 
 help:
 	@echo "Python (root):"
@@ -27,7 +29,13 @@ help:
 	@echo "  make legacy-lint    - eslint in legacy/typescript"
 	@echo "  make legacy-start   - node build/index.js in legacy/typescript"
 
-install:
+# Generate the git-ignored version file. CI/release pass VERSION=<x.y.z>;
+# locally it falls back to <MAJOR.MINOR from version.txt>.dev0.
+version:
+	@printf '__version__ = "%s"\n' "$${VERSION:-$$(tr -d '[:space:]' < version.txt).dev0}" > $(VERSION_FILE)
+	@echo "wrote $(VERSION_FILE): $$(cat $(VERSION_FILE))"
+
+install: version
 	uv sync --extra dev
 
 run:
@@ -65,11 +73,11 @@ format:
 typecheck:
 	uv run mypy
 
-check: lint typecheck test
+check: version lint typecheck test
 
 # --- Docker image (deployable per OPIK-6667) -------------------------------
 
-docker-build:
+docker-build: version
 	docker build -t opik-mcp:dev .
 
 docker-run:
