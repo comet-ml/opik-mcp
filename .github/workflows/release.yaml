@@ -89,7 +89,8 @@ jobs:
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
       - name: Summary
-        run: echo "### PyPI: \`opik-mcp ${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
+        run: |
+          echo "### PyPI: \`opik-mcp ${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   github-release:
     needs: [validate, promote-image, publish-chart, pypi]
