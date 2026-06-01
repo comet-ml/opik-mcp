@@ -1,6 +1,7 @@
 import logging
 import secrets
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
@@ -508,7 +509,33 @@ _HEALTH_PATHS = frozenset({"/health", "/health/ready"})
 # dance: MCP hosts fetch it (per RFC 9728) before they have any credentials,
 # so it must be reachable without an Authorization header.
 _PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
-_UNAUTH_PATHS = _HEALTH_PATHS | frozenset({_PROTECTED_RESOURCE_METADATA_PATH})
+
+# AS-discovery / OAuth-flow paths that MCP host SDKs probe on the resource
+# server's host before they have a token. In production opik-mcp sits behind
+# the same edge as opik-backend so these paths "just work" — but locally
+# they're on different ports, so we redirect to the configured AS to keep
+# the SDK's discovery chain unbroken. Anything not in this set or
+# ``_HEALTH_PATHS`` requires a bearer.
+_PROXIED_OAUTH_PATHS = {
+    # AS metadata + OIDC fallback some SDKs probe before the protected-resource doc
+    "/.well-known/oauth-authorization-server": "/.well-known/oauth-authorization-server",
+    "/.well-known/openid-configuration": "/.well-known/oauth-authorization-server",
+    # OAuth 2.1 flow endpoints; SDK convention is to find them at the RS root
+    "/register": "/oauth/register",
+    "/authorize": "/oauth/authorize",
+    "/token": "/oauth/token",
+    "/revoke": "/oauth/revoke",
+    "/oauth/register": "/oauth/register",
+    "/oauth/authorize": "/oauth/authorize",
+    "/oauth/token": "/oauth/token",
+    "/oauth/revoke": "/oauth/revoke",
+}
+
+_UNAUTH_PATHS = (
+    _HEALTH_PATHS
+    | frozenset({_PROTECTED_RESOURCE_METADATA_PATH})
+    | frozenset(_PROXIED_OAUTH_PATHS.keys())
+)
 
 # Bounded total budget for the upstream reachability check used by
 # /health/ready. Probes run every 5-10s; a hung upstream must not stall the
@@ -556,7 +583,18 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         self._resource_metadata_url = resource_metadata_url
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path in _UNAUTH_PATHS:
+        path = request.url.path
+        # Discovery + bootstrap paths are unauthenticated by spec — RFC 9728
+        # well-known metadata, OIDC/OAuth AS metadata, and the OAuth-flow
+        # endpoints all run pre-credentials. Returning 401 on these would
+        # break the host's discovery chain; many SDKs probe path-prefixed
+        # variants too (``/.well-known/foo/mcp``, ``/mcp/.well-known/foo``),
+        # so we accept the whole prefix.
+        if (
+            path in _UNAUTH_PATHS
+            or path.startswith("/.well-known/")
+            or path.startswith("/mcp/.well-known/")
+        ):
             return await call_next(request)
 
         auth = request.headers.get("authorization", "")
@@ -660,21 +698,125 @@ async def _oauth_protected_resource(_request: Request) -> JSONResponse:
     return JSONResponse(body)
 
 
+# Headers that must not be forwarded from inbound → outbound on the proxy
+# path. ``host`` would override httpx's auto-set Host; ``content-length`` is
+# recomputed from the body; hop-by-hop framing headers don't make sense to
+# forward; and ``cookie`` is intentionally dropped because OAuth flows use
+# the AS's own session cookies and we don't want to leak SDK cookies upstream.
+_PROXY_DROP_REQUEST_HEADERS = frozenset(
+    {"host", "content-length", "connection", "transfer-encoding", "cookie"}
+)
+
+# Hop-by-hop response headers per RFC 7230 §6.1 — must not be forwarded back
+# unchanged or httpx/Starlette's framing assumptions break.
+_PROXY_DROP_RESPONSE_HEADERS = frozenset(
+    {"content-encoding", "content-length", "transfer-encoding", "connection"}
+)
+
+
+async def _proxy_to_as(request: Request) -> Response:
+    """Proxy AS-flow / discovery requests to the configured AS host.
+
+    MCP host SDKs probe ``/register``, ``/authorize``, ``/.well-known/oauth-
+    authorization-server`` etc. at the resource server's host before they
+    have a token. In production opik-mcp sits behind the same edge as
+    opik-backend so these paths route correctly without ceremony. Locally
+    (or in any split-host deploy) we proxy them to the configured AS so
+    the SDK sees a same-origin response — earlier attempts using HTTP 307
+    redirects failed because some SDKs do not follow cross-origin OAuth-
+    discovery redirects.
+
+    Proxying preserves method, body, query string, and most headers, and
+    returns the AS response inline. The proxied AS metadata still contains
+    absolute opik-backend URLs in its endpoint fields (``authorization_
+    endpoint``, ``token_endpoint``, etc.) — SDKs that use those directly
+    talk to the AS over the network; SDKs that probe ``/register`` etc. at
+    the RS root land here again and we proxy that too.
+
+    Returns 503 when ``OPIK_MCP_AS_URL`` is unset — the only safe answer:
+    we don't know where to send the probe, and silently 404'ing would
+    mislead clients into thinking the resource doesn't support OAuth.
+    """
+    s = get_settings()
+    if not s.opik_mcp_as_url:
+        return JSONResponse(
+            {"error": "OPIK_MCP_AS_URL not configured"}, status_code=503
+        )
+    target_path = _PROXIED_OAUTH_PATHS.get(request.url.path)
+    if target_path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    qs = request.url.query
+    target = f"{s.opik_mcp_as_url.rstrip('/')}{target_path}"
+    if qs:
+        target = f"{target}?{qs}"
+    body = await request.body()
+    forwarded_headers = {
+        k: v
+        for k, v in request.headers.items()
+        if k.lower() not in _PROXY_DROP_REQUEST_HEADERS
+    }
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        upstream = await client.request(
+            method=request.method,
+            url=target,
+            headers=forwarded_headers,
+            content=body,
+        )
+    response_headers = {
+        k: v
+        for k, v in upstream.headers.items()
+        if k.lower() not in _PROXY_DROP_RESPONSE_HEADERS
+    }
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=response_headers,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
 def _resource_metadata_url(settings: Settings) -> str | None:
     """Build the absolute URL we advertise in ``WWW-Authenticate``.
 
-    Prefers ``OPIK_MCP_RESOURCE_URI + /.well-known/oauth-protected-resource``;
-    falls back to a relative path when no public URI is configured, which is
-    still useful for hosts that resolve relative to the 401 URL.
+    The metadata route is registered at the application root, so the URL we
+    advertise must match: derived from the resource URI's scheme + authority
+    rather than appended under its path. RFC 9728 §3.1 permits both
+    path-prefixed and host-relative forms; MCP hosts in practice follow the
+    host-relative form, and our Starlette ``Route`` registration sits at
+    ``/`` + the well-known path (not nested under ``/mcp``). Appending under
+    the resource path produces a URL that 404s (or falls through to the MCP
+    path's auth middleware and 401s), silently breaking host bootstrap.
+
+    Falls back to the bare relative path when no public URI is configured —
+    still useful for hosts that resolve relative to the 401 URL, though that
+    pathway has the same authority as the request that triggered it.
     """
     if settings.opik_mcp_resource_uri:
-        return f"{settings.opik_mcp_resource_uri.rstrip('/')}{_PROTECTED_RESOURCE_METADATA_PATH}"
+        parsed = urlparse(settings.opik_mcp_resource_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}{_PROTECTED_RESOURCE_METADATA_PATH}"
     return _PROTECTED_RESOURCE_METADATA_PATH
+
+
+async def _not_found_json(scope: Any, receive: Any, send: Any) -> None:
+    """Default-route handler — returns 404 as JSON instead of ``text/plain``.
+
+    Starlette's stock 404 is ``Content-Type: text/plain`` with body ``Not
+    Found``. MCP host SDKs that JSON-parse every response (including
+    discovery probes that legitimately end in 404) choke on the plain
+    text and abort their bootstrap with "Failed to parse JSON". Returning
+    a tiny JSON envelope keeps every error response on the canonical
+    content-type contract.
+    """
+    response = JSONResponse({"error": "not_found"}, status_code=404)
+    await response(scope, receive, send)
 
 
 def build_app() -> Starlette:
     install_tools_listed_emitter(mcp)
     app = mcp.streamable_http_app()
+    # Replace Starlette's default plain-text 404 — see ``_not_found_json``.
+    app.router.default = _not_found_json
     app.router.routes.append(Route("/health", _liveness, methods=["GET"]))
     app.router.routes.append(Route("/health/ready", _readiness, methods=["GET"]))
     app.router.routes.append(
@@ -684,6 +826,16 @@ def build_app() -> Starlette:
             methods=["GET"],
         )
     )
+    # AS / OAuth-flow probe paths — proxy to the configured AS so
+    # split-host deployments (local docker-compose, dev clusters where
+    # opik-mcp and opik-backend bind to different addresses) work the
+    # same as the production single-edge deploy. Proxying (not redirect)
+    # because some SDKs refuse to follow cross-origin OAuth-discovery
+    # redirects and silently break their bootstrap.
+    for path in _PROXIED_OAUTH_PATHS:
+        app.router.routes.append(
+            Route(path, _proxy_to_as, methods=["GET", "POST"])
+        )
     s = get_settings()
     app.add_middleware(
         BearerAuthMiddleware,
