@@ -52,6 +52,7 @@ jobs:
           docker buildx imagetools create \
             -t "${IMAGE}:latest" \
             "${IMAGE}:${{ needs.validate.outputs.version }}"
+          echo "### Image: \`${IMAGE}:${{ needs.validate.outputs.version }}\` → \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
 
   publish-chart:
     needs: validate
@@ -70,6 +71,7 @@ jobs:
             --version "${{ needs.validate.outputs.version }}" \
             --app-version "${{ needs.validate.outputs.version }}"
           helm push "opik-mcp-${{ needs.validate.outputs.version }}.tgz" oci://ghcr.io/comet-ml/charts
+          echo "### Chart: \`oci://ghcr.io/comet-ml/charts/opik-mcp:${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   pypi:
     needs: validate
@@ -86,6 +88,8 @@ jobs:
           uv build
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
+      - name: Summary
+        run: echo "### PyPI: \`opik-mcp ${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   github-release:
     needs: [validate, promote-image, publish-chart, pypi]
@@ -102,6 +106,7 @@ jobs:
           gh release create "${{ needs.validate.outputs.version }}" \
             --title "${{ needs.validate.outputs.version }}" \
             --generate-notes
+          echo "### Release: [\`${{ needs.validate.outputs.version }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }})" >> "$GITHUB_STEP_SUMMARY"
 
       # Remove the rolling draft maintained by release-drafter now that a real
       # release exists, so the next cycle starts a fresh draft.
