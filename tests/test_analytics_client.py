@@ -331,7 +331,8 @@ def test_disabled_skips_post() -> None:
 @respx.mock
 def test_worker_swallows_exceptions() -> None:
     respx.post(URL).mock(side_effect=httpx.ConnectError("boom"))
-    client = AnalyticsClient(_settings())
+    # Zero backoff so the retry chain doesn't add real sleeps to the suite.
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0, 0.0))
     try:
         # Must not raise.
         client.track_event("opik_mcp_test", {})
@@ -353,7 +354,12 @@ def test_queue_full_drops_silently(caplog: pytest.LogCaptureFixture) -> None:
         def close(self) -> None:
             pass
 
-    client = AnalyticsClient(_settings(), http_client=BlockingClient(), max_queue_size=2)  # type: ignore[arg-type]
+    client = AnalyticsClient(
+        _settings(),
+        http_client=BlockingClient(),  # type: ignore[arg-type]
+        max_queue_size=2,
+        retry_backoff_s=(0.0,),  # single attempt; the blocking client makes retries irrelevant
+    )
     try:
         with caplog.at_level(logging.DEBUG, logger="opik_mcp.analytics"):
             # Fire enough events to overflow the tiny queue — none must raise.
@@ -401,9 +407,11 @@ def test_track_event_safe_without_running_event_loop() -> None:
 
 @respx.mock
 def test_http_500_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
-    """Worker must log a WARNING when the analytics endpoint returns 5xx."""
-    respx.post(URL).mock(return_value=httpx.Response(500, text="internal error"))
-    client = AnalyticsClient(_settings())
+    """A 5xx that never recovers must exhaust the retry chain (one POST per
+    configured attempt) and then log a single WARNING."""
+    route = respx.post(URL).mock(return_value=httpx.Response(500, text="internal error"))
+    # Three zero-delay attempts: proves the worker retries and then gives up.
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0, 0.0))
     try:
         with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
             client.track_event("opik_mcp_test", {"k": "v"})
@@ -411,8 +419,74 @@ def test_http_500_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
     finally:
         client.close()
 
+    assert route.call_count == 3, "expected one POST per configured retry attempt"
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert warning_records, "Expected at least one WARNING log for HTTP 500 response"
+    # Exactly one — the warning fires once after exhaustion, NOT per failed
+    # attempt (a regression moving it into the except block would log 3).
+    assert len(warning_records) == 1, f"expected one exhaustion WARNING, got {len(warning_records)}"
+
+
+@respx.mock
+def test_retry_succeeds_on_second_attempt() -> None:
+    """A transient failure on the first POST must be retried, and the event
+    lands on the second attempt (which reuses the now-warm pooled connection).
+
+    This is the core server_started fix: the first cold POST eats the DNS+TLS
+    handshake and often errors/times out; without a retry it is lost forever
+    even though a second attempt would land instantly.
+    """
+    route = respx.post(URL).mock(
+        side_effect=[httpx.ConnectError("cold handshake"), httpx.Response(200)]
+    )
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0))
+    try:
+        client.track_event("opik_mcp_test", {"k": "v"})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 2, "expected one failed attempt then a successful retry"
+
+
+@respx.mock
+def test_worker_survives_failed_event_and_delivers_next() -> None:
+    """An event that exhausts all retries must NOT kill the worker thread —
+    the next enqueued event still gets delivered. Guards the `while True` loop
+    against an exception escaping past the per-attempt handling."""
+    route = respx.post(URL).mock(
+        side_effect=[
+            httpx.ConnectError("e1"),  # event 1: attempt 1
+            httpx.ConnectError("e1"),  # event 1: attempt 2
+            httpx.ConnectError("e1"),  # event 1: attempt 3 → exhausted
+            httpx.Response(200),  # event 2: lands
+        ]
+    )
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0, 0.0))
+    try:
+        client.track_event("first", {})
+        client.track_event("second", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 4, "worker must keep processing after an exhausted event"
+
+
+@respx.mock
+def test_empty_retry_backoff_still_attempts_once() -> None:
+    """An empty retry_backoff_s must not silently drop the event with zero
+    delivery attempts (and a misleading 'after 0 attempt(s)' warning). It
+    normalises to a single immediate attempt — `()` differs from `(0.0,)` by
+    one character but must not mean 'never send'."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(), retry_backoff_s=())
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 1, "empty schedule must still attempt delivery once"
 
 
 def _has_running_loop() -> bool:

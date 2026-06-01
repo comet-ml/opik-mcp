@@ -11,6 +11,7 @@ import platform
 import queue
 import sys
 import threading
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -38,8 +39,16 @@ class AnalyticsClient:
         *,
         http_client: httpx.Client | None = None,
         max_queue_size: int = 100,
+        retry_backoff_s: tuple[float, ...] = (0.0, 0.5, 1.5),
     ) -> None:
         self._settings = settings
+        # One entry per delivery attempt; the value is the delay (seconds) to
+        # sleep *before* that attempt. The first 0.0 means "try immediately".
+        # The second attempt reuses the pooled connection the first one warmed,
+        # which is why a single retry recovers the lost-cold-POST case. Empty is
+        # normalised to one immediate attempt so a stray ``()`` can never mean
+        # "never send" (it would silently drop every event with zero attempts).
+        self._retry_backoff_s = retry_backoff_s or (0.0,)
         self._http = http_client or httpx.Client(
             timeout=httpx.Timeout(
                 connect=settings.opik_mcp_analytics_connect_timeout_s,
@@ -145,13 +154,33 @@ class AnalyticsClient:
             try:
                 if event is _QUEUE_SENTINEL:
                     return
-                try:
-                    resp = self._http.post(self._settings.opik_mcp_analytics_url, json=event)
-                    resp.raise_for_status()
-                except Exception:
-                    logger.warning("analytics POST failed", exc_info=True)
+                self._dispatch_with_retry(event)
             finally:
                 self._queue.task_done()
+
+    def _dispatch_with_retry(self, event: dict[str, Any]) -> None:
+        """POST one event, retrying transient failures per ``_retry_backoff_s``.
+
+        The first cold POST routinely loses the DNS+TLS race; a retry on the
+        warmed pooled connection lands. We retry on *any* exception (network,
+        timeout, 5xx via ``raise_for_status``) because at this layer they are
+        indistinguishable from the transient class we care about, and a wasted
+        retry on a genuine permanent error is cheap (events are tiny).
+        """
+        for delay in self._retry_backoff_s:
+            if delay:
+                time.sleep(delay)
+            try:
+                resp = self._http.post(self._settings.opik_mcp_analytics_url, json=event)
+                resp.raise_for_status()
+                return
+            except Exception:
+                logger.debug("analytics POST attempt failed", exc_info=True)
+        logger.warning(
+            "analytics POST failed after %d attempt(s) for event_type=%s",
+            len(self._retry_backoff_s),
+            event.get("event_type"),
+        )
 
     def _build_event(self, event_type: str, properties: dict[str, str]) -> dict[str, Any]:
         common: dict[str, str] = {
