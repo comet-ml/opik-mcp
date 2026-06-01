@@ -461,7 +461,6 @@ wheels = [
 
 [[package]]
 name = "opik-mcp"
-version = "0.1.8"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

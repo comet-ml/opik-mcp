@@ -1,11 +1,9 @@
 name: Legacy TS CI
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'legacy/typescript/**'
-      - '.github/workflows/legacy-ts-ci.yml'
+  # Auto-trigger (pull_request) disabled — manual-only.
+  # Legacy TypeScript package is deprecated; run from the Actions tab if needed.
+  workflow_dispatch:
 
 jobs:
   ci:
@@ -16,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

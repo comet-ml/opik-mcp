@@ -1,0 +1,23 @@
+name: Release Drafter
+
+# Keeps a draft GitHub release continuously updated with the changes merged to
+# main (one entry per merged PR). The draft is published/cleaned up by the
+# Release workflow's delete-draft step when an actual release is cut.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write       # create/update the draft release
+  pull-requests: read   # read merged PRs for the changelog
+
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: release-drafter/release-drafter@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

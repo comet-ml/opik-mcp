@@ -1,3 +1,6 @@
+# Generated at build time (make version / CI) — never committed.
+src/opik_mcp/_version.py
+
 # Python
 __pycache__/
 *.py[cod]

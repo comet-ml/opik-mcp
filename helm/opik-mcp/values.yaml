@@ -1,0 +1,99 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: comet-ml/opik-mcp
+  pullPolicy: IfNotPresent
+  tag: "main"
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Example AWS IRSA:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/opik-mcp
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# SSE streams stay open up to ~30 min; give the pod time to drain on SIGTERM.
+# tini (PID 1, in the image) forwards SIGTERM to uvicorn promptly.
+terminationGracePeriodSeconds: 60
+
+# /health = liveness (process only, no upstream calls);
+# /health/ready = readiness + startup (probes comet-backend reachability).
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 20
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  periodSeconds: 10
+startupProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  failureThreshold: 12
+
+# ~1 vCPU / 512 MiB supports ~1000 concurrent SSE streams per replica.
+resources:
+  requests:
+    cpu: "1"
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+# Hosted-server runtime. The image defaults OPIK_MCP_TRANSPORT=http already;
+# set explicitly here so the chart is self-documenting.
+#
+# Backend URLs are read from config.py settings COMET_URL_OVERRIDE / OPIK_URL.
+# (A future code change may add OPIK_MCP_COMET_BACKEND_URL /
+# OPIK_MCP_OPIK_BACKEND_URL aliases — revisit here if so.)
+env:
+  OPIK_MCP_TRANSPORT: "http"
+  OPIK_MCP_HOST: "0.0.0.0"
+  OPIK_MCP_PORT: "8080"
+  OPIK_MCP_LOG_LEVEL: "INFO"
+  # COMET_URL_OVERRIDE: "https://www.comet.com"
+  # OPIK_URL: ""
+
+ingress:
+  enabled: false
+  ingressClassName: ""
+  annotations: {}
+  #   # Long-idle SSE: no edge buffering, >=1800s read timeout.
+  #   nginx.ingress.kubernetes.io/proxy-read-timeout: "1800"
+  #   nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  hosts: []
+  #   - host: www.comet.com
+  #     paths:
+  #       - path: /api/v1/mcp
+  #         pathType: Prefix
+  #       - path: /.well-known/oauth-protected-resource
+  #         pathType: Prefix
+  tls: []
+
+podSecurityContext:
+  runAsNonRoot: true
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

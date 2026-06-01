@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opik-mcp"
-version = "0.1.8"
+dynamic = ["version"]
 description = "Model Context Protocol server for Opik (Comet's LLM observability platform)."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -33,8 +33,20 @@ dev = [
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
 
+# Version comes from a generated, git-ignored file (`make version` / CI writes it;
+# version.txt holds only MAJOR.MINOR). `artifacts` force-includes it in the
+# sdist/wheel despite .gitignore, so building from an sdist resolves the version.
+[tool.hatch.version]
+path = "src/opik_mcp/_version.py"
+
+[tool.hatch.build]
+artifacts = ["src/opik_mcp/_version.py"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/opik_mcp"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

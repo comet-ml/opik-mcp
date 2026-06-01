@@ -124,7 +124,7 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
     """
     schema = op.pydantic_model.model_json_schema()
     example = op.example
-    if not isinstance(data, (dict, list)):
+    if not isinstance(data, dict | list):
         raise ValidationFailedError.build(
             op.name,
             [ValidationIssue("", "data must be an object or array.", "type_mismatch")],

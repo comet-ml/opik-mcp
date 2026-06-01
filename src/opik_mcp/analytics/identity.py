@@ -26,6 +26,15 @@ logger = logging.getLogger("opik_mcp.analytics.identity")
 
 
 def _resolve_opik_mcp_version() -> str:
+    # Prefer the build-generated _version.py (carries the exact CI/release version,
+    # e.g. the hosted image's 0.2.N). Fall back to installed package metadata, then
+    # to "unknown" for an uninstalled/un-generated tree.
+    try:
+        from opik_mcp._version import __version__
+
+        return __version__
+    except ImportError:
+        pass
     try:
         return version("opik-mcp")
     except PackageNotFoundError:
