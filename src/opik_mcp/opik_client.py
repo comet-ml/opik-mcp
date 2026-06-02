@@ -186,7 +186,7 @@ class OpikClient:
         self,
         base_url: str,
         api_key: str,
-        workspace: str,
+        workspace: str | None,
         *,
         client: httpx.AsyncClient | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
@@ -507,12 +507,15 @@ class OpikClient:
     # -- internals --
 
     def _headers(self) -> dict[str, str]:
-        return {
+        headers = {
             "Authorization": self._api_key,
-            "Comet-Workspace": self._workspace,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        # Omitted for OAuth tokens — opik-backend derives the workspace from the token row
+        if self._workspace:
+            headers["Comet-Workspace"] = self._workspace
+        return headers
 
     @asynccontextmanager
     async def _http(self) -> AsyncIterator[httpx.AsyncClient]:
@@ -612,7 +615,7 @@ class OpikClient:
             return await http.request(method, url, content=content, headers=headers)
 
 
-def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:
+def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
     """Resolve ``(opik_base_url, api_key, workspace)`` from settings or raise.
 
     Centralizes the rule for deriving Opik's REST base from either an explicit
@@ -632,15 +635,20 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:
     inbound_auth = inbound_authorization.get()
     inbound_ws = inbound_workspace.get()
     api_key = inbound_auth if inbound_auth else settings.opik_api_key
-    workspace = inbound_ws if inbound_ws else settings.comet_workspace
     if not api_key:
         raise MissingConfigError(
             "OPIK_API_KEY (or an inbound Authorization header) is required to call Opik REST"
         )
-    if not workspace:
-        raise MissingConfigError(
-            "COMET_WORKSPACE (or an inbound Comet-Workspace header) is required to call Opik REST"
-        )
+    # OAuth access tokens carry their workspace server-side (opik-backend derives it from the token row)
+    oauth_passthrough = bool(inbound_auth) and "opik_at_" in inbound_auth
+    if oauth_passthrough:
+        workspace = inbound_ws
+    else:
+        workspace = inbound_ws if inbound_ws else settings.comet_workspace
+        if not workspace:
+            raise MissingConfigError(
+                "COMET_WORKSPACE (or an inbound Comet-Workspace header) is required to call Opik REST"
+            )
     if settings.opik_url:
         base = settings.opik_url.rstrip("/")
     else:

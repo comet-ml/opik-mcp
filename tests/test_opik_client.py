@@ -345,6 +345,31 @@ def test_resolve_opik_config_requires_workspace() -> None:
         resolve_opik_config(s)
 
 
+def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
+    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.config import Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
+    token = inbound_authorization.set("Bearer opik_at_abc123")
+    try:
+        base, api_key, workspace = resolve_opik_config(s)
+    finally:
+        inbound_authorization.reset(token)
+
+    assert api_key == "Bearer opik_at_abc123"
+    assert workspace is None
+
+
+def test_oauth_client_omits_workspace_header() -> None:
+    from opik_mcp.opik_client import OpikClient
+
+    client = OpikClient(base_url="https://opik.example.com", api_key="Bearer opik_at_x", workspace=None)
+    headers = client._headers()
+    assert "Comet-Workspace" not in headers
+    assert headers["Authorization"] == "Bearer opik_at_x"
+
+
 # --- execute_experiment ------------------------------------------------------- #
 
 
