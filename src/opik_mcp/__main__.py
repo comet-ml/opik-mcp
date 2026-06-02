@@ -30,13 +30,16 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 # Best-effort drain budget on the startup-error path. The daemon worker that
 # normally POSTs analytics events is killed by the imminent sys.exit/re-raise,
 # so we must block long enough for the in-flight POST to land — but not so
-# long that a broken receiver hangs the user-facing crash.
-_STARTUP_ERROR_FLUSH_DEADLINE_S = 2.0
+# long that a broken receiver hangs the user-facing crash. Widened from 2.0s
+# to give a cold first POST (DNS+TLS handshake) — plus the worker's first
+# retry — a fair chance to land within the deadline. flush() returns as soon
+# as the queue drains, so this is a ceiling, not a fixed wait.
+_STARTUP_ERROR_FLUSH_DEADLINE_S = 3.5
 # Shutdown shares the same constraint (daemon worker about to be killed) but
 # is intentionally a separate constant so the startup and shutdown budgets
 # can evolve independently — e.g. shutdown may need a longer drain once we
 # add larger trailing event payloads (lifespan stats, session summaries).
-_SHUTDOWN_FLUSH_DEADLINE_S = 2.0
+_SHUTDOWN_FLUSH_DEADLINE_S = 3.5
 
 # Bounded allowlist for ``exception_type`` on the transport-crash path. Any
 # class outside this set is bucketed to ``"unknown"`` to preserve the low-

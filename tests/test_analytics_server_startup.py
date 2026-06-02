@@ -104,6 +104,25 @@ def test_main_emits_server_started_then_runs(monkeypatch: pytest.MonkeyPatch) ->
     assert started["install_id_freshly_generated"] in {"true", "false"}
 
 
+def test_clean_exit_flushes_with_configured_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The clean-exit shutdown emit must drain synchronously with the
+    configured deadline — guards against a regression to 0 (which would drop a
+    cold in-flight POST) and keeps the deadline bump intentional."""
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return  # clean exit
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    monkeypatch.setenv("OPIK_MCP_ANALYTICS_ENABLED", "true")
+
+    main_mod.main()
+
+    assert recorder.flush_calls == [main_mod._SHUTDOWN_FLUSH_DEADLINE_S]
+
+
 # --- startup_error: config validation -------------------------------------- #
 
 
