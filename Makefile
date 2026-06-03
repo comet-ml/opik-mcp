@@ -82,10 +82,10 @@ docker-build: version
 
 docker-run:
 	# Explicit 127.0.0.1 binding: on Linux, `-p 8080:8080` listens on
-	# 0.0.0.0, which combined with the dev-token-123 default token would
-	# expose MCP on every network interface of a dev VM or CI runner.
+	# 0.0.0.0, exposing MCP on every network interface of a dev VM or CI
+	# runner. opik-mcp does no local token validation (the backend does),
+	# so keep the port loopback-only.
 	docker run --rm -p 127.0.0.1:8080:8080 \
-	  -e OPIK_MCP_DEV_TOKEN=$${OPIK_MCP_DEV_TOKEN:-dev-token-123} \
 	  -e COMET_URL_OVERRIDE=$${COMET_URL_OVERRIDE:-https://www.comet.com} \
 	  --name opik-mcp opik-mcp:dev
 

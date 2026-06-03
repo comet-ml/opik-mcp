@@ -215,7 +215,6 @@ def test_preflight_handles_ipv6_loopback_via_getaddrinfo(capture: _CaptureServer
                 "OPIK_MCP_TRANSPORT": "streamable-http",
                 "OPIK_MCP_HOST": "::1",
                 "OPIK_MCP_PORT": str(held_port),
-                "OPIK_MCP_DEV_TOKEN": "test-token-not-default-1234567890",
             }
         )
     finally:
@@ -258,8 +257,6 @@ def test_port_in_use_emits_transport_crash_in_subprocess(capture: _CaptureServer
                 "OPIK_MCP_TRANSPORT": "streamable-http",
                 "OPIK_MCP_HOST": "127.0.0.1",
                 "OPIK_MCP_PORT": str(held_port),
-                # Bypass the http_bind_check that would otherwise short-circuit.
-                "OPIK_MCP_DEV_TOKEN": "test-token-not-default-1234567890",
             }
         )
     finally:
