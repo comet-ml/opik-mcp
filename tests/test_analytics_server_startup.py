@@ -436,7 +436,7 @@ def test_no_startup_error_when_resource_uri_set(monkeypatch: pytest.MonkeyPatch)
     # Stub out the actual server boot — we only care that the config guard passes.
     monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
     monkeypatch.setattr("opik_mcp.server.build_app", lambda: object())
-    monkeypatch.setattr(main_mod.uvicorn, "run", lambda *a, **k: None)
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: None)
 
     main_mod.main()
 
