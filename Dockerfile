@@ -46,7 +46,7 @@ FROM python:3.13-slim-bookworm AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/* \
-    && useradd --create-home --shell /bin/bash app
+    && useradd --create-home --shell /bin/bash --uid 1000 app
 
 WORKDIR /app
 
@@ -55,7 +55,9 @@ WORKDIR /app
 COPY --from=build --chown=app:app /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:${PATH}"
 
-USER app
+# Numeric UID (not the name "app") so Kubernetes runAsNonRoot can verify
+# non-root from the image config without starting the container.
+USER 1000
 
 EXPOSE 8080
 ENV OPIK_MCP_TRANSPORT=http \
