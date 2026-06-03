@@ -63,18 +63,6 @@ class Settings(BaseSettings):
     # Set to 0 to disable (debug only).
     opik_mcp_stream_idle_timeout_s: float = 300.0
 
-    opik_mcp_dev_token: str = "dev-token-123"
-
-    # Inbound-auth mode toggle for HTTP transport.
-    # ``false`` (default): OAuth-passthrough — any well-formed
-    # ``Authorization: Bearer …`` header is accepted; opik-mcp forwards it
-    # verbatim to opik-backend's data API, which validates the bearer (API
-    # key or ``opik_at_…`` OAuth token) and enforces ``@RequiredPermissions``.
-    # ``true``: dev-token mode — only ``Bearer ${OPIK_MCP_DEV_TOKEN}`` is
-    # accepted. Local-testing scaffolding; refuses to start when the token is
-    # still the insecure default and the bind isn't loopback.
-    opik_mcp_dev_token_enabled: bool = False
-
     # OAuth Authorization Server URL — advertised as ``authorization_servers``
     # in ``/.well-known/oauth-protected-resource`` per RFC 9728. The MCP host
     # follows this URL to discover the AS metadata and run the OAuth dance.

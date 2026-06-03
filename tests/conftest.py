@@ -15,15 +15,6 @@ from httpx import ASGITransport
 # explicit override in the environment still wins.
 os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 
-# Run the integration suite in dev-token mode so existing tests that assert
-# "Bearer wrong" returns 401 continue to pass. The FastMCP
-# ``StreamableHTTPSessionManager`` is a process-level singleton so the
-# session-scoped ``http_client`` fixture below builds the app exactly once;
-# OAuth-passthrough behavior is exercised by unit tests against the
-# middleware directly (see ``test_oauth_passthrough_mode.py``). ``setdefault``
-# so individual tests / CI jobs can flip to OAuth-passthrough at session start.
-os.environ.setdefault("OPIK_MCP_DEV_TOKEN_ENABLED", "true")
-
 
 @pytest.fixture(autouse=True)
 def _reset_analytics_wrappers_state() -> Generator[None]:

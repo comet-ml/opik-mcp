@@ -34,12 +34,10 @@ async def test_well_known_as_metadata_proxied_to_configured_as(
         "token_endpoint": "http://localhost:5173/api/oauth/token",
     }
     with respx.mock(assert_all_called=False) as mock:
-        mock.get(
-            "http://localhost:5173/api/.well-known/oauth-authorization-server"
-        ).mock(return_value=httpx.Response(200, json=upstream_body))
-        r = await http_client.get(
-            "/.well-known/oauth-authorization-server", follow_redirects=False
+        mock.get("http://localhost:5173/api/.well-known/oauth-authorization-server").mock(
+            return_value=httpx.Response(200, json=upstream_body)
         )
+        r = await http_client.get("/.well-known/oauth-authorization-server", follow_redirects=False)
     assert r.status_code == 200
     assert r.json() == upstream_body
 
@@ -55,12 +53,10 @@ async def test_oidc_config_proxied_to_as_metadata(
     get_settings.cache_clear()
     upstream_body = {"issuer": "http://localhost:5173/api"}
     with respx.mock(assert_all_called=False) as mock:
-        mock.get(
-            "http://localhost:5173/api/.well-known/oauth-authorization-server"
-        ).mock(return_value=httpx.Response(200, json=upstream_body))
-        r = await http_client.get(
-            "/.well-known/openid-configuration", follow_redirects=False
+        mock.get("http://localhost:5173/api/.well-known/oauth-authorization-server").mock(
+            return_value=httpx.Response(200, json=upstream_body)
         )
+        r = await http_client.get("/.well-known/openid-configuration", follow_redirects=False)
     assert r.status_code == 200
     assert r.json() == upstream_body
 
@@ -104,17 +100,13 @@ async def test_authorize_get_preserves_query_string(
     monkeypatch.setenv("OPIK_MCP_AS_URL", "http://localhost:5173/api")
     get_settings.cache_clear()
     with respx.mock(assert_all_called=False) as mock:
-        route = mock.get(
-            "http://localhost:5173/api/oauth/authorize"
-        ).mock(
+        route = mock.get("http://localhost:5173/api/oauth/authorize").mock(
             return_value=httpx.Response(
                 302,
                 headers={"location": "http://localhost:5173/oauth/consent?x=1"},
             )
         )
-        r = await http_client.get(
-            "/authorize?client_id=abc&state=xyz", follow_redirects=False
-        )
+        r = await http_client.get("/authorize?client_id=abc&state=xyz", follow_redirects=False)
     assert r.status_code == 302
     assert r.headers["location"] == "http://localhost:5173/oauth/consent?x=1"
     # Confirm the proxy forwarded the query string upstream.
@@ -128,9 +120,7 @@ async def test_proxy_unconfigured_returns_503(
 ) -> None:
     monkeypatch.delenv("OPIK_MCP_AS_URL", raising=False)
     get_settings.cache_clear()
-    r = await http_client.get(
-        "/.well-known/oauth-authorization-server", follow_redirects=False
-    )
+    r = await http_client.get("/.well-known/oauth-authorization-server", follow_redirects=False)
     assert r.status_code == 503
 
 
@@ -139,20 +129,17 @@ async def test_proxy_paths_are_auth_exempt(
     http_client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The probes happen pre-token, so the auth middleware must NOT
-    intercept them. The integration ``http_client`` runs in dev-token
-    mode; a 401 here would indicate the auth middleware fired before
-    the proxy route ran.
+    intercept them. A 401 here would indicate the auth middleware fired
+    before the proxy route ran.
     """
     monkeypatch.setenv("OPIK_MCP_AS_URL", "http://localhost:5173/api")
     get_settings.cache_clear()
     with respx.mock(assert_all_called=False) as mock:
-        mock.get(
-            "http://localhost:5173/api/.well-known/oauth-authorization-server"
-        ).mock(return_value=httpx.Response(200, json={"issuer": "x"}))
-        # No Authorization header — must NOT 401.
-        r = await http_client.get(
-            "/.well-known/oauth-authorization-server", follow_redirects=False
+        mock.get("http://localhost:5173/api/.well-known/oauth-authorization-server").mock(
+            return_value=httpx.Response(200, json={"issuer": "x"})
         )
+        # No Authorization header — must NOT 401.
+        r = await http_client.get("/.well-known/oauth-authorization-server", follow_redirects=False)
     assert r.status_code != 401, "AS probe must bypass the auth middleware"
 
 
@@ -185,9 +172,7 @@ async def test_404_returns_json_not_plain_text(
     parse JSON" when they probe a path-prefixed well-known endpoint and
     hit that 404. Our default-route handler returns JSON instead.
     """
-    r = await http_client.get(
-        "/.well-known/oauth-protected-resource/mcp", follow_redirects=False
-    )
+    r = await http_client.get("/.well-known/oauth-protected-resource/mcp", follow_redirects=False)
     assert r.status_code == 404
     assert r.headers["content-type"].startswith("application/json")
     assert r.json() == {"error": "not_found"}

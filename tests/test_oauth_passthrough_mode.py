@@ -1,10 +1,8 @@
-"""Unit tests for ``BearerAuthMiddleware`` in OAuth-passthrough mode.
+"""Unit tests for ``BearerAuthMiddleware`` (OAuth passthrough).
 
-The integration ``http_client`` fixture runs in dev-token mode (FastMCP's
-``StreamableHTTPSessionManager`` is a process-level singleton so the app is
-built exactly once per session). OAuth-passthrough behavior is exercised
-here by driving the middleware directly with stub call_next + manually
-constructed Starlette ``Request`` objects.
+The middleware is exercised here by driving it directly with stub call_next
++ manually constructed Starlette ``Request`` objects, asserting the
+ContextVar capture/reset behavior the integration suite can't observe.
 """
 
 from typing import Any
@@ -37,30 +35,22 @@ def _make_request(headers: dict[str, str], path: str = "/mcp") -> Request:
     return Request(scope)
 
 
-async def _ok(_request: Request) -> Response:
-    return JSONResponse({"ok": True})
-
-
 def _build_middleware(
     *,
-    dev_token_enabled: bool = False,
-    dev_token: str = "dev-token-123",
     resource_metadata_url: str | None = "https://opik.host/.well-known/oauth-protected-resource",
 ) -> BearerAuthMiddleware:
     return BearerAuthMiddleware(
         app=None,  # type: ignore[arg-type]  # we never call call_next via the ASGI app
-        dev_token_enabled=dev_token_enabled,
-        dev_token=dev_token,
         resource_metadata_url=resource_metadata_url,
     )
 
 
 @pytest.mark.anyio
 async def test_passthrough_accepts_any_well_formed_bearer() -> None:
-    """OAuth-passthrough's whole point: accept any Bearer, forward verbatim.
+    """The middleware's whole point: accept any Bearer, forward verbatim.
     opik-backend's AuthFilter validates the token; opik-mcp is a thin pipe.
     """
-    mw = _build_middleware(dev_token_enabled=False)
+    mw = _build_middleware()
     request = _make_request({"authorization": "Bearer opik_at_abc123"})
 
     captured: dict[str, str | None] = {}
@@ -85,7 +75,7 @@ async def test_passthrough_accepts_any_well_formed_bearer() -> None:
 
 @pytest.mark.anyio
 async def test_passthrough_captures_comet_workspace_header() -> None:
-    mw = _build_middleware(dev_token_enabled=False)
+    mw = _build_middleware()
     request = _make_request(
         {
             "authorization": "Bearer opik_at_abc",
@@ -104,12 +94,11 @@ async def test_passthrough_captures_comet_workspace_header() -> None:
 
 
 @pytest.mark.anyio
-async def test_passthrough_missing_authorization_returns_401_with_www_authenticate() -> None:
+async def test_missing_authorization_returns_401_with_www_authenticate() -> None:
     """The 401 must point hosts at the protected-resource metadata so they
     can bootstrap the OAuth dance — without it, hosts have no path forward.
     """
     mw = _build_middleware(
-        dev_token_enabled=False,
         resource_metadata_url="https://opik.host/.well-known/oauth-protected-resource",
     )
     request = _make_request({})
@@ -126,11 +115,11 @@ async def test_passthrough_missing_authorization_returns_401_with_www_authentica
 
 
 @pytest.mark.anyio
-async def test_passthrough_rejects_malformed_authorization() -> None:
-    """Non-Bearer schemes are rejected up front in passthrough mode — keeps
-    the WWW-Authenticate hint consistent with the host's next attempt.
+async def test_rejects_malformed_authorization() -> None:
+    """Non-Bearer schemes are rejected up front — keeps the
+    WWW-Authenticate hint consistent with the host's next attempt.
     """
-    mw = _build_middleware(dev_token_enabled=False)
+    mw = _build_middleware()
     request = _make_request({"authorization": "Basic dXNlcjpwYXNz"})
 
     async def call_next(_r: Request) -> Response:
@@ -141,45 +130,17 @@ async def test_passthrough_rejects_malformed_authorization() -> None:
 
 
 @pytest.mark.anyio
-async def test_dev_token_mode_still_rejects_wrong_token() -> None:
-    """Dev-token mode preserves the original behavior — only the matching
-    token is accepted — and is now opt-in via OPIK_MCP_DEV_TOKEN_ENABLED.
-    """
-    mw = _build_middleware(dev_token_enabled=True, dev_token="secret")
-    request = _make_request({"authorization": "Bearer wrong"})
-
-    async def call_next(_r: Request) -> Response:
-        raise AssertionError("should not reach call_next")
-
-    resp = await mw.dispatch(request, call_next)
-    assert resp.status_code == 401
-
-
-@pytest.mark.anyio
-async def test_dev_token_mode_accepts_correct_token() -> None:
-    mw = _build_middleware(dev_token_enabled=True, dev_token="secret")
-    request = _make_request({"authorization": "Bearer secret"})
-
-    async def call_next(_r: Request) -> Response:
-        return JSONResponse({"ok": True})
-
-    resp = await mw.dispatch(request, call_next)
-    assert resp.status_code == 200
-
-
-@pytest.mark.anyio
-async def test_health_paths_bypass_auth_in_both_modes() -> None:
+async def test_health_paths_bypass_auth() -> None:
     """Liveness/readiness probes have no credentials by design."""
-    for mode in (True, False):
-        mw = _build_middleware(dev_token_enabled=mode)
-        for path in ("/health", "/health/ready"):
-            request = _make_request({}, path=path)
+    mw = _build_middleware()
+    for path in ("/health", "/health/ready"):
+        request = _make_request({}, path=path)
 
-            async def call_next(_r: Request) -> Response:
-                return JSONResponse({"status": "ok"})
+        async def call_next(_r: Request) -> Response:
+            return JSONResponse({"status": "ok"})
 
-            resp = await mw.dispatch(request, call_next)
-            assert resp.status_code == 200, f"mode={mode} path={path}"
+        resp = await mw.dispatch(request, call_next)
+        assert resp.status_code == 200, f"path={path}"
 
 
 @pytest.mark.anyio
@@ -187,7 +148,7 @@ async def test_protected_resource_metadata_bypasses_auth() -> None:
     """Discovery doc is the bootstrap entry point — must be reachable
     pre-credentials.
     """
-    mw = _build_middleware(dev_token_enabled=False)
+    mw = _build_middleware()
     request = _make_request({}, path="/.well-known/oauth-protected-resource")
 
     async def call_next(_r: Request) -> Response:
@@ -198,11 +159,11 @@ async def test_protected_resource_metadata_bypasses_auth() -> None:
 
 
 @pytest.mark.anyio
-async def test_passthrough_unauthorized_without_resource_metadata_url() -> None:
+async def test_unauthorized_without_resource_metadata_url() -> None:
     """When the resource-metadata URL is unset, ``WWW-Authenticate`` is
     omitted entirely (vs. an empty value, which some host parsers reject).
     """
-    mw = _build_middleware(dev_token_enabled=False, resource_metadata_url=None)
+    mw = _build_middleware(resource_metadata_url=None)
     request = _make_request({})
 
     async def call_next(_r: Request) -> Response:

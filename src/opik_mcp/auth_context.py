@@ -10,8 +10,8 @@ validator round-trip.
 These ContextVars are set by ``BearerAuthMiddleware`` for the duration of
 each inbound HTTP request and read by ``resolve_opik_config`` when the
 outbound :class:`OpikClient` is constructed for that request. When unset
-(stdio transport, or HTTP transport in dev-token mode), the outbound client
-falls back to ``OPIK_API_KEY`` / ``COMET_WORKSPACE`` from settings.
+(stdio transport), the outbound client falls back to ``OPIK_API_KEY`` /
+``COMET_WORKSPACE`` from settings.
 
 ASGI runs every request in its own asyncio task, so ``ContextVar`` gives us
 per-request isolation without threading anything through the call signatures

@@ -154,35 +154,6 @@ def test_startup_error_omits_pii_from_invalid_config_event(
     assert canary not in payload, f"PII leak: {canary!r} surfaced in {payload!r}"
 
 
-# --- startup_error: insecure default token + non-loopback ----------------- #
-
-
-def test_startup_error_on_insecure_token_non_loopback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """HTTP mode with the default dev token + a public bind must emit before exit."""
-    recorder = _install_recorder(monkeypatch)
-    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "streamable-http")
-    monkeypatch.setenv("OPIK_MCP_HOST", "0.0.0.0")
-    # OPIK_MCP_DEV_TOKEN stays at the insecure default by not setting it.
-    monkeypatch.delenv("OPIK_MCP_DEV_TOKEN", raising=False)
-
-    with pytest.raises(SystemExit) as exc_info:
-        main_mod.main()
-    assert exc_info.value.code == 1
-
-    event_types = [e[0] for e in recorder.events]
-    # server_started fires earlier in the flow (boot was attempted) — leave
-    # the existing behaviour intact; startup_error correlates the failure.
-    assert EVENT_SERVER_STARTED in event_types
-    assert EVENT_STARTUP_ERROR in event_types
-    props = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
-    assert props["phase"] == "http_bind_check"
-    assert props["error_kind"] == "insecure_token_on_public_iface"
-    assert props["transport"] == "streamable-http"
-    assert recorder.flush_calls, "must flush before sys.exit"
-
-
 # --- startup_error: unexpected exception during transport.run ------------- #
 
 

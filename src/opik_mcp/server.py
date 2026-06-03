@@ -1,5 +1,4 @@
 import logging
-import secrets
 from typing import Annotated, Any
 from urllib.parse import urlparse
 
@@ -18,7 +17,7 @@ from opik_mcp.analytics.events import bucket_count
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.auth_context import inbound_authorization, inbound_workspace
-from opik_mcp.config import Settings, get_settings
+from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
@@ -404,6 +403,14 @@ async def run_experiment(
     settings = get_settings()
     client = make_opik_client(settings)
     _, _, workspace = resolve_opik_config(settings)
+    # Workspace may be None when an OAuth bearer arrives without a
+    # Comet-Workspace header (the backend derives it from the token row, but
+    # we need the name client-side to build the experiment summary URL).
+    if workspace is None:
+        raise MissingConfigError(
+            "run_experiment requires a workspace — set COMET_WORKSPACE or "
+            "send a Comet-Workspace header"
+        )
     comet_base = settings.comet_url_override.rstrip("/")
     return await run_experiment_impl(
         config=config,
@@ -545,25 +552,20 @@ _READY_PROBE_TIMEOUT_S = 2.0
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
-    """Inbound auth + per-request bearer-capture for outbound forwarding.
+    """Bearer-shape check + per-request bearer-capture for outbound forwarding.
 
-    Two modes selected at construction time from ``OPIK_MCP_DEV_TOKEN_ENABLED``:
+    opik-mcp performs **no local credential validation**. Any well-formed
+    ``Authorization: Bearer …`` header is accepted; the full header value is
+    captured into a ContextVar and forwarded verbatim on the outbound call to
+    opik-backend (see :mod:`opik_mcp.auth_context`). opik-backend's
+    ``AuthFilter`` is the single point of auth enforcement — it validates the
+    bearer (API key or ``opik_at_…`` OAuth token) and enforces
+    ``@RequiredPermissions`` on the data API endpoint. Deployments where the
+    backend enforces auth are protected end-to-end; OSS installs without
+    backend auth are as open via MCP as via their own REST API.
 
-    * **OAuth-passthrough (default).** Any well-formed
-      ``Authorization: Bearer …`` header is accepted. The full header value
-      is captured into a ContextVar and forwarded verbatim on the outbound
-      call to opik-backend (see :mod:`opik_mcp.auth_context`). opik-backend's
-      ``AuthFilter`` validates the bearer (API key or ``opik_at_…`` OAuth
-      token) and enforces ``@RequiredPermissions`` on the data API endpoint;
-      opik-mcp performs no local validation.
-
-    * **Dev-token mode** (``OPIK_MCP_DEV_TOKEN_ENABLED=true``). Strict
-      ``constant_time`` comparison against ``OPIK_MCP_DEV_TOKEN``. Local
-      testing scaffolding; ``__main__`` refuses to start when this mode is
-      enabled with the default token on a non-loopback bind.
-
-    In both modes, missing/empty ``Authorization`` returns 401 with a
-    ``WWW-Authenticate`` header that points MCP hosts at
+    Missing/empty ``Authorization`` returns 401 with a ``WWW-Authenticate``
+    header that points MCP hosts at
     ``/.well-known/oauth-protected-resource`` so they can bootstrap the
     OAuth dance per RFC 6750 + RFC 9728. Health probes and the metadata
     endpoint are exempt from auth.
@@ -573,13 +575,9 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         self,
         app: ASGIApp,
         *,
-        dev_token_enabled: bool,
-        dev_token: str,
         resource_metadata_url: str | None,
     ) -> None:
         super().__init__(app)
-        self._dev_token_enabled = dev_token_enabled
-        self._expected_dev_token = f"Bearer {dev_token}"
         self._resource_metadata_url = resource_metadata_url
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
@@ -601,13 +599,10 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         if not auth:
             return self._unauthorized()
 
-        if self._dev_token_enabled:
-            if not secrets.compare_digest(auth, self._expected_dev_token):
-                return self._unauthorized()
-        elif not auth.lower().startswith("bearer "):
-            # OAuth-passthrough still requires the canonical "Bearer …" shape
-            # so the WWW-Authenticate hint we return on failure is consistent
-            # with what the host expects to send next.
+        if not auth.lower().startswith("bearer "):
+            # Require the canonical "Bearer …" shape so the WWW-Authenticate
+            # hint we return on failure is consistent with what the host
+            # expects to send next.
             return self._unauthorized()
 
         # Capture the inbound auth + workspace headers for the duration of
@@ -684,8 +679,8 @@ async def _oauth_protected_resource(_request: Request) -> JSONResponse:
 
     When ``OPIK_MCP_AS_URL`` is unset, the discovery doc is unavailable —
     this opik-mcp instance is then only useful with ``OPIK_API_KEY``-style
-    auth (or dev-token mode). Returning 503 makes the misconfiguration loud
-    and steers operators to set ``OPIK_MCP_AS_URL``.
+    bearers. Returning 503 makes the misconfiguration loud and steers
+    operators to set ``OPIK_MCP_AS_URL``.
     """
     s = get_settings()
     if not s.opik_mcp_as_url:
@@ -739,9 +734,7 @@ async def _proxy_to_as(request: Request) -> Response:
     """
     s = get_settings()
     if not s.opik_mcp_as_url:
-        return JSONResponse(
-            {"error": "OPIK_MCP_AS_URL not configured"}, status_code=503
-        )
+        return JSONResponse({"error": "OPIK_MCP_AS_URL not configured"}, status_code=503)
     target_path = _PROXIED_OAUTH_PATHS.get(request.url.path)
     if target_path is None:
         return JSONResponse({"error": "not found"}, status_code=404)
@@ -751,9 +744,7 @@ async def _proxy_to_as(request: Request) -> Response:
         target = f"{target}?{qs}"
     body = await request.body()
     forwarded_headers = {
-        k: v
-        for k, v in request.headers.items()
-        if k.lower() not in _PROXY_DROP_REQUEST_HEADERS
+        k: v for k, v in request.headers.items() if k.lower() not in _PROXY_DROP_REQUEST_HEADERS
     }
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
         upstream = await client.request(
@@ -763,9 +754,7 @@ async def _proxy_to_as(request: Request) -> Response:
             content=body,
         )
     response_headers = {
-        k: v
-        for k, v in upstream.headers.items()
-        if k.lower() not in _PROXY_DROP_RESPONSE_HEADERS
+        k: v for k, v in upstream.headers.items() if k.lower() not in _PROXY_DROP_RESPONSE_HEADERS
     }
     return Response(
         content=upstream.content,
@@ -833,14 +822,10 @@ def build_app() -> Starlette:
     # because some SDKs refuse to follow cross-origin OAuth-discovery
     # redirects and silently break their bootstrap.
     for path in _PROXIED_OAUTH_PATHS:
-        app.router.routes.append(
-            Route(path, _proxy_to_as, methods=["GET", "POST"])
-        )
+        app.router.routes.append(Route(path, _proxy_to_as, methods=["GET", "POST"]))
     s = get_settings()
     app.add_middleware(
         BearerAuthMiddleware,
-        dev_token_enabled=s.opik_mcp_dev_token_enabled,
-        dev_token=s.opik_mcp_dev_token,
         resource_metadata_url=_resource_metadata_url(s),
     )
     return app

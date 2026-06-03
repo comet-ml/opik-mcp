@@ -314,8 +314,26 @@ Every setting is an environment variable. Required ones in **bold**.
 | `OPIK_MCP_HOST` | `127.0.0.1` | uvicorn bind host (`streamable-http` only). |
 | `OPIK_MCP_PORT` | `8080` | uvicorn bind port (`streamable-http` only). |
 | `OPIK_MCP_RELOAD` | `false` | `true` to enable uvicorn `--reload` (dev only). |
-| `OPIK_MCP_DEV_TOKEN` | `dev-token-123` | Bearer token the HTTP transport requires. |
+| `OPIK_MCP_AS_URL` | _unset_ | OAuth Authorization Server URL, advertised in `/.well-known/oauth-protected-resource` (RFC 9728) and used as the proxy target for AS-discovery probes. Required for MCP hosts to bootstrap the OAuth dance over HTTP. |
+| `OPIK_MCP_RESOURCE_URI` | _unset_ | Canonical public URI of this server, advertised as `resource` in the protected-resource metadata and used to derive the `WWW-Authenticate` hint. |
 | `OPIK_MCP_LOG_LEVEL` | `INFO` | stderr logger threshold. |
+
+#### Choosing a transport
+
+opik-mcp performs **no local credential validation** on HTTP transport: any
+well-formed `Authorization: Bearer …` (an Opik API key or an `opik_at_…`
+OAuth access token) is forwarded verbatim to opik-backend, which is the
+single point of auth enforcement. Pick the transport by deployment shape:
+
+| Scenario | Transport |
+|---|---|
+| MCP client and Opik on the same machine (local OSS install) | **stdio** (recommended — simplest, no port, no OAuth setup) |
+| Local MCP client → remote Opik (Comet cloud / self-hosted) | stdio with `OPIK_API_KEY`, or HTTP with OAuth (`OPIK_MCP_AS_URL` pointing at the backend) |
+| Hosted opik-mcp behind the same edge as opik-backend | **HTTP** — bearers are validated by the backend per request |
+
+Note for local OSS installs: the OSS backend does not authenticate requests,
+so an HTTP opik-mcp in front of it is as open as the OSS REST API itself.
+Keep the default `127.0.0.1` bind (and prefer stdio) on shared networks.
 
 ### Ollie / long calls
 

@@ -639,15 +639,17 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
         raise MissingConfigError(
             "OPIK_API_KEY (or an inbound Authorization header) is required to call Opik REST"
         )
-    # OAuth access tokens carry their workspace server-side (opik-backend derives it from the token row)
-    oauth_passthrough = bool(inbound_auth) and "opik_at_" in inbound_auth
+    # OAuth access tokens carry their workspace server-side (opik-backend
+    # derives it from the token row)
+    oauth_passthrough = inbound_auth is not None and "opik_at_" in inbound_auth
     if oauth_passthrough:
         workspace = inbound_ws
     else:
         workspace = inbound_ws if inbound_ws else settings.comet_workspace
         if not workspace:
             raise MissingConfigError(
-                "COMET_WORKSPACE (or an inbound Comet-Workspace header) is required to call Opik REST"
+                "COMET_WORKSPACE (or an inbound Comet-Workspace header) "
+                "is required to call Opik REST"
             )
     if settings.opik_url:
         base = settings.opik_url.rstrip("/")
