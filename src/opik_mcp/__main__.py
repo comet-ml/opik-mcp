@@ -338,6 +338,24 @@ def _run_transport(settings: Settings, transport: str) -> None:
         settings.opik_mcp_reload,
     )
 
+    # OAuth on HTTP transport needs an explicit resource URI. RFC 9728 makes
+    # `resource` REQUIRED in the protected-resource doc, and the AS validates
+    # the authorize `resource` param by exact-equality against its own
+    # MCP_OAUTH_RESOURCE_URI — so a missing value yields a non-compliant doc and
+    # a host-derived fallback that fails every authorize with invalid_target.
+    # Fail fast. (No AS configured = API-key-only mode; resource URI N/A.)
+    if settings.opik_mcp_as_url and not settings.opik_mcp_resource_uri:
+        logger.error(
+            "Refusing to start: OPIK_MCP_AS_URL=%r enables OAuth but "
+            "OPIK_MCP_RESOURCE_URI is unset. Set it to the exact resource URI the "
+            "Authorization Server is configured with (its MCP_OAUTH_RESOURCE_URI, "
+            "default <issuer>/api/v1/mcp) — the two must match byte-for-byte or "
+            "every /authorize fails with invalid_target.",
+            settings.opik_mcp_as_url,
+        )
+        _emit_startup_error(phase="config", error_kind="invalid_config", transport=transport)
+        sys.exit(1)
+
     # Imported lazily so stdio mode doesn't pay the Starlette import cost.
     from opik_mcp.server import build_app
 

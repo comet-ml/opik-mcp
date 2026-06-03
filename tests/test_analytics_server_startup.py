@@ -397,3 +397,49 @@ def test_fallback_client_honors_analytics_disabled_env(
         main_mod.main()
 
     assert not route.called, "analytics_enabled=false must suppress emit even on config-fail"
+
+
+# --- startup_error: OAuth resource URI required on HTTP transport ----------- #
+
+
+def test_startup_error_when_oauth_enabled_without_resource_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """HTTP + OPIK_MCP_AS_URL but no OPIK_MCP_RESOURCE_URI must fail fast.
+
+    RFC 9728 requires `resource` in the protected-resource doc, and the AS
+    exact-matches the authorize `resource` param against its own config — so
+    serving the doc without it would 401-loop hosts with invalid_target.
+    """
+    recorder = _install_recorder(monkeypatch)
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "http")
+    monkeypatch.setenv("OPIK_MCP_AS_URL", "https://example.test/opik")
+    monkeypatch.delenv("OPIK_MCP_RESOURCE_URI", raising=False)
+
+    with pytest.raises(SystemExit):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
+    assert props["phase"] == "config"
+    assert props["error_kind"] == "invalid_config"
+    assert props["transport"] == "http"
+    assert recorder.flush_calls, "startup_error must be flushed synchronously before exit"
+
+
+def test_no_startup_error_when_resource_uri_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HTTP + both AS URL and resource URI set must pass the guard and boot."""
+    recorder = _install_recorder(monkeypatch)
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "http")
+    monkeypatch.setenv("OPIK_MCP_AS_URL", "https://example.test/opik")
+    monkeypatch.setenv("OPIK_MCP_RESOURCE_URI", "https://example.test/opik/api/v1/mcp")
+
+    # Stub out the actual server boot — we only care that the config guard passes.
+    monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
+    monkeypatch.setattr("opik_mcp.server.build_app", lambda: object())
+    monkeypatch.setattr(main_mod.uvicorn, "run", lambda *a, **k: None)
+
+    main_mod.main()
+
+    error_props = [p for et, p in recorder.events if et == EVENT_STARTUP_ERROR]
+    assert error_props == [], "guard must not fire when resource URI is set"
+    assert EVENT_SERVER_STARTED in [e[0] for e in recorder.events]
