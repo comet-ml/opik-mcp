@@ -130,6 +130,23 @@ async def test_rejects_malformed_authorization() -> None:
 
 
 @pytest.mark.anyio
+async def test_rejects_bearer_with_empty_token() -> None:
+    """``Bearer`` with no (or whitespace-only) token is rejected locally
+    with the WWW-Authenticate hint rather than forwarded for an opaque
+    upstream 401.
+    """
+    mw = _build_middleware()
+    for value in ("Bearer ", "Bearer    "):
+        request = _make_request({"authorization": value})
+
+        async def call_next(_r: Request) -> Response:
+            raise AssertionError("should not reach call_next")
+
+        resp = await mw.dispatch(request, call_next)
+        assert resp.status_code == 401, f"authorization={value!r}"
+
+
+@pytest.mark.anyio
 async def test_health_paths_bypass_auth() -> None:
     """Liveness/readiness probes have no credentials by design."""
     mw = _build_middleware()

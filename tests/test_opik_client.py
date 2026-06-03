@@ -361,6 +361,23 @@ def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
     assert workspace is None
 
 
+def test_resolve_opik_config_oauth_detection_is_prefix_not_substring() -> None:
+    """A bearer that merely *contains* the OAuth marker mid-string is not an
+    OAuth token — the workspace requirement must still apply.
+    """
+    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
+    token = inbound_authorization.set("Bearer sk-xopik_at_y")
+    try:
+        with pytest.raises(MissingConfigError, match="COMET_WORKSPACE"):
+            resolve_opik_config(s)
+    finally:
+        inbound_authorization.reset(token)
+
+
 def test_oauth_client_omits_workspace_header() -> None:
     from opik_mcp.opik_client import OpikClient
 

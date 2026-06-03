@@ -599,10 +599,11 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         if not auth:
             return self._unauthorized()
 
-        if not auth.lower().startswith("bearer "):
-            # Require the canonical "Bearer …" shape so the WWW-Authenticate
-            # hint we return on failure is consistent with what the host
-            # expects to send next.
+        if not auth.lower().startswith("bearer ") or not auth[len("Bearer ") :].strip():
+            # Require the canonical "Bearer <token>" shape — non-Bearer
+            # schemes and empty tokens are rejected here rather than
+            # forwarded, so the host gets the WWW-Authenticate hint and a
+            # clean recovery path instead of an opaque upstream 401.
             return self._unauthorized()
 
         # Capture the inbound auth + workspace headers for the duration of
