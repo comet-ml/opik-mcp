@@ -2,10 +2,15 @@ from functools import lru_cache
 from typing import Any, ClassVar, Literal
 from uuid import UUID
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from opik_mcp.error_kinds import ErrorKind
+
+# Workspace name used when none is configured — mirrors the Opik Python SDK
+# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Lets local/OSS users run without
+# setting a workspace at all; cloud users with named workspaces still set one.
+DEFAULT_WORKSPACE = "default"
 
 
 class MissingConfigError(RuntimeError):
@@ -21,10 +26,18 @@ class MissingConfigError(RuntimeError):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False)
+    model_config = SettingsConfigDict(extra="ignore", case_sensitive=False, populate_by_name=True)
 
     opik_api_key: str | None = None
-    comet_workspace: str | None = None
+    # Workspace name. OPIK_WORKSPACE is the primary env var (matches the Opik
+    # SDK and opik-mcp's OPIK_ convention); COMET_WORKSPACE is a deprecated
+    # backward-compat fallback. Kept ``str | None`` (not defaulted) so the
+    # analytics `has_workspace` flag still reflects whether the user set one;
+    # the "default" fallback is applied at the resolve sites, not here.
+    comet_workspace: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("opik_workspace", "comet_workspace"),
+    )
     # Optional workspace UUID. Stamped into analytics events as
     # `workspace_id` when set so BI can JOIN on a stable identifier instead
     # of the workspace name (which is mutable). Unset means the field is
@@ -148,6 +161,7 @@ def get_settings() -> Settings:
 def require_ollie_config(settings: Settings) -> tuple[str, str]:
     if not settings.opik_api_key:
         raise MissingConfigError("OPIK_API_KEY is required to use ask_ollie")
-    if not settings.comet_workspace:
-        raise MissingConfigError("COMET_WORKSPACE is required to use ask_ollie")
-    return settings.opik_api_key, settings.comet_workspace
+    # Workspace is optional — fall back to "default" (Opik SDK convention).
+    # Cloud pod discovery for a non-"default" account will surface its own
+    # clear error downstream, which beats a hard config failure here.
+    return settings.opik_api_key, settings.comet_workspace or DEFAULT_WORKSPACE

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from opik_mcp.config import Settings, get_settings
+from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 _TEMPLATE = """\
@@ -78,7 +78,7 @@ def render_instructions(
     generic placeholder if the config is partial.
     """
     s = settings if settings is not None else get_settings()
-    workspace = s.comet_workspace or "(workspace not configured)"
+    workspace = s.comet_workspace or DEFAULT_WORKSPACE
     if s.opik_url:
         opik_url = s.opik_url.rstrip("/")
     elif s.comet_url_override:

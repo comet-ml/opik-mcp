@@ -38,7 +38,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 You'll need two things from your Opik workspace:
 
 - **`OPIK_API_KEY`** — get it from [`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/).
-- **`COMET_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `COMET_WORKSPACE=acme-ai`. Required for `ask_ollie`; optional but recommended everywhere else (used for scoping and analytics).
+- **`OPIK_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `OPIK_WORKSPACE=acme-ai`. Optional — defaults to `default` (the Opik SDK convention), which is correct for local/OSS installs; cloud users with a named workspace should set it. `COMET_WORKSPACE` is accepted as a deprecated alias.
 
 > **Pre-release note:** `opik-mcp` (Python) is not yet published to PyPI. Until
 > the first PyPI release lands, replace `uvx opik-mcp` in any snippet below with:
@@ -51,7 +51,7 @@ Add the server with one command:
 ```bash
 claude mcp add --transport stdio opik-mcp \
   --env OPIK_API_KEY=<your-key> \
-  --env COMET_WORKSPACE=<your-workspace> \
+  --env OPIK_WORKSPACE=<your-workspace> \
   -- uvx opik-mcp
 ```
 
@@ -66,7 +66,7 @@ Or edit `~/.claude.json` directly:
       "args": ["opik-mcp"],
       "env": {
         "OPIK_API_KEY": "<your-key>",
-        "COMET_WORKSPACE": "<your-workspace>"
+        "OPIK_WORKSPACE": "<your-workspace>"
       }
     }
   }
@@ -91,7 +91,7 @@ Edit `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project), or open
       "args": ["opik-mcp"],
       "env": {
         "OPIK_API_KEY": "<your-key>",
-        "COMET_WORKSPACE": "<your-workspace>"
+        "OPIK_WORKSPACE": "<your-workspace>"
       }
     }
   }
@@ -118,7 +118,7 @@ connection. Ask in chat: **"list my Opik projects"**.
       "args": ["opik-mcp"],
       "env": {
         "OPIK_API_KEY": "<your-key>",
-        "COMET_WORKSPACE": "<your-workspace>"
+        "OPIK_WORKSPACE": "<your-workspace>"
       }
     }
   }
@@ -131,7 +131,7 @@ the server is reachable. Ask in chat: **"list my Opik projects"**.
 ### MCP Inspector (manual testing)
 
 ```bash
-OPIK_API_KEY=<your-key> COMET_WORKSPACE=<your-workspace> \
+OPIK_API_KEY=<your-key> OPIK_WORKSPACE=<your-workspace> \
   npx @modelcontextprotocol/inspector uvx opik-mcp
 ```
 
@@ -300,7 +300,8 @@ Every setting is an environment variable. Required ones in **bold**.
 | Variable | Default | Notes |
 |---|---|---|
 | **`OPIK_API_KEY`** | — | Required for `ask_ollie` and any authenticated read/write. |
-| **`COMET_WORKSPACE`** | — | Workspace name. Required for `ask_ollie`. |
+| `OPIK_WORKSPACE` | `default` | Workspace name. Optional — falls back to `default` (Opik SDK convention). Cloud users with a named workspace should set it. |
+| `COMET_WORKSPACE` | — | Deprecated alias for `OPIK_WORKSPACE` (backward compat). `OPIK_WORKSPACE` wins if both are set. |
 | `COMET_WORKSPACE_ID` | — | Optional workspace UUID. Stamped into analytics events when set so BI can join on a stable id rather than the (mutable) workspace name. |
 | `COMET_URL_OVERRIDE` | `https://www.comet.com` | Set to your self-hosted Comet host, or `https://dev.comet.com` for staging. |
 | `OPIK_URL` | derived from `COMET_URL_OVERRIDE` + `/opik/api` | Override only if Opik lives on a different host/path than the Comet UI. |
@@ -406,7 +407,7 @@ Common targets:
 | `make dev` | Run via `mcp dev` (Inspector dev-mode wrapper). |
 | `make inspect` | Launch MCP Inspector against a running server. |
 | `make test` | `uv run pytest -q`. |
-| `make test-live` | Live end-to-end against `dev.comet.com` (set `OPIK_API_KEY` + `COMET_WORKSPACE`). |
+| `make test-live` | Live end-to-end against `dev.comet.com` (set `OPIK_API_KEY` + `OPIK_WORKSPACE`). |
 | `make lint` | `ruff check` + format check. |
 | `make format` | `ruff format` + `ruff check --fix`. |
 | `make typecheck` | `mypy`. |

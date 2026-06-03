@@ -43,10 +43,15 @@ def test_render_uses_comet_url_override_when_opik_url_missing() -> None:
     assert "https://demo.comet.com/opik" in out
 
 
-def test_render_handles_missing_workspace_gracefully() -> None:
+def test_render_uses_default_workspace_when_unset() -> None:
+    """With no workspace configured the tools operate against "default"
+    (Opik SDK convention), so the LLM-facing context must say so rather than
+    "(workspace not configured)"."""
+    from opik_mcp.config import DEFAULT_WORKSPACE
+
     s = _settings(comet_workspace=None)
     out = render_instructions(s)
-    assert "workspace not configured" in out
+    assert f'workspace "{DEFAULT_WORKSPACE}"' in out
 
 
 def test_render_omits_user_clause_when_email_unknown() -> None:

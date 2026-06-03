@@ -336,12 +336,24 @@ def test_resolve_opik_config_requires_api_key() -> None:
         resolve_opik_config(s)
 
 
-def test_resolve_opik_config_requires_workspace() -> None:
+def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
+    """Workspace is optional — when unset, resolve_opik_config falls back to
+    "default" (matching the Opik SDK) instead of raising."""
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key="k", comet_workspace=None, opik_url="https://opik.example.com/")
+    _base, _api_key, workspace = resolve_opik_config(s)
+    assert workspace == DEFAULT_WORKSPACE
+
+
+def test_resolve_opik_config_still_requires_api_key() -> None:
+    """The api key is still mandatory — only the workspace became optional."""
     from opik_mcp.config import MissingConfigError, Settings
     from opik_mcp.opik_client import resolve_opik_config
 
-    s = Settings(opik_api_key="k", comet_workspace=None)
-    with pytest.raises(MissingConfigError, match="COMET_WORKSPACE"):
+    s = Settings(opik_api_key=None, comet_workspace="ws")
+    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
         resolve_opik_config(s)
 
 

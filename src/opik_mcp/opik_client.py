@@ -20,7 +20,7 @@ from typing import Any, ClassVar, Final, Literal, Protocol
 
 import httpx
 
-from opik_mcp.config import MissingConfigError, Settings
+from opik_mcp.config import DEFAULT_WORKSPACE, MissingConfigError, Settings
 from opik_mcp.error_kinds import ErrorKind
 
 # --- errors --------------------------------------------------------------- #
@@ -621,8 +621,9 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:
     """
     if not settings.opik_api_key:
         raise MissingConfigError("OPIK_API_KEY is required to call Opik REST")
-    if not settings.comet_workspace:
-        raise MissingConfigError("COMET_WORKSPACE is required to call Opik REST")
+    # Workspace is optional — fall back to "default" (Opik SDK convention)
+    # instead of hard-failing. Lets local/OSS users run without a workspace.
+    workspace = settings.comet_workspace or DEFAULT_WORKSPACE
     if settings.opik_url:
         base = settings.opik_url.rstrip("/")
     else:
@@ -633,7 +634,7 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str]:
         if not settings.comet_url_override:
             raise MissingConfigError("OPIK_URL or COMET_URL_OVERRIDE is required to call Opik REST")
         base = f"{settings.comet_url_override.rstrip('/')}/opik/api"
-    return base, settings.opik_api_key, settings.comet_workspace
+    return base, settings.opik_api_key, workspace
 
 
 def make_opik_client(settings: Settings) -> OpikClient:
@@ -655,12 +656,12 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
     suffix = f" — {detail}" if detail else ""
     if status == 401:
         raise OpikAuthError(
-            f"Opik rejected the request (401). Check OPIK_API_KEY and COMET_WORKSPACE.{suffix}"
+            f"Opik rejected the request (401). Check OPIK_API_KEY and OPIK_WORKSPACE.{suffix}"
         )
     if status == 403:
         raise OpikPermissionError(
             f"Opik rejected the request (403). The API key is valid but lacks "
-            f"permission for {entity_hint}. Check COMET_WORKSPACE access.{suffix}"
+            f"permission for {entity_hint}. Check OPIK_WORKSPACE access.{suffix}"
         )
     if status == 404:
         raise OpikNotFoundError(f"{entity_hint} not found (404).{suffix}")
