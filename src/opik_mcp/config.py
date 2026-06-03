@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     opik_mcp_transport: str = "stdio"
     opik_mcp_host: str = "127.0.0.1"
     opik_mcp_port: int = 8080
+
+    # HTTP path the streamable-MCP transport is mounted at (default "/mcp").
+    # The advertised resource URI and the served path must be the same string,
+    # so when fronted by a path-prefix proxy that can't rewrite (e.g. an ALB
+    # routing /opik/api/v1/mcp straight to this Service), set this to that full
+    # path — matching OPIK_MCP_RESOURCE_URI's path.
+    opik_mcp_http_path: str = "/mcp"
+
     opik_mcp_reload: bool = False
 
     # YOLO mode toggle. "enabled" (default) auto-approves every pod
@@ -100,6 +108,15 @@ class Settings(BaseSettings):
     @classmethod
     def _lowercase_toggle(cls, v: Any) -> Any:
         return v.lower() if isinstance(v, str) else v
+
+    @field_validator("opik_mcp_http_path", mode="before")
+    @classmethod
+    def _require_leading_slash(cls, v: Any) -> Any:
+        # Starlette routes must be absolute; fail loudly at startup rather than
+        # mount the transport at a path no client can reach.
+        if isinstance(v, str) and v and not v.startswith("/"):
+            raise ValueError(f"OPIK_MCP_HTTP_PATH must start with '/': got {v!r}")
+        return v
 
     @field_validator("comet_workspace_id", mode="before")
     @classmethod
