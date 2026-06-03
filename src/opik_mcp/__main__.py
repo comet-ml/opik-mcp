@@ -24,9 +24,6 @@ from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
 
-INSECURE_DEFAULT_TOKEN = "dev-token-123"
-LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
-
 # Best-effort drain budget on the startup-error path. The daemon worker that
 # normally POSTs analytics events is killed by the imminent sys.exit/re-raise,
 # so we must block long enough for the in-flight POST to land — but not so
@@ -327,8 +324,8 @@ def main() -> None:
 def _run_transport(settings: Settings, transport: str) -> None:
     if transport == "stdio":
         # Default: Claude Code (or any MCP client) launches this process and
-        # speaks MCP over stdin/stdout. No port, no bearer token, no uvicorn.
-        # OPIK_MCP_DEV_TOKEN is only relevant in HTTP mode (see below).
+        # speaks MCP over stdin/stdout. No port, no inbound auth, no uvicorn —
+        # whoever can spawn the process already owns its stdio.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
         from opik_mcp.server import mcp
 
@@ -344,26 +341,23 @@ def _run_transport(settings: Settings, transport: str) -> None:
         settings.opik_mcp_reload,
     )
 
-    if settings.opik_mcp_dev_token == INSECURE_DEFAULT_TOKEN:
-        if settings.opik_mcp_host not in LOOPBACK_HOSTS:
-            logger.error(
-                "Refusing to start: OPIK_MCP_DEV_TOKEN is the insecure default %r "
-                "and OPIK_MCP_HOST=%r is not a loopback address. Set a strong "
-                "OPIK_MCP_DEV_TOKEN secret, or bind to 127.0.0.1/::1/localhost.",
-                INSECURE_DEFAULT_TOKEN,
-                settings.opik_mcp_host,
-            )
-            _emit_startup_error(
-                phase="http_bind_check",
-                error_kind="insecure_token_on_public_iface",
-                transport=transport,
-            )
-            sys.exit(1)
-        logger.warning(
-            "OPIK_MCP_DEV_TOKEN is using the insecure default %r. "
-            "Set a strong secret before exposing this server beyond localhost.",
-            INSECURE_DEFAULT_TOKEN,
+    # OAuth on HTTP transport needs an explicit resource URI. RFC 9728 makes
+    # `resource` REQUIRED in the protected-resource doc, and the AS validates
+    # the authorize `resource` param by exact-equality against its own
+    # MCP_OAUTH_RESOURCE_URI — so a missing value yields a non-compliant doc and
+    # a host-derived fallback that fails every authorize with invalid_target.
+    # Fail fast. (No AS configured = API-key-only mode; resource URI N/A.)
+    if settings.opik_mcp_as_url and not settings.opik_mcp_resource_uri:
+        logger.error(
+            "Refusing to start: OPIK_MCP_AS_URL=%r enables OAuth but "
+            "OPIK_MCP_RESOURCE_URI is unset. Set it to the exact resource URI the "
+            "Authorization Server is configured with (its MCP_OAUTH_RESOURCE_URI, "
+            "default <issuer>/api/v1/mcp) — the two must match byte-for-byte or "
+            "every /authorize fails with invalid_target.",
+            settings.opik_mcp_as_url,
         )
+        _emit_startup_error(phase="config", error_kind="invalid_config", transport=transport)
+        sys.exit(1)
 
     # Imported lazily so stdio mode doesn't pay the Starlette import cost.
     from opik_mcp.server import build_app

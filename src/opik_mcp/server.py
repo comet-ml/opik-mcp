@@ -1,6 +1,6 @@
 import logging
-import secrets
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
@@ -16,7 +16,8 @@ from starlette.types import ASGIApp
 from opik_mcp.analytics.events import bucket_count
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
-from opik_mcp.config import get_settings
+from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
@@ -402,6 +403,14 @@ async def run_experiment(
     settings = get_settings()
     client = make_opik_client(settings)
     _, _, workspace = resolve_opik_config(settings)
+    # Workspace may be None when an OAuth bearer arrives without a
+    # Comet-Workspace header (the backend derives it from the token row, but
+    # we need the name client-side to build the experiment summary URL).
+    if workspace is None:
+        raise MissingConfigError(
+            "run_experiment requires a workspace — set COMET_WORKSPACE or "
+            "send a Comet-Workspace header"
+        )
     comet_base = settings.comet_url_override.rstrip("/")
     return await run_experiment_impl(
         config=config,
@@ -503,6 +512,38 @@ async def schema(
 # misconfiguration would otherwise return 401.
 _HEALTH_PATHS = frozenset({"/health", "/health/ready"})
 
+# Protected-resource metadata is the bootstrap entry point for the OAuth
+# dance: MCP hosts fetch it (per RFC 9728) before they have any credentials,
+# so it must be reachable without an Authorization header.
+_PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource"
+
+# AS-discovery / OAuth-flow paths that MCP host SDKs probe on the resource
+# server's host before they have a token. In production opik-mcp sits behind
+# the same edge as opik-backend so these paths "just work" — but locally
+# they're on different ports, so we redirect to the configured AS to keep
+# the SDK's discovery chain unbroken. Anything not in this set or
+# ``_HEALTH_PATHS`` requires a bearer.
+_PROXIED_OAUTH_PATHS = {
+    # AS metadata + OIDC fallback some SDKs probe before the protected-resource doc
+    "/.well-known/oauth-authorization-server": "/.well-known/oauth-authorization-server",
+    "/.well-known/openid-configuration": "/.well-known/oauth-authorization-server",
+    # OAuth 2.1 flow endpoints; SDK convention is to find them at the RS root
+    "/register": "/oauth/register",
+    "/authorize": "/oauth/authorize",
+    "/token": "/oauth/token",
+    "/revoke": "/oauth/revoke",
+    "/oauth/register": "/oauth/register",
+    "/oauth/authorize": "/oauth/authorize",
+    "/oauth/token": "/oauth/token",
+    "/oauth/revoke": "/oauth/revoke",
+}
+
+_UNAUTH_PATHS = (
+    _HEALTH_PATHS
+    | frozenset({_PROTECTED_RESOURCE_METADATA_PATH})
+    | frozenset(_PROXIED_OAUTH_PATHS.keys())
+)
+
 # Bounded total budget for the upstream reachability check used by
 # /health/ready. Probes run every 5-10s; a hung upstream must not stall the
 # probe past the probe's own timeout, or readiness flips to "unknown" instead
@@ -511,17 +552,81 @@ _READY_PROBE_TIMEOUT_S = 2.0
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: ASGIApp, token: str) -> None:
+    """Bearer-shape check + per-request bearer-capture for outbound forwarding.
+
+    opik-mcp performs **no local credential validation**. Any well-formed
+    ``Authorization: Bearer …`` header is accepted; the full header value is
+    captured into a ContextVar and forwarded verbatim on the outbound call to
+    opik-backend (see :mod:`opik_mcp.auth_context`). opik-backend's
+    ``AuthFilter`` is the single point of auth enforcement — it validates the
+    bearer (API key or ``opik_at_…`` OAuth token) and enforces
+    ``@RequiredPermissions`` on the data API endpoint. Deployments where the
+    backend enforces auth are protected end-to-end; OSS installs without
+    backend auth are as open via MCP as via their own REST API.
+
+    Missing/empty ``Authorization`` returns 401 with a ``WWW-Authenticate``
+    header that points MCP hosts at
+    ``/.well-known/oauth-protected-resource`` so they can bootstrap the
+    OAuth dance per RFC 6750 + RFC 9728. Health probes and the metadata
+    endpoint are exempt from auth.
+    """
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        resource_metadata_url: str | None,
+    ) -> None:
         super().__init__(app)
-        self._expected = f"Bearer {token}"
+        self._resource_metadata_url = resource_metadata_url
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        if request.url.path in _HEALTH_PATHS:
+        path = request.url.path
+        # Discovery + bootstrap paths are unauthenticated by spec — RFC 9728
+        # well-known metadata, OIDC/OAuth AS metadata, and the OAuth-flow
+        # endpoints all run pre-credentials. Returning 401 on these would
+        # break the host's discovery chain; many SDKs probe path-prefixed
+        # variants too (``/.well-known/foo/mcp``, ``/mcp/.well-known/foo``),
+        # so we accept the whole prefix.
+        if (
+            path in _UNAUTH_PATHS
+            or path.startswith("/.well-known/")
+            or path.startswith("/mcp/.well-known/")
+        ):
             return await call_next(request)
+
         auth = request.headers.get("authorization", "")
-        if not secrets.compare_digest(auth, self._expected):
-            return JSONResponse({"error": "unauthorized"}, status_code=401)
-        return await call_next(request)
+        if not auth:
+            return self._unauthorized()
+
+        if not auth.lower().startswith("bearer ") or not auth[len("Bearer ") :].strip():
+            # Require the canonical "Bearer <token>" shape — non-Bearer
+            # schemes and empty tokens are rejected here rather than
+            # forwarded, so the host gets the WWW-Authenticate hint and a
+            # clean recovery path instead of an opaque upstream 401.
+            return self._unauthorized()
+
+        # Capture the inbound auth + workspace headers for the duration of
+        # this request so the outbound :class:`OpikClient` can forward them.
+        auth_token = inbound_authorization.set(auth)
+        workspace = request.headers.get("comet-workspace")
+        workspace_token = inbound_workspace.set(workspace)
+        try:
+            return await call_next(request)
+        finally:
+            inbound_authorization.reset(auth_token)
+            inbound_workspace.reset(workspace_token)
+
+    def _unauthorized(self) -> Response:
+        # RFC 6750 §3 + RFC 9728: pointing MCP hosts at protected-resource
+        # metadata is what kicks off automatic OAuth discovery — without
+        # this, hosts have no way to find the AS without out-of-band config.
+        headers: dict[str, str] = {}
+        if self._resource_metadata_url:
+            headers["WWW-Authenticate"] = (
+                f'Bearer realm="opik-mcp", resource_metadata="{self._resource_metadata_url}"'
+            )
+        return JSONResponse({"error": "unauthorized"}, status_code=401, headers=headers)
 
 
 # --- health endpoints ---------------------------------------------------- #
@@ -567,13 +672,161 @@ async def _readiness(_request: Request) -> JSONResponse:
     return JSONResponse({"status": "not_ready", "reason": reason}, status_code=503)
 
 
+async def _oauth_protected_resource(_request: Request) -> JSONResponse:
+    """RFC 9728 protected-resource metadata.
+
+    Returned to MCP hosts so they can discover the Authorization Server and
+    run the OAuth dance against it without needing the AS URL preconfigured.
+
+    When ``OPIK_MCP_AS_URL`` is unset, the discovery doc is unavailable —
+    this opik-mcp instance is then only useful with ``OPIK_API_KEY``-style
+    bearers. Returning 503 makes the misconfiguration loud and steers
+    operators to set ``OPIK_MCP_AS_URL``.
+    """
+    s = get_settings()
+    if not s.opik_mcp_as_url:
+        return JSONResponse({"error": "OPIK_MCP_AS_URL not configured"}, status_code=503)
+    body: dict[str, Any] = {
+        "authorization_servers": [s.opik_mcp_as_url],
+    }
+    if s.opik_mcp_resource_uri:
+        body["resource"] = s.opik_mcp_resource_uri
+    return JSONResponse(body)
+
+
+# Headers that must not be forwarded from inbound → outbound on the proxy
+# path. ``host`` would override httpx's auto-set Host; ``content-length`` is
+# recomputed from the body; hop-by-hop framing headers don't make sense to
+# forward; and ``cookie`` is intentionally dropped because OAuth flows use
+# the AS's own session cookies and we don't want to leak SDK cookies upstream.
+_PROXY_DROP_REQUEST_HEADERS = frozenset(
+    {"host", "content-length", "connection", "transfer-encoding", "cookie"}
+)
+
+# Hop-by-hop response headers per RFC 7230 §6.1 — must not be forwarded back
+# unchanged or httpx/Starlette's framing assumptions break.
+_PROXY_DROP_RESPONSE_HEADERS = frozenset(
+    {"content-encoding", "content-length", "transfer-encoding", "connection"}
+)
+
+
+async def _proxy_to_as(request: Request) -> Response:
+    """Proxy AS-flow / discovery requests to the configured AS host.
+
+    MCP host SDKs probe ``/register``, ``/authorize``, ``/.well-known/oauth-
+    authorization-server`` etc. at the resource server's host before they
+    have a token. In production opik-mcp sits behind the same edge as
+    opik-backend so these paths route correctly without ceremony. Locally
+    (or in any split-host deploy) we proxy them to the configured AS so
+    the SDK sees a same-origin response — earlier attempts using HTTP 307
+    redirects failed because some SDKs do not follow cross-origin OAuth-
+    discovery redirects.
+
+    Proxying preserves method, body, query string, and most headers, and
+    returns the AS response inline. The proxied AS metadata still contains
+    absolute opik-backend URLs in its endpoint fields (``authorization_
+    endpoint``, ``token_endpoint``, etc.) — SDKs that use those directly
+    talk to the AS over the network; SDKs that probe ``/register`` etc. at
+    the RS root land here again and we proxy that too.
+
+    Returns 503 when ``OPIK_MCP_AS_URL`` is unset — the only safe answer:
+    we don't know where to send the probe, and silently 404'ing would
+    mislead clients into thinking the resource doesn't support OAuth.
+    """
+    s = get_settings()
+    if not s.opik_mcp_as_url:
+        return JSONResponse({"error": "OPIK_MCP_AS_URL not configured"}, status_code=503)
+    target_path = _PROXIED_OAUTH_PATHS.get(request.url.path)
+    if target_path is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    qs = request.url.query
+    target = f"{s.opik_mcp_as_url.rstrip('/')}{target_path}"
+    if qs:
+        target = f"{target}?{qs}"
+    body = await request.body()
+    forwarded_headers = {
+        k: v for k, v in request.headers.items() if k.lower() not in _PROXY_DROP_REQUEST_HEADERS
+    }
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
+        upstream = await client.request(
+            method=request.method,
+            url=target,
+            headers=forwarded_headers,
+            content=body,
+        )
+    response_headers = {
+        k: v for k, v in upstream.headers.items() if k.lower() not in _PROXY_DROP_RESPONSE_HEADERS
+    }
+    return Response(
+        content=upstream.content,
+        status_code=upstream.status_code,
+        headers=response_headers,
+        media_type=upstream.headers.get("content-type"),
+    )
+
+
+def _resource_metadata_url(settings: Settings) -> str | None:
+    """Build the absolute URL we advertise in ``WWW-Authenticate``.
+
+    The metadata route is registered at the application root, so the URL we
+    advertise must match: derived from the resource URI's scheme + authority
+    rather than appended under its path. RFC 9728 §3.1 permits both
+    path-prefixed and host-relative forms; MCP hosts in practice follow the
+    host-relative form, and our Starlette ``Route`` registration sits at
+    ``/`` + the well-known path (not nested under ``/mcp``). Appending under
+    the resource path produces a URL that 404s (or falls through to the MCP
+    path's auth middleware and 401s), silently breaking host bootstrap.
+
+    Falls back to the bare relative path when no public URI is configured —
+    still useful for hosts that resolve relative to the 401 URL, though that
+    pathway has the same authority as the request that triggered it.
+    """
+    if settings.opik_mcp_resource_uri:
+        parsed = urlparse(settings.opik_mcp_resource_uri)
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}{_PROTECTED_RESOURCE_METADATA_PATH}"
+    return _PROTECTED_RESOURCE_METADATA_PATH
+
+
+async def _not_found_json(scope: Any, receive: Any, send: Any) -> None:
+    """Default-route handler — returns 404 as JSON instead of ``text/plain``.
+
+    Starlette's stock 404 is ``Content-Type: text/plain`` with body ``Not
+    Found``. MCP host SDKs that JSON-parse every response (including
+    discovery probes that legitimately end in 404) choke on the plain
+    text and abort their bootstrap with "Failed to parse JSON". Returning
+    a tiny JSON envelope keeps every error response on the canonical
+    content-type contract.
+    """
+    response = JSONResponse({"error": "not_found"}, status_code=404)
+    await response(scope, receive, send)
+
+
 def build_app() -> Starlette:
     install_tools_listed_emitter(mcp)
-    # The bearer token is captured at construction time and held for the
-    # process lifetime; rotation requires a server restart (Settings is
-    # lru_cache'd). Documented as a Phase-1 limitation; Phase 2 moves to OAuth.
     app = mcp.streamable_http_app()
+    # Replace Starlette's default plain-text 404 — see ``_not_found_json``.
+    app.router.default = _not_found_json
     app.router.routes.append(Route("/health", _liveness, methods=["GET"]))
     app.router.routes.append(Route("/health/ready", _readiness, methods=["GET"]))
-    app.add_middleware(BearerAuthMiddleware, token=get_settings().opik_mcp_dev_token)
+    app.router.routes.append(
+        Route(
+            _PROTECTED_RESOURCE_METADATA_PATH,
+            _oauth_protected_resource,
+            methods=["GET"],
+        )
+    )
+    # AS / OAuth-flow probe paths — proxy to the configured AS so
+    # split-host deployments (local docker-compose, dev clusters where
+    # opik-mcp and opik-backend bind to different addresses) work the
+    # same as the production single-edge deploy. Proxying (not redirect)
+    # because some SDKs refuse to follow cross-origin OAuth-discovery
+    # redirects and silently break their bootstrap.
+    for path in _PROXIED_OAUTH_PATHS:
+        app.router.routes.append(Route(path, _proxy_to_as, methods=["GET", "POST"]))
+    s = get_settings()
+    app.add_middleware(
+        BearerAuthMiddleware,
+        resource_metadata_url=_resource_metadata_url(s),
+    )
     return app
