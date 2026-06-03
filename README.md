@@ -44,6 +44,10 @@ You'll need two things from your Opik workspace:
 > the first PyPI release lands, replace `uvx opik-mcp` in any snippet below with:
 > `uvx --from git+https://github.com/comet-ml/opik-mcp.git opik-mcp`
 
+> **`OPIK_WORKSPACE` is optional.** Omit the `OPIK_WORKSPACE` line/key in any
+> snippet below and the server uses the `default` workspace (correct for
+> local/OSS installs). Set it only if you connect to a named cloud workspace.
+
 ### Claude Code
 
 Add the server with one command:
