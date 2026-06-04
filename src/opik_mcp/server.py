@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -804,10 +805,19 @@ async def _not_found_json(scope: Any, receive: Any, send: Any) -> None:
 
 def build_app() -> Starlette:
     install_tools_listed_emitter(mcp)
+    s = get_settings()
     # Serve the transport at the configured path so it matches the advertised
     # resource URI behind a non-rewriting path-prefix proxy. Read at app-build
     # time (streamable_http_app reads it then), so env overrides take effect.
-    mcp.settings.streamable_http_path = get_settings().opik_mcp_http_path
+    mcp.settings.streamable_http_path = s.opik_mcp_http_path
+    # DNS-rebinding/Host-Origin guard. Default allow-lists cover localhost only,
+    # so hosted deployments must add their public host (and browser-client
+    # origins). Applied here for the same read-at-build-time reason as above.
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=s.opik_mcp_dns_rebinding_protection,
+        allowed_hosts=s.allowed_hosts_list,
+        allowed_origins=s.allowed_origins_list,
+    )
     app = mcp.streamable_http_app()
     # Replace Starlette's default plain-text 404 — see ``_not_found_json``.
     app.router.default = _not_found_json

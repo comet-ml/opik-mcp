@@ -99,6 +99,21 @@ class Settings(BaseSettings):
     # path — matching OPIK_MCP_RESOURCE_URI's path.
     opik_mcp_http_path: str = "/mcp"
 
+    # DNS-rebinding protection for the streamable HTTP transport (the MCP SDK's
+    # production-recommended posture; Bearer auth is the primary control, this
+    # is defense-in-depth). ON by default. The default allow-lists cover only
+    # localhost — when hosted behind a public host, add it to
+    # OPIK_MCP_ALLOWED_HOSTS (e.g. "dev.comet.com,dev.comet.com:*"). Browser MCP
+    # clients (e.g. claude.ai) also need their Origin in OPIK_MCP_ALLOWED_ORIGINS;
+    # CLI/desktop clients send no Origin and are unaffected. Env values may be a
+    # comma-separated string. Disable only as a deliberate per-env trade-off.
+    opik_mcp_dns_rebinding_protection: bool = True
+    # Comma-separated (str, not list, so a plain Helm env value works — a
+    # list[str] field would be JSON-decoded by pydantic-settings). Read via the
+    # allowed_hosts_list / allowed_origins_list properties.
+    opik_mcp_allowed_hosts: str = "127.0.0.1:*,localhost:*,[::1]:*"
+    opik_mcp_allowed_origins: str = "http://127.0.0.1:*,http://localhost:*,http://[::1]:*"
+
     opik_mcp_reload: bool = False
 
     # YOLO mode toggle. "enabled" (default) auto-approves every pod
@@ -130,6 +145,14 @@ class Settings(BaseSettings):
         if isinstance(v, str) and v and not v.startswith("/"):
             raise ValueError(f"OPIK_MCP_HTTP_PATH must start with '/': got {v!r}")
         return v
+
+    @property
+    def allowed_hosts_list(self) -> list[str]:
+        return [h.strip() for h in self.opik_mcp_allowed_hosts.split(",") if h.strip()]
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.opik_mcp_allowed_origins.split(",") if o.strip()]
 
     @field_validator("comet_workspace_id", mode="before")
     @classmethod
