@@ -35,3 +35,34 @@ def test_http_path_requires_leading_slash(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("OPIK_MCP_HTTP_PATH", "opik/api/v1/mcp")
     with pytest.raises(ValidationError):
         Settings()
+
+
+# --- transport security (DNS-rebinding / Host-Origin allowlist) ------------- #
+
+
+def test_transport_security_defaults_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in (
+        "OPIK_MCP_DNS_REBINDING_PROTECTION",
+        "OPIK_MCP_ALLOWED_HOSTS",
+        "OPIK_MCP_ALLOWED_ORIGINS",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    s = Settings()
+    assert s.opik_mcp_dns_rebinding_protection is True
+    assert s.allowed_hosts_list == ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+    assert s.allowed_origins_list == ["http://127.0.0.1:*", "http://localhost:*", "http://[::1]:*"]
+
+
+def test_allowed_hosts_parses_comma_separated_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPIK_MCP_ALLOWED_HOSTS", "dev.comet.com, dev.comet.com:*")
+    assert Settings().allowed_hosts_list == ["dev.comet.com", "dev.comet.com:*"]
+
+
+def test_allowed_origins_parses_comma_separated_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPIK_MCP_ALLOWED_ORIGINS", "https://claude.ai")
+    assert Settings().allowed_origins_list == ["https://claude.ai"]
+
+
+def test_dns_rebinding_protection_toggle(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPIK_MCP_DNS_REBINDING_PROTECTION", "false")
+    assert Settings().opik_mcp_dns_rebinding_protection is False
