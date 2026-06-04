@@ -4,8 +4,29 @@ from opik_mcp.config import MissingConfigError, Settings, require_ollie_config
 
 
 def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("OPIK_API_KEY", "COMET_WORKSPACE", "COMET_URL_OVERRIDE"):
+    for var in ("OPIK_API_KEY", "OPIK_WORKSPACE", "COMET_WORKSPACE", "COMET_URL_OVERRIDE"):
         monkeypatch.delenv(var, raising=False)
+
+
+def test_opik_workspace_env_populates_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OPIK_WORKSPACE is the primary (OPIK_-prefixed) env var for the workspace,
+    matching the Opik SDK and the rest of opik-mcp's OPIK_ convention."""
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPIK_WORKSPACE", "ws-opik")
+    s = Settings()
+    assert s.comet_workspace == "ws-opik"
+
+
+def test_opik_workspace_takes_precedence_over_comet_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When both are set, the OPIK_-prefixed var wins; COMET_WORKSPACE is the
+    deprecated fallback."""
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("OPIK_WORKSPACE", "ws-opik")
+    monkeypatch.setenv("COMET_WORKSPACE", "ws-comet")
+    s = Settings()
+    assert s.comet_workspace == "ws-opik"
 
 
 def test_defaults_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,10 +60,13 @@ def test_require_ollie_config_missing_api_key() -> None:
         require_ollie_config(s)
 
 
-def test_require_ollie_config_missing_workspace() -> None:
+def test_require_ollie_config_defaults_workspace_when_unset() -> None:
+    """Workspace is optional now — when unset it falls back to "default"
+    (matching the Opik SDK) instead of hard-failing."""
+    from opik_mcp.config import DEFAULT_WORKSPACE
+
     s = Settings(opik_api_key="k", comet_workspace=None)
-    with pytest.raises(MissingConfigError, match="COMET_WORKSPACE"):
-        require_ollie_config(s)
+    assert require_ollie_config(s) == ("k", DEFAULT_WORKSPACE)
 
 
 def test_default_project_name_parses_from_env(monkeypatch: pytest.MonkeyPatch) -> None:

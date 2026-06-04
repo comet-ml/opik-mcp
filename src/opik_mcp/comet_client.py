@@ -110,7 +110,7 @@ class CometClient:
         if resp.status_code == 403:
             raise CometPermissionError(
                 "Comet rejected the request (403). The API key is valid "
-                "but lacks access to this workspace. Check COMET_WORKSPACE."
+                "but lacks access to this workspace. Check OPIK_WORKSPACE."
             )
         if resp.status_code == 400:
             preview = resp.text[:300].replace("\n", " ")

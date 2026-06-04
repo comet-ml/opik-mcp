@@ -51,7 +51,7 @@ def _raise_for_execute_status(resp: httpx.Response) -> None:
     if resp.status_code == 403:
         raise OpikPermissionError(
             "Opik rejected the experiment execute request (403). The API key is "
-            "valid but lacks permission for this workspace. Check COMET_WORKSPACE."
+            "valid but lacks permission for this workspace. Check OPIK_WORKSPACE."
         )
     if resp.status_code == 404:
         raise OpikNotFoundError(f"Test suite not found (404) — {body_excerpt}")

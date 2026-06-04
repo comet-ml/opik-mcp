@@ -336,12 +336,24 @@ def test_resolve_opik_config_requires_api_key() -> None:
         resolve_opik_config(s)
 
 
-def test_resolve_opik_config_requires_workspace() -> None:
+def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
+    """Workspace is optional — when unset, resolve_opik_config falls back to
+    "default" (matching the Opik SDK) instead of raising."""
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key="k", comet_workspace=None, opik_url="https://opik.example.com/")
+    _base, _api_key, workspace = resolve_opik_config(s)
+    assert workspace == DEFAULT_WORKSPACE
+
+
+def test_resolve_opik_config_still_requires_api_key() -> None:
+    """The api key is still mandatory — only the workspace became optional."""
     from opik_mcp.config import MissingConfigError, Settings
     from opik_mcp.opik_client import resolve_opik_config
 
-    s = Settings(opik_api_key="k", comet_workspace=None)
-    with pytest.raises(MissingConfigError, match="COMET_WORKSPACE"):
+    s = Settings(opik_api_key=None, comet_workspace="ws")
+    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
         resolve_opik_config(s)
 
 
@@ -362,20 +374,21 @@ def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
 
 
 def test_resolve_opik_config_oauth_detection_is_prefix_not_substring() -> None:
-    """A bearer that merely *contains* the OAuth marker mid-string is not an
-    OAuth token — the workspace requirement must still apply.
+    """A bearer that merely *contains* the OAuth marker mid-string is NOT an
+    OAuth token, so it takes the non-OAuth path: the workspace falls back to
+    "default" (the OAuth-passthrough path would instead leave it None).
     """
     from opik_mcp.auth_context import inbound_authorization
-    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
     from opik_mcp.opik_client import resolve_opik_config
 
     s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
     token = inbound_authorization.set("Bearer sk-xopik_at_y")
     try:
-        with pytest.raises(MissingConfigError, match="COMET_WORKSPACE"):
-            resolve_opik_config(s)
+        _base, _api_key, workspace = resolve_opik_config(s)
     finally:
         inbound_authorization.reset(token)
+    assert workspace == DEFAULT_WORKSPACE
 
 
 def test_oauth_client_omits_workspace_header() -> None:
