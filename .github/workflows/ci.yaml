@@ -142,7 +142,7 @@ jobs:
       - name: Generate _version.py (baked into the image via COPY src)
         run: VERSION="${{ needs.version.outputs.pyver }}" make version
       - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
