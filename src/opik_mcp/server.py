@@ -804,6 +804,10 @@ async def _not_found_json(scope: Any, receive: Any, send: Any) -> None:
 
 def build_app() -> Starlette:
     install_tools_listed_emitter(mcp)
+    # Serve the transport at the configured path so it matches the advertised
+    # resource URI behind a non-rewriting path-prefix proxy. Read at app-build
+    # time (streamable_http_app reads it then), so env overrides take effect.
+    mcp.settings.streamable_http_path = get_settings().opik_mcp_http_path
     app = mcp.streamable_http_app()
     # Replace Starlette's default plain-text 404 — see ``_not_found_json``.
     app.router.default = _not_found_json
