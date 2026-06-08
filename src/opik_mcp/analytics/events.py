@@ -8,10 +8,12 @@ identifiable values. Thresholds picked to align with common LLM-context budgets
 
 Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
-with the classifiers in ``environment.py`` and ``wrappers.py`` — adding a new
-bucket is a BI schema change and requires updating both the classifier and the
-corresponding Literal here. Tests that pin the BI shape live in
-``tests/test_analytics_privacy.py`` and ``tests/test_analytics_lifespan.py``.
+with the classifiers in ``environment.py`` (launch method / parent process) and
+``mcp_client_info.py`` (mcp host / host LLM family) — adding a new bucket is a BI
+schema change and requires updating both the classifier and the corresponding
+Literal here. Tests that pin the BI shape live in
+``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py`` and
+``tests/test_analytics_lifespan.py``.
 
 Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",
@@ -51,8 +53,10 @@ ParentProcess = Literal[
     "other",
 ]
 
-# ``mcp_host``: bucketed MCP host (clientInfo.name). See
-# ``wrappers._MCP_HOST_PATTERNS``.
+# ``mcp_host``: bucketed MCP host (clientInfo.name). MUST stay in sync with
+# ``mcp_client_info._MCP_HOST_PATTERNS`` — every bucket that classifier can
+# emit is declared here (enforced by
+# ``test_analytics_events.test_mcp_host_literal_covers_all_classifier_buckets``).
 McpHost = Literal[
     "claude-desktop",
     "claude-code",
@@ -62,14 +66,25 @@ McpHost = Literal[
     "continue",
     "windsurf",
     "mcp-inspector",
+    "zed",
+    "vscode",
+    "goose",
+    "librechat",
+    "5ire",
+    "opencode",
+    "codex",
+    "gemini-cli",
     "other",
 ]
 
-# ``host_llm_family``: derived from the bucketed ``mcp_host``. See
-# ``wrappers._HOST_LLM_FAMILY``.
+# ``host_llm_family``: derived from the bucketed ``mcp_host``. MUST stay in sync
+# with ``mcp_client_info._HOST_LLM_FAMILY`` values (enforced by
+# ``test_analytics_events.test_host_llm_family_literal_covers_all_classifier_values``).
 HostLlmFamily = Literal[
     "anthropic",
     "cursor",
+    "openai",
+    "google",
     "mixed",
     "inspector",
     "unknown",

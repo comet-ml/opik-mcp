@@ -78,3 +78,49 @@ def test_bucket_seconds(elapsed: float, expected: str) -> None:
     from opik_mcp.analytics.events import bucket_seconds
 
     assert bucket_seconds(elapsed) == expected
+
+
+# --- allowlist <-> classifier sync (privacy contract, events.py:7-19) ----- #
+
+
+def test_mcp_host_literal_covers_all_classifier_buckets() -> None:
+    """Every value ``classify_mcp_host`` can return must be a declared McpHost.
+
+    events.py promises the allowlist stays in sync with the classifier in
+    mcp_client_info.py. Drift means a real bucket value (e.g. ``"codex"``)
+    ships in BI without being declared in the privacy allowlist.
+
+    Drives the classifier FUNCTION (not just the pattern table) so the test
+    also pins the hardcoded ``"other"`` fallback — renaming it without updating
+    the Literal would otherwise pass silently.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import McpHost
+    from opik_mcp.analytics.mcp_client_info import _MCP_HOST_PATTERNS, classify_mcp_host
+
+    allowed = set(get_args(McpHost))
+    produced = {classify_mcp_host(pattern) for pattern, _bucket in _MCP_HOST_PATTERNS}
+    produced.add(classify_mcp_host(""))  # empty clientInfo.name -> fallback
+    produced.add(classify_mcp_host("totally-unrecognized-host"))  # no match -> fallback
+    missing = produced - allowed
+    assert not missing, f"McpHost Literal missing classifier values: {sorted(missing)}"
+
+
+def test_host_llm_family_literal_covers_all_classifier_values() -> None:
+    """Every value ``classify_host_llm_family`` can return must be a declared
+    HostLlmFamily value (same sync contract as McpHost).
+
+    The classifier's only inputs are McpHost buckets, so we drive it over every
+    declared McpHost value plus an unmapped one to pin the ``"unknown"`` fallback.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import HostLlmFamily, McpHost
+    from opik_mcp.analytics.mcp_client_info import classify_host_llm_family
+
+    allowed = set(get_args(HostLlmFamily))
+    produced = {classify_host_llm_family(host) for host in get_args(McpHost)}
+    produced.add(classify_host_llm_family("unmapped-bucket"))  # -> "unknown" fallback
+    missing = produced - allowed
+    assert not missing, f"HostLlmFamily Literal missing classifier values: {sorted(missing)}"
