@@ -8,7 +8,7 @@ import pytest
 import sentry_sdk
 
 from opik_mcp import error_tracking
-from opik_mcp.config import Settings
+from opik_mcp.config import Settings, installation_type
 
 # --- before_send filter --------------------------------------------------- #
 
@@ -207,8 +207,10 @@ def test_setup_sentry_initializes_and_binds_scope(monkeypatch: pytest.MonkeyPatc
     ],
 )
 def test_installation_type_taxonomy(comet_url: str, opik_url: str | None, expected: str) -> None:
+    # The classifier lives in config (leaf module) so error_tracking + boot_props
+    # share it without an import cycle; this pins the taxonomy at its source.
     settings = _settings(comet_url_override=comet_url, opik_url=opik_url)
-    assert error_tracking._installation_type(settings) == expected
+    assert installation_type(settings) == expected
 
 
 def test_setup_sentry_stamps_installation_type_and_workspace(

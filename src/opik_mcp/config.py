@@ -1,5 +1,6 @@
 from functools import lru_cache
 from typing import Any, ClassVar, Literal
+from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import AliasChoices, Field, field_validator
@@ -11,6 +12,13 @@ from opik_mcp.error_kinds import ErrorKind
 # (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Lets local/OSS users run without
 # setting a workspace at all; cloud users with named workspaces still set one.
 DEFAULT_WORKSPACE = "default"
+
+# Cloud-Comet hostnames. Strict equality (matching the opik SDK) — ``staging.
+# comet.com`` / ``enterprise.example.com`` count as self-hosted so dashboards
+# don't mix prod-cloud failures with on-prem ones.
+_CLOUD_HOSTS: frozenset[str] = frozenset({"www.comet.com", "comet.com"})
+# Loopback hostnames a developer points at for a docker-compose / local-dev stack.
+_LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})
 
 
 class MissingConfigError(RuntimeError):
@@ -215,3 +223,28 @@ def require_ollie_config(settings: Settings) -> tuple[str, str]:
     # Cloud pod discovery for a non-"default" account will surface its own
     # clear error downstream, which beats a hard config failure here.
     return settings.opik_api_key, settings.comet_workspace or DEFAULT_WORKSPACE
+
+
+def installation_type(settings: Settings) -> str:
+    """Classify the Opik destination as ``cloud`` / ``local`` / ``self-hosted``.
+
+    Mirrors the opik SDK's taxonomy (``opik.environment.get_installation_type``)
+    so dashboards across opik-mcp and opik share tag values. Lives here (a leaf
+    module) so both ``error_tracking`` (Sentry tag) and ``analytics.boot_props``
+    (BI) can use it without an import cycle.
+
+    Precedence: ``opik_url`` (explicit Opik base) wins; otherwise derive from
+    ``comet_url_override`` (combined with ``/opik/api`` elsewhere). An empty
+    config falls through to ``self-hosted`` rather than guessing ``cloud`` — a
+    misconfigured install is closer to a custom deploy than to prod-Comet.
+    """
+    raw = settings.opik_url or settings.comet_url_override or ""
+    if not raw:
+        return "self-hosted"
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    host = (parsed.hostname or "").lower()
+    if host in _CLOUD_HOSTS:
+        return "cloud"
+    if host in _LOCAL_HOSTS:
+        return "local"
+    return "self-hosted"

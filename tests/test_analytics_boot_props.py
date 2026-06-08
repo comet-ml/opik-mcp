@@ -19,15 +19,16 @@ from opik_mcp.config import Settings
 
 def _settings(**kwargs: object) -> Settings:
     # _env_file=None: ignore any developer .env so these stay deterministic.
-    return Settings(_env_file=None, **kwargs)  # type: ignore[call-arg]
+    base: dict[str, object] = {"_env_file": None}
+    base.update(kwargs)
+    return Settings(**base)  # type: ignore[arg-type]
 
 
 def test_default_allowed_hosts_schema_parity() -> None:
     # Read the schema default (NOT Settings() — that would pick up env overrides
     # and make the constant track a live instance instead of the declared default).
     assert (
-        Settings.model_fields["opik_mcp_allowed_hosts"].default
-        == boot_props._DEFAULT_ALLOWED_HOSTS
+        Settings.model_fields["opik_mcp_allowed_hosts"].default == boot_props._DEFAULT_ALLOWED_HOSTS
     )
 
 

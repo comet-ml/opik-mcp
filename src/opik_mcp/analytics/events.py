@@ -127,9 +127,9 @@ LifespanSecondsBucket = Literal[
 ]
 
 # ``installation_type``: Opik destination class. Mirrors
-# ``error_tracking._installation_type`` so opik-mcp and opik dashboards share
-# tag values. CRITICAL: the self-hosted value is hyphenated ("self-hosted"),
-# never "self_hosted" — BI filters key off the exact string.
+# ``config.installation_type`` (shared with error_tracking's Sentry tag) so
+# opik-mcp and opik dashboards share tag values. CRITICAL: the self-hosted value
+# is hyphenated ("self-hosted"), never "self_hosted" — BI keys off the exact string.
 InstallationType = Literal["cloud", "self-hosted", "local"]
 
 # ``auth_mode``: how the caller authenticated. At boot it is settings-derived

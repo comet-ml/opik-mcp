@@ -34,22 +34,14 @@ import sys
 import threading
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import urlparse
 
 import sentry_sdk
 from sentry_sdk.types import Event, Hint
 
+# ``installation_type`` lives in ``config`` (a leaf module) so both this Sentry
+# path and ``analytics.boot_props`` (BI) share one source without an import cycle.
 from opik_mcp.analytics.identity import OPIK_MCP_VERSION, get_install_id
-from opik_mcp.config import Settings
-
-# Cloud-Comet hostnames. Matching opik SDK's strict equality semantics —
-# ``staging.comet.com`` or ``enterprise.example.com`` count as self-hosted
-# so dashboards don't mix prod-cloud failures with on-prem ones.
-_CLOUD_HOSTS: frozenset[str] = frozenset({"www.comet.com", "comet.com"})
-
-# Loopback hostnames a developer is most likely to point at when running
-# Opik against a docker-compose / local-dev stack.
-_LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1"})
+from opik_mcp.config import Settings, installation_type
 
 logger = logging.getLogger("opik_mcp.error_tracking")
 
@@ -59,30 +51,6 @@ logger = logging.getLogger("opik_mcp.error_tracking")
 # Sentry level — fatal floods are worse to swallow than error floods, and
 # we don't emit non-error events in this codebase anyway.
 _MAX_EVENTS: int = 30
-
-
-def _installation_type(settings: Settings) -> str:
-    """Classify the Opik destination as ``cloud`` / ``local`` / ``self-hosted``.
-
-    Mirrors the opik SDK's taxonomy (``opik.environment.get_installation_type``)
-    so dashboards across opik-mcp and opik can use the same tag values.
-
-    Precedence: ``opik_url`` (explicit Opik base) wins; otherwise we derive
-    from ``comet_url_override`` (which the rest of the codebase combines
-    with ``/opik/api`` to talk to Opik). An empty config falls through to
-    ``self-hosted`` rather than guessing ``cloud`` — a misconfigured install
-    is closer to a custom deploy than to prod-Comet.
-    """
-    raw = settings.opik_url or settings.comet_url_override or ""
-    if not raw:
-        return "self-hosted"
-    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
-    host = (parsed.hostname or "").lower()
-    if host in _CLOUD_HOSTS:
-        return "cloud"
-    if host in _LOCAL_HOSTS:
-        return "local"
-    return "self-hosted"
 
 
 def _in_pytest() -> bool:
@@ -183,8 +151,8 @@ def _bind_scope(settings: Settings) -> None:
     )
     sentry_sdk.set_tag("transport", settings.opik_mcp_transport)
     # Mirrors opik SDK's classification so Sentry filters stay portable
-    # between products. See ``_installation_type`` for the URL precedence.
-    sentry_sdk.set_tag("installation_type", _installation_type(settings))
+    # between products. See ``config.installation_type`` for the URL precedence.
+    sentry_sdk.set_tag("installation_type", installation_type(settings))
     sentry_sdk.set_tag("github_actions", str(bool(os.getenv("GITHUB_ACTIONS"))).lower())
     if settings.opik_mcp_analytics_source:
         sentry_sdk.set_tag("source", settings.opik_mcp_analytics_source)

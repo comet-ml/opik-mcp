@@ -99,9 +99,9 @@ def test_three_tier_merge_properties_wins_over_per_request(make_client: Any) -> 
         # spreading collect_boot_props in Phase 3) must win over the
         # contextvar-derived value, while token_sha256 (only in
         # _per_request_props) still rides along.
-        props = client._build_event(
-            "opik_mcp_server_started", {"auth_mode": "api_key"}
-        )["event_properties"]
+        props = client._build_event("opik_mcp_server_started", {"auth_mode": "api_key"})[
+            "event_properties"
+        ]
     assert props["auth_mode"] == "api_key"
     assert props["token_sha256"] == hashlib.sha256(RAW_OAUTH_TOKEN.encode("utf-8")).hexdigest()
 

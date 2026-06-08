@@ -19,6 +19,7 @@ import os
 from urllib.parse import urlparse
 
 from opik_mcp.config import Settings
+from opik_mcp.config import installation_type as _config_installation_type
 
 # Lifecycle sentinel env-var name. An env var (not a module-level bool) so that
 # uvicorn ``--reload`` workers — spawned via multiprocessing — inherit it from
@@ -42,6 +43,7 @@ def lifecycle_owned_by_main() -> bool:
     ``build_app()`` lifespan to decide whether to emit."""
     return os.environ.get(LIFECYCLE_SENTINEL) == "1"
 
+
 # Derived from the pydantic schema default at import time — NOT a hand-copied
 # string literal. Immune to env overrides (reads the declared default, not a
 # live ``Settings`` instance) and self-corrects if ``config.py`` changes it.
@@ -58,18 +60,15 @@ def _normalise_hosts(raw: str) -> str:
 
 
 def installation_type(settings: Settings) -> str:
-    """``"cloud"`` / ``"self-hosted"`` / ``"local"``. Delegates to error_tracking.
+    """``"cloud"`` / ``"self-hosted"`` / ``"local"``. Delegates to ``config``.
 
-    Imported lazily so loading this module doesn't eagerly pull in
-    ``error_tracking`` (and ``sentry_sdk``) — boot_props is reached on the
-    per-event path in ``client._build_event``. It also keeps import order robust:
-    ``error_tracking`` imports ``analytics.identity``, so a lazy import sidesteps
-    any ordering fragility while the analytics package is initialising. The
-    module is cached after first import, so the per-call cost is a dict lookup.
+    The implementation lives in ``config`` (a leaf module) so this BI path and
+    ``error_tracking``'s Sentry tag share one source WITHOUT an import cycle —
+    error_tracking imports analytics.identity, so reaching it from here (which is
+    itself reached on the per-event path in ``client._build_event``) would close
+    a loop through the analytics package.
     """
-    from opik_mcp.error_tracking import _installation_type
-
-    return _installation_type(settings)
+    return _config_installation_type(settings)
 
 
 def resource_uri_scheme(settings: Settings) -> str:

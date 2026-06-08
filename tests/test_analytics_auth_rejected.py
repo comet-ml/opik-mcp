@@ -29,7 +29,9 @@ class _Recorder:
 
 
 def _settings(**kwargs: object) -> Settings:
-    return Settings(opik_mcp_analytics_enabled=False, _env_file=None, **kwargs)  # type: ignore[arg-type]
+    base: dict[str, object] = {"opik_mcp_analytics_enabled": False, "_env_file": None}
+    base.update(kwargs)
+    return Settings(**base)  # type: ignore[arg-type]
 
 
 def _app_returning(status: int) -> Any:
