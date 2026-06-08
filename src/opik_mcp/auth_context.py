@@ -52,3 +52,19 @@ def classify_bearer(auth_header: str) -> tuple[str, str]:
     if scheme.lower() == "bearer" and token.startswith("opik_at_"):
         return "oauth", token
     return "api_key", ""
+
+
+def settings_auth_mode(*, has_api_key: bool, has_as_url: bool) -> str:
+    """Settings-derived ``auth_mode`` when there is no inbound credential.
+
+    The mode an outbound Opik call would use by default: a static ``OPIK_API_KEY``
+    ("api_key") wins; else a configured AS ("oauth"); else "none". Single source
+    of truth shared by ``boot_props.auth_mode_at_boot`` (lifecycle events) and the
+    no-credential fallback in ``client._build_event`` / ``AuthRejectionMiddleware``
+    so per-call and boot events agree for OAuth-only deployments.
+    """
+    if has_api_key:
+        return "api_key"
+    if has_as_url:
+        return "oauth"
+    return "none"

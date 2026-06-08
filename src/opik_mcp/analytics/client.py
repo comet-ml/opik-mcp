@@ -24,8 +24,13 @@ from opik_mcp.analytics.identity import (
     get_install_id,
     resolve_anonymous_id,
 )
-from opik_mcp.auth_context import classify_bearer, inbound_authorization, inbound_workspace
-from opik_mcp.config import Settings
+from opik_mcp.auth_context import (
+    classify_bearer,
+    inbound_authorization,
+    inbound_workspace,
+    settings_auth_mode,
+)
+from opik_mcp.config import Settings, installation_type
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -63,6 +68,14 @@ class AnalyticsClient:
         self._worker: threading.Thread | None = None
         self._closed = False
         self._closed_lock = threading.Lock()
+        # Process-stable destination class — computed ONCE (settings are fixed
+        # for this client) so _build_event doesn't re-parse the URL per event.
+        # Falls back to "unknown" rather than dropping the key on any failure.
+        try:
+            self._installation_type = installation_type(settings)
+        except Exception:
+            logger.debug("installation_type computation failed", exc_info=True)
+            self._installation_type = "unknown"
         if self._settings.opik_mcp_analytics_enabled:
             self._warn_if_misconfigured_for_onprem()
             self._start_worker()
@@ -188,7 +201,9 @@ class AnalyticsClient:
         common: dict[str, str] = {
             "environment": self._settings.opik_mcp_analytics_environment,
             "opik_mcp_version": OPIK_MCP_VERSION,
-            "transport": self._settings.opik_mcp_transport,
+            # Lowercased so BI sees a canonical value regardless of how the env
+            # var was cased (main() also lowercases for transport selection).
+            "transport": self._settings.opik_mcp_transport.lower(),
             "install_id": get_install_id(),
             "python_version": (
                 f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
@@ -215,14 +230,10 @@ class AnalyticsClient:
             # Tells comet-stats to mark `on_prem=False` and skip IP enrichment;
             # matches the `OLLIE_SOURCE` / opik.sh convention.
             common["source"] = self._settings.opik_mcp_analytics_source
-        # Process-stable Opik destination class, stamped on every event so BI can
-        # split cloud / self-hosted without joining back to server_started.
-        try:
-            from opik_mcp.analytics.boot_props import installation_type
-
-            common["installation_type"] = installation_type(self._settings)
-        except Exception:
-            logger.debug("installation_type computation failed", exc_info=True)
+        # Process-stable Opik destination class (computed once in __init__),
+        # stamped on every event so BI can split cloud / self-hosted without
+        # joining back to server_started.
+        common["installation_type"] = self._installation_type
 
         per_request = self._per_request_props()
         # Merge precedence (lowest → highest): per-request contextvar enrichment,
@@ -270,12 +281,17 @@ class AnalyticsClient:
                     props["token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
             else:
                 # No inbound header: stdio or unauthenticated HTTP. Fall back to
-                # whether a static env key is configured. ALWAYS set so the
+                # the settings-derived mode (shared with auth_mode_at_boot, so an
+                # OAuth-only deploy reports "oauth" not "none"). ALWAYS set so the
                 # stdio / no-auth cohort is visible, not dark.
-                props["auth_mode"] = "api_key" if self._settings.opik_api_key else "none"
+                props["auth_mode"] = settings_auth_mode(
+                    has_api_key=bool(self._settings.opik_api_key),
+                    has_as_url=bool(self._settings.opik_mcp_as_url),
+                )
 
-            if ws_header and ws_header.strip():
-                props["request_workspace"] = ws_header.strip()
+            workspace = ws_header.strip() if ws_header else ""
+            if workspace:
+                props["request_workspace"] = workspace
         except Exception:
             logger.debug("per-request identity enrichment failed", exc_info=True)
         return props

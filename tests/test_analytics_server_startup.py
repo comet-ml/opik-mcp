@@ -510,3 +510,35 @@ def test_http_main_owns_lifecycle_and_disables_access_log(
     started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
     assert started["lifecycle_source"] == "main"
     assert started["transport"] == "http"
+
+
+def test_reload_http_disables_access_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dev --reload HTTP must also disable access logging — OAuth-flow query
+    strings (code/token) must never hit stdout, same as the non-reload path."""
+    _install_recorder(monkeypatch)
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "http")
+    monkeypatch.setenv("OPIK_MCP_RELOAD", "true")
+    monkeypatch.delenv("OPIK_MCP_AS_URL", raising=False)
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: captured.update(kwargs=k))
+
+    main_mod.main()
+
+    assert captured["kwargs"].get("reload") is True
+    assert captured["kwargs"].get("access_log") is False
+
+
+def test_fallback_client_installation_type_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On the config-fail path the fallback client must still classify the Opik
+    destination from env (model_construct ignores it), so a self-hosted install's
+    startup_error isn't mislabelled 'cloud'."""
+    monkeypatch.setenv("COMET_URL_OVERRIDE", "https://opik.acme.internal")
+    monkeypatch.delenv("OPIK_URL", raising=False)
+
+    client = main_mod._build_fallback_analytics_client()
+    try:
+        assert client._installation_type == "self-hosted"
+    finally:
+        client.close()

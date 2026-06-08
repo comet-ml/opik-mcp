@@ -119,11 +119,12 @@ def auth_mode_at_boot(settings: Settings) -> str:
     ``opik_client.resolve_opik_config`` (inbound bearer wins) and surfaced as the
     per-request ``auth_mode`` in ``client._build_event``.
     """
-    if settings.opik_api_key:
-        return "api_key"
-    if settings.opik_mcp_as_url:
-        return "oauth"
-    return "none"
+    from opik_mcp.auth_context import settings_auth_mode
+
+    return settings_auth_mode(
+        has_api_key=bool(settings.opik_api_key),
+        has_as_url=bool(settings.opik_mcp_as_url),
+    )
 
 
 def oauth_configured_from_env() -> str:

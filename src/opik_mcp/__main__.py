@@ -153,6 +153,15 @@ def _build_fallback_analytics_client() -> AnalyticsClient:
     source_override = os.getenv("OPIK_MCP_ANALYTICS_SOURCE")
     if source_override is not None:
         settings.opik_mcp_analytics_source = source_override
+    # Re-read the Opik destination URLs so installation_type (computed in
+    # AnalyticsClient.__init__) reports cloud/self-hosted/local correctly on the
+    # config-fail path — model_construct() ignored env, defaulting to cloud.
+    comet_url = os.getenv("COMET_URL_OVERRIDE")
+    if comet_url is not None:
+        settings.comet_url_override = comet_url
+    opik_url = os.getenv("OPIK_URL")
+    if opik_url is not None:
+        settings.opik_url = opik_url
     return AnalyticsClient(settings)
 
 
@@ -387,6 +396,7 @@ def _run_transport(settings: Settings, transport: str) -> None:
             port=settings.opik_mcp_port,
             reload=True,
             reload_dirs=["src"],
+            access_log=False,
         )
     else:
         # access_log=False: parity with the hosted image's old --no-access-log,

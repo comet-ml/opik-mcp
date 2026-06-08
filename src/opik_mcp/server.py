@@ -29,7 +29,12 @@ from opik_mcp.analytics.environment import cached_call_context_env, collect_envi
 from opik_mcp.analytics.events import bucket_count, bucket_path
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
-from opik_mcp.auth_context import classify_bearer, inbound_authorization, inbound_workspace
+from opik_mcp.auth_context import (
+    classify_bearer,
+    inbound_authorization,
+    inbound_workspace,
+    settings_auth_mode,
+)
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
@@ -557,6 +562,21 @@ _UNAUTH_PATHS = (
     | frozenset(_PROXIED_OAUTH_PATHS.keys())
 )
 
+
+def _is_unauth_path(path: str) -> bool:
+    """Paths that bypass bearer auth: health, protected-resource metadata, the
+    OAuth-flow proxy paths, and the path-prefixed ``.well-known`` variants some
+    SDKs probe. Shared by ``BearerAuthMiddleware`` (skip the 401) and
+    ``AuthRejectionMiddleware`` (don't attribute a proxied-AS 401 as our
+    rejection) so the two can't drift.
+    """
+    return (
+        path in _UNAUTH_PATHS
+        or path.startswith("/.well-known/")
+        or path.startswith("/mcp/.well-known/")
+    )
+
+
 # Bounded total budget for the upstream reachability check used by
 # /health/ready. Probes run every 5-10s; a hung upstream must not stall the
 # probe past the probe's own timeout, or readiness flips to "unknown" instead
@@ -601,11 +621,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # break the host's discovery chain; many SDKs probe path-prefixed
         # variants too (``/.well-known/foo/mcp``, ``/mcp/.well-known/foo``),
         # so we accept the whole prefix.
-        if (
-            path in _UNAUTH_PATHS
-            or path.startswith("/.well-known/")
-            or path.startswith("/mcp/.well-known/")
-        ):
+        if _is_unauth_path(path):
             return await call_next(request)
 
         auth = request.headers.get("authorization", "")
@@ -722,11 +738,7 @@ class AuthRejectionMiddleware:
 
     def _emit_rejection(self, scope: dict[str, Any], status_code: int) -> None:
         path = scope.get("path", "")
-        if (
-            path in _UNAUTH_PATHS
-            or path.startswith("/.well-known/")
-            or path.startswith("/mcp/.well-known/")
-        ):
+        if _is_unauth_path(path):
             return
         auth_header = ""
         for name, value in scope.get("headers", []):
@@ -740,7 +752,12 @@ class AuthRejectionMiddleware:
         if auth_header:
             auth_mode, _token = classify_bearer(auth_header)
         else:
-            auth_mode = "api_key" if self._settings.opik_api_key else "none"
+            # No credential: settings-derived mode (shared with auth_mode_at_boot
+            # so an OAuth-only deploy reports "oauth", not "none").
+            auth_mode = settings_auth_mode(
+                has_api_key=bool(self._settings.opik_api_key),
+                has_as_url=bool(self._settings.opik_mcp_as_url),
+            )
         props = {
             "rejection_reason": _classify_rejection_reason(status_code, auth_header),
             "auth_mode": auth_mode,
@@ -990,10 +1007,13 @@ def _make_composed_lifespan(
                     ),
                 )
                 # flush() blocks on threading.Event.wait — never block the event
-                # loop; offload the drain to the default executor.
+                # loop; offload the drain to the default executor. Capture the
+                # client now (not inside the thread) so a concurrent singleton
+                # swap can't redirect the flush to a different/closed client.
+                client = get_analytics()
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(
-                    None, lambda: get_analytics().flush(deadline_s=_LIFESPAN_FLUSH_DEADLINE_S)
+                    None, lambda: client.flush(deadline_s=_LIFESPAN_FLUSH_DEADLINE_S)
                 )
             except BaseException:
                 # Mirror __main__._emit_server_shutdown: a telemetry-side failure

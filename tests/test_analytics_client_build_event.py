@@ -160,3 +160,19 @@ def test_installation_type_in_common_block(make_client: Any) -> None:
     client = make_client()
     props = client._build_event("opik_mcp_tool_called", {})["event_properties"]
     assert props["installation_type"] in get_args(InstallationType)
+
+
+def test_oauth_only_deploy_reports_oauth_when_no_inbound_credential(make_client: Any) -> None:
+    # OAuth-only deploy (AS configured, no static key): a per-call event with no
+    # inbound bearer must report auth_mode="oauth" (settings-derived), matching
+    # auth_mode_at_boot — NOT the old 2-way "none" fallback.
+    client = make_client(opik_api_key=None, opik_mcp_as_url="https://as.example.com")
+    props = client._build_event("opik_mcp_tool_called", {})["event_properties"]
+    assert props["auth_mode"] == "oauth"
+
+
+def test_transport_lowercased_in_common_block(make_client: Any) -> None:
+    # A mixed-case OPIK_MCP_TRANSPORT must still emit a canonical lowercase value.
+    client = make_client(opik_mcp_transport="HTTP")
+    props = client._build_event("opik_mcp_tool_called", {})["event_properties"]
+    assert props["transport"] == "http"

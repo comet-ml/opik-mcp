@@ -183,6 +183,17 @@ def test_auth_mode_reflects_rejected_oauth_bearer(monkeypatch: pytest.MonkeyPatc
     assert props["auth_mode"] == "oauth"
 
 
+def test_oauth_only_deploy_missing_header_reports_oauth(monkeypatch: pytest.MonkeyPatch) -> None:
+    # OAuth-only deploy (AS configured, no static key): a no-credential rejection
+    # reports auth_mode="oauth" (settings-derived), consistent with boot/per-call.
+    settings = _settings(opik_api_key=None, opik_mcp_as_url="https://as.example.com")
+    recorder, mw = _make(monkeypatch, 401, settings=settings)
+    _drive(mw, path="/mcp", auth=None)
+    props = _only(recorder)
+    assert props["rejection_reason"] == "missing_header"
+    assert props["auth_mode"] == "oauth"
+
+
 def test_app_exception_propagates_without_emitting(monkeypatch: pytest.MonkeyPatch) -> None:
     # If the inner app raises before sending a response, the exception must
     # propagate and no auth_rejected event is emitted.
