@@ -110,6 +110,20 @@ LifespanSecondsBucket = Literal[
     ">24h",
 ]
 
+# ``installation_type``: Opik destination class. Mirrors
+# ``error_tracking._installation_type`` so opik-mcp and opik dashboards share
+# tag values. CRITICAL: the self-hosted value is hyphenated ("self-hosted"),
+# never "self_hosted" — BI filters key off the exact string.
+InstallationType = Literal["cloud", "self-hosted", "local"]
+
+# ``auth_mode``: how the caller authenticated. At boot it is settings-derived
+# (``boot_props.auth_mode_at_boot``); per-request it is derived from the inbound
+# bearer in ``client._build_event``.
+AuthMode = Literal["oauth", "api_key", "none"]
+
+# ``resource_uri_scheme``: scheme of ``OPIK_MCP_RESOURCE_URI``; "none" when unset.
+ResourceUriScheme = Literal["https", "http", "none"]
+
 
 EVENT_SERVER_STARTED = "opik_mcp_server_started"
 EVENT_SESSION_INITIALIZED = "opik_mcp_session_initialized"
