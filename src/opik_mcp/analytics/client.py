@@ -6,6 +6,7 @@ Daemon-thread worker model (not asyncio): callable from any context, including
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import platform
 import queue
@@ -23,6 +24,7 @@ from opik_mcp.analytics.identity import (
     get_install_id,
     resolve_anonymous_id,
 )
+from opik_mcp.auth_context import inbound_authorization, inbound_workspace
 from opik_mcp.config import Settings
 
 logger = logging.getLogger("opik_mcp.analytics")
@@ -213,15 +215,73 @@ class AnalyticsClient:
             # Tells comet-stats to mark `on_prem=False` and skip IP enrichment;
             # matches the `OLLIE_SOURCE` / opik.sh convention.
             common["source"] = self._settings.opik_mcp_analytics_source
-        # Common props (environment, version, transport, …) are authoritative: a
-        # call site accidentally passing e.g. "environment" must not silently
-        # shadow the server-stamped value.  Spread caller properties first so
-        # common always wins on key conflicts.
+        # Process-stable Opik destination class, stamped on every event so BI can
+        # split cloud / self-hosted without joining back to server_started.
+        try:
+            from opik_mcp.analytics.boot_props import installation_type
+
+            common["installation_type"] = installation_type(self._settings)
+        except Exception:
+            logger.debug("installation_type computation failed", exc_info=True)
+
+        per_request = self._per_request_props()
+        # Merge precedence (lowest → highest): per-request contextvar enrichment,
+        # then caller-supplied properties, then the authoritative common block.
+        # common always wins (a call site accidentally passing e.g. "environment"
+        # must not shadow the server-stamped value); caller properties win over
+        # per-request so server_started's settings-derived auth_mode beats the
+        # contextvar-derived one (which is "none" at boot, no request in flight).
         return {
             # comet-stats indexes events by top-level `user_id`. Kept as
             # workspace name → install_id for dashboard continuity. The
             # per-user identity is in event_properties.api_key_sha256.
             "user_id": resolve_anonymous_id(self._settings),
             "event_type": event_type,
-            "event_properties": {**properties, **common},
+            "event_properties": {**per_request, **properties, **common},
         }
+
+    def _per_request_props(self) -> dict[str, str]:
+        """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
+
+        Runs in the caller's task (``_build_event`` builds synchronously before
+        enqueuing), so the request's ContextVars are live here — this is what
+        lets per-request OAuth identity reach BI in hosted mode.
+
+        ``auth_mode`` is ALWAYS set so stdio / no-auth events are not a dark
+        cohort. PRIVACY: the raw bearer token never enters the result — only its
+        sha256 digest, and only for ``opik_at_`` OAuth tokens. ``request_workspace``
+        mirrors the existing plaintext ``workspace`` posture (workspace names are
+        used as ``user_id`` in ``resolve_anonymous_id``).
+        """
+        props: dict[str, str] = {}
+        try:
+            inbound_auth = inbound_authorization.get()
+            ws_header = inbound_workspace.get()
+
+            if inbound_auth:
+                # Mirror opik_client.resolve_opik_config EXACTLY (same
+                # ``partition(" ")`` + ``lstrip`` + ``opik_at_`` prefix check) so
+                # BI's auth_mode and token_sha256 agree with the credential the
+                # process actually forwards outbound — even for odd whitespace.
+                scheme, _, token_raw = inbound_auth.partition(" ")
+                token = token_raw.lstrip()
+                if scheme.lower() == "bearer" and token.startswith("opik_at_"):
+                    props["auth_mode"] = "oauth"
+                    # PRIVACY: only the digest is emitted; the raw token never
+                    # enters the result.
+                    props["token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                else:
+                    # Any other inbound credential is forwarded verbatim as the
+                    # API key (resolve_opik_config: api_key = inbound_auth).
+                    props["auth_mode"] = "api_key"
+            else:
+                # No inbound header: stdio or unauthenticated HTTP. Fall back to
+                # whether a static env key is configured. ALWAYS set so the
+                # stdio / no-auth cohort is visible, not dark.
+                props["auth_mode"] = "api_key" if self._settings.opik_api_key else "none"
+
+            if ws_header and ws_header.strip():
+                props["request_workspace"] = ws_header.strip()
+        except Exception:
+            logger.debug("per-request identity enrichment failed", exc_info=True)
+        return props

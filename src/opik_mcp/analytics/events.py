@@ -18,6 +18,22 @@ Literal here. Tests that pin the BI shape live in
 Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",
 "unknown", "") at the emit site — the receiver never sees raw host input.
+
+Two declared exceptions to "boolean / enum / bucket":
+
+- Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``) are
+  64-char SHA-256 hex digests. Not enums, but safe: irreversible one-way
+  transforms of secrets the backend already holds (it joins on the digest).
+  The raw key/token NEVER leaves the process. This is enforced by tests that
+  call ``client._build_event`` directly
+  (``tests/test_analytics_client_build_event.py``); the recorder-based tests in
+  ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
+  ``_build_event`` builds, so they cannot catch a leak inside it.
+- Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
+  emitted as plaintext/UUID — an accepted posture, since the workspace name is
+  already used as the top-level ``user_id`` (``resolve_anonymous_id``).
+
+Never emit free-text queries, paths, filenames, or other user prose.
 """
 
 from __future__ import annotations
