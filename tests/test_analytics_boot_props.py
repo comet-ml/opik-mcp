@@ -121,23 +121,31 @@ def test_collect_boot_props_keys_and_literal_membership() -> None:
         opik_mcp_resource_uri="https://www.comet.com/api/v1/mcp",
     )
     props = boot_props.collect_boot_props(s)
+    # installation_type is intentionally NOT here — _build_event's common block
+    # is its single source of truth (stamped on every event).
     assert set(props) == {
-        "installation_type",
         "oauth_configured",
         "resource_uri_scheme",
         "dns_rebinding_protection",
         "allowed_hosts_is_default",
         "auth_mode",
     }
-    assert props["installation_type"] in get_args(InstallationType)
     assert props["auth_mode"] in get_args(AuthMode)
     assert props["resource_uri_scheme"] in get_args(ResourceUriScheme)
     for key in ("oauth_configured", "dns_rebinding_protection", "allowed_hosts_is_default"):
         assert props[key] in {"true", "false"}
 
 
-def test_collect_boot_props_self_hosted_hyphen_end_to_end() -> None:
-    # The hyphen-vs-underscore contract is the highest-stakes invariant here;
-    # pin it end-to-end through collect_boot_props (not just installation_type).
-    props = boot_props.collect_boot_props(_settings(opik_url="https://opik.acme.internal"))
-    assert props["installation_type"] == "self-hosted"
+def test_installation_type_self_hosted_hyphen() -> None:
+    # The hyphen-vs-underscore contract is the highest-stakes invariant here.
+    result = boot_props.installation_type(_settings(opik_url="https://opik.acme.internal"))
+    assert result == "self-hosted"
+    assert result in get_args(InstallationType)
+
+
+def test_lifecycle_sentinel_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Pins the contract the build_app() lifespan (Phase 4) depends on.
+    monkeypatch.delenv(boot_props.LIFECYCLE_SENTINEL, raising=False)
+    assert boot_props.lifecycle_owned_by_main() is False
+    boot_props.mark_lifecycle_owned_by_main()
+    assert boot_props.lifecycle_owned_by_main() is True

@@ -128,6 +128,106 @@ def test_transport_crash_emits_shutdown_with_reason_transport_error(
     assert props["reason"] == "transport_error"
 
 
+# Boot props that __main__ spreads explicitly into server_started's properties
+# dict (so they appear in the recorder, which bypasses _build_event). Note:
+# installation_type is NOT here — it comes from _build_event's common block,
+# which the recorder bypasses; its on-every-event presence is covered by
+# tests/test_analytics_client_build_event.py::test_installation_type_in_common_block.
+_BOOT_PROP_KEYS = (
+    "oauth_configured",
+    "resource_uri_scheme",
+    "dns_rebinding_protection",
+    "allowed_hosts_is_default",
+    "auth_mode",
+)
+
+
+def test_server_started_carries_lifecycle_source_main_and_boot_props(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typing import get_args
+
+    from opik_mcp.analytics.events import AuthMode, ResourceUriScheme
+
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return None
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    main_mod.main()
+
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["lifecycle_source"] == "main"
+    for key in _BOOT_PROP_KEYS:
+        assert key in started, f"server_started missing boot prop {key!r}"
+    assert started["auth_mode"] in get_args(AuthMode)
+    assert started["resource_uri_scheme"] in get_args(ResourceUriScheme)
+
+
+def test_server_shutdown_carries_lifecycle_source_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return None
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert props["lifecycle_source"] == "main"
+
+
+def test_server_started_pure_oauth_reports_auth_mode_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pure-OAuth deployment (AS configured, no static key): server_started must
+    report auth_mode='oauth' from collect_boot_props — NOT the contextvar
+    fallback 'none' (there is no request in flight at boot)."""
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return None
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    monkeypatch.delenv("OPIK_API_KEY", raising=False)
+    monkeypatch.setenv("OPIK_MCP_AS_URL", "https://as.example.com")
+
+    main_mod.main()
+
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["auth_mode"] == "oauth"
+
+
+def test_transport_crash_startup_error_carries_oauth_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _install_recorder(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise OSError("address already in use")
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(OSError):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
+    # oauth_configured is passed explicitly (recorder bypasses common);
+    # installation_type rides on the common block (see _build_event tests).
+    assert props["oauth_configured"] in {"true", "false"}
+
+
 def test_sys_exit_emits_shutdown_with_reason_sys_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     """sys.exit() inside the transport path must still record shutdown.
 

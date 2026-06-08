@@ -12,10 +12,12 @@ from opik_mcp.analytics import (
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
     EVENT_STARTUP_ERROR,
+    boot_props,
     get_analytics,
     track_event,
     transport_probe,
 )
+from opik_mcp.analytics.boot_props import collect_boot_props
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
 from opik_mcp.analytics.events import bucket_seconds
@@ -23,6 +25,7 @@ from opik_mcp.analytics.identity import install_id_was_freshly_generated
 from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
+
 
 # Best-effort drain budget on the startup-error path. The daemon worker that
 # normally POSTs analytics events is killed by the imminent sys.exit/re-raise,
@@ -164,6 +167,7 @@ def _emit_startup_error(
     exception_type: str = "",
     transport: str = "",
     client: AnalyticsClient | None = None,
+    oauth_configured: str = "",
 ) -> None:
     """Fire ``opik_mcp_startup_error`` and synchronously drain the queue.
 
@@ -171,6 +175,11 @@ def _emit_startup_error(
     *message* is deliberately NOT included — it can carry paths, env values,
     or partial secrets. ``exception_type`` (class name) plus ``error_kind``
     gives BI enough to bucket failures without leaking user data.
+
+    ``oauth_configured`` lets BI segment boot failures by deployment shape; it is
+    optional because on the config-fail path ``Settings`` may not exist (the
+    caller reads it from the raw env). ``installation_type`` is NOT a param —
+    ``_build_event``'s common block stamps it on every event already.
 
     When ``client`` is passed (config-fail path), use it directly and close
     it after flush; the singleton route would re-hit the underlying
@@ -181,6 +190,8 @@ def _emit_startup_error(
         props["exception_type"] = exception_type
     if transport:
         props["transport"] = transport
+    if oauth_configured:
+        props["oauth_configured"] = oauth_configured
     try:
         target: AnalyticsClient = client if client is not None else get_analytics()
         target.track_event(EVENT_STARTUP_ERROR, props)
@@ -194,7 +205,9 @@ def _emit_startup_error(
         logger.debug("startup_error emit failed", exc_info=True)
 
 
-def _emit_server_shutdown(*, reason: str, started_monotonic: float) -> None:
+def _emit_server_shutdown(
+    *, reason: str, started_monotonic: float, lifecycle_source: str = "main"
+) -> None:
     """Fire ``opik_mcp_server_shutdown`` and synchronously drain the queue.
 
     Same drain pattern as ``_emit_startup_error`` — the daemon worker
@@ -210,6 +223,7 @@ def _emit_server_shutdown(*, reason: str, started_monotonic: float) -> None:
                 "lifespan_seconds_bucket": bucket_seconds(elapsed),
                 "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
                 "session_reached": str(transport_probe.session_reached()).lower(),
+                "lifecycle_source": lifecycle_source,
             },
         )
         get_analytics().flush(deadline_s=_SHUTDOWN_FLUSH_DEADLINE_S)
@@ -240,6 +254,9 @@ def main() -> None:
                 error_kind="invalid_config",
                 exception_type=type(e).__name__,
                 client=fallback,
+                # Settings construction failed → no installation_type; read
+                # oauth_configured straight from the env so the bucket survives.
+                oauth_configured=boot_props.oauth_configured_from_env(),
             )
         finally:
             fallback.close()
@@ -252,6 +269,11 @@ def main() -> None:
     # that might raise. No-op when OPIK_MCP_SENTRY_ENABLED=false; see
     # error_tracking.py.
     error_tracking.setup_sentry(settings)
+
+    # Claim lifecycle-event ownership before build_app() can run, so the
+    # build_app() Starlette lifespan (same process, or inherited by --reload
+    # workers) skips its own emit and we never double-count a boot.
+    boot_props.mark_lifecycle_owned_by_main()
 
     # Collect fingerprint BEFORE capturing the monotonic anchor. The
     # fingerprint calls out to subprocess + lsof on macOS (parent-process
@@ -270,6 +292,11 @@ def main() -> None:
             "has_api_key": str(settings.opik_api_key is not None).lower(),
             "has_default_project": str(settings.opik_default_project_name is not None).lower(),
             "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+            "lifecycle_source": "main",
+            # Settings-derived auth/transport props. Spread here (caller tier)
+            # so the settings-derived auth_mode wins over _build_event's
+            # contextvar fallback (which is "none" at boot — no request yet).
+            **collect_boot_props(settings),
             **fingerprint_props,
         },
     )
@@ -296,6 +323,7 @@ def main() -> None:
             error_kind="transport_crash",
             exception_type=bucketed_type,
             transport=transport,
+            oauth_configured=boot_props.oauth_configured(settings),
         )
         # A transport crash is exactly the kind of failure Sentry exists for.
         # Mirror the analytics props so Sentry events have the same shape as
@@ -356,7 +384,12 @@ def _run_transport(settings: Settings, transport: str) -> None:
             "every /authorize fails with invalid_target.",
             settings.opik_mcp_as_url,
         )
-        _emit_startup_error(phase="config", error_kind="invalid_config", transport=transport)
+        _emit_startup_error(
+            phase="config",
+            error_kind="invalid_config",
+            transport=transport,
+            oauth_configured=boot_props.oauth_configured(settings),
+        )
         sys.exit(1)
 
     # Imported lazily so stdio mode doesn't pay the Starlette import cost.

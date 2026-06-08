@@ -26,6 +26,22 @@ from opik_mcp.config import Settings
 # ``__main__.main()``; read by the ``build_app()`` lifespan.
 LIFECYCLE_SENTINEL = "_OPIK_MCP_LIFECYCLE_OWNED_BY_MAIN"
 
+
+def mark_lifecycle_owned_by_main() -> None:
+    """Record that ``__main__.main()`` owns lifecycle emits.
+
+    The ``build_app()`` lifespan checks this and skips its own
+    server_started/shutdown emit so a boot is never double-counted. NOT
+    auto-reverted; tests clear it via the conftest autouse fixture.
+    """
+    os.environ[LIFECYCLE_SENTINEL] = "1"
+
+
+def lifecycle_owned_by_main() -> bool:
+    """True when ``main()`` has claimed lifecycle-emit ownership. Read by the
+    ``build_app()`` lifespan to decide whether to emit."""
+    return os.environ.get(LIFECYCLE_SENTINEL) == "1"
+
 # Derived from the pydantic schema default at import time — NOT a hand-copied
 # string literal. Immune to env overrides (reads the declared default, not a
 # live ``Settings`` instance) and self-corrects if ``config.py`` changes it.
@@ -118,10 +134,14 @@ def oauth_configured_from_env() -> str:
 
 
 def collect_boot_props(settings: Settings) -> dict[str, str]:
-    """All settings-derived boot properties. Safe to spread into an event's
-    ``properties`` dict alongside the existing has_* / fingerprint props."""
+    """Settings-derived boot properties for lifecycle events. Safe to spread
+    into an event's ``properties`` dict alongside the has_* / fingerprint props.
+
+    Deliberately omits ``installation_type``: that is stamped on EVERY event by
+    ``client._build_event``'s common block (the single source of truth), so
+    duplicating it here would be dead — common always wins the merge.
+    """
     return {
-        "installation_type": installation_type(settings),
         "oauth_configured": oauth_configured(settings),
         "resource_uri_scheme": resource_uri_scheme(settings),
         "dns_rebinding_protection": dns_rebinding_protection(settings),

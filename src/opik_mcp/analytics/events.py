@@ -140,6 +140,12 @@ AuthMode = Literal["oauth", "api_key", "none"]
 # ``resource_uri_scheme``: scheme of ``OPIK_MCP_RESOURCE_URI``; "none" when unset.
 ResourceUriScheme = Literal["https", "http", "none"]
 
+# ``lifecycle_source`` (on server_started / server_shutdown): which path emitted
+# the lifecycle event — ``"main"`` (__main__.main) or ``"lifespan"`` (the
+# build_app() Starlette lifespan, the hosted Docker/--factory path). Lets BI
+# confirm the hosted fleet is no longer dark for boot events (GAP#1).
+LifecycleSource = Literal["main", "lifespan"]
+
 
 EVENT_SERVER_STARTED = "opik_mcp_server_started"
 EVENT_SESSION_INITIALIZED = "opik_mcp_session_initialized"
