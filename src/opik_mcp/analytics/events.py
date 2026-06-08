@@ -127,6 +127,12 @@ EVENT_TOOLS_LISTED = "opik_mcp_tools_listed"
 # slice the dark cohort into {pure probe, handshake-failed, healthy-short,
 # healthy-long}.
 EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
+# Emitted (HTTP transport only) when an inbound request is rejected before
+# reaching a tool: 401 from BearerAuthMiddleware (missing/malformed bearer) or
+# 421/403 from the SDK transport-security guard (Host/Origin). The key HTTPS
+# health signal — without it auth failures are invisible. See
+# ``AuthRejectionMiddleware`` in server.py.
+EVENT_AUTH_REJECTED = "opik_mcp_auth_rejected"
 
 
 def bucket_tokens(n: int) -> str:
@@ -174,3 +180,35 @@ def bucket_seconds(n: float) -> str:
     if n < 86400:
         return "1-24h"
     return ">24h"
+
+
+# ``path_bucket`` (on ``opik_mcp_auth_rejected``): coarse request-path class.
+# Never carries the raw path — the receiver only ever sees these four buckets.
+# ``"other"`` covers OAuth-flow proxy paths (/authorize, /register, /token, …)
+# and any unknown path. Those proxy paths are unauthenticated pass-throughs, so
+# in practice auth-rejection events carry ``"mcp"`` (our resource-server bearer
+# rejection) or the Host/Origin-guard rejections; ``"other"`` is mostly stray
+# probe traffic.
+PathBucket = Literal["mcp", "health", "well_known", "other"]
+
+
+def bucket_path(path: str, mcp_http_path: str = "/mcp") -> str:
+    """Bucket a request path to a low-cardinality enum. Never emits the raw path.
+
+    ``mcp_http_path`` is the configured MCP transport mount (OPIK_MCP_HTTP_PATH);
+    a request to it (or a subpath) buckets to ``"mcp"``, so the bucketing stays
+    correct when an operator remaps the endpoint behind a path-prefix proxy.
+
+    Matching is exact-or-subpath (``== mount`` or ``mount + "/"`` prefix) rather
+    than a bare ``startswith`` so a sibling like ``/mcpfoo`` or ``/healthz`` does
+    not get mis-bucketed as the real endpoint.
+    """
+    p = path or ""
+    if p.startswith("/.well-known/"):
+        return "well_known"
+    if p == "/health" or p.startswith("/health/"):
+        return "health"
+    mount = mcp_http_path.rstrip("/")
+    if p == mount or p.startswith(mount + "/"):
+        return "mcp"
+    return "other"

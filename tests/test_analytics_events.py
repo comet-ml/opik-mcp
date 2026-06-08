@@ -124,3 +124,67 @@ def test_host_llm_family_literal_covers_all_classifier_values() -> None:
     produced.add(classify_host_llm_family("unmapped-bucket"))  # -> "unknown" fallback
     missing = produced - allowed
     assert not missing, f"HostLlmFamily Literal missing classifier values: {sorted(missing)}"
+
+
+# --- auth_rejected event constant + path bucketing (GAP#3 foundation) ----- #
+
+
+def test_auth_rejected_event_name() -> None:
+    # Wire-shape contract: the receiver and dashboards key off this literal
+    # string, so a rename is a breaking BI change. Imported via the package
+    # surface to also pin that it's exported from analytics/__init__.
+    from opik_mcp.analytics import EVENT_AUTH_REJECTED
+
+    assert EVENT_AUTH_REJECTED == "opik_mcp_auth_rejected"
+
+
+@pytest.mark.parametrize(
+    "path, expected",
+    [
+        ("/mcp", "mcp"),
+        ("/mcp/", "mcp"),
+        ("/mcp/messages", "mcp"),
+        ("/health", "health"),
+        ("/health/ready", "health"),
+        ("/.well-known/oauth-protected-resource", "well_known"),
+        ("/.well-known/oauth-authorization-server", "well_known"),
+        ("/authorize", "other"),
+        ("/register", "other"),
+        ("/", "other"),
+        ("", "other"),
+        # Sibling paths must NOT collide with the real endpoints (exact-or-subpath).
+        ("/mcpfoo", "other"),
+        ("/healthz", "other"),
+        ("/.well-knownfoo", "other"),
+    ],
+)
+def test_bucket_path(path: str, expected: str) -> None:
+    from opik_mcp.analytics.events import bucket_path
+
+    assert bucket_path(path) == expected
+
+
+def test_bucket_path_respects_custom_mcp_path() -> None:
+    # The MCP transport path is configurable (OPIK_MCP_HTTP_PATH). A request to
+    # the configured path buckets to "mcp"; the hardcoded "/mcp" default must
+    # NOT match when the operator has remapped it.
+    from opik_mcp.analytics.events import bucket_path
+
+    assert bucket_path("/api/v1/mcp", mcp_http_path="/api/v1/mcp") == "mcp"
+    assert bucket_path("/mcp", mcp_http_path="/api/v1/mcp") == "other"
+
+
+def test_path_bucket_literal_matches_bucket_path_outputs() -> None:
+    # bucket_path never emits a raw path — only these four buckets — and the
+    # PathBucket Literal must declare exactly them (privacy + BI contract).
+    from typing import get_args
+
+    from opik_mcp.analytics.events import PathBucket, bucket_path
+
+    allowed = set(get_args(PathBucket))
+    assert allowed == {"mcp", "health", "well_known", "other"}
+    # Samples chosen to exercise every bucket, so this is a bidirectional check:
+    # the Literal declares exactly what bucket_path can produce (no dead buckets,
+    # no undeclared outputs).
+    samples = ["/mcp", "/health", "/.well-known/x", "/anything-else", ""]
+    assert {bucket_path(p) for p in samples} == allowed
