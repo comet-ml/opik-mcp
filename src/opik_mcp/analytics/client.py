@@ -24,7 +24,7 @@ from opik_mcp.analytics.identity import (
     get_install_id,
     resolve_anonymous_id,
 )
-from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+from opik_mcp.auth_context import classify_bearer, inbound_authorization, inbound_workspace
 from opik_mcp.config import Settings
 
 logger = logging.getLogger("opik_mcp.analytics")
@@ -259,21 +259,15 @@ class AnalyticsClient:
             ws_header = inbound_workspace.get()
 
             if inbound_auth:
-                # Mirror opik_client.resolve_opik_config EXACTLY (same
-                # ``partition(" ")`` + ``lstrip`` + ``opik_at_`` prefix check) so
-                # BI's auth_mode and token_sha256 agree with the credential the
-                # process actually forwards outbound — even for odd whitespace.
-                scheme, _, token_raw = inbound_auth.partition(" ")
-                token = token_raw.lstrip()
-                if scheme.lower() == "bearer" and token.startswith("opik_at_"):
-                    props["auth_mode"] = "oauth"
+                # Shared classifier (see auth_context.classify_bearer) so BI's
+                # auth_mode/token_sha256 agree with the outbound credential and
+                # with AuthRejectionMiddleware.
+                mode, token = classify_bearer(inbound_auth)
+                props["auth_mode"] = mode
+                if token:  # oauth bearer
                     # PRIVACY: only the digest is emitted; the raw token never
                     # enters the result.
                     props["token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
-                else:
-                    # Any other inbound credential is forwarded verbatim as the
-                    # API key (resolve_opik_config: api_key = inbound_auth).
-                    props["auth_mode"] = "api_key"
             else:
                 # No inbound header: stdio or unauthenticated HTTP. Fall back to
                 # whether a static env key is configured. ALWAYS set so the

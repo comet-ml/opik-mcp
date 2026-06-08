@@ -11,7 +11,6 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
-from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -19,17 +18,18 @@ from starlette.routing import Route
 from starlette.types import ASGIApp
 
 from opik_mcp.analytics import (
+    EVENT_AUTH_REJECTED,
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
     boot_props,
     get_analytics,
     track_event,
 )
-from opik_mcp.analytics.environment import collect_environment_fingerprint
-from opik_mcp.analytics.events import bucket_count
+from opik_mcp.analytics.environment import cached_call_context_env, collect_environment_fingerprint
+from opik_mcp.analytics.events import bucket_count, bucket_path
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
-from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+from opik_mcp.auth_context import classify_bearer, inbound_authorization, inbound_workspace
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
@@ -642,6 +642,119 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         return JSONResponse({"error": "unauthorized"}, status_code=401, headers=headers)
 
 
+def _has_absolute_resource_metadata_url(settings: Settings) -> bool:
+    """True only when ``OPIK_MCP_RESOURCE_URI`` is an absolute URL (scheme+netloc).
+
+    ``_resource_metadata_url()`` returns a non-empty *relative* path even when the
+    URI is unset, so ``bool()`` on it is always True. This answers the real
+    question for BI: could a host actually bootstrap OAuth discovery from the
+    ``WWW-Authenticate`` hint this rejection carried?
+    """
+    uri = settings.opik_mcp_resource_uri
+    if not uri:
+        return False
+    parsed = urlparse(uri)
+    return bool(parsed.scheme and parsed.netloc)
+
+
+def _classify_rejection_reason(status_code: int, auth_header: str) -> str:
+    """Map (status, Authorization-header shape) to a ``rejection_reason`` bucket.
+
+    PRIVACY: inspects only the scheme keyword and whether a token is present —
+    never stores or returns any part of the token value.
+    """
+    if status_code == 421:
+        return "host_rejected"
+    if status_code == 403:
+        return "origin_rejected"
+    # 401 — classify by header shape (mirrors BearerAuthMiddleware's checks).
+    if not auth_header:
+        return "missing_header"
+    if not auth_header.lower().startswith("bearer "):
+        return "not_bearer"
+    if not auth_header[len("bearer ") :].strip():
+        return "empty_token"
+    # A well-formed bearer that still got a 401 — BearerAuthMiddleware forwards
+    # those onward, so today this only arises if a downstream layer 401s a valid
+    # shape. Its own bucket (never echoes the token) so BI doesn't conflate it
+    # with genuinely-missing-header rejections.
+    return "token_rejected"
+
+
+class AuthRejectionMiddleware:
+    """Outermost ASGI wrapper: emit ``opik_mcp_auth_rejected`` for 401/421/403
+    responses on authenticated paths (GAP#3).
+
+    Pure ASGI (NOT ``BaseHTTPMiddleware``) so streaming SSE responses flow
+    through unbuffered — it reads only the response status line. ``_UNAUTH_PATHS``
+    (health, OAuth-proxy, discovery) are skipped: a 401 proxied from the AS
+    during the OAuth dance is not opik-mcp's resource-server rejection, and
+    counting it would pollute the auth-rejection chart. Non-http scopes
+    (``lifespan``/``websocket``) pass straight through.
+    """
+
+    def __init__(self, app: ASGIApp, *, settings: Settings) -> None:
+        self.app = app
+        self._settings = settings
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        status_holder: list[int] = []
+
+        async def _capture(message: Any) -> None:
+            # Record the FIRST response status only (ASGI spec sends exactly one
+            # http.response.start; guard against a misbehaving app sending more).
+            if message["type"] == "http.response.start" and not status_holder:
+                status_holder.append(message["status"])
+            await send(message)
+
+        await self.app(scope, receive, _capture)
+
+        if status_holder and status_holder[0] in (401, 403, 421):
+            try:
+                self._emit_rejection(scope, status_holder[0])
+            except Exception:
+                # Telemetry must never affect the (already-sent) response.
+                logger.debug("auth_rejected emit failed", exc_info=True)
+
+    def _emit_rejection(self, scope: dict[str, Any], status_code: int) -> None:
+        path = scope.get("path", "")
+        if (
+            path in _UNAUTH_PATHS
+            or path.startswith("/.well-known/")
+            or path.startswith("/mcp/.well-known/")
+        ):
+            return
+        auth_header = ""
+        for name, value in scope.get("headers", []):
+            if name == b"authorization":
+                auth_header = value.decode("latin-1", "replace")
+                break
+        # auth_mode must be derived HERE from the header: this runs after
+        # BearerAuthMiddleware reset the inbound-auth ContextVar, so
+        # _build_event's per-request fallback would otherwise always be the
+        # settings value (never the rejected bearer). Shape-only — no token kept.
+        if auth_header:
+            auth_mode, _token = classify_bearer(auth_header)
+        else:
+            auth_mode = "api_key" if self._settings.opik_api_key else "none"
+        props = {
+            "rejection_reason": _classify_rejection_reason(status_code, auth_header),
+            "auth_mode": auth_mode,
+            "path_bucket": bucket_path(path, self._settings.opik_mcp_http_path),
+            "oauth_configured": boot_props.oauth_configured(self._settings),
+            "resource_metadata_url_present": str(
+                _has_absolute_resource_metadata_url(self._settings)
+            ).lower(),
+            # Env cohort so BI can separate CI/probe noise from real misconfigs.
+            **cached_call_context_env(),
+        }
+        track_event(EVENT_AUTH_REJECTED, props)
+
+
 # --- health endpoints ---------------------------------------------------- #
 
 
@@ -891,7 +1004,7 @@ def _make_composed_lifespan(
     return _composed
 
 
-def build_app() -> Starlette:
+def build_app() -> ASGIApp:
     install_tools_listed_emitter(mcp)
     s = get_settings()
     # Serve the transport at the configured path so it matches the advertised
@@ -942,4 +1055,8 @@ def build_app() -> Starlette:
     fingerprint_props = collect_environment_fingerprint() if will_emit else {}
     inner_lifespan = app.router.lifespan_context
     app.router.lifespan_context = _make_composed_lifespan(inner_lifespan, s, fingerprint_props)
-    return app
+
+    # Outermost wrapper: observe 401/421/403 and emit auth_rejected (GAP#3). Pure
+    # ASGI so streaming SSE is never buffered; the "lifespan" scope passes through
+    # to the Starlette app so the composed lifespan above still runs.
+    return AuthRejectionMiddleware(app, settings=s)

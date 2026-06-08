@@ -218,6 +218,20 @@ def bucket_seconds(n: float) -> str:
     return ">24h"
 
 
+# ``rejection_reason`` (on ``opik_mcp_auth_rejected``): why a request was
+# rejected before reaching a tool. 401 shapes from BearerAuthMiddleware
+# (missing_header / not_bearer / empty_token) + the SDK transport-security
+# guard's 421 (host) / 403 (origin). Derived from status + header SHAPE only —
+# never the token value.
+AuthRejectionReason = Literal[
+    "missing_header",
+    "not_bearer",
+    "empty_token",
+    "token_rejected",
+    "host_rejected",
+    "origin_rejected",
+]
+
 # ``path_bucket`` (on ``opik_mcp_auth_rejected``): coarse request-path class.
 # Never carries the raw path — the receiver only ever sees these four buckets.
 # ``"other"`` covers OAuth-flow proxy paths (/authorize, /register, /token, …)
