@@ -67,11 +67,13 @@ ENV OPIK_MCP_TRANSPORT=http \
 
 STOPSIGNAL SIGTERM
 
-# Single worker by design: SSE streams are async-IO-bound, and multiple
-# workers would fragment in-memory MCP session state across processes.
-# Scale with replicas + Redis (see docs/phase-2.md), not workers.
-ENTRYPOINT ["tini", "--", "python", "-m", "uvicorn", \
-            "opik_mcp.server:build_app", "--factory", \
-            "--host", "0.0.0.0", "--port", "8080", \
-            "--workers", "1", \
-            "--no-access-log"]
+# Run via the package entrypoint (main()) rather than uvicorn directly, so the
+# full BI lifecycle fires in hosted mode exactly as in stdio: main() emits
+# server_started / server_shutdown / startup_error, runs the preflight bind
+# check and the OAuth-config guard, then serves HTTP via uvicorn (single worker,
+# access logging off). The build_app() lifespan defers to main() via the
+# _OPIK_MCP_LIFECYCLE_OWNED_BY_MAIN sentinel, so boots are never double-counted.
+# Transport/host/port come from the ENV above; single worker by design (SSE is
+# async-IO-bound and multiple workers would fragment in-memory session state —
+# scale with replicas + Redis, see docs/phase-2.md).
+ENTRYPOINT ["tini", "--", "python", "-m", "opik_mcp"]

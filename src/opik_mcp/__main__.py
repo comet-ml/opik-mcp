@@ -389,7 +389,15 @@ def _run_transport(settings: Settings, transport: str) -> None:
             reload_dirs=["src"],
         )
     else:
-        uvicorn.run(build_app(), host=settings.opik_mcp_host, port=settings.opik_mcp_port)
+        # access_log=False: parity with the hosted image's old --no-access-log,
+        # and it keeps OAuth-flow query strings (which can carry tokens) out of
+        # stdout. BI + Sentry are the observability surface, not uvicorn logs.
+        uvicorn.run(
+            build_app(),
+            host=settings.opik_mcp_host,
+            port=settings.opik_mcp_port,
+            access_log=False,
+        )
 
 
 if __name__ == "__main__":
