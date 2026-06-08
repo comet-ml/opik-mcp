@@ -148,3 +148,52 @@ def collect_boot_props(settings: Settings) -> dict[str, str]:
         "allowed_hosts_is_default": allowed_hosts_is_default(settings),
         "auth_mode": auth_mode_at_boot(settings),
     }
+
+
+def server_started_props(
+    settings: Settings,
+    *,
+    fingerprint_props: dict[str, str],
+    lifecycle_source: str,
+) -> dict[str, str]:
+    """The full ``opik_mcp_server_started`` property dict.
+
+    Single source of truth shared by ``__main__.main()`` (lifecycle_source=main)
+    and the ``build_app()`` lifespan (lifecycle_source=lifespan) so the two boot
+    paths can never drift. ``fingerprint_props`` is passed in because the caller
+    controls WHEN ``collect_environment_fingerprint`` runs (it shells out on
+    macOS and is timed against the lifespan anchor).
+    """
+    from opik_mcp.analytics.identity import install_id_was_freshly_generated
+
+    return {
+        "transport": settings.opik_mcp_transport.lower(),
+        "analytics_enabled": str(settings.opik_mcp_analytics_enabled).lower(),
+        "has_workspace": str(settings.comet_workspace is not None).lower(),
+        "has_api_key": str(settings.opik_api_key is not None).lower(),
+        "has_default_project": str(settings.opik_default_project_name is not None).lower(),
+        "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
+        "lifecycle_source": lifecycle_source,
+        **collect_boot_props(settings),
+        **fingerprint_props,
+    }
+
+
+def server_shutdown_props(
+    *,
+    reason: str,
+    elapsed_seconds: float,
+    lifecycle_source: str,
+) -> dict[str, str]:
+    """The full ``opik_mcp_server_shutdown`` property dict (shared by main() and
+    the build_app() lifespan, same anti-drift rationale as server_started_props)."""
+    from opik_mcp.analytics import transport_probe
+    from opik_mcp.analytics.events import bucket_seconds
+
+    return {
+        "reason": reason,
+        "lifespan_seconds_bucket": bucket_seconds(elapsed_seconds),
+        "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
+        "session_reached": str(transport_probe.session_reached()).lower(),
+        "lifecycle_source": lifecycle_source,
+    }

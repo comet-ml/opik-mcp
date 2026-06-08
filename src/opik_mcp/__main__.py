@@ -15,13 +15,9 @@ from opik_mcp.analytics import (
     boot_props,
     get_analytics,
     track_event,
-    transport_probe,
 )
-from opik_mcp.analytics.boot_props import collect_boot_props
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
-from opik_mcp.analytics.events import bucket_seconds
-from opik_mcp.analytics.identity import install_id_was_freshly_generated
 from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
@@ -218,13 +214,9 @@ def _emit_server_shutdown(
         elapsed = time.monotonic() - started_monotonic
         track_event(
             EVENT_SERVER_SHUTDOWN,
-            {
-                "reason": reason,
-                "lifespan_seconds_bucket": bucket_seconds(elapsed),
-                "first_rpc_received": str(transport_probe.first_rpc_received()).lower(),
-                "session_reached": str(transport_probe.session_reached()).lower(),
-                "lifecycle_source": lifecycle_source,
-            },
+            boot_props.server_shutdown_props(
+                reason=reason, elapsed_seconds=elapsed, lifecycle_source=lifecycle_source
+            ),
         )
         get_analytics().flush(deadline_s=_SHUTDOWN_FLUSH_DEADLINE_S)
     except BaseException:
@@ -285,20 +277,9 @@ def main() -> None:
 
     track_event(
         EVENT_SERVER_STARTED,
-        {
-            "transport": transport,
-            "analytics_enabled": str(settings.opik_mcp_analytics_enabled).lower(),
-            "has_workspace": str(settings.comet_workspace is not None).lower(),
-            "has_api_key": str(settings.opik_api_key is not None).lower(),
-            "has_default_project": str(settings.opik_default_project_name is not None).lower(),
-            "install_id_freshly_generated": str(install_id_was_freshly_generated()).lower(),
-            "lifecycle_source": "main",
-            # Settings-derived auth/transport props. Spread here (caller tier)
-            # so the settings-derived auth_mode wins over _build_event's
-            # contextvar fallback (which is "none" at boot — no request yet).
-            **collect_boot_props(settings),
-            **fingerprint_props,
-        },
+        boot_props.server_started_props(
+            settings, fingerprint_props=fingerprint_props, lifecycle_source="main"
+        ),
     )
 
     try:
