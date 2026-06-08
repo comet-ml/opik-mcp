@@ -1,4 +1,8 @@
+import asyncio
+import contextlib
 import logging
+import time
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 from urllib.parse import urlparse
 
@@ -7,17 +11,30 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
-from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import ASGIApp
 
-from opik_mcp.analytics.events import bucket_count
+from opik_mcp.analytics import (
+    EVENT_AUTH_REJECTED,
+    EVENT_SERVER_SHUTDOWN,
+    EVENT_SERVER_STARTED,
+    boot_props,
+    get_analytics,
+    track_event,
+)
+from opik_mcp.analytics.environment import cached_call_context_env, collect_environment_fingerprint
+from opik_mcp.analytics.events import bucket_count, bucket_path
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
-from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+from opik_mcp.auth_context import (
+    classify_bearer,
+    inbound_authorization,
+    inbound_workspace,
+    settings_auth_mode,
+)
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
@@ -545,6 +562,21 @@ _UNAUTH_PATHS = (
     | frozenset(_PROXIED_OAUTH_PATHS.keys())
 )
 
+
+def _is_unauth_path(path: str) -> bool:
+    """Paths that bypass bearer auth: health, protected-resource metadata, the
+    OAuth-flow proxy paths, and the path-prefixed ``.well-known`` variants some
+    SDKs probe. Shared by ``BearerAuthMiddleware`` (skip the 401) and
+    ``AuthRejectionMiddleware`` (don't attribute a proxied-AS 401 as our
+    rejection) so the two can't drift.
+    """
+    return (
+        path in _UNAUTH_PATHS
+        or path.startswith("/.well-known/")
+        or path.startswith("/mcp/.well-known/")
+    )
+
+
 # Bounded total budget for the upstream reachability check used by
 # /health/ready. Probes run every 5-10s; a hung upstream must not stall the
 # probe past the probe's own timeout, or readiness flips to "unknown" instead
@@ -589,11 +621,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # break the host's discovery chain; many SDKs probe path-prefixed
         # variants too (``/.well-known/foo/mcp``, ``/mcp/.well-known/foo``),
         # so we accept the whole prefix.
-        if (
-            path in _UNAUTH_PATHS
-            or path.startswith("/.well-known/")
-            or path.startswith("/mcp/.well-known/")
-        ):
+        if _is_unauth_path(path):
             return await call_next(request)
 
         auth = request.headers.get("authorization", "")
@@ -628,6 +656,120 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
                 f'Bearer realm="opik-mcp", resource_metadata="{self._resource_metadata_url}"'
             )
         return JSONResponse({"error": "unauthorized"}, status_code=401, headers=headers)
+
+
+def _has_absolute_resource_metadata_url(settings: Settings) -> bool:
+    """True only when ``OPIK_MCP_RESOURCE_URI`` is an absolute URL (scheme+netloc).
+
+    ``_resource_metadata_url()`` returns a non-empty *relative* path even when the
+    URI is unset, so ``bool()`` on it is always True. This answers the real
+    question for BI: could a host actually bootstrap OAuth discovery from the
+    ``WWW-Authenticate`` hint this rejection carried?
+    """
+    uri = settings.opik_mcp_resource_uri
+    if not uri:
+        return False
+    parsed = urlparse(uri)
+    return bool(parsed.scheme and parsed.netloc)
+
+
+def _classify_rejection_reason(status_code: int, auth_header: str) -> str:
+    """Map (status, Authorization-header shape) to a ``rejection_reason`` bucket.
+
+    PRIVACY: inspects only the scheme keyword and whether a token is present —
+    never stores or returns any part of the token value.
+    """
+    if status_code == 421:
+        return "host_rejected"
+    if status_code == 403:
+        return "origin_rejected"
+    # 401 — classify by header shape (mirrors BearerAuthMiddleware's checks).
+    if not auth_header:
+        return "missing_header"
+    if not auth_header.lower().startswith("bearer "):
+        return "not_bearer"
+    if not auth_header[len("bearer ") :].strip():
+        return "empty_token"
+    # A well-formed bearer that still got a 401 — BearerAuthMiddleware forwards
+    # those onward, so today this only arises if a downstream layer 401s a valid
+    # shape. Its own bucket (never echoes the token) so BI doesn't conflate it
+    # with genuinely-missing-header rejections.
+    return "token_rejected"
+
+
+class AuthRejectionMiddleware:
+    """Outermost ASGI wrapper: emit ``opik_mcp_auth_rejected`` for 401/421/403
+    responses on authenticated paths (GAP#3).
+
+    Pure ASGI (NOT ``BaseHTTPMiddleware``) so streaming SSE responses flow
+    through unbuffered — it reads only the response status line. ``_UNAUTH_PATHS``
+    (health, OAuth-proxy, discovery) are skipped: a 401 proxied from the AS
+    during the OAuth dance is not opik-mcp's resource-server rejection, and
+    counting it would pollute the auth-rejection chart. Non-http scopes
+    (``lifespan``/``websocket``) pass straight through.
+    """
+
+    def __init__(self, app: ASGIApp, *, settings: Settings) -> None:
+        self.app = app
+        self._settings = settings
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        status_holder: list[int] = []
+
+        async def _capture(message: Any) -> None:
+            # Record the FIRST response status only (ASGI spec sends exactly one
+            # http.response.start; guard against a misbehaving app sending more).
+            if message["type"] == "http.response.start" and not status_holder:
+                status_holder.append(message["status"])
+            await send(message)
+
+        await self.app(scope, receive, _capture)
+
+        if status_holder and status_holder[0] in (401, 403, 421):
+            try:
+                self._emit_rejection(scope, status_holder[0])
+            except Exception:
+                # Telemetry must never affect the (already-sent) response.
+                logger.debug("auth_rejected emit failed", exc_info=True)
+
+    def _emit_rejection(self, scope: dict[str, Any], status_code: int) -> None:
+        path = scope.get("path", "")
+        if _is_unauth_path(path):
+            return
+        auth_header = ""
+        for name, value in scope.get("headers", []):
+            if name == b"authorization":
+                auth_header = value.decode("latin-1", "replace")
+                break
+        # auth_mode must be derived HERE from the header: this runs after
+        # BearerAuthMiddleware reset the inbound-auth ContextVar, so
+        # _build_event's per-request fallback would otherwise always be the
+        # settings value (never the rejected bearer). Shape-only — no token kept.
+        if auth_header:
+            auth_mode, _token = classify_bearer(auth_header)
+        else:
+            # No credential: settings-derived mode (shared with auth_mode_at_boot
+            # so an OAuth-only deploy reports "oauth", not "none").
+            auth_mode = settings_auth_mode(
+                has_api_key=bool(self._settings.opik_api_key),
+                has_as_url=bool(self._settings.opik_mcp_as_url),
+            )
+        props = {
+            "rejection_reason": _classify_rejection_reason(status_code, auth_header),
+            "auth_mode": auth_mode,
+            "path_bucket": bucket_path(path, self._settings.opik_mcp_http_path),
+            "oauth_configured": boot_props.oauth_configured(self._settings),
+            "resource_metadata_url_present": str(
+                _has_absolute_resource_metadata_url(self._settings)
+            ).lower(),
+            # Env cohort so BI can separate CI/probe noise from real misconfigs.
+            **cached_call_context_env(),
+        }
+        track_event(EVENT_AUTH_REJECTED, props)
 
 
 # --- health endpoints ---------------------------------------------------- #
@@ -803,7 +945,86 @@ async def _not_found_json(scope: Any, receive: Any, send: Any) -> None:
     await response(scope, receive, send)
 
 
-def build_app() -> Starlette:
+# Shutdown drain budget for the lifespan path. Mirrors __main__'s deadline: the
+# daemon worker is about to be torn down, so block briefly to land the POST.
+_LIFESPAN_FLUSH_DEADLINE_S = 3.5
+
+
+def _make_composed_lifespan(
+    inner_lifespan: Any,
+    settings: Settings,
+    fingerprint_props: dict[str, str],
+) -> Any:
+    """Wrap FastMCP's session-manager lifespan with analytics lifecycle emits.
+
+    Closes GAP#1: the hosted entrypoint runs ``uvicorn ... build_app --factory``,
+    which calls ``build_app()`` directly and never runs ``__main__.main()``, so
+    the boot funnel was 100% dark. This emits server_started/shutdown from the
+    lifespan instead — UNLESS ``main()`` owns lifecycle (the sentinel), in which
+    case it just runs the inner lifespan and emits nothing (no double-count).
+
+    ``inner_lifespan`` MUST be captured from ``app.router.lifespan_context``
+    BEFORE it is overwritten — it starts the ``StreamableHTTPSessionManager``,
+    without which every MCP request hangs.
+    """
+
+    @contextlib.asynccontextmanager
+    async def _composed(app: Any) -> AsyncIterator[Any]:
+        if boot_props.lifecycle_owned_by_main():
+            # main() emits the lifecycle events; just run the session manager.
+            async with inner_lifespan(app) as state:
+                yield state
+            return
+
+        # Anchor at lifespan enter (when serving actually starts), not at
+        # build_app() time — keeps lifespan_seconds_bucket free of uvicorn's
+        # startup/bind latency.
+        started_monotonic = time.monotonic()
+        try:
+            track_event(
+                EVENT_SERVER_STARTED,
+                boot_props.server_started_props(
+                    settings, fingerprint_props=fingerprint_props, lifecycle_source="lifespan"
+                ),
+            )
+        except Exception:
+            logger.debug("lifespan server_started emit failed", exc_info=True)
+
+        reason = "clean_exit"
+        try:
+            async with inner_lifespan(app) as state:
+                yield state
+        except BaseException:
+            reason = "transport_error"
+            raise
+        finally:
+            try:
+                elapsed = time.monotonic() - started_monotonic
+                track_event(
+                    EVENT_SERVER_SHUTDOWN,
+                    boot_props.server_shutdown_props(
+                        reason=reason, elapsed_seconds=elapsed, lifecycle_source="lifespan"
+                    ),
+                )
+                # flush() blocks on threading.Event.wait — never block the event
+                # loop; offload the drain to the default executor. Capture the
+                # client now (not inside the thread) so a concurrent singleton
+                # swap can't redirect the flush to a different/closed client.
+                client = get_analytics()
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(
+                    None, lambda: client.flush(deadline_s=_LIFESPAN_FLUSH_DEADLINE_S)
+                )
+            except BaseException:
+                # Mirror __main__._emit_server_shutdown: a telemetry-side failure
+                # (incl. CancelledError from the executor during loop teardown)
+                # must NEVER mask the real shutdown reason or leak out of finally.
+                logger.debug("lifespan server_shutdown emit failed", exc_info=True)
+
+    return _composed
+
+
+def build_app() -> ASGIApp:
     install_tools_listed_emitter(mcp)
     s = get_settings()
     # Serve the transport at the configured path so it matches the advertised
@@ -843,4 +1064,19 @@ def build_app() -> Starlette:
         BearerAuthMiddleware,
         resource_metadata_url=_resource_metadata_url(s),
     )
-    return app
+
+    # GAP#1: emit lifecycle events from the lifespan so the hosted --factory
+    # entrypoint (which bypasses __main__.main()) is no longer dark. Capture the
+    # session-manager lifespan BEFORE overwriting it. Compute the fingerprint
+    # synchronously here (it shells out on macOS — must not run in the async
+    # lifespan) and only when this process will actually emit: a main()-owned
+    # boot skips the emit, so skip the cost too.
+    will_emit = not boot_props.lifecycle_owned_by_main()
+    fingerprint_props = collect_environment_fingerprint() if will_emit else {}
+    inner_lifespan = app.router.lifespan_context
+    app.router.lifespan_context = _make_composed_lifespan(inner_lifespan, s, fingerprint_props)
+
+    # Outermost wrapper: observe 401/421/403 and emit auth_rejected (GAP#3). Pure
+    # ASGI so streaming SSE is never buffered; the "lifespan" scope passes through
+    # to the Starlette app so the composed lifespan above still runs.
+    return AuthRejectionMiddleware(app, settings=s)

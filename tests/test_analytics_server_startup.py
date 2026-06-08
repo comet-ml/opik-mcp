@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import httpx
 import pytest
@@ -462,3 +463,82 @@ def test_no_startup_error_when_resource_uri_set(monkeypatch: pytest.MonkeyPatch)
     error_props = [p for et, p in recorder.events if et == EVENT_STARTUP_ERROR]
     assert error_props == [], "guard must not fire when resource URI is set"
     assert EVENT_SERVER_STARTED in [e[0] for e in recorder.events]
+
+
+def test_http_main_owns_lifecycle_and_disables_access_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hosted entrypoint runs main() (python -m opik_mcp), so ALL events fire in
+    HTTP mode just like stdio. The sentinel must be set BEFORE build_app() so the
+    composed lifespan skips its emit (no double-count), and main() emits the
+    lifecycle events itself. Access logging is disabled (parity with the old
+    --no-access-log; avoids logging OAuth tokens in query strings)."""
+    from opik_mcp.analytics import boot_props
+
+    recorder = _install_recorder(monkeypatch)
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "http")
+    monkeypatch.delenv("OPIK_MCP_AS_URL", raising=False)
+    monkeypatch.delenv("OPIK_MCP_RESOURCE_URI", raising=False)
+    monkeypatch.delenv("OPIK_MCP_RELOAD", raising=False)
+
+    captured: dict[str, Any] = {}
+    built_app = object()
+
+    def _fake_build_app() -> object:
+        # The composed lifespan reads the sentinel at runtime; main() must have
+        # set it before reaching build_app() so the lifespan defers to main().
+        captured["owned_at_build"] = boot_props.lifecycle_owned_by_main()
+        return built_app
+
+    def _fake_uvicorn_run(app: object, **kwargs: Any) -> None:
+        captured["app"] = app
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
+    monkeypatch.setattr("opik_mcp.server.build_app", _fake_build_app)
+    monkeypatch.setattr("uvicorn.run", _fake_uvicorn_run)
+
+    main_mod.main()
+
+    assert captured["owned_at_build"] is True, "sentinel must be set before build_app()"
+    assert captured["kwargs"].get("access_log") is False
+    # The app built once in main() is the exact object handed to uvicorn.run.
+    assert captured["app"] is built_app
+
+    event_types = [e[0] for e in recorder.events]
+    assert EVENT_SERVER_STARTED in event_types
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["lifecycle_source"] == "main"
+    assert started["transport"] == "http"
+
+
+def test_reload_http_disables_access_log(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Dev --reload HTTP must also disable access logging — OAuth-flow query
+    strings (code/token) must never hit stdout, same as the non-reload path."""
+    _install_recorder(monkeypatch)
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "http")
+    monkeypatch.setenv("OPIK_MCP_RELOAD", "true")
+    monkeypatch.delenv("OPIK_MCP_AS_URL", raising=False)
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: captured.update(kwargs=k))
+
+    main_mod.main()
+
+    assert captured["kwargs"].get("reload") is True
+    assert captured["kwargs"].get("access_log") is False
+
+
+def test_fallback_client_installation_type_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On the config-fail path the fallback client must still classify the Opik
+    destination from env (model_construct ignores it), so a self-hosted install's
+    startup_error isn't mislabelled 'cloud'."""
+    monkeypatch.setenv("COMET_URL_OVERRIDE", "https://opik.acme.internal")
+    monkeypatch.delenv("OPIK_URL", raising=False)
+
+    client = main_mod._build_fallback_analytics_client()
+    try:
+        assert client._installation_type == "self-hosted"
+    finally:
+        client.close()

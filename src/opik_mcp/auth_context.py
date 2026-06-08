@@ -30,3 +30,41 @@ inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorizatio
 # verifyWorkspaceHeaderMatchesToken`) and rejects mismatches with 403 before
 # any downstream call. ``None`` means "fall back to settings.comet_workspace".
 inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", default=None)
+
+
+def classify_bearer(auth_header: str) -> tuple[str, str]:
+    """Classify a non-empty inbound ``Authorization`` header for BI analytics.
+
+    Returns ``(auth_mode, oauth_token)``:
+    - ``("oauth", "<opik_at_…>")`` for an OAuth bearer — the token is returned
+      ONLY so the caller can hash it; it is never stored or emitted raw.
+    - ``("api_key", "")`` for any other forwarded credential (the token is NOT
+      returned — api-key-shaped credentials are not hashed here).
+
+    Mirrors ``opik_client.resolve_opik_config``'s OAuth detection
+    (``partition(" ")`` + ``lstrip`` + ``opik_at_`` prefix) so BI's ``auth_mode``
+    / ``token_sha256`` agree with the credential actually forwarded outbound.
+    Single source of truth shared by ``analytics.client._build_event`` and
+    ``server.AuthRejectionMiddleware`` so the two cannot drift.
+    """
+    scheme, _, token_raw = auth_header.partition(" ")
+    token = token_raw.lstrip()
+    if scheme.lower() == "bearer" and token.startswith("opik_at_"):
+        return "oauth", token
+    return "api_key", ""
+
+
+def settings_auth_mode(*, has_api_key: bool, has_as_url: bool) -> str:
+    """Settings-derived ``auth_mode`` when there is no inbound credential.
+
+    The mode an outbound Opik call would use by default: a static ``OPIK_API_KEY``
+    ("api_key") wins; else a configured AS ("oauth"); else "none". Single source
+    of truth shared by ``boot_props.auth_mode_at_boot`` (lifecycle events) and the
+    no-credential fallback in ``client._build_event`` / ``AuthRejectionMiddleware``
+    so per-call and boot events agree for OAuth-only deployments.
+    """
+    if has_api_key:
+        return "api_key"
+    if has_as_url:
+        return "oauth"
+    return "none"

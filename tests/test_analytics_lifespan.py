@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+import contextlib
+from collections.abc import AsyncIterator, Iterator
+from typing import Any
 
 import pytest
 
@@ -13,6 +16,23 @@ from opik_mcp.analytics import (
     EVENT_STARTUP_ERROR,
     transport_probe,
 )
+
+
+@contextlib.asynccontextmanager
+async def _noop_inner(app: Any) -> AsyncIterator[None]:
+    """Stand-in for FastMCP's session_manager.run() — never touches the
+    process-wide StreamableHTTPSessionManager singleton (which may only run once),
+    so these tests must NOT call build_app()."""
+    yield
+
+
+def _install_server_recorder(monkeypatch: pytest.MonkeyPatch) -> _RecorderClient:
+    """Redirect the analytics calls the build_app() lifespan makes (it uses the
+    module-level track_event / get_analytics in opik_mcp.server)."""
+    r = _RecorderClient()
+    monkeypatch.setattr("opik_mcp.server.track_event", lambda et, p: r.track_event(et, p))
+    monkeypatch.setattr("opik_mcp.server.get_analytics", lambda: r)
+    return r
 
 
 class _RecorderClient:
@@ -128,6 +148,106 @@ def test_transport_crash_emits_shutdown_with_reason_transport_error(
     assert props["reason"] == "transport_error"
 
 
+# Boot props that __main__ spreads explicitly into server_started's properties
+# dict (so they appear in the recorder, which bypasses _build_event). Note:
+# installation_type is NOT here — it comes from _build_event's common block,
+# which the recorder bypasses; its on-every-event presence is covered by
+# tests/test_analytics_client_build_event.py::test_installation_type_in_common_block.
+_BOOT_PROP_KEYS = (
+    "oauth_configured",
+    "resource_uri_scheme",
+    "dns_rebinding_protection",
+    "allowed_hosts_is_default",
+    "auth_mode",
+)
+
+
+def test_server_started_carries_lifecycle_source_main_and_boot_props(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from typing import get_args
+
+    from opik_mcp.analytics.events import AuthMode, ResourceUriScheme
+
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return None
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    main_mod.main()
+
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["lifecycle_source"] == "main"
+    for key in _BOOT_PROP_KEYS:
+        assert key in started, f"server_started missing boot prop {key!r}"
+    assert started["auth_mode"] in get_args(AuthMode)
+    assert started["resource_uri_scheme"] in get_args(ResourceUriScheme)
+
+
+def test_server_shutdown_carries_lifecycle_source_main(monkeypatch: pytest.MonkeyPatch) -> None:
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return None
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert props["lifecycle_source"] == "main"
+
+
+def test_server_started_pure_oauth_reports_auth_mode_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pure-OAuth deployment (AS configured, no static key): server_started must
+    report auth_mode='oauth' from collect_boot_props — NOT the contextvar
+    fallback 'none' (there is no request in flight at boot)."""
+    recorder = _install_recorder(monkeypatch)
+
+    class _StubMcp:
+        def run(self, *, transport: str) -> None:
+            return None
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _StubMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    monkeypatch.delenv("OPIK_API_KEY", raising=False)
+    monkeypatch.setenv("OPIK_MCP_AS_URL", "https://as.example.com")
+
+    main_mod.main()
+
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["auth_mode"] == "oauth"
+
+
+def test_transport_crash_startup_error_carries_oauth_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _install_recorder(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise OSError("address already in use")
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(OSError):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
+    # oauth_configured is passed explicitly (recorder bypasses common);
+    # installation_type rides on the common block (see _build_event tests).
+    assert props["oauth_configured"] in {"true", "false"}
+
+
 def test_sys_exit_emits_shutdown_with_reason_sys_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     """sys.exit() inside the transport path must still record shutdown.
 
@@ -151,3 +271,113 @@ def test_sys_exit_emits_shutdown_with_reason_sys_exit(monkeypatch: pytest.Monkey
     assert props["reason"] == "sys_exit"
     # SystemExit is a deliberate exit, not a crash — startup_error must not fire.
     assert EVENT_STARTUP_ERROR not in [et for et, _ in recorder.events]
+
+
+# --- build_app() composed lifespan (GAP#1: hosted --factory boot) --------- #
+
+
+def test_lifespan_emits_started_and_shutdown_when_not_owned_by_main(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+
+    from opik_mcp import server
+    from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
+    from opik_mcp.config import get_settings
+
+    monkeypatch.delenv(LIFECYCLE_SENTINEL, raising=False)
+    recorder = _install_server_recorder(monkeypatch)
+    settings = get_settings()
+
+    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+
+    async def _drive() -> None:
+        async with composed(None):
+            pass
+
+    asyncio.run(_drive())
+
+    ets = [et for et, _ in recorder.events]
+    assert EVENT_SERVER_STARTED in ets
+    assert EVENT_SERVER_SHUTDOWN in ets
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["lifecycle_source"] == "lifespan"
+    shut = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shut["lifecycle_source"] == "lifespan"
+    assert shut["reason"] == "clean_exit"
+    # flush must be drained off the event loop on shutdown.
+    assert recorder.flush_calls
+
+
+def test_lifespan_skips_emit_when_owned_by_main(monkeypatch: pytest.MonkeyPatch) -> None:
+
+    from opik_mcp import server
+    from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
+    from opik_mcp.config import get_settings
+
+    monkeypatch.setenv(LIFECYCLE_SENTINEL, "1")
+    recorder = _install_server_recorder(monkeypatch)
+    settings = get_settings()
+
+    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+
+    async def _drive() -> None:
+        async with composed(None):
+            pass
+
+    asyncio.run(_drive())
+
+    ets = [et for et, _ in recorder.events]
+    assert EVENT_SERVER_STARTED not in ets
+    assert EVENT_SERVER_SHUTDOWN not in ets
+
+
+def test_lifespan_shutdown_reason_transport_error_on_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+
+    from opik_mcp import server
+    from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
+    from opik_mcp.config import get_settings
+
+    monkeypatch.delenv(LIFECYCLE_SENTINEL, raising=False)
+    recorder = _install_server_recorder(monkeypatch)
+    settings = get_settings()
+
+    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+
+    async def _drive() -> None:
+        async with composed(None):
+            raise RuntimeError("simulated transport crash")
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(_drive())
+
+    shut = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shut["reason"] == "transport_error"
+    assert shut["lifecycle_source"] == "lifespan"
+
+
+def test_lifespan_started_pure_oauth_reports_auth_mode_oauth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+
+    from opik_mcp import server
+    from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
+    from opik_mcp.config import get_settings
+
+    monkeypatch.delenv(LIFECYCLE_SENTINEL, raising=False)
+    monkeypatch.delenv("OPIK_API_KEY", raising=False)
+    monkeypatch.setenv("OPIK_MCP_AS_URL", "https://as.example.com")
+    recorder = _install_server_recorder(monkeypatch)
+    settings = get_settings()
+
+    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+
+    async def _drive() -> None:
+        async with composed(None):
+            pass
+
+    asyncio.run(_drive())
+
+    started = next(p for et, p in recorder.events if et == EVENT_SERVER_STARTED)
+    assert started["auth_mode"] == "oauth"

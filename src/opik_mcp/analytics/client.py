@@ -6,6 +6,7 @@ Daemon-thread worker model (not asyncio): callable from any context, including
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import platform
 import queue
@@ -23,7 +24,13 @@ from opik_mcp.analytics.identity import (
     get_install_id,
     resolve_anonymous_id,
 )
-from opik_mcp.config import Settings
+from opik_mcp.auth_context import (
+    classify_bearer,
+    inbound_authorization,
+    inbound_workspace,
+    settings_auth_mode,
+)
+from opik_mcp.config import Settings, installation_type
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -61,6 +68,14 @@ class AnalyticsClient:
         self._worker: threading.Thread | None = None
         self._closed = False
         self._closed_lock = threading.Lock()
+        # Process-stable destination class — computed ONCE (settings are fixed
+        # for this client) so _build_event doesn't re-parse the URL per event.
+        # Falls back to "unknown" rather than dropping the key on any failure.
+        try:
+            self._installation_type = installation_type(settings)
+        except Exception:
+            logger.debug("installation_type computation failed", exc_info=True)
+            self._installation_type = "unknown"
         if self._settings.opik_mcp_analytics_enabled:
             self._warn_if_misconfigured_for_onprem()
             self._start_worker()
@@ -186,7 +201,9 @@ class AnalyticsClient:
         common: dict[str, str] = {
             "environment": self._settings.opik_mcp_analytics_environment,
             "opik_mcp_version": OPIK_MCP_VERSION,
-            "transport": self._settings.opik_mcp_transport,
+            # Lowercased so BI sees a canonical value regardless of how the env
+            # var was cased (main() also lowercases for transport selection).
+            "transport": self._settings.opik_mcp_transport.lower(),
             "install_id": get_install_id(),
             "python_version": (
                 f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
@@ -213,15 +230,68 @@ class AnalyticsClient:
             # Tells comet-stats to mark `on_prem=False` and skip IP enrichment;
             # matches the `OLLIE_SOURCE` / opik.sh convention.
             common["source"] = self._settings.opik_mcp_analytics_source
-        # Common props (environment, version, transport, …) are authoritative: a
-        # call site accidentally passing e.g. "environment" must not silently
-        # shadow the server-stamped value.  Spread caller properties first so
-        # common always wins on key conflicts.
+        # Process-stable Opik destination class (computed once in __init__),
+        # stamped on every event so BI can split cloud / self-hosted without
+        # joining back to server_started.
+        common["installation_type"] = self._installation_type
+
+        per_request = self._per_request_props()
+        # Merge precedence (lowest → highest): per-request contextvar enrichment,
+        # then caller-supplied properties, then the authoritative common block.
+        # common always wins (a call site accidentally passing e.g. "environment"
+        # must not shadow the server-stamped value); caller properties win over
+        # per-request so server_started's settings-derived auth_mode beats the
+        # contextvar-derived one (which is "none" at boot, no request in flight).
         return {
             # comet-stats indexes events by top-level `user_id`. Kept as
             # workspace name → install_id for dashboard continuity. The
             # per-user identity is in event_properties.api_key_sha256.
             "user_id": resolve_anonymous_id(self._settings),
             "event_type": event_type,
-            "event_properties": {**properties, **common},
+            "event_properties": {**per_request, **properties, **common},
         }
+
+    def _per_request_props(self) -> dict[str, str]:
+        """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
+
+        Runs in the caller's task (``_build_event`` builds synchronously before
+        enqueuing), so the request's ContextVars are live here — this is what
+        lets per-request OAuth identity reach BI in hosted mode.
+
+        ``auth_mode`` is ALWAYS set so stdio / no-auth events are not a dark
+        cohort. PRIVACY: the raw bearer token never enters the result — only its
+        sha256 digest, and only for ``opik_at_`` OAuth tokens. ``request_workspace``
+        mirrors the existing plaintext ``workspace`` posture (workspace names are
+        used as ``user_id`` in ``resolve_anonymous_id``).
+        """
+        props: dict[str, str] = {}
+        try:
+            inbound_auth = inbound_authorization.get()
+            ws_header = inbound_workspace.get()
+
+            if inbound_auth:
+                # Shared classifier (see auth_context.classify_bearer) so BI's
+                # auth_mode/token_sha256 agree with the outbound credential and
+                # with AuthRejectionMiddleware.
+                mode, token = classify_bearer(inbound_auth)
+                props["auth_mode"] = mode
+                if token:  # oauth bearer
+                    # PRIVACY: only the digest is emitted; the raw token never
+                    # enters the result.
+                    props["token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            else:
+                # No inbound header: stdio or unauthenticated HTTP. Fall back to
+                # the settings-derived mode (shared with auth_mode_at_boot, so an
+                # OAuth-only deploy reports "oauth" not "none"). ALWAYS set so the
+                # stdio / no-auth cohort is visible, not dark.
+                props["auth_mode"] = settings_auth_mode(
+                    has_api_key=bool(self._settings.opik_api_key),
+                    has_as_url=bool(self._settings.opik_mcp_as_url),
+                )
+
+            workspace = ws_header.strip() if ws_header else ""
+            if workspace:
+                props["request_workspace"] = workspace
+        except Exception:
+            logger.debug("per-request identity enrichment failed", exc_info=True)
+        return props

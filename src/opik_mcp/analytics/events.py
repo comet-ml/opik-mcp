@@ -8,14 +8,32 @@ identifiable values. Thresholds picked to align with common LLM-context budgets
 
 Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
-with the classifiers in ``environment.py`` and ``wrappers.py`` — adding a new
-bucket is a BI schema change and requires updating both the classifier and the
-corresponding Literal here. Tests that pin the BI shape live in
-``tests/test_analytics_privacy.py`` and ``tests/test_analytics_lifespan.py``.
+with the classifiers in ``environment.py`` (launch method / parent process) and
+``mcp_client_info.py`` (mcp host / host LLM family) — adding a new bucket is a BI
+schema change and requires updating both the classifier and the corresponding
+Literal here. Tests that pin the BI shape live in
+``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py`` and
+``tests/test_analytics_lifespan.py``.
 
 Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",
 "unknown", "") at the emit site — the receiver never sees raw host input.
+
+Two declared exceptions to "boolean / enum / bucket":
+
+- Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``) are
+  64-char SHA-256 hex digests. Not enums, but safe: irreversible one-way
+  transforms of secrets the backend already holds (it joins on the digest).
+  The raw key/token NEVER leaves the process. This is enforced by tests that
+  call ``client._build_event`` directly
+  (``tests/test_analytics_client_build_event.py``); the recorder-based tests in
+  ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
+  ``_build_event`` builds, so they cannot catch a leak inside it.
+- Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
+  emitted as plaintext/UUID — an accepted posture, since the workspace name is
+  already used as the top-level ``user_id`` (``resolve_anonymous_id``).
+
+Never emit free-text queries, paths, filenames, or other user prose.
 """
 
 from __future__ import annotations
@@ -51,8 +69,10 @@ ParentProcess = Literal[
     "other",
 ]
 
-# ``mcp_host``: bucketed MCP host (clientInfo.name). See
-# ``wrappers._MCP_HOST_PATTERNS``.
+# ``mcp_host``: bucketed MCP host (clientInfo.name). MUST stay in sync with
+# ``mcp_client_info._MCP_HOST_PATTERNS`` — every bucket that classifier can
+# emit is declared here (enforced by
+# ``test_analytics_events.test_mcp_host_literal_covers_all_classifier_buckets``).
 McpHost = Literal[
     "claude-desktop",
     "claude-code",
@@ -62,14 +82,25 @@ McpHost = Literal[
     "continue",
     "windsurf",
     "mcp-inspector",
+    "zed",
+    "vscode",
+    "goose",
+    "librechat",
+    "5ire",
+    "opencode",
+    "codex",
+    "gemini-cli",
     "other",
 ]
 
-# ``host_llm_family``: derived from the bucketed ``mcp_host``. See
-# ``wrappers._HOST_LLM_FAMILY``.
+# ``host_llm_family``: derived from the bucketed ``mcp_host``. MUST stay in sync
+# with ``mcp_client_info._HOST_LLM_FAMILY`` values (enforced by
+# ``test_analytics_events.test_host_llm_family_literal_covers_all_classifier_values``).
 HostLlmFamily = Literal[
     "anthropic",
     "cursor",
+    "openai",
+    "google",
     "mixed",
     "inspector",
     "unknown",
@@ -95,6 +126,26 @@ LifespanSecondsBucket = Literal[
     ">24h",
 ]
 
+# ``installation_type``: Opik destination class. Mirrors
+# ``config.installation_type`` (shared with error_tracking's Sentry tag) so
+# opik-mcp and opik dashboards share tag values. CRITICAL: the self-hosted value
+# is hyphenated ("self-hosted"), never "self_hosted" — BI keys off the exact string.
+InstallationType = Literal["cloud", "self-hosted", "local"]
+
+# ``auth_mode``: how the caller authenticated. At boot it is settings-derived
+# (``boot_props.auth_mode_at_boot``); per-request it is derived from the inbound
+# bearer in ``client._build_event``.
+AuthMode = Literal["oauth", "api_key", "none"]
+
+# ``resource_uri_scheme``: scheme of ``OPIK_MCP_RESOURCE_URI``; "none" when unset.
+ResourceUriScheme = Literal["https", "http", "none"]
+
+# ``lifecycle_source`` (on server_started / server_shutdown): which path emitted
+# the lifecycle event — ``"main"`` (__main__.main) or ``"lifespan"`` (the
+# build_app() Starlette lifespan, the hosted Docker/--factory path). Lets BI
+# confirm the hosted fleet is no longer dark for boot events (GAP#1).
+LifecycleSource = Literal["main", "lifespan"]
+
 
 EVENT_SERVER_STARTED = "opik_mcp_server_started"
 EVENT_SESSION_INITIALIZED = "opik_mcp_session_initialized"
@@ -112,6 +163,12 @@ EVENT_TOOLS_LISTED = "opik_mcp_tools_listed"
 # slice the dark cohort into {pure probe, handshake-failed, healthy-short,
 # healthy-long}.
 EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
+# Emitted (HTTP transport only) when an inbound request is rejected before
+# reaching a tool: 401 from BearerAuthMiddleware (missing/malformed bearer) or
+# 421/403 from the SDK transport-security guard (Host/Origin). The key HTTPS
+# health signal — without it auth failures are invisible. See
+# ``AuthRejectionMiddleware`` in server.py.
+EVENT_AUTH_REJECTED = "opik_mcp_auth_rejected"
 
 
 def bucket_tokens(n: int) -> str:
@@ -159,3 +216,49 @@ def bucket_seconds(n: float) -> str:
     if n < 86400:
         return "1-24h"
     return ">24h"
+
+
+# ``rejection_reason`` (on ``opik_mcp_auth_rejected``): why a request was
+# rejected before reaching a tool. 401 shapes from BearerAuthMiddleware
+# (missing_header / not_bearer / empty_token) + the SDK transport-security
+# guard's 421 (host) / 403 (origin). Derived from status + header SHAPE only —
+# never the token value.
+AuthRejectionReason = Literal[
+    "missing_header",
+    "not_bearer",
+    "empty_token",
+    "token_rejected",
+    "host_rejected",
+    "origin_rejected",
+]
+
+# ``path_bucket`` (on ``opik_mcp_auth_rejected``): coarse request-path class.
+# Never carries the raw path — the receiver only ever sees these four buckets.
+# ``"other"`` covers OAuth-flow proxy paths (/authorize, /register, /token, …)
+# and any unknown path. Those proxy paths are unauthenticated pass-throughs, so
+# in practice auth-rejection events carry ``"mcp"`` (our resource-server bearer
+# rejection) or the Host/Origin-guard rejections; ``"other"`` is mostly stray
+# probe traffic.
+PathBucket = Literal["mcp", "health", "well_known", "other"]
+
+
+def bucket_path(path: str, mcp_http_path: str = "/mcp") -> str:
+    """Bucket a request path to a low-cardinality enum. Never emits the raw path.
+
+    ``mcp_http_path`` is the configured MCP transport mount (OPIK_MCP_HTTP_PATH);
+    a request to it (or a subpath) buckets to ``"mcp"``, so the bucketing stays
+    correct when an operator remaps the endpoint behind a path-prefix proxy.
+
+    Matching is exact-or-subpath (``== mount`` or ``mount + "/"`` prefix) rather
+    than a bare ``startswith`` so a sibling like ``/mcpfoo`` or ``/healthz`` does
+    not get mis-bucketed as the real endpoint.
+    """
+    p = path or ""
+    if p.startswith("/.well-known/"):
+        return "well_known"
+    if p == "/health" or p.startswith("/health/"):
+        return "health"
+    mount = mcp_http_path.rstrip("/")
+    if p == mount or p.startswith(mount + "/"):
+        return "mcp"
+    return "other"

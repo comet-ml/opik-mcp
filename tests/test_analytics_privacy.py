@@ -48,6 +48,9 @@ FORBIDDEN = [
     "FORBIDDEN-CANARY-socket-hostname-9d3e5f4a",
     "FORBIDDEN-CANARY-uname-nodename-1b2c3d4e",
     "FORBIDDEN-CANARY-home-path-5e6f7a8b",
+    # OAuth bearer token canary — auth_rejected derives its reason from the
+    # header SHAPE only; the raw token must never reach the event.
+    "opik_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c",
 ]
 
 
@@ -749,6 +752,7 @@ async def _noop_coroutine_result(result: Any) -> Any:
         "opik_mcp_session_initialized",
         "opik_mcp_tools_listed",
         "opik_mcp_server_shutdown",
+        "opik_mcp_auth_rejected",
     ],
 )
 def test_new_events_carry_no_forbidden_substring(
@@ -861,6 +865,28 @@ def test_new_events_carry_no_forbidden_substring(
                 "session_reached": str(transport_probe.session_reached()).lower(),
             },
         )
+
+    elif event_name == "opik_mcp_auth_rejected":
+        from opik_mcp import server
+        from opik_mcp.config import Settings
+
+        monkeypatch.setattr(
+            "opik_mcp.server.track_event", lambda et, p: recorder.track_event(et, p)
+        )
+        mw = server.AuthRejectionMiddleware(
+            None,  # type: ignore[arg-type]  # app unused by _emit_rejection
+            settings=Settings(opik_mcp_analytics_enabled=False, _env_file=None),  # type: ignore[call-arg]
+        )
+        # Drive the emit path directly with a canary-laden bearer token; the
+        # event must carry only the bucketed reason/auth_mode, never the token.
+        scope = {
+            "type": "http",
+            "path": "/mcp",
+            "headers": [
+                (b"authorization", b"Bearer opik_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c"),
+            ],
+        }
+        mw._emit_rejection(scope, 401)
 
     # An empty recorder would let the canary check pass vacuously, hiding the
     # case where the emit path silently no-ops (e.g. a future regression that
