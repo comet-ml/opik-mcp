@@ -592,7 +592,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     captured into a ContextVar and forwarded verbatim on the outbound call to
     opik-backend (see :mod:`opik_mcp.auth_context`). opik-backend's
     ``AuthFilter`` is the single point of auth enforcement — it validates the
-    bearer (API key or ``opik_mcp_at_…`` OAuth token) and enforces
+    bearer (API key or an ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed OAuth token) and enforces
     ``@RequiredPermissions`` on the data API endpoint. Deployments where the
     backend enforces auth are protected end-to-end; OSS installs without
     backend auth are as open via MCP as via their own REST API.

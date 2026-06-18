@@ -1,7 +1,8 @@
 """Per-request inbound-auth propagation for OAuth-passthrough mode.
 
 When opik-mcp runs over HTTP transport with OAuth, the MCP host attaches
-`Authorization: Bearer opik_mcp_at_…` per RFC 6750 and opik-mcp's job is to
+`Authorization: Bearer …` (an ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed token)
+per RFC 6750 and opik-mcp's job is to
 forward that bearer onward to opik-backend's data API verbatim. Permission
 enforcement lives at the data API endpoint via `@RequiredPermissions`
 annotations; opik-mcp performs no local validation and makes no separate
@@ -26,8 +27,8 @@ from contextvars import ContextVar
 # Comet-Workspace header that opik-backend rejects with 403.
 OAUTH_ACCESS_TOKEN_PREFIX = "opik_mcp_at_"
 
-# Full inbound ``Authorization`` header value (e.g. ``"Bearer opik_mcp_at_…"``),
-# forwarded verbatim on outbound calls to opik-backend's data API. ``None``
+# Full inbound ``Authorization`` header value (an ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed
+# bearer), forwarded verbatim on outbound calls to opik-backend's data API. ``None``
 # means "no inbound bearer; fall back to settings.opik_api_key".
 inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorization", default=None)
 
@@ -42,8 +43,8 @@ def classify_bearer(auth_header: str) -> tuple[str, str]:
     """Classify a non-empty inbound ``Authorization`` header for BI analytics.
 
     Returns ``(auth_mode, oauth_token)``:
-    - ``("oauth", "<opik_mcp_at_…>")`` for an OAuth bearer — the token is returned
-      ONLY so the caller can hash it; it is never stored or emitted raw.
+    - ``("oauth", token)`` for an ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed bearer — the
+      token is returned ONLY so the caller can hash it; never stored or emitted raw.
     - ``("api_key", "")`` for any other forwarded credential (the token is NOT
       returned — api-key-shaped credentials are not hashed here).
 
