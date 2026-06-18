@@ -51,7 +51,7 @@ async def test_passthrough_accepts_any_well_formed_bearer() -> None:
     opik-backend's AuthFilter validates the token; opik-mcp is a thin pipe.
     """
     mw = _build_middleware()
-    request = _make_request({"authorization": "Bearer opik_at_abc123"})
+    request = _make_request({"authorization": "Bearer opik_mcp_at_abc123"})
 
     captured: dict[str, str | None] = {}
 
@@ -64,7 +64,7 @@ async def test_passthrough_accepts_any_well_formed_bearer() -> None:
 
     assert resp.status_code == 200
     # Bearer captured exactly as inbound so outbound forwarding preserves it.
-    assert captured["auth"] == "Bearer opik_at_abc123"
+    assert captured["auth"] == "Bearer opik_mcp_at_abc123"
     # No workspace header on this request → ContextVar reads as None.
     assert captured["workspace"] is None
     # ContextVar is reset after the request returns — no leakage to the
@@ -78,7 +78,7 @@ async def test_passthrough_captures_comet_workspace_header() -> None:
     mw = _build_middleware()
     request = _make_request(
         {
-            "authorization": "Bearer opik_at_abc",
+            "authorization": "Bearer opik_mcp_at_abc",
             "comet-workspace": "my-team",
         }
     )

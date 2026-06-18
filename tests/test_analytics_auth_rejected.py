@@ -17,7 +17,7 @@ import pytest
 from opik_mcp.config import Settings
 
 # Unique bearer token canary — must never appear raw in the emitted event.
-RAW_TOKEN_CANARY = "opik_at_AUTHREJECT-CANARY-TOKEN-3f9a2b1c"
+RAW_TOKEN_CANARY = "opik_mcp_at_AUTHREJECT-CANARY-TOKEN-3f9a2b1c"
 
 
 class _Recorder:
@@ -94,19 +94,19 @@ def test_empty_bearer_token_reason(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_421_is_host_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder, mw = _make(monkeypatch, 421)
-    _drive(mw, path="/mcp", auth=b"Bearer opik_at_x")
+    _drive(mw, path="/mcp", auth=b"Bearer opik_mcp_at_x")
     assert _only(recorder)["rejection_reason"] == "host_rejected"
 
 
 def test_403_is_origin_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder, mw = _make(monkeypatch, 403)
-    _drive(mw, path="/mcp", auth=b"Bearer opik_at_x")
+    _drive(mw, path="/mcp", auth=b"Bearer opik_mcp_at_x")
     assert _only(recorder)["rejection_reason"] == "origin_rejected"
 
 
 def test_success_emits_no_event(monkeypatch: pytest.MonkeyPatch) -> None:
     recorder, mw = _make(monkeypatch, 200)
-    _drive(mw, path="/mcp", auth=b"Bearer opik_at_x")
+    _drive(mw, path="/mcp", auth=b"Bearer opik_mcp_at_x")
     assert not [p for et, p in recorder.events if et == "opik_mcp_auth_rejected"]
 
 
@@ -177,7 +177,7 @@ def test_auth_mode_reflects_rejected_oauth_bearer(monkeypatch: pytest.MonkeyPatc
     # auth_mode="oauth" — derived from the header, NOT the already-reset
     # ContextVar (which would yield the settings fallback).
     recorder, mw = _make(monkeypatch, 421)
-    _drive(mw, path="/mcp", auth=b"Bearer opik_at_valid-token")
+    _drive(mw, path="/mcp", auth=b"Bearer opik_mcp_at_valid-token")
     props = _only(recorder)
     assert props["rejection_reason"] == "host_rejected"
     assert props["auth_mode"] == "oauth"

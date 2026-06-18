@@ -20,7 +20,11 @@ from typing import Any, ClassVar, Final, Literal, Protocol
 
 import httpx
 
-from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+from opik_mcp.auth_context import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    inbound_authorization,
+    inbound_workspace,
+)
 from opik_mcp.config import DEFAULT_WORKSPACE, MissingConfigError, Settings
 from opik_mcp.error_kinds import ErrorKind
 
@@ -628,7 +632,7 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
     header (OAuth-passthrough mode), the middleware populates
     :mod:`opik_mcp.auth_context` ContextVars and we prefer those over the
     env-bound ``OPIK_API_KEY`` / ``COMET_WORKSPACE``. opik-backend's
-    ``AuthFilter`` accepts both shapes (API key and ``Bearer opik_at_…``)
+    ``AuthFilter`` accepts both shapes (API key and ``Bearer opik_mcp_at_…``)
     and enforces ``@RequiredPermissions`` per endpoint, so opik-mcp is a
     thin forwarder either way.
     """
@@ -641,12 +645,14 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
         )
     # OAuth access tokens carry their workspace server-side (opik-backend
     # derives it from the token row). Identified by token prefix — mirrors
-    # the backend's McpOAuthTokens.isMcpOAuthToken — so an API key that
+    # the backend's McpOAuthTokenUtils.isMcpOAuthToken — so an API key that
     # merely contains the marker can't skip the workspace requirement.
     oauth_passthrough = False
     if inbound_auth is not None:
         scheme, _, token = inbound_auth.partition(" ")
-        oauth_passthrough = scheme.lower() == "bearer" and token.lstrip().startswith("opik_at_")
+        oauth_passthrough = scheme.lower() == "bearer" and token.lstrip().startswith(
+            OAUTH_ACCESS_TOKEN_PREFIX
+        )
     if oauth_passthrough:
         # Workspace is derived from the token server-side; may be None here.
         workspace = inbound_ws

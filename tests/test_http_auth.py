@@ -48,7 +48,7 @@ async def test_any_bearer_initializes(http_client: httpx.AsyncClient) -> None:
         "/mcp",
         json=INITIALIZE,
         headers={
-            "Authorization": "Bearer opik_at_anything",
+            "Authorization": "Bearer opik_mcp_at_anything",
             "Accept": "application/json, text/event-stream",
         },
     )

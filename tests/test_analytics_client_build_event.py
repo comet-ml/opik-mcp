@@ -25,7 +25,7 @@ from opik_mcp.auth_context import inbound_authorization, inbound_workspace
 from opik_mcp.config import Settings
 
 # Canaries: unique, greppable values that must never appear raw in an event.
-RAW_OAUTH_TOKEN = "opik_at_BEARER-CANARY-TOKEN-UNIQUE-7a3b2c1d"
+RAW_OAUTH_TOKEN = "opik_mcp_at_BEARER-CANARY-TOKEN-UNIQUE-7a3b2c1d"
 RAW_WORKSPACE = "WORKSPACE-CANARY-NAME-MUST-NOT-LEAK-9f4e5a6b"
 
 
@@ -80,7 +80,7 @@ def test_non_oauth_bearer_is_api_key_mode_without_token_hash(make_client: Any) -
     with _inbound(auth="Bearer some-non-oauth-static-key"):
         props = client._build_event("opik_mcp_tool_called", {})["event_properties"]
     assert props["auth_mode"] == "api_key"
-    assert "token_sha256" not in props  # only opik_at_ bearers are hashed
+    assert "token_sha256" not in props  # only opik_mcp_at_ bearers are hashed
 
 
 def test_request_workspace_plaintext_present(make_client: Any) -> None:

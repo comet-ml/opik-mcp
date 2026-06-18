@@ -326,7 +326,7 @@ Every setting is an environment variable. Required ones in **bold**.
 #### Choosing a transport
 
 opik-mcp performs **no local credential validation** on HTTP transport: any
-well-formed `Authorization: Bearer …` (an Opik API key or an `opik_at_…`
+well-formed `Authorization: Bearer …` (an Opik API key or an `opik_mcp_at_…`
 OAuth access token) is forwarded verbatim to opik-backend, which is the
 single point of auth enforcement. Pick the transport by deployment shape:
 

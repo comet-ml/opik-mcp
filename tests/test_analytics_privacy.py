@@ -50,7 +50,7 @@ FORBIDDEN = [
     "FORBIDDEN-CANARY-home-path-5e6f7a8b",
     # OAuth bearer token canary — auth_rejected derives its reason from the
     # header SHAPE only; the raw token must never reach the event.
-    "opik_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c",
+    "opik_mcp_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c",
 ]
 
 
@@ -883,7 +883,7 @@ def test_new_events_carry_no_forbidden_substring(
             "type": "http",
             "path": "/mcp",
             "headers": [
-                (b"authorization", b"Bearer opik_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c"),
+                (b"authorization", b"Bearer opik_mcp_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c"),
             ],
         }
         mw._emit_rejection(scope, 401)
