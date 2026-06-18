@@ -632,8 +632,9 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
     header (OAuth-passthrough mode), the middleware populates
     :mod:`opik_mcp.auth_context` ContextVars and we prefer those over the
     env-bound ``OPIK_API_KEY`` / ``COMET_WORKSPACE``. opik-backend's
-    ``AuthFilter`` accepts both shapes (API key and an ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed ``Bearer``)
-    and enforces ``@RequiredPermissions`` per endpoint, so opik-mcp is a
+    ``AuthFilter`` accepts both shapes (API key and an
+    ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed ``Bearer``) and enforces
+    ``@RequiredPermissions`` per endpoint, so opik-mcp is a
     thin forwarder either way.
     """
     inbound_auth = inbound_authorization.get()

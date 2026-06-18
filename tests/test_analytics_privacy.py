@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 
+from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.comet_client import PodDiscovery
 from opik_mcp.ollie_client import OnTick, SSEEvent
 
@@ -50,7 +51,7 @@ FORBIDDEN = [
     "FORBIDDEN-CANARY-home-path-5e6f7a8b",
     # OAuth bearer token canary — auth_rejected derives its reason from the
     # header SHAPE only; the raw token must never reach the event.
-    "opik_mcp_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c",
+    f"{OAUTH_ACCESS_TOKEN_PREFIX}FORBIDDEN-CANARY-oauth-token-2f8e1d3c",
 ]
 
 
@@ -879,11 +880,12 @@ def test_new_events_carry_no_forbidden_substring(
         )
         # Drive the emit path directly with a canary-laden bearer token; the
         # event must carry only the bucketed reason/auth_mode, never the token.
+        bearer = f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}FORBIDDEN-CANARY-oauth-token-2f8e1d3c"
         scope = {
             "type": "http",
             "path": "/mcp",
             "headers": [
-                (b"authorization", b"Bearer opik_mcp_at_FORBIDDEN-CANARY-oauth-token-2f8e1d3c"),
+                (b"authorization", bearer.encode()),
             ],
         }
         mw._emit_rejection(scope, 401)

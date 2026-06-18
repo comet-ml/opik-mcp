@@ -10,6 +10,8 @@ a non-Bearer scheme), returning 401 so MCP hosts bootstrap the OAuth dance.
 import httpx
 import pytest
 
+from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+
 INITIALIZE = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -48,7 +50,7 @@ async def test_any_bearer_initializes(http_client: httpx.AsyncClient) -> None:
         "/mcp",
         json=INITIALIZE,
         headers={
-            "Authorization": "Bearer opik_mcp_at_anything",
+            "Authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}anything",
             "Accept": "application/json, text/event-stream",
         },
     )
