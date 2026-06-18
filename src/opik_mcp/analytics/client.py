@@ -260,9 +260,9 @@ class AnalyticsClient:
 
         ``auth_mode`` is ALWAYS set so stdio / no-auth events are not a dark
         cohort. PRIVACY: the raw bearer token never enters the result — only its
-        sha256 digest, and only for ``opik_at_`` OAuth tokens. ``request_workspace``
-        mirrors the existing plaintext ``workspace`` posture (workspace names are
-        used as ``user_id`` in ``resolve_anonymous_id``).
+        sha256 digest, and only for ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed OAuth
+        tokens. ``request_workspace`` mirrors the existing plaintext ``workspace``
+        posture (workspace names are used as ``user_id`` in ``resolve_anonymous_id``).
         """
         props: dict[str, str] = {}
         try:

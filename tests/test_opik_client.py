@@ -2,6 +2,7 @@ import httpx
 import pytest
 import respx
 
+from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.opik_client import (
     FeedbackScore,
     OpikAuthError,
@@ -363,13 +364,13 @@ def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
     from opik_mcp.opik_client import resolve_opik_config
 
     s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
-    token = inbound_authorization.set("Bearer opik_at_abc123")
+    token = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc123")
     try:
         _base, api_key, workspace = resolve_opik_config(s)
     finally:
         inbound_authorization.reset(token)
 
-    assert api_key == "Bearer opik_at_abc123"
+    assert api_key == f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc123"
     assert workspace is None
 
 
@@ -383,7 +384,7 @@ def test_resolve_opik_config_oauth_detection_is_prefix_not_substring() -> None:
     from opik_mcp.opik_client import resolve_opik_config
 
     s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
-    token = inbound_authorization.set("Bearer sk-xopik_at_y")
+    token = inbound_authorization.set(f"Bearer sk-x{OAUTH_ACCESS_TOKEN_PREFIX}y")
     try:
         _base, _api_key, workspace = resolve_opik_config(s)
     finally:
@@ -395,11 +396,13 @@ def test_oauth_client_omits_workspace_header() -> None:
     from opik_mcp.opik_client import OpikClient
 
     client = OpikClient(
-        base_url="https://opik.example.com", api_key="Bearer opik_at_x", workspace=None
+        base_url="https://opik.example.com",
+        api_key=f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}x",
+        workspace=None,
     )
     headers = client._headers()
     assert "Comet-Workspace" not in headers
-    assert headers["Authorization"] == "Bearer opik_at_x"
+    assert headers["Authorization"] == f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}x"
 
 
 # --- execute_experiment ------------------------------------------------------- #
