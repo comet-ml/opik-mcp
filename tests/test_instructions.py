@@ -43,6 +43,44 @@ def test_render_uses_comet_url_override_when_opik_url_missing() -> None:
     assert "https://demo.comet.com/opik" in out
 
 
+def test_render_strips_api_suffix_from_opik_url() -> None:
+    """OPIK_URL is the REST API base (…/opik/api); the blob must name the UI
+    base (…/opik) — the verbatim ``/api`` leak is OPIK-7033's defect #2."""
+    s = _settings(opik_url="https://dev.comet.com/opik/api")
+    out = render_instructions(s)
+    assert "The Opik UI is at https://dev.comet.com/opik." in out
+    assert "https://dev.comet.com/opik/api" not in out
+
+
+def test_render_prefers_resolved_workspace_over_settings() -> None:
+    """The OAuth-introspected workspace (set per session) outranks the static
+    env workspace — defect #1: the blob must name the authorized workspace."""
+    from opik_mcp.auth_context import resolved_workspace_name
+
+    token = resolved_workspace_name.set("andreicautisanu")
+    try:
+        out = render_instructions(_settings(comet_workspace="env-ws"))
+    finally:
+        resolved_workspace_name.reset(token)
+    assert 'workspace "andreicautisanu"' in out
+    assert 'workspace "env-ws"' not in out
+
+
+def test_render_inbound_workspace_header_outranks_resolved() -> None:
+    """An explicit Comet-Workspace header (self-hosted / API-key) is the most
+    authoritative signal for the session."""
+    from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
+
+    t_header = inbound_workspace.set("header-ws")
+    t_resolved = resolved_workspace_name.set("resolved-ws")
+    try:
+        out = render_instructions(_settings(comet_workspace=None))
+    finally:
+        inbound_workspace.reset(t_header)
+        resolved_workspace_name.reset(t_resolved)
+    assert 'workspace "header-ws"' in out
+
+
 def test_render_uses_default_workspace_when_unset() -> None:
     """With no workspace configured the tools operate against "default"
     (Opik SDK convention), so the LLM-facing context must say so rather than

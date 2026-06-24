@@ -33,10 +33,12 @@ from opik_mcp.auth_context import (
     classify_bearer,
     inbound_authorization,
     inbound_workspace,
+    resolved_workspace_name,
     settings_auth_mode,
 )
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
+from opik_mcp.oauth_identity import resolve_workspace_name
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
@@ -640,11 +642,25 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         auth_token = inbound_authorization.set(auth)
         workspace = request.headers.get("comet-workspace")
         workspace_token = inbound_workspace.set(workspace)
+        # On the session-creating request — the MCP ``initialize`` handshake is
+        # the only one without an ``Mcp-Session-Id`` — resolve the OAuth-authorized
+        # workspace NAME so the per-session instructions blob can name it. In OAuth
+        # mode the host sends no ``Comet-Workspace`` header and the token is opaque
+        # to us, so we introspect it here (once per session); tool calls carry a
+        # session id and skip this. Best-effort: a failure leaves the blob on its
+        # static fallback and never blocks the handshake.
+        resolved_token = None
+        if request.headers.get("mcp-session-id") is None and classify_bearer(auth)[0] == "oauth":
+            workspace_name = await resolve_workspace_name(auth, get_settings())
+            if workspace_name:
+                resolved_token = resolved_workspace_name.set(workspace_name)
         try:
             return await call_next(request)
         finally:
             inbound_authorization.reset(auth_token)
             inbound_workspace.reset(workspace_token)
+            if resolved_token is not None:
+                resolved_workspace_name.reset(resolved_token)
 
     def _unauthorized(self) -> Response:
         # RFC 6750 §3 + RFC 9728: pointing MCP hosts at protected-resource
@@ -1024,8 +1040,40 @@ def _make_composed_lifespan(
     return _composed
 
 
+def install_session_instructions(server: FastMCP) -> None:
+    """Render ``InitializeResult.instructions`` per session rather than once at boot.
+
+    FastMCP captures the ``instructions`` string at construction time, so the blob
+    would be identical for every session and could never name the per-session
+    OAuth workspace. We wrap the lowlevel server's ``create_initialization_options``
+    (invoked once per session, inside the session task that inherits the
+    ``initialize`` request's ContextVars) to re-render the blob with the workspace
+    resolved for that session. Mirrors ``install_tools_listed_emitter``'s in-place
+    handler swap. The boot-time static render stays on the options as a fallback.
+    """
+    try:
+        lowlevel = server._mcp_server
+    except AttributeError:
+        logger.debug("install_session_instructions: mcp has no _mcp_server attribute")
+        return
+    original = lowlevel.create_initialization_options
+
+    def create_initialization_options(*args: Any, **kwargs: Any) -> Any:
+        options = original(*args, **kwargs)
+        try:
+            options.instructions = render_instructions()
+        except Exception:
+            # A render hiccup must never break the initialize handshake — leave
+            # the boot-time static instructions already on the options in place.
+            logger.debug("per-session instructions render failed", exc_info=True)
+        return options
+
+    lowlevel.create_initialization_options = create_initialization_options  # type: ignore[method-assign]
+
+
 def build_app() -> ASGIApp:
     install_tools_listed_emitter(mcp)
+    install_session_instructions(mcp)
     s = get_settings()
     # Serve the transport at the configured path so it matches the advertised
     # resource URI behind a non-rewriting path-prefix proxy. Read at app-build

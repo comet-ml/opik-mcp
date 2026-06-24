@@ -12,16 +12,21 @@ instructions are worth +25pp workflow adherence on capable models and
 +60pp on smaller ones, so this is the highest-leverage single dial we
 have on tool selection quality.
 
-Phase 1 ships static-template behavior — user_email and full per-session
-context will land when the OAuth/identity path is wired up (Phase 2). For
-now, ``workspace`` and ``opik_url`` come from ``Settings``.
+The blob is rendered per session (see ``server.install_session_instructions``):
+``workspace`` prefers the OAuth-authorized workspace for THIS session — the
+inbound ``Comet-Workspace`` header, else the name introspected from the bearer
+(``resolved_workspace_name``) — and only falls back to the static ``Settings``
+workspace for stdio / API-key installs. ``opik_url`` is the Opik **UI** base,
+derived from ``Settings`` (the REST ``OPIK_URL`` minus its ``/api`` suffix).
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
 from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
+from opik_mcp.opik_client import opik_rest_base
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 _TEMPLATE = """\
@@ -53,6 +58,23 @@ Today's date is {date}.\
 """
 
 
+def _opik_ui_url(s: Settings) -> str:
+    """Opik **UI** base URL for the blob, or a generic placeholder if unconfigured.
+
+    Derived from :func:`opik_rest_base` — the single source of truth for where
+    Opik lives (``OPIK_URL`` override, else ``COMET_URL_OVERRIDE + "/opik/api"``)
+    — so the UI link can never drift from where REST calls actually go. That base
+    is the REST **API** base (``…/opik/api``); the UI lives at the same origin
+    without the trailing ``/api`` segment, so we strip it.
+    """
+    base = opik_rest_base(s)
+    if base is None:
+        return "(Opik URL not configured)"
+    if base.endswith("/api"):
+        base = base[: -len("/api")]
+    return base
+
+
 def _render_default_project_clause(s: Settings) -> str:
     pname = s.opik_default_project_name
     if not pname:
@@ -76,15 +98,19 @@ def render_instructions(
     ``user_email`` is omitted from the rendered text when unknown — better
     no claim than a stale claim. Same for ``opik_url`` — falls back to a
     generic placeholder if the config is partial.
+
+    Workspace precedence (most to least authoritative for THIS session): an
+    explicit inbound ``Comet-Workspace`` header → the OAuth-introspected
+    ``resolved_workspace_name`` → the static ``Settings`` workspace → ``"default"``.
     """
     s = settings if settings is not None else get_settings()
-    workspace = s.comet_workspace or DEFAULT_WORKSPACE
-    if s.opik_url:
-        opik_url = s.opik_url.rstrip("/")
-    elif s.comet_url_override:
-        opik_url = f"{s.comet_url_override.rstrip('/')}/opik"
-    else:
-        opik_url = "(Opik URL not configured)"
+    workspace = (
+        inbound_workspace.get()
+        or resolved_workspace_name.get()
+        or s.comet_workspace
+        or DEFAULT_WORKSPACE
+    )
+    opik_url = _opik_ui_url(s)
 
     user_clause = f" as {user_email}" if user_email else ""
     today = today if today is not None else datetime.now(UTC)

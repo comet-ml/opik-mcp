@@ -98,6 +98,89 @@ async def test_passthrough_captures_comet_workspace_header() -> None:
 
 
 @pytest.mark.anyio
+async def test_resolves_workspace_on_session_creating_oauth_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``initialize`` handshake (no Mcp-Session-Id) on an OAuth bearer
+    introspects the workspace name and exposes it via the ContextVar the
+    instructions blob reads — then resets it after the request."""
+    from opik_mcp.auth_context import resolved_workspace_name
+
+    async def fake_resolve(_auth: str, _settings: object) -> str:
+        return "andreicautisanu"
+
+    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", fake_resolve)
+    mw = _build_middleware()
+    request = _make_request({"authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc"})
+
+    captured: dict[str, str | None] = {}
+
+    async def call_next(_r: Request) -> Response:
+        captured["resolved"] = resolved_workspace_name.get()
+        return JSONResponse({"ok": True})
+
+    await mw.dispatch(request, call_next)
+    assert captured["resolved"] == "andreicautisanu"
+    # Reset after the request — no leakage to the next session.
+    assert resolved_workspace_name.get() is None
+
+
+@pytest.mark.anyio
+async def test_skips_resolution_when_session_already_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Requests carrying an Mcp-Session-Id are tool calls, not the handshake —
+    they must not pay the introspection round-trip."""
+    from opik_mcp.auth_context import resolved_workspace_name
+
+    calls: list[str] = []
+
+    async def spy_resolve(auth: str, _settings: object) -> str:
+        calls.append(auth)
+        return "x"
+
+    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", spy_resolve)
+    mw = _build_middleware()
+    request = _make_request(
+        {
+            "authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc",
+            "mcp-session-id": "session-123",
+        }
+    )
+
+    captured: dict[str, str | None] = {}
+
+    async def call_next(_r: Request) -> Response:
+        captured["resolved"] = resolved_workspace_name.get()
+        return JSONResponse({"ok": True})
+
+    await mw.dispatch(request, call_next)
+    assert calls == []
+    assert captured["resolved"] is None
+
+
+@pytest.mark.anyio
+async def test_skips_resolution_for_api_key_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only OAuth-prefixed bearers carry a token-bound workspace to resolve;
+    an API-key-shaped bearer keeps the legacy header/settings workspace path."""
+    calls: list[str] = []
+
+    async def spy_resolve(auth: str, _settings: object) -> str:
+        calls.append(auth)
+        return "x"
+
+    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", spy_resolve)
+    mw = _build_middleware()
+    request = _make_request({"authorization": "Bearer some-static-api-key"})
+
+    async def call_next(_r: Request) -> Response:
+        return JSONResponse({"ok": True})
+
+    await mw.dispatch(request, call_next)
+    assert calls == []
+
+
+@pytest.mark.anyio
 async def test_missing_authorization_returns_401_with_www_authenticate() -> None:
     """The 401 must point hosts at the protected-resource metadata so they
     can bootstrap the OAuth dance — without it, hosts have no path forward.
