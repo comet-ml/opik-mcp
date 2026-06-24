@@ -328,13 +328,16 @@ def test_resolve_opik_config_rejects_empty_url_pair() -> None:
         resolve_opik_config(s)
 
 
-def test_resolve_opik_config_requires_api_key() -> None:
-    from opik_mcp.config import MissingConfigError, Settings
+def test_resolve_opik_config_allows_missing_api_key() -> None:
+    """The api key is optional — self-hosted backends run with auth disabled and
+    authorize on the workspace header alone, so a missing key no longer raises."""
+    from opik_mcp.config import Settings
     from opik_mcp.opik_client import resolve_opik_config
 
-    s = Settings(opik_api_key=None, comet_workspace="ws")
-    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
-        resolve_opik_config(s)
+    s = Settings(opik_api_key=None, comet_workspace="ws", opik_url="https://opik.example.com")
+    _base, api_key, workspace = resolve_opik_config(s)
+    assert api_key is None
+    assert workspace == "ws"
 
 
 def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
@@ -348,14 +351,15 @@ def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
     assert workspace == DEFAULT_WORKSPACE
 
 
-def test_resolve_opik_config_still_requires_api_key() -> None:
-    """The api key is still mandatory — only the workspace became optional."""
-    from opik_mcp.config import MissingConfigError, Settings
-    from opik_mcp.opik_client import resolve_opik_config
+def test_client_omits_authorization_header_when_no_api_key() -> None:
+    """Without a key, no Authorization header is sent — the workspace header alone
+    authorizes against an auth-disabled self-hosted backend."""
+    from opik_mcp.opik_client import OpikClient
 
-    s = Settings(opik_api_key=None, comet_workspace="ws")
-    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
-        resolve_opik_config(s)
+    client = OpikClient(base_url="https://opik.example.com", api_key=None, workspace="ws")
+    headers = client._headers()
+    assert "Authorization" not in headers
+    assert headers["Comet-Workspace"] == "ws"
 
 
 def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
