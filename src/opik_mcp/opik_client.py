@@ -189,7 +189,7 @@ class OpikClient:
     def __init__(
         self,
         base_url: str,
-        api_key: str,
+        api_key: str | None,
         workspace: str | None,
         *,
         client: httpx.AsyncClient | None = None,
@@ -512,10 +512,13 @@ class OpikClient:
 
     def _headers(self) -> dict[str, str]:
         headers = {
-            "Authorization": self._api_key,
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
+        # Optional — self-hosted backends run with auth disabled and authorize on the
+        # workspace header alone, so only send Authorization when a key is configured.
+        if self._api_key:
+            headers["Authorization"] = self._api_key
         # Omitted for OAuth tokens — opik-backend derives the workspace from the token row
         if self._workspace:
             headers["Comet-Workspace"] = self._workspace
@@ -619,7 +622,7 @@ class OpikClient:
             return await http.request(method, url, content=content, headers=headers)
 
 
-def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
+def resolve_opik_config(settings: Settings) -> tuple[str, str | None, str | None]:
     """Resolve ``(opik_base_url, api_key, workspace)`` from settings or raise.
 
     Centralizes the rule for deriving Opik's REST base from either an explicit
@@ -639,11 +642,11 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str, str | None]:
     """
     inbound_auth = inbound_authorization.get()
     inbound_ws = inbound_workspace.get()
+    # Optional: self-hosted backends run with auth disabled and authorize on the
+    # workspace header alone. When absent, requests go out without an Authorization
+    # header and the backend decides (a hosted Opik rejects with 401, surfaced as a
+    # normal request error). Mirrors the workspace handling just below.
     api_key = inbound_auth if inbound_auth else settings.opik_api_key
-    if not api_key:
-        raise MissingConfigError(
-            "OPIK_API_KEY (or an inbound Authorization header) is required to call Opik REST"
-        )
     # OAuth access tokens carry their workspace server-side (opik-backend
     # derives it from the token row). Identified by token prefix — mirrors
     # the backend's McpOAuthTokenUtils.isMcpOAuthToken — so an API key that

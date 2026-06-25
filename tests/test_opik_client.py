@@ -328,13 +328,16 @@ def test_resolve_opik_config_rejects_empty_url_pair() -> None:
         resolve_opik_config(s)
 
 
-def test_resolve_opik_config_requires_api_key() -> None:
-    from opik_mcp.config import MissingConfigError, Settings
+def test_resolve_opik_config_allows_missing_api_key() -> None:
+    """The api key is optional — self-hosted backends run with auth disabled and
+    authorize on the workspace header alone, so a missing key no longer raises."""
+    from opik_mcp.config import Settings
     from opik_mcp.opik_client import resolve_opik_config
 
-    s = Settings(opik_api_key=None, comet_workspace="ws")
-    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
-        resolve_opik_config(s)
+    s = Settings(opik_api_key=None, comet_workspace="ws", opik_url="https://opik.example.com")
+    _base, api_key, workspace = resolve_opik_config(s)
+    assert api_key is None
+    assert workspace == "ws"
 
 
 def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
@@ -348,14 +351,34 @@ def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
     assert workspace == DEFAULT_WORKSPACE
 
 
-def test_resolve_opik_config_still_requires_api_key() -> None:
-    """The api key is still mandatory — only the workspace became optional."""
-    from opik_mcp.config import MissingConfigError, Settings
-    from opik_mcp.opik_client import resolve_opik_config
+def test_client_omits_authorization_header_when_no_api_key() -> None:
+    """Without a key, no Authorization header is sent — the workspace header alone
+    authorizes against an auth-disabled self-hosted backend."""
+    from opik_mcp.opik_client import OpikClient
 
-    s = Settings(opik_api_key=None, comet_workspace="ws")
-    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
-        resolve_opik_config(s)
+    client = OpikClient(base_url="https://opik.example.com", api_key=None, workspace="ws")
+    headers = client._headers()
+    assert "Authorization" not in headers
+    assert headers["Comet-Workspace"] == "ws"
+
+
+@pytest.mark.anyio
+async def test_no_api_key_against_authenticated_backend_surfaces_401() -> None:
+    """Regression: when a key IS required (hosted backend) but not configured, the
+    request is still attempted with no Authorization header and the backend's 401
+    surfaces as a typed OpikAuthError — not a silent success, hang, or raw crash."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces/tr-1").mock(
+            return_value=httpx.Response(401, json={"message": "unauthorized"})
+        )
+        client = OpikClient(base_url=OPIK_BASE, api_key=None, workspace="ws")
+        with pytest.raises(OpikAuthError):
+            await client.get_trace("tr-1")
+
+    # The request went out (no client-side block) and carried no Authorization header.
+    assert route.called
+    sent = {k.lower() for k in route.calls.last.request.headers}
+    assert "authorization" not in sent
 
 
 def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
