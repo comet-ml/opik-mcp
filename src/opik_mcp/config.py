@@ -95,6 +95,13 @@ class Settings(BaseSettings):
     # ingress URL where MCP hosts reach this opik-mcp instance.
     opik_mcp_resource_uri: str | None = None
 
+    # Timeout for the one-shot OAuth token introspection (POST /opik/auth-oauth)
+    # used to resolve the authorized workspace name for the per-session
+    # ``initialize`` instructions blob. Bounded so a slow/unreachable backend
+    # cannot stall the MCP handshake — the call fails soft (the blob falls back
+    # to the static workspace), so a short ceiling is safe.
+    opik_mcp_oauth_introspect_timeout_s: float = 5.0
+
     opik_mcp_log_level: str = "INFO"
     opik_mcp_transport: str = "stdio"
     opik_mcp_host: str = "127.0.0.1"

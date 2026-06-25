@@ -60,6 +60,37 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     os.environ.pop(LIFECYCLE_SENTINEL, None)
 
 
+@pytest.fixture(autouse=True)
+def _disable_workspace_introspection() -> Generator[None]:
+    """Stub OAuth workspace introspection to a no-op by default.
+
+    The ``initialize`` handshake resolves the authorized workspace name by
+    POSTing to opik-backend's ``/opik/auth-oauth`` (``server.resolve_workspace_name``).
+    Left live, every test that sends a session-less OAuth bearer to ``/mcp`` would
+    fire a real network call — slow, flaky, and able to land in another test's
+    ``@respx.mock`` window. Disabled by default (mirrors the analytics default
+    above); tests that exercise resolution ``monkeypatch.setattr`` this, and the
+    ``resolve_workspace_name`` unit tests call the real function directly.
+
+    Uses a standalone ``pytest.MonkeyPatch()`` rather than the ``monkeypatch``
+    *fixture* on purpose: depending on that fixture from an autouse fixture pulls
+    it into the autouse setup phase ahead of ``_reset_analytics_wrappers_state``,
+    inverting teardown order so its ``reset_analytics_for_tests()`` runs while a
+    test still has ``get_analytics`` patched to a non-lru_cache stub (AttributeError
+    on ``cache_info``). A self-owned instance keeps fixture ordering untouched.
+    """
+
+    async def _none(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr("opik_mcp.server.resolve_workspace_name", _none)
+    try:
+        yield
+    finally:
+        mp.undo()
+
+
 # Session-scoped HTTP client over the real ASGI app. Shared across test
 # modules because the underlying FastMCP `StreamableHTTPSessionManager` is a
 # process-level singleton that may only be `.run()`'d once — letting each

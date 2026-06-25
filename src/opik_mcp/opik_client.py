@@ -665,17 +665,30 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str | None, str | None
         # configured workspace, else "default" (Opik SDK convention). No hard
         # failure — lets local/OSS users run without setting a workspace.
         workspace = inbound_ws or settings.comet_workspace or DEFAULT_WORKSPACE
-    if settings.opik_url:
-        base = settings.opik_url.rstrip("/")
-    else:
+    base = opik_rest_base(settings)
+    if base is None:
         # ``comet_url_override`` has a non-empty default in ``Settings`` but
         # ``COMET_URL_OVERRIDE=""`` would override it to empty — defend against
         # that so we never POST to ``/opik/api`` (relative URL → wherever the
         # process happens to be).
-        if not settings.comet_url_override:
-            raise MissingConfigError("OPIK_URL or COMET_URL_OVERRIDE is required to call Opik REST")
-        base = f"{settings.comet_url_override.rstrip('/')}/opik/api"
+        raise MissingConfigError("OPIK_URL or COMET_URL_OVERRIDE is required to call Opik REST")
     return base, api_key, workspace
+
+
+def opik_rest_base(settings: Settings) -> str | None:
+    """Resolve Opik's REST API base URL from settings, or ``None`` if unconfigured.
+
+    Single source of truth for the rule: an explicit ``OPIK_URL`` override wins;
+    otherwise derive from ``COMET_URL_OVERRIDE + "/opik/api"``. Shared by
+    ``resolve_opik_config`` (which treats ``None`` as a fatal misconfig) and
+    ``oauth_identity.resolve_workspace_name`` (which treats ``None`` as "skip,
+    fall back to the static workspace"), so both agree on where Opik lives.
+    """
+    if settings.opik_url:
+        return settings.opik_url.rstrip("/")
+    if settings.comet_url_override:
+        return f"{settings.comet_url_override.rstrip('/')}/opik/api"
+    return None
 
 
 def make_opik_client(settings: Settings) -> OpikClient:
