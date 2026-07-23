@@ -6,6 +6,8 @@ envelope is passed through verbatim — normalization to MCP's canonical
 ``{items,nextCursor?,total?}`` shape lives in ``resources.py``.
 """
 
+import json
+
 import httpx
 import pytest
 import respx
@@ -102,6 +104,70 @@ async def test_get_trace_hits_singleton_path() -> None:
         )
         body = await _client().get_trace("tr-1")
     assert body["id"] == "tr-1"
+
+
+@pytest.mark.anyio
+async def test_list_traces_forwards_filters_only_when_set() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_traces(project_id="p-1")  # no filters
+        assert "filters" not in dict(route.calls.last.request.url.params)
+
+        filt = '[{"field":"thread_id","operator":"=","value":"th-1"}]'
+        await _client().list_traces(project_id="p-1", filters=filt)
+    assert dict(route.calls.last.request.url.params).get("filters") == filt
+
+
+# --- threads -------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_threads_requires_project() -> None:
+    with pytest.raises(ValueError, match="project_id or project_name"):
+        await _client().list_threads()
+
+
+@pytest.mark.anyio
+async def test_list_threads_hits_project_scoped_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces/threads").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "th-1"}], total=1)),
+        )
+        body = await _client().list_threads(project_id="p-1", page=1, size=25)
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1", "page": "1", "size": "25"}
+    assert body["content"][0]["id"] == "th-1"
+
+
+@pytest.mark.anyio
+async def test_get_thread_requires_project() -> None:
+    with pytest.raises(ValueError, match="project_id or project_name"):
+        await _client().get_thread("th-1")
+
+
+@pytest.mark.anyio
+async def test_get_thread_posts_retrieve_body() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(200, json={"id": "th-1", "status": "active"}),
+        )
+        body = await _client().get_thread("th-1", project_name="demo")
+    req = route.calls.last.request
+    sent = json.loads(req.content)
+    assert sent == {"thread_id": "th-1", "truncate": False, "project_name": "demo"}
+    assert body["id"] == "th-1"
+
+
+@pytest.mark.anyio
+async def test_get_thread_maps_404_to_not_found() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(404, json={"message": "nope"}),
+        )
+        with pytest.raises(OpikNotFoundError):
+            await _client().get_thread("th-1", project_id="p-1")
 
 
 @pytest.mark.anyio

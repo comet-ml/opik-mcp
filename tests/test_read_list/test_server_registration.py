@@ -46,3 +46,15 @@ async def test_read_tool_schema_advertises_entity_types() -> None:
     # Description should enumerate the readable types
     assert "trace" in et["description"]
     assert "project" in et["description"]
+    # thread is advertised in both the read enum and as a read param surface
+    assert "thread" in et["enum"]
+    assert "project_id" in read_tool.inputSchema["properties"]
+
+
+@pytest.mark.anyio
+async def test_list_tool_schema_advertises_thread() -> None:
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+    list_tool = next(t for t in tools.tools if t.name == "list")
+    assert "thread" in list_tool.inputSchema["properties"]["entity_type"]["enum"]

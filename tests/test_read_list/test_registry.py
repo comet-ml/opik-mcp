@@ -44,3 +44,22 @@ def test_project_scoped_lists_declare_required_kwarg() -> None:
     assert ENTITY_REGISTRY["trace"].list_required_kwargs == ("project_id",)
     assert ENTITY_REGISTRY["test_suite_item"].list_required_kwargs == ("test_suite_id",)
     assert ENTITY_REGISTRY["prompt_version"].list_required_kwargs == ("prompt_id",)
+    assert ENTITY_REGISTRY["thread"].list_required_kwargs == ("project_id",)
+
+
+def test_thread_is_both_readable_and_listable() -> None:
+    assert "thread" in READABLE_TYPES
+    assert "thread" in LISTABLE_TYPES
+
+
+def test_thread_needs_project_and_is_id_only() -> None:
+    handler = ENTITY_REGISTRY["thread"]
+    assert handler.needs_project is True
+    assert handler.id_only is True
+    assert handler.search_by_name_fn is None
+
+
+def test_needs_project_is_thread_only() -> None:
+    """Only thread declares needs_project — every other fetcher is (client, id)."""
+    for entity_type, handler in ENTITY_REGISTRY.items():
+        assert handler.needs_project is (entity_type == "thread")

@@ -28,6 +28,7 @@ class FakeOpikClient:
     traces: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     test_suite_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -50,6 +51,10 @@ class FakeOpikClient:
     async def list_traces(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         return self.traces
+
+    async def list_threads(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        return self.threads
 
     async def list_test_suite_items(self, test_suite_id: str, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = {"test_suite_id": test_suite_id, **kw}
@@ -145,6 +150,36 @@ async def test_list_test_suite_items_requires_test_suite_id() -> None:
 async def test_list_prompt_versions_requires_prompt_id() -> None:
     with pytest.raises(ToolError, match="requires prompt_id"):
         await run_list("prompt_version", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_list_threads_requires_project_id() -> None:
+    with pytest.raises(ToolError, match="requires project_id"):
+        await run_list("thread", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_list_threads_renders_thread_columns() -> None:
+    fake = FakeOpikClient(
+        threads={
+            "content": [
+                {
+                    "id": "conv-1",
+                    "status": "active",
+                    "number_of_messages": 4,
+                    "last_updated_at": "2026-01-02",
+                }
+            ],
+            "total": 1,
+        }
+    )
+    out = await run_list("thread", project_id="p-1", client=fake)
+    assert fake.last_kwargs.get("project_id") == "p-1"
+    # id column carries the thread identifier; extras render status + counts.
+    assert "conv-1" in out
+    assert "status" in out
+    assert "number_of_messages" in out
+    assert "4" in out
 
 
 # --- entity-type validation ---------------------------------------------- #
