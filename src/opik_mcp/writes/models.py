@@ -378,6 +378,45 @@ class ExperimentItemCreate(_StrictBase):
     experiment_items: list[ExperimentItem] = Field(min_length=1, max_length=1000)
 
 
+# --- 11/12. thread.close / thread.open ----------------------------------- #
+
+
+class _ThreadLifecycle(_StrictBase):
+    """Shared shape for thread status changes (close/open).
+
+    A thread is keyed by ``thread_id`` within a project, so the BE's
+    ``TraceThreadIdentifier`` body takes the id plus project scope. Project is
+    optional (the BE resolves within the default project) but passing one
+    disambiguates threads that exist in multiple projects — same contract as the
+    thread score/comment path. The model carries no ``target`` field, so the
+    dispatcher's ``exclude_none`` dump is the wire body verbatim.
+    """
+
+    thread_id: str = Field(min_length=1, max_length=200)
+    project_name: str | None = Field(default=None, max_length=200)
+    project_id: UUID | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _require_project(self) -> _ThreadLifecycle:
+        # The BE's TraceThreadIdentifier validator rejects a request with
+        # neither project field (400). Catch it locally with a recovery code so
+        # the LLM adds a project instead of round-tripping a confusing 400.
+        if self.project_name is None and self.project_id is None:
+            raise ValueError(
+                "thread_project_missing: pass `project_name` or `project_id` "
+                "to identify the thread's project."
+            )
+        return self
+
+
+class ThreadClose(_ThreadLifecycle):
+    """``POST /v1/private/traces/threads/close`` — mark a thread inactive/done."""
+
+
+class ThreadOpen(_ThreadLifecycle):
+    """``POST /v1/private/traces/threads/open`` — reopen a thread (→ active)."""
+
+
 # --- examples (used by registry + validation errors) --------------------- #
 #
 # One validated example per operation. These are the source of truth for the
@@ -459,6 +498,8 @@ EXAMPLES: dict[str, dict[str, Any]] = {
             }
         ]
     },
+    "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
+    "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
 }
 
 
@@ -475,6 +516,8 @@ MODELS: dict[str, type[BaseModel]] = {
     "test_suite_item.upsert": TestSuiteItemUpsert,
     "experiment.create": ExperimentCreate,
     "experiment_item.create": ExperimentItemCreate,
+    "thread.close": ThreadClose,
+    "thread.open": ThreadOpen,
 }
 
 
@@ -497,6 +540,8 @@ __all__ = [
     "TestSuiteCreate",
     "TestSuiteItem",
     "TestSuiteItemUpsert",
+    "ThreadClose",
+    "ThreadOpen",
     "TraceCreate",
     "TraceUpdate",
 ]

@@ -162,6 +162,93 @@ async def test_batch_too_large_rejects_before_be() -> None:
     assert not route.called, "BE was hit despite batch_too_large"
 
 
+# --- thread lifecycle (thread.close / thread.open) ---------------------- #
+
+
+@pytest.mark.anyio
+async def test_thread_close_puts_fixed_endpoint_with_body() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/close").mock(
+            return_value=httpx.Response(204)
+        )
+        await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1", "project_name": "demo"},
+            client=_client(),
+        )
+    sent = json.loads(route.calls.last.request.content)
+    # exclude_none dump is the wire body verbatim — no target/None fields.
+    assert sent == {"thread_id": "conv-1", "project_name": "demo"}
+
+
+@pytest.mark.anyio
+async def test_thread_open_puts_fixed_endpoint_and_stringifies_uuid() -> None:
+    pid = "00000000-0000-0000-0000-000000000009"
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/open").mock(
+            return_value=httpx.Response(204)
+        )
+        await run_write(
+            operation="thread.open",
+            data={"thread_id": "conv-1", "project_id": pid},
+            client=_client(),
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"thread_id": "conv-1", "project_id": pid}
+
+
+@pytest.mark.anyio
+async def test_thread_close_dry_run_reports_fixed_path() -> None:
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        route = mock.route().mock(return_value=httpx.Response(500))
+        result = await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1", "project_name": "demo"},
+            dry_run=True,
+            client=_client(),
+        )
+    assert result["would_call"]["method"] == "PUT"
+    assert result["would_call"]["path"] == "/v1/private/traces/threads/close"
+    assert not route.called
+
+
+@pytest.mark.anyio
+async def test_thread_close_requires_log_scope() -> None:
+    with pytest.raises(AuthorizationDeniedError) as exc_info:
+        await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1", "project_name": "demo"},
+            scopes=frozenset(),
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert body["required_scope"] == SCOPE_TRACE_SPAN_THREAD_LOG
+
+
+@pytest.mark.anyio
+async def test_thread_close_requires_project() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1"},  # no project
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "thread_project_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_thread_close_rejects_batch() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="thread.close",
+            data=[{"thread_id": "a"}, {"thread_id": "b"}],
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "batch_unsupported" for i in body["issues"])
+
+
 # --- OAuth scope rejection ---------------------------------------------- #
 
 

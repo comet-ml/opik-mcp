@@ -414,6 +414,13 @@ def _build_request(
                 item["dataset_item_id"] = item.pop("test_suite_item_id")
         return op.endpoint, body
 
+    if name in ("thread.close", "thread.open"):
+        # Fixed endpoint + generic body. The model is exactly
+        # {thread_id, project_name?, project_id?} with no ``target`` field, so
+        # the exclude_none dump IS the wire body (TraceThreadIdentifier).
+        # supports_batch=False, so items[0] is the only item.
+        return op.endpoint, _dump(items[0])
+
     # Belt-and-braces — every registry entry is matched above. If a new
     # operation lands without a branch here, fail loudly.
     raise RuntimeError(f"dispatch: unhandled operation {name!r}")  # pragma: no cover

@@ -46,7 +46,9 @@
         "test_suite.create",
         "test_suite_item.upsert",
         "experiment.create",
-        "experiment_item.create"
+        "experiment_item.create",
+        "thread.close",
+        "thread.open"
       ],
       "title": "Operation",
       "type": "string"

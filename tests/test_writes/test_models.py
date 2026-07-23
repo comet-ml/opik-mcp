@@ -228,6 +228,35 @@ async def test_experiment_item_create_bare_object_returns_envelope_example() -> 
     assert "experiment_items" in body["example"]
 
 
+# --- thread lifecycle negatives ------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_thread_close_missing_thread_id() -> None:
+    from opik_mcp.writes.dispatch import run_write
+
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(operation="thread.close", data={"project_name": "demo"})
+    body = json.loads(exc_info.value.to_json())
+    fields = {i["field"] for i in body["issues"]}
+    assert "thread_id" in fields
+
+
+@pytest.mark.anyio
+async def test_thread_open_forbids_unknown_field() -> None:
+    from opik_mcp.writes.dispatch import run_write
+
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="thread.open",
+            # 'status' is not a field; project present so only the extra trips.
+            data={"thread_id": "conv-1", "project_name": "demo", "status": "active"},
+        )
+    body = json.loads(exc_info.value.to_json())
+    fields = {i["field"] for i in body["issues"]}
+    assert "status" in fields
+
+
 # --- unknown operation rejected at Stage 1 ------------------------------- #
 
 
