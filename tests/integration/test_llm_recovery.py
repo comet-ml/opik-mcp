@@ -134,6 +134,7 @@ async def test_score_thread_error_proposes_array_form_for_retry(
                     "target_id": thread_id,
                     "name": "helpfulness",
                     "value": 0.5,
+                    "project_name": "demo",
                 },
             },
         )

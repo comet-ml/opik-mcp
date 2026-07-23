@@ -30,7 +30,14 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from opik_mcp.config import Settings, get_settings
-from opik_mcp.opik_client import OpikClient, make_opik_client
+from opik_mcp.opik_client import (
+    OpikAuthError,
+    OpikClient,
+    OpikNotFoundError,
+    OpikServerError,
+    OpikValidationError,
+    make_opik_client,
+)
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
     BackendError,
@@ -80,27 +87,109 @@ async def run_write(
 
     effective_idem = _resolve_idempotency_key(idempotency_key, items)
 
+    # Live path only: build the client and resolve any identifiers the wire
+    # needs but the caller doesn't carry (thread comments target the BE by the
+    # thread's model UUID; the caller passes the thread_id string). dry_run stays
+    # pure — no client, no backend calls — so it never depends on config/network.
+    http_client: OpikClient | None = None
+    if not dry_run:
+        http_client = client if client is not None else make_opik_client(settings or get_settings())
+        await _resolve_thread_comment_target(op, items, http_client)
+
     method, path, body = _build_request_with_method(op, items, is_batch=is_batch)
 
     if dry_run:
-        return {
-            "dry_run": True,
-            "would_call": {
-                "method": method,
-                "path": path,
-                "body_size": len(json.dumps(body)),
-                "batch": is_batch,
-                "item_count": len(items),
-                # Echoing the body lets the caller verify wire translations
-                # (e.g. ``test_suite_*`` → ``dataset_*``, items wrapped in
-                # ``{source, data: …}``) before committing the live call.
-                "body": body,
-            },
+        would_call: dict[str, Any] = {
+            "method": method,
+            "path": path,
+            "body_size": len(json.dumps(body)),
+            "batch": is_batch,
+            "item_count": len(items),
+            # Echoing the body lets the caller verify wire translations
+            # (e.g. ``test_suite_*`` → ``dataset_*``, items wrapped in
+            # ``{source, data: …}``) before committing the live call.
+            "body": body,
         }
+        # dry_run skips the live resolve, so a thread comment's previewed path
+        # still shows the thread_id string; the real call resolves it to the
+        # thread's model UUID. Say so rather than imply the preview is exact.
+        if op.name == "comment.create" and getattr(items[0], "target", None) == "thread":
+            would_call["note"] = (
+                "thread comments resolve the thread_id string to the thread's model "
+                "UUID at execution; the live path will use /threads/{model_uuid}/comments."
+            )
+        return {"dry_run": True, "would_call": would_call}
 
-    http_client = client if client is not None else make_opik_client(settings or get_settings())
+    assert http_client is not None  # set above whenever not dry_run
     resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
     return _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
+
+
+async def _resolve_thread_comment_target(
+    op: WriteOperation, items: list[BaseModel], client: OpikClient
+) -> None:
+    """Swap a thread-comment's ``thread_id`` string for the thread's model UUID.
+
+    The BE's ``POST /threads/{id}/comments`` takes the thread *model* UUID as
+    the path id, but the caller passes the same ``thread_id`` string used for
+    scoring/reading (uniform contract). Resolve it via ``get_thread`` so the
+    asymmetry never surfaces. No-op for non-thread comments and every other op.
+    """
+    if op.name != "comment.create":
+        return
+    from opik_mcp.writes.models import CommentCreate
+
+    model = items[0]
+    if not isinstance(model, CommentCreate) or model.target != "thread":
+        return
+    try:
+        # truncate=True — we only need the model id, not the full messages.
+        thread = await client.get_thread(
+            model.target_id,
+            project_id=str(model.project_id) if model.project_id else None,
+            project_name=model.project_name,
+            truncate=True,
+        )
+    except OpikNotFoundError as e:
+        raise ValidationFailedError.build(
+            op.name,
+            [
+                ValidationIssue(
+                    "target_id",
+                    f"thread {model.target_id!r} not found in the given project — "
+                    "check the thread_id and project_name/project_id.",
+                    "thread_not_found",
+                )
+            ],
+            expected_schema=op.pydantic_model.model_json_schema(),
+            example=op.example,
+        ) from e
+    except (OpikAuthError, OpikValidationError, OpikServerError) as e:
+        # Mirror the live write path: a non-404 backend failure during the
+        # resolve becomes a structured BackendError, not a raw OpikError that
+        # would bypass the write tool's JSON-envelope contract.
+        raise BackendError.build(
+            op.name,
+            e.http_status or 502,
+            str(e),
+            method="POST",
+            path="/v1/private/traces/threads/retrieve",
+        ) from e
+    # ``id`` on a TraceThread is the string thread_id, NOT a UUID — the comment
+    # path needs the model UUID, so there is no valid fallback to ``id`` here.
+    model_id = thread.get("thread_model_id")
+    if not isinstance(model_id, str) or not model_id:
+        raise ValidationFailedError.build(
+            op.name,
+            [
+                ValidationIssue(
+                    "target_id", "thread has no resolvable model id.", "thread_not_found"
+                )
+            ],
+            expected_schema=op.pydantic_model.model_json_schema(),
+            example=op.example,
+        )
+    items[0] = model.model_copy(update={"target_id": model_id})
 
 
 # --- Stage 1 ------------------------------------------------------------- #
@@ -195,14 +284,16 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
         assert isinstance(model, ScoreCreate)
         thread_example: dict[str, Any] = {
             "target": "thread",
-            "target_id": str(model.target_id),
+            "target_id": model.target_id,
             "name": model.name,
             "value": model.value,
         }
-        if model.reason is not None:
-            thread_example["reason"] = model.reason
         if model.project_name is not None:
             thread_example["project_name"] = model.project_name
+        if model.project_id is not None:
+            thread_example["project_id"] = str(model.project_id)
+        if model.reason is not None:
+            thread_example["reason"] = model.reason
         if model.category_name is not None:
             thread_example["category_name"] = model.category_name
         raise ValidationFailedError.build(
@@ -349,11 +440,13 @@ def _build_request(
         single = _dump(first)
         target_id = single.pop("target_id")
         single.pop("target", None)
-        # ``project_name`` is only consulted by the thread route; the spec
-        # leaves the single-trace/span routes free to ignore it but we
-        # strip it here to keep the body minimal.
+        # ``project_name``/``project_id`` are only consulted by the thread
+        # route; the single-trace/span routes ignore them, so strip them to
+        # keep the body minimal. (Thread scores always take the batch path, so
+        # this branch is trace/span only in practice.)
         if target != "thread":
             single.pop("project_name", None)
+            single.pop("project_id", None)
         return f"/v1/private/{target_path}/{target_id}/feedback-scores", single
 
     if name == "comment.create":
@@ -479,6 +572,7 @@ def _score_batch_item(item: dict[str, Any], target: str) -> dict[str, Any]:
     else:
         item["id"] = target_id
         item.pop("project_name", None)
+        item.pop("project_id", None)
     return item
 
 
