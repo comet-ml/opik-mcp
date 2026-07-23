@@ -80,9 +80,7 @@ async def run_list(
             # either, so don't force the UUID when a name was given.
             if required == "project_id" and kw.get("project_name"):
                 continue
-            hint = (
-                f"{required} (or project_name)" if required == "project_id" else required
-            )
+            hint = f"{required} (or project_name)" if required == "project_id" else required
             err = EntityArgValidationError(
                 f"list({entity_type!r}) requires {hint}. "
                 f"E.g. list({entity_type!r}, {required}='<uuid>', …)."

@@ -287,9 +287,7 @@ async def test_batch_too_large_rejects_before_be() -> None:
 @pytest.mark.anyio
 async def test_thread_close_puts_fixed_endpoint_with_body() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
-        route = mock.put("/v1/private/traces/threads/close").mock(
-            return_value=httpx.Response(204)
-        )
+        route = mock.put("/v1/private/traces/threads/close").mock(return_value=httpx.Response(204))
         await run_write(
             operation="thread.close",
             data={"thread_id": "conv-1", "project_name": "demo"},
@@ -304,9 +302,7 @@ async def test_thread_close_puts_fixed_endpoint_with_body() -> None:
 async def test_thread_open_puts_fixed_endpoint_and_stringifies_uuid() -> None:
     pid = "00000000-0000-0000-0000-000000000009"
     with respx.mock(base_url=OPIK_BASE) as mock:
-        route = mock.put("/v1/private/traces/threads/open").mock(
-            return_value=httpx.Response(204)
-        )
+        route = mock.put("/v1/private/traces/threads/open").mock(return_value=httpx.Response(204))
         await run_write(
             operation="thread.open",
             data={"thread_id": "conv-1", "project_id": pid},

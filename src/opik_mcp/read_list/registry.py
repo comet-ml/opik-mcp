@@ -217,9 +217,7 @@ async def _fetch_thread(
     return the metadata with an empty messages list rather than failing the
     whole read.
     """
-    thread = await client.get_thread(
-        entity_id, project_id=project_id, project_name=project_name
-    )
+    thread = await client.get_thread(entity_id, project_id=project_id, project_name=project_name)
     filters = json.dumps([{"field": "thread_id", "operator": "=", "value": entity_id}])
     try:
         traces_page = await client.list_traces(
