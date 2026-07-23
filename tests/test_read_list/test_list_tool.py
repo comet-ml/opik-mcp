@@ -159,6 +159,37 @@ async def test_list_threads_requires_project_id() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_threads_accepts_project_name_alternative() -> None:
+    """project_name satisfies the project requirement (no UUID round-trip)."""
+    fake = FakeOpikClient(threads={"content": [{"id": "th-1", "status": "active"}], "total": 1})
+    out = await run_list("thread", project_name="support-bot", client=fake)
+    assert fake.last_kwargs.get("project_name") == "support-bot"
+    assert "project_id" not in fake.last_kwargs
+    assert "th-1" in out
+
+
+@pytest.mark.anyio
+async def test_list_traces_accepts_project_name_alternative() -> None:
+    fake = FakeOpikClient(traces={"content": [], "total": 0})
+    await run_list("trace", project_name="support-bot", client=fake)
+    assert fake.last_kwargs.get("project_name") == "support-bot"
+
+
+@pytest.mark.anyio
+async def test_list_thread_missing_project_error_mentions_name() -> None:
+    with pytest.raises(ToolError, match=r"project_id \(or project_name\)"):
+        await run_list("thread", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_list_project_name_not_forwarded_to_workspace_wide_list() -> None:
+    """project_name must not leak into a non-project-scoped list_fn as a kwarg."""
+    fake = FakeOpikClient(experiments={"content": [], "total": 0})
+    await run_list("experiment", project_name="ignored", client=fake)
+    assert "project_name" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
 async def test_list_threads_renders_thread_columns() -> None:
     fake = FakeOpikClient(
         threads={

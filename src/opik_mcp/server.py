@@ -266,7 +266,22 @@ async def list_entities(
     ] = 25,
     project_id: Annotated[
         str | None,
-        Field(description="Required when listing traces. UUID of the parent project."),
+        Field(
+            description=(
+                "Parent project UUID for project-scoped lists (trace, thread). "
+                "Pass this OR project_name."
+            )
+        ),
+    ] = None,
+    project_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Parent project name — alternative to project_id for trace/thread "
+                "lists, so you don't need to resolve the UUID first."
+            ),
+            max_length=200,
+        ),
     ] = None,
     test_suite_id: Annotated[
         str | None,
@@ -284,8 +299,9 @@ async def list_entities(
     columns, plus a pagination footer when more pages exist. Use read() to
     get full details on any specific item.
 
-    Project-scoped types require their parent id:
-    - trace: project_id
+    Project-scoped types require their parent:
+    - trace: project_id or project_name
+    - thread: project_id or project_name
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
@@ -300,6 +316,7 @@ async def list_entities(
         page=page,
         size=size,
         project_id=project_id,
+        project_name=project_name,
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
     )
