@@ -1,16 +1,17 @@
-# opik-mcp
+# Opik MCP Server
+
+**The official Model Context Protocol (MCP) server for [Opik](https://github.com/comet-ml/opik), the open-source LLM observability and evaluation platform, built by [Comet](https://www.comet.com).**
+Plug your AI host (Claude Code, Cursor, VS Code Copilot, MCP Inspector) directly
+into your Opik workspace: read traces, log scores, save prompt versions, and ask
+[Ollie](#ask_ollie), Opik's in-product AI assistant, investigative questions, all
+from the chat.
+
+Built for LLM engineers who already run Opik and want to drive it from the same
+AI assistant they code with.
 
 > **Migrating from the old `npx opik-mcp`?** The TypeScript server is deprecated
 > and sunsets on **2026-11-15**. Swap `npx -y opik-mcp` for **`uvx opik-mcp@latest`**
 > in your MCP client config. Full guide: [`legacy/typescript/MIGRATION.md`](./legacy/typescript/MIGRATION.md).
-
-**Model Context Protocol server for [Opik](https://www.comet.com/opik) + Ollie.**
-Plug your AI host (Claude Code, Cursor, VS Code Copilot, MCP Inspector) directly
-into your Opik workspace — read traces, log scores, save prompt versions, and
-ask Ollie investigative questions, all from the chat.
-
-Built for LLM engineers who already run Opik and want to drive it from the same
-AI assistant they code with.
 
 ```
 You:    "Why did the experiment 'gpt-4o-rerank-v3' regress on factuality?"
