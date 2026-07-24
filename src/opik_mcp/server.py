@@ -42,6 +42,7 @@ from opik_mcp.oauth_identity import resolve_workspace_name
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.uri import looks_like_thread_url
 from opik_mcp.run_experiment import run_experiment_impl
 from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
 from opik_mcp.writes import (
@@ -71,12 +72,13 @@ def _looks_like_uuid(s: str) -> bool:
 
 
 def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-    raw_id = kwargs.get("id", "")
-    id_kind = (
-        "uri"
-        if str(raw_id).startswith("opik://")
-        else ("uuid" if _looks_like_uuid(str(raw_id)) else "name")
-    )
+    raw_id = str(kwargs.get("id", ""))
+    if raw_id.startswith("opik://") or looks_like_thread_url(raw_id):
+        id_kind = "uri"
+    elif _looks_like_uuid(raw_id):
+        id_kind = "uuid"
+    else:
+        id_kind = "name"
     return {
         "entity_type": kwargs.get("entity_type", ""),
         "id_kind": id_kind,
@@ -163,12 +165,13 @@ async def read(
         str,
         Field(
             description=(
-                "UUID, entity name (for nameable types), or full opik:// URI "
-                "(e.g. opik://traces/<uuid>). When a URI is passed, entity_type "
-                "is overridden from the URI."
+                "UUID, entity name (for nameable types), full opik:// URI "
+                "(e.g. opik://traces/<uuid>), or a pasted Opik thread link. When "
+                "a URI/link is passed, entity_type (and, for threads, the project) "
+                "is overridden from it."
             ),
             min_length=1,
-            max_length=512,
+            max_length=2048,
         ),
     ],
     max_tokens: Annotated[
@@ -184,6 +187,23 @@ async def read(
             le=200_000,
         ),
     ] = None,
+    project_id: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Project UUID. Required for entity_type='thread' unless the id is "
+                "a full thread URL/URI (which carries the project). Ignored for "
+                "globally-unique entities like trace/span."
+            ),
+        ),
+    ] = None,
+    project_name: Annotated[
+        str | None,
+        Field(
+            description="Project name — alternative to project_id for thread reads.",
+            max_length=200,
+        ),
+    ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
     """Read any Opik entity by ID, name, or opik:// URI, with adaptive compression.
@@ -197,6 +217,9 @@ async def read(
     Special shapes:
     - trace: returns {trace, spans, spansTruncated} with up to 200 spans inlined.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
+    - thread: returns {thread, messages, messagesTruncated} — each message is one
+      turn's trace input/output + a trace_id to read('trace', id). Needs project
+      scope: pass a thread link/URI, or project_id/project_name.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
     Output is a one-line `[read: …]` header (entity_type, id, compression
@@ -204,7 +227,13 @@ async def read(
     """
     if ctx is not None:
         await ctx.info(f"read.called entity_type={entity_type} id={id}")
-    return await run_read(entity_type=entity_type, id=id, max_tokens=max_tokens)
+    return await run_read(
+        entity_type=entity_type,
+        id=id,
+        max_tokens=max_tokens,
+        project_id=project_id,
+        project_name=project_name,
+    )
 
 
 @mcp.tool(name="list")
@@ -237,7 +266,22 @@ async def list_entities(
     ] = 25,
     project_id: Annotated[
         str | None,
-        Field(description="Required when listing traces. UUID of the parent project."),
+        Field(
+            description=(
+                "Parent project UUID for project-scoped lists (trace, thread). "
+                "Pass this OR project_name."
+            )
+        ),
+    ] = None,
+    project_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Parent project name — alternative to project_id for trace/thread "
+                "lists, so you don't need to resolve the UUID first."
+            ),
+            max_length=200,
+        ),
     ] = None,
     test_suite_id: Annotated[
         str | None,
@@ -255,8 +299,9 @@ async def list_entities(
     columns, plus a pagination footer when more pages exist. Use read() to
     get full details on any specific item.
 
-    Project-scoped types require their parent id:
-    - trace: project_id
+    Project-scoped types require their parent:
+    - trace: project_id or project_name
+    - thread: project_id or project_name
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
@@ -271,6 +316,7 @@ async def list_entities(
         page=page,
         size=size,
         project_id=project_id,
+        project_name=project_name,
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
     )

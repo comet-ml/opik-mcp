@@ -6,13 +6,14 @@ fetcher functions without spinning up httpx mocks.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.opik_client import OpikNotFoundError
+from opik_mcp.opik_client import OpikNotFoundError, OpikServerError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.read_tool import run_read
 
@@ -36,6 +37,9 @@ class FakeOpikClient:
     test_suites_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     prompts_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     prompt_versions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    threads_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    thread_messages: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    fail_list_traces: bool = False
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
         if project_id not in self.projects_by_id:
@@ -107,9 +111,45 @@ class FakeOpikClient:
     async def list_prompts(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
+    async def get_thread(
+        self,
+        thread_id: str,
+        *,
+        project_id: str | None = None,
+        project_name: str | None = None,
+        truncate: bool = False,
+    ) -> dict[str, Any]:
+        if thread_id not in self.threads_by_id:
+            raise OpikNotFoundError(f"thread {thread_id!r} not found (404).")
+        return self.threads_by_id[thread_id]
+
+    async def list_traces(
+        self,
+        *,
+        project_id: str | None = None,
+        project_name: str | None = None,
+        filters: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        if self.fail_list_traces:
+            raise OpikServerError("boom")
+        # Honor a thread_id filter so the thread fetcher's messages call works.
+        if filters:
+            for f in json.loads(filters):
+                if f.get("field") == "thread_id":
+                    content = self.thread_messages.get(f.get("value"), [])
+                    return {
+                        "content": content,
+                        "page": page,
+                        "size": len(content),
+                        "total": len(content),
+                    }
+        return {"content": [], "page": page, "size": 0, "total": 0}
+
     # OpikListClient surface the read tool doesn't exercise — present so the
     # fake satisfies the Protocol structurally.
-    async def list_traces(self, **_: Any) -> dict[str, Any]:
+    async def list_threads(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
     async def list_test_suite_items(self, _test_suite_id: str, **_kw: Any) -> dict[str, Any]:
@@ -223,6 +263,83 @@ async def test_read_accepts_opik_uri_overriding_entity_type() -> None:
 async def test_read_rejects_malformed_uri() -> None:
     with pytest.raises(ToolError, match="opik://"):
         await run_read("trace", "opik://nonsense/x", client=FakeOpikClient())
+
+
+# --- threads -------------------------------------------------------------- #
+
+THREAD = "conv-1"
+_THREAD_META = {"id": THREAD, "status": "active", "project_id": "p-9"}
+
+
+def _thread_fake() -> FakeOpikClient:
+    return FakeOpikClient(
+        threads_by_id={THREAD: _THREAD_META},
+        thread_messages={
+            THREAD: [
+                {"id": "tr-2", "name": "turn2", "input": "b", "start_time": "2026-01-02"},
+                {"id": "tr-1", "name": "turn1", "input": "a", "start_time": "2026-01-01"},
+            ]
+        },
+    )
+
+
+@pytest.mark.anyio
+async def test_read_thread_assembles_sorted_messages() -> None:
+    out = await run_read("thread", THREAD, project_id="p-9", client=_thread_fake())
+    assert f"[read: thread {THREAD}" in out
+    assert '"messages"' in out
+    assert '"messagesTruncated": false' in out
+    # ascending by start_time → tr-1 (2026-01-01) precedes tr-2 (2026-01-02)
+    assert out.index("tr-1") < out.index("tr-2")
+    assert '"trace_id"' in out
+
+
+@pytest.mark.anyio
+async def test_read_thread_via_project_name() -> None:
+    out = await run_read("thread", THREAD, project_name="demo", client=_thread_fake())
+    assert f"[read: thread {THREAD}" in out
+
+
+@pytest.mark.anyio
+async def test_read_thread_requires_project() -> None:
+    with pytest.raises(ToolError) as exc:
+        await run_read("thread", THREAD, client=_thread_fake())
+    assert "requires project scope" in str(exc.value)
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_read_thread_via_canonical_uri_carries_project() -> None:
+    # URI supplies the project, so no explicit project arg is needed.
+    out = await run_read("thread", "opik://projects/p-9/threads/conv-1", client=_thread_fake())
+    assert f"[read: thread {THREAD}" in out
+
+
+@pytest.mark.anyio
+async def test_read_thread_via_web_url() -> None:
+    url = "https://app.opik.test/ws/projects/p-9/traces?thread=conv-1"
+    out = await run_read("thread", url, client=_thread_fake())
+    assert f"[read: thread {THREAD}" in out
+
+
+@pytest.mark.anyio
+async def test_read_thread_degrades_on_messages_failure() -> None:
+    fake = _thread_fake()
+    fake.fail_list_traces = True
+    out = await run_read("thread", THREAD, project_id="p-9", client=fake)
+    assert '"messages": []' in out
+    assert '"messagesTruncated": false' in out
+    # the load failure is surfaced, not silently reported as "no messages"
+    assert "messagesError" in out
+    # metadata still present
+    assert '"status"' in out
+
+
+@pytest.mark.anyio
+async def test_read_thread_not_found() -> None:
+    fake = FakeOpikClient()
+    with pytest.raises(ToolError, match="Not found"):
+        await run_read("thread", THREAD, project_id="p-9", client=fake)
 
 
 # --- validation / errors -------------------------------------------------- #

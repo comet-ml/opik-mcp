@@ -192,6 +192,34 @@ _REGISTRY: dict[str, WriteOperation] = {
         description="Attach trace + dataset_item rows to an experiment. Always the array envelope.",
         example=EXAMPLES["experiment_item.create"],
     ),
+    "thread.close": WriteOperation(
+        name="thread.close",
+        pydantic_model=MODELS["thread.close"],
+        endpoint="/v1/private/traces/threads/close",
+        method="PUT",
+        oauth_scope=SCOPE_TRACE_SPAN_THREAD_LOG,
+        supports_batch=False,
+        description=(
+            "Close a thread (mark it inactive/done). Pass thread_id + project "
+            "(project_name or project_id)."
+        ),
+        example=EXAMPLES["thread.close"],
+        failure_modes=("thread_project_missing",),
+    ),
+    "thread.open": WriteOperation(
+        name="thread.open",
+        pydantic_model=MODELS["thread.open"],
+        endpoint="/v1/private/traces/threads/open",
+        method="PUT",
+        oauth_scope=SCOPE_TRACE_SPAN_THREAD_LOG,
+        supports_batch=False,
+        description=(
+            "Reopen a previously closed thread (mark it active). Pass thread_id "
+            "+ project (project_name or project_id)."
+        ),
+        example=EXAMPLES["thread.open"],
+        failure_modes=("thread_project_missing",),
+    ),
 }
 
 

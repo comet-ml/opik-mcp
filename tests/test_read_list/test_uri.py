@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from opik_mcp.read_list.uri import InvalidURI, ParsedURI, looks_like_uri, parse
+from opik_mcp.read_list.uri import (
+    InvalidURI,
+    ParsedURI,
+    looks_like_thread_url,
+    looks_like_uri,
+    parse,
+)
 
 
 @pytest.mark.parametrize(
@@ -45,3 +51,37 @@ def test_parse_underscore_form_for_test_suite_rejected() -> None:
     """We canonicalize on hyphens in the URI shape to match the old resources.py."""
     with pytest.raises(InvalidURI):
         parse("opik://test_suites/ds-1")
+
+
+# --- threads -------------------------------------------------------------- #
+
+
+def test_parse_canonical_thread_uri_carries_project() -> None:
+    assert parse("opik://projects/p-9/threads/th-1") == ParsedURI(
+        "thread", "th-1", project_id="p-9"
+    )
+
+
+def test_parse_web_thread_url_extracts_project_and_thread() -> None:
+    url = "https://app.opik.test/my-ws/projects/p-9/traces?page=1&thread=th-1&x=2"
+    assert parse(url) == ParsedURI("thread", "th-1", project_id="p-9")
+
+
+def test_parse_web_thread_url_url_decodes_thread_id() -> None:
+    url = "https://app.opik.test/ws/projects/p-9/traces?thread=conv%2F42"
+    assert parse(url) == ParsedURI("thread", "conv/42", project_id="p-9")
+
+
+def test_looks_like_thread_url() -> None:
+    assert looks_like_thread_url("https://x.test/ws/projects/p/traces?thread=t")
+    assert not looks_like_thread_url("https://x.test/ws/projects/p/traces")  # no thread=
+    assert not looks_like_thread_url("https://x.test/ws/datasets?thread=t")  # no /projects/
+    assert not looks_like_thread_url("opik://projects/p/threads/t")  # not http(s)
+    # 'thread=' is a substring of 'other_thread=' but must NOT be treated as a
+    # thread link — the gate uses the same anchored [?&]thread= regex as parse.
+    assert not looks_like_thread_url("https://x.test/ws/projects/p/traces?other_thread=t")
+
+
+def test_thread_uri_not_confused_with_project_singleton() -> None:
+    # A plain project singleton must still parse as project, not thread.
+    assert parse("opik://projects/p-1") == ParsedURI("project", "p-1")

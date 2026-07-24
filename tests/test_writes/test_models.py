@@ -89,14 +89,60 @@ async def test_score_thread_single_form_returns_array_example() -> None:
             operation="score.create",
             data={
                 "target": "thread",
-                "target_id": "00000000-0000-0000-0000-000000000001",
+                "target_id": "conversation-42",  # thread_id string
                 "name": "helpfulness",
                 "value": 0.5,
+                "project_name": "demo",
             },
         )
     body = json.loads(exc_info.value.to_json())
     assert any("thread_requires_batch" in i.get("code", "") for i in body["issues"])
     assert isinstance(body["example"], list), "thread error must propose the array form"
+
+
+@pytest.mark.anyio
+async def test_score_trace_non_uuid_target_id_rejected() -> None:
+    """trace/span target_id must be a UUID — a non-UUID gives a clear code."""
+    from opik_mcp.writes.dispatch import run_write
+
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="score.create",
+            data={"target": "trace", "target_id": "not-a-uuid", "name": "h", "value": 0.5},
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "target_id_not_uuid" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_score_thread_without_project_rejected() -> None:
+    """thread annotations need a project (thread_id is unique only within one)."""
+    from opik_mcp.writes.dispatch import run_write
+
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="score.create",
+            data=[{"target": "thread", "target_id": "conv-1", "name": "h", "value": 0.5}],
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "thread_project_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_comment_thread_accepts_string_id_with_project() -> None:
+    """A thread comment with the thread_id string + project clears validation
+    (Stage 2), reaching Stage 3 authorization under empty scopes."""
+    from opik_mcp.writes.dispatch import run_write
+    from opik_mcp.writes.errors import WriteError
+
+    with pytest.raises(WriteError) as exc_info:
+        await run_write(
+            operation="comment.create",
+            data={"target": "thread", "target_id": "conv-1", "text": "hi", "project_name": "p"},
+            dry_run=True,
+            scopes=frozenset(),
+        )
+    assert exc_info.value.error == "authorization_denied"
 
 
 @pytest.mark.anyio
@@ -226,6 +272,35 @@ async def test_experiment_item_create_bare_object_returns_envelope_example() -> 
     fields = {i["field"] for i in body["issues"]}
     assert "experiment_items" in fields
     assert "experiment_items" in body["example"]
+
+
+# --- thread lifecycle negatives ------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_thread_close_missing_thread_id() -> None:
+    from opik_mcp.writes.dispatch import run_write
+
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(operation="thread.close", data={"project_name": "demo"})
+    body = json.loads(exc_info.value.to_json())
+    fields = {i["field"] for i in body["issues"]}
+    assert "thread_id" in fields
+
+
+@pytest.mark.anyio
+async def test_thread_open_forbids_unknown_field() -> None:
+    from opik_mcp.writes.dispatch import run_write
+
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="thread.open",
+            # 'status' is not a field; project present so only the extra trips.
+            data={"thread_id": "conv-1", "project_name": "demo", "status": "active"},
+        )
+    body = json.loads(exc_info.value.to_json())
+    fields = {i["field"] for i in body["issues"]}
+    assert "status" in fields
 
 
 # --- unknown operation rejected at Stage 1 ------------------------------- #

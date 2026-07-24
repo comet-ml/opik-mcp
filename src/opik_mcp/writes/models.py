@@ -184,41 +184,80 @@ class SpanCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
     usage: dict[str, Any] | None = Field(default=None)
 
 
-# --- 4. score.create ------------------------------------------------------ #
+# --- 4 & 5. shared annotation target (score.create / comment.create) ----- #
+
+_TARGET_ID_DESC = (
+    "Identifier of the thing being annotated. For target='trace'/'span': the "
+    "entity UUID. For target='thread': the thread_id STRING — the value shown "
+    "as `id` in list('thread', project_id=…) and read('thread', …). Threads are "
+    "keyed by that string, not a UUID."
+)
 
 
-class ScoreCreate(_StrictBase):
-    """``PUT /v1/private/{target_path}/{target_id}/feedback-scores`` —
-    attaches a numeric score to a trace, span, or thread.
+class _AnnotationTarget(_StrictBase):
+    """Shared target fields + per-target id validation for score/comment.
 
-    ``target`` selects which BE route the dispatcher hits. For ``thread``,
-    the BE has no single-item endpoint, so the dispatcher rewrites this
-    payload into a batch envelope; that constraint is captured by the
-    ``target='thread'`` branch in ``dispatch.py`` rather than here so the
-    model stays uniform across targets.
+    One uniform contract for the LLM: ``target_id`` is a UUID for trace/span
+    and the ``thread_id`` string for thread. Thread annotations also need a
+    project (a thread_id is unique only within a project); trace/span ignore it
+    (their ids are globally unique). The dispatcher turns the string thread_id
+    into whatever each BE route needs (score sends it as-is; comment resolves it
+    to the thread's model UUID), so callers never juggle two identifiers.
     """
 
-    target: ScoreTarget = Field(description="What the score is attached to.")
-    target_id: UUID = Field(description="UUID of the trace, span, or thread.")
+    target: ScoreTarget = Field(description="What the annotation attaches to.")
+    target_id: str = Field(min_length=1, max_length=200, description=_TARGET_ID_DESC)
+    project_name: str | None = Field(default=None, max_length=200)
+    project_id: UUID | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_target(self) -> _AnnotationTarget:
+        if self.target in ("trace", "span"):
+            try:
+                # Normalize to canonical dashed form: Python's UUID() also
+                # accepts braces / urn: / dashless hex, but the Java BE's
+                # `UUID.fromString` path param does not — canonicalize so a
+                # locally-valid id is always BE-valid on the wire.
+                self.target_id = str(UUID(self.target_id))
+            except ValueError:
+                raise ValueError(
+                    f"target_id_not_uuid: target={self.target!r} needs a UUID "
+                    f"target_id; got {self.target_id!r}."
+                ) from None
+        else:  # thread — keyed by the thread_id string, scoped to a project
+            if self.project_name is None and self.project_id is None:
+                raise ValueError(
+                    "thread_project_missing: annotating a thread needs "
+                    "project_name or project_id (a thread_id is unique only "
+                    "within a project)."
+                )
+        return self
+
+
+class ScoreCreate(_AnnotationTarget):
+    """Attach a numeric feedback score to a trace, span, or thread.
+
+    trace/span -> ``PUT /v1/private/{traces|spans}/{id}/feedback-scores``.
+    thread -> ``PUT /v1/private/traces/threads/feedback-scores`` (batch-only on
+    the BE, so the dispatcher requires the array form for target='thread').
+    """
+
     name: str = Field(min_length=1, max_length=200)
     value: float = Field(ge=-1e9, le=1e9)
     source: Literal["sdk", "ui", "online_scoring"] = "sdk"
     category_name: str | None = Field(default=None, max_length=200)
     reason: str | None = Field(default=None, max_length=2000)
-    # ``thread`` writes optionally scope by project name so the BE can
-    # disambiguate threads that exist in multiple projects; ignored for
-    # trace/span writes (entity id is globally unique there).
-    project_name: str | None = Field(default=None, max_length=200)
 
 
-# --- 5. comment.create ---------------------------------------------------- #
+class CommentCreate(_AnnotationTarget):
+    """Attach a free-text comment to a trace, span, or thread.
 
+    trace/span -> ``POST /v1/private/{traces|spans}/{id}/comments``.
+    thread -> ``POST /v1/private/traces/threads/{thread_model_id}/comments``;
+    the dispatcher resolves the thread_id string to the model UUID first, so the
+    caller passes the same thread_id string used everywhere else.
+    """
 
-class CommentCreate(_StrictBase):
-    """``POST /v1/private/{target_path}/{target_id}/comments`` — free-text."""
-
-    target: ScoreTarget = Field(description="What the comment is attached to.")
-    target_id: UUID = Field(description="UUID of the trace, span, or thread.")
     text: str = Field(min_length=1, max_length=10_000)
 
 
@@ -378,6 +417,45 @@ class ExperimentItemCreate(_StrictBase):
     experiment_items: list[ExperimentItem] = Field(min_length=1, max_length=1000)
 
 
+# --- 11/12. thread.close / thread.open ----------------------------------- #
+
+
+class _ThreadLifecycle(_StrictBase):
+    """Shared shape for thread status changes (close/open).
+
+    A thread is keyed by ``thread_id`` within a project, so the BE's
+    ``TraceThreadIdentifier`` body takes the id plus project scope. Project is
+    optional (the BE resolves within the default project) but passing one
+    disambiguates threads that exist in multiple projects — same contract as the
+    thread score/comment path. The model carries no ``target`` field, so the
+    dispatcher's ``exclude_none`` dump is the wire body verbatim.
+    """
+
+    thread_id: str = Field(min_length=1, max_length=200)
+    project_name: str | None = Field(default=None, max_length=200)
+    project_id: UUID | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _require_project(self) -> _ThreadLifecycle:
+        # The BE's TraceThreadIdentifier validator rejects a request with
+        # neither project field (400). Catch it locally with a recovery code so
+        # the LLM adds a project instead of round-tripping a confusing 400.
+        if self.project_name is None and self.project_id is None:
+            raise ValueError(
+                "thread_project_missing: pass `project_name` or `project_id` "
+                "to identify the thread's project."
+            )
+        return self
+
+
+class ThreadClose(_ThreadLifecycle):
+    """``POST /v1/private/traces/threads/close`` — mark a thread inactive/done."""
+
+
+class ThreadOpen(_ThreadLifecycle):
+    """``POST /v1/private/traces/threads/open`` — reopen a thread (→ active)."""
+
+
 # --- examples (used by registry + validation errors) --------------------- #
 #
 # One validated example per operation. These are the source of truth for the
@@ -459,6 +537,8 @@ EXAMPLES: dict[str, dict[str, Any]] = {
             }
         ]
     },
+    "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
+    "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
 }
 
 
@@ -475,6 +555,8 @@ MODELS: dict[str, type[BaseModel]] = {
     "test_suite_item.upsert": TestSuiteItemUpsert,
     "experiment.create": ExperimentCreate,
     "experiment_item.create": ExperimentItemCreate,
+    "thread.close": ThreadClose,
+    "thread.open": ThreadOpen,
 }
 
 
@@ -497,6 +579,8 @@ __all__ = [
     "TestSuiteCreate",
     "TestSuiteItem",
     "TestSuiteItemUpsert",
+    "ThreadClose",
+    "ThreadOpen",
     "TraceCreate",
     "TraceUpdate",
 ]

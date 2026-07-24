@@ -115,6 +115,16 @@ class OpikListClient(Protocol):
         *,
         project_id: str | None = None,
         project_name: str | None = None,
+        filters: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def list_threads(
+        self,
+        *,
+        project_id: str | None = None,
+        project_name: str | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]: ...
@@ -169,6 +179,16 @@ class OpikReadClient(OpikListClient, Protocol):
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]: ...
 
     async def get_prompt(self, prompt_id: str, /) -> dict[str, Any]: ...
+
+    async def get_thread(
+        self,
+        thread_id: str,
+        /,
+        *,
+        project_id: str | None = None,
+        project_name: str | None = None,
+        truncate: bool = False,
+    ) -> dict[str, Any]: ...
 
 
 # --- client --------------------------------------------------------------- #
@@ -317,10 +337,17 @@ class OpikClient:
         *,
         project_id: str | None = None,
         project_name: str | None = None,
+        filters: str | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
-        """``GET /v1/private/traces`` — requires ``project_id`` or ``project_name``."""
+        """``GET /v1/private/traces`` — requires ``project_id`` or ``project_name``.
+
+        ``filters`` is the backend's JSON-encoded filter array (query param),
+        e.g. ``[{"field":"thread_id","operator":"=","value":"<id>"}]`` — used
+        by the thread read to pull a thread's messages. Forwarded only when set;
+        the ``list`` tool never passes it.
+        """
         if project_id is None and project_name is None:
             raise ValueError("list_traces requires project_id or project_name")
         params: dict[str, Any] = {"page": page, "size": size}
@@ -328,6 +355,8 @@ class OpikClient:
             params["project_id"] = project_id
         if project_name is not None:
             params["project_name"] = project_name
+        if filters is not None:
+            params["filters"] = filters
         return await self._get_json("/v1/private/traces", params=params, entity_hint="traces")
 
     async def get_trace(self, trace_id: str) -> dict[str, Any]:
@@ -336,6 +365,62 @@ class OpikClient:
             f"/v1/private/traces/{trace_id}",
             params=None,
             entity_hint=f"trace {trace_id!r}",
+        )
+
+    async def list_threads(
+        self,
+        *,
+        project_id: str | None = None,
+        project_name: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/traces/threads`` — project-scoped page of threads.
+
+        A thread groups traces by ``thread_id`` within one project, so listing
+        requires ``project_id`` or ``project_name`` (like ``list_traces``).
+        Returns a Spring Page envelope ``{content, page, size, total}``.
+        """
+        if project_id is None and project_name is None:
+            raise ValueError("list_threads requires project_id or project_name")
+        params: dict[str, Any] = {"page": page, "size": size}
+        if project_id is not None:
+            params["project_id"] = project_id
+        if project_name is not None:
+            params["project_name"] = project_name
+        return await self._get_json(
+            "/v1/private/traces/threads",
+            params=params,
+            entity_hint="threads",
+        )
+
+    async def get_thread(
+        self,
+        thread_id: str,
+        *,
+        project_id: str | None = None,
+        project_name: str | None = None,
+        truncate: bool = False,
+    ) -> dict[str, Any]:
+        """``POST /v1/private/traces/threads/retrieve`` — one thread's metadata.
+
+        A thread is keyed by ``thread_id`` within a single project, so the
+        backend has no ``GET /{id}`` route — it takes a ``TraceThreadIdentifier``
+        body and requires ``project_id`` or ``project_name`` (raise ``ValueError``
+        if neither is given, mirroring ``list_traces``). ``truncate=False`` keeps
+        full first/last-message payloads; compression manages the token budget.
+        """
+        if project_id is None and project_name is None:
+            raise ValueError("get_thread requires project_id or project_name")
+        body: dict[str, Any] = {"thread_id": thread_id, "truncate": truncate}
+        if project_id is not None:
+            body["project_id"] = project_id
+        if project_name is not None:
+            body["project_name"] = project_name
+        return await self._post_json(
+            "/v1/private/traces/threads/retrieve",
+            json=body,
+            entity_hint=f"thread {thread_id!r}",
         )
 
     async def list_spans(
@@ -561,6 +646,40 @@ class OpikClient:
         if not isinstance(body, dict):
             raise OpikServerError(
                 f"Opik returned non-object JSON for GET {path}: {type(body).__name__}"
+            )
+        return body
+
+    async def _post_json(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any],
+        entity_hint: str,
+    ) -> dict[str, Any]:
+        """POST a JSON body, expect 200, return the parsed object.
+
+        Read-side sibling of ``_get_json`` for endpoints the backend models as
+        POST-with-body rather than ``GET /{id}`` (thread ``retrieve``). Same
+        typed error mapping via ``_raise_for_status`` so callers don't translate.
+        """
+        url = f"{self._base_url}{path}"
+        content = _json.dumps(json, separators=(",", ":")).encode()
+        async with self._http() as http:
+            resp = await http.request("POST", url, content=content, headers=self._headers())
+        _raise_for_status(resp, entity_hint)
+        if resp.status_code != 200:
+            raise OpikServerError(
+                f"Unexpected status {resp.status_code} from POST {path} (expected 200)"
+            )
+        try:
+            body = resp.json()
+        except ValueError as exc:
+            raise OpikServerError(
+                f"Opik returned non-JSON body for POST {path}: {resp.text[:200]!r}"
+            ) from exc
+        if not isinstance(body, dict):
+            raise OpikServerError(
+                f"Opik returned non-object JSON for POST {path}: {type(body).__name__}"
             )
         return body
 

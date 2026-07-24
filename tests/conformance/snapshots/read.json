@@ -1,21 +1,22 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, span, test_suite, trace.",
+      "description": "One of: experiment, project, prompt, span, test_suite, thread, trace.",
       "enum": [
         "experiment",
         "project",
         "prompt",
         "span",
         "test_suite",
+        "thread",
         "trace"
       ],
       "title": "Entity Type",
       "type": "string"
     },
     "id": {
-      "description": "UUID, entity name (for nameable types), or full opik:// URI (e.g. opik://traces/<uuid>). When a URI is passed, entity_type is overridden from the URI.",
-      "maxLength": 512,
+      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik thread link. When a URI/link is passed, entity_type (and, for threads, the project) is overridden from it.",
+      "maxLength": 2048,
       "minLength": 1,
       "title": "Id",
       "type": "string"
@@ -34,6 +35,33 @@
       "default": null,
       "description": "Optional token budget. If the entity is under the budget, it's returned in full; otherwise compressed to MEDIUM (long strings truncated with path hints) or SKELETON (structure only). Default ~8k tokens.",
       "title": "Max Tokens"
+    },
+    "project_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Project UUID. Required for entity_type='thread' unless the id is a full thread URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
+      "title": "Project Id"
+    },
+    "project_name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Project name \u2014 alternative to project_id for thread reads.",
+      "title": "Project Name"
     }
   },
   "required": [

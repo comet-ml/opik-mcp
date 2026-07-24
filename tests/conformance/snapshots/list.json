@@ -1,7 +1,7 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, prompt_version, test_suite, test_suite_item, trace.",
+      "description": "One of: experiment, project, prompt, prompt_version, test_suite, test_suite_item, thread, trace.",
       "enum": [
         "experiment",
         "project",
@@ -9,6 +9,7 @@
         "prompt_version",
         "test_suite",
         "test_suite_item",
+        "thread",
         "trace"
       ],
       "title": "Entity Type",
@@ -46,8 +47,22 @@
         }
       ],
       "default": null,
-      "description": "Required when listing traces. UUID of the parent project.",
+      "description": "Parent project UUID for project-scoped lists (trace, thread). Pass this OR project_name.",
       "title": "Project Id"
+    },
+    "project_name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Parent project name \u2014 alternative to project_id for trace/thread lists, so you don't need to resolve the UUID first.",
+      "title": "Project Name"
     },
     "prompt_id": {
       "anyOf": [

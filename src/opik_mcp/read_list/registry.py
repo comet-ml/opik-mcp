@@ -22,6 +22,7 @@ plug into the existing dispatchers without further code changes.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -43,8 +44,13 @@ from opik_mcp.read_list.compression import (
 # constants so cache shapes stay stable for any in-flight integration.
 SPANS_INLINE_LIMIT = 200
 VERSIONS_INLINE_LIMIT = 100
+MESSAGES_INLINE_LIMIT = 200
 
-FetchFn = Callable[[OpikReadClient, str], Awaitable[dict[str, Any]]]
+# ``FetchFn`` is widened to ``...`` so project-scoped fetchers (only ``thread``
+# today) can accept ``project_id`` / ``project_name`` kwargs. Every other
+# fetcher is still ``(client, id)`` and is called positionally; only the
+# ``needs_project`` branch in ``read_tool`` passes the extra kwargs.
+FetchFn = Callable[..., Awaitable[dict[str, Any]]]
 SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]]
 ListFn = Callable[..., Awaitable[dict[str, Any]]]
 CompressFn = Callable[[dict[str, Any], int | None], tuple[str, CompressionTier]]
@@ -65,6 +71,15 @@ class EntityHandler:
 
     The ``read`` tool uses this to skip the name-lookup branch entirely —
     saves one round-trip on every non-UUID input for traces/spans/etc.
+    """
+    needs_project: bool = False
+    """True if ``fetch_fn`` needs project scope (thread only).
+
+    A thread id is unique only within a project, so ``read`` must pass
+    ``project_id`` / ``project_name`` into the fetcher. The read tool branches
+    on this flag: when set it calls ``fetch_fn(client, id, project_id=…,
+    project_name=…)`` and requires one of them; otherwise it calls
+    ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
     """
 
 
@@ -159,6 +174,78 @@ async def _fetch_prompt(client: OpikReadClient, entity_id: str) -> dict[str, Any
     return {"prompt": prompt, "versions": versions, "versionsTruncated": truncated}
 
 
+def _thread_messages(traces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project each trace to one conversation turn, sorted by ``start_time`` asc.
+
+    Ascending order is conversation order. Each turn keeps a ``trace_id`` so the
+    agent can ``read('trace', id)`` to drill into spans/metadata.
+    """
+    ordered = sorted(traces, key=lambda t: t.get("start_time") or "")
+    messages: list[dict[str, Any]] = []
+    for t in ordered:
+        msg: dict[str, Any] = {
+            "trace_id": t.get("id"),
+            "name": t.get("name"),
+            "input": t.get("input"),
+            "output": t.get("output"),
+            "start_time": t.get("start_time"),
+            "end_time": t.get("end_time"),
+            "duration": t.get("duration"),
+            "usage": t.get("usage"),
+            "total_estimated_cost": t.get("total_estimated_cost"),
+            "feedback_scores": t.get("feedback_scores"),
+        }
+        error_info = t.get("error_info")
+        if error_info is not None:
+            msg["error_info"] = error_info
+        messages.append(msg)
+    return messages
+
+
+async def _fetch_thread(
+    client: OpikReadClient,
+    entity_id: str,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
+) -> dict[str, Any]:
+    """Thread metadata + its messages (traces filtered by ``thread_id``).
+
+    Two project-scoped calls reproduce the UI's Thread panel: ``get_thread``
+    for metadata, then ``list_traces`` filtered by ``thread_id`` for the turns.
+    Mirrors ``_fetch_trace``'s defensive inline: if the messages call fails,
+    return the metadata with an empty messages list rather than failing the
+    whole read.
+    """
+    thread = await client.get_thread(entity_id, project_id=project_id, project_name=project_name)
+    filters = json.dumps([{"field": "thread_id", "operator": "=", "value": entity_id}])
+    try:
+        traces_page = await client.list_traces(
+            project_id=project_id,
+            project_name=project_name,
+            filters=filters,
+            page=1,
+            size=MESSAGES_INLINE_LIMIT,
+        )
+    except Exception:
+        # Unlike a trace's spans (secondary), messages ARE a thread's primary
+        # payload — so an empty list here must NOT read as "no messages" when
+        # the metadata says otherwise. Signal the load failure explicitly.
+        return {
+            "thread": thread,
+            "messages": [],
+            "messagesTruncated": False,
+            "messagesError": "Failed to load thread messages; retry or read the traces directly.",
+        }
+    traces = _content(traces_page)
+    truncated = _is_truncated(traces_page, inlined=len(traces), limit=MESSAGES_INLINE_LIMIT)
+    return {
+        "thread": thread,
+        "messages": _thread_messages(traces),
+        "messagesTruncated": truncated,
+    }
+
+
 async def _unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
     """Sentinel for list-only entities. The read tool raises before calling this."""
     raise NotImplementedError(
@@ -230,6 +317,14 @@ async def _list_prompt_versions(client: OpikListClient, **kw: Any) -> dict[str, 
     return await client.list_prompt_versions(prompt_id, **kw)
 
 
+async def _list_threads(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # Thread listing is project-scoped — the ``list`` tool enforces project_id
+    # via ``list_required_kwargs``. ``name`` filtering on threads isn't
+    # supported by opik-backend; drop it if passed.
+    kw.pop("name", None)
+    return await client.list_threads(**kw)
+
+
 # --- trace skeleton compression ------------------------------------------ #
 
 
@@ -262,6 +357,47 @@ def _compress_trace(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
         ],
         "spansTruncated": data.get("spansTruncated", False),
         "note": "SKELETON compression: payloads omitted. Use read('span', id) for details.",
+    }
+    return compact_json(skeleton), CompressionTier.SKELETON
+
+
+def _compress_thread(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
+    """Thread+messages: FULL → MEDIUM (truncated strings) → SKELETON (turn list only).
+
+    Mirrors ``_compress_trace``: SKELETON drops the message payloads but keeps
+    the turn list so the LLM can drill into a specific turn via
+    ``read('trace', trace_id)``.
+    """
+    full_json = compact_json(data)
+    full_tokens = estimate_tokens(full_json)
+
+    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
+    if full_tokens <= budget:
+        return full_json, CompressionTier.FULL
+
+    if full_tokens < TOKEN_SKELETON_THRESHOLD:
+        truncated = truncate_strings(data, ".thread")
+        return compact_json(truncated), CompressionTier.MEDIUM
+
+    thread = data.get("thread") or {}
+    messages = data.get("messages") or []
+    skeleton = {
+        "thread": {"id": thread.get("id"), "status": thread.get("status")},
+        "messages": [
+            {
+                "trace_id": m.get("trace_id"),
+                "name": m.get("name"),
+                "start_time": m.get("start_time"),
+                "feedback_scores": m.get("feedback_scores"),
+            }
+            for m in messages
+            if isinstance(m, dict)
+        ],
+        "messagesTruncated": data.get("messagesTruncated", False),
+        "note": (
+            "SKELETON compression: message payloads omitted. "
+            "Use read('trace', trace_id) for details."
+        ),
     }
     return compact_json(skeleton), CompressionTier.SKELETON
 
@@ -348,6 +484,23 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         description=(
             "Prompt version. Currently list-only — pass prompt_id to enumerate. "
             "Use read('prompt', id) to get the prompt + all versions in one call."
+        ),
+    ),
+    "thread": EntityHandler(
+        entity_type="thread",
+        fetch_fn=_fetch_thread,
+        list_fn=_list_threads,
+        list_extra_fields=("status", "number_of_messages", "last_updated_at"),
+        list_required_kwargs=("project_id",),
+        compress_fn=_compress_thread,
+        id_only=True,
+        needs_project=True,
+        description=(
+            "Conversation thread: metadata + messages list (each turn's trace "
+            "input/output, up to 200 inlined). Returns {thread, messages, "
+            "messagesTruncated}. Requires project scope — pass a thread link/URI "
+            "or project_id. list('thread', project_id=…) enumerates a project's "
+            "threads."
         ),
     ),
 }

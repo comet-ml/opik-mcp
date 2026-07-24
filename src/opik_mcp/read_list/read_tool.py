@@ -36,7 +36,7 @@ from opik_mcp.read_list.registry import (
     EntityHandler,
     compress_for,
 )
-from opik_mcp.read_list.uri import InvalidURI, looks_like_uri
+from opik_mcp.read_list.uri import InvalidURI, looks_like_thread_url, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
 
 logger = logging.getLogger("opik_mcp.read_list.read")
@@ -103,25 +103,33 @@ async def run_read(
     id: str,
     *,
     max_tokens: int | None = None,
+    project_id: str | None = None,
+    project_name: str | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
 ) -> str:
     """Read tool entrypoint. See ``server.py`` for the registered tool.
 
-    Dispatch order: URI parse → registry lookup → UUID-vs-name branch →
-    fetch → compress. Each branch surfaces errors as ``ToolError`` so the
-    host LLM gets the structured guidance.
+    Dispatch order: URI parse → registry lookup → project gate → UUID-vs-name
+    branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
+    the host LLM gets the structured guidance.
     """
-    # Accept ``opik://…`` URIs as id input (D1 mitigation). When the URI
-    # encodes its own entity_type we trust it and override the explicit
-    # argument — that way the agent can paste a URI into either slot.
-    if looks_like_uri(id):
+    # Accept ``opik://…`` URIs and pasted web thread links as id input. When the
+    # URI encodes its own entity_type we trust it and override the explicit
+    # argument — that way the agent can paste a URI into either slot. A parsed
+    # thread URI/link also carries the project, which overrides the explicit arg.
+    if looks_like_uri(id) or looks_like_thread_url(id):
         try:
             parsed = parse_uri(id)
         except InvalidURI as e:
             raise ToolError(str(e)) from e
         entity_type = parsed.entity_type
         id = parsed.entity_id
+        if parsed.project_id is not None:
+            # The URI is the source of truth for the project — clear any
+            # explicit project_name so we don't send a conflicting pair.
+            project_id = parsed.project_id
+            project_name = None
 
     if entity_type not in READABLE_TYPES:
         if entity_type in ENTITY_REGISTRY:
@@ -138,8 +146,18 @@ async def run_read(
 
     handler = ENTITY_REGISTRY[entity_type]
 
+    if handler.needs_project and project_id is None and project_name is None:
+        err = EntityArgValidationError(
+            f"read({entity_type!r}) requires project scope. Pass the full thread "
+            f"link/URI, or a project_id — e.g. "
+            f"read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
+        )
+        raise ToolError(str(err)) from err
+
     opik = client if client is not None else make_opik_client(settings or get_settings())
-    data = await _fetch_with_name_lookup(handler, opik, id)
+    data = await _fetch_with_name_lookup(
+        handler, opik, id, project_id=project_id, project_name=project_name
+    )
 
     compressed_text, tier = compress_for(handler, data, max_tokens)
     full_json = compact_json(data)
@@ -153,6 +171,9 @@ async def _fetch_with_name_lookup(
     handler: EntityHandler,
     client: OpikReadClient,
     entity_id: str,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
 ) -> dict[str, Any]:
     """Resolve name → id when the input doesn't look like a UUID.
 
@@ -182,6 +203,10 @@ async def _fetch_with_name_lookup(
         # will 404 with a clear message if it really doesn't exist.
 
     try:
+        if handler.needs_project:
+            return await handler.fetch_fn(
+                client, entity_id, project_id=project_id, project_name=project_name
+            )
         return await handler.fetch_fn(client, entity_id)
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e

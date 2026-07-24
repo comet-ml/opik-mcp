@@ -73,15 +73,17 @@ async def test_score_create_routes_per_target() -> None:
             data={"target": "span", "target_id": target_id, "name": "h", "value": 0.5},
             client=_client(),
         )
-        # Thread requires batch form; pass a one-element array.
+        # Thread requires batch form; thread target_id is the thread_id STRING
+        # and needs a project. Pass a one-element array.
         await run_write(
             operation="score.create",
             data=[
                 {
                     "target": "thread",
-                    "target_id": target_id,
+                    "target_id": "conversation-42",
                     "name": "h",
                     "value": 0.5,
+                    "project_name": "demo",
                 }
             ],
             client=_client(),
@@ -90,10 +92,127 @@ async def test_score_create_routes_per_target() -> None:
     assert trace_route.called
     assert span_route.called
     assert thread_route.called
-    # Verify thread batch body uses thread_id key (not id).
+    # Verify thread batch body uses thread_id key (not id) and carries project.
     body = json.loads(thread_route.calls.last.request.read())
     assert "scores" in body
-    assert body["scores"][0]["thread_id"] == target_id
+    assert body["scores"][0]["thread_id"] == "conversation-42"
+    assert body["scores"][0]["project_name"] == "demo"
+
+
+# --- thread annotation: string thread_id contract ---------------------- #
+
+
+@pytest.mark.anyio
+async def test_score_thread_accepts_string_thread_id() -> None:
+    """A thread score uses the thread_id STRING (not a UUID) as target_id."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await run_write(
+            operation="score.create",
+            data=[
+                {
+                    "target": "thread",
+                    "target_id": "support-2026-07-23-alex",
+                    "name": "resolution",
+                    "value": 1,
+                    "project_name": "support-bot",
+                }
+            ],
+            client=_client(),
+        )
+    item = json.loads(route.calls.last.request.read())["scores"][0]
+    assert item["thread_id"] == "support-2026-07-23-alex"
+    assert item["project_name"] == "support-bot"
+    assert "target" not in item and "target_id" not in item
+
+
+@pytest.mark.anyio
+async def test_comment_thread_resolves_model_uuid_for_path() -> None:
+    """comment on a thread: caller passes the thread_id string; the dispatcher
+    resolves it to the thread model UUID the BE's comment path requires."""
+    model_uuid = "019f8eaf-aa13-732d-8157-cb067ea60bed"
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        retrieve = mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(
+                200, json={"id": "support-2026-07-23-alex", "thread_model_id": model_uuid}
+            )
+        )
+        comment = mock.post(f"/v1/private/traces/threads/{model_uuid}/comments").mock(
+            return_value=httpx.Response(201)
+        )
+        await run_write(
+            operation="comment.create",
+            data={
+                "target": "thread",
+                "target_id": "support-2026-07-23-alex",
+                "text": "duplicate refunded",
+                "project_name": "support-bot",
+            },
+            client=_client(),
+        )
+    assert retrieve.called and comment.called
+    rb = json.loads(retrieve.calls.last.request.read())
+    assert rb["thread_id"] == "support-2026-07-23-alex" and rb["project_name"] == "support-bot"
+    assert json.loads(comment.calls.last.request.read())["text"] == "duplicate refunded"
+
+
+@pytest.mark.anyio
+async def test_comment_thread_not_found_surfaces_recovery() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(404, json={"message": "no such thread"})
+        )
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="comment.create",
+                data={
+                    "target": "thread",
+                    "target_id": "ghost",
+                    "text": "x",
+                    "project_name": "support-bot",
+                },
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "thread_not_found" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_comment_thread_resolve_backend_error_is_structured() -> None:
+    """A non-404 failure during the resolve surfaces as a structured BackendError,
+    not a raw OpikError that would bypass the write tool's JSON envelope."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(403, json={"message": "denied"})
+        )
+        with pytest.raises(BackendError) as exc_info:
+            await run_write(
+                operation="comment.create",
+                data={"target": "thread", "target_id": "t", "text": "x", "project_name": "p"},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert body["error"] == "backend_error"
+    assert body["backend_error"]["status"] == 403
+
+
+@pytest.mark.anyio
+async def test_score_trace_canonicalizes_non_dashed_uuid() -> None:
+    """A brace/urn/dashless UUID validates locally AND is normalized to the
+    canonical dashed form the Java BE path requires."""
+    canon = "00000000-0000-0000-0000-000000000001"
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put(f"/v1/private/traces/{canon}/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await run_write(
+            operation="score.create",
+            data={"target": "trace", "target_id": f"{{{canon}}}", "name": "h", "value": 0.5},
+            client=_client(),
+        )
+    assert route.called  # matched only if target_id was canonicalized
 
 
 # --- single vs. batch endpoint selection -------------------------------- #
@@ -160,6 +279,89 @@ async def test_batch_too_large_rejects_before_be() -> None:
         with pytest.raises(BatchTooLargeError):
             await run_write(operation="trace.create", data=payload, client=_client())
     assert not route.called, "BE was hit despite batch_too_large"
+
+
+# --- thread lifecycle (thread.close / thread.open) ---------------------- #
+
+
+@pytest.mark.anyio
+async def test_thread_close_puts_fixed_endpoint_with_body() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/close").mock(return_value=httpx.Response(204))
+        await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1", "project_name": "demo"},
+            client=_client(),
+        )
+    sent = json.loads(route.calls.last.request.content)
+    # exclude_none dump is the wire body verbatim — no target/None fields.
+    assert sent == {"thread_id": "conv-1", "project_name": "demo"}
+
+
+@pytest.mark.anyio
+async def test_thread_open_puts_fixed_endpoint_and_stringifies_uuid() -> None:
+    pid = "00000000-0000-0000-0000-000000000009"
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/open").mock(return_value=httpx.Response(204))
+        await run_write(
+            operation="thread.open",
+            data={"thread_id": "conv-1", "project_id": pid},
+            client=_client(),
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"thread_id": "conv-1", "project_id": pid}
+
+
+@pytest.mark.anyio
+async def test_thread_close_dry_run_reports_fixed_path() -> None:
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        route = mock.route().mock(return_value=httpx.Response(500))
+        result = await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1", "project_name": "demo"},
+            dry_run=True,
+            client=_client(),
+        )
+    assert result["would_call"]["method"] == "PUT"
+    assert result["would_call"]["path"] == "/v1/private/traces/threads/close"
+    assert not route.called
+
+
+@pytest.mark.anyio
+async def test_thread_close_requires_log_scope() -> None:
+    with pytest.raises(AuthorizationDeniedError) as exc_info:
+        await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1", "project_name": "demo"},
+            scopes=frozenset(),
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert body["required_scope"] == SCOPE_TRACE_SPAN_THREAD_LOG
+
+
+@pytest.mark.anyio
+async def test_thread_close_requires_project() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="thread.close",
+            data={"thread_id": "conv-1"},  # no project
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "thread_project_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_thread_close_rejects_batch() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="thread.close",
+            data=[{"thread_id": "a"}, {"thread_id": "b"}],
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "batch_unsupported" for i in body["issues"])
 
 
 # --- OAuth scope rejection ---------------------------------------------- #

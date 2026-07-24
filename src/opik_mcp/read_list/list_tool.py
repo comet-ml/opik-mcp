@@ -42,6 +42,7 @@ async def run_list(
     page: int = 1,
     size: int = 25,
     project_id: str | None = None,
+    project_name: str | None = None,
     test_suite_id: str | None = None,
     prompt_id: str | None = None,
     settings: Settings | None = None,
@@ -62,6 +63,11 @@ async def run_list(
         kw["name"] = name
     if project_id is not None:
         kw["project_id"] = project_id
+    # Only project-scoped lists (trace, thread) take project_name; forwarding it
+    # to a workspace-wide list_fn (projects/experiments/…) would be an unexpected
+    # kwarg. Gate on the same signal the required-check uses.
+    if project_name is not None and "project_id" in handler.list_required_kwargs:
+        kw["project_name"] = project_name
     if test_suite_id is not None:
         kw["test_suite_id"] = test_suite_id
     if prompt_id is not None:
@@ -69,8 +75,14 @@ async def run_list(
 
     for required in handler.list_required_kwargs:
         if kw.get(required) is None:
+            # project_name is an accepted alternative to project_id for the
+            # project-scoped lists (trace, thread) — the client methods take
+            # either, so don't force the UUID when a name was given.
+            if required == "project_id" and kw.get("project_name"):
+                continue
+            hint = f"{required} (or project_name)" if required == "project_id" else required
             err = EntityArgValidationError(
-                f"list({entity_type!r}) requires {required}. "
+                f"list({entity_type!r}) requires {hint}. "
                 f"E.g. list({entity_type!r}, {required}='<uuid>', …)."
             )
             raise ToolError(str(err)) from err
