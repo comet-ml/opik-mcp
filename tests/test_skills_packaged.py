@@ -13,13 +13,14 @@ wheel rather than left behind as untracked source files.
 from __future__ import annotations
 
 from importlib.resources import files
+from importlib.resources.abc import Traversable
 
 import pytest
 
 SHARED_SKILLS = ("opik", "agent-ops", "opik-sdk", "evaluation")
 
 
-def _skills_root():
+def _skills_root() -> Traversable:
     return files("opik_mcp") / "skills"
 
 
