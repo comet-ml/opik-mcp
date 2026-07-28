@@ -238,6 +238,14 @@ def _emit_server_shutdown(
 
 
 def main() -> None:
+    # `opik-mcp skills ...` is a local, offline file-copy subcommand — it must
+    # short-circuit before any settings load, analytics, or server startup.
+    argv = sys.argv[1:]
+    if argv and argv[0] == "skills":
+        from opik_mcp.skills_install import run as run_skills
+
+        raise SystemExit(run_skills(argv[1:]))
+
     try:
         settings = get_settings()
     except ValidationError as e:
