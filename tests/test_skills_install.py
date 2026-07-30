@@ -13,7 +13,7 @@ import pytest
 
 from opik_mcp.skills_install import _available, run
 
-SHARED_SKILLS = ("opik", "agent-ops", "evaluation")
+SHARED_SKILLS = ("opik", "evaluate")
 
 
 def test_available_lists_the_shared_skills() -> None:
@@ -44,7 +44,7 @@ def test_install_subset(tmp_path: Path) -> None:
     dest = tmp_path / "skills"
     assert run(["install", "--dir", str(dest), "opik"]) == 0
     assert (dest / "opik" / "SKILL.md").is_file()
-    assert not (dest / "agent-ops").exists()
+    assert not (dest / "evaluate").exists()
 
 
 def test_install_unknown_skill_errors(tmp_path: Path) -> None:
