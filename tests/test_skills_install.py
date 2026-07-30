@@ -13,7 +13,7 @@ import pytest
 
 from opik_mcp.skills_install import _available, run
 
-SHARED_SKILLS = ("opik", "agent-ops", "opik-sdk", "evaluation")
+SHARED_SKILLS = ("opik", "agent-ops", "evaluation")
 
 
 def test_available_lists_the_shared_skills() -> None:
