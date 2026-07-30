@@ -1,12 +1,12 @@
 ---
-name: evaluation
+name: evaluate
 description: >
-  Guide users through LLM evaluation with Opik: auditing eval pipelines, error
-  analysis on traces, synthetic data generation, writing LLM judge prompts,
-  validating evaluators against human labels, and evaluating RAG pipelines.
-  Use when the user asks about evals, failure analysis, LLM judges, evaluation
-  metrics, or improving AI product quality.
-last_updated: "2026-04-17"
+  Build an LLM evaluation and run it against your app, returning an experiment
+  with scores. Covers datasets, LLM judges, RAG evaluation, synthetic data,
+  error analysis, and validating evaluators against human labels. Use when the
+  user wants to measure or improve AI product quality, or asks about evals,
+  judges, or evaluation metrics.
+last_updated: "2026-07-30"
 source_commit: "2.0.0"
 ---
 

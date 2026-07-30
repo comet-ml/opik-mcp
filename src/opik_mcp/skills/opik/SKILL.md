@@ -136,6 +136,9 @@ def run(question: str) -> str:
 | REST API | `references/tracing-rest-api.md` |
 | All integrations | `references/integrations.md` |
 | Core concepts (traces, spans, threads) | `references/observability.md` |
-| Evaluation & test suites | `references/evaluation.md` — migrating to the `agent-ops` skill (OPIK-7471) |
+| Best practices (lifecycle, monitoring, anti-patterns) | `references/best-practices.md` |
+| Agent architecture, reliability, security | `references/agent-patterns.md` |
+| Production monitoring, alerts, guardrails | `references/production.md` |
+| Evaluation datasets & test suites (reference) | `references/evaluation-datasets.md`, `references/evaluation-test-suites.md` |
 
-For repo instrumentation and config, use the `instrument` skill.
+To build and run an evaluation, use the `evaluate` skill. For repo instrumentation and config, use the `instrument` skill.

@@ -1,13 +1,6 @@
----
-name: agent-ops
-description: This skill should be used when the user asks about agent architecture, evaluation, metrics, production monitoring, debugging agents, or best practices for building reliable AI agents. Use for questions like "evaluate my agent", "set up production monitoring", "add guardrails", "detect hallucinations", "agent anti-patterns", "compare experiments", "create evaluation dataset".
-last_updated: "2026-04-17"
-source_commit: "2.0.0"
----
+# Best Practices: Build, Evaluate, and Monitor AI Agents
 
-# Agent Operations: Build, Evaluate, and Monitor AI Agents
-
-This skill covers the agent lifecycle beyond basic tracing: architecture patterns, evaluation, metrics, and production monitoring. All examples use Opik for observability — for SDK details (tracing, integrations, span types), load the `opik` skill.
+Best practices for the agent lifecycle beyond basic tracing — architecture patterns, evaluation, metrics, and production monitoring. This is reference material for the `opik` skill. For SDK details (tracing, integrations, span types) see the other `opik` references; to actually build and run an evaluation, use the `evaluate` skill.
 
 ## The Agent Lifecycle
 
@@ -101,7 +94,7 @@ const results = await runTests({
 if (!results.allItemsPassed) process.exit(1); // CI gate
 ```
 
-See `references/evaluation-test-suites.md` for full API (items, versioning, execution policies, CI integration).
+See `evaluation-test-suites.md` for full API (items, versioning, execution policies, CI integration).
 
 ### Legacy Dataset Evaluation
 
@@ -123,7 +116,7 @@ results = evaluate(
 )
 ```
 
-See `references/evaluation-datasets.md` for full API (datasets, versioning, 60+ metrics, annotation queues).
+See `evaluation-datasets.md` for full API (datasets, versioning, 60+ metrics, annotation queues).
 
 ## Production Monitoring
 
@@ -146,7 +139,7 @@ See `references/evaluation-datasets.md` for full API (datasets, versioning, 60+ 
 
 | Topic | Reference File |
 |-------|----------------|
-| Agent architecture, reliability, security patterns | `references/agent-patterns.md` |
-| **Test Suites, `run_tests()`, assertions, CI gating (recommended)** | `references/evaluation-test-suites.md` |
-| Legacy datasets, `evaluate()`, 60+ metrics, annotation queues | `references/evaluation-datasets.md` |
-| Production dashboards, alerts, guardrails, cost tracking | `references/production.md` |
+| Agent architecture, reliability, security patterns | `agent-patterns.md` |
+| **Test Suites, `run_tests()`, assertions, CI gating (recommended)** | `evaluation-test-suites.md` |
+| Legacy datasets, `evaluate()`, 60+ metrics, annotation queues | `evaluation-datasets.md` |
+| Production dashboards, alerts, guardrails, cost tracking | `production.md` |
