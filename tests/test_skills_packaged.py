@@ -17,7 +17,7 @@ from importlib.resources.abc import Traversable
 
 import pytest
 
-SHARED_SKILLS = ("opik", "agent-ops", "opik-sdk", "evaluation")
+SHARED_SKILLS = ("opik", "agent-ops", "evaluation")
 
 
 def _skills_root() -> Traversable:

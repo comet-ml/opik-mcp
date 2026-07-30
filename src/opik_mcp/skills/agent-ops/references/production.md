@@ -14,24 +14,24 @@ Opik provides comprehensive production monitoring:
 - **Online evaluation** - Automatically score production traces
 - **Alerts** - Get notified when metrics deviate
 - **Guardrails** - Protect against risks in real-time
-- **Opik Assist** - AI-powered debugging for traces
+- **Ollie** - Opik's AI assistant for debugging traces
 
-## Opik Assist (AI Debugging)
+## Ollie (AI Debugging)
 
-Opik Assist uses AI to help debug and understand your traces.
+Ollie is Opik's AI assistant — it helps debug and understand your traces.
 
-### What Opik Assist Does
+### What Ollie Does
 
 - **Root Cause Analysis**: Automatically identifies why a trace failed or produced poor results
 - **Anomaly Detection**: Flags unusual patterns in trace behavior
 - **Improvement Suggestions**: Recommends prompt or configuration changes
 - **Comparison Analysis**: Explains differences between successful and failed traces
 
-### Using Opik Assist
+### Using Ollie
 
 In the Opik UI:
-1. Navigate to any trace
-2. Click "Opik Assist" button
+1. Open a trace or span
+2. Use the **Explain** (Ollie) action for an instant analysis, then continue the conversation in the **Ollie** sidebar
 3. Ask questions about the trace:
    - "Why did this trace fail?"
    - "What caused the hallucination in span X?"
@@ -48,11 +48,11 @@ In the Opik UI:
 | Comparison | "How does this differ from trace X?" |
 | Improvement | "Suggest prompt changes to fix this" |
 
-### Opik Assist for Evaluation Results
+### Ollie for Evaluation Results
 
 When viewing experiment results:
 1. Select traces with low scores
-2. Click "Analyze with Opik Assist"
+2. Use **Explain** (Ollie) on them
 3. Get AI-generated insights on:
    - Common failure patterns
    - Suggested prompt improvements

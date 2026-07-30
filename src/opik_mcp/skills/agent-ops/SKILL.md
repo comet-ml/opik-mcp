@@ -131,7 +131,7 @@ See `references/evaluation-datasets.md` for full API (datasets, versioning, 60+ 
 - **Online evaluation** — Automatically score production traces with LLM-as-Judge
 - **Alerts** — Get notified when metrics deviate (quality drops, cost spikes, error rates)
 - **Guardrails** — PII detection, topic validation, custom safety checks
-- **Opik Assist** — AI-powered root cause analysis for failed traces
+- **Ollie** — AI-powered root cause analysis for failed traces (Opik's AI assistant)
 
 ## Common Anti-Patterns
 
