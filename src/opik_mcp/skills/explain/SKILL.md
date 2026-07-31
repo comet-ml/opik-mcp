@@ -12,11 +12,8 @@ source_commit: "TODO"
 ## Intent
 Given a trace (often from `/find`), produce a grounded root-cause: what went wrong, why, and a suggested next step, citing the relevant spans.
 
-## Transport — two paths, one output
-- **SDK (default):** fetch the trace + spans; the coding agent reasons **against your code**. No MCP required.
-- **MCP / Ollie (when connected on Opik Cloud):** escalate to `ask_ollie` for workspace-wide investigation. `ask_ollie` is the only MCP-only capability.
-
-Same output shape either way (root cause + evidence spans + next step).
+## Transport
+The agent runs the investigation itself over data it fetches via the SDK — a single trace, or a broader set (via `list` / `agent_insights`) for a pattern. **No MCP required.** When the hosted MCP is connected, it can optionally hand off to `ask_ollie` as an *alternative* reasoner — a convenience, not a gate. Output shape is the same either way (root cause + evidence spans + next step).
 
 ## Definition of done
 - [ ] Grounded root-cause over the SDK path with no MCP required.
