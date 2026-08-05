@@ -1,10 +1,10 @@
 ---
 name: instrument
-description: Add Opik tracing to an existing codebase and verify a real trace lands. Ensures Opik is configured (runs `opik configure` if needed), detects language (Python/TypeScript) and LLM frameworks, adds the right decorators/integrations, marks entrypoints, runs the app, and confirms a trace arrived. Use for "instrument my code", "add opik tracing", "add observability", or "trace my agent".
+description: Add Opik tracing to an existing app and verify a real trace lands. Installs the Opik package, detects the language and LLM framework, adds the minimum tracing, runs a safe representative path, confirms a trace in Opik, and returns the trace link. Use for "instrument my code", "add opik tracing", "add observability", "trace my agent".
 last_updated: "2026-08-05"
-source_commit: "TODO"
-argument-hint: "[file or directory path]"
-compatibility: Works with Claude Code, OpenAI Codex, Cursor, and any Agent Skills-compatible tool. Requires a Python or TypeScript project.
+source_commit: "TODO — pin to the verified Opik release (OPIK-7471)"
+argument-hint: "[optional: file or directory path]"
+compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project.
 allowed-tools:
   - Read
   - Edit
@@ -16,298 +16,89 @@ allowed-tools:
 
 # Instrument — Add Opik Tracing and Verify a Real Trace
 
-You are instrumenting an existing codebase with Opik observability, then running it to confirm a real trace lands. Follow these steps precisely. **The job is not done until a trace is verified in Opik** — not at a static audit.
+**Definition of done:** a representative, safely-executed path produces a trace that is confirmed in Opik and a direct trace link is returned. If verification can't be completed safely or autonomously, stop at the **first** genuine blocker and return **exactly one** concrete next step. Code edits alone are not success.
 
-## Step 0 — Ensure Opik is configured
+Operate: **opinionated in execution, conservative in code changes, automatic in routine decisions, uncompromising about verifying value — but never by running something unsafe.**
 
-Before touching code, make sure Opik has credentials:
+## Inputs
 
-- If `~/.opik.config` exists (or `OPIK_API_KEY` is set in the environment), continue.
-- Otherwise run the existing configuration flow — do **not** hand-write credentials:
-  - Python: `opik configure`
-  - TypeScript: `npx opik-ts configure`
+The entry point is just `/instrument` (optionally `/instrument <path>`). Infer everything else; treat these only as **optional overrides** the user may pass, never as required setup:
 
-This bootstraps the API key, workspace, and URL. There is no separate config skill — `/instrument` drives Opik's existing `opik configure`.
+- target path (default: project root) · project name (default: inferred from the repo) · run command (default: an inferred safe path) · `migrate_prompts` (default: **false**).
 
-## Step 1 — Scope
+Never turn inference into a questionnaire. Ask only when you hit a genuine, non-inferable blocker (see **Blockers**).
 
-If `$ARGUMENTS` is provided, scope your work to those files or directories. Otherwise, discover the project root and instrument the main application code.
+## Activation — the only in-scope work
 
-## Step 2 — Detect Language & Frameworks
+### 1. Configure Opik (one source of truth)
+- If `~/.opik.config` exists or `OPIK_API_KEY` is set, use it as-is.
+- Otherwise run the official flow: `opik configure` (Python) / `npx opik-ts configure` (TypeScript).
+- Only add project-local `.env` vars if the project **already** uses that pattern. Never introduce a second config mechanism; never copy secret values between mechanisms.
 
-Scan the codebase to determine:
+### 2. Detect language & framework
+Python (`*.py`, `pyproject.toml`) or TypeScript (`*.ts`, `package.json`). Identify the LLM framework from imports and pick its integration:
 
-1. **Language**: Python (look for `*.py`, `pyproject.toml`, `requirements.txt`) or TypeScript (look for `*.ts`, `*.tsx`, `package.json`)
-2. **LLM frameworks in use** — search imports for these patterns:
-
-| Import pattern | Framework | Integration |
-|---|---|---|
-| `from openai` / `import OpenAI` | OpenAI | `track_openai` |
-| `import anthropic` | Anthropic | `track_anthropic` |
-| `from langchain` / `@langchain` | LangChain | `OpikTracer` callback |
-| `from langgraph` | LangGraph | `OpikTracer` with `graph=` |
-| `from crewai` | CrewAI | `track_crewai` |
-| `import dspy` | DSPy | `OpikCallback` |
-| `from google` … `genai` | Google Gemini | `track_genai` |
-| `import boto3` … `bedrock` | AWS Bedrock | `track_bedrock` |
-| `from llama_index` | LlamaIndex | `LlamaIndexCallbackHandler` |
-| `import litellm` | LiteLLM | `OpikLogger` callback |
-| `from pydantic_ai` | Pydantic AI | Logfire OTLP bridge |
-| `from opik.integrations.adk` / `from google.adk` | Google ADK | `track_adk_agent_recursive` |
-| `import ollama` | Ollama | `track_openai` with localhost base_url or manual `@opik.track` |
-| `from agents import` / `from openai.agents` | OpenAI Agents SDK | `OpikTracingProcessor` |
-| `from haystack` | Haystack | `OpikConnector` |
-| `opik-openai` / `trackOpenAI` (TS) | OpenAI (TS) | `trackOpenAI` |
-| `opik-vercel` / `OpikExporter` (TS) | Vercel AI SDK | `OpikExporter` |
-| `opik-langchain` / `OpikCallbackHandler` (TS) | LangChain.js | `OpikCallbackHandler` |
-| `opik-gemini` / `trackGemini` (TS) | Gemini (TS) | `trackGemini` |
-
-3. **Existing Opik usage** — check if `opik` or `@opik.track` is already imported. If so, audit rather than re-instrument.
-
-## Step 3 — Identify the Call Graph
-
-Find:
-- **Entrypoint**: the top-level function that kicks off the agent (e.g., `main`, `run`, `agent`, `handle_message`, a route handler, or whatever the user's main orchestration function is)
-- **LLM call sites**: functions that call an LLM provider directly
-- **Tool functions**: retrieval, search, API calls, or other tool-like operations
-- **Prompts and prompt-related config**: hardcoded prompt strings, system messages, message templates, and any associated model/temperature values — note these as candidates for the Prompt Library (`client.get_prompt` / `client.get_chat_prompt` with `metadata` for model config)
-
-## Step 4 — Add Framework Integrations
-
-For each detected framework, add the appropriate integration at the module level. See the integration table above; the `opik` skill's `references/integrations.md` has the full list.
-
-**Python examples:**
-
-```python
-# OpenAI
-from opik.integrations.openai import track_openai
-client = track_openai(OpenAI())  # wrap existing client
-
-# Anthropic
-from opik.integrations.anthropic import track_anthropic
-client = track_anthropic(anthropic.Anthropic())
-
-# LangChain / LangGraph
-from opik.integrations.langchain import OpikTracer
-tracer = OpikTracer()
-# pass config={"callbacks": [tracer]} to invoke()
-
-# LiteLLM inside @opik.track — CRITICAL: pass span context
-from opik.opik_context import get_current_span_data
-# in every litellm.completion() call, add:
-#   metadata={"opik": {"current_span_data": get_current_span_data()}}
-```
-
-**TypeScript examples:**
-
-```typescript
-// OpenAI
-import { trackOpenAI } from "opik-openai";
-const trackedClient = trackOpenAI(openai);
-
-// Vercel AI SDK
-import { OpikExporter } from "opik-vercel";
-// set up NodeSDK with OpikExporter
-```
-
-## Step 5 — Add `@opik.track` Decorators (Python) or Client Tracing (TypeScript)
-
-This step adds the tracing scaffolding that the prompt migration in Step 6 relies on. Add decorators first so that the `get_prompt` / `get_chat_prompt` calls introduced next will land inside `@opik.track`-decorated functions.
-
-### Python
-
-Add `import opik` at the top of each file you instrument.
-
-| Function role | Decorator |
+| Import | Integration |
 |---|---|
-| Entrypoint (top-level agent) | `@opik.track(entrypoint=True, name="<agent-name>")` |
-| LLM call | `@opik.track(type="llm")` |
-| Tool / retrieval | `@opik.track(type="tool")` |
-| Guardrail / validation | `@opik.track(type="guardrail")` |
-| Other helper in the call chain | `@opik.track` |
+| `openai` / `anthropic` | `track_openai` / `track_anthropic` |
+| `langchain` / `langgraph` | `OpikTracer` callback |
+| `crewai` / `dspy` / google-genai / bedrock / `llama_index` / `litellm` | `track_crewai` / `OpikCallback` / `track_genai` / `track_bedrock` / `LlamaIndexCallbackHandler` / `OpikLogger` |
+| TS: `opik-openai` / `opik-vercel` / `opik-langchain` | `trackOpenAI` / `OpikExporter` / `OpikCallbackHandler` |
 
-- Place the decorator **above** any existing decorators (e.g., above `@app.route`)
-- For async functions, `@opik.track` works the same way — no changes needed
-- If the function is a **script entrypoint** (not a long-running server), add `opik.flush_tracker()` after the top-level call
-- **`client.get_prompt()` / `client.get_chat_prompt()` must be called inside a `@opik.track`-decorated function** — this links the fetched prompt version to the trace so it appears in the Traces view. Fetching at module level works but the prompt won't be visible in traces.
+Full list: load the `opik` skill's `references/integrations.md`. If the project is **already instrumented**, audit and add only what's missing — do not re-instrument.
 
-### TypeScript
+### 3. Add the minimum tracing
+Decision policy, in order:
+1. Prefer the **framework-native integration** for provider LLM spans.
+2. Add manual `@opik.track` spans only for orchestration/tools the integration doesn't cover (`type="tool"` / `"llm"` / `"guardrail"`, else default).
+3. Never instrument the same operation twice (no `@opik.track(type="llm")` on top of `track_openai`).
+4. Mark **one entrypoint per independently-runnable agent/service** — not necessarily one per repo.
+5. Decorator order relative to framework decorators (e.g. `@app.route`) is **framework-dependent** — verify per framework; do not assume a universal order.
+6. Scripts: flush at the end (`opik.flush_tracker()` / `await client.flush()`). LiteLLM inside `@opik.track`: pass `metadata={"opik": {"current_span_data": get_current_span_data()}}` or traces orphan.
 
-Use the client-based approach:
+Make the **smallest change** that lets one representative path emit a trace.
 
-```typescript
-import { Opik } from "opik";
-const client = new Opik({ projectName: "<project-name>" });
+### 4. Install the Opik package (by default)
+Add **only** the required Opik package(s) via the repo's detected package manager (pip / uv / poetry / npm / pnpm / yarn), through normal project conventions. **Preserve the lockfile**; do not run generic upgrades; do not install globally; treat unusual lifecycle scripts cautiously. Surface it as a change (e.g. "added `opik` to `pyproject.toml`"). If the environment blocks installation → **Blocker** with the one exact command.
 
-// In the entrypoint function:
-const trace = client.trace({ name: "<agent-name>", input: { ... } });
-const span = trace.span({ name: "<operation>", type: "tool", input: { ... } });
-// ... logic
-span.end({ output: { ... } });
-trace.end({ output: { ... } });
-await client.flush();
-```
+### 5. Run a safe representative path
+Infer a safe command — prefer an existing **test, example, or dev script**, then a bounded single-request entrypoint. **Never** run anything that looks like production or does irreversible/expensive work (writes, emails, purchases, mass API calls). If no safe path is inferable → **Blocker** ("which dev command safely exercises this agent?"). Print the command, then run it.
 
-For entrypoints that should be discoverable by `opik connect`:
+### 6. Verify ingestion
+Confirm a trace actually arrived — don't assume: over the MCP, `list` recent traces then `read` the newest and check the span tree; or query recent traces via the SDK. Traces are async — allow a few seconds and make sure the flush ran.
 
-```typescript
-import { track } from "opik";
+### 7. Report
+Return a short human result + the trace link (see **Output**), then make the single expansion offer.
 
-const myAgent = track(
-  { name: "<agent-name>", entrypoint: true, params: [{ name: "query", type: "string" }] },
-  async (query: string) => { /* ... */ }
-);
-```
+## Blockers
 
-## Step 6 — Migrate Prompts to the Prompt Library
+When you genuinely can't proceed, stop at the **earliest** blocker and return **exactly one** next step — never a checklist — and still report the changes already made. Examples:
+- "Run `opik configure`, then rerun `/instrument`."
+- "Install dependencies with `uv sync`, then rerun `/instrument`."
+- "Which dev command safely exercises this agent?"
+- "Instrumented and ran, but this environment can't query Opik — open the project and confirm trace `<id>` arrived."
 
-For every prompt found in Step 3, replace the hardcoded value with a `get_prompt` / `get_chat_prompt` call inside the enclosing `@opik.track`-decorated function added in Step 5.
+## Expansion — after the trace lands (one offer, not a funnel)
 
-**Classify each prompt:**
-- Single string (system prompt, instruction, template) → `create_prompt` / `get_prompt`
-- List of `{"role", "content"}` messages → `create_chat_prompt` / `get_chat_prompt`
+Do **not** migrate prompts, add threading, or broaden spans during activation. After verification, make a **single consolidated offer** of what you found, e.g.:
 
-**Include model name, temperature, and any other call-level parameters in `metadata`** so they version together with the prompt template and can be updated from the Opik UI without a code change.
+> Tracing is verified. I also found ways to deepen it: 3 Prompt Library candidates, missing conversation threading, and 2 untraced tools. Expand?
 
-`get_prompt` / `get_chat_prompt` returns `None` if the prompt doesn't exist yet — check for `None` and create on first run so the same code handles both initial setup and subsequent runs.
+## Output
 
-**Python:**
+**User-facing:** a short human message — what was instrumented, the trace link, and the one expansion offer (or, if blocked, the single next step plus what changed). Not raw JSON.
 
-```python
-opik_client = opik.Opik()
+**Underneath** (for composition / evals), a small state model:
+- `status`: `verified` | `blocked` | `already_verified` | `unsupported`
+- `changes`: `files_changed`, `dependency_added`, `config_source`, `entrypoints_instrumented`, `integrations_added`
+- `verification`: `command_run`, `trace_id`, `trace_url`
+- `blocker`: `reason`, `next_step`
+- `expansion_opportunities`: `prompts`, `threads`, `spans`
 
-@opik.track(entrypoint=True, project_name="<project-name>")
-def run_agent(question: str) -> str:
-    prompt = opik_client.get_prompt(name="<prompt-name>")
-    if prompt is None:
-        prompt = opik_client.create_prompt(
-            name="<prompt-name>",
-            prompt="<original hardcoded prompt text>",
-            metadata={"model": "<model>", "temperature": <value>},
-        )
-    system_message = prompt.format()  # pass template vars if any: prompt.format(var=value)
-    return llm_call(
-        model=prompt.metadata["model"],
-        temperature=prompt.metadata["temperature"],
-        system_prompt=system_message,
-        question=question,
-    )
-```
+Invariants: `verified` must carry a `trace_id`/`trace_url`; `blocked` must carry exactly one `next_step` **and** still report `changes`; `already_verified` = existing instrumentation exercised and confirmed; `unsupported` explains the unsupported language/shape and **modifies nothing**.
 
-For multi-turn message lists:
-
-```python
-    chat_prompt = opik_client.get_chat_prompt(name="<prompt-name>")
-    if chat_prompt is None:
-        chat_prompt = opik_client.create_chat_prompt(
-            name="<prompt-name>",
-            messages=[...],  # original hardcoded messages list
-            metadata={"model": "<model>", "temperature": <value>},
-        )
-    messages = chat_prompt.format()  # pass template vars if any
-    return llm_call(
-        model=chat_prompt.metadata["model"],
-        temperature=chat_prompt.metadata["temperature"],
-        messages=messages,
-    )
-```
-
-**TypeScript:**
-
-```typescript
-const opikClient = new Opik({ projectName: "<project-name>" });
-
-const runAgent = track({ entrypoint: true, projectName: "<project-name>" }, async (question: string) => {
-    let prompt = await opikClient.getPrompt({ name: "<prompt-name>" });
-    if (prompt === null) {
-        prompt = await opikClient.createPrompt({
-            name: "<prompt-name>",
-            prompt: "<original hardcoded prompt text>",
-            metadata: { model: "<model>", temperature: <value> },
-        });
-    }
-    const systemMessage = prompt.format();  // pass template vars if any
-    const { model, temperature } = prompt.metadata as { model: string; temperature: number };
-    return llmCall({ model, temperature, systemMessage, question });
-});
-```
-
-## Step 7 — Conversational Agents: Add `thread_id`
-
-If the agent handles multi-turn conversations (chat bots, support agents, multi-step assistants), wire `thread_id`:
-
-```python
-@opik.track(entrypoint=True)
-def handle_message(session_id: str, message: str) -> str:
-    opik.update_current_trace(thread_id=session_id)
-    return generate_response(session_id, message)
-```
-
-Skip this for single-shot agents or batch processing.
-
-## Step 8 — Environment Config
-
-Follow the setup decision tree from the main opik skill:
-
-1. If the project has `.env` / `.env.local` → append `OPIK_API_KEY`, `OPIK_WORKSPACE`, `OPIK_URL_OVERRIDE` (if missing)
-2. If no `.env` exists → Python: create/update `~/.opik.config`; TypeScript: create `.env` or `.env.local`
-3. Never introduce a second config mechanism
-4. Never overwrite existing values
-5. Update `.env.example` / `.env.sample` if one exists
-6. Set `project_name` in code, not in env files
-
-## Step 9 — Install Dependencies
-
-Print the install command but do NOT run it automatically. Let the user decide.
-
-**Python:**
-```
-pip install opik
-```
-Plus any integration packages if needed (most are included in `opik`).
-
-**TypeScript:**
-```
-npm install opik
-```
-Plus framework-specific packages: `opik-openai`, `opik-vercel`, `opik-langchain`, `opik-gemini` as needed.
-
-## Step 10 — Run and verify a real trace
-
-Instrumentation is **not complete until a real trace lands**. Do not stop at a static audit.
-
-1. **Static check first** — confirm the edits are sound:
-   - [ ] Every LLM call site is traced (integration wrapper or `@opik.track`)
-   - [ ] Exactly one function has `entrypoint=True`
-   - [ ] Script entrypoints call `opik.flush_tracker()` (Python) / `await client.flush()` (TypeScript)
-   - [ ] LiteLLM calls inside `@opik.track` pass `current_span_data` via metadata
-   - [ ] No hardcoded API keys; existing imports still resolve
-   - [ ] `get_prompt` / `get_chat_prompt` calls are inside `@opik.track` functions
-
-2. **Run the app** — execute the instrumented entrypoint (or a representative path / an example the project already ships). Print the command, then run it once dependencies are installed.
-
-3. **Confirm ingestion** — verify a trace actually arrived; do not assume:
-   - Over the MCP: `list` recent traces for the project, then `read` the newest and check the expected span tree (e.g. `general` → `tool` / `llm`).
-   - Over the SDK: query recent traces for the project with the Opik client.
-   - Traces are asynchronous — allow a few seconds after the run, and make sure the flush ran.
-
-4. **Report the trace URL** — return the direct link to the landed trace so the developer can open it. **This link is the definition of done.**
-
-If no trace appears: check that the flush ran, the API key/workspace resolve, and (for LiteLLM) that `current_span_data` was passed — then re-run.
-
-## Anti-Patterns to Avoid
-
-- **Double-wrapping**: Don't add `@opik.track(type="llm")` to a function that already uses a framework integration (e.g., `track_openai`). The integration handles tracing.
-- **Orphaned LiteLLM traces**: Always pass `current_span_data` when `OpikLogger` is used inside `@opik.track` code.
-- **Fetching prompts outside `@opik.track`**: `client.get_prompt()` / `client.get_chat_prompt()` must be called inside a `@opik.track`-decorated function. Fetching at module level works functionally but the prompt version won't be linked to the trace and won't appear in the Traces view.
-- **Missing entrypoint**: Without `entrypoint=True`, Local Runner (`opik connect`) won't discover the agent.
-- **Missing flush**: Scripts that exit without flushing lose trace data.
-- **Overwriting config**: Check before writing to `.env` or `~/.opik.config`.
+## Anti-patterns
+Double-wrapping (integration + manual span on the same call); orphaned LiteLLM traces (missing `current_span_data`); missing flush in scripts; overwriting or duplicating config; **running an unsafe/production path just to force a trace**; broad dependency upgrades when only `opik` is needed; migrating prompts during activation.
 
 ## References
-
-For detailed API signatures and advanced patterns, load the `opik` skill — its references cover:
-- `references/tracing-python.md` — Python SDK reference
-- `references/tracing-typescript.md` — TypeScript SDK reference
-- `references/integrations.md` — all framework integrations
-- `references/observability.md` — core concepts (traces, spans, threads)
+For SDK detail, load the `opik` skill: `references/tracing-python.md`, `references/tracing-typescript.md`, `references/integrations.md`, `references/observability.md`.
