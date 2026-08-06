@@ -64,6 +64,8 @@ Add **only** the required Opik package(s) via the repo's detected package manage
 ### 5. Run a safe representative path
 Infer a safe command — prefer an existing **test, example, or dev script**, then a bounded single-request entrypoint. **Never** run anything that looks like production or does irreversible/expensive work (writes, emails, purchases, mass API calls). If no safe path is inferable → **Blocker** ("which dev command safely exercises this agent?"). Print the command, then run it.
 
+If the run needs an **LLM provider credential** (e.g. `OPENAI_API_KEY`) and it's absent, that's a Blocker — the app can't produce a trace. Note some SDK clients raise at **construction** (module load), before any span runs, so there is **no partial trace** to wait on: return blocked with the one next step, don't wait on a flush that never happened.
+
 ### 6. Verify ingestion
 Confirm a trace actually arrived — don't assume. **Prefer the SDK for verification**: it's already installed as part of instrumenting (zero extra moving parts), whereas the Opik MCP is optional and may not be connected.
 
@@ -90,6 +92,7 @@ When you genuinely can't proceed, stop at the **earliest** blocker and return **
 - "Run `opik configure`, then rerun `/instrument`."
 - "Install dependencies with `uv sync`, then rerun `/instrument`."
 - "Which dev command safely exercises this agent?"
+- "Instrumented and installed, but the run needs a provider credential — set `OPENAI_API_KEY` (or the relevant provider key) and rerun."
 - "Instrumented and ran, but this environment can't query Opik — open the project and confirm trace `<id>` arrived."
 
 ## Expansion — after the trace lands (one offer, not a funnel)
