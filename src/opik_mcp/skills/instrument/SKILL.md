@@ -1,6 +1,6 @@
 ---
 name: instrument
-description: Add Opik tracing to an existing app and verify a real trace lands. Installs the Opik package, detects the language and LLM framework, adds the minimum tracing, runs a safe representative path, confirms a trace in Opik, and returns the trace link. Use for "instrument my code", "add opik tracing", "add observability", "trace my agent".
+description: Add Opik tracing to an existing app and verify a real trace lands. Installs the Opik package, detects the language and LLM framework, adds the minimum tracing, runs a safe representative path, confirms a trace in Opik, and returns the trace link. Use for "instrument my code", "add opik tracing", "add observability", "trace my agent". Not for building a new app from scratch, or a review-only pass with no code changes.
 last_updated: "2026-08-05"
 source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
 argument-hint: "[optional: file or directory path]"
@@ -113,6 +113,14 @@ Do **not** migrate prompts, add threading, or broaden spans during activation. A
 - `expansion_opportunities`: `prompts`, `threads`, `spans`
 
 Invariants: `verified` must carry a `trace_id`/`trace_url`; `blocked` must carry exactly one `next_step` **and** still report `changes`; `already_verified` = existing instrumentation exercised and confirmed; `unsupported` explains the unsupported language/shape and **modifies nothing**.
+
+## Examples
+
+**Normal — no LLM framework.** A Python script with a `retrieve()` tool and a local `generate()`. No provider to wrap → add `@opik.track(type="tool")` on `retrieve`, bare `@opik.track` (→ `general`) on the entrypoint, flush in `__main__`; `uv add opik`; run it; confirm the `general → tool → llm` trace via the SDK; return the link. → **`verified`**.
+
+**Framework — OpenAI.** `from openai import OpenAI`. Use the native integration: `client = track_openai(OpenAI())`; **leave the LLM-calling function undecorated** (the integration traces it); mark the entrypoint; install `opik`; run. If `OPENAI_API_KEY` is missing, `OpenAI()` raises at construction → **`blocked`**: "set `OPENAI_API_KEY`, then rerun" (report the edits already made).
+
+**Already instrumented.** `@opik.track` / `track_openai` already present. Audit only — add a missing entrypoint or flush, do **not** re-instrument; run + verify. → **`already_verified`**.
 
 ## Anti-patterns
 Double-wrapping (integration + manual span on the same call); orphaned LiteLLM traces (missing `current_span_data`); missing flush in scripts; overwriting or duplicating config; **running an unsafe/production path just to force a trace**; broad dependency upgrades when only `opik` is needed; migrating prompts during activation.

@@ -1,0 +1,76 @@
+# Test cases for the `/instrument` skill.
+#
+# Areas map to Anthropic's "Testing and iteration" chapter:
+#   triggering  -> does the skill load at the right times?
+#   functional  -> does it produce correct instrumentation and a verified trace?
+#   edge        -> audit / unsupported / blocked paths behave per the contract.
+#
+# The grader (grader.py) checks the `assert` block against the post-run workdir;
+# metrics.py aggregates results into the success metrics.
+
+triggering:
+  should_trigger:
+    - "add opik tracing to my app"
+    - "instrument my code with Opik"
+    - "I want to see a trace for my agent"
+    - "add observability to this service"
+    - "trace my agent"
+  should_not_trigger:
+    - "what's the weather in San Francisco"
+    - "write me a new FastAPI app from scratch"          # greenfield (negative trigger)
+    - "just review my instrumentation, don't change anything"  # review-only (negative trigger)
+    - "add logging with the standard library"
+
+functional:
+  - id: manual_python
+    fixture: manual
+    prompt: "Add Opik tracing to my app so I can see a trace."
+    # `verified` requires a working Opik send config in the env; otherwise a
+    # clean `blocked` (instrumented, could not query) is an acceptable pass.
+    expect_status: [verified, blocked]
+    assert:
+      language: python
+      opik_imported: true
+      entrypoint: {func: answer, type: general}
+      spans:
+        - {func: retrieve, type: tool}
+        - {func: generate, type: llm}
+      flush_in_main: true
+      dep_added: opik
+      no_double_wrap: true
+      no_prompt_migration: true
+      config_untouched: true
+      files_changed_subset: [agent.py, pyproject.toml]
+
+  - id: openai_framework
+    fixture: openai
+    prompt: "Add Opik tracing to my app so I can see a trace."
+    # `blocked` when OPENAI_API_KEY is absent (OpenAI() raises at construction).
+    expect_status: [verified, blocked]
+    assert:
+      language: python
+      integration: track_openai
+      undecorated_llm_call: generate      # traced by the integration; must NOT be double-wrapped
+      entrypoint: {func: answer, type: general}
+      dep_added: opik
+      no_double_wrap: true
+      no_prompt_migration: true
+      config_untouched: true
+
+edge:
+  - id: already_instrumented
+    fixture: already_instrumented
+    prompt: "Add Opik tracing to my app so I can see a trace."
+    expect_status: [already_verified, verified, blocked]
+    assert:
+      audit_only: true                    # do not add NEW @opik.track to retrieve/generate
+      entrypoint: {func: answer, type: general}   # the missing entrypoint gets marked
+      flush_in_main: true                 # the missing flush gets added
+      no_double_wrap: true
+
+  - id: unsupported_language
+    fixture: unsupported
+    prompt: "Add Opik tracing to my app so I can see a trace."
+    expect_status: unsupported
+    assert:
+      no_modifications: true              # unsupported => modify nothing

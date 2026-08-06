@@ -1,0 +1,6 @@
+[project]
+name = "support-bot-openai"
+version = "0.1.0"
+description = "A tiny support agent backed by OpenAI"
+requires-python = ">=3.10"
+dependencies = ["openai"]

@@ -1,0 +1,6 @@
+[project]
+name = "support-bot-partial"
+version = "0.1.0"
+description = "A support agent that is already partly instrumented (missing entrypoint + flush)"
+requires-python = ">=3.10"
+dependencies = ["opik"]
