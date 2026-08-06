@@ -50,7 +50,7 @@ Full list: load the `opik` skill's `references/integrations.md`. If the project 
 ### 3. Add the minimum tracing
 Decision policy, in order:
 1. Prefer the **framework-native integration** for provider LLM spans.
-2. Add manual `@opik.track` spans only for orchestration/tools the integration doesn't cover (`type="tool"` / `"llm"` / `"guardrail"`, else default).
+2. Add manual `@opik.track` spans only for orchestration/tools the integration doesn't cover (`type="tool"` / `"llm"` / `"guardrail"`). A bare `@opik.track` produces the default span type, **`general`** — the right choice for an entrypoint/orchestrator.
 3. Never instrument the same operation twice (no `@opik.track(type="llm")` on top of `track_openai`).
 4. Mark **one entrypoint per independently-runnable agent/service** — not necessarily one per repo.
 5. Decorator order relative to framework decorators (e.g. `@app.route`) is **framework-dependent** — verify per framework; do not assume a universal order.
@@ -65,7 +65,21 @@ Add **only** the required Opik package(s) via the repo's detected package manage
 Infer a safe command — prefer an existing **test, example, or dev script**, then a bounded single-request entrypoint. **Never** run anything that looks like production or does irreversible/expensive work (writes, emails, purchases, mass API calls). If no safe path is inferable → **Blocker** ("which dev command safely exercises this agent?"). Print the command, then run it.
 
 ### 6. Verify ingestion
-Confirm a trace actually arrived — don't assume: over the MCP, `list` recent traces then `read` the newest and check the span tree; or query recent traces via the SDK. Traces are async — allow a few seconds and make sure the flush ran.
+Confirm a trace actually arrived — don't assume. **Prefer the SDK for verification**: it's already installed as part of instrumenting (zero extra moving parts), whereas the Opik MCP is optional and may not be connected.
+
+```python
+import opik
+client = opik.Opik()
+
+tid = "<trace_id>"                          # the tracer logs a trace URL/id when the run flushes — use that
+detail = client.get_trace_content(tid)      # TracePublic: exposes project_id, NOT project_name (accessing .project_name raises)
+spans = client.search_spans(trace_id=tid)   # spans come from a SEPARATE call, not from the trace object
+# Reconstruct the tree via each span's parent_span_id (the root span has none); check the expected types (general -> tool/llm).
+```
+
+To find the newest trace instead of using a known id, use the client's trace search (e.g. `search_traces`) scoped to the project. Optionally, if the Opik MCP is connected, `list` recent traces then `read` the newest.
+
+Traces are asynchronous — allow a few seconds after the run and make sure the flush ran.
 
 ### 7. Report
 Return a short human result + the trace link (see **Output**), then make the single expansion offer.
