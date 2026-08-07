@@ -112,6 +112,6 @@ jobs:
       # Remove the rolling draft maintained by release-drafter now that a real
       # release exists, so the next cycle starts a fresh draft.
       - name: Delete leftover release draft(s)
-        uses: hugo19941994/delete-draft-releases@v1.0.0
+        uses: hugo19941994/delete-draft-releases@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
