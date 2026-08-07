@@ -4,7 +4,7 @@ description: Add Opik tracing to an existing app and verify a real trace lands. 
 last_updated: "2026-08-05"
 source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
 argument-hint: "[optional: file or directory path]"
-compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project.
+compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project. Install the `opik` skill alongside this one — it holds the shared SDK and integration references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
   - Edit
@@ -45,7 +45,7 @@ Python (`*.py`, `pyproject.toml`) or TypeScript (`*.ts`, `package.json`). Identi
 | `crewai` / `dspy` / google-genai / bedrock / `llama_index` / `litellm` | `track_crewai` / `OpikCallback` / `track_genai` / `track_bedrock` / `LlamaIndexCallbackHandler` / `OpikLogger` |
 | TS: `opik-openai` / `opik-vercel` / `opik-langchain` | `trackOpenAI` / `OpikExporter` / `OpikCallbackHandler` |
 
-Full list: load the `opik` skill's `references/integrations.md`. If the project is **already instrumented**, audit and add only what's missing — do not re-instrument.
+Full list: read `../opik/references/integrations.md` (the `opik` skill, installed beside this one). If that file isn't there, read <https://www.comet.com/docs/opik/integrations/overview> — never settle for manual spans on a framework that has a native integration just because the reference was unreachable. If the project is **already instrumented**, audit and add only what's missing — do not re-instrument.
 
 ### 3. Add the minimum tracing
 Decision policy, in order:
@@ -126,4 +126,7 @@ Invariants: `verified` must carry a `trace_id`/`trace_url`; `blocked` must carry
 Double-wrapping (integration + manual span on the same call); orphaned LiteLLM traces (missing `current_span_data`); missing flush in scripts; overwriting or duplicating config; **running an unsafe/production path just to force a trace**; broad dependency upgrades when only `opik` is needed; migrating prompts during activation.
 
 ## References
-For SDK detail, load the `opik` skill: `references/tracing-python.md`, `references/tracing-typescript.md`, `references/integrations.md`, `references/observability.md`.
+
+SDK detail lives in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/tracing-python.md`, `../opik/references/tracing-typescript.md`, `../opik/references/integrations.md`, `../opik/references/observability.md`. If your host lays skills out differently, locate the `opik` skill's `references/` directory.
+
+If the `opik` skill isn't installed, say so in the report and use <https://www.comet.com/docs/opik/> rather than working from memory.
