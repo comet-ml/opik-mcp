@@ -98,6 +98,91 @@ def grade() -> int:
     return 0 if all(r.passed for r in results) else 1
 
 
+# ---------- triggering (selection_accuracy) ----------
+#
+# Triggering can't be graded from files — it asks "given a phrase, does the
+# model pick this skill?". We test it faithfully with a judge that sees ONLY
+# skill *descriptions* (the real `instrument` one + realistic decoys, incl. a
+# better home for each should_not_trigger phrase) and classifies each phrase.
+
+TRIG = WORK / "triggering"
+
+DECOY_SKILLS = [
+    {"name": "evaluate", "description": "Run an Opik evaluation: score a dataset "
+     "or experiment with LLM/heuristic metrics and compare results. Use to measure "
+     "output quality, run experiments, or build and score test suites — not to add "
+     "tracing to app code."},
+    {"name": "opik", "description": "Reference for how Opik works — tracing "
+     "concepts, SDK/REST/integration options, and best practices. Use to look up or "
+     "explain Opik, not to modify code."},
+    {"name": "scaffold-app", "description": "Create a brand-new application from "
+     "scratch (for example a new FastAPI or Express service) with project layout "
+     "and boilerplate."},
+    {"name": "code-review", "description": "Review existing code and report findings "
+     "without changing it — a read-only audit pass."},
+    {"name": "stdlib-logging", "description": "Add standard-library logging (Python "
+     "logging module, console logs) to an app — plain log statements, not a "
+     "distributed-tracing or observability platform."},
+]
+
+
+def _instrument_description() -> str:
+    import re
+    fm = SKILL.read_text().split("---")[1]
+    m = re.search(r"^description:\s*(.+)$", fm, re.M)
+    return m.group(1).strip() if m else ""
+
+
+def _menu() -> list[dict]:
+    return [{"name": "instrument", "description": _instrument_description()}] + DECOY_SKILLS
+
+
+def trigger_prepare() -> None:
+    trig = load_cases().get("triggering", {})
+    TRIG.mkdir(parents=True, exist_ok=True)
+    menu = _menu()
+    phrases = ([{"phrase": p, "expect": "instrument"} for p in trig.get("should_trigger", [])]
+               + [{"phrase": p, "expect": "not-instrument"} for p in trig.get("should_not_trigger", [])])
+    (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
+    lines = ["# Triggering judge input", "",
+             "For EACH user phrase below, pick the ONE skill from the menu whose",
+             "description best fits the request, or `none` if no skill fits. Judge",
+             "only from the descriptions — do not assume anything not written there.",
+             "", "## Skill menu", ""]
+    lines += [f"- **{s['name']}**: {s['description']}" for s in menu]
+    lines += ["", "## Phrases", ""]
+    lines += [f"{i + 1}. {p['phrase']}" for i, p in enumerate(phrases)]
+    lines += ["", "## Output", "",
+              'Return STRICT JSON only: {"verdicts": {"<exact phrase>": "<skill-name-or-none>"}}',
+              "one entry per phrase, key = the exact phrase text."]
+    (TRIG / "judge_input.md").write_text("\n".join(lines))
+    print(f"Wrote {TRIG / 'judge_input.md'} ({len(phrases)} phrases, {len(menu)} skills).")
+    print("Have one or more judges classify each phrase (majority-vote a panel),")
+    print(f"write {TRIG / 'verdicts.json'} = {{phrase: skill}}, then: trigger-grade")
+
+
+def trigger_grade() -> int:
+    f = TRIG / "verdicts.json"
+    if not f.exists():
+        print(f"  ! no {f}: run trigger-prepare + a judge first")
+        return 2
+    verdicts = json.loads(f.read_text())
+    trig = load_cases().get("triggering", {})
+    st = {p: (verdicts.get(p) == "instrument") for p in trig.get("should_trigger", [])}
+    sn = {p: (verdicts.get(p) == "instrument") for p in trig.get("should_not_trigger", [])}
+    m = metrics.compute([], triggering={"should_trigger": st, "should_not_trigger": sn})
+    lines = ["# /instrument triggering report", ""]
+    for p, did in st.items():
+        lines.append(f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}")
+    for p, did in sn.items():
+        lines.append(f"[{'PASS' if not did else 'FAIL'}] should_not_trigger: {p!r} -> {verdicts.get(p)}")
+    lines += ["", f"selection_accuracy: {m.get('selection_accuracy')}"]
+    rep = "\n".join(lines)
+    (TRIG / "report.md").write_text(rep)
+    print(rep)
+    return 0 if m.get("selection_accuracy") == 1.0 else 1
+
+
 # ---------- optional automatic runner ----------
 
 def claude_code_run(prompt: str, workdir: Path) -> None:
@@ -133,6 +218,8 @@ def main() -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("prepare", help="stage fixture workdirs")
     sub.add_parser("grade", help="grade the staged workdirs + emit metrics")
+    sub.add_parser("trigger-prepare", help="emit the triggering judge input")
+    sub.add_parser("trigger-grade", help="score verdicts.json -> selection_accuracy")
     r = sub.add_parser("run", help="prepare + run an agent + grade (best-effort)")
     r.add_argument("--runner", default="claude-code", choices=["claude-code"])
     args = ap.parse_args()
@@ -140,6 +227,10 @@ def main() -> int:
         prepare(); return 0
     if args.cmd == "grade":
         return grade()
+    if args.cmd == "trigger-prepare":
+        trigger_prepare(); return 0
+    if args.cmd == "trigger-grade":
+        return trigger_grade()
     if args.cmd == "run":
         return run_auto(args.runner)
     return 2

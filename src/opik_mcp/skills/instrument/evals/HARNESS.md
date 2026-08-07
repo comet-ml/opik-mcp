@@ -39,10 +39,23 @@ uv run --with pyyaml python run_evals.py run --runner claude-code
 (The `claude -p` flags / skill discovery vary by install; adjust `claude_code_run`
 in `run_evals.py`. Failures are non-fatal — the grader scores whatever was produced.)
 
+**Triggering (`selection_accuracy`):**
+```bash
+uv run --with pyyaml python run_evals.py trigger-prepare   # writes _work/triggering/judge_input.md
+#  ... have N judges classify each phrase from that file (descriptions ONLY),
+#      majority-vote them into _work/triggering/verdicts.json = {phrase: skill} ...
+uv run --with pyyaml python run_evals.py trigger-grade     # -> selection_accuracy
+```
+`judge_input.md` presents the real `instrument` description alongside decoy skill
+descriptions (incl. a better home for each should_not_trigger phrase — `scaffold-app`
+for greenfield, `code-review` for review-only, `stdlib-logging` for plain logging), so
+the negatives are a genuine discrimination test, not a rubber stamp. A phrase "triggers"
+iff the judge picks `instrument`. Use a panel + majority vote to damp single-judge noise.
+
 ## What each case checks
 
-- **triggering** — prompts that *should* and *should NOT* load the skill (feeds
-  `selection_accuracy`; requires a runner that reports which skill loaded).
+- **triggering** — prompts that *should* and *should NOT* load the skill; scored
+  via the judge-panel runner above into `selection_accuracy`.
 - **functional** — `manual` (manual spans, `general → tool → llm`, flush, `opik`
   installed, minimal diff, config untouched) and `openai` (native `track_openai`,
   the LLM call left undecorated, no double-wrap).
