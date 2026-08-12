@@ -159,6 +159,19 @@ class OpikListClient(Protocol):
         self, prompt_id: str, /, *, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
+    async def list_annotation_queues(
+        self,
+        *,
+        name: str | None = None,
+        project_id: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def list_feedback_definitions(
+        self, *, name: str | None = None, page: int = 1, size: int = 100
+    ) -> dict[str, Any]: ...
+
 
 class OpikReadClient(OpikListClient, Protocol):
     """Adds singleton ``get_*`` endpoints to ``OpikListClient`` for the read tool.
@@ -188,6 +201,12 @@ class OpikReadClient(OpikListClient, Protocol):
         project_id: str | None = None,
         project_name: str | None = None,
         truncate: bool = False,
+    ) -> dict[str, Any]: ...
+
+    async def get_annotation_queue(self, queue_id: str, /) -> dict[str, Any]: ...
+
+    async def list_queue_threads(
+        self, *, project_id: str, queue_id: str, page: int = 1, size: int = 100
     ) -> dict[str, Any]: ...
 
 
@@ -591,6 +610,87 @@ class OpikClient:
             f"/v1/private/prompts/{prompt_id}/versions",
             params={"page": page, "size": size},
             entity_hint=f"prompt {prompt_id!r} versions",
+        )
+
+    # -- reads: annotation queues + feedback definitions --
+
+    async def list_annotation_queues(
+        self,
+        *,
+        name: str | None = None,
+        project_id: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/annotation-queues`` — Spring Page envelope.
+
+        Queues live in a project, but the endpoint takes the project as a *filter*
+        rather than a query param (``AnnotationQueueField`` exposes ``project_id``),
+        so ``project_id`` is translated into the filters JSON here — callers should
+        not have to know which scoping mechanism a given endpoint chose.
+        """
+        params: dict[str, Any] = {"page": page, "size": size}
+        if name is not None:
+            params["name"] = name
+        if project_id is not None:
+            params["filters"] = _json.dumps(
+                [{"field": "project_id", "operator": "=", "value": project_id}]
+            )
+        return await self._get_json(
+            "/v1/private/annotation-queues",
+            params=params,
+            entity_hint="annotation queues",
+        )
+
+    async def get_annotation_queue(self, queue_id: str) -> dict[str, Any]:
+        """``GET /v1/private/annotation-queues/{id}`` — queue + aggregated scores."""
+        return await self._get_json(
+            f"/v1/private/annotation-queues/{queue_id}",
+            params=None,
+            entity_hint=f"annotation queue {queue_id!r}",
+        )
+
+    async def list_queue_threads(
+        self,
+        *,
+        project_id: str,
+        queue_id: str,
+        page: int = 1,
+        size: int = 100,
+    ) -> dict[str, Any]:
+        """Threads currently in a queue.
+
+        There is no ``/annotation-queues/{id}/items`` read route — the queue's
+        membership is exposed as a filter on the threads list, which is what the
+        Opik UI's SME flow uses (``useThreadsList({annotationQueueId})``).
+        """
+        return await self._get_json(
+            "/v1/private/traces/threads",
+            params={
+                "project_id": project_id,
+                "annotation_queue_id": queue_id,
+                "page": page,
+                "size": size,
+                "truncate": True,
+            },
+            entity_hint=f"annotation queue {queue_id!r} threads",
+        )
+
+    async def list_feedback_definitions(
+        self,
+        *,
+        name: str | None = None,
+        page: int = 1,
+        size: int = 100,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/feedback-definitions/`` — the workspace's scoring rubrics."""
+        params: dict[str, Any] = {"page": page, "size": size}
+        if name is not None:
+            params["name"] = name
+        return await self._get_json(
+            "/v1/private/feedback-definitions/",
+            params=params,
+            entity_hint="feedback definitions",
         )
 
     # -- internals --

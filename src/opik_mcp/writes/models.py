@@ -456,6 +456,121 @@ class ThreadOpen(_ThreadLifecycle):
     """``POST /v1/private/traces/threads/open`` — reopen a thread (→ active)."""
 
 
+# --- 13-15. annotation queues + feedback definitions --------------------- #
+
+
+class AnnotationQueueCreate(_StrictBase):
+    """``POST /v1/private/annotation-queues`` — a batch of items for human review.
+
+    The BE requires ``project_id`` (UUID); ``project_name`` is accepted here and
+    resolved by the dispatcher, same courtesy the thread ops get — the LLM
+    shouldn't have to look up a UUID it never saw.
+
+    ``feedback_definition_names`` decides which scores the reviewer is asked for.
+    Names must already exist as feedback definitions (create them first with
+    ``feedback_definition.create``), otherwise the reviewer gets no controls.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    scope: Literal["trace", "thread"] = "thread"
+    project_name: str | None = Field(default=None, max_length=200)
+    project_id: UUID | None = Field(default=None)
+    description: str | None = Field(default=None, max_length=1000)
+    instructions: str | None = Field(
+        default=None,
+        max_length=5000,
+        description="Shown to the reviewer before they start. Say what to judge.",
+    )
+    comments_enabled: bool | None = Field(default=None)
+    feedback_definition_names: list[str] | None = Field(default=None)
+    annotators_per_item: int | None = Field(default=None, ge=1, le=1000)
+    lock_timeout_seconds: int | None = Field(default=None, ge=1, le=3600)
+
+    @model_validator(mode="after")
+    def _validate_project(self) -> AnnotationQueueCreate:
+        if self.project_name is None and self.project_id is None:
+            raise ValueError(
+                "queue_project_missing: pass `project_name` or `project_id` — a "
+                "queue lives in one project."
+            )
+        return self
+
+
+class AnnotationQueueItemAdd(_StrictBase):
+    """``POST /v1/private/annotation-queues/{id}/items/add`` — put items in a queue.
+
+    Two ways to name the items, mirroring the annotation contract elsewhere:
+    ``thread_ids`` (the strings the agent already works with, resolved to the
+    threads' model UUIDs by the dispatcher) or ``ids`` (entity UUIDs, when you
+    already have them — traces, or threads you resolved yourself).
+    """
+
+    queue_id: UUID
+    thread_ids: list[str] | None = Field(default=None, max_length=1000)
+    ids: list[UUID] | None = Field(default=None, max_length=1000)
+    project_name: str | None = Field(default=None, max_length=200)
+    project_id: UUID | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_items(self) -> AnnotationQueueItemAdd:
+        if bool(self.thread_ids) == bool(self.ids):
+            raise ValueError(
+                "queue_items_ambiguous: pass exactly one of `thread_ids` (strings) "
+                "or `ids` (entity UUIDs)."
+            )
+        if self.thread_ids and self.project_name is None and self.project_id is None:
+            raise ValueError(
+                "queue_project_missing: resolving `thread_ids` needs `project_name` "
+                "or `project_id` (a thread_id is unique only within a project)."
+            )
+        return self
+
+
+_FEEDBACK_DETAILS_DESC = (
+    'Shape depends on `type`: categorical -> {"categories": {label: value}}; '
+    'numerical -> {"min": n, "max": n}; boolean -> {"true_label": str, "false_label": str}.'
+)
+
+
+class FeedbackDefinitionCreate(_StrictBase):
+    """``POST /v1/private/feedback-definitions/`` — define a scoring rubric.
+
+    Workspace-level, so the same rubric can be reused by annotation queues,
+    online evaluation rules and manual scoring. Creating one with a name that
+    already exists is a 409 — treat that as "already defined" and move on.
+    """
+
+    name: str = Field(min_length=1, max_length=200)
+    type: Literal["categorical", "numerical", "boolean"]
+    details: dict[str, Any] = Field(description=_FEEDBACK_DETAILS_DESC)
+    description: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def _validate_details(self) -> FeedbackDefinitionCreate:
+        details = self.details
+        if self.type == "categorical":
+            categories = details.get("categories")
+            if not isinstance(categories, dict) or len(categories) < 2:
+                raise ValueError(
+                    "feedback_details_invalid: categorical needs "
+                    '{"categories": {label: value, …}} with at least two entries.'
+                )
+        elif self.type == "numerical":
+            if not isinstance(details.get("min"), int | float) or not isinstance(
+                details.get("max"), int | float
+            ):
+                raise ValueError('feedback_details_invalid: numerical needs {"min": n, "max": n}.')
+            if details["min"] >= details["max"]:
+                raise ValueError("feedback_details_invalid: min must be below max.")
+        else:
+            if not details.get("true_label") or not details.get("false_label"):
+                raise ValueError(
+                    "feedback_details_invalid: boolean needs "
+                    '{"true_label": str, "false_label": str}.'
+                )
+        return self
+
+
 # --- examples (used by registry + validation errors) --------------------- #
 #
 # One validated example per operation. These are the source of truth for the
@@ -539,6 +654,24 @@ EXAMPLES: dict[str, dict[str, Any]] = {
     },
     "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
     "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
+    "annotation_queue.create": {
+        "name": "refund-policy triage",
+        "scope": "thread",
+        "project_name": "demo",
+        "instructions": "Did the assistant state real refund policy? Flag invented policy.",
+        "feedback_definition_names": ["Policy accuracy"],
+        "comments_enabled": True,
+    },
+    "annotation_queue_item.add": {
+        "queue_id": _example_uuid("01"),
+        "thread_ids": ["conversation-42", "conversation-43"],
+        "project_name": "demo",
+    },
+    "feedback_definition.create": {
+        "name": "Policy accuracy",
+        "type": "categorical",
+        "details": {"categories": {"invented": 0, "vague": 0.5, "accurate": 1}},
+    },
 }
 
 
@@ -557,6 +690,9 @@ MODELS: dict[str, type[BaseModel]] = {
     "experiment_item.create": ExperimentItemCreate,
     "thread.close": ThreadClose,
     "thread.open": ThreadOpen,
+    "annotation_queue.create": AnnotationQueueCreate,
+    "annotation_queue_item.add": AnnotationQueueItemAdd,
+    "feedback_definition.create": FeedbackDefinitionCreate,
 }
 
 
@@ -567,10 +703,13 @@ TagListT = Annotated[list[str], "list of tags"]
 __all__ = [
     "EXAMPLES",
     "MODELS",
+    "AnnotationQueueCreate",
+    "AnnotationQueueItemAdd",
     "CommentCreate",
     "ExperimentCreate",
     "ExperimentItem",
     "ExperimentItemCreate",
+    "FeedbackDefinitionCreate",
     "PromptVersionSave",
     "ScoreCreate",
     "ScoreTarget",

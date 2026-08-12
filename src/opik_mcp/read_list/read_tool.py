@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -98,21 +99,39 @@ def _format_client_error(
     return f"Failed to fetch {entity_type} '{entity_id}': {exc}"
 
 
-async def run_read(
+@dataclass(frozen=True)
+class FetchedEntity:
+    """What ``fetch_entity`` resolved, before anything is rendered.
+
+    Callers that render for the model compress ``data``; callers that render for
+    a human (the MCP App) use it as-is. Both get the same resolved identifiers,
+    which is the point: a pasted link or an entity name must mean the same thing
+    on both paths.
+    """
+
+    entity_type: str
+    entity_id: str
+    project_id: str | None
+    project_name: str | None
+    handler: EntityHandler
+    data: dict[str, Any]
+
+
+async def fetch_entity(
     entity_type: str,
     id: str,
     *,
-    max_tokens: int | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
-) -> str:
-    """Read tool entrypoint. See ``server.py`` for the registered tool.
+) -> FetchedEntity:
+    """Resolve a reference and fetch it: URI parse → registry lookup → project
+    gate → UUID-vs-name branch → fetch.
 
-    Dispatch order: URI parse → registry lookup → project gate → UUID-vs-name
-    branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
-    the host LLM gets the structured guidance.
+    Everything ``read`` accepts as an ``id`` is accepted here — a UUID, an entity
+    name, an ``opik://`` URI, or a pasted Opik thread link. Errors surface as
+    ``ToolError`` so the host LLM gets the structured guidance.
     """
     # Accept ``opik://…`` URIs and pasted web thread links as id input. When the
     # URI encodes its own entity_type we trust it and override the explicit
@@ -155,15 +174,46 @@ async def run_read(
         raise ToolError(str(err)) from err
 
     opik = client if client is not None else make_opik_client(settings or get_settings())
-    data = await _fetch_with_name_lookup(
+    resolved_id, data = await _fetch_with_name_lookup(
         handler, opik, id, project_id=project_id, project_name=project_name
     )
+    return FetchedEntity(
+        entity_type=entity_type,
+        entity_id=resolved_id,
+        project_id=project_id,
+        project_name=project_name,
+        handler=handler,
+        data=data,
+    )
 
-    compressed_text, tier = compress_for(handler, data, max_tokens)
-    full_json = compact_json(data)
+
+async def run_read(
+    entity_type: str,
+    id: str,
+    *,
+    max_tokens: int | None = None,
+    project_id: str | None = None,
+    project_name: str | None = None,
+    settings: Settings | None = None,
+    client: OpikReadClient | None = None,
+) -> str:
+    """Read tool entrypoint — ``fetch_entity`` plus compression to a token budget.
+
+    See ``server.py`` for the registered tool.
+    """
+    fetched = await fetch_entity(
+        entity_type,
+        id,
+        project_id=project_id,
+        project_name=project_name,
+        settings=settings,
+        client=client,
+    )
+    compressed_text, tier = compress_for(fetched.handler, fetched.data, max_tokens)
+    full_json = compact_json(fetched.data)
     full_tokens = estimate_tokens(full_json)
     returned_tokens = estimate_tokens(compressed_text)
-    header = size_header(entity_type, id, tier, returned_tokens, full_tokens)
+    header = size_header(fetched.entity_type, fetched.entity_id, tier, returned_tokens, full_tokens)
     return f"{header}\n{compressed_text}"
 
 
@@ -174,8 +224,11 @@ async def _fetch_with_name_lookup(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
-) -> dict[str, Any]:
-    """Resolve name → id when the input doesn't look like a UUID.
+) -> tuple[str, dict[str, Any]]:
+    """Resolve name → id when the input doesn't look like a UUID, and fetch.
+
+    Returns the id actually used, not just the payload: a caller that resolved a
+    name or a link needs to know what it ended up reading.
 
     For ``id_only`` entities (trace, span, …) we skip the lookup and
     fetch directly — saves a round-trip on the common case. For nameable
@@ -204,10 +257,12 @@ async def _fetch_with_name_lookup(
 
     try:
         if handler.needs_project:
-            return await handler.fetch_fn(
+            data = await handler.fetch_fn(
                 client, entity_id, project_id=project_id, project_name=project_name
             )
-        return await handler.fetch_fn(client, entity_id)
+        else:
+            data = await handler.fetch_fn(client, entity_id)
+        return entity_id, data
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e
 

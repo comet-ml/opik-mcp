@@ -1,7 +1,9 @@
 """Smoke-tests that ``read`` and ``list`` are registered on the FastMCP server.
 
-Resources have been removed entirely (ADR 0004 D1) — verify the server
-exposes the tools instead.
+Entity resources were removed entirely (ADR 0004 D1) — entities are read through
+tools. The one resource that remains is the MCP App document, which is UI, not an
+entity mirror; pin that so the old "no resources" rule can't quietly come back as
+"resources for entities".
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from opik_mcp.apps import UI_URI
 from opik_mcp.server import mcp
 
 
@@ -28,12 +31,11 @@ async def test_read_and_list_tools_listed() -> None:
 
 
 @pytest.mark.anyio
-async def test_no_resources_advertised() -> None:
+async def test_only_the_app_resource_is_advertised() -> None:
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         await session.initialize()
         result = await session.list_resources()
-    # Resources surface is now empty by design — see ADR 0004 D1.
-    assert result.resources == []
+    assert [str(r.uri) for r in result.resources] == [UI_URI]
 
 
 @pytest.mark.anyio

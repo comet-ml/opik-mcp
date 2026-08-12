@@ -1,0 +1,53 @@
+{
+  "properties": {
+    "entity_type": {
+      "description": "What to review. One of: thread, annotation_queue.",
+      "enum": [
+        "thread",
+        "annotation_queue"
+      ],
+      "title": "Entity Type",
+      "type": "string"
+    },
+    "id": {
+      "description": "Thread id (or a pasted Opik thread link) for entity_type='thread'; queue UUID or name for entity_type='annotation_queue'.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Project UUID. Required for threads unless the id is a full link.",
+      "title": "Project Id"
+    },
+    "project_name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Project name \u2014 alternative to project_id.",
+      "title": "Project Name"
+    }
+  },
+  "required": [
+    "entity_type",
+    "id"
+  ],
+  "title": "reviewArguments",
+  "type": "object"
+}

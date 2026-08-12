@@ -220,6 +220,58 @@ _REGISTRY: dict[str, WriteOperation] = {
         example=EXAMPLES["thread.open"],
         failure_modes=("thread_project_missing",),
     ),
+    "annotation_queue.create": WriteOperation(
+        name="annotation_queue.create",
+        pydantic_model=MODELS["annotation_queue.create"],
+        endpoint="/v1/private/annotation-queues",
+        method="POST",
+        oauth_scope=SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
+        supports_batch=False,
+        parent_id_fields=("project_name", "project_id"),
+        description=(
+            "Create a queue of traces/threads for humans to review, with reviewer "
+            "instructions and the feedback definitions they should score with. Add the "
+            "items with annotation_queue_item.add."
+        ),
+        example=EXAMPLES["annotation_queue.create"],
+        failure_modes=("queue_project_missing", "project_not_found"),
+    ),
+    "annotation_queue_item.add": WriteOperation(
+        name="annotation_queue_item.add",
+        pydantic_model=MODELS["annotation_queue_item.add"],
+        # ``queue_id`` is templated into the path by the dispatcher; the wire body
+        # is just {ids: [...]}.
+        endpoint="/v1/private/annotation-queues/{queue_id}/items/add",
+        method="POST",
+        oauth_scope=SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
+        supports_batch=False,
+        parent_id_fields=("queue_id",),
+        description=(
+            "Put items into an annotation queue. Pass thread_ids (strings) + project, "
+            "or ids (entity UUIDs) if you already resolved them."
+        ),
+        example=EXAMPLES["annotation_queue_item.add"],
+        failure_modes=("queue_items_ambiguous", "queue_project_missing", "thread_not_found"),
+    ),
+    "feedback_definition.create": WriteOperation(
+        name="feedback_definition.create",
+        pydantic_model=MODELS["feedback_definition.create"],
+        endpoint="/v1/private/feedback-definitions/",
+        method="POST",
+        # Workspace-level config, yet mapped to the annotate scope: Comet's grammar
+        # has no feedback-definition scope, and inventing one here would advertise a
+        # permission the backend cannot check. Annotate is the closest true statement
+        # — this exists so a caller who may annotate can name what it is annotating.
+        oauth_scope=SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
+        supports_batch=False,
+        description=(
+            "Define a workspace scoring rubric (categorical / numerical / boolean) so "
+            "annotation queues and online rules can reference it by name. A duplicate "
+            "name returns 409 — that means it already exists."
+        ),
+        example=EXAMPLES["feedback_definition.create"],
+        failure_modes=("feedback_details_invalid",),
+    ),
 }
 
 

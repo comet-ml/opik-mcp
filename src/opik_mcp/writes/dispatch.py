@@ -95,6 +95,8 @@ async def run_write(
     if not dry_run:
         http_client = client if client is not None else make_opik_client(settings or get_settings())
         await _resolve_thread_comment_target(op, items, http_client)
+        await _resolve_queue_project(op, items, http_client)
+        await _resolve_queue_items(op, items, http_client)
 
     method, path, body = _build_request_with_method(op, items, is_batch=is_batch)
 
@@ -125,6 +127,15 @@ async def run_write(
     return _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
 
 
+def _invalid(op: WriteOperation, field: str, message: str, code: str) -> ValidationFailedError:
+    return ValidationFailedError.build(
+        op.name,
+        [ValidationIssue(field, message, code)],
+        expected_schema=op.pydantic_model.model_json_schema(),
+        example=op.example,
+    )
+
+
 async def _resolve_thread_comment_target(
     op: WriteOperation, items: list[BaseModel], client: OpikClient
 ) -> None:
@@ -151,18 +162,12 @@ async def _resolve_thread_comment_target(
             truncate=True,
         )
     except OpikNotFoundError as e:
-        raise ValidationFailedError.build(
-            op.name,
-            [
-                ValidationIssue(
-                    "target_id",
-                    f"thread {model.target_id!r} not found in the given project — "
-                    "check the thread_id and project_name/project_id.",
-                    "thread_not_found",
-                )
-            ],
-            expected_schema=op.pydantic_model.model_json_schema(),
-            example=op.example,
+        raise _invalid(
+            op,
+            "target_id",
+            f"thread {model.target_id!r} not found in the given project — "
+            "check the thread_id and project_name/project_id.",
+            "thread_not_found",
         ) from e
     except (OpikAuthError, OpikValidationError, OpikServerError) as e:
         # Mirror the live write path: a non-404 backend failure during the
@@ -179,17 +184,94 @@ async def _resolve_thread_comment_target(
     # path needs the model UUID, so there is no valid fallback to ``id`` here.
     model_id = thread.get("thread_model_id")
     if not isinstance(model_id, str) or not model_id:
-        raise ValidationFailedError.build(
-            op.name,
-            [
-                ValidationIssue(
-                    "target_id", "thread has no resolvable model id.", "thread_not_found"
-                )
-            ],
-            expected_schema=op.pydantic_model.model_json_schema(),
-            example=op.example,
-        )
+        raise _invalid(op, "target_id", "thread has no resolvable model id.", "thread_not_found")
     items[0] = model.model_copy(update={"target_id": model_id})
+
+
+async def _resolve_queue_project(
+    op: WriteOperation, items: list[BaseModel], client: OpikClient
+) -> None:
+    """Swap ``project_name`` for the ``project_id`` UUID the queue endpoint requires.
+
+    ``AnnotationQueue`` is the one write whose BE record has no project-by-name
+    form, so the courtesy every other op gets has to be paid for with a lookup.
+    """
+    if op.name != "annotation_queue.create":
+        return
+    from opik_mcp.writes.models import AnnotationQueueCreate
+
+    model = items[0]
+    if not isinstance(model, AnnotationQueueCreate) or model.project_id is not None:
+        return
+    name = model.project_name or ""
+    try:
+        page = await client.list_projects(name=name, size=25)
+    except (OpikAuthError, OpikValidationError, OpikServerError, OpikNotFoundError) as e:
+        raise BackendError.build(
+            op.name, e.http_status or 502, str(e), method="GET", path="/v1/private/projects"
+        ) from e
+    matches = [
+        p
+        for p in (page.get("content") or [])
+        if str(p.get("name", "")).lower() == name.lower() and p.get("id")
+    ]
+    if not matches:
+        raise _invalid(
+            op, "project_name", f"no project named {name!r} in this workspace.", "project_not_found"
+        )
+    # Coerce to UUID: the field is typed, and a str would trip pydantic's
+    # serializer warning on the way to the wire.
+    items[0] = model.model_copy(
+        update={"project_id": UUID(str(matches[0]["id"])), "project_name": None}
+    )
+
+
+async def _resolve_queue_items(
+    op: WriteOperation, items: list[BaseModel], client: OpikClient
+) -> None:
+    """Turn ``thread_ids`` (strings) into the entity UUIDs the items route takes.
+
+    Same asymmetry as thread comments: queue membership is keyed by the thread's
+    model UUID, while the agent works with the ``thread_id`` string.
+    """
+    if op.name != "annotation_queue_item.add":
+        return
+    from opik_mcp.writes.models import AnnotationQueueItemAdd
+
+    model = items[0]
+    if not isinstance(model, AnnotationQueueItemAdd) or not model.thread_ids:
+        return
+    resolved: list[UUID] = []
+    for thread_id in model.thread_ids:
+        try:
+            thread = await client.get_thread(
+                thread_id,
+                project_id=str(model.project_id) if model.project_id else None,
+                project_name=model.project_name,
+                truncate=True,
+            )
+        except OpikNotFoundError as e:
+            raise _invalid(
+                op,
+                "thread_ids",
+                f"thread {thread_id!r} not found in the given project.",
+                "thread_not_found",
+            ) from e
+        except (OpikAuthError, OpikValidationError, OpikServerError) as e:
+            raise BackendError.build(
+                op.name,
+                e.http_status or 502,
+                str(e),
+                method="POST",
+                path="/v1/private/traces/threads/retrieve",
+            ) from e
+        model_id = thread.get("thread_model_id")
+        if not isinstance(model_id, str) or not model_id:
+            raise _invalid(
+                op, "thread_ids", f"thread {thread_id!r} has no model id.", "thread_not_found"
+            )
+        resolved.append(UUID(model_id))
+    items[0] = model.model_copy(update={"ids": resolved, "thread_ids": None})
 
 
 # --- Stage 1 ------------------------------------------------------------- #
@@ -513,6 +595,20 @@ def _build_request(
         # the exclude_none dump IS the wire body (TraceThreadIdentifier).
         # supports_batch=False, so items[0] is the only item.
         return op.endpoint, _dump(items[0])
+
+    if name == "annotation_queue.create":
+        # ``project_name`` was swapped for ``project_id`` by the live resolve; the
+        # BE's AnnotationQueue record only accepts the UUID.
+        return op.endpoint, _dump(items[0])
+
+    if name == "annotation_queue_item.add":
+        # The queue id lives in the path, and the wire body is just {ids: [...]}
+        # (AnnotationQueueItemIds). ``thread_ids`` were resolved to model UUIDs.
+        body = _dump(items[0])
+        queue_id = body.pop("queue_id")
+        for dropped in ("project_name", "project_id", "thread_ids"):
+            body.pop(dropped, None)
+        return op.endpoint.format(queue_id=queue_id), body
 
     # Belt-and-braces — every registry entry is matched above. If a new
     # operation lands without a branch here, fail loudly.

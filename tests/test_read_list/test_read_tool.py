@@ -155,6 +155,19 @@ class FakeOpikClient:
     async def list_test_suite_items(self, _test_suite_id: str, **_kw: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
+    # Annotation-queue surface — covered against its own fake in tests/test_apps/.
+    async def list_annotation_queues(self, **_: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
+    async def list_feedback_definitions(self, **_: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
+    async def get_annotation_queue(self, queue_id: str) -> dict[str, Any]:
+        raise OpikNotFoundError(f"annotation queue {queue_id!r} not found (404).")
+
+    async def list_queue_threads(self, **_: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
 
 UUID = "11111111-2222-3333-4444-555555555555"
 

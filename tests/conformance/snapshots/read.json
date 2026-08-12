@@ -1,8 +1,9 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, span, test_suite, thread, trace.",
+      "description": "One of: annotation_queue, experiment, project, prompt, span, test_suite, thread, trace.",
       "enum": [
+        "annotation_queue",
         "experiment",
         "project",
         "prompt",

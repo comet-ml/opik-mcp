@@ -37,11 +37,17 @@ Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
 reads. read takes (entity_type, id_or_name_or_uri); list takes (entity_type, \
 optional name filter, page, size). Readable entity types include trace, span, \
-project, experiment, prompt, test_suite, thread. Composite reads (trace, prompt, \
-thread) inline their child collections so one call usually gets the full picture. \
-For a thread, pass the thread link/URI or a project_id — read('thread', …) \
-returns the messages list, and list('thread', project_id=…) enumerates a \
-project's threads.
+project, experiment, prompt, test_suite, thread, annotation_queue. Composite \
+reads (trace, prompt, thread, annotation_queue) inline their child collections so \
+one call usually gets the full picture. For a thread, pass the thread link/URI or \
+a project_id — read('thread', …) returns the messages list, and \
+list('thread', project_id=…) enumerates a project's threads.
+- review: same reads as read, but puts the entity in front of a *person* — use it \
+when a human should look at something and record a judgement, not when you need \
+the data yourself. Covers thread and annotation_queue. On hosts that support MCP \
+Apps it renders an interactive panel where the reviewer scores, comments and \
+closes; the text it returns is the same either way. After a human reviews a \
+queue, read('annotation_queue', id) shows you what they decided.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). Skip ask_ollie for these — narrower tools are faster and more \

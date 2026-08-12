@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 import httpx
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
@@ -28,6 +29,8 @@ from opik_mcp.analytics import (
 from opik_mcp.analytics.environment import cached_call_context_env, collect_environment_fingerprint
 from opik_mcp.analytics.events import bucket_count, bucket_path
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
+from opik_mcp.apps import APP_ENTITY_TYPES, APP_TOOL_META, UI_TOOL_META, build_app_payload
+from opik_mcp.apps import register as register_apps
 from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.auth_context import (
     classify_bearer,
@@ -39,7 +42,14 @@ from opik_mcp.auth_context import (
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import resolve_workspace_name
-from opik_mcp.opik_client import make_opik_client, resolve_opik_config
+from opik_mcp.opik_client import (
+    OpikAuthError,
+    OpikNotFoundError,
+    OpikServerError,
+    OpikValidationError,
+    make_opik_client,
+    resolve_opik_config,
+)
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.uri import looks_like_thread_url
@@ -147,6 +157,10 @@ def _run_experiment_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str
 # server logs any settings issues at startup rather than mid-call.
 mcp = FastMCP("opik-mcp", instructions=render_instructions())
 
+# MCP Apps: the ``ui://`` review surface that ``read`` points at. Additive — hosts
+# that don't negotiate the extension never fetch it.
+register_apps(mcp)
+
 
 # --- read / list (ADR 0004 D1) ------------------------------------------ #
 
@@ -209,8 +223,9 @@ async def read(
     """Read any Opik entity by ID, name, or opik:// URI, with adaptive compression.
 
     Prefer a UUID for `id` — it's faster (single API call) and unambiguous.
-    Name lookup is available for: project, experiment, prompt, test_suite —
-    name lookup is slower (two API calls) and may return multiple matches,
+    Name lookup is available for: project, experiment, prompt, test_suite,
+    annotation_queue — name lookup is slower (two API calls) and may return
+    multiple matches,
     in which case the tool lists the candidates so you can retry with the
     correct ID.
 
@@ -220,6 +235,10 @@ async def read(
     - thread: returns {thread, messages, messagesTruncated} — each message is one
       turn's trace input/output + a trace_id to read('trace', id). Needs project
       scope: pass a thread link/URI, or project_id/project_name.
+    - annotation_queue: returns {queue, definitions, items, itemsTruncated} — the
+      reviewer instructions, the feedback definitions the queue scores with, and
+      each item with the scores it already has. Read this after a human review to
+      see what they decided. To put it in front of a human, use review() instead.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
     Output is a one-line `[read: …]` header (entity_type, id, compression
@@ -234,6 +253,97 @@ async def read(
         project_id=project_id,
         project_name=project_name,
     )
+
+
+@mcp.tool(meta=UI_TOOL_META)
+@instrument_tool("review", props_fn=_read_props)
+async def review(
+    entity_type: Annotated[
+        str,
+        Field(
+            description=f"What to review. One of: {', '.join(APP_ENTITY_TYPES)}.",
+            json_schema_extra={"enum": list(APP_ENTITY_TYPES)},
+        ),
+    ],
+    id: Annotated[
+        str,
+        Field(
+            description=(
+                "Thread id (or a pasted Opik thread link) for entity_type='thread'; "
+                "queue UUID or name for entity_type='annotation_queue'."
+            ),
+            min_length=1,
+            max_length=2048,
+        ),
+    ],
+    project_id: Annotated[
+        str | None,
+        Field(description="Project UUID. Required for threads unless the id is a full link."),
+    ] = None,
+    project_name: Annotated[
+        str | None, Field(description="Project name — alternative to project_id.", max_length=200)
+    ] = None,
+    ctx: Context[ServerSession, None] | None = None,
+) -> str:
+    """Open an Opik entity for human review, with an interactive panel where the host
+    supports it.
+
+    Use this when a person should look at something and record a judgement —
+    a conversation that went wrong, or an annotation queue waiting on a reviewer.
+    On hosts that implement MCP Apps the transcript renders inline with scoring,
+    comments and thread lifecycle controls; the returned text is the same either way,
+    so nothing depends on the panel appearing.
+
+    For pure data, call read() — it is cheaper and has no side effect on the UI.
+    """
+    if entity_type not in APP_ENTITY_TYPES:
+        raise ToolError(
+            f"review() covers {', '.join(APP_ENTITY_TYPES)}. "
+            f"For {entity_type!r} use read() instead."
+        )
+    if ctx is not None:
+        await ctx.info(f"review.called entity_type={entity_type} id={id}")
+    return await run_read(
+        entity_type=entity_type,
+        id=id,
+        project_id=project_id,
+        project_name=project_name,
+    )
+
+
+# The app's private data channel. ``visibility: ["app"]`` keeps it out of the model's
+# tool list, so the review panel gets full-fidelity data without spending any of the
+# planner's context — the one model-facing tool this feature adds is ``review``.
+@mcp.tool(meta=APP_TOOL_META)
+@instrument_tool("app_data", props_fn=_read_props)
+async def app_data(
+    entity_type: Annotated[
+        str,
+        Field(
+            description=f"Entity to load for the review UI. One of: {', '.join(APP_ENTITY_TYPES)}.",
+            json_schema_extra={"enum": list(APP_ENTITY_TYPES)},
+        ),
+    ],
+    id: Annotated[str, Field(min_length=1, max_length=2048)],
+    project_id: Annotated[str | None, Field()] = None,
+    project_name: Annotated[str | None, Field(max_length=200)] = None,
+) -> dict[str, Any]:
+    """Full entity payload for the MCP App iframe. Not for model use — call read()."""
+    if entity_type not in APP_ENTITY_TYPES:
+        raise ToolError(f"The review panel has no view for {entity_type!r}.")
+    settings = get_settings()
+    client = make_opik_client(settings)
+    try:
+        return await build_app_payload(
+            client,
+            settings,
+            entity_type=entity_type,
+            entity_id=id,
+            project_id=project_id,
+            project_name=project_name,
+        )
+    except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
+        raise ToolError(str(e)) from e
 
 
 @mcp.tool(name="list")

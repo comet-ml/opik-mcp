@@ -45,6 +45,11 @@ from opik_mcp.read_list.compression import (
 SPANS_INLINE_LIMIT = 200
 VERSIONS_INLINE_LIMIT = 100
 MESSAGES_INLINE_LIMIT = 200
+QUEUE_ITEMS_INLINE_LIMIT = 200
+# One page is enough for any real workspace, but "one page" has to be a stated cap
+# rather than an accident of the default page size.
+FEEDBACK_DEFINITIONS_PAGE = 100
+FEEDBACK_DEFINITIONS_MAX_PAGES = 10
 
 # ``FetchFn`` is widened to ``...`` so project-scoped fetchers (only ``thread``
 # today) can accept ``project_id`` / ``project_name`` kwargs. Every other
@@ -174,6 +179,24 @@ async def _fetch_prompt(client: OpikReadClient, entity_id: str) -> dict[str, Any
     return {"prompt": prompt, "versions": versions, "versionsTruncated": truncated}
 
 
+def _tier_before_skeleton(
+    data: dict[str, Any], max_tokens: int | None, *, keep_path: str
+) -> tuple[str, CompressionTier] | None:
+    """FULL if it fits the budget, MEDIUM if it fits without a skeleton, else None.
+
+    The two cheap tiers are identical for every composite entity; only the skeleton
+    is entity-specific, so only the skeleton belongs in each compress_fn.
+    """
+    full_json = compact_json(data)
+    full_tokens = estimate_tokens(full_json)
+    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
+    if full_tokens <= budget:
+        return full_json, CompressionTier.FULL
+    if full_tokens < TOKEN_SKELETON_THRESHOLD:
+        return compact_json(truncate_strings(data, keep_path)), CompressionTier.MEDIUM
+    return None
+
+
 def _thread_messages(traces: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Project each trace to one conversation turn, sorted by ``start_time`` asc.
 
@@ -246,6 +269,64 @@ async def _fetch_thread(
     }
 
 
+async def _queue_definitions(client: OpikReadClient, names: list[str]) -> list[dict[str, Any]]:
+    """The feedback definitions a queue scores with, looked up by name.
+
+    Paged rather than first-page-only: a workspace with more definitions than one
+    page would otherwise silently lose the queue's rubric, and a reviewer would be
+    handed a panel with no scoring controls and no explanation.
+    """
+    wanted = set(names)
+    found: list[dict[str, Any]] = []
+    for page_number in range(1, FEEDBACK_DEFINITIONS_MAX_PAGES + 1):
+        try:
+            page = await client.list_feedback_definitions(
+                page=page_number, size=FEEDBACK_DEFINITIONS_PAGE
+            )
+        except Exception:
+            break
+        batch = _content(page)
+        found.extend(d for d in batch if d.get("name") in wanted)
+        wanted -= {d.get("name") for d in batch}
+        if not wanted or not _is_truncated(
+            page, inlined=page_number * FEEDBACK_DEFINITIONS_PAGE, limit=FEEDBACK_DEFINITIONS_PAGE
+        ):
+            break
+    return found
+
+
+async def _fetch_annotation_queue(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+    """Queue + the rubrics it asks for + its items with their review state.
+
+    Three calls reproduce the UI's SME flow: the queue record, the feedback
+    definitions it names (so a caller knows what the reviewer is scoring with),
+    and the queue's threads. Defensive like ``_fetch_trace``: a failure in either
+    secondary call degrades to an empty collection rather than failing the read.
+    """
+    queue = await client.get_annotation_queue(entity_id)
+    names = queue.get("feedback_definition_names") or []
+    definitions = await _queue_definitions(client, names) if names else []
+
+    items: list[dict[str, Any]] = []
+    items_truncated = False
+    project_id = queue.get("project_id")
+    if project_id and (queue.get("scope") or "thread") == "thread":
+        try:
+            page = await client.list_queue_threads(
+                project_id=str(project_id), queue_id=entity_id, size=MESSAGES_INLINE_LIMIT
+            )
+            items = _content(page)
+            items_truncated = _is_truncated(page, inlined=len(items), limit=MESSAGES_INLINE_LIMIT)
+        except Exception:
+            items = []
+    return {
+        "queue": queue,
+        "definitions": definitions,
+        "items": items,
+        "itemsTruncated": items_truncated,
+    }
+
+
 async def _unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
     """Sentinel for list-only entities. The read tool raises before calling this."""
     raise NotImplementedError(
@@ -272,6 +353,10 @@ async def _search_test_suite(client: OpikReadClient, name: str) -> list[dict[str
     return _candidates(await client.list_test_suites(name=name, size=5))
 
 
+async def _search_annotation_queue(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
+    return _candidates(await client.list_annotation_queues(name=name, size=5))
+
+
 # --- list fns ------------------------------------------------------------- #
 
 
@@ -289,6 +374,13 @@ async def _list_prompts(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 async def _list_test_suites(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_test_suites(**kw)
+
+
+async def _list_annotation_queues(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # Queues are workspace-wide by default but can be narrowed to a project; the
+    # client turns ``project_id`` into the filters JSON the endpoint wants.
+    kw.pop("project_name", None)
+    return await client.list_annotation_queues(**kw)
 
 
 async def _list_traces(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -361,6 +453,47 @@ def _compress_trace(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
     return compact_json(skeleton), CompressionTier.SKELETON
 
 
+def _compress_annotation_queue(
+    data: dict[str, Any], max_tokens: int | None
+) -> tuple[str, CompressionTier]:
+    """Queue+items: FULL → MEDIUM → SKELETON that keeps each item's review state.
+
+    The skeleton deliberately keeps ``feedback_scores`` per item: that is the
+    answer to "what did the human decide", which is the whole reason to read a
+    queue. Message previews are what gets dropped.
+    """
+    early = _tier_before_skeleton(data, max_tokens, keep_path=".queue")
+    if early is not None:
+        return early
+
+    queue = data.get("queue") or {}
+    skeleton = {
+        "queue": {
+            "id": queue.get("id"),
+            "name": queue.get("name"),
+            "scope": queue.get("scope"),
+            "instructions": queue.get("instructions"),
+            "feedback_definition_names": queue.get("feedback_definition_names"),
+            "items_count": queue.get("items_count"),
+        },
+        "definitions": [
+            {"name": d.get("name"), "type": d.get("type")} for d in data.get("definitions") or []
+        ],
+        "items": [
+            {
+                "id": it.get("id"),
+                "status": it.get("status"),
+                "number_of_messages": it.get("number_of_messages"),
+                "feedback_scores": it.get("feedback_scores"),
+            }
+            for it in data.get("items") or []
+        ],
+        "itemsTruncated": data.get("itemsTruncated", False),
+        "note": "SKELETON compression: message previews omitted; review state kept.",
+    }
+    return compact_json(skeleton), CompressionTier.SKELETON
+
+
 def _compress_thread(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
     """Thread+messages: FULL → MEDIUM (truncated strings) → SKELETON (turn list only).
 
@@ -368,16 +501,9 @@ def _compress_thread(data: dict[str, Any], max_tokens: int | None) -> tuple[str,
     the turn list so the LLM can drill into a specific turn via
     ``read('trace', trace_id)``.
     """
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-
-    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
-    if full_tokens <= budget:
-        return full_json, CompressionTier.FULL
-
-    if full_tokens < TOKEN_SKELETON_THRESHOLD:
-        truncated = truncate_strings(data, ".thread")
-        return compact_json(truncated), CompressionTier.MEDIUM
+    early = _tier_before_skeleton(data, max_tokens, keep_path=".thread")
+    if early is not None:
+        return early
 
     thread = data.get("thread") or {}
     messages = data.get("messages") or []
@@ -484,6 +610,20 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         description=(
             "Prompt version. Currently list-only — pass prompt_id to enumerate. "
             "Use read('prompt', id) to get the prompt + all versions in one call."
+        ),
+    ),
+    "annotation_queue": EntityHandler(
+        entity_type="annotation_queue",
+        fetch_fn=_fetch_annotation_queue,
+        search_by_name_fn=_search_annotation_queue,
+        list_fn=_list_annotation_queues,
+        list_extra_fields=("scope", "project_name", "items_count", "last_scored_at"),
+        compress_fn=_compress_annotation_queue,
+        description=(
+            "Annotation queue: a batch of traces/threads put aside for human review. "
+            "Returns {queue, definitions, items} — the reviewer instructions, the "
+            "feedback definitions they score with, and each item with the scores it "
+            "already has. Read this after a review to see what the humans decided."
         ),
     ),
     "thread": EntityHandler(

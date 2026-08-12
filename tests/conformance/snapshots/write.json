@@ -48,7 +48,10 @@
         "experiment.create",
         "experiment_item.create",
         "thread.close",
-        "thread.open"
+        "thread.open",
+        "annotation_queue.create",
+        "annotation_queue_item.add",
+        "feedback_definition.create"
       ],
       "title": "Operation",
       "type": "string"

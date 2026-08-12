@@ -59,6 +59,14 @@ src = ["src", "tests"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+# The MCP App is a document, not code: `assets.py` is a generated base64 data URI
+# and `review_html.py` holds the HTML/CSS/JS verbatim. Line length carries no
+# meaning in either, and reflowing them would corrupt the asset.
+"src/opik_mcp/apps/assets.py" = ["E501"]
+# RUF001: the en dashes are deliberate typography in the UI copy.
+"src/opik_mcp/apps/review_html.py" = ["E501", "RUF001"]
+
 [tool.ruff.format]
 quote-style = "double"
 

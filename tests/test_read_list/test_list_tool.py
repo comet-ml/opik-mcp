@@ -29,6 +29,10 @@ class FakeOpikClient:
     test_suite_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    annotation_queues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    feedback_definitions: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "total": 0}
+    )
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -55,6 +59,14 @@ class FakeOpikClient:
     async def list_threads(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         return self.threads
+
+    async def list_annotation_queues(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        return self.annotation_queues
+
+    async def list_feedback_definitions(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        return self.feedback_definitions
 
     async def list_test_suite_items(self, test_suite_id: str, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = {"test_suite_id": test_suite_id, **kw}

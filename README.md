@@ -171,8 +171,8 @@ cloud-Comet source label on telemetry events.
 
 ## Tools
 
-`opik-mcp` exposes a small, outcome-oriented surface — six tools that cover
-the full lifecycle (read → annotate → curate → author → iterate).
+`opik-mcp` exposes a small, outcome-oriented surface — seven tools that cover
+the full lifecycle (read → review → annotate → curate → author → iterate).
 
 | Tool | Purpose |
 |---|---|
@@ -181,6 +181,7 @@ the full lifecycle (read → annotate → curate → author → iterate).
 | [`ask_ollie`](#ask_ollie) | Investigate / synthesize via the Opik in-product assistant |
 | [`write`](#write) | Universal write — log traces/spans, score, comment, save prompts, manage test suites & experiments |
 | [`schema`](#schema) | Introspect write-operation schemas (used by the LLM to construct valid payloads) |
+| [`review`](#interactive-review-mcp-apps) | Open a thread or annotation queue for human review, with an interactive panel where the host supports it |
 | [`run_experiment`](#run_experiment) | Run an evaluation experiment end-to-end via Ollie |
 
 ### `read`
@@ -190,9 +191,13 @@ One tool for any "show me X" question. Takes an `entity_type` plus an `id`
 (`trace`, `prompt`) inline their children so a single call returns the full
 picture.
 
-**Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
-`prompt`. Name-based lookup is available for `project`, `experiment`, `prompt`,
-`test_suite` (slower — two API calls — and may return multiple matches).
+**Supported entities:** `project`, `trace`, `span`, `thread`, `test_suite`,
+`experiment`, `prompt`, `annotation_queue`. Name-based lookup is available for
+`project`, `experiment`, `prompt`, `test_suite`, `annotation_queue` (slower — two
+API calls — and may return multiple matches).
+
+`read` is always pure data. To put something in front of a human, use
+[`review`](#interactive-review-mcp-apps) instead.
 
 ```python
 read(entity_type="trace", id="7f2e3c8a-…")
@@ -254,6 +259,10 @@ backend response.
 | `test_suite_item.upsert` | Upsert items into a test suite (always the envelope shape). |
 | `experiment.create` | Create an experiment scoped to a test suite. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
+| `thread.close` / `thread.open` | Mark a conversation thread done / reopen it. |
+| `annotation_queue.create` | Put traces/threads aside for human review, with reviewer instructions and a rubric. |
+| `annotation_queue_item.add` | Add items to a queue — pass `thread_ids` (strings) and the project, or resolved `ids`. |
+| `feedback_definition.create` | Define a scoring rubric (categorical / numerical / boolean) queues and rules can reference by name. |
 
 ```python
 write(operation="score.create", data={
@@ -295,6 +304,32 @@ run_experiment(experiment_config={
 > Available on Comet Cloud only.
 
 ---
+
+## Interactive review (MCP Apps)
+
+`review(entity_type, id)` returns the same text `read` would, and on hosts that
+implement the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview)
+extension (`io.modelcontextprotocol/ui`) — Claude Desktop, Claude on the web, VS Code
+Copilot, Goose and others — it also renders an interactive panel:
+
+- **`review('thread', …)`** — the conversation turn by turn with latency, cost and tokens
+  per turn, thumbs up/down per answer, a thread-level score, a comment box, and
+  *Close thread*.
+- **`review('annotation_queue', …)`** — the reviewer's instructions, progress across the
+  queue, item navigation, and score controls generated from the queue's own feedback
+  definitions. Each save pushes the verdict to the model silently via
+  `ui/update-model-context`; *Finish review* adds one short message so the agent takes a
+  turn, and the panel switches to a completed state. A human decision continues the
+  agent's work without anyone retyping it.
+
+Every action in the panel goes through the same [`write`](#write) operations the model
+uses, so scores and comments are attributed to the human and audited identically.
+
+`review` is the only tool the panel is attached to (via `_meta.ui.resourceUri`), which
+keeps `read` a pure data call — attaching it to `read` would have opened a UI for every
+entity, including the ones with no purpose-built view. The app's data channel is marked
+`visibility: ["app"]`, so it stays out of the model's tool list entirely. Hosts that
+don't negotiate the extension get exactly the text they got before.
 
 ## Configuration
 
@@ -414,11 +449,17 @@ hard cap.
 ```bash
 git clone git@github.com:comet-ml/opik-mcp.git
 cd opik-mcp
-make install        # uv sync --extra dev
-make check          # lint + typecheck + test
+make install        # uv sync --extra dev (also writes the git-ignored _version.py)
+make check          # lint + typecheck + test — the gate to run before any push
 make run-dev        # uvicorn with --reload + DEBUG logs
 make inspect        # MCP Inspector against the running server
 ```
+
+`make install` needs [`uv`](https://docs.astral.sh/uv/) and Python 3.13+; `uv`
+provisions the interpreter itself, so nothing else is required on the machine.
+`make check` needs no API key and no network: the suite stubs the Opik backend and
+`tests/conftest.py` disables analytics. A green run is a clean `ruff` + `mypy`
+and `1177 passed, 2 skipped` (the count moves as tests land).
 
 Common targets:
 
@@ -434,6 +475,7 @@ Common targets:
 | `make lint` | `ruff check` + format check. |
 | `make format` | `ruff format` + `ruff check --fix`. |
 | `make typecheck` | `mypy`. |
+| `make conformance` | `pytest tests/conformance -v` — the MCP wire contract (tool inventory, schemas, `ui://` resource). Run this after any change to the tool surface. |
 | `make check` | `lint + typecheck + test`. |
 
 Repo layout:
@@ -441,12 +483,107 @@ Repo layout:
 ```
 opik-mcp/
 ├── src/opik_mcp/        ← server, tools, ask_ollie, analytics
-├── tests/               ← pytest suites
+│   ├── read_list/       ← read + list registry (one entry per entity type)
+│   ├── writes/          ← write dispatch, models, operation registry
+│   └── apps/            ← MCP App: the review panel (HTML + payload builder)
+├── tests/               ← pytest suites (tests/conformance = MCP wire contract)
 ├── scripts/             ← live-BE smoke + MCP-session smoke
 ├── legacy/typescript/   ← deprecated v2 TS server
 ├── pyproject.toml
 └── Makefile
 ```
+
+### Running your local checkout in a host
+
+Point any MCP client at the working tree instead of the published package — same
+config as [Install](#install), with `uvx opik-mcp` swapped for
+`uv run --directory <abs-path-to-checkout> opik-mcp`. Claude Code:
+
+```bash
+claude mcp add --transport stdio opik-mcp-local \
+  --env OPIK_API_KEY=<your-key> \
+  --env OPIK_WORKSPACE=<your-workspace> \
+  -- uv run --directory /abs/path/to/opik-mcp opik-mcp
+```
+
+Or in `~/.claude.json` / `.cursor/mcp.json` / `.vscode/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "opik-mcp-local": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "/abs/path/to/opik-mcp", "opik-mcp"],
+      "env": {
+        "OPIK_API_KEY": "<your-key>",
+        "OPIK_WORKSPACE": "<your-workspace>",
+        "OPIK_MCP_LOG_LEVEL": "DEBUG"
+      }
+    }
+  }
+}
+```
+
+Use a distinct server name (`opik-mcp-local`) so it can coexist with an
+installed `opik-mcp`. The host spawns a fresh process per session, so a code
+edit takes effect on the next host restart — no reinstall step. Against a dev
+or self-hosted deployment, add `COMET_URL_OVERRIDE` (see
+[Self-hosted Opik](#self-hosted-opik)).
+
+The Inspector is the fastest way to look at the raw wire without a host:
+
+```bash
+OPIK_API_KEY=<your-key> OPIK_WORKSPACE=<your-workspace> \
+  npx @modelcontextprotocol/inspector uv run --directory $(pwd) opik-mcp
+```
+
+### Verifying a change
+
+| What you changed | What to run |
+|---|---|
+| Anything | `make check` |
+| The tool surface (new tool, renamed arg, new write op) | `make conformance` — snapshot tests in `tests/conformance/snapshots/` pin the advertised JSON Schemas. Review the diff, then update the snapshot deliberately. |
+| The review panel | `uv run pytest tests/test_apps tests/conformance/test_tool_inventory.py -v` |
+| Write dispatch | `uv run python scripts/smoke_mcp_session.py` — drives a real MCP session and dry-runs every write op, printing the request the backend *would* receive — nothing is written. |
+| Anything touching live behaviour | `make test-live` (needs `OPIK_API_KEY` + `OPIK_WORKSPACE` against `dev.comet.com`) |
+
+The wire-contract suite is the one that catches accidental surface drift: it
+asserts the exact set of model-facing tools, that `app_data` stays app-only, and
+that the `ui://` resource is advertised with the MCP App mime type.
+
+### Trying the review panel
+
+`review` needs a host that negotiates the [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview)
+extension to show the panel (Claude Desktop / Claude on the web, VS Code Copilot,
+Goose). In a host without it — Claude Code today, MCP Inspector — the tool still
+returns its text, which is the point of the design: nothing depends on the panel
+appearing.
+
+To exercise it you need something reviewable in your workspace:
+
+```python
+# a conversation to review — any project with multi-turn threads
+list(entity_type="thread", project_id="<project-uuid>")
+review(entity_type="thread", id="<thread-id>", project_id="<project-uuid>")
+
+# or a queue: create one, fill it, then open it
+write(operation="feedback_definition.create", data={...})   # schema("feedback_definition.create")
+write(operation="annotation_queue.create", data={...})
+write(operation="annotation_queue_item.add", data={...})
+review(entity_type="annotation_queue", id="<queue-name-or-uuid>")
+```
+
+`schema(operation=…)` returns the JSON Schema plus a worked example for each of
+those operations. Scores and comments saved in the panel go through the same
+`write` operations the model uses, so they show up in the Opik UI and in
+`read(entity_type="annotation_queue", …)` identically.
+
+The panel itself is `src/opik_mcp/apps/review_html.py` — a single self-contained
+HTML document (inlined CSS/JS, no external fetches, so it needs no CSP
+relaxations). `src/opik_mcp/apps/__init__.py` registers the `ui://` resource and
+builds the full-fidelity payload the iframe loads via the app-only `app_data`
+tool.
 
 ---
 
