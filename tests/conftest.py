@@ -117,7 +117,7 @@ def _disable_api_key_identity() -> Generator[None]:
         return None
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.analytics.client.resolve_api_key_identity", _none)
+    mp.setattr("opik_mcp.caller_identity.resolve_api_key_identity", _none)
     try:
         yield
     finally:

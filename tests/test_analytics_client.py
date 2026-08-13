@@ -681,7 +681,7 @@ def test_api_key_install_reports_its_resolved_login(monkeypatch: pytest.MonkeyPa
     from opik_mcp.credential_identity import ResolvedIdentity
 
     monkeypatch.setattr(
-        "opik_mcp.analytics.client.resolve_api_key_identity",
+        "opik_mcp.caller_identity.resolve_api_key_identity",
         lambda _s: ResolvedIdentity(
             user_name="awkoy",
             workspace_name="awkoy-v2",
@@ -717,7 +717,7 @@ def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
     from opik_mcp.credential_identity import ResolvedIdentity
 
     monkeypatch.setattr(
-        "opik_mcp.analytics.client.resolve_api_key_identity",
+        "opik_mcp.caller_identity.resolve_api_key_identity",
         lambda _s: ResolvedIdentity(
             user_name="server-operator",
             workspace_name="ops",

@@ -57,6 +57,7 @@ Never emit free-text queries, paths, filenames, or other user prose.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 # ``launch_method``: bucketed ``sys.executable`` path. See
@@ -177,6 +178,21 @@ UserIdKind = Literal["comet_user", "install_id"]
 # the literal "default" on an install that resolved nothing, and it collides with
 # a real cloud workspace of that name — those rows must never be name-joined.
 WorkspaceKind = Literal["resolved", "configured", "placeholder"]
+
+
+@dataclass(frozen=True, slots=True)
+class Attributed[K: str]:
+    """A value emitted alongside the discriminator that says where it came from.
+
+    Both identity fields in the common block have this shape — a string BI reads,
+    plus a Literal saying how to interpret it — and neither is safe to read
+    without the other: a login and an install id are both strings, and a resolved
+    workspace and the placeholder are both names. Pairing them in one type is
+    what stops an emit site stamping the value and forgetting the label.
+    """
+
+    value: str
+    kind: K
 
 
 EVENT_SERVER_STARTED = "opik_mcp_server_started"

@@ -17,8 +17,7 @@ from typing import Any
 
 import httpx
 
-from opik_mcp.account_identity import resolve_api_key_identity
-from opik_mcp.analytics.events import UserIdKind, WorkspaceKind
+from opik_mcp.analytics.events import Attributed, UserIdKind, WorkspaceKind
 from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
     api_key_sha256,
@@ -30,12 +29,9 @@ from opik_mcp.auth_context import (
     inbound_workspace,
     settings_auth_mode,
 )
+from opik_mcp.caller_identity import caller_identity
 from opik_mcp.config import DEFAULT_WORKSPACE, Settings, installation_type
-from opik_mcp.credential_identity import (
-    ResolvedIdentity,
-    credential_digest,
-    lookup_identity,
-)
+from opik_mcp.credential_identity import ResolvedIdentity, credential_digest
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -220,15 +216,15 @@ class AnalyticsClient:
             # actually maps to when the user took the action.
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        identity = self._resolve_identity()
-        workspace, workspace_kind = self._resolve_workspace(identity)
-        if workspace and workspace_kind:
-            common["workspace"] = workspace
+        identity = caller_identity(self._settings)
+        workspace = self._resolve_workspace(identity)
+        if workspace is not None:
+            common["workspace"] = workspace.value
             # Which of the three the name is: resolved from the backend, chosen
             # by the operator, or the self-hosted placeholder. BI needs this to
             # avoid joining a placeholder onto the real customer workspace that
             # shares its name.
-            common["workspace_kind"] = workspace_kind
+            common["workspace_kind"] = workspace.kind
         # An explicitly configured UUID still wins — it is the operator stating a
         # fact about their deployment. Otherwise take the one the backend bound
         # to the credential, which is available for OAuth callers today.
@@ -266,50 +262,28 @@ class AnalyticsClient:
         # and the anonymous install id when we don't. It deliberately no longer
         # carries a workspace name: one field cannot mean two things, and the
         # workspace is reported in its own fields above.
-        user_id_kind: UserIdKind
-        if identity is not None and identity.user_name:
-            user_id, user_id_kind = identity.user_name, "comet_user"
-        else:
-            user_id, user_id_kind = get_install_id(), "install_id"
+        user = self._resolve_user(identity)
         # Says which of the two the field holds, so a count of real users is a
         # filter rather than a guess. Its ABSENCE is also how BI separates events
         # predating this change, which carried the old overloaded semantics.
-        common["user_id_kind"] = user_id_kind
+        common["user_id_kind"] = user.kind
 
         return {
-            "user_id": user_id,
+            "user_id": user.value,
             "event_type": event_type,
             "event_properties": {**per_request, **properties, **common},
         }
 
-    def _resolve_identity(self) -> ResolvedIdentity | None:
-        """Who is calling, if the backend has told us.
-
-        Reads the inbound bearer to learn *which* credential is in play, then
-        looks the answer up in the credential-keyed store the handshake filled.
-        Returns ``None`` whenever we simply do not know — every caller degrades
-        to anonymous telemetry rather than guessing.
-        """
-        try:
-            inbound_auth = inbound_authorization.get()
-            if inbound_auth:
-                _mode, token = classify_bearer(inbound_auth)
-                if token:
-                    return lookup_identity(token)
-                # A forwarded non-OAuth credential belongs to the caller, not to
-                # this process — resolving it against our own settings would
-                # attribute their call to us.
-                return None
-            # stdio / no inbound credential: the install's own API key is the
-            # caller. Never blocks — see account_identity.
-            return resolve_api_key_identity(self._settings)
-        except Exception:
-            logger.debug("identity resolution failed", exc_info=True)
-        return None
+    @staticmethod
+    def _resolve_user(identity: ResolvedIdentity | None) -> Attributed[UserIdKind]:
+        """The caller's login when known, the anonymous install id when not."""
+        if identity is not None and identity.user_name:
+            return Attributed(identity.user_name, "comet_user")
+        return Attributed(get_install_id(), "install_id")
 
     def _resolve_workspace(
         self, identity: ResolvedIdentity | None
-    ) -> tuple[str | None, WorkspaceKind | None]:
+    ) -> Attributed[WorkspaceKind] | None:
         """The workspace to report, and where it came from.
 
         A workspace the operator deliberately configured wins: they may well be
@@ -322,12 +296,12 @@ class AnalyticsClient:
         configured = self._settings.comet_workspace
         resolved = identity.workspace_name if identity else None
         if configured and configured != DEFAULT_WORKSPACE:
-            return configured, "configured"
+            return Attributed(configured, "configured")
         if resolved:
-            return resolved, "resolved"
+            return Attributed(resolved, "resolved")
         if configured:
-            return configured, "placeholder"
-        return None, None
+            return Attributed(configured, "placeholder")
+        return None
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
