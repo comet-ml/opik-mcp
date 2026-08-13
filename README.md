@@ -39,15 +39,13 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 You'll need two things from your Opik workspace:
 
 - **`OPIK_API_KEY`** — get it from [`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/).
-- **`OPIK_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `OPIK_WORKSPACE=acme-ai`. Optional — defaults to `default` (the Opik SDK convention), which is correct for local/OSS installs; cloud users with a named workspace should set it. `COMET_WORKSPACE` is accepted as a deprecated alias.
-
-> **Pre-release note:** `opik-mcp` (Python) is not yet published to PyPI. Until
-> the first PyPI release lands, replace `uvx opik-mcp` in any snippet below with:
-> `uvx --from git+https://github.com/comet-ml/opik-mcp.git opik-mcp`
+- **`OPIK_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `OPIK_WORKSPACE=acme-ai`. Optional: leave it unset and cloud installs resolve your account's workspace automatically. Do **not** set it to the literal `default` — that is a placeholder for local/OSS installs, and it is also a real cloud workspace belonging to someone else, so setting it on a cloud install misattributes your usage. `COMET_WORKSPACE` is accepted as a deprecated alias.
 
 > **`OPIK_WORKSPACE` is optional.** Omit the `OPIK_WORKSPACE` line/key in any
-> snippet below and the server uses the `default` workspace (correct for
-> local/OSS installs). Set it only if you connect to a named cloud workspace.
+> snippet below. On a cloud install the server resolves your account's workspace
+> for you; on a local/OSS install it falls back to the `default` placeholder.
+> Set it explicitly only when you work in a named workspace that is not your
+> account default.
 
 ### Claude Code
 
@@ -305,9 +303,9 @@ Every setting is an environment variable. Required ones in **bold**.
 | Variable | Default | Notes |
 |---|---|---|
 | **`OPIK_API_KEY`** | — | Required for `ask_ollie` and any authenticated read/write. |
-| `OPIK_WORKSPACE` | `default` | Workspace name. Optional — falls back to `default` (Opik SDK convention). Cloud users with a named workspace should set it. |
+| `OPIK_WORKSPACE` | _unset_ | Workspace name. Optional — cloud installs resolve the account workspace; local/OSS installs fall back to the `default` placeholder. Set it only for a named workspace that is not your account default, and never to the literal `default` on cloud. |
 | `COMET_WORKSPACE` | — | Deprecated alias for `OPIK_WORKSPACE` (backward compat). `OPIK_WORKSPACE` wins if both are set. |
-| `COMET_WORKSPACE_ID` | — | Optional workspace UUID. Stamped into analytics events when set so BI can join on a stable id rather than the (mutable) workspace name. |
+| `COMET_WORKSPACE_ID` | _unset_ | Optional workspace UUID. Stamped into analytics events when set, and takes precedence over the resolved one. Rarely needed — OAuth installs get the UUID from the token automatically. |
 | `COMET_URL_OVERRIDE` | `https://www.comet.com` | Set to your self-hosted Comet host, or `https://dev.comet.com` for staging. |
 | `OPIK_URL` | derived from `COMET_URL_OVERRIDE` + `/opik/api` | Override only if Opik lives on a different host/path than the Comet UI. |
 | `OPIK_DEFAULT_PROJECT_NAME` | _unset_ | When set, the per-session `instructions` blob tells the LLM to pass this as `project_name` on every tool call unless the user names a different project. |

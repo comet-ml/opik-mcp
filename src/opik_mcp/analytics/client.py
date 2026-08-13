@@ -18,11 +18,11 @@ from typing import Any
 
 import httpx
 
+from opik_mcp.account_identity import resolve_api_key_identity
 from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
     api_key_sha256,
     get_install_id,
-    resolve_anonymous_id,
 )
 from opik_mcp.auth_context import (
     classify_bearer,
@@ -30,7 +30,8 @@ from opik_mcp.auth_context import (
     inbound_workspace,
     settings_auth_mode,
 )
-from opik_mcp.config import Settings, installation_type
+from opik_mcp.config import DEFAULT_WORKSPACE, Settings, installation_type
+from opik_mcp.session_identity import ResolvedIdentity, lookup_identity
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -215,12 +216,25 @@ class AnalyticsClient:
             # actually maps to when the user took the action.
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        if self._settings.comet_workspace:
-            common["workspace"] = self._settings.comet_workspace
-        if self._settings.comet_workspace_id:
+        identity = self._resolve_identity()
+        workspace, workspace_kind = self._resolve_workspace(identity)
+        if workspace:
+            common["workspace"] = workspace
+            # Which of the three the name is: resolved from the backend, chosen
+            # by the operator, or the self-hosted placeholder. BI needs this to
+            # avoid joining a placeholder onto the real customer workspace that
+            # shares its name.
+            common["workspace_kind"] = workspace_kind
+        # An explicitly configured UUID still wins — it is the operator stating a
+        # fact about their deployment. Otherwise take the one the backend bound
+        # to the credential, which is available for OAuth callers today.
+        workspace_id = self._settings.comet_workspace_id or (
+            identity.workspace_id if identity else None
+        )
+        if workspace_id:
             # Stable UUID for the workspace — preferred join key in BI; the
             # workspace `name` is human-readable but mutable.
-            common["workspace_id"] = self._settings.comet_workspace_id
+            common["workspace_id"] = workspace_id
         if self._settings.opik_api_key:
             # Pseudonymous per-user identity. The raw key NEVER leaves the
             # process; the backend retains the raw-key → user-id mapping and
@@ -242,14 +256,71 @@ class AnalyticsClient:
         # must not shadow the server-stamped value); caller properties win over
         # per-request so server_started's settings-derived auth_mode beats the
         # contextvar-derived one (which is "none" at boot, no request in flight).
+        # comet-stats indexes events by top-level `user_id`. It carries the
+        # caller's Comet login when we know it — the same plaintext value the
+        # product sends to Segment/PostHog, and the warehouse's own user key —
+        # and the anonymous install id when we don't. It deliberately no longer
+        # carries a workspace name: one field cannot mean two things, and the
+        # workspace is reported in its own fields above.
+        if identity is not None and identity.user_name:
+            user_id, user_id_kind = identity.user_name, "comet_user"
+        else:
+            user_id, user_id_kind = get_install_id(), "install_id"
+        # Says which of the two the field holds, so a count of real users is a
+        # filter rather than a guess. Its ABSENCE is also how BI separates events
+        # predating this change, which carried the old overloaded semantics.
+        common["user_id_kind"] = user_id_kind
+
         return {
-            # comet-stats indexes events by top-level `user_id`. Kept as
-            # workspace name → install_id for dashboard continuity. The
-            # per-user identity is in event_properties.api_key_sha256.
-            "user_id": resolve_anonymous_id(self._settings),
+            "user_id": user_id,
             "event_type": event_type,
             "event_properties": {**per_request, **properties, **common},
         }
+
+    def _resolve_identity(self) -> ResolvedIdentity | None:
+        """Who is calling, if the backend has told us.
+
+        Reads the inbound bearer to learn *which* credential is in play, then
+        looks the answer up in the credential-keyed store the handshake filled.
+        Returns ``None`` whenever we simply do not know — every caller degrades
+        to anonymous telemetry rather than guessing.
+        """
+        try:
+            inbound_auth = inbound_authorization.get()
+            if inbound_auth:
+                _mode, token = classify_bearer(inbound_auth)
+                if token:
+                    return lookup_identity(token)
+                # A forwarded non-OAuth credential belongs to the caller, not to
+                # this process — resolving it against our own settings would
+                # attribute their call to us.
+                return None
+            # stdio / no inbound credential: the install's own API key is the
+            # caller. Never blocks — see account_identity.
+            return resolve_api_key_identity(self._settings)
+        except Exception:
+            logger.debug("identity resolution failed", exc_info=True)
+        return None
+
+    def _resolve_workspace(self, identity: ResolvedIdentity | None) -> tuple[str | None, str]:
+        """The workspace to report, and where it came from.
+
+        A workspace the operator deliberately configured wins: they may well be
+        working outside their account default, and reporting the default instead
+        would be wrong. The backend-resolved name wins over an *absent* setting
+        and over the literal placeholder — which our own docs invited operators
+        to set, and which collides with a real customer workspace of the same
+        name in the warehouse.
+        """
+        configured = self._settings.comet_workspace
+        resolved = identity.workspace_name if identity else None
+        if configured and configured != DEFAULT_WORKSPACE:
+            return configured, "configured"
+        if resolved:
+            return resolved, "resolved"
+        if configured:
+            return configured, "placeholder"
+        return None, ""
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).

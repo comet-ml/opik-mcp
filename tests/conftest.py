@@ -43,11 +43,13 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
     )
+    from opik_mcp.session_identity import reset_identities_for_tests
 
     reset_analytics_for_tests()
     _reset_seen_sessions_for_tests()
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
+    reset_identities_for_tests()
     # main() sets this sentinel so the build_app() lifespan skips its own emit.
     # Clear it between tests or a test that calls main() leaves the build_app()
     # lifespan (e.g. the session http_client fixture) permanently muted.
@@ -57,6 +59,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     _reset_seen_sessions_for_tests()
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
+    reset_identities_for_tests()
     os.environ.pop(LIFECYCLE_SENTINEL, None)
 
 
@@ -64,13 +67,13 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
 def _disable_workspace_introspection() -> Generator[None]:
     """Stub OAuth workspace introspection to a no-op by default.
 
-    The ``initialize`` handshake resolves the authorized workspace name by
-    POSTing to opik-backend's ``/opik/auth-oauth`` (``server.resolve_workspace_name``).
+    The ``initialize`` handshake resolves the caller's identity by POSTing to
+    opik-backend's ``/opik/auth-oauth`` (``server.resolve_oauth_identity``).
     Left live, every test that sends a session-less OAuth bearer to ``/mcp`` would
     fire a real network call — slow, flaky, and able to land in another test's
     ``@respx.mock`` window. Disabled by default (mirrors the analytics default
     above); tests that exercise resolution ``monkeypatch.setattr`` this, and the
-    ``resolve_workspace_name`` unit tests call the real function directly.
+    ``resolve_oauth_identity`` unit tests call the real function directly.
 
     Uses a standalone ``pytest.MonkeyPatch()`` rather than the ``monkeypatch``
     *fixture* on purpose: depending on that fixture from an autouse fixture pulls
@@ -84,7 +87,37 @@ def _disable_workspace_introspection() -> Generator[None]:
         return None
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.server.resolve_workspace_name", _none)
+    mp.setattr("opik_mcp.server.resolve_oauth_identity", _none)
+    try:
+        yield
+    finally:
+        mp.undo()
+
+
+@pytest.fixture(autouse=True)
+def _disable_api_key_identity() -> Generator[None]:
+    """Stub API-key identity resolution to a no-op by default.
+
+    ``_build_event`` resolves the install's own identity from Comet's
+    account-details endpoint for cloud deployments. Left live, any test that
+    builds an event with an ``opik_api_key`` set would spawn a background
+    refresh thread pointed at www.comet.com — a real network call escaping into
+    whatever ``@respx.mock`` window happened to be open, from a thread whose
+    failure is swallowed by design and therefore invisible.
+
+    Disabled by default (mirrors the OAuth introspection stub above). The
+    ``resolve_api_key_identity`` tests call the real function directly, and a
+    test wanting resolution inside an event patches this back.
+
+    Uses a self-owned ``MonkeyPatch`` for the same fixture-ordering reason
+    documented on ``_disable_workspace_introspection``.
+    """
+
+    def _none(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr("opik_mcp.analytics.client.resolve_api_key_identity", _none)
     try:
         yield
     finally:

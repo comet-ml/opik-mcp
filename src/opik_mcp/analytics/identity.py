@@ -2,13 +2,14 @@
 
 - ``get_install_id()``: per-laptop UUID4 persisted at ``~/.opik-mcp/install-id``.
   Mirrors ``MetadataDAO.ANONYMOUS_ID`` in opik-backend, file-backed.
-- ``resolve_anonymous_id(settings)``: top-level ``user_id`` for comet-stats —
-  workspace name → install_id. **Kept stable on purpose**; the per-user
-  identity ships as ``event_properties.api_key_sha256`` so BI dashboards
-  built against the old ``user_id`` semantics keep working.
-- ``api_key_sha256(key)``: per-user pseudonymous identity. SHA-256 of the
-  OPIK_API_KEY. The backend retains the raw-key → user-id mapping; BI joins
-  on the digest. The raw key NEVER leaves this module.
+- ``api_key_sha256(key)``: SHA-256 of the OPIK_API_KEY, emitted as a stable
+  pseudonymous per-credential label. NOTE: it is not a usable join key on its
+  own — the warehouse holds no api-key-hash → user mapping, which is why real
+  identity is resolved from the backend instead (see ``session_identity``).
+  The raw key NEVER leaves this module.
+
+The top-level ``user_id`` is assembled in ``analytics.client``; see the note at
+the foot of this module for what used to live here and why it is gone.
 """
 
 from __future__ import annotations
@@ -19,8 +20,6 @@ from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import UUID, uuid4
-
-from opik_mcp.config import Settings
 
 logger = logging.getLogger("opik_mcp.analytics.identity")
 
@@ -103,24 +102,28 @@ def install_id_was_freshly_generated() -> bool:
 
 
 def api_key_sha256(api_key: str) -> str:
-    """SHA-256 hex digest of the API key. Stable, irreversible, per-user.
+    """SHA-256 hex digest of the API key. Stable, irreversible, per-credential.
 
-    The backend retains the raw-key → user-id mapping; BI can JOIN on the
-    digest to recover the Comet user account without ever seeing plaintext.
+    A useful label for grouping calls made with the same key. It is NOT a user
+    join key: this module used to claim the backend retained a raw-key → user-id
+    mapping BI could join on, and it does not — a digest join against the
+    warehouse returns zero matches. Real identity is resolved from the backend
+    (see ``session_identity``); this stays as a credential-level label only.
+
     Lowercase hex (64 chars) matches the convention used elsewhere in Comet
     (e.g. ``hashlib.sha256(...).hexdigest()`` defaults).
     """
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
 
 
-def resolve_anonymous_id(settings: Settings) -> str:
-    """Top-level ``user_id`` for comet-stats: workspace name → install_id.
-
-    Intentionally does NOT include the api_key hash. comet-stats indexes
-    events by ``user_id`` and existing Metabase / Looker dashboards filter
-    and join on workspace strings; flipping that field to a 64-char hex
-    digest would discontinuously break those queries. The per-user identity
-    is exposed as ``event_properties.api_key_sha256`` instead — BI can
-    migrate join keys on its own schedule.
-    """
-    return settings.comet_workspace or get_install_id()
+# NOTE: there is deliberately no `resolve_anonymous_id` here any more.
+#
+# It used to compute the top-level `user_id` as "workspace name → install_id",
+# kept that way so dashboards built on the old meaning would not break. The
+# warehouse showed what that cost: 75.1% of events carried a workspace name in
+# the user field, 24.8% an install id, and 0% an actual user — a column that
+# looked fully populated while answering the wrong question.
+#
+# `user_id` is now the caller's Comet login (see `client._build_event`), falling
+# back to `get_install_id()` only when no identity could be resolved, with
+# `user_id_kind` saying which. Do not reintroduce the workspace fallback.

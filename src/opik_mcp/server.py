@@ -38,13 +38,14 @@ from opik_mcp.auth_context import (
 )
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.instructions import render_instructions
-from opik_mcp.oauth_identity import resolve_workspace_name
+from opik_mcp.oauth_identity import resolve_oauth_identity
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.uri import looks_like_thread_url
 from opik_mcp.run_experiment import run_experiment_impl
 from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
+from opik_mcp.session_identity import remember_identity
 from opik_mcp.writes import (
     SCHEMA_TOOL_DESCRIPTION,
     WRITE_TOOL_DESCRIPTION,
@@ -696,10 +697,16 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # session id and skip this. Best-effort: a failure leaves the blob on its
         # static fallback and never blocks the handshake.
         resolved_token = None
-        if request.headers.get("mcp-session-id") is None and classify_bearer(auth)[0] == "oauth":
-            workspace_name = await resolve_workspace_name(auth, get_settings())
-            if workspace_name:
-                resolved_token = resolved_workspace_name.set(workspace_name)
+        auth_mode, oauth_token = classify_bearer(auth)
+        if request.headers.get("mcp-session-id") is None and auth_mode == "oauth":
+            identity = await resolve_oauth_identity(auth, get_settings())
+            if identity is not None:
+                # Held against the token, not this request: the analytics layer
+                # builds events in the MCP session task and never sees a request,
+                # and a second session on the same token needs no second lookup.
+                remember_identity(oauth_token, identity)
+                if identity.workspace_name:
+                    resolved_token = resolved_workspace_name.set(identity.workspace_name)
         try:
             return await call_next(request)
         finally:

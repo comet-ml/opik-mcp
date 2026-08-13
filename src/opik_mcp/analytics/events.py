@@ -19,19 +19,35 @@ Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",
 "unknown", "") at the emit site — the receiver never sees raw host input.
 
-Two declared exceptions to "boolean / enum / bucket":
+Three declared exceptions to "boolean / enum / bucket":
 
 - Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``) are
   64-char SHA-256 hex digests. Not enums, but safe: irreversible one-way
-  transforms of secrets the backend already holds (it joins on the digest).
-  The raw key/token NEVER leaves the process. This is enforced by tests that
-  call ``client._build_event`` directly
+  transforms of secrets the backend already holds. The raw key/token NEVER
+  leaves the process. This is enforced by tests that call
+  ``client._build_event`` directly
   (``tests/test_analytics_client_build_event.py``); the recorder-based tests in
   ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
   ``_build_event`` builds, so they cannot catch a leak inside it.
 - Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
-  emitted as plaintext/UUID — an accepted posture, since the workspace name is
-  already used as the top-level ``user_id`` (``resolve_anonymous_id``).
+  emitted as plaintext/UUID — an accepted posture: the workspace name is a
+  tenant label, not a person, and BI cannot attribute usage without it.
+- **Caller identity** (top-level ``user_id``) is the caller's Comet login, in
+  plaintext. This is a deliberate amendment to the original "identity only as a
+  digest" rule, agreed with BI, and it is the ONLY personal identifier emitted.
+  Three reasons it is sanctioned rather than hashed:
+
+  1. It is what the rest of the product already sends. The Opik frontend
+     identifies users to Segment, PostHog and Reo.Dev with this same plaintext
+     login; opik-mcp was the outlier.
+  2. The warehouse's canonical user key *is* that login. A digest would be
+     unjoinable, recreating the dead end already demonstrated by
+     ``api_key_sha256``, for which no key→user mapping exists anywhere.
+  3. It travels to Comet's own analytics endpoint — a service that already
+     holds the value.
+
+  ``user_id_kind`` declares which sort of identifier the field holds, so a
+  reader never has to infer it. Widening identity does NOT widen anything else.
 
 Never emit free-text queries, paths, filenames, or other user prose.
 """
