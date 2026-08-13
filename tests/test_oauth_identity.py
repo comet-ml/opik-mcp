@@ -48,7 +48,6 @@ async def test_resolves_workspace_name_on_200() -> None:
     # workspace UUID, which this endpoint has always returned and we dropped.
     assert identity.user_name == "u"
     assert identity.workspace_id == "ws-id"
-    assert identity.source == "oauth"
     assert route.called
     # Inbound bearer is forwarded verbatim — opik-backend re-validates it.
     assert route.calls.last.request.headers["authorization"] == AUTH

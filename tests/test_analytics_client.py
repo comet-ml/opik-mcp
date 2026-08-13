@@ -536,7 +536,6 @@ def _with_oauth_identity(
             user_name=user_name,
             workspace_name=workspace_name,
             workspace_id=workspace_id,
-            source="oauth",
         ),
     )
     return f"Bearer {token}"
@@ -687,7 +686,6 @@ def test_api_key_install_reports_its_resolved_login(monkeypatch: pytest.MonkeyPa
             user_name="awkoy",
             workspace_name="awkoy-v2",
             workspace_id=None,
-            source="api_key",
         ),
     )
     route = respx.post(URL).mock(return_value=httpx.Response(200))
@@ -724,7 +722,6 @@ def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
             user_name="server-operator",
             workspace_name="ops",
             workspace_id=None,
-            source="api_key",
         ),
     )
     route = respx.post(URL).mock(return_value=httpx.Response(200))

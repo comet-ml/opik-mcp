@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 
 from opik_mcp.account_identity import resolve_api_key_identity
+from opik_mcp.analytics.events import UserIdKind, WorkspaceKind
 from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
     api_key_sha256,
@@ -218,7 +219,7 @@ class AnalyticsClient:
         }
         identity = self._resolve_identity()
         workspace, workspace_kind = self._resolve_workspace(identity)
-        if workspace:
+        if workspace and workspace_kind:
             common["workspace"] = workspace
             # Which of the three the name is: resolved from the backend, chosen
             # by the operator, or the self-hosted placeholder. BI needs this to
@@ -262,6 +263,7 @@ class AnalyticsClient:
         # and the anonymous install id when we don't. It deliberately no longer
         # carries a workspace name: one field cannot mean two things, and the
         # workspace is reported in its own fields above.
+        user_id_kind: UserIdKind
         if identity is not None and identity.user_name:
             user_id, user_id_kind = identity.user_name, "comet_user"
         else:
@@ -302,7 +304,9 @@ class AnalyticsClient:
             logger.debug("identity resolution failed", exc_info=True)
         return None
 
-    def _resolve_workspace(self, identity: ResolvedIdentity | None) -> tuple[str | None, str]:
+    def _resolve_workspace(
+        self, identity: ResolvedIdentity | None
+    ) -> tuple[str | None, WorkspaceKind | None]:
         """The workspace to report, and where it came from.
 
         A workspace the operator deliberately configured wins: they may well be
@@ -320,7 +324,7 @@ class AnalyticsClient:
             return resolved, "resolved"
         if configured:
             return configured, "placeholder"
-        return None, ""
+        return None, None
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
@@ -333,7 +337,7 @@ class AnalyticsClient:
         cohort. PRIVACY: the raw bearer token never enters the result — only its
         sha256 digest, and only for ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed OAuth
         tokens. ``request_workspace`` mirrors the existing plaintext ``workspace``
-        posture (workspace names are used as ``user_id`` in ``resolve_anonymous_id``).
+        posture — a workspace name is a tenant label, not a person.
         """
         props: dict[str, str] = {}
         try:

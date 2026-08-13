@@ -1,5 +1,12 @@
 """Enforce §4.5 — no user prose ever appears in an analytics event.
 
+SCOPE: this suite intercepts at ``track_event``, so it sees the properties the
+call sites supply and NOT the common block ``_build_event`` stamps on top. The
+one personal identifier the contract sanctions — the caller's plaintext login in
+the top-level ``user_id`` — is therefore invisible here by construction, and is
+pinned in ``tests/test_analytics_client_build_event.py`` instead, which calls
+``_build_event`` directly. Asserting it here would pass vacuously.
+
 Drives the *real* MCP tool entry points (server.read, server.list_entities,
 server.write, run_ask_ollie) so the wrapper's `props_fn` is exercised on
 every call. Each test:

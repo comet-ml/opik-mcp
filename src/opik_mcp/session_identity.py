@@ -40,15 +40,16 @@ class ResolvedIdentity:
     """What the backend told us about the holder of a credential.
 
     Every field is optional because every resolution path is best-effort: a
-    failed lookup must degrade to anonymous telemetry, never to an error. The
-    ``source`` field records which path produced the answer so BI can tell an
-    OAuth-derived identity from an API-key-derived one.
+    failed lookup must degrade to anonymous telemetry, never to an error.
+
+    There is deliberately no "which path resolved this" field: ``auth_mode``
+    already tells BI whether the caller authenticated by OAuth or API key, and a
+    second field saying the same thing could only ever disagree with it.
     """
 
     user_name: str | None
     workspace_name: str | None
     workspace_id: str | None
-    source: str
 
 
 _STORE: OrderedDict[str, ResolvedIdentity] = OrderedDict()

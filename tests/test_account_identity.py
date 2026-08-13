@@ -128,7 +128,6 @@ def test_the_background_refresh_eventually_lands(_fresh_home: Path) -> None:
     assert identity is not None
     assert identity.user_name == "awkoy"
     assert identity.workspace_name == "awkoy-v2"
-    assert identity.source == "api_key"
     # This endpoint has never returned a workspace UUID; claiming one would lie.
     assert identity.workspace_id is None
 
@@ -257,3 +256,70 @@ def test_an_unwritable_cache_still_resolves_for_this_process(_fresh_home: Path) 
     identity = _await_resolution(_cloud_settings())
     assert identity is not None
     assert identity.user_name == "awkoy"
+
+
+# --- a failing cache must not become a retry storm ----------------------- #
+
+
+@respx.mock
+def test_an_unwritable_cache_does_not_refetch_on_every_event(_fresh_home: Path) -> None:
+    """The failure mode this module promises to avoid.
+
+    With the cache unwritable, nothing persists between calls. Without an
+    attempt floor, every single analytics event would start a fresh lookup —
+    a request per event, forever, from a path whose failures are swallowed.
+    """
+    cache_dir = _fresh_home / ".opik-mcp"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "identity-cache.json").mkdir()  # every write attempt fails
+    route = respx.get(ACCOUNT_URL).mock(
+        return_value=httpx.Response(
+            200, json={"userName": "awkoy", "defaultWorkspaceName": "awkoy-v2"}
+        )
+    )
+    settings = _cloud_settings()
+    assert _await_resolution(settings) is not None
+    calls_after_first = route.call_count
+
+    for _ in range(25):
+        resolve_api_key_identity(settings)
+    time.sleep(0.2)
+
+    assert route.call_count == calls_after_first, (
+        f"expected no further lookups, saw {route.call_count - calls_after_first}"
+    )
+
+
+@respx.mock
+def test_a_rejected_key_is_not_retried_on_every_event(_fresh_home: Path) -> None:
+    """An invalid key never resolves and never caches; it must still go quiet."""
+    route = respx.get(ACCOUNT_URL).mock(return_value=httpx.Response(401))
+    settings = _cloud_settings()
+
+    for _ in range(25):
+        resolve_api_key_identity(settings)
+    time.sleep(0.3)
+
+    assert route.call_count <= 1, f"a rejected key was retried {route.call_count} times"
+
+
+def test_the_disk_cache_is_read_once_not_once_per_event(
+    _fresh_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_build_event`` runs on the emitting thread — disk I/O per event would
+    put a JSON parse on the caller's path."""
+    import opik_mcp.account_identity as mod
+
+    _write_cache(_fresh_home)
+    reads: list[int] = []
+    real = mod._read_cache
+
+    def counting_read() -> Any:
+        reads.append(1)
+        return real()
+
+    monkeypatch.setattr(mod, "_read_cache", counting_read)
+    settings = _cloud_settings()
+    for _ in range(10):
+        assert resolve_api_key_identity(settings) is not None
+    assert len(reads) == 1, f"disk was read {len(reads)} times"

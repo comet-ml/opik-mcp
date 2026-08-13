@@ -32,7 +32,6 @@ def _identity(user: str = "awkoy") -> ResolvedIdentity:
         user_name=user,
         workspace_name="awkoy-v2",
         workspace_id="0190babc-62a0-71d2-832a-0feffa4676eb",
-        source="oauth",
     )
 
 

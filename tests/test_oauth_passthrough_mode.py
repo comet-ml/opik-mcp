@@ -112,7 +112,6 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
             user_name="u",
             workspace_name="andreicautisanu",
             workspace_id="ws-id",
-            source="oauth",
         )
 
     monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", fake_resolve)
@@ -303,7 +302,6 @@ async def test_handshake_stores_the_resolved_identity_against_the_token(
         user_name="awkoy",
         workspace_name="awkoy-v2",
         workspace_id="ws-uuid-1",
-        source="oauth",
     )
 
     async def _resolve(*_a: object, **_k: object) -> ResolvedIdentity:

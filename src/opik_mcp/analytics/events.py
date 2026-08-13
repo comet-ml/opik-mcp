@@ -47,7 +47,10 @@ Three declared exceptions to "boolean / enum / bucket":
      holds the value.
 
   ``user_id_kind`` declares which sort of identifier the field holds, so a
-  reader never has to infer it. Widening identity does NOT widen anything else.
+  reader never has to infer it. Widening identity does NOT widen anything else:
+  that the login appears ONLY as ``user_id`` and never bleeds into
+  ``event_properties`` is pinned in ``tests/test_analytics_client_build_event.py``
+  (the recorder-based suite cannot see the common block — see its docstring).
 
 Never emit free-text queries, paths, filenames, or other user prose.
 """
@@ -161,6 +164,19 @@ ResourceUriScheme = Literal["https", "http", "none"]
 # build_app() Starlette lifespan, the hosted Docker/--factory path). Lets BI
 # confirm the hosted fleet is no longer dark for boot events (GAP#1).
 LifecycleSource = Literal["main", "lifespan"]
+
+# ``user_id_kind``: what the top-level ``user_id`` actually holds. The classifier
+# is ``client._build_event``. BI counts real users with
+# ``WHERE user_id_kind = 'comet_user'``; the field's ABSENCE marks events emitted
+# before identity resolution shipped, when ``user_id`` was a workspace name
+# falling back to an install id.
+UserIdKind = Literal["comet_user", "install_id"]
+
+# ``workspace_kind``: where the reported ``workspace`` name came from. The
+# classifier is ``client._resolve_workspace``. CRITICAL for BI: "placeholder" is
+# the literal "default" on an install that resolved nothing, and it collides with
+# a real cloud workspace of that name — those rows must never be name-joined.
+WorkspaceKind = Literal["resolved", "configured", "placeholder"]
 
 
 EVENT_SERVER_STARTED = "opik_mcp_server_started"

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -64,6 +65,26 @@ _TIMEOUT_SECONDS = 5.0
 _INFLIGHT: set[str] = set()
 _INFLIGHT_LOCK = threading.Lock()
 
+# Floor between refresh ATTEMPTS for one credential, successful or not. Without
+# it, any condition that stops an answer from being persisted — an unwritable
+# HOME, a read-only container, a key the endpoint rejects — turns every single
+# event into a fresh lookup, which is the retry storm this module promises not
+# to cause.
+_MIN_RETRY_INTERVAL_SECONDS = 300.0
+
+# When the identity currently in memory was obtained, and when we last tried.
+# Both are in-memory only: the disk cache survives restarts, this bookkeeping
+# does not need to.
+_RESOLVED_AT: dict[str, float] = {}
+_LAST_ATTEMPT: dict[str, float] = {}
+_ATTEMPT_LOCK = threading.Lock()
+
+# The disk cache is read ONCE per process. ``_build_event`` runs on whichever
+# thread is emitting, so parsing a JSON file per event would put disk I/O on the
+# caller's path. After the first read, memory is the source of truth.
+_DISK_CACHE: dict[str, Any] | None = None
+_DISK_LOCK = threading.Lock()
+
 
 def _cache_path() -> Path:
     return Path.home() / ".opik-mcp" / "identity-cache.json"
@@ -86,10 +107,20 @@ def _account_details_url(settings: Settings) -> str | None:
 
 def _read_cache() -> dict[str, Any]:
     try:
-        return json.loads(_cache_path().read_text())  # type: ignore[no-any-return]
+        loaded = json.loads(_cache_path().read_text())
     except Exception:
         # Missing, unreadable or corrupt — all mean "no cached answer".
         return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _disk_cache() -> dict[str, Any]:
+    """The on-disk cache, read at most once per process."""
+    global _DISK_CACHE
+    with _DISK_LOCK:
+        if _DISK_CACHE is None:
+            _DISK_CACHE = _read_cache()
+        return _DISK_CACHE
 
 
 def _write_cache(digest: str, user_name: str | None, workspace_name: str | None) -> None:
@@ -102,11 +133,19 @@ def _write_cache(digest: str, user_name: str | None, workspace_name: str | None)
             "workspace_name": workspace_name,
             "cached_at": time.time(),
         }
-        path.write_text(json.dumps(cache))
+        # Write-then-rename: a second opik-mcp process (one per MCP host is
+        # normal) must never observe a half-written file. Last writer wins on
+        # the whole map, which at worst costs the other process one lookup.
+        tmp = path.with_suffix(f".{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(cache))
         try:
-            path.chmod(0o600)
+            tmp.chmod(0o600)
         except OSError:
             logger.debug("could not chmod identity cache", exc_info=True)
+        os.replace(tmp, path)
+        with _DISK_LOCK:
+            global _DISK_CACHE
+            _DISK_CACHE = cache
     except Exception:
         # A read-only or full filesystem costs us the cache, not the feature:
         # the in-memory store still holds the answer for this process.
@@ -127,7 +166,6 @@ def _identity_from_entry(entry: dict[str, Any]) -> ResolvedIdentity:
         # This endpoint has never returned a workspace UUID. The OAuth path
         # supplies one; here the workspace name is the join key.
         workspace_id=None,
-        source="api_key",
     )
 
 
@@ -168,9 +206,9 @@ def _refresh(url: str, api_key: str, digest: str) -> None:
                 user_name=user_name,
                 workspace_name=workspace_name,
                 workspace_id=None,
-                source="api_key",
             ),
         )
+        _RESOLVED_AT[digest] = time.time()
         _write_cache(digest, user_name, workspace_name)
     except Exception:
         logger.debug("identity refresh failed", exc_info=True)
@@ -182,9 +220,9 @@ def _refresh(url: str, api_key: str, digest: str) -> None:
 def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
     """Identity for this install's API key, if we have one; refresh if we don't.
 
-    Returns immediately, always. The answer comes from memory, then from the
-    disk cache; a miss or a stale entry starts a background refresh whose result
-    lands on a later event.
+    Returns immediately, always. The answer comes from memory (populated from
+    the disk cache on first use); a miss or a stale entry starts a background
+    refresh whose result lands on a later event.
     """
     api_key = settings.opik_api_key
     if not api_key:
@@ -194,40 +232,58 @@ def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
     if installation_type(settings) != "cloud":
         return None
 
-    known = lookup_identity(api_key)
     digest = credential_digest(api_key)
-    entry = _read_cache().get(digest)
+    known = lookup_identity(api_key)
 
-    if known is None and isinstance(entry, dict):
-        known = _identity_from_entry(entry)
-        remember_identity(api_key, known)
+    if known is None:
+        entry = _disk_cache().get(digest)
+        if isinstance(entry, dict):
+            known = _identity_from_entry(entry)
+            remember_identity(api_key, known)
+            cached_at = entry.get("cached_at")
+            _RESOLVED_AT[digest] = cached_at if isinstance(cached_at, int | float) else 0.0
 
-    if isinstance(entry, dict) and _entry_is_fresh(entry):
+    now = time.time()
+    if known is not None and (now - _RESOLVED_AT.get(digest, 0.0)) < CACHE_TTL_SECONDS:
         return known
 
-    url = _account_details_url(settings)
-    if url is not None:
-        with _INFLIGHT_LOCK:
-            already_running = digest in _INFLIGHT
-            if not already_running:
-                _INFLIGHT.add(digest)
-        if not already_running:
-            threading.Thread(
-                target=_refresh,
-                args=(url, api_key, digest),
-                name="opik-mcp-identity",
-                daemon=True,
-            ).start()
-
+    _maybe_refresh(settings, api_key, digest, now)
     # Whatever we have right now — possibly nothing, possibly a stale answer
     # that is still far better than none.
     return known
 
 
+def _maybe_refresh(settings: Settings, api_key: str, digest: str, now: float) -> None:
+    """Start a background refresh unless one is running or was tried recently."""
+    url = _account_details_url(settings)
+    if url is None:
+        return
+    with _ATTEMPT_LOCK:
+        if (now - _LAST_ATTEMPT.get(digest, 0.0)) < _MIN_RETRY_INTERVAL_SECONDS:
+            return
+        _LAST_ATTEMPT[digest] = now
+    with _INFLIGHT_LOCK:
+        if digest in _INFLIGHT:
+            return
+        _INFLIGHT.add(digest)
+    threading.Thread(
+        target=_refresh,
+        args=(url, api_key, digest),
+        name="opik-mcp-identity",
+        daemon=True,
+    ).start()
+
+
 def reset_account_identity_for_tests() -> None:
-    """Drop in-flight bookkeeping. Test-only — never call from production."""
+    """Drop all bookkeeping and the cached disk read. Test-only."""
+    global _DISK_CACHE
     with _INFLIGHT_LOCK:
         _INFLIGHT.clear()
+    with _ATTEMPT_LOCK:
+        _RESOLVED_AT.clear()
+        _LAST_ATTEMPT.clear()
+    with _DISK_LOCK:
+        _DISK_CACHE = None
 
 
 __all__ = [

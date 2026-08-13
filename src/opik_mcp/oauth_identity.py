@@ -89,7 +89,6 @@ async def resolve_oauth_identity(authorization: str, settings: Settings) -> Reso
         user_name=user_name,
         workspace_name=workspace_name,
         workspace_id=_text(body.get("workspace_id")),
-        source="oauth",
     )
 
 

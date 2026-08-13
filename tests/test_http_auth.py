@@ -77,7 +77,6 @@ async def test_initialize_names_oauth_workspace(
             user_name="andrei",
             workspace_name="andreicautisanu",
             workspace_id="ws-uuid-e2e",
-            source="oauth",
         )
 
     monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", fake_resolve)
