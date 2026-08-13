@@ -105,11 +105,16 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
     introspects the workspace name and exposes it via the ContextVar the
     instructions blob reads — then resets it after the request."""
     from opik_mcp.auth_context import resolved_workspace_name
+    from opik_mcp.credential_identity import ResolvedIdentity
 
-    async def fake_resolve(_auth: str, _settings: object) -> str:
-        return "andreicautisanu"
+    async def fake_resolve(_auth: str, _settings: object) -> ResolvedIdentity:
+        return ResolvedIdentity(
+            user_name="u",
+            workspace_name="andreicautisanu",
+            workspace_id="ws-id",
+        )
 
-    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", fake_resolve)
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", fake_resolve)
     mw = _build_middleware()
     request = _make_request({"authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc"})
 
@@ -135,11 +140,11 @@ async def test_skips_resolution_when_session_already_exists(
 
     calls: list[str] = []
 
-    async def spy_resolve(auth: str, _settings: object) -> str:
+    async def spy_resolve(auth: str, _settings: object) -> None:
         calls.append(auth)
-        return "x"
+        return None
 
-    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", spy_resolve)
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", spy_resolve)
     mw = _build_middleware()
     request = _make_request(
         {
@@ -165,11 +170,11 @@ async def test_skips_resolution_for_api_key_bearer(monkeypatch: pytest.MonkeyPat
     an API-key-shaped bearer keeps the legacy header/settings workspace path."""
     calls: list[str] = []
 
-    async def spy_resolve(auth: str, _settings: object) -> str:
+    async def spy_resolve(auth: str, _settings: object) -> None:
         calls.append(auth)
-        return "x"
+        return None
 
-    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", spy_resolve)
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", spy_resolve)
     mw = _build_middleware()
     request = _make_request({"authorization": "Bearer some-static-api-key"})
 
@@ -277,3 +282,97 @@ async def test_unauthorized_without_resource_metadata_url() -> None:
     assert resp.status_code == 401
     # Starlette ``MutableHeaders`` is case-insensitive — direct ``in`` is enough.
     assert "www-authenticate" not in resp.headers
+
+
+@pytest.mark.anyio
+async def test_handshake_stores_the_resolved_identity_against_the_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The handshake is the only request that introspects; the answer must outlive it.
+
+    The instructions blob reads the workspace out of a ContextVar that this
+    middleware resets on the way out, and the analytics layer builds events in
+    the MCP session task, which never runs inside this request. Keeping the
+    identity in a credential-keyed store is what makes it readable from both.
+    """
+    from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
+
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}handshake-abc"
+    resolved = ResolvedIdentity(
+        user_name="awkoy",
+        workspace_name="awkoy-v2",
+        workspace_id="ws-uuid-1",
+    )
+
+    async def _resolve(*_a: object, **_k: object) -> ResolvedIdentity:
+        return resolved
+
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", _resolve)
+
+    mw = _build_middleware()
+    request = _make_request({"authorization": f"Bearer {token}"})
+
+    async def call_next(_r: Request) -> Response:
+        return JSONResponse({"ok": True})
+
+    resp = await mw.dispatch(request, call_next)
+    assert resp.status_code == 200
+
+    # The ContextVars are gone the moment the request returns...
+    assert inbound_authorization.get() is None
+    # ...but the identity is still reachable by the credential it belongs to,
+    # which is what a later tool call in this session has to work with.
+    assert lookup_identity(token) == resolved
+
+
+@pytest.mark.anyio
+async def test_tool_call_requests_do_not_reintrospect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the session-creating request introspects. Every later request carries
+    an ``Mcp-Session-Id`` and must not pay a round-trip for an answer we hold."""
+    calls: list[str] = []
+
+    async def _resolve(*_a: object, **_k: object) -> None:
+        calls.append("resolved")
+        return None
+
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", _resolve)
+
+    mw = _build_middleware()
+    request = _make_request(
+        {
+            "authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc",
+            "mcp-session-id": "session-1",
+        }
+    )
+
+    async def call_next(_r: Request) -> Response:
+        return JSONResponse({"ok": True})
+
+    await mw.dispatch(request, call_next)
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_failed_introspection_leaves_the_handshake_working(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Telemetry and display niceties must never cost a session."""
+    from opik_mcp.credential_identity import lookup_identity
+
+    async def _resolve(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", _resolve)
+
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}unresolvable"
+    mw = _build_middleware()
+    request = _make_request({"authorization": f"Bearer {token}"})
+
+    async def call_next(_r: Request) -> Response:
+        return JSONResponse({"ok": True})
+
+    resp = await mw.dispatch(request, call_next)
+    assert resp.status_code == 200
+    assert lookup_identity(token) is None

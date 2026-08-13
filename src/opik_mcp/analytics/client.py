@@ -6,7 +6,6 @@ Daemon-thread worker model (not asyncio): callable from any context, including
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import platform
 import queue
@@ -18,11 +17,11 @@ from typing import Any
 
 import httpx
 
+from opik_mcp.analytics.events import Attributed, UserIdKind, WorkspaceKind
 from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
     api_key_sha256,
     get_install_id,
-    resolve_anonymous_id,
 )
 from opik_mcp.auth_context import (
     classify_bearer,
@@ -30,7 +29,9 @@ from opik_mcp.auth_context import (
     inbound_workspace,
     settings_auth_mode,
 )
-from opik_mcp.config import Settings, installation_type
+from opik_mcp.caller_identity import caller_identity
+from opik_mcp.config import DEFAULT_WORKSPACE, Settings, installation_type
+from opik_mcp.credential_identity import ResolvedIdentity, credential_digest
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -215,12 +216,25 @@ class AnalyticsClient:
             # actually maps to when the user took the action.
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        if self._settings.comet_workspace:
-            common["workspace"] = self._settings.comet_workspace
-        if self._settings.comet_workspace_id:
+        identity = caller_identity(self._settings)
+        workspace = self._resolve_workspace(identity)
+        if workspace is not None:
+            common["workspace"] = workspace.value
+            # Which of the three the name is: resolved from the backend, chosen
+            # by the operator, or the self-hosted placeholder. BI needs this to
+            # avoid joining a placeholder onto the real customer workspace that
+            # shares its name.
+            common["workspace_kind"] = workspace.kind
+        # An explicitly configured UUID still wins — it is the operator stating a
+        # fact about their deployment. Otherwise take the one the backend bound
+        # to the credential, which is available for OAuth callers today.
+        workspace_id = self._settings.comet_workspace_id or (
+            identity.workspace_id if identity else None
+        )
+        if workspace_id:
             # Stable UUID for the workspace — preferred join key in BI; the
             # workspace `name` is human-readable but mutable.
-            common["workspace_id"] = self._settings.comet_workspace_id
+            common["workspace_id"] = workspace_id
         if self._settings.opik_api_key:
             # Pseudonymous per-user identity. The raw key NEVER leaves the
             # process; the backend retains the raw-key → user-id mapping and
@@ -242,14 +256,52 @@ class AnalyticsClient:
         # must not shadow the server-stamped value); caller properties win over
         # per-request so server_started's settings-derived auth_mode beats the
         # contextvar-derived one (which is "none" at boot, no request in flight).
+        # comet-stats indexes events by top-level `user_id`. It carries the
+        # caller's Comet login when we know it — the same plaintext value the
+        # product sends to Segment/PostHog, and the warehouse's own user key —
+        # and the anonymous install id when we don't. It deliberately no longer
+        # carries a workspace name: one field cannot mean two things, and the
+        # workspace is reported in its own fields above.
+        user = self._resolve_user(identity)
+        # Says which of the two the field holds, so a count of real users is a
+        # filter rather than a guess. Its ABSENCE is also how BI separates events
+        # predating this change, which carried the old overloaded semantics.
+        common["user_id_kind"] = user.kind
+
         return {
-            # comet-stats indexes events by top-level `user_id`. Kept as
-            # workspace name → install_id for dashboard continuity. The
-            # per-user identity is in event_properties.api_key_sha256.
-            "user_id": resolve_anonymous_id(self._settings),
+            "user_id": user.value,
             "event_type": event_type,
             "event_properties": {**per_request, **properties, **common},
         }
+
+    @staticmethod
+    def _resolve_user(identity: ResolvedIdentity | None) -> Attributed[UserIdKind]:
+        """The caller's login when known, the anonymous install id when not."""
+        if identity is not None and identity.user_name:
+            return Attributed(identity.user_name, "comet_user")
+        return Attributed(get_install_id(), "install_id")
+
+    def _resolve_workspace(
+        self, identity: ResolvedIdentity | None
+    ) -> Attributed[WorkspaceKind] | None:
+        """The workspace to report, and where it came from.
+
+        A workspace the operator deliberately configured wins: they may well be
+        working outside their account default, and reporting the default instead
+        would be wrong. The backend-resolved name wins over an *absent* setting
+        and over the literal placeholder — which our own docs invited operators
+        to set, and which collides with a real customer workspace of the same
+        name in the warehouse.
+        """
+        configured = self._settings.comet_workspace
+        resolved = identity.workspace_name if identity else None
+        if configured and configured != DEFAULT_WORKSPACE:
+            return Attributed(configured, "configured")
+        if resolved:
+            return Attributed(resolved, "resolved")
+        if configured:
+            return Attributed(configured, "placeholder")
+        return None
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
@@ -262,7 +314,7 @@ class AnalyticsClient:
         cohort. PRIVACY: the raw bearer token never enters the result — only its
         sha256 digest, and only for ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed OAuth
         tokens. ``request_workspace`` mirrors the existing plaintext ``workspace``
-        posture (workspace names are used as ``user_id`` in ``resolve_anonymous_id``).
+        posture — a workspace name is a tenant label, not a person.
         """
         props: dict[str, str] = {}
         try:
@@ -278,7 +330,7 @@ class AnalyticsClient:
                 if token:  # oauth bearer
                     # PRIVACY: only the digest is emitted; the raw token never
                     # enters the result.
-                    props["token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                    props["token_sha256"] = credential_digest(token)
             else:
                 # No inbound header: stdio or unauthenticated HTTP. Fall back to
                 # the settings-derived mode (shared with auth_mode_at_boot, so an

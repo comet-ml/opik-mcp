@@ -91,8 +91,7 @@ def test_request_workspace_plaintext_present(make_client: Any) -> None:
     client = make_client()
     with _inbound(auth=f"Bearer {RAW_OAUTH_TOKEN}", workspace=RAW_WORKSPACE):
         props = client._build_event("opik_mcp_tool_called", {})["event_properties"]
-    # Plaintext by design — matches the existing settings `workspace` posture
-    # (workspace names are used as user_id in resolve_anonymous_id).
+    # Plaintext by design — a workspace name is a tenant label, not a person.
     assert props["request_workspace"] == RAW_WORKSPACE
 
 
@@ -180,3 +179,80 @@ def test_transport_lowercased_in_common_block(make_client: Any) -> None:
     client = make_client(opik_mcp_transport="HTTP")
     props = client._build_event("opik_mcp_tool_called", {})["event_properties"]
     assert props["transport"] == "http"
+
+
+# --- caller identity (the amended privacy contract) ---------------------- #
+#
+# events.py names this module as what enforces the identity rule. These tests
+# call _build_event directly, which is the only way to catch a leak *inside* it:
+# the recorder-based privacy suite intercepts at track_event and never sees what
+# _build_event builds.
+
+
+def test_login_is_emitted_plaintext_as_the_top_level_user_id(make_client: Any) -> None:
+    """The sanctioned exception to "identity only as a digest".
+
+    Hashing it would make it unjoinable — the warehouse's own user key is this
+    same plaintext login — so the contract was amended rather than worked around.
+    """
+    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}build-event-token"
+    remember_identity(
+        token,
+        ResolvedIdentity(user_name="awkoy", workspace_name="awkoy-v2", workspace_id="ws-1"),
+    )
+    client = make_client()
+    with _inbound(auth=f"Bearer {token}"):
+        event = client._build_event("opik_mcp_tool_called", {})
+
+    assert event["user_id"] == "awkoy"
+    assert event["event_properties"]["user_id_kind"] == "comet_user"
+
+
+def test_the_login_never_leaks_into_any_other_field(make_client: Any) -> None:
+    """Widening identity must not widen anything else: the login belongs in
+    exactly one place, and nowhere in event_properties except its discriminator."""
+    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+
+    canary_login = "LOGIN-CANARY-MUST-APPEAR-ONLY-AS-USER-ID-5e1f7a"
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}leak-check-token"
+    remember_identity(
+        token,
+        ResolvedIdentity(user_name=canary_login, workspace_name="ws", workspace_id=None),
+    )
+    client = make_client()
+    with _inbound(auth=f"Bearer {token}"):
+        event = client._build_event("opik_mcp_tool_called", {})
+
+    assert event["user_id"] == canary_login
+    assert canary_login not in json.dumps(event["event_properties"])
+
+
+def test_the_raw_bearer_is_still_never_emitted_now_identity_rides_along(
+    make_client: Any,
+) -> None:
+    """The pre-existing guarantee must survive the identity change."""
+    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+
+    remember_identity(
+        RAW_OAUTH_TOKEN,
+        ResolvedIdentity(user_name="awkoy", workspace_name="ws", workspace_id=None),
+    )
+    client = make_client()
+    with _inbound(auth=f"Bearer {RAW_OAUTH_TOKEN}"):
+        event = client._build_event("opik_mcp_tool_called", {})
+
+    assert RAW_OAUTH_TOKEN not in json.dumps(event)
+
+
+def test_unresolved_caller_reports_the_install_id_not_an_empty_field(
+    make_client: Any,
+) -> None:
+    """The warehouse must see a real value or a null — never an empty string."""
+    client = make_client()
+    event = client._build_event("opik_mcp_tool_called", {})
+    assert event["user_id"]
+    assert event["event_properties"]["user_id_kind"] == "install_id"

@@ -70,10 +70,16 @@ async def test_initialize_names_oauth_workspace(
     only the backend introspection call stubbed.
     """
 
-    async def fake_resolve(_auth: str, _settings: object) -> str:
-        return "andreicautisanu"
+    from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
 
-    monkeypatch.setattr("opik_mcp.server.resolve_workspace_name", fake_resolve)
+    async def fake_resolve(_auth: str, _settings: object) -> ResolvedIdentity:
+        return ResolvedIdentity(
+            user_name="andrei",
+            workspace_name="andreicautisanu",
+            workspace_id="ws-uuid-e2e",
+        )
+
+    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", fake_resolve)
     r = await http_client.post(
         "/mcp",
         json=INITIALIZE,
@@ -83,6 +89,13 @@ async def test_initialize_names_oauth_workspace(
         },
     )
     assert r.status_code == 200
+    # The identity resolved during this handshake outlives the request that
+    # resolved it: the ContextVars are reset on the way out, and the analytics
+    # layer builds events in the MCP session task, not in this request.
+    stored = lookup_identity(f"{OAUTH_ACCESS_TOKEN_PREFIX}tok")
+    assert stored is not None
+    assert stored.user_name == "andrei"
+    assert stored.workspace_id == "ws-uuid-e2e"
     # The blob is a JSON string inside the JSON-RPC result, so its inner quotes
     # are backslash-escaped in the raw SSE body.
     assert 'workspace \\"andreicautisanu\\"' in r.text

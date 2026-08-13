@@ -39,7 +39,7 @@ inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorizatio
 inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", default=None)
 
 # OAuth-authorized workspace *name*, resolved from the opaque bearer via
-# ``oauth_identity.resolve_workspace_name`` on the ``initialize`` handshake.
+# ``oauth_identity.resolve_oauth_identity`` on the ``initialize`` handshake.
 # Consumed ONLY by the instructions blob (``instructions.render_instructions``)
 # so an agent can truthfully name the workspace it is operating against. Kept
 # deliberately separate from ``inbound_workspace`` so this read-only display

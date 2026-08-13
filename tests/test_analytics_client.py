@@ -8,6 +8,7 @@ import pytest
 import respx
 
 from opik_mcp.analytics.client import AnalyticsClient
+from opik_mcp.analytics.identity import get_install_id
 from opik_mcp.config import Settings
 
 URL = "https://stats.comet.com/notify/event/"
@@ -44,7 +45,10 @@ def test_track_event_posts_wire_shape() -> None:
     body = json.loads(route.calls.last.request.content)
     assert body["event_type"] == "opik_mcp_test"
     # comet-stats indexes events by top-level `user_id` (ollie-assist contract).
-    assert body["user_id"] == "ws-1"
+    # With no credential to resolve, that is the anonymous install id — NEVER the
+    # workspace name, which is what the field used to be overloaded with.
+    assert body["user_id"] == get_install_id()
+    assert body["user_id"] != "ws-1"
     # Legacy `anonymous_id` key must not be sent — receiver wouldn't index it.
     assert "anonymous_id" not in body
     props = body["event_properties"]
@@ -53,6 +57,9 @@ def test_track_event_posts_wire_shape() -> None:
     assert props["environment"] == "prod"
     # `workspace` (not `workspace_id`) so it joins with ollie-assist events.
     assert props["workspace"] == "ws-1"
+    # A deliberately configured workspace is reported as the operator's choice.
+    assert props["workspace_kind"] == "configured"
+    assert props["user_id_kind"] == "install_id"
     assert "workspace_id" not in props
     assert "opik_mcp_version" in props
     assert "install_id" in props
@@ -168,8 +175,11 @@ def test_track_event_falls_back_to_install_id_without_workspace() -> None:
 
     body = json.loads(route.calls.last.request.content)
     assert body["user_id"]  # never empty / None
+    assert body["event_properties"]["user_id_kind"] == "install_id"
     # No workspace was set, so `workspace` must NOT appear in event_properties.
     assert "workspace" not in body["event_properties"]
+    # ...and neither must its discriminator, rather than an empty string.
+    assert "workspace_kind" not in body["event_properties"]
     # No api_key was set, so `api_key_sha256` must NOT appear either.
     assert "api_key_sha256" not in body["event_properties"]
 
@@ -181,9 +191,9 @@ def test_track_event_falls_back_to_install_id_without_workspace() -> None:
 def test_api_key_hash_stamped_in_event_properties_when_key_set() -> None:
     """OPIK_API_KEY set → SHA-256 hash appears in event_properties.api_key_sha256.
 
-    The backend retains the raw-key → user-id mapping; BI joins the digest
-    to the auth table to count distinct Comet users. Top-level ``user_id``
-    is intentionally unchanged (workspace name) for dashboard continuity.
+    Kept as a stable per-credential label. It is explicitly NOT the join key
+    BI counts users by — no api-key-hash -> user mapping exists in the
+    warehouse — so it never feeds the top-level ``user_id``.
     """
     from opik_mcp.analytics.identity import api_key_sha256
 
@@ -198,9 +208,11 @@ def test_api_key_hash_stamped_in_event_properties_when_key_set() -> None:
 
     body = json.loads(route.calls.last.request.content)
     assert body["event_properties"]["api_key_sha256"] == api_key_sha256(raw_key)
-    # Top-level user_id stays workspace name — dashboards built against the
-    # pre-Phase-1.5 schema must not see a discontinuous type-flip.
-    assert body["user_id"] == "ws-1"
+    # An api-key digest is NOT an identity: the warehouse holds no key -> user
+    # mapping, so it cannot stand in for a resolved login. Until one is resolved
+    # the caller is anonymous and the discriminator says so.
+    assert body["user_id"] == get_install_id()
+    assert body["event_properties"]["user_id_kind"] == "install_id"
     assert body["event_properties"]["workspace"] == "ws-1"
 
 
@@ -497,3 +509,231 @@ def _has_running_loop() -> bool:
         return True
     except RuntimeError:
         return False
+
+
+# --- resolved caller identity (the BI join key) -------------------------- #
+
+
+def _with_oauth_identity(
+    *,
+    user_name: str | None = "awkoy",
+    workspace_name: str | None = "awkoy-v2",
+    workspace_id: str | None = "ws-uuid-1",
+) -> str:
+    """Register an identity against a bearer and return the header value.
+
+    Mirrors what the ``initialize`` handshake does: introspect once, keep the
+    answer against the credential. Returns the header the caller should set on
+    ``inbound_authorization`` so ``_build_event`` finds it.
+    """
+    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}wire-shape-token"
+    remember_identity(
+        token,
+        ResolvedIdentity(
+            user_name=user_name,
+            workspace_name=workspace_name,
+            workspace_id=workspace_id,
+        ),
+    )
+    return f"Bearer {token}"
+
+
+@respx.mock
+def test_resolved_login_becomes_the_top_level_user_id() -> None:
+    """The whole point: BI joins this straight to the warehouse user key."""
+    from opik_mcp.auth_context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity()
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == "awkoy"
+    props = body["event_properties"]
+    assert props["user_id_kind"] == "comet_user"
+    # The workspace UUID BI asked for — it was always in the introspection
+    # response and used to be discarded.
+    assert props["workspace_id"] == "ws-uuid-1"
+    assert props["workspace"] == "awkoy-v2"
+    assert props["workspace_kind"] == "resolved"
+
+
+@respx.mock
+def test_backend_workspace_beats_the_placeholder_operators_were_told_to_set() -> None:
+    """Our own docs invited ``default``; it collides with a real customer
+    workspace of that name in the warehouse, so the resolved name must win."""
+    from opik_mcp.auth_context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_name="awkoy-v2")
+    client = AnalyticsClient(_settings(comet_workspace="default"))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "awkoy-v2"
+    assert props["workspace_kind"] == "resolved"
+
+
+@respx.mock
+def test_a_deliberately_configured_workspace_is_not_overridden() -> None:
+    """An operator working outside their account default must not be reported
+    as being in it."""
+    from opik_mcp.auth_context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_name="account-default-ws")
+    client = AnalyticsClient(_settings(comet_workspace="team-ws"))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "team-ws"
+    assert props["workspace_kind"] == "configured"
+
+
+@respx.mock
+def test_placeholder_workspace_is_labelled_when_nothing_resolves() -> None:
+    """Self-hosted keeps reporting ``default`` — but marked, so BI never joins
+    it onto the real customer workspace sharing that name."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace="default"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "default"
+    assert props["workspace_kind"] == "placeholder"
+
+
+@respx.mock
+def test_unresolved_caller_stays_anonymous_and_says_so() -> None:
+    """A bearer we never resolved must not silently borrow another identity."""
+    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}never-resolved")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == get_install_id()
+    assert body["event_properties"]["user_id_kind"] == "install_id"
+
+
+@respx.mock
+def test_configured_workspace_uuid_still_wins_over_the_resolved_one() -> None:
+    """The env var is an operator stating a fact about their deployment."""
+    from opik_mcp.auth_context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_id="resolved-uuid")
+    client = AnalyticsClient(
+        _settings(comet_workspace=None, comet_workspace_id="11111111-2222-3333-4444-555555555555")
+    )
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace_id"] == "11111111-2222-3333-4444-555555555555"
+
+
+@respx.mock
+def test_api_key_install_reports_its_resolved_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stdio cohort — the documented uvx path and most of the traffic.
+
+    The install's own API key identifies the caller, so unlike a forwarded
+    bearer it is safe to resolve against our settings.
+    """
+    from opik_mcp.credential_identity import ResolvedIdentity
+
+    monkeypatch.setattr(
+        "opik_mcp.caller_identity.resolve_api_key_identity",
+        lambda _s: ResolvedIdentity(
+            user_name="awkoy",
+            workspace_name="awkoy-v2",
+            workspace_id=None,
+        ),
+    )
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None, opik_api_key="sk-key"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == "awkoy"
+    props = body["event_properties"]
+    assert props["user_id_kind"] == "comet_user"
+    assert props["workspace"] == "awkoy-v2"
+    assert props["workspace_kind"] == "resolved"
+    # account-details carries no workspace UUID — the field stays absent rather
+    # than being invented.
+    assert "workspace_id" not in props
+
+
+@respx.mock
+def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In hosted mode the inbound credential belongs to the caller. Resolving
+    our own settings identity here would attribute their call to this server."""
+    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.credential_identity import ResolvedIdentity
+
+    monkeypatch.setattr(
+        "opik_mcp.caller_identity.resolve_api_key_identity",
+        lambda _s: ResolvedIdentity(
+            user_name="server-operator",
+            workspace_name="ops",
+            workspace_id=None,
+        ),
+    )
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None, opik_api_key="sk-key"))
+    tok = inbound_authorization.set("Bearer someone-elses-static-key")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == get_install_id()
+    assert body["event_properties"]["user_id_kind"] == "install_id"

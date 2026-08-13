@@ -5,7 +5,6 @@ from uuid import UUID
 import pytest
 
 from opik_mcp.analytics import identity
-from opik_mcp.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -49,15 +48,14 @@ def test_corrupt_file_is_regenerated(_fresh_home: Path) -> None:
     assert path.read_text().strip() == val
 
 
-def test_resolve_anonymous_id_prefers_workspace(_fresh_home: Path) -> None:
-    s = Settings(comet_workspace="ws-1")
-    assert identity.resolve_anonymous_id(s) == "ws-1"
+def test_workspace_name_is_not_an_identity_resolver(_fresh_home: Path) -> None:
+    """The workspace fallback that used to produce ``user_id`` is gone for good.
 
-
-def test_resolve_anonymous_id_falls_back_to_install_id(_fresh_home: Path) -> None:
-    s = Settings(comet_workspace=None)
-    val = identity.resolve_anonymous_id(s)
-    UUID(val)
+    It made the user column look 100% populated while holding a tenant name for
+    three quarters of events. ``client._build_event`` now assembles ``user_id``
+    from a resolved login, falling back to the install id.
+    """
+    assert not hasattr(identity, "resolve_anonymous_id")
 
 
 # --- api_key_sha256 ------------------------------------------------------- #
@@ -103,19 +101,6 @@ def test_api_key_sha256_handles_unicode() -> None:
     assert len(out) == 64
 
 
-# --- resolve_anonymous_id (top-level user_id) ---------------------------- #
-
-
-def test_resolve_anonymous_id_treats_empty_api_key_as_unset(_fresh_home: Path) -> None:
-    """OPIK_API_KEY='' MUST behave identically to unset — no hash, fall
-    through to the next priority. Documents that ``if settings.opik_api_key``
-    (the implementation check) is truthy-aware.
-    """
-    s = Settings(opik_api_key="", comet_workspace="ws-1")
-    # user_id stays workspace name (api_key hash is event_properties-only, not user_id)
-    assert identity.resolve_anonymous_id(s) == "ws-1"
-
-
 # --- install_id_was_freshly_generated ----------------------------------- #
 
 
@@ -159,3 +144,12 @@ def test_get_install_id_returns_string_only(_fresh_home: Path) -> None:
     result = identity.get_install_id()
     assert isinstance(result, str)
     assert len(result) == 36  # UUID4 hex with dashes
+
+
+def test_every_digest_in_the_codebase_is_the_same_transform() -> None:
+    """BI joins on the exact string, so encoding or casing drift between two
+    hand-rolled digests would be invisible until a join quietly returned zero."""
+    from opik_mcp.credential_identity import credential_digest
+
+    for value in ["sk-key", "opik_mcp_at_token", "ünïcode-ключ", ""]:
+        assert identity.api_key_sha256(value) == credential_digest(value)

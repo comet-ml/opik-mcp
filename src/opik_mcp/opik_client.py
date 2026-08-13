@@ -800,7 +800,7 @@ def opik_rest_base(settings: Settings) -> str | None:
     Single source of truth for the rule: an explicit ``OPIK_URL`` override wins;
     otherwise derive from ``COMET_URL_OVERRIDE + "/opik/api"``. Shared by
     ``resolve_opik_config`` (which treats ``None`` as a fatal misconfig) and
-    ``oauth_identity.resolve_workspace_name`` (which treats ``None`` as "skip,
+    ``oauth_identity.resolve_oauth_identity`` (which treats ``None`` as "skip,
     fall back to the static workspace"), so both agree on where Opik lives.
     """
     if settings.opik_url:
