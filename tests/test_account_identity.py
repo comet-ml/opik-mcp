@@ -26,7 +26,7 @@ from opik_mcp.account_identity import (
     resolve_api_key_identity,
 )
 from opik_mcp.config import Settings
-from opik_mcp.session_identity import credential_digest, reset_identities_for_tests
+from opik_mcp.credential_identity import credential_digest, reset_identities_for_tests
 
 API_KEY = "sk-test-key"
 ACCOUNT_URL = "https://www.comet.com/api/rest/v2/account-details"

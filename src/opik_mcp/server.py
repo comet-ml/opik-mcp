@@ -37,6 +37,7 @@ from opik_mcp.auth_context import (
     settings_auth_mode,
 )
 from opik_mcp.config import MissingConfigError, Settings, get_settings
+from opik_mcp.credential_identity import remember_identity
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import resolve_oauth_identity
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
@@ -45,7 +46,6 @@ from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.uri import looks_like_thread_url
 from opik_mcp.run_experiment import run_experiment_impl
 from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
-from opik_mcp.session_identity import remember_identity
 from opik_mcp.writes import (
     SCHEMA_TOOL_DESCRIPTION,
     WRITE_TOOL_DESCRIPTION,

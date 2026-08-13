@@ -105,7 +105,7 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
     introspects the workspace name and exposes it via the ContextVar the
     instructions blob reads — then resets it after the request."""
     from opik_mcp.auth_context import resolved_workspace_name
-    from opik_mcp.session_identity import ResolvedIdentity
+    from opik_mcp.credential_identity import ResolvedIdentity
 
     async def fake_resolve(_auth: str, _settings: object) -> ResolvedIdentity:
         return ResolvedIdentity(
@@ -295,7 +295,7 @@ async def test_handshake_stores_the_resolved_identity_against_the_token(
     the MCP session task, which never runs inside this request. Keeping the
     identity in a credential-keyed store is what makes it readable from both.
     """
-    from opik_mcp.session_identity import ResolvedIdentity, lookup_identity
+    from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}handshake-abc"
     resolved = ResolvedIdentity(
@@ -359,7 +359,7 @@ async def test_failed_introspection_leaves_the_handshake_working(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Telemetry and display niceties must never cost a session."""
-    from opik_mcp.session_identity import lookup_identity
+    from opik_mcp.credential_identity import lookup_identity
 
     async def _resolve(*_a: object, **_k: object) -> None:
         return None

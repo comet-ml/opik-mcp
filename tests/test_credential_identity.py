@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 
-from opik_mcp.session_identity import (
+from opik_mcp.credential_identity import (
     MAX_TRACKED_CREDENTIALS,
     ResolvedIdentity,
     credential_digest,
@@ -93,6 +93,6 @@ def test_reading_an_entry_keeps_it_from_being_evicted_first() -> None:
 
 
 def _keys() -> set[str]:
-    from opik_mcp.session_identity import _STORE
+    from opik_mcp.credential_identity import _STORE
 
     return set(_STORE)

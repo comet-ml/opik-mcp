@@ -70,7 +70,7 @@ async def test_initialize_names_oauth_workspace(
     only the backend introspection call stubbed.
     """
 
-    from opik_mcp.session_identity import ResolvedIdentity, lookup_identity
+    from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
 
     async def fake_resolve(_auth: str, _settings: object) -> ResolvedIdentity:
         return ResolvedIdentity(

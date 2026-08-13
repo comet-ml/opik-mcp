@@ -5,7 +5,7 @@
 - ``api_key_sha256(key)``: SHA-256 of the OPIK_API_KEY, emitted as a stable
   pseudonymous per-credential label. NOTE: it is not a usable join key on its
   own — the warehouse holds no api-key-hash → user mapping, which is why real
-  identity is resolved from the backend instead (see ``session_identity``).
+  identity is resolved from the backend instead (see ``credential_identity``).
   The raw key NEVER leaves this module.
 
 The top-level ``user_id`` is assembled in ``analytics.client``; see the note at
@@ -14,12 +14,13 @@ the foot of this module for what used to live here and why it is gone.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import UUID, uuid4
+
+from opik_mcp.credential_identity import credential_digest
 
 logger = logging.getLogger("opik_mcp.analytics.identity")
 
@@ -108,12 +109,13 @@ def api_key_sha256(api_key: str) -> str:
     join key: this module used to claim the backend retained a raw-key → user-id
     mapping BI could join on, and it does not — a digest join against the
     warehouse returns zero matches. Real identity is resolved from the backend
-    (see ``session_identity``); this stays as a credential-level label only.
+    (see ``credential_identity``); this stays as a credential-level label only.
 
-    Lowercase hex (64 chars) matches the convention used elsewhere in Comet
-    (e.g. ``hashlib.sha256(...).hexdigest()`` defaults).
+    Lowercase hex (64 chars) matches the convention used elsewhere in Comet.
+    Delegates to ``credential_digest`` so every digest in the codebase is the
+    same transform; this function exists for the BI-facing name.
     """
-    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    return credential_digest(api_key)
 
 
 # NOTE: there is deliberately no `resolve_anonymous_id` here any more.

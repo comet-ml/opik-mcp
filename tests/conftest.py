@@ -43,7 +43,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
     )
-    from opik_mcp.session_identity import reset_identities_for_tests
+    from opik_mcp.credential_identity import reset_identities_for_tests
 
     reset_analytics_for_tests()
     _reset_seen_sessions_for_tests()

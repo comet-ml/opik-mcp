@@ -6,7 +6,6 @@ Daemon-thread worker model (not asyncio): callable from any context, including
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import platform
 import queue
@@ -32,7 +31,11 @@ from opik_mcp.auth_context import (
     settings_auth_mode,
 )
 from opik_mcp.config import DEFAULT_WORKSPACE, Settings, installation_type
-from opik_mcp.session_identity import ResolvedIdentity, lookup_identity
+from opik_mcp.credential_identity import (
+    ResolvedIdentity,
+    credential_digest,
+    lookup_identity,
+)
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -353,7 +356,7 @@ class AnalyticsClient:
                 if token:  # oauth bearer
                     # PRIVACY: only the digest is emitted; the raw token never
                     # enters the result.
-                    props["token_sha256"] = hashlib.sha256(token.encode("utf-8")).hexdigest()
+                    props["token_sha256"] = credential_digest(token)
             else:
                 # No inbound header: stdio or unauthenticated HTTP. Fall back to
                 # the settings-derived mode (shared with auth_mode_at_boot, so an

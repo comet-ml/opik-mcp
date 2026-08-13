@@ -144,3 +144,12 @@ def test_get_install_id_returns_string_only(_fresh_home: Path) -> None:
     result = identity.get_install_id()
     assert isinstance(result, str)
     assert len(result) == 36  # UUID4 hex with dashes
+
+
+def test_every_digest_in_the_codebase_is_the_same_transform() -> None:
+    """BI joins on the exact string, so encoding or casing drift between two
+    hand-rolled digests would be invisible until a join quietly returned zero."""
+    from opik_mcp.credential_identity import credential_digest
+
+    for value in ["sk-key", "opik_mcp_at_token", "ünïcode-ключ", ""]:
+        assert identity.api_key_sha256(value) == credential_digest(value)

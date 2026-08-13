@@ -38,7 +38,7 @@ from urllib.parse import urlparse
 import httpx
 
 from opik_mcp.config import Settings, installation_type
-from opik_mcp.session_identity import (
+from opik_mcp.credential_identity import (
     ResolvedIdentity,
     credential_digest,
     lookup_identity,

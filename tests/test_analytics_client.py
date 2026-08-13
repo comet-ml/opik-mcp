@@ -527,7 +527,7 @@ def _with_oauth_identity(
     ``inbound_authorization`` so ``_build_event`` finds it.
     """
     from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
-    from opik_mcp.session_identity import ResolvedIdentity, remember_identity
+    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}wire-shape-token"
     remember_identity(
@@ -678,7 +678,7 @@ def test_api_key_install_reports_its_resolved_login(monkeypatch: pytest.MonkeyPa
     The install's own API key identifies the caller, so unlike a forwarded
     bearer it is safe to resolve against our settings.
     """
-    from opik_mcp.session_identity import ResolvedIdentity
+    from opik_mcp.credential_identity import ResolvedIdentity
 
     monkeypatch.setattr(
         "opik_mcp.analytics.client.resolve_api_key_identity",
@@ -714,7 +714,7 @@ def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
     """In hosted mode the inbound credential belongs to the caller. Resolving
     our own settings identity here would attribute their call to this server."""
     from opik_mcp.auth_context import inbound_authorization
-    from opik_mcp.session_identity import ResolvedIdentity
+    from opik_mcp.credential_identity import ResolvedIdentity
 
     monkeypatch.setattr(
         "opik_mcp.analytics.client.resolve_api_key_identity",

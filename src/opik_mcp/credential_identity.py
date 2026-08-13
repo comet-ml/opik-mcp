@@ -60,7 +60,15 @@ _LOCK = threading.Lock()
 
 
 def credential_digest(credential: str) -> str:
-    """SHA-256 hex digest of a credential. The raw value never leaves the caller."""
+    """SHA-256 hex digest of a credential. The raw value never leaves the caller.
+
+    The single implementation of this transform in the codebase. ``analytics``
+    re-exports it under BI-facing names (``api_key_sha256``, ``token_sha256``)
+    because those are contract terms in the event schema, but there is exactly
+    one place the hashing actually happens — three hand-rolled copies of
+    ``hashlib.sha256(x.encode("utf-8")).hexdigest()`` is three chances to drift
+    on encoding or casing, and BI joins on the exact string.
+    """
     return hashlib.sha256(credential.encode("utf-8")).hexdigest()
 
 

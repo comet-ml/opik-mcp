@@ -12,7 +12,7 @@ opik-backend exposes a purpose-built introspection endpoint for exactly this —
 ``POST /opik/auth-oauth`` (``OAuthValidateTokenResource``) returns the full
 ``ValidatedToken``: ``user_name``, ``workspace_id`` and ``workspace_name``. We
 call it once per token, on the ``initialize`` handshake, forwarding the inbound
-bearer verbatim, and keep the whole answer in ``session_identity``.
+bearer verbatim, and keep the whole answer in ``credential_identity``.
 
 This is best-effort: any failure (unconfigured base, non-200, network error,
 malformed body) returns ``None`` so the handshake never breaks — the blob simply
@@ -26,8 +26,8 @@ import logging
 import httpx
 
 from opik_mcp.config import Settings
+from opik_mcp.credential_identity import ResolvedIdentity
 from opik_mcp.opik_client import opik_rest_base
-from opik_mcp.session_identity import ResolvedIdentity
 
 logger = logging.getLogger("opik_mcp")
 
