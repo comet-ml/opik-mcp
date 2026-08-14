@@ -65,8 +65,8 @@ Add the server with one command:
 
 ```bash
 claude mcp add --transport stdio opik-mcp \
-  --env OPIK_API_KEY=sk-your-key \
-  --env OPIK_WORKSPACE=acme-ai \
+  --env OPIK_API_KEY=<your-key> \
+  --env OPIK_WORKSPACE=<your-workspace> \
   -- uvx opik-mcp
 ```
 
@@ -80,8 +80,8 @@ Or edit `~/.claude.json` directly:
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "sk-your-key",
-        "OPIK_WORKSPACE": "acme-ai"
+        "OPIK_API_KEY": "<your-key>",
+        "OPIK_WORKSPACE": "<your-workspace>"
       }
     }
   }
@@ -105,8 +105,8 @@ Edit `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project), or open
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "sk-your-key",
-        "OPIK_WORKSPACE": "acme-ai"
+        "OPIK_API_KEY": "<your-key>",
+        "OPIK_WORKSPACE": "<your-workspace>"
       }
     }
   }
@@ -132,8 +132,8 @@ connection. Ask in chat: **"list my Opik projects"**.
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "sk-your-key",
-        "OPIK_WORKSPACE": "acme-ai"
+        "OPIK_API_KEY": "<your-key>",
+        "OPIK_WORKSPACE": "<your-workspace>"
       }
     }
   }
@@ -146,7 +146,7 @@ the server is reachable. Ask in chat: **"list my Opik projects"**.
 ### MCP Inspector (manual testing)
 
 ```bash
-OPIK_API_KEY=sk-your-key OPIK_WORKSPACE=acme-ai \
+OPIK_API_KEY=<your-key> OPIK_WORKSPACE=<your-workspace> \
   npx @modelcontextprotocol/inspector uvx opik-mcp
 ```
 
@@ -163,7 +163,7 @@ the same `env` block in your host config:
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "sk-your-key",
+        "OPIK_API_KEY": "<your-key>",
         "COMET_URL_OVERRIDE": "https://opik.your-company.com",
         "OPIK_MCP_ANALYTICS_SOURCE": ""
       }
