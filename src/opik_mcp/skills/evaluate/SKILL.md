@@ -6,8 +6,9 @@ description: >
   error analysis, and validating evaluators against human labels. Use when the
   user wants to measure or improve AI product quality, or asks about evals,
   judges, or evaluation metrics.
-last_updated: "2026-07-30"
-source_commit: "2.0.0"
+metadata:
+  last_updated: "2026-07-30"
+  source_commit: "2.0.0"
 ---
 
 # LLM Evaluation
