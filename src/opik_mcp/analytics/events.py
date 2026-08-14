@@ -8,8 +8,9 @@ identifiable values. Thresholds picked to align with common LLM-context budgets
 
 Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
-with the classifiers in ``environment.py`` (launch method / parent process) and
-``mcp_client_info.py`` (mcp host / host LLM family) — adding a new bucket is a BI
+with the classifiers in ``environment.py`` (launch method / parent process),
+``mcp_client_info.py`` (mcp host / host LLM family) and ``analytics/client.py``
+(``_resolve_workspace`` / ``_resolve_user``) — adding a new bucket is a BI
 schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
 ``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py`` and

@@ -41,16 +41,23 @@ You'll need two things from your Opik workspace:
 - **`OPIK_API_KEY`** — get it from [`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/).
 - **`OPIK_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `OPIK_WORKSPACE=acme-ai`. `COMET_WORKSPACE` is accepted as a deprecated alias.
 
-> **Cloud users: set `OPIK_WORKSPACE`.** Leave it out and the server falls back
-> to `default`, which is a reserved name rather than a workspace — your tool
-> calls will be rejected. Set it to the workspace name from your Opik URL, and
-> not to the literal string `default`.
+> **Cloud, with an API key: set `OPIK_WORKSPACE`.** Leave it out and the server
+> falls back to `default`, which the backend treats as a reserved name rather
+> than a workspace, so your tool calls are rejected. Use the workspace name from
+> your Opik URL, never the literal string `default`.
+>
+> **Cloud, over OAuth: leave it unset.** The workspace comes from the token you
+> authorized, and the server ignores this setting entirely.
 >
 > **Local / open source: leave it unset.** Open source Opik has a single
 > workspace named `default` and no way to create others, which is exactly what
-> the fallback gives you. Also make sure the value is really substituted: a
-> snippet pasted with `<your-workspace>` or `${input:OPIK_WORKSPACE}` still in
-> it is not a workspace name and nothing will resolve.
+> the fallback gives you.
+>
+> Whichever applies, make sure the value is actually substituted. Snippets in
+> the wild ship placeholders like `<your-workspace>` or `${input:OPIK_WORKSPACE}`;
+> pasted as-is, those are not workspace names. The server now refuses them
+> outright rather than letting the backend answer with an auth error that
+> explains nothing.
 
 ### Claude Code
 
@@ -58,8 +65,8 @@ Add the server with one command:
 
 ```bash
 claude mcp add --transport stdio opik-mcp \
-  --env OPIK_API_KEY=<your-key> \
-  --env OPIK_WORKSPACE=<your-workspace> \
+  --env OPIK_API_KEY=sk-your-key \
+  --env OPIK_WORKSPACE=acme-ai \
   -- uvx opik-mcp
 ```
 
@@ -73,8 +80,8 @@ Or edit `~/.claude.json` directly:
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "<your-key>",
-        "OPIK_WORKSPACE": "<your-workspace>"
+        "OPIK_API_KEY": "sk-your-key",
+        "OPIK_WORKSPACE": "acme-ai"
       }
     }
   }
@@ -98,8 +105,8 @@ Edit `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project), or open
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "<your-key>",
-        "OPIK_WORKSPACE": "<your-workspace>"
+        "OPIK_API_KEY": "sk-your-key",
+        "OPIK_WORKSPACE": "acme-ai"
       }
     }
   }
@@ -125,8 +132,8 @@ connection. Ask in chat: **"list my Opik projects"**.
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "<your-key>",
-        "OPIK_WORKSPACE": "<your-workspace>"
+        "OPIK_API_KEY": "sk-your-key",
+        "OPIK_WORKSPACE": "acme-ai"
       }
     }
   }
@@ -139,7 +146,7 @@ the server is reachable. Ask in chat: **"list my Opik projects"**.
 ### MCP Inspector (manual testing)
 
 ```bash
-OPIK_API_KEY=<your-key> OPIK_WORKSPACE=<your-workspace> \
+OPIK_API_KEY=sk-your-key OPIK_WORKSPACE=acme-ai \
   npx @modelcontextprotocol/inspector uvx opik-mcp
 ```
 
@@ -156,7 +163,7 @@ the same `env` block in your host config:
       "command": "uvx",
       "args": ["opik-mcp"],
       "env": {
-        "OPIK_API_KEY": "<your-key>",
+        "OPIK_API_KEY": "sk-your-key",
         "COMET_URL_OVERRIDE": "https://opik.your-company.com",
         "OPIK_MCP_ANALYTICS_SOURCE": ""
       }
@@ -308,7 +315,7 @@ Every setting is an environment variable. Required ones in **bold**.
 | Variable | Default | Notes |
 |---|---|---|
 | **`OPIK_API_KEY`** | — | Required for `ask_ollie` and any authenticated read/write. |
-| `OPIK_WORKSPACE` | _unset_ | Workspace name. Required on cloud: unset falls back to `default`, which is a reserved name and not a workspace you can reach. Leave unset on local/OSS, where `default` is the only workspace. Never set it to the literal `default` on cloud. |
+| **`OPIK_WORKSPACE`** | _unset_ | Workspace name. **Required on cloud with an API key** — unset falls back to `default`, a reserved name the backend refuses. Leave unset over OAuth (the token carries the workspace) and on local/OSS (`default` is the only workspace there). Never set it to the literal `default` on cloud. |
 | `COMET_WORKSPACE` | — | Deprecated alias for `OPIK_WORKSPACE` (backward compat). `OPIK_WORKSPACE` wins if both are set. |
 | `COMET_WORKSPACE_ID` | _unset_ | Optional workspace UUID. Stamped into analytics events when set, and takes precedence over the resolved one. Rarely needed — OAuth installs get the UUID from the token automatically. |
 | `COMET_URL_OVERRIDE` | `https://www.comet.com` | Set to your self-hosted Comet host, or `https://dev.comet.com` for staging. |

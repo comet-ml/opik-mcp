@@ -905,3 +905,62 @@ def test_a_caller_supplied_workspace_cannot_contradict_unknown() -> None:
     props = json.loads(route.calls.last.request.content)["event_properties"]
     assert props["workspace_kind"] == "unknown"
     assert "workspace" not in props
+
+
+@respx.mock
+def test_a_hosted_call_reports_the_workspace_from_its_own_header() -> None:
+    """The inbound header is what the call actually routes on. Reporting
+    `unknown` here while `request_workspace` carries the name would be an
+    affirmative wrong claim, not merely a missing one."""
+    from opik_mcp.auth_context import inbound_workspace
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_workspace.set("caller-workspace")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_workspace.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "caller-workspace"
+    assert props["workspace_kind"] == "configured"
+    assert props["request_workspace"] == "caller-workspace"
+
+
+@respx.mock
+def test_an_inbound_header_outranks_the_process_setting() -> None:
+    from opik_mcp.auth_context import inbound_workspace
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace="server-side-ws"))
+    tok = inbound_workspace.set("caller-workspace")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_workspace.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "caller-workspace"
+
+
+@respx.mock
+def test_an_unfilled_placeholder_in_the_inbound_header_is_labelled_too() -> None:
+    from opik_mcp.auth_context import inbound_workspace
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_workspace.set("${input:OPIK_WORKSPACE}")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_workspace.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace_kind"] == "template"

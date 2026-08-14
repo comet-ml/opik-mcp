@@ -9,8 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from opik_mcp.error_kinds import ErrorKind
 
 # Workspace name used when none is configured — mirrors the Opik Python SDK
-# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Lets local/OSS users run without
-# setting a workspace at all; cloud users with named workspaces still set one.
+# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Correct for local/OSS, which has
+# exactly one workspace by this name. NOT a working fallback on cloud, where the
+# backend treats "default" as a reserved name and refuses it: cloud users have to
+# set a real workspace. The SDK papers over this by having `opik configure` write
+# the resolved name to ~/.opik.config; opik-mcp reads env vars only.
 DEFAULT_WORKSPACE = "default"
 
 # Config-snippet placeholders users paste without filling in. `${…}` is the
@@ -27,10 +30,14 @@ _TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
 def looks_unsubstituted(value: str) -> bool:
     """True for an obviously unfilled config placeholder.
 
-    Deliberately narrow: the whole value must both open and close with a wrapper
-    pair, so a real workspace name containing a stray bracket is not caught. A
-    false positive would break an install that works today, which is far worse
-    than missing an exotic placeholder shape.
+    Two rules. A value that both opens and closes with a wrapper pair
+    (``${…}``, ``<…>``, ``{{…}}``, ``%…%``), and a value starting with a bare
+    ``$`` — a shell variable that never expanded, which has no closing marker to
+    match on.
+
+    Deliberately narrow otherwise: requiring both ends means a real workspace
+    name containing a stray bracket is not caught. A false positive breaks an
+    install that works today, which is far worse than missing an exotic shape.
     """
     candidate = value.strip()
     if candidate.startswith("$") and not candidate.startswith("${"):
@@ -254,13 +261,38 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
+    """The one message for an unfilled workspace, wherever it is noticed.
+
+    Both entry points to Opik reach the backend with a ``Comet-Workspace``
+    header: ``opik_client.resolve_opik_config`` for the data tools and
+    ``require_ollie_config`` for ``ask_ollie``. They share this so a user gets
+    the same actionable text regardless of which tool they happened to call.
+    """
+    return MissingConfigError(
+        f"{source} is {value!r}, which looks like a config placeholder that was "
+        "never filled in. Set it to your workspace name — the segment in your "
+        "Opik URL, e.g. https://www.comet.com/acme-ai/... -> acme-ai."
+    )
+
+
+# Named for the error message. Pydantic resolves the alias for us and does not
+# report which spelling matched, so name both rather than guess wrong.
+WORKSPACE_ENV_VARS = "OPIK_WORKSPACE (or COMET_WORKSPACE)"
+
+
 def require_ollie_config(settings: Settings) -> tuple[str, str]:
     if not settings.opik_api_key:
         raise MissingConfigError("OPIK_API_KEY is required to use ask_ollie")
     # Workspace is optional — fall back to "default" (Opik SDK convention).
     # Cloud pod discovery for a non-"default" account will surface its own
     # clear error downstream, which beats a hard config failure here.
-    return settings.opik_api_key, settings.comet_workspace or DEFAULT_WORKSPACE
+    workspace = settings.comet_workspace or DEFAULT_WORKSPACE
+    if looks_unsubstituted(workspace):
+        # ask_ollie does not go through resolve_opik_config, so without this it
+        # keeps hitting the opaque upstream error that guard exists to replace.
+        raise unfilled_workspace_error(workspace, WORKSPACE_ENV_VARS)
+    return settings.opik_api_key, workspace
 
 
 def installation_type(settings: Settings) -> str:
