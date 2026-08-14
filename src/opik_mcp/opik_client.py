@@ -25,7 +25,12 @@ from opik_mcp.auth_context import (
     inbound_authorization,
     inbound_workspace,
 )
-from opik_mcp.config import DEFAULT_WORKSPACE, MissingConfigError, Settings
+from opik_mcp.config import (
+    DEFAULT_WORKSPACE,
+    MissingConfigError,
+    Settings,
+    looks_unsubstituted,
+)
 from opik_mcp.error_kinds import ErrorKind
 
 # --- errors --------------------------------------------------------------- #
@@ -784,6 +789,17 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str | None, str | None
         # configured workspace, else "default" (Opik SDK convention). No hard
         # failure — lets local/OSS users run without setting a workspace.
         workspace = inbound_ws or settings.comet_workspace or DEFAULT_WORKSPACE
+    if workspace and looks_unsubstituted(workspace):
+        # Fail here with something actionable rather than forwarding a
+        # placeholder and letting the backend answer with an auth error that
+        # names neither the setting nor the value. Classified as `validation`
+        # (see MissingConfigError) so it buckets as a fixable setup problem.
+        source = "the inbound Comet-Workspace header" if inbound_ws else "OPIK_WORKSPACE"
+        raise MissingConfigError(
+            f"{source} is {workspace!r}, which looks like a config placeholder that "
+            "was never filled in. Set it to your workspace name — the segment in "
+            "your Opik URL, e.g. https://www.comet.com/acme-ai/... -> acme-ai."
+        )
     base = opik_rest_base(settings)
     if base is None:
         # ``comet_url_override`` has a non-empty default in ``Settings`` but

@@ -30,42 +30,15 @@ from opik_mcp.auth_context import (
     settings_auth_mode,
 )
 from opik_mcp.caller_identity import caller_identity
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings, installation_type
+from opik_mcp.config import (
+    DEFAULT_WORKSPACE,
+    Settings,
+    installation_type,
+    looks_unsubstituted,
+)
 from opik_mcp.credential_identity import ResolvedIdentity, credential_digest
 
 logger = logging.getLogger("opik_mcp.analytics")
-
-# Config-snippet placeholders users paste without substituting. `${…}` is the
-# VS Code / shell form (`${input:OPIK_WORKSPACE}`), `<…>` is the one our own
-# README uses (`<your-workspace>`), plus the mustache and Windows forms. All
-# showed up in production within a day of the identity change shipping,
-# classified as deliberate operator choices.
-#
-# We label these rather than validate them. Nothing else in the product checks
-# the workspace string — the SDK defaults it and lets the backend judge — so
-# opik-mcp is not the place to start failing installs. Reporting the value with
-# an honest label is what tells us which snippet is failing users.
-_TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
-
-
-def _looks_unsubstituted(value: str) -> bool:
-    """True for an obviously unfilled config placeholder.
-
-    Deliberately narrow: the whole value must both open and close with a wrapper
-    pair, so a real workspace name containing a stray bracket is not caught.
-    Mislabelling a legitimate workspace would quietly drop it out of joins.
-    """
-    candidate = value.strip()
-    if candidate.startswith("$") and not candidate.startswith("${"):
-        # Bare `$OPIK_WORKSPACE` — a shell variable that never expanded.
-        return True
-    return any(
-        len(candidate) > len(open_) + len(close)
-        and candidate.startswith(open_)
-        and candidate.endswith(close)
-        for open_, close in _TEMPLATE_WRAPPERS
-    )
-
 
 _QUEUE_SENTINEL: Any = object()
 
@@ -330,7 +303,7 @@ class AnalyticsClient:
         """
         configured = self._settings.comet_workspace
         resolved = identity.workspace_name if identity else None
-        if configured and _looks_unsubstituted(configured):
+        if configured and looks_unsubstituted(configured):
             # Reported, not hidden: the raw value is the only thing that tells
             # us which config snippet the user pasted without filling in.
             return Attributed(configured, "template")

@@ -13,6 +13,37 @@ from opik_mcp.error_kinds import ErrorKind
 # setting a workspace at all; cloud users with named workspaces still set one.
 DEFAULT_WORKSPACE = "default"
 
+# Config-snippet placeholders users paste without filling in. `${…}` is the
+# VS Code / shell form (`${input:OPIK_WORKSPACE}`), `<…>` is the one our own
+# README uses (`<your-workspace>`), plus the mustache and Windows forms.
+#
+# This is not cosmetic. The workspace name is sent verbatim as `Comet-Workspace`
+# on every data call, so an unfilled placeholder cannot resolve to a workspace
+# the caller can reach. Analytics found ~41 such installs within a day of the
+# identity change shipping, all of them failing against opaque upstream errors.
+_TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
+
+
+def looks_unsubstituted(value: str) -> bool:
+    """True for an obviously unfilled config placeholder.
+
+    Deliberately narrow: the whole value must both open and close with a wrapper
+    pair, so a real workspace name containing a stray bracket is not caught. A
+    false positive would break an install that works today, which is far worse
+    than missing an exotic placeholder shape.
+    """
+    candidate = value.strip()
+    if candidate.startswith("$") and not candidate.startswith("${"):
+        # Bare `$OPIK_WORKSPACE` — a shell variable that never expanded.
+        return True
+    return any(
+        len(candidate) > len(open_) + len(close)
+        and candidate.startswith(open_)
+        and candidate.endswith(close)
+        for open_, close in _TEMPLATE_WRAPPERS
+    )
+
+
 # Cloud-Comet hostnames. Strict equality (matching the opik SDK) — ``staging.
 # comet.com`` / ``enterprise.example.com`` count as self-hosted so dashboards
 # don't mix prod-cloud failures with on-prem ones.
