@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlparse
@@ -30,22 +31,33 @@ DEFAULT_WORKSPACE = "default"
 # identity change shipping, all of them failing against opaque upstream errors.
 _TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
 
+# Bare, unbraced shell forms: `$OPIK_WORKSPACE` and the Kubernetes `$(VAR)`.
+# UPPERCASE is required and is the whole point of the pattern. Workspace names
+# are unconstrained — opik-backend enforces no charset, length or reserved list
+# beyond `default`, and `$` is a legal URI sub-delim, so `$acme` is a name
+# somebody can be using today. Matching every `$`-prefixed value would turn that
+# working install into a hard failure on every tool call. An env-var-shaped name
+# is the narrow case worth catching; anything else is left alone.
+_BARE_SHELL_VAR = re.compile(r"^\$(?:[A-Z_][A-Z0-9_]*|\([A-Z_][A-Z0-9_]*\))$")
+
 
 def looks_unsubstituted(value: str) -> bool:
     """True for an obviously unfilled config placeholder.
 
     Two rules. A value that both opens and closes with a wrapper pair
-    (``${…}``, ``<…>``, ``{{…}}``, ``%…%``), and a value starting with a bare
-    ``$`` — a shell variable that never expanded, which has no closing marker to
-    match on.
+    (``${…}``, ``<…>``, ``{{…}}``, ``%…%``), and an env-var-shaped bare shell
+    reference (``$OPIK_WORKSPACE``, ``$(OPIK_WORKSPACE)``), which has no closing
+    marker to match on.
 
-    Deliberately narrow otherwise: requiring both ends means a real workspace
-    name containing a stray bracket is not caught. A false positive breaks an
-    install that works today, which is far worse than missing an exotic shape.
+    Deliberately narrow: a false positive breaks an install that works today,
+    which is far worse than missing an exotic shape. Workspace names carry no
+    charset restriction anywhere in the product, so both rules are written to
+    leave anything plausibly real alone — see ``_BARE_SHELL_VAR``.
     """
     candidate = value.strip()
-    if candidate.startswith("$") and not candidate.startswith("${"):
-        # Bare `$OPIK_WORKSPACE` — a shell variable that never expanded.
+    if _BARE_SHELL_VAR.match(candidate):
+        # `$OPIK_WORKSPACE` / `$(OPIK_WORKSPACE)` — never expanded. The braced
+        # `${…}` form is covered by the wrapper rule below.
         return True
     return any(
         len(candidate) > len(open_) + len(close)
@@ -270,8 +282,13 @@ def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
 
     Both entry points to Opik reach the backend with a ``Comet-Workspace``
     header: ``opik_client.resolve_opik_config`` for the data tools and
-    ``require_ollie_config`` for ``ask_ollie``. They share this so a user gets
-    the same actionable text regardless of which tool they happened to call.
+    ``require_ollie_config`` for ``ask_ollie``. They share this so the wording
+    does not depend on which tool the user happened to call.
+
+    They do NOT check the same inputs. ``resolve_opik_config`` also sees the
+    inbound header, because it forwards it; ``ask_ollie`` is settings-driven by
+    design (pod discovery is per-install, not per-request), so a hosted caller
+    sending a placeholder header is caught on the data tools only.
     """
     return MissingConfigError(
         f"{source} is {value!r}, which looks like a config placeholder that was "
@@ -288,9 +305,10 @@ WORKSPACE_ENV_VARS = "OPIK_WORKSPACE (or COMET_WORKSPACE)"
 def require_ollie_config(settings: Settings) -> tuple[str, str]:
     if not settings.opik_api_key:
         raise MissingConfigError("OPIK_API_KEY is required to use ask_ollie")
-    # Workspace is optional — fall back to "default" (Opik SDK convention).
-    # Cloud pod discovery for a non-"default" account will surface its own
-    # clear error downstream, which beats a hard config failure here.
+    # Workspace is optional — fall back to "default" (Opik SDK convention),
+    # which on cloud resolves to the account's default workspace. Anything that
+    # goes wrong past that point surfaces its own error from pod discovery,
+    # which beats a hard config failure here.
     workspace = settings.comet_workspace or DEFAULT_WORKSPACE
     if looks_unsubstituted(workspace):
         # ask_ollie does not go through resolve_opik_config, so without this it

@@ -54,6 +54,9 @@ You'll need two things from your Opik workspace:
 > workspace named `default` and no way to create others, which is exactly what
 > the fallback gives you.
 >
+> **Self-hosted Comet: set it.** Unlike open source, these deployments have real
+> named workspaces, and the same silent-wrong-workspace risk applies.
+>
 > Whichever applies, make sure the value is actually substituted. Snippets in
 > the wild ship placeholders like `<your-workspace>` or `${input:OPIK_WORKSPACE}`;
 > pasted as-is, those are not workspace names. The server now refuses them
@@ -165,6 +168,7 @@ the same `env` block in your host config:
       "args": ["opik-mcp"],
       "env": {
         "OPIK_API_KEY": "<your-key>",
+        "OPIK_WORKSPACE": "<your-workspace>",
         "COMET_URL_OVERRIDE": "https://opik.your-company.com",
         "OPIK_MCP_ANALYTICS_SOURCE": ""
       }
@@ -172,6 +176,9 @@ the same `env` block in your host config:
   }
 }
 ```
+
+Omit `OPIK_WORKSPACE` on an open-source deployment, where `default` is the only
+workspace; keep it on a self-hosted Comet, which has real named ones.
 
 `ask_ollie` and `run_experiment` are available on Comet Cloud only — on
 self-hosted those calls will fail at dispatch, so use `read` / `list` / `write`

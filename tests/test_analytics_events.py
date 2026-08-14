@@ -188,3 +188,59 @@ def test_path_bucket_literal_matches_bucket_path_outputs() -> None:
     # no undeclared outputs).
     samples = ["/mcp", "/health", "/.well-known/x", "/anything-else", ""]
     assert {bucket_path(p) for p in samples} == allowed
+
+
+def test_workspace_kind_literal_has_no_dead_members() -> None:
+    """Every declared WorkspaceKind must be reachable from the classifier.
+
+    mypy already stops ``_resolve_workspace`` returning a value the Literal
+    doesn't declare. What it cannot see is the other direction: a member left
+    behind after a rule changes, which BI would then wait for forever. Same
+    contract as McpHost, driven through the real classifier.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.client import AnalyticsClient
+    from opik_mcp.analytics.events import WorkspaceKind
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.credential_identity import ResolvedIdentity
+
+    def _kind(workspace: str | None, resolved: str | None) -> str:
+        client = AnalyticsClient(
+            Settings(opik_mcp_analytics_enabled=False, comet_workspace=workspace)
+        )
+        identity = (
+            ResolvedIdentity(user_name="u", workspace_name=resolved, workspace_id=None)
+            if resolved
+            else None
+        )
+        return client._resolve_workspace(identity).kind
+
+    produced = {
+        _kind("acme-ai", None),  # configured
+        _kind(None, "from-backend"),  # resolved
+        _kind(DEFAULT_WORKSPACE, None),  # placeholder
+        _kind("${input:OPIK_WORKSPACE}", None),  # template
+        _kind(None, None),  # unknown
+    }
+    declared = set(get_args(WorkspaceKind))
+    assert produced == declared, (
+        f"WorkspaceKind drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+
+
+def test_user_id_kind_literal_has_no_dead_members() -> None:
+    from typing import get_args
+
+    from opik_mcp.analytics.client import AnalyticsClient
+    from opik_mcp.analytics.events import UserIdKind
+    from opik_mcp.credential_identity import ResolvedIdentity
+
+    produced = {
+        AnalyticsClient._resolve_user(
+            ResolvedIdentity(user_name="awkoy", workspace_name=None, workspace_id=None)
+        ).kind,
+        AnalyticsClient._resolve_user(None).kind,
+    }
+    assert produced == set(get_args(UserIdKind))

@@ -13,8 +13,9 @@ with the classifiers in ``environment.py`` (launch method / parent process),
 (``_resolve_workspace`` / ``_resolve_user``) — adding a new bucket is a BI
 schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
-``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py`` and
-``tests/test_analytics_lifespan.py``.
+``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py``,
+``tests/test_analytics_lifespan.py`` and ``tests/test_analytics_client.py``
+(the last asserts against the decoded request body actually posted).
 
 Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",

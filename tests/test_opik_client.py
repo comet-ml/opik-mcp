@@ -485,11 +485,20 @@ async def test_execute_experiment_posts_to_execute_endpoint() -> None:
         "${input:OPIK_WORKSPACE}",
         "${OPIK_WORKSPACE}",
         "$OPIK_WORKSPACE",
+        "$(OPIK_WORKSPACE)",
         "<your-workspace>",
         "{{workspace}}",
         "%OPIK_WORKSPACE%",
     ],
-    ids=["vscode-input", "shell-braced", "shell-bare", "readme-angle", "mustache", "win-percent"],
+    ids=[
+        "vscode-input",
+        "shell-braced",
+        "shell-bare",
+        "k8s-parens",
+        "readme-angle",
+        "mustache",
+        "win-percent",
+    ],
 )
 def test_an_unfilled_workspace_placeholder_fails_with_a_usable_message(value: str) -> None:
     from opik_mcp.config import MissingConfigError, Settings
@@ -524,12 +533,41 @@ def test_an_unfilled_inbound_workspace_header_fails_the_same_way() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["acme-ai", "default", "portpro-devlopment", "workspace", "x<y"],
-    ids=["slug", "oss-default", "real-name", "the-word", "stray-bracket"],
+    [
+        "acme-ai",
+        "default",
+        "portpro-devlopment",
+        "workspace",
+        "x<y",
+        "$acme",
+        "$acme-ai",
+        "$",
+        "$$",
+        "$a",
+    ],
+    ids=[
+        "slug",
+        "oss-default",
+        "real-name",
+        "the-word",
+        "stray-bracket",
+        "dollar-prefixed-name",
+        "dollar-prefixed-slug",
+        "lone-dollar",
+        "double-dollar",
+        "dollar-single-char",
+    ],
 )
 def test_a_real_workspace_is_untouched(value: str) -> None:
     """A false positive would break a working install, which is far worse than
-    missing an exotic placeholder shape."""
+    missing an exotic placeholder shape.
+
+    The `$`-prefixed cases are the ones that matter. Workspace names carry no
+    charset restriction anywhere in the product and `$` is a legal URI
+    sub-delim, so `$acme` is a name somebody may be using right now. An earlier
+    version of the detector matched every `$`-prefixed value and would have
+    hard-failed every tool call for that install.
+    """
     from opik_mcp.config import Settings
     from opik_mcp.opik_client import resolve_opik_config
 
