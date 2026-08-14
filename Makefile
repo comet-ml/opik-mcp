@@ -3,6 +3,11 @@
         docker-build docker-run \
         legacy-install legacy-build legacy-test legacy-lint legacy-start
 
+# The skills recipes use `set -o pipefail`, which is a bash builtin. Make defaults
+# to /bin/sh, which is dash on Ubuntu runners (and bash on macOS) — so without this
+# those recipes pass locally and fail in CI with "Illegal option -o pipefail".
+SHELL := /bin/bash
+
 VERSION_FILE := src/opik_mcp/_version.py
 
 # Pinned: this CLI is what ~40 agents use to install the pack, so a behaviour
