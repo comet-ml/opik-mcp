@@ -8,12 +8,14 @@ identifiable values. Thresholds picked to align with common LLM-context budgets
 
 Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
-with the classifiers in ``environment.py`` (launch method / parent process) and
-``mcp_client_info.py`` (mcp host / host LLM family) — adding a new bucket is a BI
+with the classifiers in ``environment.py`` (launch method / parent process),
+``mcp_client_info.py`` (mcp host / host LLM family) and ``analytics/client.py``
+(``_resolve_workspace`` / ``_resolve_user``) — adding a new bucket is a BI
 schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
-``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py`` and
-``tests/test_analytics_lifespan.py``.
+``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py``,
+``tests/test_analytics_lifespan.py`` and ``tests/test_analytics_client.py``
+(the last asserts against the decoded request body actually posted).
 
 Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",
@@ -177,7 +179,16 @@ UserIdKind = Literal["comet_user", "install_id"]
 # classifier is ``client._resolve_workspace``. CRITICAL for BI: "placeholder" is
 # the literal "default" on an install that resolved nothing, and it collides with
 # a real cloud workspace of that name — those rows must never be name-joined.
-WorkspaceKind = Literal["resolved", "configured", "placeholder"]
+#
+# "unknown" carries no ``workspace`` value at all: nothing was configured and
+# nothing resolved. It exists so this field is stamped on every event that
+# carries ``user_id_kind``, which is what lets BI total workspace_kind without
+# an unstamped remainder silently going missing.
+# "template" is an operator-configured value that was never filled in — a config
+# snippet pasted verbatim. It is reported rather than hidden: the value itself
+# says which snippet failed the user (`${input:…}` is VS Code, `<your-workspace>`
+# is our README), and the kind keeps it out of workspace joins.
+WorkspaceKind = Literal["resolved", "configured", "placeholder", "template", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)

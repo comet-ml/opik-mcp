@@ -138,3 +138,34 @@ def test_auto_approve_rejects_typo() -> None:
 
     with pytest.raises(ValidationError):
         Settings(opik_api_key="k", comet_workspace="w", opik_mcp_auto_approve="off")  # type: ignore[arg-type]
+
+
+def test_ask_ollie_refuses_an_unfilled_workspace_placeholder() -> None:
+    """ask_ollie does not go through resolve_opik_config, so it needs its own
+    guard or it keeps hitting the opaque upstream error."""
+    from opik_mcp.config import MissingConfigError, Settings, require_ollie_config
+
+    s = Settings(opik_api_key="k", comet_workspace="${input:OPIK_WORKSPACE}")
+    with pytest.raises(MissingConfigError) as excinfo:
+        require_ollie_config(s)
+    assert "config placeholder" in str(excinfo.value)
+    assert "workspace name" in str(excinfo.value)
+
+
+def test_ask_ollie_still_falls_back_to_default_when_unset() -> None:
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings, require_ollie_config
+
+    _key, workspace = require_ollie_config(Settings(opik_api_key="k", comet_workspace=None))
+    assert workspace == DEFAULT_WORKSPACE
+
+
+def test_the_workspace_error_names_both_env_spellings() -> None:
+    """Pydantic resolves the alias and does not say which one matched, so the
+    message must not guess."""
+    from opik_mcp.config import MissingConfigError, Settings, require_ollie_config
+
+    s = Settings(comet_workspace="<your-workspace>", opik_api_key="k")
+    with pytest.raises(MissingConfigError) as excinfo:
+        require_ollie_config(s)
+    assert "OPIK_WORKSPACE" in str(excinfo.value)
+    assert "COMET_WORKSPACE" in str(excinfo.value)

@@ -469,3 +469,118 @@ async def test_execute_experiment_posts_to_execute_endpoint() -> None:
     assert sent.headers["comet-workspace"] == "ws"
     # Body is forwarded verbatim:
     assert sent.read().startswith(b'{"dataset_name":"suite-a"')
+
+
+# --- unfilled workspace placeholders -------------------------------------- #
+#
+# The workspace goes out as `Comet-Workspace` on every data call, so a config
+# snippet the user never filled in cannot resolve to anything. These installs
+# were failing with opaque upstream auth errors; analytics found ~41 of them
+# within a day of 0.2.16 shipping.
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "${input:OPIK_WORKSPACE}",
+        "${OPIK_WORKSPACE}",
+        "$OPIK_WORKSPACE",
+        "$(OPIK_WORKSPACE)",
+        "<your-workspace>",
+        "{{workspace}}",
+        "%OPIK_WORKSPACE%",
+    ],
+    ids=[
+        "vscode-input",
+        "shell-braced",
+        "shell-bare",
+        "k8s-parens",
+        "readme-angle",
+        "mustache",
+        "win-percent",
+    ],
+)
+def test_an_unfilled_workspace_placeholder_fails_with_a_usable_message(value: str) -> None:
+    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key="k", comet_workspace=value)
+    with pytest.raises(MissingConfigError) as excinfo:
+        resolve_opik_config(s)
+    message = str(excinfo.value)
+    # Name the variable, show the offending value, and say what to put there —
+    # the whole point is replacing an upstream 401 nobody can act on.
+    assert "OPIK_WORKSPACE" in message
+    assert value in message
+    assert "workspace name" in message
+
+
+def test_an_unfilled_inbound_workspace_header_fails_the_same_way() -> None:
+    """Hosted callers send their own config; a host with an unfilled template in
+    its headers is just as broken as a local env var."""
+    from opik_mcp.auth_context import inbound_workspace
+    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key="k", comet_workspace="real-ws")
+    token = inbound_workspace.set("${input:OPIK_WORKSPACE}")
+    try:
+        with pytest.raises(MissingConfigError):
+            resolve_opik_config(s)
+    finally:
+        inbound_workspace.reset(token)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "acme-ai",
+        "default",
+        "portpro-devlopment",
+        "workspace",
+        "x<y",
+        "$acme",
+        "$acme-ai",
+        "$",
+        "$$",
+        "$a",
+    ],
+    ids=[
+        "slug",
+        "oss-default",
+        "real-name",
+        "the-word",
+        "stray-bracket",
+        "dollar-prefixed-name",
+        "dollar-prefixed-slug",
+        "lone-dollar",
+        "double-dollar",
+        "dollar-single-char",
+    ],
+)
+def test_a_real_workspace_is_untouched(value: str) -> None:
+    """A false positive would break a working install, which is far worse than
+    missing an exotic placeholder shape.
+
+    The `$`-prefixed cases are the ones that matter. Workspace names carry no
+    charset restriction anywhere in the product and `$` is a legal URI
+    sub-delim, so `$acme` is a name somebody may be using right now. An earlier
+    version of the detector matched every `$`-prefixed value and would have
+    hard-failed every tool call for that install.
+    """
+    from opik_mcp.config import Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key="k", comet_workspace=value)
+    _base, _api, ws = resolve_opik_config(s)
+    assert ws == value
+
+
+def test_an_unset_workspace_still_falls_back_to_default() -> None:
+    """Unchanged behaviour: OSS installs run without setting a workspace."""
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.opik_client import resolve_opik_config
+
+    s = Settings(opik_api_key="k", comet_workspace=None)
+    _base, _api, ws = resolve_opik_config(s)
+    assert ws == DEFAULT_WORKSPACE

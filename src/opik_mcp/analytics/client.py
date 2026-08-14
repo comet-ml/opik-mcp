@@ -30,7 +30,12 @@ from opik_mcp.auth_context import (
     settings_auth_mode,
 )
 from opik_mcp.caller_identity import caller_identity
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings, installation_type
+from opik_mcp.config import (
+    DEFAULT_WORKSPACE,
+    Settings,
+    installation_type,
+    looks_unsubstituted,
+)
 from opik_mcp.credential_identity import ResolvedIdentity, credential_digest
 
 logger = logging.getLogger("opik_mcp.analytics")
@@ -218,13 +223,18 @@ class AnalyticsClient:
         }
         identity = caller_identity(self._settings)
         workspace = self._resolve_workspace(identity)
-        if workspace is not None:
+        # Where the name came from: resolved from the backend, chosen by the
+        # operator, an unfilled config snippet, the self-hosted placeholder, or
+        # nothing at all. BI needs this to keep placeholders out of workspace
+        # joins. ALWAYS stamped, so it totals against user_id_kind with no
+        # silent remainder.
+        common["workspace_kind"] = workspace.kind
+        if workspace.value:
             common["workspace"] = workspace.value
-            # Which of the three the name is: resolved from the backend, chosen
-            # by the operator, or the self-hosted placeholder. BI needs this to
-            # avoid joining a placeholder onto the real customer workspace that
-            # shares its name.
-            common["workspace_kind"] = workspace.kind
+        else:
+            # "unknown" carries no name. Drop a caller-supplied one too, so the
+            # pair can never contradict each other.
+            properties = {k: v for k, v in properties.items() if k != "workspace"}
         # An explicitly configured UUID still wins — it is the operator stating a
         # fact about their deployment. Otherwise take the one the backend bound
         # to the credential, which is available for OAuth callers today.
@@ -281,27 +291,48 @@ class AnalyticsClient:
             return Attributed(identity.user_name, "comet_user")
         return Attributed(get_install_id(), "install_id")
 
-    def _resolve_workspace(
-        self, identity: ResolvedIdentity | None
-    ) -> Attributed[WorkspaceKind] | None:
+    def _resolve_workspace(self, identity: ResolvedIdentity | None) -> Attributed[WorkspaceKind]:
         """The workspace to report, and where it came from.
 
-        A workspace the operator deliberately configured wins: they may well be
-        working outside their account default, and reporting the default instead
-        would be wrong. The backend-resolved name wins over an *absent* setting
-        and over the literal placeholder — which our own docs invited operators
-        to set, and which collides with a real customer workspace of the same
-        name in the warehouse.
+        Precedence, highest first:
+
+        - ``template`` — a configured value that was never filled in. Wins
+          outright, and keeps its raw value: that value is the only thing that
+          says which snippet failed the user. Deliberately not papered over by a
+          resolved name, since user attribution never depended on the workspace.
+        - ``configured`` — a workspace someone deliberately named: the inbound
+          ``Comet-Workspace`` header for this call if present, else the process
+          setting. They may be working outside their account default, so
+          reporting the resolved one instead would be wrong.
+        - ``resolved`` — from the backend. Beats an *absent* setting and the
+          literal ``default`` placeholder, which our own docs once invited
+          operators to set and which collides with a same-named row in the
+          warehouse.
+        - ``placeholder`` — the literal ``default``, nothing resolved.
+        - ``unknown`` — nothing configured, nothing resolved. Returns an EMPTY
+          value; the caller omits ``workspace`` entirely for this kind.
         """
-        configured = self._settings.comet_workspace
+        # An inbound header is the caller naming the workspace for THIS call,
+        # which outranks anything this process was started with — it is what
+        # opik_client actually routes on (`resolve_opik_config`). Without it a
+        # hosted call would claim "unknown" while `request_workspace` in the
+        # same payload carries the name.
+        inbound = inbound_workspace.get()
+        configured = (inbound.strip() if inbound else None) or self._settings.comet_workspace
         resolved = identity.workspace_name if identity else None
+        if configured and looks_unsubstituted(configured):
+            # Reported, not hidden: the raw value is the only thing that tells
+            # us which config snippet the user pasted without filling in.
+            return Attributed(configured, "template")
         if configured and configured != DEFAULT_WORKSPACE:
             return Attributed(configured, "configured")
         if resolved:
             return Attributed(resolved, "resolved")
         if configured:
             return Attributed(configured, "placeholder")
-        return None
+        # Nothing configured and nothing resolved. Empty value by contract: the
+        # caller omits `workspace` entirely for this kind.
+        return Attributed("", "unknown")
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).

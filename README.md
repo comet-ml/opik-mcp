@@ -39,13 +39,29 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 You'll need two things from your Opik workspace:
 
 - **`OPIK_API_KEY`** — get it from [`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/).
-- **`OPIK_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `OPIK_WORKSPACE=acme-ai`. Optional: leave it unset and cloud installs resolve your account's workspace automatically. Do **not** set it to the literal `default` — that is a placeholder for local/OSS installs, and it is also a real cloud workspace belonging to someone else, so setting it on a cloud install misattributes your usage. `COMET_WORKSPACE` is accepted as a deprecated alias.
+- **`OPIK_WORKSPACE`** — your workspace name (lowercase, as it appears in the URL). E.g. `https://www.comet.com/acme-ai/...` → `OPIK_WORKSPACE=acme-ai`. `COMET_WORKSPACE` is accepted as a deprecated alias.
 
-> **`OPIK_WORKSPACE` is optional.** Omit the `OPIK_WORKSPACE` line/key in any
-> snippet below. On a cloud install the server resolves your account's workspace
-> for you; on a local/OSS install it falls back to the `default` placeholder.
-> Set it explicitly only when you work in a named workspace that is not your
-> account default.
+> **Cloud, with an API key: set it unless your account default is the one you
+> want.** Left out, the server sends `default`, which Comet resolves to your
+> account's default workspace. That works, but if you actually work in a named
+> workspace you will be pointed at a different one with nothing to tell you —
+> your reads come back from the wrong place rather than failing.
+>
+> **Cloud, over OAuth: leave it unset.** The workspace comes from the token you
+> authorized, and the server ignores this setting entirely.
+>
+> **Local / open source: leave it unset.** Open source Opik has a single
+> workspace named `default` and no way to create others, which is exactly what
+> the fallback gives you.
+>
+> **Self-hosted Comet: set it.** Unlike open source, these deployments have real
+> named workspaces, and the same silent-wrong-workspace risk applies.
+>
+> Whichever applies, make sure the value is actually substituted. Snippets in
+> the wild ship placeholders like `<your-workspace>` or `${input:OPIK_WORKSPACE}`;
+> pasted as-is, those are not workspace names. The server now refuses them
+> outright rather than letting the backend answer with an auth error that
+> explains nothing.
 
 ### Claude Code
 
@@ -152,6 +168,7 @@ the same `env` block in your host config:
       "args": ["opik-mcp"],
       "env": {
         "OPIK_API_KEY": "<your-key>",
+        "OPIK_WORKSPACE": "<your-workspace>",
         "COMET_URL_OVERRIDE": "https://opik.your-company.com",
         "OPIK_MCP_ANALYTICS_SOURCE": ""
       }
@@ -159,6 +176,9 @@ the same `env` block in your host config:
   }
 }
 ```
+
+Omit `OPIK_WORKSPACE` on an open-source deployment, where `default` is the only
+workspace; keep it on a self-hosted Comet, which has real named ones.
 
 `ask_ollie` and `run_experiment` are available on Comet Cloud only — on
 self-hosted those calls will fail at dispatch, so use `read` / `list` / `write`
@@ -303,7 +323,7 @@ Every setting is an environment variable. Required ones in **bold**.
 | Variable | Default | Notes |
 |---|---|---|
 | **`OPIK_API_KEY`** | — | Required for `ask_ollie` and any authenticated read/write. |
-| `OPIK_WORKSPACE` | _unset_ | Workspace name. Optional — cloud installs resolve the account workspace; local/OSS installs fall back to the `default` placeholder. Set it only for a named workspace that is not your account default, and never to the literal `default` on cloud. |
+| `OPIK_WORKSPACE` | _unset_ | Workspace name. On cloud with an API key, unset sends `default`, which resolves to your account's **default** workspace — set it explicitly if you work in a different one, or reads come from the wrong workspace silently. Leave unset over OAuth (the token carries it) and on local/OSS (`default` is the only workspace there). |
 | `COMET_WORKSPACE` | — | Deprecated alias for `OPIK_WORKSPACE` (backward compat). `OPIK_WORKSPACE` wins if both are set. |
 | `COMET_WORKSPACE_ID` | _unset_ | Optional workspace UUID. Stamped into analytics events when set, and takes precedence over the resolved one. Rarely needed — OAuth installs get the UUID from the token automatically. |
 | `COMET_URL_OVERRIDE` | `https://www.comet.com` | Set to your self-hosted Comet host, or `https://dev.comet.com` for staging. |

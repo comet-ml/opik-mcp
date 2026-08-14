@@ -1,3 +1,4 @@
+import re
 from functools import lru_cache
 from typing import Any, ClassVar, Literal
 from urllib.parse import urlparse
@@ -9,9 +10,62 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from opik_mcp.error_kinds import ErrorKind
 
 # Workspace name used when none is configured — mirrors the Opik Python SDK
-# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Lets local/OSS users run without
-# setting a workspace at all; cloud users with named workspaces still set one.
+# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Correct for local/OSS, which has
+# exactly one workspace by this name.
+#
+# On cloud it is NOT rejected, despite `default` being refused on the session /
+# OAuth consent paths (`RemoteAuthService.isDefaultWorkspace`). The API-key path
+# goes to react-service, which reads it as "this account's default workspace" —
+# verified live: `Comet-Workspace: default` and the account's own default name
+# return the identical project set. So the fallback works, but it silently picks
+# a workspace rather than the named one a user may have meant.
 DEFAULT_WORKSPACE = "default"
+
+# Config-snippet placeholders users paste without filling in. `${…}` is the
+# VS Code / shell form (`${input:OPIK_WORKSPACE}`), `<…>` is the one our own
+# README uses (`<your-workspace>`), plus the mustache and Windows forms.
+#
+# This is not cosmetic. The workspace name is sent verbatim as `Comet-Workspace`
+# on every data call, so an unfilled placeholder cannot resolve to a workspace
+# the caller can reach. Analytics found ~41 such installs within a day of the
+# identity change shipping, all of them failing against opaque upstream errors.
+_TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
+
+# Bare, unbraced shell forms: `$OPIK_WORKSPACE` and the Kubernetes `$(VAR)`.
+# UPPERCASE is required and is the whole point of the pattern. Workspace names
+# are unconstrained — opik-backend enforces no charset, length or reserved list
+# beyond `default`, and `$` is a legal URI sub-delim, so `$acme` is a name
+# somebody can be using today. Matching every `$`-prefixed value would turn that
+# working install into a hard failure on every tool call. An env-var-shaped name
+# is the narrow case worth catching; anything else is left alone.
+_BARE_SHELL_VAR = re.compile(r"^\$(?:[A-Z_][A-Z0-9_]*|\([A-Z_][A-Z0-9_]*\))$")
+
+
+def looks_unsubstituted(value: str) -> bool:
+    """True for an obviously unfilled config placeholder.
+
+    Two rules. A value that both opens and closes with a wrapper pair
+    (``${…}``, ``<…>``, ``{{…}}``, ``%…%``), and an env-var-shaped bare shell
+    reference (``$OPIK_WORKSPACE``, ``$(OPIK_WORKSPACE)``), which has no closing
+    marker to match on.
+
+    Deliberately narrow: a false positive breaks an install that works today,
+    which is far worse than missing an exotic shape. Workspace names carry no
+    charset restriction anywhere in the product, so both rules are written to
+    leave anything plausibly real alone — see ``_BARE_SHELL_VAR``.
+    """
+    candidate = value.strip()
+    if _BARE_SHELL_VAR.match(candidate):
+        # `$OPIK_WORKSPACE` / `$(OPIK_WORKSPACE)` — never expanded. The braced
+        # `${…}` form is covered by the wrapper rule below.
+        return True
+    return any(
+        len(candidate) > len(open_) + len(close)
+        and candidate.startswith(open_)
+        and candidate.endswith(close)
+        for open_, close in _TEMPLATE_WRAPPERS
+    )
+
 
 # Cloud-Comet hostnames. Strict equality (matching the opik SDK) — ``staging.
 # comet.com`` / ``enterprise.example.com`` count as self-hosted so dashboards
@@ -223,13 +277,44 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
+    """The one message for an unfilled workspace, wherever it is noticed.
+
+    Both entry points to Opik reach the backend with a ``Comet-Workspace``
+    header: ``opik_client.resolve_opik_config`` for the data tools and
+    ``require_ollie_config`` for ``ask_ollie``. They share this so the wording
+    does not depend on which tool the user happened to call.
+
+    They do NOT check the same inputs. ``resolve_opik_config`` also sees the
+    inbound header, because it forwards it; ``ask_ollie`` is settings-driven by
+    design (pod discovery is per-install, not per-request), so a hosted caller
+    sending a placeholder header is caught on the data tools only.
+    """
+    return MissingConfigError(
+        f"{source} is {value!r}, which looks like a config placeholder that was "
+        "never filled in. Set it to your workspace name — the segment in your "
+        "Opik URL, e.g. https://www.comet.com/acme-ai/... -> acme-ai."
+    )
+
+
+# Named for the error message. Pydantic resolves the alias for us and does not
+# report which spelling matched, so name both rather than guess wrong.
+WORKSPACE_ENV_VARS = "OPIK_WORKSPACE (or COMET_WORKSPACE)"
+
+
 def require_ollie_config(settings: Settings) -> tuple[str, str]:
     if not settings.opik_api_key:
         raise MissingConfigError("OPIK_API_KEY is required to use ask_ollie")
-    # Workspace is optional — fall back to "default" (Opik SDK convention).
-    # Cloud pod discovery for a non-"default" account will surface its own
-    # clear error downstream, which beats a hard config failure here.
-    return settings.opik_api_key, settings.comet_workspace or DEFAULT_WORKSPACE
+    # Workspace is optional — fall back to "default" (Opik SDK convention),
+    # which on cloud resolves to the account's default workspace. Anything that
+    # goes wrong past that point surfaces its own error from pod discovery,
+    # which beats a hard config failure here.
+    workspace = settings.comet_workspace or DEFAULT_WORKSPACE
+    if looks_unsubstituted(workspace):
+        # ask_ollie does not go through resolve_opik_config, so without this it
+        # keeps hitting the opaque upstream error that guard exists to replace.
+        raise unfilled_workspace_error(workspace, WORKSPACE_ENV_VARS)
+    return settings.opik_api_key, workspace
 
 
 def installation_type(settings: Settings) -> str:
