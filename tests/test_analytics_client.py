@@ -178,8 +178,9 @@ def test_track_event_falls_back_to_install_id_without_workspace() -> None:
     assert body["event_properties"]["user_id_kind"] == "install_id"
     # No workspace was set, so `workspace` must NOT appear in event_properties.
     assert "workspace" not in body["event_properties"]
-    # ...and neither must its discriminator, rather than an empty string.
-    assert "workspace_kind" not in body["event_properties"]
+    # Its discriminator IS still stamped, saying we have nothing to report.
+    # Omitting it made workspace_kind totals under-count silently.
+    assert body["event_properties"]["workspace_kind"] == "unknown"
     # No api_key was set, so `api_key_sha256` must NOT appear either.
     assert "api_key_sha256" not in body["event_properties"]
 
@@ -737,3 +738,170 @@ def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
     body = json.loads(route.calls.last.request.content)
     assert body["user_id"] == get_install_id()
     assert body["event_properties"]["user_id_kind"] == "install_id"
+
+
+# --- workspace_kind is stamped whenever user_id_kind is ------------------ #
+
+
+@respx.mock
+def test_workspace_kind_is_present_even_when_no_workspace_is_known() -> None:
+    """The two discriminators are a pair, and BI totals them together.
+
+    Leaving workspace_kind off when there is no workspace made its counts
+    silently under-total: 2.4% of new-field rows in the first day carried
+    user_id_kind with no workspace_kind at all.
+    """
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["user_id_kind"] == "install_id"
+    assert props["workspace_kind"] == "unknown"
+    # Still no workspace VALUE — unknown means unknown, not empty string.
+    assert "workspace" not in props
+
+
+# --- unsubstituted config templates are not a workspace ------------------ #
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "${input:OPIK_WORKSPACE}",
+        "${OPIK_WORKSPACE}",
+        "$OPIK_WORKSPACE",
+        "<your-workspace>",
+        "<workspace-name>",
+        "{{workspace}}",
+        "%OPIK_WORKSPACE%",
+        "  <your-workspace>  ",
+    ],
+    ids=[
+        "vscode-input",
+        "shell-braced",
+        "shell-bare",
+        "readme-angle",
+        "angle-generic",
+        "mustache",
+        "windows-percent",
+        "padded",
+    ],
+)
+@respx.mock
+def test_an_unfilled_config_snippet_is_reported_as_a_template(template: str) -> None:
+    """Users paste our config snippets without substituting them.
+
+    We label rather than hide. The raw value is the only thing that says WHICH
+    snippet failed them — `${input:…}` is VS Code, `<your-workspace>` is our own
+    README — and the kind keeps these rows out of workspace joins.
+    """
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=template))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == template
+    assert props["workspace_kind"] == "template"
+
+
+@respx.mock
+def test_a_template_is_not_silently_replaced_by_a_resolved_workspace() -> None:
+    """A broken config stays visible even when we could paper over it.
+
+    User attribution is unaffected either way — `user_id` resolves from the
+    credential, not the workspace — so hiding the template would cost the
+    signal and buy nothing.
+    """
+    from opik_mcp.auth_context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_name="real-workspace")
+    client = AnalyticsClient(_settings(comet_workspace="${input:OPIK_WORKSPACE}"))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    props = body["event_properties"]
+    assert props["workspace_kind"] == "template"
+    # The caller is still identified — that never depended on the workspace.
+    assert body["user_id"] == "awkoy"
+    assert props["user_id_kind"] == "comet_user"
+
+
+@respx.mock
+def test_an_ordinary_workspace_name_is_not_mistaken_for_a_template() -> None:
+    """Guard the detector against false positives on real names."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace="portpro-devlopment"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "portpro-devlopment"
+    assert props["workspace_kind"] == "configured"
+
+
+@pytest.mark.parametrize(
+    "settings_kwargs",
+    [
+        {"comet_workspace": None},
+        {"comet_workspace": "default"},
+        {"comet_workspace": "acme-ai"},
+        {"comet_workspace": "<your-workspace>"},
+        {"comet_workspace": None, "opik_api_key": "sk-key"},
+    ],
+    ids=["nothing", "placeholder", "configured", "template", "with-api-key"],
+)
+@respx.mock
+def test_the_two_discriminators_are_always_stamped_together(
+    settings_kwargs: dict[str, Any],
+) -> None:
+    """BI totals workspace_kind against user_id_kind. If either can appear
+    without the other, those totals disagree and nothing says why."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(**settings_kwargs))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert "user_id_kind" in props
+    assert "workspace_kind" in props
+    # Only "unknown" is allowed to carry no name.
+    assert ("workspace" in props) == (props["workspace_kind"] != "unknown")
+
+
+@respx.mock
+def test_a_caller_supplied_workspace_cannot_contradict_unknown() -> None:
+    """`properties` merges under `common`, so a call site passing a workspace
+    would otherwise survive next to workspace_kind='unknown'."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    try:
+        client.track_event("opik_mcp_test", {"workspace": "smuggled-in"})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace_kind"] == "unknown"
+    assert "workspace" not in props

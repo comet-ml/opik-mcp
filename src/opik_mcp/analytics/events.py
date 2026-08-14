@@ -177,7 +177,16 @@ UserIdKind = Literal["comet_user", "install_id"]
 # classifier is ``client._resolve_workspace``. CRITICAL for BI: "placeholder" is
 # the literal "default" on an install that resolved nothing, and it collides with
 # a real cloud workspace of that name — those rows must never be name-joined.
-WorkspaceKind = Literal["resolved", "configured", "placeholder"]
+#
+# "unknown" carries no ``workspace`` value at all: nothing was configured and
+# nothing resolved. It exists so this field is stamped on every event that
+# carries ``user_id_kind``, which is what lets BI total workspace_kind without
+# an unstamped remainder silently going missing.
+# "template" is an operator-configured value that was never filled in — a config
+# snippet pasted verbatim. It is reported rather than hidden: the value itself
+# says which snippet failed the user (`${input:…}` is VS Code, `<your-workspace>`
+# is our README), and the kind keeps it out of workspace joins.
+WorkspaceKind = Literal["resolved", "configured", "placeholder", "template", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)

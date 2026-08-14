@@ -35,6 +35,38 @@ from opik_mcp.credential_identity import ResolvedIdentity, credential_digest
 
 logger = logging.getLogger("opik_mcp.analytics")
 
+# Config-snippet placeholders users paste without substituting. `${…}` is the
+# VS Code / shell form (`${input:OPIK_WORKSPACE}`), `<…>` is the one our own
+# README uses (`<your-workspace>`), plus the mustache and Windows forms. All
+# showed up in production within a day of the identity change shipping,
+# classified as deliberate operator choices.
+#
+# We label these rather than validate them. Nothing else in the product checks
+# the workspace string — the SDK defaults it and lets the backend judge — so
+# opik-mcp is not the place to start failing installs. Reporting the value with
+# an honest label is what tells us which snippet is failing users.
+_TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
+
+
+def _looks_unsubstituted(value: str) -> bool:
+    """True for an obviously unfilled config placeholder.
+
+    Deliberately narrow: the whole value must both open and close with a wrapper
+    pair, so a real workspace name containing a stray bracket is not caught.
+    Mislabelling a legitimate workspace would quietly drop it out of joins.
+    """
+    candidate = value.strip()
+    if candidate.startswith("$") and not candidate.startswith("${"):
+        # Bare `$OPIK_WORKSPACE` — a shell variable that never expanded.
+        return True
+    return any(
+        len(candidate) > len(open_) + len(close)
+        and candidate.startswith(open_)
+        and candidate.endswith(close)
+        for open_, close in _TEMPLATE_WRAPPERS
+    )
+
+
 _QUEUE_SENTINEL: Any = object()
 
 
@@ -218,13 +250,18 @@ class AnalyticsClient:
         }
         identity = caller_identity(self._settings)
         workspace = self._resolve_workspace(identity)
-        if workspace is not None:
+        # Where the name came from: resolved from the backend, chosen by the
+        # operator, an unfilled config snippet, the self-hosted placeholder, or
+        # nothing at all. BI needs this to keep placeholders out of workspace
+        # joins. ALWAYS stamped, so it totals against user_id_kind with no
+        # silent remainder.
+        common["workspace_kind"] = workspace.kind
+        if workspace.value:
             common["workspace"] = workspace.value
-            # Which of the three the name is: resolved from the backend, chosen
-            # by the operator, or the self-hosted placeholder. BI needs this to
-            # avoid joining a placeholder onto the real customer workspace that
-            # shares its name.
-            common["workspace_kind"] = workspace.kind
+        else:
+            # "unknown" carries no name. Drop a caller-supplied one too, so the
+            # pair can never contradict each other.
+            properties = {k: v for k, v in properties.items() if k != "workspace"}
         # An explicitly configured UUID still wins — it is the operator stating a
         # fact about their deployment. Otherwise take the one the backend bound
         # to the credential, which is available for OAuth callers today.
@@ -281,9 +318,7 @@ class AnalyticsClient:
             return Attributed(identity.user_name, "comet_user")
         return Attributed(get_install_id(), "install_id")
 
-    def _resolve_workspace(
-        self, identity: ResolvedIdentity | None
-    ) -> Attributed[WorkspaceKind] | None:
+    def _resolve_workspace(self, identity: ResolvedIdentity | None) -> Attributed[WorkspaceKind]:
         """The workspace to report, and where it came from.
 
         A workspace the operator deliberately configured wins: they may well be
@@ -295,13 +330,19 @@ class AnalyticsClient:
         """
         configured = self._settings.comet_workspace
         resolved = identity.workspace_name if identity else None
+        if configured and _looks_unsubstituted(configured):
+            # Reported, not hidden: the raw value is the only thing that tells
+            # us which config snippet the user pasted without filling in.
+            return Attributed(configured, "template")
         if configured and configured != DEFAULT_WORKSPACE:
             return Attributed(configured, "configured")
         if resolved:
             return Attributed(resolved, "resolved")
         if configured:
             return Attributed(configured, "placeholder")
-        return None
+        # Nothing configured and nothing resolved. Empty value by contract: the
+        # caller omits `workspace` entirely for this kind.
+        return Attributed("", "unknown")
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
