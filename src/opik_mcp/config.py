@@ -10,10 +10,14 @@ from opik_mcp.error_kinds import ErrorKind
 
 # Workspace name used when none is configured — mirrors the Opik Python SDK
 # (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Correct for local/OSS, which has
-# exactly one workspace by this name. NOT a working fallback on cloud, where the
-# backend treats "default" as a reserved name and refuses it: cloud users have to
-# set a real workspace. The SDK papers over this by having `opik configure` write
-# the resolved name to ~/.opik.config; opik-mcp reads env vars only.
+# exactly one workspace by this name.
+#
+# On cloud it is NOT rejected, despite `default` being refused on the session /
+# OAuth consent paths (`RemoteAuthService.isDefaultWorkspace`). The API-key path
+# goes to react-service, which reads it as "this account's default workspace" —
+# verified live: `Comet-Workspace: default` and the account's own default name
+# return the identical project set. So the fallback works, but it silently picks
+# a workspace rather than the named one a user may have meant.
 DEFAULT_WORKSPACE = "default"
 
 # Config-snippet placeholders users paste without filling in. `${…}` is the
