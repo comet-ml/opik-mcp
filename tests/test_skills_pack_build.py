@@ -14,6 +14,7 @@ the builder.
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -285,6 +286,54 @@ def test_every_emitted_skill_is_validated_not_only_the_source(src: Path, out: Pa
 
     for skill in ("opik", "evaluate"):
         assert validate(out / "skills" / skill) == []
+
+
+def test_cross_skill_references_are_allowed_when_they_resolve(src: Path, out: Path) -> None:
+    """`/instrument` reads `../opik/references/*.md`; siblings in the pack make that work.
+
+    Verified against the real installer too: with `-g --all`, the command the product
+    shows, the skills land as siblings and these paths resolve.
+    """
+    (src / "opik" / "references" / "integrations.md").write_text("# Integrations\n")
+    _write_skill(src, "instrument")
+    (src / "instrument" / "SKILL.md").write_text(
+        SKILL_MD.format(name="instrument", description="Adds tracing. Use to instrument.")
+        + "\nRead `../opik/references/integrations.md` for the full list.\n",
+        encoding="utf-8",
+    )
+    build_pack(src, out)
+    assert (out / "skills" / "instrument" / "SKILL.md").is_file()
+
+
+def test_a_dangling_reference_fails_the_build(src: Path, out: Path) -> None:
+    """A typo used to fail silently: the agent finds nothing, falls back to its own
+    memory, and still reports success. Failing the build is cheaper."""
+    (src / "opik" / "SKILL.md").write_text(
+        SKILL_MD.format(name="opik", description="Reference. Use for SDK questions.")
+        + "\nSee `references/tracing-pythn.md` for details.\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(PackBuildError, match=re.escape("tracing-pythn.md")):
+        build_pack(src, out)
+
+
+def test_a_reference_escaping_the_pack_fails_the_build(src: Path, out: Path) -> None:
+    (src / "opik" / "SKILL.md").write_text(
+        SKILL_MD.format(name="opik", description="Reference. Use for SDK questions.")
+        + "\nSee [notes](../../../secrets.md).\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(PackBuildError, match="escapes the pack"):
+        build_pack(src, out)
+
+
+def test_urls_and_anchors_are_not_treated_as_paths(src: Path, out: Path) -> None:
+    (src / "opik" / "SKILL.md").write_text(
+        SKILL_MD.format(name="opik", description="Reference. Use for SDK questions.")
+        + "\nSee [docs](https://www.comet.com/docs/opik/x.md) and [above](#core-concepts).\n",
+        encoding="utf-8",
+    )
+    build_pack(src, out)  # must not raise
 
 
 def test_identical_input_produces_identical_output(src: Path, tmp_path: Path) -> None:

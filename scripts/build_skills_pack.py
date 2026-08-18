@@ -38,6 +38,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -60,6 +61,12 @@ UNKNOWN_COMMIT = "unknown"
 #: (OPIK-7800) that no agent reads; the product installs this pack globally with
 #: `--all`, so shipping them would push megabytes onto every user's machine.
 EXCLUDED_DIRS = frozenset({"evals", "__pycache__"})
+
+#: Relative paths to Markdown a SKILL.md tells the agent to read, in the two forms
+#: the skills use: a Markdown link, and a bare backticked path in prose. Both are
+#: instructions to open a file, so both have to resolve.
+_MARKDOWN_LINK = re.compile(r"\]\(\s*(?!<)([^)\s]+\.md)\s*\)")
+_BACKTICKED_PATH = re.compile(r"`([^`\s]+\.md)`")
 
 
 class PackBuildError(RuntimeError):
@@ -146,6 +153,40 @@ def _copy_skill(skill_dir: Path, target: Path) -> tuple[PackedFile, ...]:
     return tuple(entries)
 
 
+def _referenced_markdown(text: str) -> set[str]:
+    """Relative Markdown paths a SKILL.md instructs the agent to read."""
+    found = set(_MARKDOWN_LINK.findall(text)) | set(_BACKTICKED_PATH.findall(text))
+    return {
+        path
+        for path in found
+        # Absolute paths, URLs and anchors are not ours to resolve.
+        if "://" not in path and not path.startswith(("/", "#"))
+    }
+
+
+def _check_references_resolve(skills_root: Path) -> None:
+    """Every path a packed SKILL.md points at must exist inside the pack.
+
+    Skills reference each other — `/instrument` reads `../opik/references/*.md` —
+    so resolution is checked against the whole pack, not one skill directory.
+    That also means a typo in such a path used to fail *silently*: the agent
+    would find nothing, fall back to its own memory, and still report success.
+    Cheaper to fail the build.
+    """
+    dangling: list[str] = []
+    for skill_md in sorted(skills_root.glob("*/SKILL.md")):
+        skill_dir = skill_md.parent
+        for reference in sorted(_referenced_markdown(skill_md.read_text(encoding="utf-8"))):
+            target = (skill_dir / reference).resolve()
+            inside_pack = target.is_relative_to(skills_root.resolve())
+            if not inside_pack or not target.is_file():
+                reason = "escapes the pack" if not inside_pack else "does not exist"
+                dangling.append(f"{skill_dir.name}/SKILL.md -> {reference} ({reason})")
+
+    if dangling:
+        raise PackBuildError("unresolvable references in the pack: " + "; ".join(dangling))
+
+
 def _render_skills_table(skills: list[PackedSkill]) -> str:
     rows = [
         f"| [`{s.name}`](./skills/{s.name}/SKILL.md) | {s.description.strip()} |" for s in skills
@@ -227,6 +268,10 @@ def build_pack(
                 files=files,
             )
         )
+
+    # After every skill is in place: cross-skill references can only be checked
+    # once the whole pack exists.
+    _check_references_resolve(out_root / "skills")
 
     readme = _render_readme(skills)
     (out_root / "README.md").write_text(readme, encoding="utf-8")
