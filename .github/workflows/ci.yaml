@@ -119,6 +119,108 @@ jobs:
       - name: Run lint + typecheck + tests
         run: make check
 
+  # The published `opik-skills` pack (OPIK-7621). Built on every PR so a change to
+  # the authored skills is verified before it can reach users; published only from
+  # main. `python-checks` already covers spec compliance and the builder's own
+  # tests — what this adds is the end-to-end question those cannot answer: does the
+  # real installer, run the way the product's onboarding runs it, resolve exactly
+  # the skills we authored.
+  skills-pack:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 'latest'
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Build the pack and install it with the real installer
+        env:
+          PYVER: ${{ needs.version.outputs.pyver }}
+          SHA: ${{ github.sha }}
+        run: make skills-verify VERSION="$PYVER" SOURCE_COMMIT="$SHA"
+      - name: Check this repository itself resolves only the authored skills
+        run: make skills-verify-source
+      - name: Package the pack for publication
+        run: |
+          set -euo pipefail
+          # Reproducible archive: sorted entries and a fixed timestamp, so an
+          # unchanged pack produces an unchanged tarball.
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+              -czf opik-skills-pack.tar.gz -C dist/opik-skills .
+          cp dist/opik-skills/index.json index.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skills-pack
+          path: |
+            opik-skills-pack.tar.gz
+            index.json
+          retention-days: 7
+
+  # Publishes the pack the `skills-pack` job verified — the same bytes, downloaded
+  # rather than rebuilt, so what ships is what passed. `comet-ml/opik-skills` pulls
+  # from here on a schedule; this repo holds no credentials for it.
+  publish-skills-pack:
+    # `python-checks` is a dependency on purpose: it runs the spec-compliance suite
+    # and the builder's own tests. Without it a red test suite would still publish.
+    needs: [version, python-checks, skills-pack]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # maintain the rolling pre-release
+    env:
+      # Fixed tag: consumers fetch a stable URL. A moving tag would make every
+      # consumer track a name that changes, which is the problem this avoids.
+      PACK_TAG: skills-pack
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v4
+        with:
+          name: skills-pack
+      - name: Publish the rolling pack pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.pyver }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Written via a here-document, not a multi-line shell string: YAML
+          # indentation inside quotes would ship as leading spaces and render
+          # every line after the first as an indented code block.
+          cat > notes.md <<EOF
+          Rolling build of the \`opik-skills\` pack, generated from \`src/opik_mcp/skills\`.
+
+          Source commit: \`${SHA}\`
+          Pack version: \`${VERSION}\`
+
+          Consumed by [comet-ml/opik-skills](https://github.com/comet-ml/opik-skills).
+          Do not edit that repository by hand — it is regenerated from this artifact.
+          EOF
+
+          if gh release view "$PACK_TAG" >/dev/null 2>&1; then
+            gh release edit "$PACK_TAG" --notes-file notes.md --prerelease
+          else
+            gh release create "$PACK_TAG" \
+              --title "Skills pack (rolling)" \
+              --notes-file notes.md \
+              --prerelease
+          fi
+
+          gh release upload "$PACK_TAG" opik-skills-pack.tar.gz index.json --clobber
+
+          DIGEST=$(python3 -c "import json;print(json.load(open('index.json'))['content_digest'])")
+          {
+            echo "### Skills pack published"
+            echo ""
+            echo "- Tag: \`$PACK_TAG\` (pre-release, rolling)"
+            echo "- Content digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   helm-lint:
     runs-on: ubuntu-latest
     steps:

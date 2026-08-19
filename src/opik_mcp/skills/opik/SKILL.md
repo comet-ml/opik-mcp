@@ -1,8 +1,9 @@
 ---
 name: opik
 description: Reference for the Opik SDK — tracing, span types, framework integrations, threads, and the prompt library (Python, TypeScript, REST). Use for "what span types exist", "how do I flush", "track_openai", "add OpikTracer", "version a prompt". To instrument a repo end to end, use the `instrument` skill.
-last_updated: "2026-07-27"
-source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
+metadata:
+  last_updated: "2026-07-27"
+  source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
 ---
 
 # Opik SDK Reference

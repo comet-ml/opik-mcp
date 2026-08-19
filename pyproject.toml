@@ -28,6 +28,11 @@ dev = [
     "pytest>=8",
     "respx>=0.21",
     "ruff>=0.7",
+    # Reference implementation of the agentskills.io spec. Used to validate the
+    # authored skills and to read their frontmatter when building the published
+    # pack, so our reading of a skill is identical to an agent's. Pinned to the
+    # 0.1.x line: a behaviour change there changes what CI accepts and what ships.
+    "skills-ref>=0.1.1,<0.2",
 ]
 
 [project.scripts]
@@ -67,8 +72,16 @@ python_version = "3.13"
 strict = true
 warn_unreachable = true
 warn_redundant_casts = true
-files = ["src", "tests"]
+# `scripts/` is otherwise unchecked, but the pack builder produces a public
+# artifact, so it is held to the same bar as the package.
+files = ["src", "tests", "scripts/build_skills_pack.py"]
 
 [[tool.mypy.overrides]]
 module = ["mcp.shared.memory"]
+ignore_missing_imports = true
+
+# The agentskills.io reference library ships no py.typed marker. It is a
+# dev-only dependency used to validate skills and read their frontmatter.
+[[tool.mypy.overrides]]
+module = ["skills_ref", "skills_ref.*"]
 ignore_missing_imports = true
