@@ -1,9 +1,6 @@
 ---
 name: instrument
 description: Add Opik tracing to an existing app and verify a real trace lands. Installs the Opik package, detects the language and LLM framework, adds the minimum tracing, runs a safe representative path, confirms a trace in Opik, and returns the trace link. Use for "instrument my code", "add opik tracing", "add observability", "trace my agent". Not for building a new app from scratch, or a review-only pass with no code changes.
-last_updated: "2026-08-05"
-source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
-argument-hint: "[optional: file or directory path]"
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project. Install the `opik` skill alongside this one — it holds the shared SDK and integration references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -12,6 +9,10 @@ allowed-tools:
   - Grep
   - Glob
   - Bash
+metadata:
+  last_updated: "2026-08-05"
+  source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
+  argument-hint: "[optional: file or directory path]"
 ---
 
 # Instrument — Add Opik Tracing and Verify a Real Trace
