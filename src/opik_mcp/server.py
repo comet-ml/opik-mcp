@@ -38,7 +38,7 @@ from opik_mcp.auth_context import (
     settings_auth_mode,
 )
 from opik_mcp.config import MissingConfigError, Settings, get_settings
-from opik_mcp.credential_identity import remember_identity
+from opik_mcp.credential_identity import remember_identity, remember_session
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import resolve_oauth_identity
 from opik_mcp.opik_client import make_opik_client, resolve_opik_config
@@ -705,6 +705,14 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # across OAuth token refreshes, so an 8-hour session counts once instead of
         # once per hourly token mint.
         session_id_token = inbound_mcp_session_id.set(mcp_session_id)
+        # The ContextVar above is NOT sufficient on its own, and the reason is
+        # subtle enough to be worth stating: events are built in the MCP session
+        # task, which is forked from the `initialize` request and whose context is
+        # therefore frozen BEFORE any session id exists. Requests that do carry
+        # `Mcp-Session-Id` build no events of their own, so the var is read as
+        # `None` for the life of the session. `remember_session` below closes
+        # that gap by keying the id to the credential instead; the ContextVar
+        # still serves events emitted inside a request, such as `auth_rejected`.
         if mcp_session_id is None and auth_mode == "oauth":
             identity = await resolve_oauth_identity(auth, get_settings())
             if identity is not None:
@@ -715,7 +723,15 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
                 if identity.workspace_name:
                     resolved_token = resolved_workspace_name.set(identity.workspace_name)
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            if mcp_session_id is None:
+                # The session-minting request: the id exists only on the way
+                # out. Pair it with the credential now, because this is the one
+                # moment both are in scope together.
+                minted = response.headers.get("mcp-session-id")
+                if minted:
+                    remember_session(auth, minted)
+            return response
         finally:
             inbound_authorization.reset(auth_token)
             inbound_workspace.reset(workspace_token)

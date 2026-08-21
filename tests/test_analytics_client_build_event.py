@@ -28,6 +28,7 @@ from opik_mcp.auth_context import (
     inbound_workspace,
 )
 from opik_mcp.config import Settings
+from opik_mcp.credential_identity import credential_digest, remember_session
 
 # Canaries: unique, greppable values that must never appear raw in an event.
 RAW_OAUTH_TOKEN = f"{OAUTH_ACCESS_TOKEN_PREFIX}BEARER-CANARY-TOKEN-UNIQUE-7a3b2c1d"
@@ -357,3 +358,76 @@ def test_env_id_is_stamped_and_hashed(make_client: Any) -> None:
         assert len(props["env_id_sha256"]) == 64
     else:
         assert "env_id_sha256" not in props
+
+
+# --- the session digest must survive the FROZEN session-task context ------- #
+#
+# Every test above sets `mcp_session_id` explicitly, which is why they all passed
+# while the field never once appeared in production. Tool events are not built in
+# a request context: they are built in the MCP session task, forked from
+# `initialize` before any session id exists. So the ContextVar reads None there
+# forever, and the requests that do carry `Mcp-Session-Id` build no events. The
+# tests below pin the path that actually runs in hosted mode.
+
+HANDSHAKE_AUTH = f"Bearer {RAW_OAUTH_TOKEN}"
+
+
+def test_mcp_session_digest_lands_when_the_context_var_is_empty(make_client: Any) -> None:
+    """THE REGRESSION TEST. This is the exact shape of the hosted bug.
+
+    No ContextVar — as in the session task — but the handshake paired the session
+    id to the credential, so the digest must still be stamped. Before the
+    credential-keyed pairing this asserted nothing and the field was inert.
+    """
+    client = make_client()
+    remember_session(HANDSHAKE_AUTH, RAW_MCP_SESSION_ID)
+
+    with _inbound(auth=HANDSHAKE_AUTH, mcp_session_id=None):
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+
+    props = event["event_properties"]
+    assert props["mcp_session_sha256"] == credential_digest(RAW_MCP_SESSION_ID)
+    # PRIVACY holds on this path too: the pairing stores a digest, not the id.
+    assert RAW_MCP_SESSION_ID not in json.dumps(event)
+
+
+def test_mcp_session_digest_is_keyed_to_the_handshake_credential(make_client: Any) -> None:
+    """The pairing is keyed to the credential the session task actually holds.
+
+    A session task's context is frozen at `initialize`, so it presents the
+    HANDSHAKE credential for the session's whole life even after the client
+    refreshes its token. Pairing on that credential is what makes the lookup hit.
+    """
+    client = make_client()
+    remember_session(HANDSHAKE_AUTH, RAW_MCP_SESSION_ID)
+
+    with _inbound(auth=HANDSHAKE_AUTH, mcp_session_id=None):
+        first = client._build_event("opik_mcp_tools_listed", {})
+    with _inbound(auth=HANDSHAKE_AUTH, mcp_session_id=None):
+        second = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+
+    digest = credential_digest(RAW_MCP_SESSION_ID)
+    assert first["event_properties"]["mcp_session_sha256"] == digest
+    assert second["event_properties"]["mcp_session_sha256"] == digest
+
+
+def test_no_session_digest_is_invented_for_stdio(make_client: Any) -> None:
+    """stdio has no session at all — the field must be ABSENT, not guessed.
+
+    Guards the fallback: a credential-keyed lookup that missed must leave the
+    field off rather than stamping something unrelated.
+    """
+    client = make_client()
+    with _inbound(auth=None, mcp_session_id=None):
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    assert "mcp_session_sha256" not in event["event_properties"]
+
+
+def test_an_unpaired_credential_gets_no_session_digest(make_client: Any) -> None:
+    """A credential we never saw handshake must not borrow another's session."""
+    client = make_client()
+    remember_session(HANDSHAKE_AUTH, RAW_MCP_SESSION_ID)
+
+    with _inbound(auth="Bearer opik_mcp_at_someone_else", mcp_session_id=None):
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    assert "mcp_session_sha256" not in event["event_properties"]
