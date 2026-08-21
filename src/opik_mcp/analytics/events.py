@@ -23,14 +23,24 @@ property. Anything outside the allowlist is bucketed to a fallback ("other",
 
 Three declared exceptions to "boolean / enum / bucket":
 
-- Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``) are
-  64-char SHA-256 hex digests. Not enums, but safe: irreversible one-way
-  transforms of secrets the backend already holds. The raw key/token NEVER
-  leaves the process. This is enforced by tests that call
-  ``client._build_event`` directly
+- Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``,
+  ``mcp_session_sha256``) are 64-char SHA-256 hex digests. Not enums, but safe:
+  irreversible one-way transforms of values the backend already holds. The raw
+  key/token/session-id NEVER leaves the process. This is enforced by tests that
+  call ``client._build_event`` directly
   (``tests/test_analytics_client_build_event.py``); the recorder-based tests in
   ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
   ``_build_event`` builds, so they cannot catch a leak inside it.
+
+  ``mcp_session_sha256`` exists because the hosted transport had no stable unit
+  to build a funnel on. Its only per-caller identifier was ``token_sha256``, and
+  the OAuth access token lives ONE HOUR — a handshake recurs on every mint while
+  a tool call does not, so every hosted ratio came out inversely correlated with
+  usage (533 of 568 tokens died inside the TTL and invoked at 9.6%, against ~80%
+  for the 35 that outlived it). A client keeps its ``Mcp-Session-Id`` across
+  token refreshes, so the session digest counts an 8-hour session ONCE. It is
+  hashed rather than raw because possession of a session id plus a token
+  addresses a live session, which makes it bearer-equivalent.
 - Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
   emitted as plaintext/UUID — an accepted posture: the workspace name is a
   tenant label, not a person, and BI cannot attribute usage without it.

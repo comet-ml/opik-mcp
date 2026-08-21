@@ -26,6 +26,7 @@ from opik_mcp.analytics.identity import (
 from opik_mcp.auth_context import (
     classify_bearer,
     inbound_authorization,
+    inbound_mcp_session_id,
     inbound_workspace,
     settings_auth_mode,
 )
@@ -375,6 +376,28 @@ class AnalyticsClient:
             workspace = ws_header.strip() if ws_header else ""
             if workspace:
                 props["request_workspace"] = workspace
+
+            # The stable unit the hosted funnel needs. A client keeps its
+            # ``Mcp-Session-Id`` across OAuth token refreshes, so an 8-hour
+            # session is ONE session here — where ``token_sha256`` would be ~8
+            # separate identities, because the access token lives one hour.
+            #
+            # That distinction is not cosmetic: keyed on the token, every hosted
+            # ratio came out inversely correlated with usage (a handshake recurs
+            # per mint, a tool call does not), so the harder someone worked the
+            # worse they scored. Measured over 30 days: 533 of 568 tokens died
+            # inside the TTL and invoked at 9.6%, against ~80% for the 35 that
+            # outlived it — with event count held constant, so not a spread
+            # artifact. The hosted funnel was deleted over it.
+            #
+            # PRIVACY: hashed, not raw. The session id is a bearer-equivalent —
+            # possession of it plus a token addresses a live session — so it gets
+            # the same treatment as a credential, via the one shared digest.
+            # Absent for stdio (no session header) and on the ``initialize``
+            # request itself, which is what mints the session.
+            session_id = inbound_mcp_session_id.get()
+            if session_id and session_id.strip():
+                props["mcp_session_sha256"] = credential_digest(session_id.strip())
         except Exception:
             logger.debug("per-request identity enrichment failed", exc_info=True)
         return props
