@@ -74,6 +74,16 @@ resolved_workspace_name: ContextVar[str | None] = ContextVar(
 #     restart, LRU eviction — events fall back to the nil ``install_id`` and merge
 #     into one row. A session digest still groups that session correctly.
 #
+# NOT SUFFICIENT ON ITS OWN — do not build on this var alone. Tool events are
+# built in the MCP session task, which is forked from the ``initialize`` request
+# and whose context is frozen BEFORE a session id exists; the later requests that
+# do carry ``Mcp-Session-Id`` build no events of their own. So this var reads
+# ``None`` for every tool event, which is why the field silently never appeared
+# in production despite tests that set the var directly. The working path is
+# ``credential_identity.remember_session`` / ``lookup_session_digest``, keyed by
+# the credential — the only value in scope on both sides. This var still serves
+# events emitted inside a request, such as ``auth_rejected``.
+#
 # ``None`` means stdio, or the session-creating request itself (the ``initialize``
 # handshake carries no session id yet).
 inbound_mcp_session_id: ContextVar[str | None] = ContextVar("inbound_mcp_session_id", default=None)

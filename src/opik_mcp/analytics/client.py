@@ -38,7 +38,11 @@ from opik_mcp.config import (
     installation_type,
     looks_unsubstituted,
 )
-from opik_mcp.credential_identity import ResolvedIdentity, credential_digest
+from opik_mcp.credential_identity import (
+    ResolvedIdentity,
+    credential_digest,
+    lookup_session_digest,
+)
 
 logger = logging.getLogger("opik_mcp.analytics")
 
@@ -412,9 +416,21 @@ class AnalyticsClient:
             # the same treatment as a credential, via the one shared digest.
             # Absent for stdio (no session header) and on the ``initialize``
             # request itself, which is what mints the session.
+            # Two sources, because neither covers the whole surface. The
+            # ContextVar is right for events emitted inside a request (e.g.
+            # auth_rejected), but it reads None in the MCP session task — that
+            # task is forked from `initialize`, before any session id exists, and
+            # the later requests that do carry the header build no events. Tool
+            # events come from that task, so they rely on the credential-keyed
+            # pairing recorded by `remember_session`. Absent for stdio (no
+            # session at all) and on the initialize request itself.
             session_id = inbound_mcp_session_id.get()
             if session_id and session_id.strip():
                 props["mcp_session_sha256"] = credential_digest(session_id.strip())
+            elif inbound_auth:
+                session_digest = lookup_session_digest(inbound_auth)
+                if session_digest:
+                    props["mcp_session_sha256"] = session_digest
         except Exception:
             logger.debug("per-request identity enrichment failed", exc_info=True)
         return props

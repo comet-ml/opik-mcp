@@ -94,10 +94,73 @@ def lookup_identity(credential: str) -> ResolvedIdentity | None:
         return identity
 
 
+# Credential digest -> digest of the MCP session id minted on its handshake.
+# Separate map rather than a field on ResolvedIdentity: a session is a different
+# lifetime from an identity (a credential outlives any one session, and an
+# api-key caller has a session but no resolved identity), so merging them would
+# make one nullable for the other's sake.
+_SESSIONS: OrderedDict[str, str] = OrderedDict()
+
+
+def remember_session(credential: str, session_id: str) -> None:
+    """Pair a credential with the MCP session id minted on its handshake.
+
+    Exists because of an asymmetry in the streamable-HTTP lifecycle. The session
+    id is minted in the RESPONSE to ``initialize``, but every event is built
+    inside the MCP session task forked from that same request — and that task's
+    context is frozen before the id exists. So the task can never observe the
+    session id through a ContextVar, no matter which request carries the header:
+    the requests that carry it build no events, and the context that builds
+    events predates it. The credential is the only key present on both sides,
+    which is what makes it the join.
+
+    PRIVACY: the session id is stored HASHED. It is bearer-equivalent — holding
+    it plus a token addresses a live session — so it gets the same treatment as
+    a credential, and a long-lived process never holds one in plaintext.
+
+    KNOWN IMPRECISION: re-initializing on the SAME credential overwrites the
+    pairing, so if an older session is somehow still live it would report the
+    newer digest. Accepted rather than papered over: the alternative needs a
+    session-unique key, and no such key exists in the task that builds events.
+    In practice a re-handshake means the client dropped the old session, and
+    under OAuth the one-hour token TTL means a re-handshake usually arrives on a
+    new credential anyway.
+
+    No-ops on an empty credential or session id, so a caller never has to guard.
+    """
+    if not credential or not session_id:
+        return
+    key = credential_digest(credential)
+    digest = credential_digest(session_id)
+    with _LOCK:
+        _SESSIONS[key] = digest
+        _SESSIONS.move_to_end(key)
+        while len(_SESSIONS) > MAX_TRACKED_CREDENTIALS:
+            _SESSIONS.popitem(last=False)
+
+
+def lookup_session_digest(credential: str) -> str | None:
+    """Hashed MCP session id for this credential, or ``None`` if unknown.
+
+    Already a digest — the caller emits it as-is and never re-hashes.
+    """
+    if not credential:
+        return None
+    key = credential_digest(credential)
+    with _LOCK:
+        digest = _SESSIONS.get(key)
+        if digest is not None:
+            # Reading marks it live, so an in-use session is not evicted in
+            # favour of one that has gone quiet.
+            _SESSIONS.move_to_end(key)
+        return digest
+
+
 def reset_identities_for_tests() -> None:
-    """Drop every resolved identity. Test-only — never call from production."""
+    """Drop every resolved identity and session pairing. Test-only."""
     with _LOCK:
         _STORE.clear()
+        _SESSIONS.clear()
 
 
 __all__ = [
@@ -105,6 +168,8 @@ __all__ = [
     "ResolvedIdentity",
     "credential_digest",
     "lookup_identity",
+    "lookup_session_digest",
     "remember_identity",
+    "remember_session",
     "reset_identities_for_tests",
 ]

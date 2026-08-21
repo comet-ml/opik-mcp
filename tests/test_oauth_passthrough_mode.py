@@ -16,6 +16,11 @@ from opik_mcp.auth_context import (
     inbound_authorization,
     inbound_workspace,
 )
+from opik_mcp.credential_identity import (
+    credential_digest,
+    lookup_session_digest,
+    reset_identities_for_tests,
+)
 from opik_mcp.server import BearerAuthMiddleware
 
 
@@ -376,3 +381,69 @@ async def test_failed_introspection_leaves_the_handshake_working(
     resp = await mw.dispatch(request, call_next)
     assert resp.status_code == 200
     assert lookup_identity(token) is None
+
+
+# --- pairing the minted session id to the credential ----------------------- #
+#
+# The session id exists only on the RESPONSE to `initialize`, and the task that
+# builds events is forked from that request before the id exists. So the
+# middleware records the pairing on the way out; without it the session field is
+# inert no matter what the request headers say.
+
+MINTED_SESSION = "MINTED-SESSION-ID-9f14ab"
+
+
+@pytest.mark.anyio
+async def test_the_minted_session_id_is_paired_with_the_credential() -> None:
+    """The handshake response is the only place both values are in scope."""
+    reset_identities_for_tests()
+    mw = _build_middleware()
+    auth = f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}handshake"
+    request = _make_request({"authorization": auth})
+
+    async def call_next(_r: Request) -> Response:
+        # No Mcp-Session-Id inbound: this is the session-minting request. The
+        # transport puts the new id on the response.
+        return JSONResponse({"ok": True}, headers={"mcp-session-id": MINTED_SESSION})
+
+    await mw.dispatch(request, call_next)
+
+    # Stored hashed, and reachable by the credential the session task holds.
+    assert lookup_session_digest(auth) == credential_digest(MINTED_SESSION)
+
+
+@pytest.mark.anyio
+async def test_a_response_without_a_session_id_pairs_nothing() -> None:
+    """Not every request mints a session; absence must stay absence."""
+    reset_identities_for_tests()
+    mw = _build_middleware()
+    auth = f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}nosession"
+    request = _make_request({"authorization": auth})
+
+    async def call_next(_r: Request) -> Response:
+        return JSONResponse({"ok": True})
+
+    await mw.dispatch(request, call_next)
+    assert lookup_session_digest(auth) is None
+
+
+@pytest.mark.anyio
+async def test_a_request_already_carrying_a_session_does_not_repair_it() -> None:
+    """Only the minting request pairs.
+
+    A tool call carries the session id too, but re-pairing there would let a
+    rotated credential mint a second entry for the same session — and the entry
+    keyed to the HANDSHAKE credential is the only one the session task can read.
+    """
+    reset_identities_for_tests()
+    mw = _build_middleware()
+    rotated = f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}rotated"
+    request = _make_request(
+        {"authorization": rotated, "mcp-session-id": MINTED_SESSION},
+    )
+
+    async def call_next(_r: Request) -> Response:
+        return JSONResponse({"ok": True}, headers={"mcp-session-id": MINTED_SESSION})
+
+    await mw.dispatch(request, call_next)
+    assert lookup_session_digest(rotated) is None
