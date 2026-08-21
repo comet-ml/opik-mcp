@@ -24,7 +24,7 @@ property. Anything outside the allowlist is bucketed to a fallback ("other",
 Three declared exceptions to "boolean / enum / bucket":
 
 - Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``,
-  ``mcp_session_sha256``) are 64-char SHA-256 hex digests. Not enums, but safe:
+  ``mcp_session_sha256``, ``env_id_sha256``) are 64-char SHA-256 hex digests. Not enums, but safe:
   irreversible one-way transforms of values the backend already holds. The raw
   key/token/session-id NEVER leaves the process. This is enforced by tests that
   call ``client._build_event`` directly
@@ -48,6 +48,11 @@ Three declared exceptions to "boolean / enum / bucket":
   misses (pod restart, LRU eviction) instead of collapsing into the nil
   ``install_id``. Hashed rather than raw because possession of a session id plus
   a token addresses a live session, which makes it bearer-equivalent.
+
+  ``env_id_sha256`` is the digest of the OS machine id (see ``EnvIdKind``). It
+  contains NO user-derived data — no hostname, no OS username — so it identifies
+  a machine and nothing about a person, and it is hashed anyway because a raw
+  machine id is a stable device identifier we have no reason to hold.
 - Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
   emitted as plaintext/UUID — an accepted posture: the workspace name is a
   tenant label, not a person, and BI cannot attribute usage without it.
@@ -140,6 +145,25 @@ HostProcess = Literal[
     "uv",
     "other",
 ]
+
+# ``env_id_kind`` (NEW): where the machine identity came from. "machine" means a
+# real OS machine id was read (/etc/machine-id, macOS IOPlatformUUID, Windows
+# MachineGuid) and ``env_id_sha256`` carries its digest; "unknown" means none was
+# readable and NO digest is emitted.
+#
+# Why it exists alongside ``install_id``: that field is a UUID in a file under
+# HOME, so a reinstall mints a brand-new identity (inflating "new installs") and
+# an unwritable HOME collapses it to the nil sentinel, merging every such
+# deployment into one row. A machine id survives both. It is also the only
+# identity available to local / self-hosted users, who run with auth disabled and
+# so can never resolve a username — ~18k successful tool calls across ~36
+# installs in a 30-day window.
+#
+# Machine-scoped by design: the digest deliberately excludes the OS username, so
+# two people sharing a box merge and no user-derived data enters the hash. A
+# hostname fallback was considered and rejected — in a container the hostname is
+# the container id, so it would churn per run while looking authoritative.
+EnvIdKind = Literal["machine", "unknown"]
 
 # ``launcher`` (NEW): the package runner that spawned this process, when there
 # was one. Emitted alongside ``host_process`` so the uvx install path stays

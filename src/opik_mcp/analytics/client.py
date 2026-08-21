@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from opik_mcp.analytics.environment import env_id
 from opik_mcp.analytics.events import Attributed, UserIdKind, WorkspaceKind
 from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
@@ -259,6 +260,20 @@ class AnalyticsClient:
         # stamped on every event so BI can split cloud / self-hosted without
         # joining back to server_started.
         common["installation_type"] = self._installation_type
+        # Machine identity derived from the OS machine id, NOT from a file we
+        # wrote. install_id is a UUID under HOME: a reinstall mints a new one
+        # (inflating "new installs") and an unwritable HOME collapses it to the
+        # nil sentinel, merging every such deployment into one row. This survives
+        # both. It is also the only identity available to local / self-hosted
+        # users, who run with auth disabled and so can never resolve a username.
+        #
+        # ALWAYS stamps the kind so "we could not read one" is countable rather
+        # than a silent absence; the digest itself is omitted when there is none,
+        # because a placeholder would be counted as a real machine.
+        env_digest, env_kind = env_id()
+        common["env_id_kind"] = env_kind
+        if env_digest:
+            common["env_id_sha256"] = env_digest
 
         per_request = self._per_request_props()
         # Merge precedence (lowest → highest): per-request contextvar enrichment,

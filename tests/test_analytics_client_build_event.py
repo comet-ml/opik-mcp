@@ -339,3 +339,21 @@ def test_blank_session_header_omits_the_field(make_client: Any) -> None:
     with _inbound(auth=f"Bearer {RAW_OAUTH_TOKEN}", mcp_session_id="   "):
         event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
     assert "mcp_session_sha256" not in event["event_properties"]
+
+
+def test_env_id_is_stamped_and_hashed(make_client: Any) -> None:
+    """The machine digest and its kind reach every event.
+
+    ``env_id_kind`` is ALWAYS stamped so "could not read one" is countable; the
+    digest is omitted when there is none, because a placeholder would be counted
+    as a real machine.
+    """
+    client = make_client()
+    with _inbound():
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    props = event["event_properties"]
+    assert props["env_id_kind"] in {"machine", "unknown"}
+    if props["env_id_kind"] == "machine":
+        assert len(props["env_id_sha256"]) == 64
+    else:
+        assert "env_id_sha256" not in props

@@ -16,6 +16,8 @@ import sys
 from collections.abc import Callable
 from functools import lru_cache
 
+from opik_mcp.credential_identity import credential_digest
+
 # ``sys.platform`` is a Literal type that mypy narrows per-host, so platform-
 # dispatch branches get flagged unreachable on whichever host runs CI (Linux
 # kills the macOS branch, macOS kills the Linux branch). Aliasing once to a
@@ -515,6 +517,111 @@ def cached_call_context_env() -> dict[str, str]:
     }
 
 
+# OS-level machine identifiers. Read in platform order; the first that yields a
+# non-empty value wins. All three are stable across reinstalls of opik-mcp and
+# across a wiped HOME, which is the whole point (see ``env_id`` below).
+_MACHINE_ID_PATHS: tuple[str, ...] = ("/etc/machine-id", "/var/lib/dbus/machine-id")
+_WINDOWS_MACHINE_GUID_KEY = r"HKLM\SOFTWARE\Microsoft\Cryptography"
+
+
+def _read_machine_id() -> str:
+    """Best-effort OS machine identifier. "" on any failure — never raises.
+
+    PRIVACY: the raw value never leaves this module; ``_detect_env_id`` hashes it.
+    Deliberately contains NO user-derived data — no hostname, no OS username — so
+    the digest identifies a machine and nothing about a person.
+    """
+    if _PLATFORM == "linux":
+        for path in _MACHINE_ID_PATHS:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    value = f.read().strip()
+                if value:
+                    return value
+            except OSError:
+                continue
+        return ""
+    if _PLATFORM == "darwin":
+        try:
+            out = subprocess.run(
+                ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return ""
+        for line in out.stdout.splitlines():
+            if "IOPlatformUUID" in line:
+                _, _, tail = line.partition("=")
+                return tail.strip().strip('"')
+        return ""
+    if _PLATFORM == "win32":
+        try:
+            out = subprocess.run(
+                ["reg", "query", _WINDOWS_MACHINE_GUID_KEY, "/v", "MachineGuid"],
+                capture_output=True,
+                text=True,
+                timeout=2.0,
+                check=False,
+                creationflags=_win_no_window_flag(),
+            )
+        except (OSError, subprocess.SubprocessError, ValueError):
+            return ""
+        for line in out.stdout.splitlines():
+            if "MachineGuid" in line:
+                return line.split()[-1].strip()
+        return ""
+    return ""
+
+
+@lru_cache(maxsize=1)
+def _detect_env_id() -> tuple[str, str]:
+    """``(digest, kind)`` for this machine. ``("", "unknown")`` when unreadable.
+
+    Why this exists: ``install_id`` is the only machine identity we had, and it is
+    a UUID in a file under HOME. That makes it fragile in two ways a funnel cares
+    about — a reinstall or a wiped HOME mints a brand-new identity (inflating
+    "new installs"), and an unwritable HOME collapses to the nil sentinel, merging
+    every such deployment into one row.
+
+    It is also the ONLY identity available to a large slice of users: local and
+    self-hosted Opik run with auth disabled, so no credential and therefore no
+    resolvable username exists for them — measured at ~18k successful tool calls
+    across ~36 installs. A username can never cover those.
+
+    Machine-scoped on purpose: one client per machine is the accepted grain, so
+    the digest deliberately excludes the OS username. Two people sharing a box
+    merge, which is fine, and it keeps user-derived data out of the hash entirely.
+
+    Emits NOTHING rather than an unstable fallback. A hostname digest was
+    considered and rejected: in a container the hostname is the container id, so
+    it would churn per run while looking authoritative — the same failure mode as
+    the nil ``install_id``. Absent is honest; churning is not.
+
+    CONTAINERS READ ``unknown``, and that is the intended outcome — do not
+    "fix" it by adding a fallback. Verified on ``python:3.13-slim``: two separate
+    runs both read an EMPTY ``/etc/machine-id`` while the hostname differed
+    (``42fbc2f195b2`` vs ``dda594ef58f6``). So a container is countable as "no
+    stable identity" instead of either inflating (a per-run identity, which the
+    hostname would have produced) or silently merging (one identity baked into a
+    shared image). When querying, treat ``env_id_kind='unknown'`` as its own
+    population rather than folding it in with ``machine``.
+
+    Memoised — one subprocess per process on macOS/Windows, on the startup path.
+    """
+    raw = _safe(_read_machine_id, "").strip()
+    if not raw:
+        return ("", "unknown")
+    return (credential_digest(raw), "machine")
+
+
+def env_id() -> tuple[str, str]:
+    """Public accessor for ``(digest, kind)``. See ``_detect_env_id``."""
+    return _detect_env_id()
+
+
 def _reset_detector_caches_for_tests() -> None:
     """Drop memoised detector state. Test-only — never call from production.
 
@@ -523,4 +630,5 @@ def _reset_detector_caches_for_tests() -> None:
     previous test's parent name.
     """
     _read_ancestor_parent_name.cache_clear()
+    _detect_env_id.cache_clear()
     cached_call_context_env.cache_clear()

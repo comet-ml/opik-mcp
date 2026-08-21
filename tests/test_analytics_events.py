@@ -356,3 +356,33 @@ def test_mcp_client_literal_matches_its_classifier() -> None:
     # The alias that makes the dead bucket reachable, pinned end to end.
     assert classify_mcp_client("claude-ai") == "claude-desktop"
     assert classify_mcp_host("claude-ai") == "other"
+
+
+def test_env_id_kind_literal_matches_the_detector(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bidirectional sync for ``env_id_kind``.
+
+    Only two outcomes exist by design: a real machine id was read, or none was
+    and NO digest is emitted. There is deliberately no third "unstable" bucket —
+    a hostname fallback would churn per container run while looking
+    authoritative, which is the failure mode the nil ``install_id`` already
+    demonstrates.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics import environment as env
+    from opik_mcp.analytics.events import EnvIdKind
+
+    declared = set(get_args(EnvIdKind))
+    assert declared == {"machine", "unknown"}
+
+    monkeypatch.setattr(env, "_read_machine_id", lambda: "a-machine-id")
+    env._detect_env_id.cache_clear()
+    digest_present, kind_present = env.env_id()
+
+    monkeypatch.setattr(env, "_read_machine_id", lambda: "")
+    env._detect_env_id.cache_clear()
+    digest_absent, kind_absent = env.env_id()
+    env._detect_env_id.cache_clear()
+
+    assert {kind_present, kind_absent} == declared
+    assert digest_present and not digest_absent

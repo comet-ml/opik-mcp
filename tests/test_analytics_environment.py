@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from opik_mcp.analytics import environment as env
+from opik_mcp.credential_identity import credential_digest
 
 
 def _clear_env(monkeypatch: pytest.MonkeyPatch, names: list[str]) -> None:
@@ -515,3 +516,65 @@ def test_posix_launch_method_is_unaffected_by_the_windows_table(
     ):
         monkeypatch.setattr(sys, "executable", windows_only)
         assert env._detect_launch_method() == "unknown", windows_only
+
+
+# --- env_id: machine identity that survives a wiped HOME ------------------ #
+
+
+def test_env_id_hashes_the_machine_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PRIVACY: the raw machine id must never be emitted, only its digest."""
+    canary = "machine-id-canary-7f3a-do-not-emit"
+    monkeypatch.setattr(env, "_read_machine_id", lambda: canary)
+    env._detect_env_id.cache_clear()
+    digest, kind = env.env_id()
+    assert kind == "machine"
+    assert digest == credential_digest(canary)
+    assert canary not in digest
+    env._detect_env_id.cache_clear()
+
+
+def test_env_id_emits_nothing_when_unreadable(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Absent, not a placeholder.
+
+    A sentinel would be counted as a real machine — the exact mistake the nil
+    ``install_id`` makes, where every unwritable-HOME deployment merges into one
+    row. "unknown" with no digest keeps the gap countable instead.
+    """
+    monkeypatch.setattr(env, "_read_machine_id", lambda: "")
+    env._detect_env_id.cache_clear()
+    digest, kind = env.env_id()
+    assert (digest, kind) == ("", "unknown")
+    env._detect_env_id.cache_clear()
+
+
+def test_env_id_ignores_whitespace_only_machine_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(env, "_read_machine_id", lambda: "   \n")
+    env._detect_env_id.cache_clear()
+    assert env.env_id() == ("", "unknown")
+    env._detect_env_id.cache_clear()
+
+
+def test_env_id_is_memoised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """One subprocess per process — this runs on the startup path on macOS."""
+    calls: list[int] = []
+
+    def _counting() -> str:
+        calls.append(1)
+        return "stable-machine-id"
+
+    monkeypatch.setattr(env, "_read_machine_id", _counting)
+    env._detect_env_id.cache_clear()
+    first = env.env_id()
+    second = env.env_id()
+    assert first == second
+    assert len(calls) == 1
+    env._detect_env_id.cache_clear()
+
+
+def test_read_machine_id_never_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every platform branch is best-effort; telemetry must not break a boot."""
+    monkeypatch.setattr(env, "_PLATFORM", "linux")
+    monkeypatch.setattr(env, "_MACHINE_ID_PATHS", ("/nonexistent/machine-id",))
+    assert env._read_machine_id() == ""
+    monkeypatch.setattr(env, "_PLATFORM", "sunos")  # unknown platform
+    assert env._read_machine_id() == ""
