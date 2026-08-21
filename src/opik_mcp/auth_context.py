@@ -53,19 +53,29 @@ resolved_workspace_name: ContextVar[str | None] = ContextVar(
 # Inbound ``Mcp-Session-Id`` header value. TELEMETRY ONLY — never forwarded and
 # never used for routing; the MCP SDK owns session lifecycle entirely.
 #
-# Why it exists: on the hosted transport the only per-caller identifier BI had was
-# the OAuth token digest, and the access token lives ONE HOUR. A handshake recurs
-# on every mint while a tool call does not, so any hosted ratio came out inversely
-# correlated with usage — an 8-hour session minted ~8 "authorized + connected"
-# pairs and usually one "invoked", scoring worse the more the person actually
-# worked. Measured over 30 days: 533 of 568 tokens died inside the TTL and invoked
-# at 9.6%, against ~80% for the 35 that outlived it.
+# SCOPE — READ THIS BEFORE BUILDING ON IT. This is a SESSION grain, not a user
+# grain, and it does NOT enable an adoption funnel. A session ends; a funnel needs
+# a unit that outlives one. "Habit = active on 3+ distinct days" is unanswerable
+# here for the same reason it was unanswerable with the token. **The adoption
+# funnel needs the Comet login** (``user_id`` / ``user_id_kind='comet_user'``),
+# which ``caller_identity`` already resolves and which is live on stdio today —
+# hosted reads zero only because it runs 0.2.12, predating that work. The fix
+# there is a deploy, not this field.
 #
-# The session id is the stable unit that fixes it: a client keeps the same
-# ``Mcp-Session-Id`` across token refreshes, so an 8-hour session counts once.
-# It turns the denominator from "tokens minted" into "sessions started", which is
-# a real funnel unit. ``None`` means stdio, or the session-creating request
-# itself (the ``initialize`` handshake carries no session id yet).
+# What this IS good for, and why it is worth the two lines:
+#
+#  1. It removes a specific inversion. The OAuth access token lives ONE HOUR, and
+#     a handshake recurs on every mint while a tool call does not — so token-keyed
+#     ratios fell as usage rose. An 8-hour session minted ~8 "authorized +
+#     connected" pairs and usually one "invoked". Measured over 30 days: 533 of
+#     568 tokens died inside the TTL and invoked at 9.6%, against ~80% for the 35
+#     that outlived it. The session id collapses those 8 back to 1.
+#  2. It survives the identity gaps. When ``lookup_identity`` misses — pod
+#     restart, LRU eviction — events fall back to the nil ``install_id`` and merge
+#     into one row. A session digest still groups that session correctly.
+#
+# ``None`` means stdio, or the session-creating request itself (the ``initialize``
+# handshake carries no session id yet).
 inbound_mcp_session_id: ContextVar[str | None] = ContextVar("inbound_mcp_session_id", default=None)
 
 

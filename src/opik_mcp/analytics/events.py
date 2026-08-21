@@ -32,15 +32,22 @@ Three declared exceptions to "boolean / enum / bucket":
   ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
   ``_build_event`` builds, so they cannot catch a leak inside it.
 
-  ``mcp_session_sha256`` exists because the hosted transport had no stable unit
-  to build a funnel on. Its only per-caller identifier was ``token_sha256``, and
-  the OAuth access token lives ONE HOUR — a handshake recurs on every mint while
-  a tool call does not, so every hosted ratio came out inversely correlated with
-  usage (533 of 568 tokens died inside the TTL and invoked at 9.6%, against ~80%
-  for the 35 that outlived it). A client keeps its ``Mcp-Session-Id`` across
-  token refreshes, so the session digest counts an 8-hour session ONCE. It is
-  hashed rather than raw because possession of a session id plus a token
-  addresses a live session, which makes it bearer-equivalent.
+  ``mcp_session_sha256`` is a SESSION grain and is **not** the adoption funnel's
+  key. A session ends, so it cannot answer retention ("active on 3+ distinct
+  days") any more than the token could. The funnel needs the Comet login —
+  ``user_id`` with ``user_id_kind='comet_user'`` — which ``caller_identity``
+  already resolves and which is live on stdio today; hosted reads zero only
+  because it runs 0.2.12, predating that work, so the fix there is a deploy.
+
+  What the session digest does buy is narrower. The OAuth access token lives ONE
+  HOUR, and a handshake recurs on every mint while a tool call does not, so
+  token-keyed ratios fell as usage rose — 533 of 568 tokens died inside the TTL
+  and invoked at 9.6%, against ~80% for the 35 that outlived it. A client keeps
+  its ``Mcp-Session-Id`` across refreshes, so the session digest counts an
+  8-hour session ONCE, and it still groups events when ``lookup_identity``
+  misses (pod restart, LRU eviction) instead of collapsing into the nil
+  ``install_id``. Hashed rather than raw because possession of a session id plus
+  a token addresses a live session, which makes it bearer-equivalent.
 - Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
   emitted as plaintext/UUID — an accepted posture: the workspace name is a
   tenant label, not a person, and BI cannot attribute usage without it.
