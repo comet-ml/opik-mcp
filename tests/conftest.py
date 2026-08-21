@@ -39,6 +39,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     """
     from opik_mcp.analytics import reset_analytics_for_tests, transport_probe
     from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
+    from opik_mcp.analytics.environment import _reset_detector_caches_for_tests
     from opik_mcp.analytics.wrappers import (
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
@@ -50,6 +51,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
+    _reset_detector_caches_for_tests()
     # main() sets this sentinel so the build_app() lifespan skips its own emit.
     # Clear it between tests or a test that calls main() leaves the build_app()
     # lifespan (e.g. the session http_client fixture) permanently muted.

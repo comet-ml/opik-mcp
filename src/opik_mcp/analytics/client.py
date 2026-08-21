@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from opik_mcp.analytics.environment import env_id
 from opik_mcp.analytics.events import Attributed, UserIdKind, WorkspaceKind
 from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
@@ -26,6 +27,7 @@ from opik_mcp.analytics.identity import (
 from opik_mcp.auth_context import (
     classify_bearer,
     inbound_authorization,
+    inbound_mcp_session_id,
     inbound_workspace,
     settings_auth_mode,
 )
@@ -258,6 +260,20 @@ class AnalyticsClient:
         # stamped on every event so BI can split cloud / self-hosted without
         # joining back to server_started.
         common["installation_type"] = self._installation_type
+        # Machine identity derived from the OS machine id, NOT from a file we
+        # wrote. install_id is a UUID under HOME: a reinstall mints a new one
+        # (inflating "new installs") and an unwritable HOME collapses it to the
+        # nil sentinel, merging every such deployment into one row. This survives
+        # both. It is also the only identity available to local / self-hosted
+        # users, who run with auth disabled and so can never resolve a username.
+        #
+        # ALWAYS stamps the kind so "we could not read one" is countable rather
+        # than a silent absence; the digest itself is omitted when there is none,
+        # because a placeholder would be counted as a real machine.
+        env_digest, env_kind = env_id()
+        common["env_id_kind"] = env_kind
+        if env_digest:
+            common["env_id_sha256"] = env_digest
 
         per_request = self._per_request_props()
         # Merge precedence (lowest → highest): per-request contextvar enrichment,
@@ -375,6 +391,30 @@ class AnalyticsClient:
             workspace = ws_header.strip() if ws_header else ""
             if workspace:
                 props["request_workspace"] = workspace
+
+            # SESSION grain — NOT a user grain, and NOT the adoption funnel's key.
+            # A session ends, so it cannot answer retention ("active on 3+ days").
+            # The funnel needs the Comet login, which ``caller_identity`` already
+            # resolves; hosted reads zero only because it runs 0.2.12. See the
+            # scope note on ``auth_context.inbound_mcp_session_id``.
+            #
+            # What it does buy: a client keeps its ``Mcp-Session-Id`` across OAuth
+            # token refreshes, so an 8-hour session is ONE session here — where
+            # ``token_sha256`` would be ~8 separate identities, because the access
+            # token lives one hour. That removed a genuine inversion (token-keyed
+            # ratios fell as usage rose: 533 of 568 tokens died inside the TTL and
+            # invoked at 9.6%, against ~80% for the 35 that outlived it). It also
+            # survives a ``lookup_identity`` miss, where events otherwise fall back
+            # to the nil ``install_id`` and merge into a single row.
+            #
+            # PRIVACY: hashed, not raw. The session id is a bearer-equivalent —
+            # possession of it plus a token addresses a live session — so it gets
+            # the same treatment as a credential, via the one shared digest.
+            # Absent for stdio (no session header) and on the ``initialize``
+            # request itself, which is what mints the session.
+            session_id = inbound_mcp_session_id.get()
+            if session_id and session_id.strip():
+                props["mcp_session_sha256"] = credential_digest(session_id.strip())
         except Exception:
             logger.debug("per-request identity enrichment failed", exc_info=True)
         return props

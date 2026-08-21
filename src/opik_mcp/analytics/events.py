@@ -23,14 +23,36 @@ property. Anything outside the allowlist is bucketed to a fallback ("other",
 
 Three declared exceptions to "boolean / enum / bucket":
 
-- Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``) are
-  64-char SHA-256 hex digests. Not enums, but safe: irreversible one-way
-  transforms of secrets the backend already holds. The raw key/token NEVER
-  leaves the process. This is enforced by tests that call
-  ``client._build_event`` directly
+- Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``,
+  ``mcp_session_sha256``, ``env_id_sha256``) are 64-char SHA-256 hex digests. Not enums, but safe:
+  irreversible one-way transforms of values the backend already holds. The raw
+  key/token/session-id NEVER leaves the process. This is enforced by tests that
+  call ``client._build_event`` directly
   (``tests/test_analytics_client_build_event.py``); the recorder-based tests in
   ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
   ``_build_event`` builds, so they cannot catch a leak inside it.
+
+  ``mcp_session_sha256`` is a SESSION grain and is **not** the adoption funnel's
+  key. A session ends, so it cannot answer retention ("active on 3+ distinct
+  days") any more than the token could. The funnel needs the Comet login —
+  ``user_id`` with ``user_id_kind='comet_user'`` — which ``caller_identity``
+  already resolves and which is live on stdio today; hosted reads zero only
+  because it runs 0.2.12, predating that work, so the fix there is a deploy.
+
+  What the session digest does buy is narrower. The OAuth access token lives ONE
+  HOUR, and a handshake recurs on every mint while a tool call does not, so
+  token-keyed ratios fell as usage rose — 533 of 568 tokens died inside the TTL
+  and invoked at 9.6%, against ~80% for the 35 that outlived it. A client keeps
+  its ``Mcp-Session-Id`` across refreshes, so the session digest counts an
+  8-hour session ONCE, and it still groups events when ``lookup_identity``
+  misses (pod restart, LRU eviction) instead of collapsing into the nil
+  ``install_id``. Hashed rather than raw because possession of a session id plus
+  a token addresses a live session, which makes it bearer-equivalent.
+
+  ``env_id_sha256`` is the digest of the OS machine id (see ``EnvIdKind``). It
+  contains NO user-derived data — no hostname, no OS username — so it identifies
+  a machine and nothing about a person, and it is hashed anyway because a raw
+  machine id is a stable device identifier we have no reason to hold.
 - Workspace fields (``workspace``, ``request_workspace``, ``workspace_id``) are
   emitted as plaintext/UUID — an accepted posture: the workspace name is a
   tenant label, not a person, and BI cannot attribute usage without it.
@@ -72,8 +94,16 @@ LaunchMethod = Literal[
     "unknown",
 ]
 
-# ``parent_process``: bucketed parent-process comm name. See
+# ``parent_process``: bucketed comm name of the IMMEDIATE parent process. See
 # ``environment._PARENT_PROCESS_PATTERNS``.
+#
+# FROZEN. Semantics and value set are unchanged since first release, and must
+# stay that way — dashboards and trends are built on these exact buckets. Its
+# two known blind spots are NOT fixed here, on purpose:
+#   - under ``uvx`` (our recommended install path) the parent is the uv runner,
+#     so this reports "other" and the real host is invisible;
+#   - on Windows it always reports "other", because its reader is POSIX-only.
+# Both are addressed by the additive ``host_process`` field below.
 ParentProcess = Literal[
     "docker-entrypoint",
     "claude",
@@ -91,10 +121,63 @@ ParentProcess = Literal[
     "other",
 ]
 
+# ``host_process`` (NEW): the nearest ancestor that identifies WHO launched us.
+# Same bucket vocabulary as ``ParentProcess`` plus "uv", and unlike that field it
+# steps over a package runner to reach the host behind it and works on Windows.
+# "uv" appears when the runner was detected but the grandparent could not be
+# read (notably Windows, which has no dependency-free ppid lookup).
+#
+# This is the field new reporting should use for host attribution.
+HostProcess = Literal[
+    "docker-entrypoint",
+    "claude",
+    "cursor",
+    "vscode",
+    "jetbrains",
+    "bash",
+    "zsh",
+    "fish",
+    "python",
+    "node",
+    "sshd",
+    "systemd",
+    "launchd",
+    "uv",
+    "other",
+]
+
+# ``env_id_kind`` (NEW): where the machine identity came from. "machine" means a
+# real OS machine id was read (/etc/machine-id, macOS IOPlatformUUID, Windows
+# MachineGuid) and ``env_id_sha256`` carries its digest; "unknown" means none was
+# readable and NO digest is emitted.
+#
+# Why it exists alongside ``install_id``: that field is a UUID in a file under
+# HOME, so a reinstall mints a brand-new identity (inflating "new installs") and
+# an unwritable HOME collapses it to the nil sentinel, merging every such
+# deployment into one row. A machine id survives both. It is also the only
+# identity available to local / self-hosted users, who run with auth disabled and
+# so can never resolve a username — ~18k successful tool calls across ~36
+# installs in a 30-day window.
+#
+# Machine-scoped by design: the digest deliberately excludes the OS username, so
+# two people sharing a box merge and no user-derived data enters the hash. A
+# hostname fallback was considered and rejected — in a container the hostname is
+# the container id, so it would churn per run while looking authoritative.
+EnvIdKind = Literal["machine", "unknown"]
+
+# ``launcher`` (NEW): the package runner that spawned this process, when there
+# was one. Emitted alongside ``host_process`` so the uvx install path stays
+# countable after ``host_process`` folds it away. "unknown" is the
+# detector-raised fallback (``_safe``), not a real observation.
+Launcher = Literal["uv", "none", "unknown"]
+
 # ``mcp_host``: bucketed MCP host (clientInfo.name). MUST stay in sync with
 # ``mcp_client_info._MCP_HOST_PATTERNS`` — every bucket that classifier can
 # emit is declared here (enforced by
 # ``test_analytics_events.test_mcp_host_literal_covers_all_classifier_buckets``).
+# FROZEN. An absent ``clientInfo.name`` reports "other" here, the same bucket as
+# an unrecognised one — a known wart, kept because existing dashboards count on
+# it. ``McpClient`` below separates the two.
 McpHost = Literal[
     "claude-desktop",
     "claude-code",
@@ -115,8 +198,43 @@ McpHost = Literal[
     "other",
 ]
 
-# ``host_llm_family``: derived from the bucketed ``mcp_host``. MUST stay in sync
-# with ``mcp_client_info._HOST_LLM_FAMILY`` values (enforced by
+# ``mcp_client`` (NEW): canonical client bucket, and what new reporting should
+# use. Two differences from the frozen ``McpHost``:
+#
+#   - It recognises the names clients actually send. ``claude-desktop`` was a
+#     DEAD bucket under the old classifier — zero events in a 30-day fleet
+#     window — because Claude Desktop identifies itself as "claude-ai"; likewise
+#     VS Code sends "Visual Studio Code", which never matched a "vscode" prefix.
+#   - "absent" (no/empty clientInfo) is separated from "other" (a real client we
+#     have no pattern for). Merging them is what made the largest cohort in the
+#     fleet unreadable: an instrumentation gap looked identical to genuine
+#     long-tail client diversity.
+McpClient = Literal[
+    "claude-desktop",
+    "claude-code",
+    "cursor",
+    "roo",
+    "cline",
+    "continue",
+    "windsurf",
+    "mcp-inspector",
+    "zed",
+    "vscode",
+    "goose",
+    "librechat",
+    "5ire",
+    "opencode",
+    "codex",
+    "gemini-cli",
+    "other",
+    "absent",
+]
+
+# ``host_llm_family`` / ``client_llm_family``: derived from the bucketed
+# ``mcp_host`` and ``mcp_client`` respectively, through the SAME mapping — so a
+# bucket that is unmapped (including ``mcp_client``'s "absent") falls to
+# "unknown". MUST stay in sync with ``mcp_client_info._HOST_LLM_FAMILY`` values
+# (enforced by
 # ``test_analytics_events.test_host_llm_family_literal_covers_all_classifier_values``).
 HostLlmFamily = Literal[
     "anthropic",

@@ -124,6 +124,7 @@ async def test_tools_listed_props_shape(recorder: _Recorder) -> None:
     # env keys are always present.
     assert props["mcp_host"] == "other"
     assert props["host_llm_family"] == "unknown"
+    assert props["mcp_client"] == "absent"
     for key in ("is_ci", "is_container", "launch_method", "install_id_freshly_generated"):
         assert key in props, f"call_context_props key {key!r} missing from tools_listed"
 

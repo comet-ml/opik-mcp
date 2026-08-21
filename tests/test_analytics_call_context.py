@@ -32,8 +32,13 @@ CONTEXT_KEYS = {
     "is_container",
     "launch_method",
     "install_id_freshly_generated",
+    # Frozen pair.
     "mcp_host",
     "host_llm_family",
+    # Additive pair — shipped alongside so BI can migrate without either
+    # series breaking.
+    "mcp_client",
+    "client_llm_family",
 }
 
 ENV_KEYS = {"is_ci", "is_container", "launch_method", "install_id_freshly_generated"}
@@ -107,13 +112,20 @@ def test_call_context_props_buckets_known_host() -> None:
     assert set(props) == CONTEXT_KEYS
     assert props["mcp_host"] == "claude-code"
     assert props["host_llm_family"] == "anthropic"
+    # A name the frozen classifier already handled resolves identically on both.
+    assert props["mcp_client"] == "claude-code"
+    assert props["client_llm_family"] == "anthropic"
 
 
 def test_call_context_props_handles_none_session() -> None:
     props = call_context_props(None)
     assert set(props) == CONTEXT_KEYS
+    # `mcp_host` is frozen: an absent handshake folds into "other", as it
+    # always has. The additive `mcp_client` is what separates the two cases.
     assert props["mcp_host"] == "other"
     assert props["host_llm_family"] == "unknown"
+    assert props["mcp_client"] == "absent"
+    assert props["client_llm_family"] == "unknown"
 
 
 def test_call_context_props_unknown_host_buckets_to_other() -> None:
@@ -181,5 +193,7 @@ async def test_tool_called_context_defaults_without_ctx(recorder: _Recorder) -> 
 
     props = next(p for et, p in recorder.events if et == EVENT_TOOL_CALLED)
     assert set(props) >= CONTEXT_KEYS
+    # No ctx -> no session. Frozen field folds to "other"; the new one says so.
     assert props["mcp_host"] == "other"
     assert props["host_llm_family"] == "unknown"
+    assert props["mcp_client"] == "absent"

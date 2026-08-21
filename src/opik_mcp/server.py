@@ -32,6 +32,7 @@ from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.auth_context import (
     classify_bearer,
     inbound_authorization,
+    inbound_mcp_session_id,
     inbound_workspace,
     resolved_workspace_name,
     settings_auth_mode,
@@ -698,7 +699,13 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # static fallback and never blocks the handshake.
         resolved_token = None
         auth_mode, oauth_token = classify_bearer(auth)
-        if request.headers.get("mcp-session-id") is None and auth_mode == "oauth":
+        mcp_session_id = request.headers.get("mcp-session-id")
+        # TELEMETRY ONLY — see ``auth_context.inbound_mcp_session_id``. The
+        # session id is the stable unit the hosted funnel needs: a client keeps it
+        # across OAuth token refreshes, so an 8-hour session counts once instead of
+        # once per hourly token mint.
+        session_id_token = inbound_mcp_session_id.set(mcp_session_id)
+        if mcp_session_id is None and auth_mode == "oauth":
             identity = await resolve_oauth_identity(auth, get_settings())
             if identity is not None:
                 # Held against the token, not this request: the analytics layer
@@ -712,6 +719,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         finally:
             inbound_authorization.reset(auth_token)
             inbound_workspace.reset(workspace_token)
+            inbound_mcp_session_id.reset(session_id_token)
             if resolved_token is not None:
                 resolved_workspace_name.reset(resolved_token)
 

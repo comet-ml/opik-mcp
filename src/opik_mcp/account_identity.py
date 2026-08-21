@@ -85,6 +85,16 @@ _ATTEMPT_LOCK = threading.Lock()
 _DISK_CACHE: dict[str, Any] | None = None
 _DISK_LOCK = threading.Lock()
 
+# Live refresh threads, so ``reset_account_identity_for_tests`` can WAIT for
+# them instead of just clearing state underneath them. A refresh ends by
+# assigning ``_DISK_CACHE`` (see ``_write_cache``), so one that outlives the
+# test that started it resurrects that test's cache after the reset cleared it
+# — and the next test then reads the previous test's identity out of a HOME it
+# never wrote. Pruned on insert so a long-lived process cannot accumulate
+# finished threads; ``_INFLIGHT`` already caps this at one entry per credential.
+_REFRESH_THREADS: list[threading.Thread] = []
+_THREADS_LOCK = threading.Lock()
+
 
 def _cache_path() -> Path:
     return Path.home() / ".opik-mcp" / "identity-cache.json"
@@ -266,17 +276,34 @@ def _maybe_refresh(settings: Settings, api_key: str, digest: str, now: float) ->
         if digest in _INFLIGHT:
             return
         _INFLIGHT.add(digest)
-    threading.Thread(
+    thread = threading.Thread(
         target=_refresh,
         args=(url, api_key, digest),
         name="opik-mcp-identity",
         daemon=True,
-    ).start()
+    )
+    with _THREADS_LOCK:
+        _REFRESH_THREADS[:] = [t for t in _REFRESH_THREADS if t.is_alive()]
+        _REFRESH_THREADS.append(thread)
+    thread.start()
 
 
 def reset_account_identity_for_tests() -> None:
-    """Drop all bookkeeping and the cached disk read. Test-only."""
+    """Drop all bookkeeping and the cached disk read. Test-only.
+
+    Waits for in-flight refreshes FIRST. Clearing state while a daemon thread is
+    still running does not isolate the next test: that thread finishes by
+    assigning ``_DISK_CACHE`` and calling ``remember_identity``, both of which
+    land after the reset and carry one test's HOME into the next one.
+    """
     global _DISK_CACHE
+    # Outside every lock below — ``_refresh`` takes ``_INFLIGHT_LOCK`` on its way
+    # out, so joining while holding it would deadlock.
+    with _THREADS_LOCK:
+        pending = list(_REFRESH_THREADS)
+        _REFRESH_THREADS.clear()
+    for thread in pending:
+        thread.join(timeout=_TIMEOUT_SECONDS + 1.0)
     with _INFLIGHT_LOCK:
         _INFLIGHT.clear()
     with _ATTEMPT_LOCK:

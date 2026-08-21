@@ -149,4 +149,5 @@ def test_write_auto_approval_falls_back_when_session_missing(
 
     _, props = next((et, p) for et, p in recorder.events if et == EVENT_AUTO_APPROVAL)
     assert props["mcp_host"] == "other"
+    assert props["mcp_client"] == "absent"
     assert props["host_llm_family"] == "unknown"

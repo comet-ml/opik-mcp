@@ -24,6 +24,7 @@ from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.auth_context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
+    inbound_mcp_session_id,
     inbound_workspace,
 )
 from opik_mcp.config import Settings
@@ -59,14 +60,21 @@ def make_client() -> Iterator[Any]:
 
 
 @contextlib.contextmanager
-def _inbound(*, auth: str | None = None, workspace: str | None = None) -> Iterator[None]:
+def _inbound(
+    *,
+    auth: str | None = None,
+    workspace: str | None = None,
+    mcp_session_id: str | None = None,
+) -> Iterator[None]:
     a = inbound_authorization.set(auth)
     w = inbound_workspace.set(workspace)
+    s = inbound_mcp_session_id.set(mcp_session_id)
     try:
         yield
     finally:
         inbound_authorization.reset(a)
         inbound_workspace.reset(w)
+        inbound_mcp_session_id.reset(s)
 
 
 def test_oauth_token_sha256_hashed_not_raw(make_client: Any) -> None:
@@ -256,3 +264,96 @@ def test_unresolved_caller_reports_the_install_id_not_an_empty_field(
     event = client._build_event("opik_mcp_tool_called", {})
     assert event["user_id"]
     assert event["event_properties"]["user_id_kind"] == "install_id"
+
+
+# --- mcp_session_sha256: the stable unit the hosted funnel needs ----------- #
+#
+# Keyed on token_sha256, every hosted ratio was inversely correlated with usage:
+# the OAuth access token lives one hour, a handshake recurs on every mint, a tool
+# call does not. So an 8-hour session minted ~8 "authorized + connected" pairs and
+# usually one "invoked" — the harder someone worked, the worse they scored. The
+# session id survives token refreshes, so it counts that session ONCE.
+
+RAW_MCP_SESSION_ID = "3f9a1c77-session-canary-0b42"
+
+
+def test_mcp_session_sha256_hashed_not_raw(make_client: Any) -> None:
+    """PRIVACY: the raw session id must never leave the process.
+
+    Hashed rather than emitted plainly because possession of a session id plus a
+    token addresses a live session, which makes it bearer-equivalent.
+    """
+    client = make_client()
+    with _inbound(
+        auth=f"Bearer {RAW_OAUTH_TOKEN}",
+        mcp_session_id=RAW_MCP_SESSION_ID,
+    ):
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    props = event["event_properties"]
+    assert RAW_MCP_SESSION_ID not in json.dumps(event)
+    assert (
+        props["mcp_session_sha256"]
+        == hashlib.sha256(RAW_MCP_SESSION_ID.encode("utf-8")).hexdigest()
+    )
+
+
+def test_mcp_session_digest_is_stable_across_token_rotation(make_client: Any) -> None:
+    """THE WHOLE POINT: one session, two tokens, one session identity.
+
+    This is what makes a hosted funnel possible. Under token-keyed counting these
+    two events look like two separate users; under session-keyed counting they are
+    correctly one.
+    """
+    client = make_client()
+    with _inbound(auth="Bearer opik_mcp_at_first", mcp_session_id=RAW_MCP_SESSION_ID):
+        first = client._build_event("opik_mcp_tools_listed", {})
+    with _inbound(
+        auth="Bearer opik_mcp_at_second_after_refresh", mcp_session_id=RAW_MCP_SESSION_ID
+    ):
+        second = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+
+    # Different tokens...
+    assert first["event_properties"]["token_sha256"] != second["event_properties"]["token_sha256"]
+    # ...same session.
+    assert (
+        first["event_properties"]["mcp_session_sha256"]
+        == second["event_properties"]["mcp_session_sha256"]
+    )
+
+
+def test_no_session_header_omits_the_field(make_client: Any) -> None:
+    """stdio, and the initialize request itself, carry no session id.
+
+    Absent rather than a sentinel: a placeholder would be counted as a real
+    session, which is the same mistake the nil install_id makes.
+    """
+    client = make_client()
+    with _inbound(auth=f"Bearer {RAW_OAUTH_TOKEN}"):
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    assert "mcp_session_sha256" not in event["event_properties"]
+
+
+def test_blank_session_header_omits_the_field(make_client: Any) -> None:
+    """A whitespace-only header is not a session."""
+    client = make_client()
+    with _inbound(auth=f"Bearer {RAW_OAUTH_TOKEN}", mcp_session_id="   "):
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    assert "mcp_session_sha256" not in event["event_properties"]
+
+
+def test_env_id_is_stamped_and_hashed(make_client: Any) -> None:
+    """The machine digest and its kind reach every event.
+
+    ``env_id_kind`` is ALWAYS stamped so "could not read one" is countable; the
+    digest is omitted when there is none, because a placeholder would be counted
+    as a real machine.
+    """
+    client = make_client()
+    with _inbound():
+        event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    props = event["event_properties"]
+    assert props["env_id_kind"] in {"machine", "unknown"}
+    if props["env_id_kind"] == "machine":
+        assert len(props["env_id_sha256"]) == 64
+    else:
+        assert "env_id_sha256" not in props

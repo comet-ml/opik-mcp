@@ -16,6 +16,7 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.mcp_client_info import (
     classify_host_llm_family,
+    classify_mcp_client,
     classify_mcp_host,
     collect_session_props,
 )
@@ -272,11 +273,60 @@ def _reset_probe_and_sessions() -> Iterator[None]:
         ("gemini-cli", "gemini-cli"),
         ("Gemini-CLI/0.1", "gemini-cli"),
         ("acme-internal-wrapper-yaro", "other"),
-        ("", "other"),
+        ("", "other"),  # frozen: absent folds into "other" (see mcp_client)
+        # FROZEN: the real client names below are deliberately NOT recognised
+        # here. Fixing them in place would move volume out of the heavily-used
+        # "other" bucket and shift every trend built on it, so the corrections
+        # live on `classify_mcp_client` instead.
+        ("claude-ai", "other"),
+        ("Visual Studio Code", "other"),
     ],
 )
 def test_classify_mcp_host(raw: str, expected_bucket: str) -> None:
     assert classify_mcp_host(raw) == expected_bucket
+
+
+@pytest.mark.parametrize(
+    "raw, expected_bucket",
+    [
+        # The two aliases that make previously-dead buckets reachable. Claude
+        # Desktop reports itself as "claude-ai": under the frozen classifier
+        # `claude-desktop` recorded ZERO events across a 30-day fleet window
+        # while real Claude Desktop users were counted as "other".
+        ("claude-ai", "claude-desktop"),
+        ("Claude-AI", "claude-desktop"),
+        ("claude-ai/0.7.1", "claude-desktop"),
+        # VS Code sends the product name with spaces, which no "vscode" prefix
+        # ever matched.
+        ("Visual Studio Code", "vscode"),
+        ("Visual Studio Code - Insiders", "vscode"),
+        # Everything the frozen classifier already got right must agree.
+        ("claude-desktop", "claude-desktop"),
+        ("claude-code/0.42", "claude-code"),
+        ("cursor", "cursor"),
+        ("roo-cline", "roo"),
+        ("codex-cli/0.3", "codex"),
+        ("Gemini-CLI/0.1", "gemini-cli"),
+        ("acme-internal-wrapper-yaro", "other"),
+    ],
+)
+def test_classify_mcp_client(raw: str, expected_bucket: str) -> None:
+    assert classify_mcp_client(raw) == expected_bucket
+
+
+def test_classify_mcp_client_separates_absent_from_other() -> None:
+    """ "absent" (never learned who) and "other" (named, unrecognised) are
+    different facts and must not collapse.
+
+    They share one bucket on the frozen ``mcp_host`` field, which made the
+    largest cohort in the fleet — 838 installs — unreadable: an instrumentation
+    gap looked identical to genuine long-tail client diversity.
+    """
+    assert classify_mcp_client("") == "absent"
+    assert classify_mcp_client("   ") == "absent"
+    assert classify_mcp_client("some-client-we-have-never-seen") == "other"
+    # The frozen field still merges them — that is the wart being worked around.
+    assert classify_mcp_host("") == classify_mcp_host("some-client-never-seen")
 
 
 @pytest.mark.parametrize(
@@ -306,7 +356,11 @@ def test_classify_host_llm_family(bucket: str, family: str) -> None:
 
 
 _EXPECTED_DEFAULT_SESSION_PROPS: dict[str, str] = {
+    # Frozen field: absent handshake folds into "other".
     "mcp_host": "other",
+    # Additive field: absent handshake is countable as its own value.
+    "mcp_client": "absent",
+    "client_llm_family": "unknown",
     "mcp_client_version": "unknown",
     "mcp_protocol_version": "unknown",
     "host_llm_family": "unknown",

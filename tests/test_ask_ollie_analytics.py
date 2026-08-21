@@ -180,6 +180,7 @@ async def test_completed_carries_session_context(recorder: _Recorder) -> None:
     # No ctx passed by _run_with → host fields fall back to defaults.
     assert p["mcp_host"] == "other"
     assert p["host_llm_family"] == "unknown"
+    assert p["mcp_client"] == "absent"
 
 
 @pytest.mark.anyio

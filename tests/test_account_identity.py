@@ -11,10 +11,12 @@ read or written.
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 import httpx
 import pytest
@@ -26,7 +28,11 @@ from opik_mcp.account_identity import (
     resolve_api_key_identity,
 )
 from opik_mcp.config import Settings
-from opik_mcp.credential_identity import credential_digest, reset_identities_for_tests
+from opik_mcp.credential_identity import (
+    credential_digest,
+    lookup_identity,
+    reset_identities_for_tests,
+)
 
 API_KEY = "sk-test-key"
 ACCOUNT_URL = "https://www.comet.com/api/rest/v2/account-details"
@@ -323,3 +329,39 @@ def test_the_disk_cache_is_read_once_not_once_per_event(
     for _ in range(10):
         assert resolve_api_key_identity(settings) is not None
     assert len(reads) == 1, f"disk was read {len(reads)} times"
+
+
+# --- a refresh must not outlive the test that started it ------------------- #
+
+
+@respx.mock
+def test_a_reset_waits_for_an_in_flight_refresh(_fresh_home: Path) -> None:
+    """Otherwise one test's identity leaks into the next.
+
+    A refresh runs on a daemon thread and ends by assigning ``_DISK_CACHE``. If
+    a reset only clears state, a thread still in flight lands afterwards and
+    resurrects it — and the next test, whose own HOME is empty, reads the
+    previous test's user out of memory. That is a cross-test failure whose
+    symptom appears in an unrelated test, so it is asserted here directly.
+    """
+    import opik_mcp.account_identity as mod
+
+    released = threading.Event()
+
+    def blocking_fetch(url: str, api_key: str) -> tuple[str | None, str | None]:
+        released.wait(timeout=5.0)
+        return ("leaked-user", "leaked-ws")
+
+    with mock.patch.object(mod, "_fetch", blocking_fetch):
+        assert resolve_api_key_identity(_cloud_settings()) is None
+        # The refresh is now parked inside _fetch. Let it proceed and reset
+        # concurrently: the reset must not return until the thread is done.
+        released.set()
+        reset_account_identity_for_tests()
+
+        assert mod._DISK_CACHE is None, "a refresh landed after the reset cleared the cache"
+        assert not [t for t in mod._REFRESH_THREADS if t.is_alive()]
+
+    # And the identity that refresh resolved must not survive into a fresh look.
+    reset_identities_for_tests()
+    assert lookup_identity(API_KEY) is None, "leaked identity survived the reset"
