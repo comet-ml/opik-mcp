@@ -244,3 +244,115 @@ def test_user_id_kind_literal_has_no_dead_members() -> None:
         AnalyticsClient._resolve_user(None).kind,
     }
     assert produced == set(get_args(UserIdKind))
+
+
+def test_parent_process_literal_matches_the_frozen_classifier() -> None:
+    """Bidirectional sync between ParentProcess and the FROZEN classifier.
+
+    mypy stops the classifier returning something the Literal doesn't declare.
+    What it cannot see is the other direction: a member left behind after a rule
+    changes, which BI would then wait for forever.
+
+    Also pins the freeze: "uv" must NOT be reachable here. The launcher is only
+    recognised by the additive ancestor classifier, so `parent_process` keeps
+    reporting "other" for a uvx-launched process exactly as it always has.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.environment import (
+        _EXACT_PARENT_PATTERNS,
+        _PARENT_PROCESS_PATTERNS,
+        _classify_parent_process_name,
+    )
+    from opik_mcp.analytics.events import ParentProcess
+
+    declared = set(get_args(ParentProcess))
+    produced = {_classify_parent_process_name(p) for p, _bucket in _PARENT_PROCESS_PATTERNS}
+    produced.add(_classify_parent_process_name(""))  # no parent -> fallback
+    produced.add(_classify_parent_process_name("totally-unrecognized-binary"))
+
+    assert produced == declared, (
+        f"ParentProcess drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+    assert "uv" not in declared, "parent_process is frozen; the runner belongs to host_process"
+    for launcher_pattern in _EXACT_PARENT_PATTERNS:
+        assert _classify_parent_process_name(launcher_pattern) == "other"
+
+
+def test_host_process_literal_matches_the_ancestor_classifier() -> None:
+    """Same bidirectional contract for the additive ``host_process`` field.
+
+    It must declare everything ParentProcess does (it shares the vocabulary)
+    plus the launcher bucket that is the whole point of the new field.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.environment import (
+        _EXACT_PARENT_PATTERNS,
+        _PARENT_PROCESS_PATTERNS,
+        _classify_ancestor_name,
+    )
+    from opik_mcp.analytics.events import HostProcess, ParentProcess
+
+    declared = set(get_args(HostProcess))
+    produced = {_classify_ancestor_name(p) for p, _bucket in _PARENT_PROCESS_PATTERNS}
+    produced |= {_classify_ancestor_name(p) for p in _EXACT_PARENT_PATTERNS}
+    produced.add(_classify_ancestor_name(""))
+    produced.add(_classify_ancestor_name("totally-unrecognized-binary"))
+
+    assert produced == declared, (
+        f"HostProcess drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+    assert set(get_args(ParentProcess)) < declared, (
+        "host_process must be a strict superset of parent_process's vocabulary"
+    )
+
+
+def test_launcher_literal_matches_detector_outputs() -> None:
+    """Every value `_detect_launcher` can emit must be declared, plus the
+    `_safe` fallback the aggregator substitutes if the detector raises."""
+    from typing import get_args
+
+    from opik_mcp.analytics.environment import _LAUNCHER_BUCKETS
+    from opik_mcp.analytics.events import Launcher
+
+    declared = set(get_args(Launcher))
+    # "none" = no runner involved; "unknown" = detector raised (see `_safe`).
+    expected = set(_LAUNCHER_BUCKETS) | {"none", "unknown"}
+    assert declared == expected, (
+        f"Launcher drift: unreachable={sorted(declared - expected)} "
+        f"undeclared={sorted(expected - declared)}"
+    )
+
+
+def test_mcp_client_literal_matches_its_classifier() -> None:
+    """``McpClient`` must cover the additive classifier, and must declare the
+    two buckets the frozen ``McpHost`` cannot reach.
+
+    ``claude-desktop`` was dead under the frozen classifier (Claude Desktop
+    sends "claude-ai") and ``absent`` does not exist there at all.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import McpClient, McpHost
+    from opik_mcp.analytics.mcp_client_info import (
+        _MCP_CLIENT_PATTERNS,
+        classify_mcp_client,
+        classify_mcp_host,
+    )
+
+    declared = set(get_args(McpClient))
+    produced = {classify_mcp_client(p) for p, _bucket in _MCP_CLIENT_PATTERNS}
+    produced.add(classify_mcp_client(""))  # -> "absent"
+    produced.add(classify_mcp_client("totally-unrecognized-client"))  # -> "other"
+
+    assert produced == declared, (
+        f"McpClient drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+    assert "absent" in declared and "absent" not in set(get_args(McpHost))
+    # The alias that makes the dead bucket reachable, pinned end to end.
+    assert classify_mcp_client("claude-ai") == "claude-desktop"
+    assert classify_mcp_host("claude-ai") == "other"

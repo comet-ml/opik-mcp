@@ -44,12 +44,81 @@ _MCP_HOST_PATTERNS: tuple[tuple[str, str], ...] = (
     ("gemini-cli", "gemini-cli"),
 )
 
+# Canonical client allowlist behind the NEWER ``mcp_client`` field. Superset of
+# ``_MCP_HOST_PATTERNS`` with the aliases real clients actually send.
+#
+# Two entries here are the whole reason this field exists:
+#
+# - Claude Desktop identifies itself as **"claude-ai"**, not "claude-desktop".
+#   The frozen ``mcp_host`` bucket was therefore unreachable — it recorded ZERO
+#   events across a 30-day fleet window while real Claude Desktop users were
+#   counted as "other".
+# - VS Code sends the product name with spaces ("Visual Studio Code",
+#   "Visual Studio Code - Insiders"), which no "vscode" prefix ever matched.
+#
+# Order matters (prefix match, first hit wins): list longer, more specific
+# prefixes before shorter ones they would shadow.
+_MCP_CLIENT_PATTERNS: tuple[tuple[str, str], ...] = (
+    ("claude-ai", "claude-desktop"),
+    ("claude-desktop", "claude-desktop"),
+    ("claude-code", "claude-code"),
+    ("cursor", "cursor"),
+    ("roo", "roo"),
+    ("cline", "cline"),
+    ("continue", "continue"),
+    ("windsurf", "windsurf"),
+    ("mcp-inspector", "mcp-inspector"),
+    ("zed", "zed"),
+    ("visual studio code", "vscode"),
+    ("vscode", "vscode"),
+    ("goose", "goose"),
+    ("librechat", "librechat"),
+    ("5ire", "5ire"),
+    ("opencode", "opencode"),
+    ("codex", "codex"),
+    ("gemini-cli", "gemini-cli"),
+)
+
 
 def classify_mcp_host(raw: str) -> str:
+    """FROZEN classifier behind the long-lived ``mcp_host`` field.
+
+    Do not add patterns and do not change the empty-input result. Every existing
+    dashboard, trend and saved query keys off these exact buckets, including the
+    fact that an absent ``clientInfo`` reports "other" rather than its own value.
+
+    Corrections and new client names go in ``classify_mcp_client`` and reach BI
+    through the newer ``mcp_client`` field.
+    """
     needle = (raw or "").strip().lower()
     if not needle:
         return "other"
     for pattern, bucket in _MCP_HOST_PATTERNS:
+        if needle.startswith(pattern):
+            return bucket
+    return "other"
+
+
+def classify_mcp_client(raw: str) -> str:
+    """NEW canonical client bucket. Use this, not ``classify_mcp_host``.
+
+    Two improvements over the frozen classifier, both of which needed a new
+    field rather than an in-place fix:
+
+    1. It recognises the names clients actually send (``claude-ai``,
+       ``Visual Studio Code``), so ``claude-desktop`` and ``vscode`` stop being
+       dead buckets.
+    2. It returns **"absent"** for a missing/empty ``clientInfo`` instead of
+       folding it into "other". Those are different facts — "we never learned
+       who this is" versus "a real client we have no pattern for" — and merging
+       them is what made the largest cohort in the fleet (838 installs)
+       unreadable: an instrumentation gap was indistinguishable from genuine
+       long-tail client diversity.
+    """
+    needle = (raw or "").strip().lower()
+    if not needle:
+        return "absent"
+    for pattern, bucket in _MCP_CLIENT_PATTERNS:
         if needle.startswith(pattern):
             return bucket
     return "other"
@@ -119,7 +188,9 @@ def collect_session_props(session: Any) -> dict[str, str]:
     Defensive against missing intermediates: a session that hasn't
     completed the initialize handshake (``client_params is None``) still
     returns a valid dict with ``"other"`` / ``"unknown"`` / ``"false"``
-    sentinels — callers should never crash because the host raced us.
+    sentinels — callers should never crash because the host raced us. That
+    pre-handshake case is what the newer ``mcp_client`` field reports as
+    "absent"; the frozen ``mcp_host`` still folds it into "other".
     """
     params = getattr(session, "client_params", None) if session is not None else None
     client_info = getattr(params, "clientInfo", None) if params is not None else None
@@ -129,12 +200,18 @@ def collect_session_props(session: Any) -> dict[str, str]:
     raw_client_version = getattr(client_info, "version", "") or ""
     raw_protocol_version = (getattr(params, "protocolVersion", "") or "") if params else ""
     mcp_host_bucket = classify_mcp_host(raw_host)
+    mcp_client_bucket = classify_mcp_client(raw_host)
 
     return {
+        # FROZEN pair — every existing dashboard keys off these exact buckets.
         "mcp_host": mcp_host_bucket,
+        "host_llm_family": classify_host_llm_family(mcp_host_bucket),
+        # NEW canonical pair. Recognises claude-ai / "Visual Studio Code" and
+        # separates "absent" from "other". Prefer these for new reporting.
+        "mcp_client": mcp_client_bucket,
+        "client_llm_family": classify_host_llm_family(mcp_client_bucket),
         "mcp_client_version": bucket_mcp_client_version(raw_client_version),
         "mcp_protocol_version": bucket_mcp_protocol_version(raw_protocol_version),
-        "host_llm_family": classify_host_llm_family(mcp_host_bucket),
         "caps_sampling": str(getattr(capabilities, "sampling", None) is not None).lower(),
         "caps_elicitation": str(getattr(capabilities, "elicitation", None) is not None).lower(),
         "caps_roots": str(getattr(capabilities, "roots", None) is not None).lower(),
@@ -151,15 +228,25 @@ def collect_session_props(session: Any) -> dict[str, str]:
 _session_host_cache: WeakKeyDictionary[Any, dict[str, str]] = WeakKeyDictionary()
 
 
-def _host_context(session: Any) -> dict[str, str]:
-    """The two handshake-derived fields (``mcp_host`` / ``host_llm_family``),
-    cached per session.
+_HOST_CONTEXT_KEYS: tuple[str, ...] = (
+    "mcp_host",
+    "host_llm_family",
+    "mcp_client",
+    "client_llm_family",
+)
 
-    Only these two fields are cached — NOT the full 8-key
-    ``collect_session_props`` block. A caller that needs the version / caps
-    fields too should call ``collect_session_props`` directly (the
-    ``session_initialized`` emit does); don't layer it on top of this and
-    re-extract twice.
+
+def _host_context(session: Any) -> dict[str, str]:
+    """The handshake-derived client fields, cached per session.
+
+    Carries the frozen pair (``mcp_host`` / ``host_llm_family``) and the newer
+    canonical pair (``mcp_client`` / ``client_llm_family``) side by side, so BI
+    can migrate at its own pace without either series breaking.
+
+    Only these keys are cached — NOT the full ``collect_session_props`` block. A
+    caller that needs the version / caps fields too should call
+    ``collect_session_props`` directly (the ``session_initialized`` emit does);
+    don't layer it on top of this and re-extract twice.
     """
     try:
         cached = _session_host_cache.get(session)
@@ -168,7 +255,7 @@ def _host_context(session: Any) -> dict[str, str]:
     if cached is not None:
         return cached
     props = collect_session_props(session)
-    host = {"mcp_host": props["mcp_host"], "host_llm_family": props["host_llm_family"]}
+    host = {key: props[key] for key in _HOST_CONTEXT_KEYS}
     with contextlib.suppress(TypeError):
         _session_host_cache[session] = host
     return host
@@ -183,12 +270,14 @@ def call_context_props(session: Any) -> dict[str, str]:
 
     - ``is_ci`` / ``is_container`` / ``launch_method`` /
       ``install_id_freshly_generated`` — process-stable env (cached once)
-    - ``mcp_host`` / ``host_llm_family`` — per-session handshake (cached on
-      first read)
+    - ``mcp_host`` / ``host_llm_family`` — frozen per-session handshake pair
+    - ``mcp_client`` / ``client_llm_family`` — newer canonical pair (cached on
+      first read alongside the frozen one)
 
     Every value is a boolean string or an allowlisted enum — never a raw path,
     hostname, or ``clientInfo`` string. ``session`` may be ``None`` (no
-    handshake yet); the host fields fall back to ``"other"`` / ``"unknown"``.
+    handshake yet); ``mcp_host`` then reports ``"other"`` as it always has,
+    while ``mcp_client`` reports ``"absent"`` so the gap is countable.
     """
     return {**cached_call_context_env(), **_host_context(session)}
 

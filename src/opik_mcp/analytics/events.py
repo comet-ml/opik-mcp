@@ -72,8 +72,16 @@ LaunchMethod = Literal[
     "unknown",
 ]
 
-# ``parent_process``: bucketed parent-process comm name. See
+# ``parent_process``: bucketed comm name of the IMMEDIATE parent process. See
 # ``environment._PARENT_PROCESS_PATTERNS``.
+#
+# FROZEN. Semantics and value set are unchanged since first release, and must
+# stay that way — dashboards and trends are built on these exact buckets. Its
+# two known blind spots are NOT fixed here, on purpose:
+#   - under ``uvx`` (our recommended install path) the parent is the uv runner,
+#     so this reports "other" and the real host is invisible;
+#   - on Windows it always reports "other", because its reader is POSIX-only.
+# Both are addressed by the additive ``host_process`` field below.
 ParentProcess = Literal[
     "docker-entrypoint",
     "claude",
@@ -91,10 +99,44 @@ ParentProcess = Literal[
     "other",
 ]
 
+# ``host_process`` (NEW): the nearest ancestor that identifies WHO launched us.
+# Same bucket vocabulary as ``ParentProcess`` plus "uv", and unlike that field it
+# steps over a package runner to reach the host behind it and works on Windows.
+# "uv" appears when the runner was detected but the grandparent could not be
+# read (notably Windows, which has no dependency-free ppid lookup).
+#
+# This is the field new reporting should use for host attribution.
+HostProcess = Literal[
+    "docker-entrypoint",
+    "claude",
+    "cursor",
+    "vscode",
+    "jetbrains",
+    "bash",
+    "zsh",
+    "fish",
+    "python",
+    "node",
+    "sshd",
+    "systemd",
+    "launchd",
+    "uv",
+    "other",
+]
+
+# ``launcher`` (NEW): the package runner that spawned this process, when there
+# was one. Emitted alongside ``host_process`` so the uvx install path stays
+# countable after ``host_process`` folds it away. "unknown" is the
+# detector-raised fallback (``_safe``), not a real observation.
+Launcher = Literal["uv", "none", "unknown"]
+
 # ``mcp_host``: bucketed MCP host (clientInfo.name). MUST stay in sync with
 # ``mcp_client_info._MCP_HOST_PATTERNS`` — every bucket that classifier can
 # emit is declared here (enforced by
 # ``test_analytics_events.test_mcp_host_literal_covers_all_classifier_buckets``).
+# FROZEN. An absent ``clientInfo.name`` reports "other" here, the same bucket as
+# an unrecognised one — a known wart, kept because existing dashboards count on
+# it. ``McpClient`` below separates the two.
 McpHost = Literal[
     "claude-desktop",
     "claude-code",
@@ -115,8 +157,43 @@ McpHost = Literal[
     "other",
 ]
 
-# ``host_llm_family``: derived from the bucketed ``mcp_host``. MUST stay in sync
-# with ``mcp_client_info._HOST_LLM_FAMILY`` values (enforced by
+# ``mcp_client`` (NEW): canonical client bucket, and what new reporting should
+# use. Two differences from the frozen ``McpHost``:
+#
+#   - It recognises the names clients actually send. ``claude-desktop`` was a
+#     DEAD bucket under the old classifier — zero events in a 30-day fleet
+#     window — because Claude Desktop identifies itself as "claude-ai"; likewise
+#     VS Code sends "Visual Studio Code", which never matched a "vscode" prefix.
+#   - "absent" (no/empty clientInfo) is separated from "other" (a real client we
+#     have no pattern for). Merging them is what made the largest cohort in the
+#     fleet unreadable: an instrumentation gap looked identical to genuine
+#     long-tail client diversity.
+McpClient = Literal[
+    "claude-desktop",
+    "claude-code",
+    "cursor",
+    "roo",
+    "cline",
+    "continue",
+    "windsurf",
+    "mcp-inspector",
+    "zed",
+    "vscode",
+    "goose",
+    "librechat",
+    "5ire",
+    "opencode",
+    "codex",
+    "gemini-cli",
+    "other",
+    "absent",
+]
+
+# ``host_llm_family`` / ``client_llm_family``: derived from the bucketed
+# ``mcp_host`` and ``mcp_client`` respectively, through the SAME mapping — so a
+# bucket that is unmapped (including ``mcp_client``'s "absent") falls to
+# "unknown". MUST stay in sync with ``mcp_client_info._HOST_LLM_FAMILY`` values
+# (enforced by
 # ``test_analytics_events.test_host_llm_family_literal_covers_all_classifier_values``).
 HostLlmFamily = Literal[
     "anthropic",
