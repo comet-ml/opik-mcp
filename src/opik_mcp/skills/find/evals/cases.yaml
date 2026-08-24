@@ -1,0 +1,37 @@
+# Test cases for the `/find` skill.
+#
+#   triggering  -> does the skill load at the right times?
+#   functional  -> given a seeded project, does it surface the right shortlist?
+#
+# The functional fixture is a seeder (fixtures/seed) that plants known traces in a
+# unique project and records their ids by role in planted.json. `prepare` runs it
+# and substitutes the project name into <PROJECT>. The grader scores the agent's
+# result.json shortlist against the planted ids: the error/slow/low-score traces
+# MUST appear, the normal traces MUST NOT, and no code may be modified.
+
+triggering:
+  should_trigger:
+    - "what is broken in production"
+    - "which traces need attention"
+    - "find failing or slow traces"
+    - "triage my agent"
+    - "surface the traces worth attention"
+  should_not_trigger:
+    - "explain why this trace failed"              # explain
+    - "add opik tracing to my app"                 # instrument
+    - "build an evaluation for my agent"           # evaluate
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: triage
+    fixture: seed
+    prompt: "Find the traces worth attention in Opik project <PROJECT>."
+    expect_status: found
+    assert:
+      status: found
+      include_roles: [error, slow, lowscore]   # planted ids that MUST be in the shortlist
+      exclude_roles: [normal]                  # planted ids that MUST NOT be in the shortlist
+      signals_superset: [error, latency, low_score]
+      source_valid: true
+      one_next_step: true
+      read_only: true
