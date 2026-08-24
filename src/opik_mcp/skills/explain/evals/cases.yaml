@@ -1,0 +1,63 @@
+# Test cases for the `/explain` skill.
+#
+# Areas map to Anthropic's "Testing and iteration" chapter:
+#   triggering  -> does the skill load at the right times?
+#   functional  -> given a real trace, does it produce a grounded root cause?
+#   edge        -> not-found / blocker paths behave per the contract.
+#
+# functional fixtures are instrumented apps with a KNOWN bug. `prepare` runs each
+# to emit a real trace and substitutes the id into <TRACE_ID>. The grader scores
+# the agent's result.json (status/root_cause/evidence/next_step/reasoner) — the
+# root cause is matched by keyword since the explanation is natural language;
+# everything else is exact. Every path must leave the app code unchanged.
+
+triggering:
+  should_trigger:
+    - "why did this trace fail"
+    - "explain this trace"
+    - "debug this trace"
+    - "why is my agent slow or wrong"
+    - "root-cause this trace"
+  should_not_trigger:
+    - "add opik tracing to my app"                 # instrument
+    - "build an evaluation for my agent"           # evaluate
+    - "write me a new FastAPI app from scratch"    # greenfield
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: toolbug
+    fixture: toolbug
+    emit_trace: true
+    prompt: "Explain Opik trace <TRACE_ID> — why did the app give a wrong answer?"
+    expect_status: explained
+    assert:
+      status: explained
+      root_cause_any: [retrieve, "docs.get", lookup, filter, empty, "no relevant docs", keyword, key]
+      evidence_span_any: [retrieve]
+      one_next_step: true
+      reasoner_valid: true
+      no_modifications: true
+
+  - id: latency
+    fixture: latency
+    emit_trace: true
+    prompt: "Explain Opik trace <TRACE_ID> — why was it slow?"
+    expect_status: explained
+    assert:
+      status: explained
+      root_cause_any: [fetch_context, sleep, slow, latency, blocks, block, "3 s", "3s", "3000", "3001"]
+      evidence_span_any: [fetch_context]
+      one_next_step: true
+      reasoner_valid: true
+      no_modifications: true
+
+edge:
+  - id: not_found
+    fixture: toolbug
+    emit_trace: false
+    prompt: "Explain Opik trace 00000000-0000-0000-0000-000000000000"
+    expect_status: not_found
+    assert:
+      status: not_found
+      one_next_step: true
+      no_modifications: true
