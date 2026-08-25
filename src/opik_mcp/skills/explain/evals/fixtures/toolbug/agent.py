@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """A tiny support agent, instrumented with Opik. It has one real bug.
 
 Run it to produce a trace that /explain should be able to root-cause.

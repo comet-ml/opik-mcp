@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """Success metrics for the `/explain` skill.
 
 Aggregates grader.CaseResult (plus optional triggering results) into the metrics

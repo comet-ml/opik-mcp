@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# mypy: ignore-errors
 """Test-automation harness for the `/explain` skill.
 
 Flows (per the guide's "scripted testing" level):

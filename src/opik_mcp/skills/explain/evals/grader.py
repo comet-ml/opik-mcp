@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """Deterministic grader for the `/explain` skill.
 
 Given a case's `assert` block, the original fixture, the post-run workdir, and
