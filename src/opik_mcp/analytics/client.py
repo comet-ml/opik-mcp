@@ -23,6 +23,7 @@ from opik_mcp.analytics.identity import (
     OPIK_MCP_VERSION,
     api_key_sha256,
     get_install_id,
+    install_id_kind,
 )
 from opik_mcp.auth_context import (
     classify_bearer,
@@ -31,7 +32,7 @@ from opik_mcp.auth_context import (
     inbound_workspace,
     settings_auth_mode,
 )
-from opik_mcp.caller_identity import caller_identity
+from opik_mcp.caller_identity import caller_identity_with_outcome
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     Settings,
@@ -227,7 +228,7 @@ class AnalyticsClient:
             # actually maps to when the user took the action.
             "timestamp": datetime.now(UTC).isoformat(),
         }
-        identity = caller_identity(self._settings)
+        identity, lookup_outcome = caller_identity_with_outcome(self._settings)
         workspace = self._resolve_workspace(identity)
         # Where the name came from: resolved from the backend, chosen by the
         # operator, an unfilled config snippet, the self-hosted placeholder, or
@@ -297,6 +298,14 @@ class AnalyticsClient:
         # filter rather than a guess. Its ABSENCE is also how BI separates events
         # predating this change, which carried the old overloaded semantics.
         common["user_id_kind"] = user.kind
+        # Why it came out that way. Without this, a hosted server that resolves
+        # nobody is indistinguishable from a laptop running open-source Opik with
+        # auth disabled — both report install_id. See ``events.IdentityLookup``.
+        common["identity_lookup"] = lookup_outcome
+        # Whether ``install_id`` is a real id or the shared nil sentinel. The
+        # sentinel merges unrelated deployments into one row, so a tile that
+        # counts installs must be able to exclude it. See ``events.InstallIdKind``.
+        common["install_id_kind"] = install_id_kind()
 
         return {
             "user_id": user.value,
