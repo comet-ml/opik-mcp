@@ -11,7 +11,7 @@ allowed-tools:
   - Bash
 metadata:
   last_updated: "2026-08-05"
-  source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
+  source_commit: "2.0.0"
   argument-hint: "[optional: file or directory path]"
 ---
 
