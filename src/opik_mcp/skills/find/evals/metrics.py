@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """Success metrics for the `/find` skill (OPIK-7648).
 
 selection_accuracy - triggers only on appropriate requests

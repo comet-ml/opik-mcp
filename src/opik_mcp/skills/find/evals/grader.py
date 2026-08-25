@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """Deterministic grader for the `/find` skill.
 
 Given a case's `assert` block, the planted trace ids (planted.json, written by

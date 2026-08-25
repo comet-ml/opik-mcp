@@ -1,3 +1,4 @@
+# mypy: ignore-errors
 """Seed a unique Opik project with attention-worthy traces for the /find evals.
 
 Emits: 1 errored, 1 slow, 1 low-online-eval-score, and 2 normal traces into a
