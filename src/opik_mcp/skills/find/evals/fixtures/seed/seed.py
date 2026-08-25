@@ -6,6 +6,7 @@ earlier runs). Writes planted.json = {project, roles: {error, slow, lowscore,
 normal:[...]}} so the grader knows which trace ids SHOULD and SHOULD NOT appear
 in the shortlist.
 """
+
 import json
 import os
 import time
@@ -15,8 +16,8 @@ from pathlib import Path
 PROJECT = os.environ.get("FIND_EVAL_PROJECT") or ("opik-find-eval-" + uuid.uuid4().hex[:8])
 os.environ["OPIK_PROJECT_NAME"] = PROJECT
 
-import opik
-from opik import opik_context
+import opik  # noqa: E402
+from opik import opik_context  # noqa: E402
 
 roles: dict = {}
 
@@ -50,7 +51,8 @@ def lowscore(q: str) -> str:
 
 
 if __name__ == "__main__":
-    normal("a"); normal("b")
+    normal("a")
+    normal("b")
     slow("c")
     lowscore("d")
     try:

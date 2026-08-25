@@ -13,8 +13,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-IGNORE = {".venv", "__pycache__", "uv.lock", ".python-version", ".git",
-          "result.json", "planted.json"}
+IGNORE = {
+    ".venv",
+    "__pycache__",
+    "uv.lock",
+    ".python-version",
+    ".git",
+    "result.json",
+    "planted.json",
+}
 VALID_STATUS = {"found", "empty", "blocked"}
 
 
@@ -42,7 +49,7 @@ def _fixture_modified(fixture: Path, workdir: Path) -> list[str]:
 
 def _shortlist(result: dict) -> tuple[set[str], set[str]]:
     ids, signals = set(), set()
-    for it in (result.get("shortlist") or []):
+    for it in result.get("shortlist") or []:
         if isinstance(it, dict):
             if it.get("trace_id"):
                 ids.add(str(it["trace_id"]))
@@ -53,9 +60,14 @@ def _shortlist(result: dict) -> tuple[set[str], set[str]]:
     return ids, signals
 
 
-def grade_case(case: dict, fixture: Path, workdir: Path,
-               result: dict | None, planted: dict | None,
-               area: str = "functional") -> CaseResult:
+def grade_case(
+    case: dict,
+    fixture: Path,
+    workdir: Path,
+    result: dict | None,
+    planted: dict | None,
+    area: str = "functional",
+) -> CaseResult:
     a = case.get("assert", {})
     result = result or {}
     roles = (planted or {}).get("roles", {})
@@ -71,7 +83,9 @@ def grade_case(case: dict, fixture: Path, workdir: Path,
 
     for role in a.get("include_roles", []):
         rid = roles.get(role)
-        add(f"include:{role}", bool(rid) and rid in ids_in, f"planted {role}={rid} not in shortlist")
+        add(
+            f"include:{role}", bool(rid) and rid in ids_in, f"planted {role}={rid} not in shortlist"
+        )
 
     for role in a.get("exclude_roles", []):
         rids = roles.get(role) or []
@@ -82,10 +96,16 @@ def grade_case(case: dict, fixture: Path, workdir: Path,
 
     if a.get("signals_superset"):
         want = {s.lower() for s in a["signals_superset"]}
-        add("signals", want.issubset(signals), f"signals={sorted(signals)} missing {sorted(want - signals)}")
+        add(
+            "signals",
+            want.issubset(signals),
+            f"signals={sorted(signals)} missing {sorted(want - signals)}",
+        )
 
     if a.get("source_valid"):
-        add("source_valid", result.get("source") in {"sdk", "mcp"}, f"source={result.get('source')}")
+        add(
+            "source_valid", result.get("source") in {"sdk", "mcp"}, f"source={result.get('source')}"
+        )
 
     if a.get("one_next_step"):
         ns = result.get("next_step")

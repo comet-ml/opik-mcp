@@ -38,21 +38,37 @@ WORK = HERE / "_work"
 TRIG = WORK / "triggering"
 
 DECOY_SKILLS = [
-    {"name": "explain", "description": "Root-cause a specific Opik trace and return a "
-     "grounded explanation. Use to debug ONE trace you already have, not to discover which."},
-    {"name": "instrument", "description": "Add Opik tracing to an existing app and verify a "
-     "real trace lands. Use to add observability, not to find existing traces."},
-    {"name": "evaluate", "description": "Build an Opik evaluation and run it, returning an "
-     "experiment with scores. Offline experiment results, not live production triage."},
-    {"name": "opik", "description": "Reference for how Opik works — tracing concepts and SDK "
-     "options. Use to look up the product, not to triage traces."},
-    {"name": "code-review", "description": "Review code and report findings without changing "
-     "it — a general audit, unrelated to traces."},
+    {
+        "name": "explain",
+        "description": "Root-cause a specific Opik trace and return a "
+        "grounded explanation. Use to debug ONE trace you already have, not to discover which.",
+    },
+    {
+        "name": "instrument",
+        "description": "Add Opik tracing to an existing app and verify a "
+        "real trace lands. Use to add observability, not to find existing traces.",
+    },
+    {
+        "name": "evaluate",
+        "description": "Build an Opik evaluation and run it, returning an "
+        "experiment with scores. Offline experiment results, not live production triage.",
+    },
+    {
+        "name": "opik",
+        "description": "Reference for how Opik works — tracing concepts and SDK "
+        "options. Use to look up the product, not to triage traces.",
+    },
+    {
+        "name": "code-review",
+        "description": "Review code and report findings without changing "
+        "it — a general audit, unrelated to traces.",
+    },
 ]
 
 
 def load_cases() -> dict:
     import yaml
+
     return yaml.safe_load((HERE / "cases.yaml").read_text())
 
 
@@ -62,9 +78,14 @@ def functional(cases: dict) -> list[dict]:
 
 def _seed(wd: Path) -> dict | None:
     try:
-        out = subprocess.run(["uv", "run", "--quiet", "python", "seed.py"],
-                             cwd=wd, capture_output=True, text=True, timeout=600)
-    except Exception as e:  # noqa: BLE001
+        out = subprocess.run(
+            ["uv", "run", "--quiet", "python", "seed.py"],
+            cwd=wd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except Exception as e:
         print(f"  ! seed failed for {wd.name}: {e}")
         return None
     planted = wd / "planted.json"
@@ -90,7 +111,7 @@ def prepare() -> None:
         lines.append(f"## {c['id']}\n- workdir: {wd}\n- project: {project}\n- prompt: {prompt}\n")
     (WORK / "PROMPTS.md").write_text("\n".join(lines))
     print(f"Prepared {len(functional(cases))} workdir(s) under {WORK}")
-    print(f"Run /find on the project in each PROMPT.txt, write result.json, then `grade`.")
+    print("Run /find on the project in each PROMPT.txt, write result.json, then `grade`.")
 
 
 def _read_json(wd: Path, name: str) -> dict | None:
@@ -123,6 +144,7 @@ def grade() -> int:
 
 # ---------- triggering ----------
 
+
 def _skill_description() -> str:
     fm = SKILL.read_text().split("---")[1]
     m = re.search(r"^description:\s*(.+)$", fm, re.M)
@@ -132,19 +154,34 @@ def _skill_description() -> str:
 def trigger_prepare() -> None:
     trig = load_cases().get("triggering", {})
     TRIG.mkdir(parents=True, exist_ok=True)
-    menu = [{"name": "find", "description": _skill_description()}] + DECOY_SKILLS
-    phrases = ([{"phrase": p, "expect": "find"} for p in trig.get("should_trigger", [])]
-               + [{"phrase": p, "expect": "not-find"} for p in trig.get("should_not_trigger", [])])
+    menu = [{"name": "find", "description": _skill_description()}, *DECOY_SKILLS]
+    phrases = [{"phrase": p, "expect": "find"} for p in trig.get("should_trigger", [])] + [
+        {"phrase": p, "expect": "not-find"} for p in trig.get("should_not_trigger", [])
+    ]
     (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
-    lines = ["# Triggering judge input", "",
-             "For EACH user phrase, pick the ONE skill whose description best fits, or",
-             "`none`. Judge only from the descriptions.", "", "## Skill menu", ""]
+    lines = [
+        "# Triggering judge input",
+        "",
+        "For EACH user phrase, pick the ONE skill whose description best fits, or",
+        "`none`. Judge only from the descriptions.",
+        "",
+        "## Skill menu",
+        "",
+    ]
     lines += [f"- **{s['name']}**: {s['description']}" for s in menu]
     lines += ["", "## Phrases", ""]
     lines += [f"{i + 1}. {p['phrase']}" for i, p in enumerate(phrases)]
-    lines += ["", "## Output", "", 'Return STRICT JSON: {"verdicts": {"<exact phrase>": "<skill-or-none>"}}']
+    lines += [
+        "",
+        "## Output",
+        "",
+        'Return STRICT JSON: {"verdicts": {"<exact phrase>": "<skill-or-none>"}}',
+    ]
     (TRIG / "judge_input.md").write_text("\n".join(lines))
-    print(f"Wrote {TRIG / 'judge_input.md'}. Judge it, write {TRIG / 'verdicts.json'}, then: trigger-grade")
+    print(
+        f"Wrote {TRIG / 'judge_input.md'}. Judge it, write "
+        f"{TRIG / 'verdicts.json'}, then: trigger-grade"
+    )
 
 
 def trigger_grade() -> int:
@@ -174,11 +211,13 @@ def main() -> int:
     sub.add_parser("trigger-grade", help="score verdicts.json -> selection_accuracy")
     args = ap.parse_args()
     if args.cmd == "prepare":
-        prepare(); return 0
+        prepare()
+        return 0
     if args.cmd == "grade":
         return grade()
     if args.cmd == "trigger-prepare":
-        trigger_prepare(); return 0
+        trigger_prepare()
+        return 0
     if args.cmd == "trigger-grade":
         return trigger_grade()
     return 2

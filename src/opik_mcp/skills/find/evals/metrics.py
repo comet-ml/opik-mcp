@@ -1,12 +1,12 @@
 """Success metrics for the `/find` skill (OPIK-7648).
 
-  selection_accuracy - triggers only on appropriate requests
-  found_rate         - reached the expected terminal status
-  recall             - every attention-worthy planted trace surfaced (include:*)
-  precision          - no normal trace leaked into the shortlist (exclude:*)
-  signal_coverage    - shortlist covered the expected signals
-  read_only_rate     - modified no code (target 1.0)
-  schema_compliance  - status is a valid state
+selection_accuracy - triggers only on appropriate requests
+found_rate         - reached the expected terminal status
+recall             - every attention-worthy planted trace surfaced (include:*)
+precision          - no normal trace leaked into the shortlist (exclude:*)
+signal_coverage    - shortlist covered the expected signals
+read_only_rate     - modified no code (target 1.0)
+schema_compliance  - status is a valid state
 """
 
 from __future__ import annotations
