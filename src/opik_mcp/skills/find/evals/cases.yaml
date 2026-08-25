@@ -16,6 +16,8 @@ triggering:
     - "find failing or slow traces"
     - "triage my agent"
     - "surface the traces worth attention"
+    - "which tool calls are failing"
+    - "find traces with bad tool calls"
   should_not_trigger:
     - "explain why this trace failed"              # explain
     - "add opik tracing to my app"                 # instrument

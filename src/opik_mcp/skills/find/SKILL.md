@@ -1,6 +1,6 @@
 ---
 name: find
-description: Surface the Opik traces worth a developer's attention, ranked by signal — errors, latency, regressions, and low online-eval scores — plus Diagnostics issues. Reads live/production traces via the SDK (search_traces and agent_insights) and works with no MCP; uses the MCP issue entity when connected. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
+description: Surface the Opik traces worth a developer's attention, ranked by signal — errors, failed tool calls, latency, regressions, and low online-eval scores — plus Diagnostics issues. Reads live/production traces via the SDK (search_traces and agent_insights) and works with no MCP; uses the MCP issue entity when connected. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "which tool calls are failing", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and a project that has traces. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -47,9 +47,10 @@ traces = client.search_traces(project_name="<project>", max_results=200)  # rece
 ### 3. Rank by signal
 Score each candidate and keep the top few. Priority order:
 1. **Errored** — the trace or a span captured an exception.
-2. **Latency outliers** — duration well above the project's typical (use the p90/p99 as the bar).
-3. **Low online-eval score** — a feedback score below its threshold (Answer Relevance, Hallucination, etc.).
-4. **Regressions** — a signal that worsened versus the prior window.
+2. **Tool-call failures** — a `tool` span errored, returned an error-shaped result, or repeated the same call (a retry loop). Agents fail here often, so surface it as its own signal: use `has_tool_spans` to find candidates, then scan their `tool` spans for a non-empty error, an output that reads like an error/refusal, or duplicate consecutive calls.
+3. **Latency outliers** — duration well above the project's typical (use the p90/p99 as the bar).
+4. **Low online-eval score** — a feedback score below its threshold (Answer Relevance, Hallucination, etc.).
+5. **Regressions** — a signal that worsened versus the prior window.
 
 Give each shortlisted item the one signal that flagged it and a short why. Prefer a short, ranked list over a long one.
 
@@ -68,7 +69,7 @@ When the hosted MCP is connected, the `issue` entity is an equivalent path — a
 Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/evaluate` and `/compare`, not rediscovered here.
 
 ### 6. Report
-Return the ranked shortlist and one next step. Each item is ready for `/explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/explain`) and it changes no code.
+Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID`), never a bare id, so the user can open it and deep-dive. Each item is ready for `/explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/explain`) and it changes no code.
 
 ## Blockers
 
@@ -79,16 +80,16 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 ## Output
 
-**User-facing:** a short human message — the ranked shortlist (trace id + signal + one-line why per item, worst first), then the single next step. Not a raw dump of every trace, not JSON.
+**User-facing:** a short human message — the ranked shortlist (a clickable Opik UI link per trace + its signal + one-line why, worst first), then the single next step. Not a raw dump of every trace, not JSON.
 
 **Underneath** (for composition / evals), one shape:
 - `status`: `found` | `empty` | `blocked`
 - `scope`: `project`, `window`
-- `shortlist`: list of `{trace_id, signal (error|latency|low_score|regression|diagnostics), why, rank}`
+- `shortlist`: list of `{trace_id, trace_url (the Opik UI link), signal (error|tool_call|latency|low_score|regression|diagnostics), why, rank}`
 - `source`: `sdk` | `mcp`
 - `next_step`: exactly one (typically "explain the top trace")
 
-Invariants: `found` carries a non-empty `shortlist`, each item with a `signal` and a `trace_id`; `empty` = the read succeeded but nothing crossed a threshold; `blocked` carries exactly one `next_step`; the shortlist never contains offline experiment results; every path leaves the codebase unchanged.
+Invariants: `found` carries a non-empty `shortlist`, each item with a `signal`, a `trace_id`, and a clickable `trace_url`; `empty` = the read succeeded but nothing crossed a threshold; `blocked` carries exactly one `next_step`; the shortlist never contains offline experiment results; every path leaves the codebase unchanged.
 
 ## Examples
 
@@ -103,6 +104,6 @@ Dumping every trace instead of a ranked shortlist; surfacing offline experiment/
 
 ## References
 
-SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (`search_traces`, Diagnostics/Ollie, online-eval scores, error/latency analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span/score model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
+SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (`search_traces`, Diagnostics, online-eval scores, error/latency analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span/score model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
 
 If the `opik` skill isn't installed, say so in the report and use <https://www.comet.com/docs/opik/> rather than working from memory.
