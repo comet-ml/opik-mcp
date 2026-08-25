@@ -41,38 +41,60 @@ WORK = HERE / "_work"
 TRIG = WORK / "triggering"
 
 DECOY_SKILLS = [
-    {"name": "instrument", "description": "Add Opik tracing to an existing app and "
-     "verify a real trace lands. Installs the package, adds the minimum tracing, runs "
-     "a safe path, confirms a trace. Use to add observability, not to debug one."},
-    {"name": "evaluate", "description": "Build an Opik evaluation and run it against "
-     "your app, returning an experiment with scores. Use to measure quality, run "
-     "experiments, or build test suites."},
-    {"name": "opik", "description": "Reference for how Opik works — tracing concepts, "
-     "SDK/REST/integration options. Use to look up or explain Opik the product, not to "
-     "debug a specific trace."},
-    {"name": "scaffold-app", "description": "Create a brand-new application from scratch "
-     "(for example a new FastAPI or Express service) with project layout and boilerplate."},
-    {"name": "code-review", "description": "Review existing code and report findings "
-     "without changing it — a general read-only audit pass, not tied to a trace."},
+    {
+        "name": "instrument",
+        "description": "Add Opik tracing to an existing app and "
+        "verify a real trace lands. Installs the package, adds the minimum tracing, runs "
+        "a safe path, confirms a trace. Use to add observability, not to debug one.",
+    },
+    {
+        "name": "evaluate",
+        "description": "Build an Opik evaluation and run it against "
+        "your app, returning an experiment with scores. Use to measure quality, run "
+        "experiments, or build test suites.",
+    },
+    {
+        "name": "opik",
+        "description": "Reference for how Opik works — tracing concepts, "
+        "SDK/REST/integration options. Use to look up or explain Opik the product, not to "
+        "debug a specific trace.",
+    },
+    {
+        "name": "scaffold-app",
+        "description": "Create a brand-new application from scratch "
+        "(for example a new FastAPI or Express service) with project layout and boilerplate.",
+    },
+    {
+        "name": "code-review",
+        "description": "Review existing code and report findings "
+        "without changing it — a general read-only audit pass, not tied to a trace.",
+    },
 ]
 
 
 def load_cases() -> dict:
     import yaml
+
     return yaml.safe_load((HERE / "cases.yaml").read_text())
 
 
 def app_cases(cases: dict) -> list[tuple[str, dict]]:
-    return ([("functional", c) for c in cases.get("functional", [])]
-            + [("edge", c) for c in cases.get("edge", [])])
+    return [("functional", c) for c in cases.get("functional", [])] + [
+        ("edge", c) for c in cases.get("edge", [])
+    ]
 
 
 def _emit_trace(wd: Path) -> str | None:
     """Run the fixture to produce a real trace; return its id (or None)."""
     try:
-        out = subprocess.run(["uv", "run", "--quiet", "python", "agent.py"],
-                             cwd=wd, capture_output=True, text=True, timeout=600)
-    except Exception as e:  # noqa: BLE001
+        out = subprocess.run(
+            ["uv", "run", "--quiet", "python", "agent.py"],
+            cwd=wd,
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+    except Exception as e:
         print(f"  ! could not run {wd.name}: {e}")
         return None
     for line in (out.stdout + out.stderr).splitlines():
@@ -95,7 +117,9 @@ def prepare() -> None:
         tid = _emit_trace(wd) if c.get("emit_trace") else None
         (wd / "trace_id.txt").write_text(tid or "")
         prompt = c["prompt"].replace("<TRACE_ID>", tid or "<no-trace-emitted>")
-        lines.append(f"## {c['id']}  ({area})\n- workdir: {wd}\n- trace_id: {tid}\n- prompt: {prompt}\n")
+        lines.append(
+            f"## {c['id']}  ({area})\n- workdir: {wd}\n- trace_id: {tid}\n- prompt: {prompt}\n"
+        )
     (WORK / "PROMPTS.md").write_text("\n".join(lines))
     print(f"Prepared {len(app_cases(cases))} workdirs under {WORK}")
     print(f"Run /explain on each (see {WORK}/PROMPTS.md), have it write result.json, then `grade`.")
@@ -130,6 +154,7 @@ def grade() -> int:
 
 # ---------- triggering (selection_accuracy) ----------
 
+
 def _instrument_description() -> str:
     fm = SKILL.read_text().split("---")[1]
     m = re.search(r"^description:\s*(.+)$", fm, re.M)
@@ -139,22 +164,36 @@ def _instrument_description() -> str:
 def trigger_prepare() -> None:
     trig = load_cases().get("triggering", {})
     TRIG.mkdir(parents=True, exist_ok=True)
-    menu = [{"name": "explain", "description": _instrument_description()}] + DECOY_SKILLS
-    phrases = ([{"phrase": p, "expect": "explain"} for p in trig.get("should_trigger", [])]
-               + [{"phrase": p, "expect": "not-explain"} for p in trig.get("should_not_trigger", [])])
+    menu = [{"name": "explain", "description": _instrument_description()}, *DECOY_SKILLS]
+    phrases = [{"phrase": p, "expect": "explain"} for p in trig.get("should_trigger", [])] + [
+        {"phrase": p, "expect": "not-explain"} for p in trig.get("should_not_trigger", [])
+    ]
     (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
-    lines = ["# Triggering judge input", "",
-             "For EACH user phrase below, pick the ONE skill from the menu whose",
-             "description best fits the request, or `none` if no skill fits. Judge",
-             "only from the descriptions.", "", "## Skill menu", ""]
+    lines = [
+        "# Triggering judge input",
+        "",
+        "For EACH user phrase below, pick the ONE skill from the menu whose",
+        "description best fits the request, or `none` if no skill fits. Judge",
+        "only from the descriptions.",
+        "",
+        "## Skill menu",
+        "",
+    ]
     lines += [f"- **{s['name']}**: {s['description']}" for s in menu]
     lines += ["", "## Phrases", ""]
     lines += [f"{i + 1}. {p['phrase']}" for i, p in enumerate(phrases)]
-    lines += ["", "## Output", "",
-              'Return STRICT JSON only: {"verdicts": {"<exact phrase>": "<skill-name-or-none>"}}']
+    lines += [
+        "",
+        "## Output",
+        "",
+        'Return STRICT JSON only: {"verdicts": {"<exact phrase>": "<skill-name-or-none>"}}',
+    ]
     (TRIG / "judge_input.md").write_text("\n".join(lines))
     print(f"Wrote {TRIG / 'judge_input.md'} ({len(phrases)} phrases, {len(menu)} skills).")
-    print(f"Have a judge panel classify each, write {TRIG / 'verdicts.json'} = {{phrase: skill}}, then: trigger-grade")
+    print(
+        f"Have a judge panel classify each, write {TRIG / 'verdicts.json'} = "
+        "{phrase: skill}, then: trigger-grade"
+    )
 
 
 def trigger_grade() -> int:
@@ -169,9 +208,13 @@ def trigger_grade() -> int:
     m = metrics.compute([], triggering={"should_trigger": st, "should_not_trigger": sn})
     lines = ["# /explain triggering report", ""]
     for p, did in st.items():
-        lines.append(f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}")
+        lines.append(
+            f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}"
+        )
     for p, did in sn.items():
-        lines.append(f"[{'PASS' if not did else 'FAIL'}] should_not_trigger: {p!r} -> {verdicts.get(p)}")
+        lines.append(
+            f"[{'PASS' if not did else 'FAIL'}] should_not_trigger: {p!r} -> {verdicts.get(p)}"
+        )
     lines += ["", f"selection_accuracy: {m.get('selection_accuracy')}"]
     print("\n".join(lines))
     return 0 if m.get("selection_accuracy") == 1.0 else 1
@@ -186,11 +229,13 @@ def main() -> int:
     sub.add_parser("trigger-grade", help="score verdicts.json -> selection_accuracy")
     args = ap.parse_args()
     if args.cmd == "prepare":
-        prepare(); return 0
+        prepare()
+        return 0
     if args.cmd == "grade":
         return grade()
     if args.cmd == "trigger-prepare":
-        trigger_prepare(); return 0
+        trigger_prepare()
+        return 0
     if args.cmd == "trigger-grade":
         return trigger_grade()
     return 2

@@ -2,6 +2,7 @@
 
 Run it to produce a trace that /explain should be able to root-cause.
 """
+
 import opik
 from opik import opik_context
 

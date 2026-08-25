@@ -2,6 +2,7 @@
 
 Run it to produce a trace that /explain should root-cause as a latency problem.
 """
+
 import time
 
 import opik

@@ -15,8 +15,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-IGNORE = {".venv", "__pycache__", "uv.lock", ".python-version", ".git",
-          "result.json", "trace_id.txt"}
+IGNORE = {
+    ".venv",
+    "__pycache__",
+    "uv.lock",
+    ".python-version",
+    ".git",
+    "result.json",
+    "trace_id.txt",
+}
 VALID_STATUS = {"explained", "blocked", "not_found"}
 
 
@@ -61,8 +68,9 @@ def _evidence_text(result: dict) -> str:
     return " ".join(names).lower()
 
 
-def grade_case(case: dict, fixture: Path, workdir: Path,
-               result: dict | None, area: str = "functional") -> CaseResult:
+def grade_case(
+    case: dict, fixture: Path, workdir: Path, result: dict | None, area: str = "functional"
+) -> CaseResult:
     a = case.get("assert", {})
     result = result or {}
     checks: dict[str, tuple[bool, str]] = {}
@@ -78,14 +86,20 @@ def grade_case(case: dict, fixture: Path, workdir: Path,
     if a.get("root_cause_any"):
         rc = str(result.get("root_cause", "")).lower()
         hit = [k for k in a["root_cause_any"] if k.lower() in rc]
-        add("root_cause", bool(hit),
-            f"matched {hit}" if hit else f"none of {a['root_cause_any']} in root_cause")
+        add(
+            "root_cause",
+            bool(hit),
+            f"matched {hit}" if hit else f"none of {a['root_cause_any']} in root_cause",
+        )
 
     if a.get("evidence_span_any"):
         text = _evidence_text(result)
         hit = [k for k in a["evidence_span_any"] if k.lower() in text]
-        add("evidence", bool(hit),
-            f"matched {hit}" if hit else f"none of {a['evidence_span_any']} in evidence")
+        add(
+            "evidence",
+            bool(hit),
+            f"matched {hit}" if hit else f"none of {a['evidence_span_any']} in evidence",
+        )
 
     if a.get("one_next_step"):
         ns = result.get("next_step")
@@ -93,8 +107,11 @@ def grade_case(case: dict, fixture: Path, workdir: Path,
         add("one_next_step", ok, f"next_step={ns!r}")
 
     if a.get("reasoner_valid"):
-        add("reasoner_valid", result.get("reasoner") in {"agent", "ollie"},
-            f"reasoner={result.get('reasoner')}")
+        add(
+            "reasoner_valid",
+            result.get("reasoner") in {"agent", "ollie"},
+            f"reasoner={result.get('reasoner')}",
+        )
 
     if a.get("no_modifications"):
         ch = _changed(fixture, workdir)
