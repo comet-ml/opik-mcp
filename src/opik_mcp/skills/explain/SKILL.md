@@ -1,6 +1,6 @@
 ---
 name: explain
-description: Root-cause a specific Opik trace, or a pattern across traces, and return a grounded explanation. Fetches the trace and its spans via the SDK, reasons over them against your code, and returns the root cause, the evidence spans, and one suggested next step. Works with no MCP; when the hosted MCP is connected, it can optionally hand off to Ollie. Use for "why did this trace fail", "explain this trace", "debug this trace", "why is my agent slow or wrong". Not for adding tracing to an app (use the instrument skill) or for changing code.
+description: Root-cause a specific Opik trace, or a pattern across traces, and return a grounded explanation. Fetches the trace and its spans via the SDK, reasons over them against your code, and returns the root cause, the evidence spans, one suggested next step, and a clickable link to the trace in the Opik UI. Use for "why did this trace fail", "explain this trace", "debug this trace", "why is my agent slow or wrong". Not for adding tracing to an app (use the instrument skill) or for changing code.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and at least one trace. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -34,8 +34,8 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 - A **behavior/pattern** ("hallucinations since the prompt change", "slow responses"): search for the matching set (below), then explain the shared cause.
 - Confirm Opik is reachable: if `~/.opik.config` exists or `OPIK_API_KEY` is set, use it. Otherwise → **Blocker** ("run `opik configure`, then rerun").
 
-### 2. Fetch the trace and spans (SDK-first)
-The SDK is the primary path and needs no MCP. Fetch, then read every span's input/output/error/duration.
+### 2. Fetch the trace and spans (via the SDK)
+Fetch with the SDK, then read every span's input/output/error/duration.
 
 ```python
 import opik
@@ -62,11 +62,8 @@ This is the core, and the coding agent does it directly — it has the one thing
 - Read its input and output, then open the code that produced it (the decorated function, the prompt, the tool). Grep the repo for the span name / function.
 - State the **single most-likely root cause** and the evidence for it: the specific span(s), the input that triggered it, and the code or prompt at fault. Prefer one well-evidenced cause over a list of maybes.
 
-### 4. (Optional) Hand off to Ollie — only when it adds something
-When the hosted MCP is connected, `ask_ollie` is an **alternative** reasoner (the only capability with no SDK path). Offer it, don't depend on it. It reasons over the trace but **lacks your repo context**, so for a single trace the repo-grounded analysis above is usually stronger; reach for Ollie mainly to cross-check a hard case or to summarize a broad pattern. The output shape is the same either way.
-
-### 5. Report
-Return the root cause, the evidence spans, and one next step (see **Output**). If a fix is obvious, name it as the next step; do not apply it (this skill changes no code — handing off to `instrument`/`test` or the developer is the next step).
+### 4. Report
+Return the root cause, the evidence spans **as clickable Opik UI links** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID` — never a bare id), and one next step (see **Output**). If a fix is obvious, name it as the next step; do not apply it (this skill changes no code — handing off to `instrument`/`test` or the developer is the next step).
 
 ## Blockers
 
@@ -78,15 +75,14 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 ## Output
 
-**User-facing:** a short human message — the root cause in one or two sentences, the evidence spans (names + why each matters), and the single next step. Not a raw trace dump, not JSON.
+**User-facing:** a short human message — the root cause in one or two sentences, the evidence spans as clickable Opik UI links (name + why each matters), and the single next step. Not a raw trace dump, not JSON.
 
-**Underneath** (for composition / evals), one shape regardless of SDK-vs-Ollie path:
+**Underneath** (for composition / evals), one shape:
 - `status`: `explained` | `blocked` | `not_found`
-- `target`: `trace_id` (or the pattern + `trace_ids` sampled)
+- `target`: `trace_id` + `trace_url` (the Opik UI link; for a pattern, the `trace_ids` + `trace_urls` sampled)
 - `root_cause`: one grounded statement
-- `evidence`: `spans` (each: `id`/`name`, `type`, why it's evidence)
+- `evidence`: `spans` (each: `name`, `type`, a `trace_url` deep-link where available, why it's evidence)
 - `next_step`: exactly one
-- `reasoner`: `agent` | `ollie` (which produced it)
 
 Invariants: `explained` must carry a `root_cause` **and** at least one evidence span; `blocked`/`not_found` carry exactly one `next_step`; every path leaves the codebase unchanged.
 
@@ -99,10 +95,10 @@ Invariants: `explained` must carry a `root_cause` **and** at least one evidence 
 **Blocked — bad id.** `/explain 123`. `get_trace_content` finds nothing. → **`not_found`**: "No trace `123` in project `X` — confirm the id/project and rerun." (No code touched.)
 
 ## Anti-patterns
-Dumping the span tree without naming a cause; guessing a cause without reading the anchor span's input/output; listing five maybes instead of the one best-evidenced cause; recommending Ollie when repo-grounded analysis already answers it; **editing code** (this skill explains; `instrument`/`test` or the developer make changes); calling `.project_name` on a `TracePublic` (it raises — use `project_id`).
+Dumping the span tree without naming a cause; guessing a cause without reading the anchor span's input/output; listing five maybes instead of the one best-evidenced cause; returning bare span/trace ids instead of clickable Opik UI links; **editing code** (this skill explains; `instrument`/`test` or the developer make changes); calling `.project_name` on a `TracePublic` (it raises — use `project_id`).
 
 ## References
 
-SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (Ollie, `search_traces`, error/latency/cost analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span-type model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
+SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (`search_traces`, error/latency/cost analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span-type model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
 
 If the `opik` skill isn't installed, say so in the report and use <https://www.comet.com/docs/opik/> rather than working from memory.

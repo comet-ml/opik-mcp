@@ -35,7 +35,6 @@ functional:
       root_cause_any: [retrieve, "docs.get", lookup, filter, empty, "no relevant docs", keyword, key]
       evidence_span_any: [retrieve]
       one_next_step: true
-      reasoner_valid: true
       no_modifications: true
 
   - id: latency
@@ -48,7 +47,6 @@ functional:
       root_cause_any: [fetch_context, sleep, slow, latency, blocks, block, "3 s", "3s", "3000", "3001"]
       evidence_span_any: [fetch_context]
       one_next_step: true
-      reasoner_valid: true
       no_modifications: true
 
 edge:
