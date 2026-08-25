@@ -7,6 +7,7 @@ normal:[...]}} so the grader knows which trace ids SHOULD and SHOULD NOT appear
 in the shortlist.
 """
 
+import contextlib
 import json
 import os
 import time
@@ -55,10 +56,8 @@ if __name__ == "__main__":
     normal("b")
     slow("c")
     lowscore("d")
-    try:
+    with contextlib.suppress(Exception):
         erroring("e")
-    except Exception:
-        pass
     opik.flush_tracker()
     time.sleep(4)  # let ingestion settle before the skill queries
     out = {"project": PROJECT, "roles": roles}
