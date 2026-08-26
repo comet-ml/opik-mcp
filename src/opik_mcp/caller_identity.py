@@ -24,7 +24,7 @@ import logging
 
 from opik_mcp.account_identity import resolve_api_key_identity
 from opik_mcp.auth_context import classify_bearer, inbound_authorization
-from opik_mcp.config import Settings
+from opik_mcp.config import Settings, installation_type
 from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
 
 logger = logging.getLogger("opik_mcp.caller_identity")
@@ -36,17 +36,59 @@ def caller_identity(settings: Settings) -> ResolvedIdentity | None:
     Never raises and never blocks: identity is a telemetry nicety, and the call
     it describes must not be affected by it in any way.
     """
+    return caller_identity_with_outcome(settings)[0]
+
+
+def caller_identity_with_outcome(settings: Settings) -> tuple[ResolvedIdentity | None, str]:
+    """The caller's identity AND why it came out that way.
+
+    The second element feeds the ``identity_lookup`` BI field, and it exists
+    because ``None`` has two meanings that must never be summed:
+
+    - Nobody presented a credential, so anonymity is correct. Local and
+      self-hosted Opik run with auth disabled by design.
+    - A credential WAS presented and we still could not resolve it. That is a
+      defect, and it is the number that says whether hosted identity works.
+
+    Both previously emitted ``user_id_kind='install_id'`` and were therefore
+    indistinguishable in the warehouse — which is exactly why a hosted deploy
+    could not be verified from its own telemetry.
+
+    One honest imprecision on the settings-API-key path: resolution is
+    asynchronous, so the first events of a fresh cloud process can report "miss"
+    while the background refresh is still in flight. It self-corrects within the
+    session. Read "miss" per transport rather than fleet-wide.
+    """
     try:
         inbound_auth = inbound_authorization.get()
         if inbound_auth:
             _mode, token = classify_bearer(inbound_auth)
-            # Only an OAuth bearer has an identity we could have resolved; a
-            # forwarded API-key-shaped credential is opaque to us.
-            return lookup_identity(token) if token else None
-        return resolve_api_key_identity(settings)
+            if not token:
+                # An API-key-shaped credential forwarded to this server. A
+                # credential was presented and we cannot resolve it at all —
+                # there is no inbound-API-key resolution path today. A miss, not
+                # by-design anonymity, and on a hosted server it is the reason
+                # api-key callers can never be counted as people.
+                return (None, "miss")
+            identity = lookup_identity(token)
+            if identity is not None and identity.user_name:
+                return (identity, "resolved")
+            # The handshake should have stored this. It did not: introspection
+            # failed, the pod restarted and emptied the store, or the LRU evicted
+            # a live credential.
+            return (None, "miss")
+
+        identity = resolve_api_key_identity(settings)
+        if identity is not None and identity.user_name:
+            return (identity, "resolved")
+        if not settings.opik_api_key or installation_type(settings) != "cloud":
+            # No credential, or a deployment with no account-details endpoint to
+            # ask. Anonymous by construction, not by failure.
+            return (None, "none_expected")
+        return (None, "miss")
     except Exception:
         logger.debug("caller identity resolution failed", exc_info=True)
-        return None
+        return (None, "miss")
 
 
-__all__ = ["caller_identity"]
+__all__ = ["caller_identity", "caller_identity_with_outcome"]

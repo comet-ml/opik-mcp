@@ -28,7 +28,12 @@ from opik_mcp.auth_context import (
     inbound_workspace,
 )
 from opik_mcp.config import Settings
-from opik_mcp.credential_identity import credential_digest, remember_session
+from opik_mcp.credential_identity import (
+    ResolvedIdentity,
+    credential_digest,
+    remember_identity,
+    remember_session,
+)
 
 # Canaries: unique, greppable values that must never appear raw in an event.
 RAW_OAUTH_TOKEN = f"{OAUTH_ACCESS_TOKEN_PREFIX}BEARER-CANARY-TOKEN-UNIQUE-7a3b2c1d"
@@ -431,3 +436,106 @@ def test_an_unpaired_credential_gets_no_session_digest(make_client: Any) -> None
     with _inbound(auth="Bearer opik_mcp_at_someone_else", mcp_session_id=None):
         event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
     assert "mcp_session_sha256" not in event["event_properties"]
+
+
+# --- install_id_kind + identity_lookup ------------------------------------- #
+#
+# Both exist because the hosted deploy could not be verified from its own
+# telemetry. Every hosted event reported `user_id_kind='install_id'` with the nil
+# sentinel as the value, which is indistinguishable from a laptop running
+# open-source Opik with auth disabled. These two fields separate those cases.
+
+
+def test_install_id_kind_reports_a_real_on_disk_id(make_client: Any) -> None:
+    client = make_client()
+    event = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})
+    assert event["event_properties"]["install_id_kind"] == "file"
+
+
+def test_install_id_kind_flags_the_shared_nil_sentinel(
+    make_client: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The sentinel is a SHARED id, not a missing one.
+
+    Two deployments with an unwritable HOME report the SAME install_id, so
+    unrelated installs merge into one counted row. A tile that counts installs
+    has to be able to exclude these.
+    """
+    from opik_mcp.analytics import identity as ident
+
+    monkeypatch.setattr(ident, "_get_install_id", lambda: (ident._FALLBACK_INSTALL_ID, False))
+    client = make_client()
+    props = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})["event_properties"]
+
+    assert props["install_id_kind"] == "fallback"
+    # install_id itself is UNCHANGED, so no existing dashboard moves.
+    assert props["install_id"] == ident._FALLBACK_INSTALL_ID
+
+
+def test_identity_lookup_says_resolved_when_a_user_is_known(make_client: Any) -> None:
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}resolved-token"
+    remember_identity(
+        token,
+        ResolvedIdentity(user_name="awkoy", workspace_name="acme", workspace_id=None),
+    )
+    client = make_client()
+    with _inbound(auth=f"Bearer {token}"):
+        props = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})[
+            "event_properties"
+        ]
+    assert props["user_id_kind"] == "comet_user"
+    assert props["identity_lookup"] == "resolved"
+
+
+def test_an_unresolved_oauth_bearer_is_a_miss_not_by_design_anonymity(make_client: Any) -> None:
+    """THE HOSTED SIGNAL. A credential was presented and we resolved nothing.
+
+    This is the case that was invisible: it reported install_id, exactly like a
+    credential-less local install, so "hosted identity is broken" and "hosted is
+    working as designed" produced identical telemetry.
+    """
+    client = make_client()
+    with _inbound(auth=f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}never-stored"):
+        props = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})[
+            "event_properties"
+        ]
+    assert props["user_id_kind"] == "install_id"
+    assert props["identity_lookup"] == "miss"
+
+
+def test_a_forwarded_api_key_on_a_hosted_server_is_a_miss(make_client: Any) -> None:
+    """There is no inbound-API-key resolution path, so these can never be people.
+
+    Counted as a miss rather than expected-anonymous, because a credential WAS
+    presented — the gap is ours, not the caller's.
+    """
+    client = make_client()
+    with _inbound(auth="Bearer sk-some-forwarded-api-key"):
+        props = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})[
+            "event_properties"
+        ]
+    assert props["identity_lookup"] == "miss"
+
+
+def test_no_credential_at_all_is_expected_anonymity(make_client: Any) -> None:
+    """~60% of tool calls. Anonymous by design, and must not inflate the miss rate."""
+    client = make_client(opik_api_key="")
+    with _inbound(auth=None):
+        props = client._build_event("opik_mcp_tool_called", {"tool_name": "read"})[
+            "event_properties"
+        ]
+    assert props["identity_lookup"] == "none_expected"
+
+
+def test_new_kind_fields_are_stamped_on_every_event(make_client: Any) -> None:
+    """Both must be present wherever user_id_kind is, or a total silently misses rows."""
+    client = make_client()
+    for event_type in (
+        "opik_mcp_server_started",
+        "opik_mcp_tools_listed",
+        "opik_mcp_tool_called",
+        "opik_mcp_server_shutdown",
+    ):
+        props = client._build_event(event_type, {})["event_properties"]
+        assert "install_id_kind" in props, event_type
+        assert "identity_lookup" in props, event_type
