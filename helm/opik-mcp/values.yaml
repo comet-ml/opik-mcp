@@ -66,6 +66,12 @@ env:
   OPIK_MCP_HOST: "0.0.0.0"
   OPIK_MCP_PORT: "8080"
   OPIK_MCP_LOG_LEVEL: "INFO"
+  # ask_ollie is opt-in and hidden by default everywhere else, because it cannot
+  # work without a Comet cloud credential and does not exist on-prem — so
+  # advertising it to those agents only teaches them the integration is
+  # unreliable. Comet-hosted runs against Comet cloud, so it opts in here.
+  # Set to "disabled" to pull the tool from tools/list without a code change.
+  OPIK_MCP_ASK_OLLIE: "enabled"
   # COMET_URL_OVERRIDE: "https://www.comet.com"
   # OPIK_URL: ""
 

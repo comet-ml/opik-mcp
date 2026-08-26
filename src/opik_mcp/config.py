@@ -194,6 +194,26 @@ class Settings(BaseSettings):
     # auto-approval on when the user thought they opted out.
     opik_mcp_auto_approve: Literal["enabled", "disabled"] = "enabled"
 
+    # ask_ollie is OPT-IN, and defaults to "disabled" so the tool is not even
+    # advertised unless a deployment asks for it. Measured over 30 days, this
+    # tool failed 90.6% of the time for real MCP callers (466 calls, 168
+    # installs, 44 successes), and two large slices of that CANNOT succeed
+    # whatever we do:
+    #
+    #   * no credential at all -> MissingConfigError before any network call.
+    #     120 calls, 60 installs, ZERO successes. Local and open-source Opik run
+    #     with auth disabled by design, so those users are structurally excluded.
+    #   * on-prem -> OllieNotAvailableError. Ollie is a Comet cloud service;
+    #     there is nothing to reach. 28 calls, ZERO successes.
+    #
+    # Advertising a tool to agents that cannot possibly work spends the user's
+    # goodwill and teaches them the integration is unreliable, so the default is
+    # to hide it rather than to let them discover the failure at call time.
+    # Comet-hosted deployments opt in through the Helm chart (see
+    # helm/opik-mcp/values.yaml). Validated strictly, like opik_mcp_auto_approve,
+    # so a typo fails loudly at startup instead of silently leaving it hidden.
+    opik_mcp_ask_ollie: Literal["enabled", "disabled"] = "disabled"
+
     # Maximum seconds to wait for the user to answer an elicitation prompt
     # (currently used only by `ask_ollie` mid-stream tool-call confirms).
     # Timeout is treated as a deny — the safer default; the user can always

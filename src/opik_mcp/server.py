@@ -1148,7 +1148,34 @@ def install_session_instructions(server: FastMCP) -> None:
     lowlevel.create_initialization_options = create_initialization_options  # type: ignore[method-assign]
 
 
+def apply_tool_visibility(mcp_instance: Any) -> None:
+    """Unregister opt-in tools this deployment has not enabled.
+
+    Removal, not a runtime error: the tool disappears from ``tools/list``, so an
+    agent never sees it and cannot try it. Refusing at call time would still let
+    the host advertise it, and the whole point is that an agent should not spend
+    a turn discovering that a tool cannot work here.
+
+    Currently governs ``ask_ollie`` only, which is opt-in because it is
+    unusable without a Comet cloud credential and absent entirely on-prem. See
+    ``Settings.opik_mcp_ask_ollie`` for the measurements behind that default.
+
+    Idempotent and non-fatal: called from both the stdio and HTTP startup paths,
+    and a missing tool is fine — ``remove_tool`` raises ``ToolError`` if the name
+    is already gone, which must never take down a server over a tool we did not
+    want anyway.
+    """
+    if get_settings().opik_mcp_ask_ollie == "enabled":
+        return
+    try:
+        mcp_instance.remove_tool("ask_ollie")
+        logger.info("ask_ollie disabled (OPIK_MCP_ASK_OLLIE=disabled); tool not advertised")
+    except Exception:
+        logger.debug("ask_ollie already absent from the tool registry", exc_info=True)
+
+
 def build_app() -> ASGIApp:
+    apply_tool_visibility(mcp)
     install_tools_listed_emitter(mcp)
     install_session_instructions(mcp)
     s = get_settings()
