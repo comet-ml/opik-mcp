@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # mypy: ignore-errors
-"""Test-automation harness for the `/find` skill.
+"""Test-automation harness for the `/diagnose` skill.
 
 Flows:
 
   1. Manual (default):
         uv run --with pyyaml python run_evals.py prepare   # seed a project with known traces
-        # ...run the /find skill on the project named in _work/triage/PROMPT.txt;
+        # ...run the /diagnose skill on the project named in _work/triage/PROMPT.txt;
         #    it should write result.json = {status, scope, shortlist, source, next_step}...
         uv run --with pyyaml python run_evals.py grade     # score shortlist vs planted ids
 
@@ -112,7 +112,7 @@ def prepare() -> None:
         lines.append(f"## {c['id']}\n- workdir: {wd}\n- project: {project}\n- prompt: {prompt}\n")
     (WORK / "PROMPTS.md").write_text("\n".join(lines))
     print(f"Prepared {len(functional(cases))} workdir(s) under {WORK}")
-    print("Run /find on the project in each PROMPT.txt, write result.json, then `grade`.")
+    print("Run /diagnose on the project in each PROMPT.txt, write result.json, then `grade`.")
 
 
 def _read_json(wd: Path, name: str) -> dict | None:
@@ -155,9 +155,9 @@ def _skill_description() -> str:
 def trigger_prepare() -> None:
     trig = load_cases().get("triggering", {})
     TRIG.mkdir(parents=True, exist_ok=True)
-    menu = [{"name": "find", "description": _skill_description()}, *DECOY_SKILLS]
-    phrases = [{"phrase": p, "expect": "find"} for p in trig.get("should_trigger", [])] + [
-        {"phrase": p, "expect": "not-find"} for p in trig.get("should_not_trigger", [])
+    menu = [{"name": "diagnose", "description": _skill_description()}, *DECOY_SKILLS]
+    phrases = [{"phrase": p, "expect": "diagnose"} for p in trig.get("should_trigger", [])] + [
+        {"phrase": p, "expect": "not-diagnose"} for p in trig.get("should_not_trigger", [])
     ]
     (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
     lines = [
@@ -192,8 +192,8 @@ def trigger_grade() -> int:
         return 2
     verdicts = json.loads(f.read_text())
     trig = load_cases().get("triggering", {})
-    st = {p: (verdicts.get(p) == "find") for p in trig.get("should_trigger", [])}
-    sn = {p: (verdicts.get(p) == "find") for p in trig.get("should_not_trigger", [])}
+    st = {p: (verdicts.get(p) == "diagnose") for p in trig.get("should_trigger", [])}
+    sn = {p: (verdicts.get(p) == "diagnose") for p in trig.get("should_not_trigger", [])}
     m = metrics.compute([], triggering={"should_trigger": st, "should_not_trigger": sn})
     for p, did in st.items():
         print(f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}")
@@ -204,7 +204,7 @@ def trigger_grade() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Eval harness for the /find skill")
+    ap = argparse.ArgumentParser(description="Eval harness for the /diagnose skill")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("prepare", help="seed a project with known traces")
     sub.add_parser("grade", help="grade result.json shortlist vs planted ids")
