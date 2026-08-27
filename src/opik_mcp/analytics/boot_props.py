@@ -169,6 +169,11 @@ def server_started_props(
     return {
         "transport": settings.opik_mcp_transport.lower(),
         "analytics_enabled": str(settings.opik_mcp_analytics_enabled).lower(),
+        # Whether ask_ollie is advertised at all. Opt-in and default-off, so
+        # this is how we confirm a deployment's chart/env actually took effect
+        # instead of inferring it from an absence of calls — an absence that
+        # looks identical to "nobody tried it".
+        "ask_ollie_enabled": str(settings.opik_mcp_ask_ollie_enabled).lower(),
         "has_workspace": str(settings.comet_workspace is not None).lower(),
         "has_api_key": str(settings.opik_api_key is not None).lower(),
         "has_default_project": str(settings.opik_default_project_name is not None).lower(),

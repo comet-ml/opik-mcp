@@ -345,8 +345,9 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # speaks MCP over stdin/stdout. No port, no inbound auth, no uvicorn —
         # whoever can spawn the process already owns its stdio.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
-        from opik_mcp.server import mcp
+        from opik_mcp.server import apply_tool_visibility, mcp
 
+        apply_tool_visibility(mcp)
         install_tools_listed_emitter(mcp)
         logger.info("startup transport=stdio")
         mcp.run(transport="stdio")

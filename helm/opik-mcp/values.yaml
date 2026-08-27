@@ -66,6 +66,10 @@ env:
   OPIK_MCP_HOST: "0.0.0.0"
   OPIK_MCP_PORT: "8080"
   OPIK_MCP_LOG_LEVEL: "INFO"
+  # ask_ollie is off everywhere, hosted included; set explicitly so the chart
+  # states the decision. Do not enable it by setting OPIK_API_KEY here - that
+  # would run every user's Ollie session on one operator credential.
+  OPIK_MCP_ASK_OLLIE_ENABLED: "false"
   # COMET_URL_OVERRIDE: "https://www.comet.com"
   # OPIK_URL: ""
 
