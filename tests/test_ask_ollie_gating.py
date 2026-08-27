@@ -1,17 +1,8 @@
-"""``ask_ollie`` is opt-in, and hidden rather than merely refused.
+"""``ask_ollie`` is off everywhere and hidden, not merely refused.
 
-Why hidden: measured over 30 days it failed 90.6% of the time for real MCP
-callers, and two slices of that CANNOT succeed however the backend behaves — a
-caller with no credential fails in the config phase before any network call (120
-calls, 60 installs, zero successes), and an on-prem deployment has no Ollie to
-reach (28 calls, zero successes). Refusing at call time would still leave the
-host advertising the tool, so an agent spends a turn discovering it cannot work.
-Removing it from ``tools/list`` means the agent never sees it.
-
-These tests exist because the gate is applied at STARTUP, not at import: the
-tool registers unconditionally via ``@mcp.tool()`` and is unregistered by
-``apply_tool_visibility``. A test that only imports the module would therefore
-pass whether or not the gate works at all.
+The gate runs at STARTUP, not import: the tool registers via ``@mcp.tool()`` and
+is unregistered by ``apply_tool_visibility``. A test that only imports the module
+would pass whether or not the gate works.
 """
 
 from __future__ import annotations
@@ -30,11 +21,7 @@ def _tool_names() -> set[str]:
 
 @pytest.fixture(autouse=True)
 def _restore_tool_registry() -> object:
-    """Re-register whatever the test removed.
-
-    ``mcp`` is module-level and shared, so a test that unregisters a tool would
-    otherwise leak that removal into every test that runs after it.
-    """
+    """``mcp`` is module-level, so a removal would leak into every later test."""
     saved = dict(server.mcp._tool_manager._tools)
     yield
     server.mcp._tool_manager._tools.clear()
@@ -42,7 +29,6 @@ def _restore_tool_registry() -> object:
 
 
 def test_ask_ollie_is_hidden_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """THE DEFAULT. No opt-in means the agent never sees the tool."""
     monkeypatch.setattr(server, "get_settings", lambda: Settings())
     assert "ask_ollie" in _tool_names(), "precondition: registered at import"
 
@@ -51,13 +37,10 @@ def test_ask_ollie_is_hidden_by_default(monkeypatch: pytest.MonkeyPatch) -> None
     assert "ask_ollie" not in _tool_names()
 
 
-def test_an_explicit_opt_in_keeps_the_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The kill switch is reversible.
-
-    Nothing we ship sets this today — hosted included — but the toggle has to
-    actually restore the tool, or it is a deletion wearing a flag's clothes.
-    """
-    monkeypatch.setattr(server, "get_settings", lambda: Settings(opik_mcp_ask_ollie="enabled"))
+def test_the_switch_is_reversible(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nothing ships with this on, but it must still restore the tool -
+    otherwise it is a deletion wearing a flag's clothes."""
+    monkeypatch.setattr(server, "get_settings", lambda: Settings(opik_mcp_ask_ollie_enabled=True))
 
     server.apply_tool_visibility(server.mcp)
 
@@ -65,7 +48,6 @@ def test_an_explicit_opt_in_keeps_the_tool(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_no_other_tool_is_disturbed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The gate governs exactly one tool; the rest of the surface is untouched."""
     monkeypatch.setattr(server, "get_settings", lambda: Settings())
     before = _tool_names()
 
@@ -75,40 +57,40 @@ def test_no_other_tool_is_disturbed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_applying_the_gate_twice_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both startup paths call it, and ``remove_tool`` raises on an unknown name.
-
-    A server must never fail to boot over a tool we did not want anyway.
-    """
+    """Both startup paths call it, and ``remove_tool`` raises on an unknown name."""
     monkeypatch.setattr(server, "get_settings", lambda: Settings())
 
     server.apply_tool_visibility(server.mcp)
-    server.apply_tool_visibility(server.mcp)  # must be a no-op, not a crash
+    server.apply_tool_visibility(server.mcp)
 
     assert "ask_ollie" not in _tool_names()
 
 
-def test_a_typo_fails_loudly_instead_of_silently_hiding_the_tool() -> None:
-    """ "disable" / "off" must not be read as an opt-in OR a silent opt-out."""
-    for typo in ("disable", "off", "true", "ENABLED "):
+def test_the_old_string_spelling_fails_loudly() -> None:
+    """This setting used to be Literal["enabled", "disabled"].
+
+    As a bool those values are rejected, so a config carried over from the old
+    spelling errors at startup instead of being silently read as false.
+    """
+    for stale in ("enabled", "disabled", "enable"):
         with pytest.raises(ValidationError):
-            Settings(opik_mcp_ask_ollie=typo)  # type: ignore[arg-type]
+            Settings(opik_mcp_ask_ollie_enabled=stale)  # type: ignore[arg-type]
+
+
+def test_env_var_forms_map_the_safe_way() -> None:
+    """A truthy value must be deliberate; the vague ones must land on off."""
+    assert Settings(opik_mcp_ask_ollie_enabled="true").opik_mcp_ask_ollie_enabled is True  # type: ignore[arg-type]
+    for falsey in ("false", "0", "no", "off"):
+        assert Settings(opik_mcp_ask_ollie_enabled=falsey).opik_mcp_ask_ollie_enabled is False  # type: ignore[arg-type]
 
 
 def test_the_boot_event_reports_whether_the_tool_is_advertised() -> None:
-    """Otherwise a chart that failed to apply looks like a chart nobody used.
-
-    "No ask_ollie calls" is ambiguous between "disabled" and "enabled but
-    untouched"; this flag separates them, which is what makes the hosted
-    rollout verifiable.
-    """
+    """Otherwise "no ask_ollie calls" cannot be told from "tool was hidden"."""
 
     def props(settings: Settings) -> dict[str, str]:
         return boot_props.server_started_props(
             settings, fingerprint_props={}, lifecycle_source="main"
         )
 
-    off = props(Settings())
-    on = props(Settings(opik_mcp_ask_ollie="enabled"))
-
-    assert off["ask_ollie_enabled"] == "false"
-    assert on["ask_ollie_enabled"] == "true"
+    assert props(Settings())["ask_ollie_enabled"] == "false"
+    assert props(Settings(opik_mcp_ask_ollie_enabled=True))["ask_ollie_enabled"] == "true"

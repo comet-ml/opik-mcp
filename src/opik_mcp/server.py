@@ -1149,28 +1149,19 @@ def install_session_instructions(server: FastMCP) -> None:
 
 
 def apply_tool_visibility(mcp_instance: Any) -> None:
-    """Unregister opt-in tools this deployment has not enabled.
+    """Unregister tools this deployment has not enabled.
 
     Removal, not a runtime error: the tool disappears from ``tools/list``, so an
-    agent never sees it and cannot try it. Refusing at call time would still let
-    the host advertise it, and the whole point is that an agent should not spend
-    a turn discovering that a tool cannot work here.
+    agent never sees it and cannot spend a turn discovering it does not work.
 
-    Currently governs ``ask_ollie`` only, which as of 2026-08-27 is off in every
-    deployment we ship, hosted included — it failed 90.6% of calls and three
-    whole populations could never succeed. See ``Settings.opik_mcp_ask_ollie``
-    for the measurements and for what to fix before re-enabling it.
-
-    Idempotent and non-fatal: called from both the stdio and HTTP startup paths,
-    and a missing tool is fine — ``remove_tool`` raises ``ToolError`` if the name
-    is already gone, which must never take down a server over a tool we did not
-    want anyway.
+    Governs ``ask_ollie`` only. Idempotent and non-fatal — both startup paths
+    call it, and ``remove_tool`` raises on a name that is already gone.
     """
-    if get_settings().opik_mcp_ask_ollie == "enabled":
+    if get_settings().opik_mcp_ask_ollie_enabled:
         return
     try:
         mcp_instance.remove_tool("ask_ollie")
-        logger.info("ask_ollie disabled (OPIK_MCP_ASK_OLLIE=disabled); tool not advertised")
+        logger.info("ask_ollie disabled (OPIK_MCP_ASK_OLLIE_ENABLED=false); tool not advertised")
     except Exception:
         logger.debug("ask_ollie already absent from the tool registry", exc_info=True)
 
