@@ -52,7 +52,11 @@ def test_ask_ollie_is_hidden_by_default(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_an_explicit_opt_in_keeps_the_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    """What the Comet-hosted chart sets."""
+    """The kill switch is reversible.
+
+    Nothing we ship sets this today — hosted included — but the toggle has to
+    actually restore the tool, or it is a deletion wearing a flag's clothes.
+    """
     monkeypatch.setattr(server, "get_settings", lambda: Settings(opik_mcp_ask_ollie="enabled"))
 
     server.apply_tool_visibility(server.mcp)

@@ -1156,9 +1156,10 @@ def apply_tool_visibility(mcp_instance: Any) -> None:
     the host advertise it, and the whole point is that an agent should not spend
     a turn discovering that a tool cannot work here.
 
-    Currently governs ``ask_ollie`` only, which is opt-in because it is
-    unusable without a Comet cloud credential and absent entirely on-prem. See
-    ``Settings.opik_mcp_ask_ollie`` for the measurements behind that default.
+    Currently governs ``ask_ollie`` only, which as of 2026-08-27 is off in every
+    deployment we ship, hosted included — it failed 90.6% of calls and three
+    whole populations could never succeed. See ``Settings.opik_mcp_ask_ollie``
+    for the measurements and for what to fix before re-enabling it.
 
     Idempotent and non-fatal: called from both the stdio and HTTP startup paths,
     and a missing tool is fine — ``remove_tool`` raises ``ToolError`` if the name

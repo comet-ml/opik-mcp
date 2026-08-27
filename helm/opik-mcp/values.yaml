@@ -66,12 +66,24 @@ env:
   OPIK_MCP_HOST: "0.0.0.0"
   OPIK_MCP_PORT: "8080"
   OPIK_MCP_LOG_LEVEL: "INFO"
-  # ask_ollie is opt-in and hidden by default everywhere else, because it cannot
-  # work without a Comet cloud credential and does not exist on-prem — so
-  # advertising it to those agents only teaches them the integration is
-  # unreliable. Comet-hosted runs against Comet cloud, so it opts in here.
-  # Set to "disabled" to pull the tool from tools/list without a code change.
-  OPIK_MCP_ASK_OLLIE: "enabled"
+  # ask_ollie is OFF everywhere, hosted included. The code default is already
+  # "disabled"; set explicitly here so the chart states the decision rather than
+  # leaving it to be inferred from an absent key.
+  #
+  # Hosted is not an exception, and could not have been: ask_ollie requires a
+  # static OPIK_API_KEY (config.require_ollie_config) and never reads the inbound
+  # credential, so on an OAuth deployment every call died at the config check —
+  # 31 of 34 hosted calls, one install, steadily over four weeks. Enabling it
+  # here would have advertised a tool that cannot work.
+  #
+  # Do NOT "fix" that by setting OPIK_API_KEY on this deployment: it would route
+  # every user's Ollie session through one operator credential, which is a
+  # tenancy and attribution problem, not a fix.
+  #
+  # Flipping this to "enabled" restores the tool without a code change, and
+  # should wait until the mid-stream pod failures are fixed — the best-configured
+  # cohort measured 37/170 (16%) with 122 PodErrorEventError.
+  OPIK_MCP_ASK_OLLIE: "disabled"
   # COMET_URL_OVERRIDE: "https://www.comet.com"
   # OPIK_URL: ""
 

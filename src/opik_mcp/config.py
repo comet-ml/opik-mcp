@@ -194,24 +194,39 @@ class Settings(BaseSettings):
     # auto-approval on when the user thought they opted out.
     opik_mcp_auto_approve: Literal["enabled", "disabled"] = "enabled"
 
-    # ask_ollie is OPT-IN, and defaults to "disabled" so the tool is not even
-    # advertised unless a deployment asks for it. Measured over 30 days, this
-    # tool failed 90.6% of the time for real MCP callers (466 calls, 168
-    # installs, 44 successes), and two large slices of that CANNOT succeed
-    # whatever we do:
+    # ask_ollie is OFF by default and, as of 2026-08-27, off in EVERY deployment
+    # we ship — including Comet-hosted. The kill switch exists so it can be
+    # restored without a code change, not because anything currently sets it.
     #
-    #   * no credential at all -> MissingConfigError before any network call.
+    # The measurements behind that decision, over 30 days: 90.6% failure for real
+    # MCP callers (466 calls, 168 installs, 44 successes). Three separate
+    # populations, none of which a toggle in this file can rescue:
+    #
+    #   * No credential -> MissingConfigError, raised before any network call.
     #     120 calls, 60 installs, ZERO successes. Local and open-source Opik run
-    #     with auth disabled by design, so those users are structurally excluded.
-    #   * on-prem -> OllieNotAvailableError. Ollie is a Comet cloud service;
-    #     there is nothing to reach. 28 calls, ZERO successes.
+    #     with auth disabled BY DESIGN, so those users are structurally excluded
+    #     from what is a Comet cloud service.
+    #   * On-prem -> OllieNotAvailableError. There is no Ollie to reach.
+    #     28 calls, ZERO successes.
+    #   * Comet-hosted -> also MissingConfigError, because ``require_ollie_config``
+    #     demands a static OPIK_API_KEY and never reads the inbound credential.
+    #     A hosted OAuth deployment has no such key, so 31 of 34 hosted calls
+    #     died at the config check. Hosted was never the exception it looked like.
     #
-    # Advertising a tool to agents that cannot possibly work spends the user's
-    # goodwill and teaches them the integration is unreliable, so the default is
-    # to hide it rather than to let them discover the failure at call time.
-    # Comet-hosted deployments opt in through the Helm chart (see
-    # helm/opik-mcp/values.yaml). Validated strictly, like opik_mcp_auto_approve,
-    # so a typo fails loudly at startup instead of silently leaving it hidden.
+    # Even the one cohort that works — stdio against Comet cloud with an API key —
+    # managed 37/170 (16%), the rest mostly PodErrorEventError: the pod warms,
+    # streams ~3 events, then the backend sends an error frame.
+    #
+    # Advertising a tool to agents that mostly cannot work spends the user's
+    # goodwill and teaches them the integration is unreliable, which is worse than
+    # the tool not existing. So the gate REMOVES it from ``tools/list``
+    # (``server.apply_tool_visibility``) rather than refusing calls — refusing
+    # would still leave the host advertising it.
+    #
+    # Before flipping this back on, fix the mid-stream pod failures; auth alone
+    # only buys entry to that 16% band. Validated strictly, like
+    # opik_mcp_auto_approve, so a typo fails loudly at startup rather than
+    # silently leaving the tool hidden when someone meant to enable it.
     opik_mcp_ask_ollie: Literal["enabled", "disabled"] = "disabled"
 
     # Maximum seconds to wait for the user to answer an elicitation prompt
