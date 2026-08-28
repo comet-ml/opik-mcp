@@ -59,6 +59,28 @@ def test_skill_name_matches_its_directory(skill_dir: Path) -> None:
 
 
 @pytest.mark.parametrize("skill_dir", _skill_dirs(), ids=_ids(_skill_dirs()))
+def test_skill_name_is_namespaced_to_opik(skill_dir: Path) -> None:
+    """Skill names are a global namespace, and the installer resolves collisions
+    by overwriting without a prompt or a backup.
+
+    The product's onboarding runs `npx skills add comet-ml/opik-skills -g --all`.
+    A skill published here as `evaluate` therefore destroys any other `evaluate`
+    already on the user's machine — verified: the pre-existing directory is
+    replaced outright, extra files in it are deleted, and the installer reports
+    success. The reverse is equally true; the next pack to claim the name takes
+    ours, and nothing surfaces the swap because the agent still finds *a* skill
+    under the name it expects.
+
+    `opik` itself is the product name and is ours to claim. Everything else must
+    carry the prefix.
+    """
+    name = skill_dir.name
+    assert name == "opik" or name.startswith("opik-"), (
+        f"{name} claims an unnamespaced global skill name; call it opik-{name}"
+    )
+
+
+@pytest.mark.parametrize("skill_dir", _skill_dirs(), ids=_ids(_skill_dirs()))
 def test_provenance_survives_the_reference_reader(skill_dir: Path) -> None:
     """Provenance must live under `metadata`, where the spec can carry it.
 

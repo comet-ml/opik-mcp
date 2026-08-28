@@ -1,6 +1,6 @@
 # Best Practices: Build, Evaluate, and Monitor AI Agents
 
-Best practices for the agent lifecycle beyond basic tracing — architecture patterns, evaluation, metrics, and production monitoring. This is reference material for the `opik` skill. For SDK details (tracing, integrations, span types) see the other `opik` references; to actually build and run an evaluation, use the `evaluate` skill.
+Best practices for the agent lifecycle beyond basic tracing — architecture patterns, evaluation, metrics, and production monitoring. This is reference material for the `opik` skill. For SDK details (tracing, integrations, span types) see the other `opik` references; to actually build and run an evaluation, use the `opik-evaluate` skill.
 
 ## The Agent Lifecycle
 
