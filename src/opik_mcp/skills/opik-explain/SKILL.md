@@ -1,6 +1,6 @@
 ---
 name: opik-explain
-description: Root-cause a specific Opik trace, or a pattern across traces, and return a grounded explanation. Uses the hosted Opik MCP (including Ollie) when it is connected, and falls back to SDK scripting otherwise. Returns the root cause, the evidence spans as clickable Opik UI links, and one suggested next step. Use for "why did this trace fail", "explain this trace", "debug this trace", "why is my agent slow or wrong". Not for adding tracing to an app (use the instrument skill) or for changing code.
+description: Root-cause a specific Opik trace, or a pattern across traces, and return a grounded explanation. Uses the hosted Opik MCP when it is connected, and falls back to SDK scripting otherwise. Returns the root cause, the evidence spans as clickable Opik UI links, and one suggested next step. Use for "why did this trace fail", "explain this trace", "debug this trace", "why is my agent slow or wrong". Not for adding tracing to an app (use the instrument skill) or for changing code.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and at least one trace. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -60,10 +60,8 @@ traces = client.search_traces(project_name="<project>", filters={...})  # e.g. e
 
 Traces are asynchronous; if you just produced the trace, allow a few seconds and confirm the flush ran.
 
-### 3. Root-cause it — MCP first, SDK fallback
-- **MCP connected:** hand the trace to `ask_ollie`, Opik's trace-debug reasoner, for the analysis, then **ground its conclusion in the repo** — open the code/prompt it points at and confirm it against the spans.
-- **No MCP:** the coding agent root-causes directly over the SDK-fetched data, against the repo — it has the one thing a generic reasoner lacks: **the code**.
-- Either way: find the anchor span (error / wrong output / latency dominator), read its input and output, connect it to the code (grep the repo for the span name / function), and state the **single most-likely root cause** with its evidence spans. Prefer one well-evidenced cause over a list of maybes.
+### 3. Root-cause it
+The coding agent root-causes over the fetched data, against the repo — it has the one thing a generic reasoner lacks: **the code**. Whether the trace came from the MCP or the SDK, the analysis is the same: find the anchor span (error / wrong output / latency dominator), read its input and output, connect it to the code (grep the repo for the span name / function), and state the **single most-likely root cause** with its evidence spans. Prefer one well-evidenced cause over a list of maybes.
 
 ### 4. Report
 Return the root cause, the evidence spans **as clickable Opik UI links** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID` — never a bare id), and one next step (see **Output**). If a fix is obvious, name it as the next step; do not apply it (this skill changes no code — handing off to `opik-instrument`/`opik-test` or the developer is the next step).
@@ -86,7 +84,7 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 - `root_cause`: one grounded statement
 - `evidence`: `spans` (each: `name`, `type`, a `trace_url` deep-link where available, why it's evidence)
 - `next_step`: exactly one
-- `reasoner`: `ollie` | `agent` (Ollie when the MCP was used, the agent on the SDK fallback)
+- `reasoner`: `agent` (the coding agent root-causes over the trace data and the repo)
 
 Invariants: `explained` must carry a `root_cause` **and** at least one evidence span; `blocked`/`not_found` carry exactly one `next_step`; every path leaves the codebase unchanged.
 
@@ -103,6 +101,6 @@ Dumping the span tree without naming a cause; guessing a cause without reading t
 
 ## References
 
-SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (Ollie, `search_traces`, error/latency/cost analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span-type model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
+SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (`search_traces`, error/latency/cost analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span-type model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
 
 If the `opik` skill isn't installed, say so in the report and use <https://www.comet.com/docs/opik/> rather than working from memory.

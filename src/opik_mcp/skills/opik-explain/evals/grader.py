@@ -110,7 +110,7 @@ def grade_case(
     if a.get("reasoner_valid"):
         add(
             "reasoner_valid",
-            result.get("reasoner") in {"agent", "ollie"},
+            result.get("reasoner") == "agent",
             f"reasoner={result.get('reasoner')}",
         )
 
