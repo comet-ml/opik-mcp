@@ -1148,7 +1148,26 @@ def install_session_instructions(server: FastMCP) -> None:
     lowlevel.create_initialization_options = create_initialization_options  # type: ignore[method-assign]
 
 
+def apply_tool_visibility(mcp_instance: Any) -> None:
+    """Unregister tools this deployment has not enabled.
+
+    Removal, not a runtime error: the tool disappears from ``tools/list``, so an
+    agent never sees it and cannot spend a turn discovering it does not work.
+
+    Governs ``ask_ollie`` only. Idempotent and non-fatal — both startup paths
+    call it, and ``remove_tool`` raises on a name that is already gone.
+    """
+    if get_settings().opik_mcp_ask_ollie_enabled:
+        return
+    try:
+        mcp_instance.remove_tool("ask_ollie")
+        logger.info("ask_ollie disabled (OPIK_MCP_ASK_OLLIE_ENABLED=false); tool not advertised")
+    except Exception:
+        logger.debug("ask_ollie already absent from the tool registry", exc_info=True)
+
+
 def build_app() -> ASGIApp:
+    apply_tool_visibility(mcp)
     install_tools_listed_emitter(mcp)
     install_session_instructions(mcp)
     s = get_settings()

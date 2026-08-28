@@ -1,5 +1,5 @@
 ---
-name: evaluate
+name: opik-evaluate
 description: >
   Build an LLM evaluation and run it against your app, returning an experiment
   with scores. Covers datasets, LLM judges, RAG evaluation, synthetic data,

@@ -97,6 +97,24 @@ def get_install_id() -> str:
     return _get_install_id()[0]
 
 
+def install_id_kind() -> str:
+    """``"file"`` for a real on-disk id, ``"fallback"`` for the nil sentinel.
+
+    The sentinel is not merely uninformative — it is a SHARED identity. Any two
+    deployments with an unwritable HOME report the same ``install_id``, so
+    unrelated installs merge into one counted row. Measured on the hosted server:
+    100% of its events carry the nil id, collapsing hundreds of people into a
+    single "install" and silently mis-attributing every install-keyed tile.
+
+    ``install_id`` itself is unchanged, so no existing dashboard moves. This
+    field is what lets a query exclude the sentinel instead of counting it, and
+    what distinguishes "identity unavailable" from "one very busy machine".
+
+    Do not reintroduce the sentinel as a join key — see ``_FALLBACK_INSTALL_ID``.
+    """
+    return "fallback" if _get_install_id()[0] == _FALLBACK_INSTALL_ID else "file"
+
+
 def install_id_was_freshly_generated() -> bool:
     """True iff this process is the one that just wrote the install-id file."""
     return _get_install_id()[1]
