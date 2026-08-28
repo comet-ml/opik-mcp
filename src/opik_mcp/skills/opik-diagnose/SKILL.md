@@ -15,9 +15,9 @@ metadata:
 
 # Diagnose — Surface the Traces Worth Attention
 
-**Definition of done:** a **ranked shortlist** of the online/production traces (and Diagnostics issues) worth attention, each carrying the **signal that flagged it** and its **trace id**, scoped to a project and a recent window, and ready to hand to `/explain`. "Worth attention" means errored, slow, regressed, or low online-eval score — not a dump of every trace, and never offline experiment results. If the project can't be read, stop at the first genuine blocker and return one next step.
+**Definition of done:** a **ranked shortlist** of the online/production traces (and Diagnostics issues) worth attention, each carrying the **signal that flagged it** and its **trace id**, scoped to a project and a recent window, and ready to hand to `/opik-explain`. "Worth attention" means errored, slow, regressed, or low online-eval score — not a dump of every trace, and never offline experiment results. If the project can't be read, stop at the first genuine blocker and return one next step.
 
-Operate: **rank by real signal over live data, surface the few things worth a look, hand the top one to `/explain` — and change no code.** This skill is read-only by design.
+Operate: **rank by real signal over live data, surface the few things worth a look, hand the top one to `/opik-explain` — and change no code.** This skill is read-only by design.
 
 ## Inputs
 
@@ -66,10 +66,10 @@ issues = client.rest_client.agent_insights.find_agent_insights_issues(project_id
 When the hosted MCP is connected, the `issue` entity is an equivalent path — a convenience, not a requirement. Merge issues into the shortlist, deduped against the traces you already ranked.
 
 ### 5. Stay in scope
-Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/evaluate` and `/compare`, not rediscovered here.
+Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/opik-evaluate` and `/opik-compare`, not rediscovered here.
 
 ### 6. Report
-Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID`), never a bare id, so the user can open it and deep-dive. Each item is ready for `/explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/explain`) and it changes no code.
+Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID`), never a bare id, so the user can open it and deep-dive. Each item is ready for `/opik-explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/opik-explain`) and it changes no code.
 
 ## Blockers
 
@@ -100,7 +100,7 @@ Invariants: `found` carries a non-empty `shortlist`, each item with a `signal`, 
 **Blocked — no config.** `/opik-diagnose`. No `~/.opik.config`, no `OPIK_API_KEY`. → **`blocked`**: "run `opik configure`, then rerun `/opik-diagnose`." (No code touched.)
 
 ## Anti-patterns
-Dumping every trace instead of a ranked shortlist; surfacing offline experiment/`evaluate` results (out of scope); requiring the MCP (the SDK `agent_insights` path needs none); root-causing a trace here (hand it to `/explain`); **editing code** (this skill only surfaces); ranking by recency instead of signal.
+Dumping every trace instead of a ranked shortlist; surfacing offline experiment/`evaluate` results (out of scope); requiring the MCP (the SDK `agent_insights` path needs none); root-causing a trace here (hand it to `/opik-explain`); **editing code** (this skill only surfaces); ranking by recency instead of signal.
 
 ## References
 
