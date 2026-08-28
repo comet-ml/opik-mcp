@@ -75,6 +75,11 @@ warn_redundant_casts = true
 # `scripts/` is otherwise unchecked, but the pack builder produces a public
 # artifact, so it is held to the same bar as the package.
 files = ["src", "tests", "scripts/build_skills_pack.py"]
+# Skill `evals/` dirs hold dev-only harnesses and fixture apps that never ship in
+# the pack. They are intentionally not type-checked: fixture entry points share
+# the filename `agent.py` and the harness modules (run_evals/grader/metrics)
+# repeat across skills, both of which mypy's module resolver rejects as duplicates.
+exclude = ["/evals/"]
 
 [[tool.mypy.overrides]]
 module = ["mcp.shared.memory"]
