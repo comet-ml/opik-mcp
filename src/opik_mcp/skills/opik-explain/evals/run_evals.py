@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # mypy: ignore-errors
-"""Test-automation harness for the `/explain` skill.
+"""Test-automation harness for the `/opik-explain` skill.
 
 Flows (per the guide's "scripted testing" level):
 
   1. Manual (default):
         uv run --with pyyaml python run_evals.py prepare   # stage workdirs + emit real traces
-        # ...run the /explain skill on each _work/<case>/ using the trace id in
+        # ...run the /opik-explain skill on each _work/<case>/ using the trace id in
         #    trace_id.txt; it should write result.json = {status, root_cause,
         #    evidence, next_step, reasoner} into the workdir...
         uv run --with pyyaml python run_evals.py grade     # score + metrics
@@ -43,13 +43,13 @@ TRIG = WORK / "triggering"
 
 DECOY_SKILLS = [
     {
-        "name": "instrument",
+        "name": "opik-instrument",
         "description": "Add Opik tracing to an existing app and "
         "verify a real trace lands. Installs the package, adds the minimum tracing, runs "
         "a safe path, confirms a trace. Use to add observability, not to debug one.",
     },
     {
-        "name": "evaluate",
+        "name": "opik-evaluate",
         "description": "Build an Opik evaluation and run it against "
         "your app, returning an experiment with scores. Use to measure quality, run "
         "experiments, or build test suites.",
@@ -123,7 +123,10 @@ def prepare() -> None:
         )
     (WORK / "PROMPTS.md").write_text("\n".join(lines))
     print(f"Prepared {len(app_cases(cases))} workdirs under {WORK}")
-    print(f"Run /explain on each (see {WORK}/PROMPTS.md), have it write result.json, then `grade`.")
+    print(
+        f"Run /opik-explain on each (see {WORK}/PROMPTS.md), "
+        "have it write result.json, then `grade`."
+    )
 
 
 def _read_json(wd: Path, name: str) -> dict | None:
@@ -165,9 +168,9 @@ def _instrument_description() -> str:
 def trigger_prepare() -> None:
     trig = load_cases().get("triggering", {})
     TRIG.mkdir(parents=True, exist_ok=True)
-    menu = [{"name": "explain", "description": _instrument_description()}, *DECOY_SKILLS]
-    phrases = [{"phrase": p, "expect": "explain"} for p in trig.get("should_trigger", [])] + [
-        {"phrase": p, "expect": "not-explain"} for p in trig.get("should_not_trigger", [])
+    menu = [{"name": "opik-explain", "description": _instrument_description()}, *DECOY_SKILLS]
+    phrases = [{"phrase": p, "expect": "opik-explain"} for p in trig.get("should_trigger", [])] + [
+        {"phrase": p, "expect": "not-opik-explain"} for p in trig.get("should_not_trigger", [])
     ]
     (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
     lines = [
@@ -204,10 +207,10 @@ def trigger_grade() -> int:
         return 2
     verdicts = json.loads(f.read_text())
     trig = load_cases().get("triggering", {})
-    st = {p: (verdicts.get(p) == "explain") for p in trig.get("should_trigger", [])}
-    sn = {p: (verdicts.get(p) == "explain") for p in trig.get("should_not_trigger", [])}
+    st = {p: (verdicts.get(p) == "opik-explain") for p in trig.get("should_trigger", [])}
+    sn = {p: (verdicts.get(p) == "opik-explain") for p in trig.get("should_not_trigger", [])}
     m = metrics.compute([], triggering={"should_trigger": st, "should_not_trigger": sn})
-    lines = ["# /explain triggering report", ""]
+    lines = ["# /opik-explain triggering report", ""]
     for p, did in st.items():
         lines.append(
             f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}"
@@ -222,7 +225,7 @@ def trigger_grade() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Eval harness for the /explain skill")
+    ap = argparse.ArgumentParser(description="Eval harness for the /opik-explain skill")
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("prepare", help="stage workdirs + emit real traces")
     sub.add_parser("grade", help="grade result.json in each workdir + emit metrics")

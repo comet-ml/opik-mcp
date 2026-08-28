@@ -1,4 +1,4 @@
-# Test cases for the `/explain` skill.
+# Test cases for the `/opik-explain` skill.
 #
 # Areas map to Anthropic's "Testing and iteration" chapter:
 #   triggering  -> does the skill load at the right times?

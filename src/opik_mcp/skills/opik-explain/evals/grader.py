@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""Deterministic grader for the `/explain` skill.
+"""Deterministic grader for the `/opik-explain` skill.
 
 Given a case's `assert` block, the original fixture, the post-run workdir, and
 the agent's `result.json` (status / root_cause / evidence / next_step /

@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""Success metrics for the `/explain` skill.
+"""Success metrics for the `/opik-explain` skill.
 
 Aggregates grader.CaseResult (plus optional triggering results) into the metrics
 for OPIK-7649:
@@ -44,7 +44,7 @@ def compute(results: list, triggering: dict | None = None) -> dict:
 
 
 def report(results: list, metrics: dict) -> str:
-    lines = ["# /explain eval report", ""]
+    lines = ["# /opik-explain eval report", ""]
     for r in results:
         mark = "PASS" if r.passed else "FAIL"
         lines.append(f"[{mark}] {r.id} ({r.area})")

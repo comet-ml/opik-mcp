@@ -1,7 +1,7 @@
 # mypy: ignore-errors
 """A tiny agent, instrumented with Opik. One span is slow.
 
-Run it to produce a trace that /explain should root-cause as a latency problem.
+Run it to produce a trace that /opik-explain should root-cause as a latency problem.
 """
 
 import time

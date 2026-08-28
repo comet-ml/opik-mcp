@@ -1,6 +1,6 @@
-# `/explain` evals
+# `/opik-explain` evals
 
-Test cases, automation, and success metrics for the `explain` skill —
+Test cases, automation, and success metrics for the `opik-explain` skill —
 structured on Anthropic's *Testing and iteration* guidance (triggering /
 functional / edge) and OPIK-7649.
 
@@ -26,7 +26,7 @@ emit a real trace. Grading is offline.
 
 ```bash
 uv run --with pyyaml python run_evals.py prepare     # stage workdirs; run fixtures to emit real traces
-#  ... run the /explain skill on each _work/<case>/ (use the id in trace_id.txt).
+#  ... run the /opik-explain skill on each _work/<case>/ (use the id in trace_id.txt).
 #      It should write result.json = {status, root_cause, evidence, next_step, reasoner}.
 uv run --with pyyaml python run_evals.py grade       # score + emit metrics + report.md
 ```
@@ -38,9 +38,9 @@ uv run --with pyyaml python run_evals.py trigger-prepare   # writes _work/trigge
 #      into _work/triggering/verdicts.json = {phrase: skill} ...
 uv run --with pyyaml python run_evals.py trigger-grade
 ```
-The menu presents the real `explain` description alongside decoys (`instrument`,
-`evaluate`, `opik`, `scaffold-app`, `code-review`) so the negatives are a real
-discrimination test. A phrase "triggers" iff the judge picks `explain`.
+The menu presents the real `opik-explain` description alongside decoys (`opik-instrument`,
+`opik-evaluate`, `opik`, `scaffold-app`, `code-review`) so the negatives are a real
+discrimination test. A phrase "triggers" iff the judge picks `opik-explain`.
 
 ## What each case checks
 
@@ -59,11 +59,11 @@ discrimination test. A phrase "triggers" iff the judge picks `explain`.
 
 The grader scores the agent's `result.json` deterministically; the root cause is
 matched by keyword (natural-language explanation), everything else is exact. The
-`read_only_rate` is enforced by diffing the workdir against the fixture — `/explain`
+`read_only_rate` is enforced by diffing the workdir against the fixture — `/opik-explain`
 must never modify app code.
 
 ## Note
 
 `evals/` is **development tooling** — `build_skills_pack.py` already excludes it
 (`EXCLUDED_DIRS`), so it never ships in the public pack. It travels with the skill
-in-repo, matching the `/instrument` harness (OPIK-7800).
+in-repo, matching the `/opik-instrument` harness (OPIK-7800).

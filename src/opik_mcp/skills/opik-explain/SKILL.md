@@ -1,5 +1,5 @@
 ---
-name: explain
+name: opik-explain
 description: Root-cause a specific Opik trace, or a pattern across traces, and return a grounded explanation. Uses the hosted Opik MCP (including Ollie) when it is connected, and falls back to SDK scripting otherwise. Returns the root cause, the evidence spans as clickable Opik UI links, and one suggested next step. Use for "why did this trace fail", "explain this trace", "debug this trace", "why is my agent slow or wrong". Not for adding tracing to an app (use the instrument skill) or for changing code.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and at least one trace. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
@@ -21,7 +21,7 @@ Operate: **investigate over the real trace data, reason against the repo, commit
 
 ## Inputs
 
-The entry point is `/explain <trace-id>` (one trace) or `/explain <describe the behavior>` (a pattern to find and explain). Infer the rest; treat these as **optional overrides**:
+The entry point is `/opik-explain <trace-id>` (one trace) or `/opik-explain <describe the behavior>` (a pattern to find and explain). Infer the rest; treat these as **optional overrides**:
 
 - project name (default: inferred from config/repo) · time window for a pattern (default: recent) · a known-good trace to compare against.
 
@@ -66,12 +66,12 @@ Traces are asynchronous; if you just produced the trace, allow a few seconds and
 - Either way: find the anchor span (error / wrong output / latency dominator), read its input and output, connect it to the code (grep the repo for the span name / function), and state the **single most-likely root cause** with its evidence spans. Prefer one well-evidenced cause over a list of maybes.
 
 ### 4. Report
-Return the root cause, the evidence spans **as clickable Opik UI links** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID` — never a bare id), and one next step (see **Output**). If a fix is obvious, name it as the next step; do not apply it (this skill changes no code — handing off to `instrument`/`test` or the developer is the next step).
+Return the root cause, the evidence spans **as clickable Opik UI links** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID` — never a bare id), and one next step (see **Output**). If a fix is obvious, name it as the next step; do not apply it (this skill changes no code — handing off to `opik-instrument`/`opik-test` or the developer is the next step).
 
 ## Blockers
 
 Stop at the **earliest** blocker and return **exactly one** next step:
-- "Run `opik configure`, then rerun `/explain <trace-id>`."
+- "Run `opik configure`, then rerun `/opik-explain <trace-id>`."
 - "No trace found for `<id>` in project `<name>` — confirm the id and project, then rerun."
 - "This environment can't reach Opik — open the trace in the UI and paste its error/output, or run where Opik is configured."
 - "Which behavior should I explain? Give a trace id or describe what went wrong."
@@ -92,14 +92,14 @@ Invariants: `explained` must carry a `root_cause` **and** at least one evidence 
 
 ## Examples
 
-**Single trace — tool failure.** `/explain 019fd8a7-...`. Fetch trace + spans; the `retrieve` (`tool`) span returned empty and the `llm` span then hallucinated. Open `retrieve()` in the repo: the query filter is wrong. Root cause = the retrieval filter, evidence = the empty `tool` span feeding the `llm` span; next step = "fix the filter in `retrieve()` (or `/test` it)". → **`explained`**.
+**Single trace — tool failure.** `/opik-explain 019fd8a7-...`. Fetch trace + spans; the `retrieve` (`tool`) span returned empty and the `llm` span then hallucinated. Open `retrieve()` in the repo: the query filter is wrong. Root cause = the retrieval filter, evidence = the empty `tool` span feeding the `llm` span; next step = "fix the filter in `retrieve()` (or `/opik-test` it)". → **`explained`**.
 
-**Pattern — slowness.** `/explain why responses got slow this week`. `search_traces` for high-duration traces; the same external `tool` span dominates each. Root cause = that call's latency; evidence = the shared slow span across N traces; next step = "add a timeout/cache around it". → **`explained`**.
+**Pattern — slowness.** `/opik-explain why responses got slow this week`. `search_traces` for high-duration traces; the same external `tool` span dominates each. Root cause = that call's latency; evidence = the shared slow span across N traces; next step = "add a timeout/cache around it". → **`explained`**.
 
-**Blocked — bad id.** `/explain 123`. `get_trace_content` finds nothing. → **`not_found`**: "No trace `123` in project `X` — confirm the id/project and rerun." (No code touched.)
+**Blocked — bad id.** `/opik-explain 123`. `get_trace_content` finds nothing. → **`not_found`**: "No trace `123` in project `X` — confirm the id/project and rerun." (No code touched.)
 
 ## Anti-patterns
-Dumping the span tree without naming a cause; guessing a cause without reading the anchor span's input/output; listing five maybes instead of the one best-evidenced cause; returning bare span/trace ids instead of clickable Opik UI links; **editing code** (this skill explains; `instrument`/`test` or the developer make changes); calling `.project_name` on a `TracePublic` (it raises — use `project_id`).
+Dumping the span tree without naming a cause; guessing a cause without reading the anchor span's input/output; listing five maybes instead of the one best-evidenced cause; returning bare span/trace ids instead of clickable Opik UI links; **editing code** (this skill explains; `opik-instrument`/`opik-test` or the developer make changes); calling `.project_name` on a `TracePublic` (it raises — use `project_id`).
 
 ## References
 
