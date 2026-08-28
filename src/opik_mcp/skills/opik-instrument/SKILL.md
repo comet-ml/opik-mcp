@@ -1,5 +1,5 @@
 ---
-name: instrument
+name: opik-instrument
 description: Add Opik tracing to an existing app and verify a real trace lands. Installs the Opik package, detects the language and LLM framework, adds the minimum tracing, runs a safe representative path, confirms a trace in Opik, and returns the trace link. Use for "instrument my code", "add opik tracing", "add observability", "trace my agent". Not for building a new app from scratch, or a review-only pass with no code changes.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project. Install the `opik` skill alongside this one — it holds the shared SDK and integration references; without it, this skill falls back to the public docs.
 allowed-tools:
@@ -23,7 +23,7 @@ Operate: **opinionated in execution, conservative in code changes, automatic in 
 
 ## Inputs
 
-The entry point is just `/instrument` (optionally `/instrument <path>`). Infer everything else; treat these only as **optional overrides** the user may pass, never as required setup:
+The entry point is just `/opik-instrument` (optionally `/opik-instrument <path>`). Infer everything else; treat these only as **optional overrides** the user may pass, never as required setup:
 
 - target path (default: project root) · project name (default: inferred from the repo) · run command (default: an inferred safe path) · `migrate_prompts` (default: **false**).
 
@@ -91,8 +91,8 @@ Return a short human result + the trace link (see **Output**), then make the sin
 ## Blockers
 
 When you genuinely can't proceed, stop at the **earliest** blocker and return **exactly one** next step — never a checklist — and still report the changes already made. Examples:
-- "Run `opik configure`, then rerun `/instrument`."
-- "Install dependencies with `uv sync`, then rerun `/instrument`."
+- "Run `opik configure`, then rerun `/opik-instrument`."
+- "Install dependencies with `uv sync`, then rerun `/opik-instrument`."
 - "Which dev command safely exercises this agent?"
 - "Instrumented and installed, but the run needs a provider credential — set `OPENAI_API_KEY` (or the relevant provider key) and rerun."
 - "Instrumented and ran, but this environment can't query Opik — open the project and confirm trace `<id>` arrived."
