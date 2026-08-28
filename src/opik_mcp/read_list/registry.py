@@ -450,7 +450,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         search_by_name_fn=_search_experiment,
         list_fn=_list_experiments,
         list_extra_fields=("dataset_name", "created_at"),
-        description="Experiment status + summary scores. Pair with ask_ollie for analysis.",
+        description="Experiment status + summary scores.",
     ),
     "prompt": EntityHandler(
         entity_type="prompt",

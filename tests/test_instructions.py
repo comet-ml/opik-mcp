@@ -112,6 +112,19 @@ def test_render_mentions_tool_selection_guidance() -> None:
     out = render_instructions(_settings())
     assert "read" in out
     assert "list" in out
+    assert "write" in out
+
+
+def test_render_omits_ask_ollie_when_disabled() -> None:
+    """ask_ollie is off in every shipped deployment, so the server removes the
+    tool from the registry; the instructions must not advertise it then."""
+    out = render_instructions(_settings())
+    assert "ask_ollie" not in out
+
+
+def test_render_includes_ask_ollie_when_enabled() -> None:
+    """When the tool is advertised, the routing guidance names it."""
+    out = render_instructions(_settings(opik_mcp_ask_ollie_enabled=True))
     assert "ask_ollie" in out
 
 

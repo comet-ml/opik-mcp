@@ -6,8 +6,8 @@ Cursor, VS Code, Goose). Hosts that ignore the field lose nothing — each
 tool's description is self-contained, so this is purely additive.
 
 The content sets cross-cutting context (workspace, Opik URL, today's date)
-and primes the LLM on when to prefer ``read``/``list``/direct writes vs.
-``ask_ollie``. Per GitHub MCP's published data, dynamic per-session
+and primes the LLM on when to prefer ``read``/``list`` vs. direct writes.
+Per GitHub MCP's published data, dynamic per-session
 instructions are worth +25pp workflow adherence on capable models and
 +60pp on smaller ones, so this is the highest-leverage single dial we
 have on tool selection quality.
@@ -29,6 +29,18 @@ from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
 from opik_mcp.opik_client import opik_rest_base
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
+# Included only when ask_ollie is advertised (OPIK_MCP_ASK_OLLIE_ENABLED=true).
+# The tool is removed from the registry when disabled (see
+# server.apply_tool_visibility), so the instructions must not advertise it then.
+_ASK_OLLIE_CLAUSE = (
+    '\n- ask_ollie: use for investigative questions ("why is X failing?"), '
+    'cross-entity synthesis ("compare experiments A and B"), or when authoring '
+    "/ instrumentation requires Opik domain expertise. Returns a thread_id you "
+    "can pass back for follow-ups. Writes Ollie performs mid-stream (scores, "
+    "comments, test-suite items, prompts) execute without a per-action "
+    "confirmation step — be intentional about what you ask for."
+)
+
 _TEMPLATE = """\
 You're connected to Opik (Comet's LLM observability platform){user_clause} \
 in workspace "{workspace}". The Opik UI is at {opik_url}.
@@ -44,18 +56,12 @@ returns the messages list, and list('thread', project_id=…) enumerates a \
 project's threads.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
-on span X"). Skip ask_ollie for these — narrower tools are faster and more \
+on span X"). Prefer these narrower tools — they are faster and more \
 deterministic. The full write surface is two tools: write (takes \
 operation + data; pass a list for batch) and schema (returns an op's JSON \
 Schema + bundled example). Operations covered by Phase 1: \
 {write_operations}. run_experiment is a separate tool. Always consult \
-tools/list for what's actually advertised on this connection.
-- ask_ollie: use for investigative questions ("why is X failing?"), cross-entity \
-synthesis ("compare experiments A and B"), or when authoring / instrumentation \
-requires Opik domain expertise. Returns a thread_id you can pass back for \
-follow-ups. Writes Ollie performs mid-stream (scores, comments, test-suite \
-items, prompts) execute without a per-action confirmation step — be \
-intentional about what you ask for.
+tools/list for what's actually advertised on this connection.{ask_ollie_clause}
 
 Today's date is {date}.\
 """
@@ -84,8 +90,8 @@ def _render_default_project_clause(s: Settings) -> str:
         return ""
     return (
         f'\nThe user\'s default project is `project_name="{pname}"`. Pass it '
-        "as `project_name` to any tool/operation that accepts one (ask_ollie, "
-        "and write operations like score.create / trace.create) unless the "
+        "as `project_name` to any tool/operation that accepts one (write "
+        "operations like score.create / trace.create) unless the "
         "user explicitly names a different project.\n"
     )
 
@@ -119,6 +125,7 @@ def render_instructions(
     today = today if today is not None else datetime.now(UTC)
     date = today.strftime("%Y-%m-%d")
     default_project_clause = _render_default_project_clause(s)
+    ask_ollie_clause = _ASK_OLLIE_CLAUSE if s.opik_mcp_ask_ollie_enabled else ""
 
     return _TEMPLATE.format(
         user_clause=user_clause,
@@ -126,6 +133,7 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
+        ask_ollie_clause=ask_ollie_clause,
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
     )
 
