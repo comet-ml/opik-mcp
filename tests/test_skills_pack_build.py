@@ -289,7 +289,7 @@ def test_every_emitted_skill_is_validated_not_only_the_source(src: Path, out: Pa
 
 
 def test_cross_skill_references_are_allowed_when_they_resolve(src: Path, out: Path) -> None:
-    """`/instrument` reads `../opik/references/*.md`; siblings in the pack make that work.
+    """`/opik-instrument` reads `../opik/references/*.md`; siblings in the pack make that work.
 
     Verified against the real installer too: with `-g --all`, the command the product
     shows, the skills land as siblings and these paths resolve.

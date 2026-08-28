@@ -167,7 +167,7 @@ def _referenced_markdown(text: str) -> set[str]:
 def _check_references_resolve(skills_root: Path) -> None:
     """Every path a packed SKILL.md points at must exist inside the pack.
 
-    Skills reference each other — `/instrument` reads `../opik/references/*.md` —
+    Skills reference each other — `/opik-instrument` reads `../opik/references/*.md` —
     so resolution is checked against the whole pack, not one skill directory.
     That also means a typo in such a path used to fail *silently*: the agent
     would find nothing, fall back to its own memory, and still report success.
