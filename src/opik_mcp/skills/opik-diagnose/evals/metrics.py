@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""Success metrics for the `/diagnose` skill (OPIK-7648).
+"""Success metrics for the `/opik-diagnose` skill (OPIK-7648).
 
 selection_accuracy - triggers only on appropriate requests
 found_rate         - reached the expected terminal status
@@ -39,7 +39,7 @@ def compute(results: list, triggering: dict | None = None) -> dict:
 
 
 def report(results: list, metrics: dict) -> str:
-    lines = ["# /diagnose eval report", ""]
+    lines = ["# /opik-diagnose eval report", ""]
     for r in results:
         mark = "PASS" if r.passed else "FAIL"
         lines.append(f"[{mark}] {r.id} ({r.area})")

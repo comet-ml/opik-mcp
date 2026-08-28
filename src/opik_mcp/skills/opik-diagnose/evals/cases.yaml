@@ -1,4 +1,4 @@
-# Test cases for the `/diagnose` skill.
+# Test cases for the `/opik-diagnose` skill.
 #
 #   triggering  -> does the skill load at the right times?
 #   functional  -> given a seeded project, does it surface the right shortlist?

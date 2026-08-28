@@ -1,6 +1,6 @@
-# `/diagnose` evals
+# `/opik-diagnose` evals
 
-Test cases, automation, and success metrics for the `diagnose` skill —
+Test cases, automation, and success metrics for the `opik-diagnose` skill —
 structured on Anthropic's *Testing and iteration* guidance and OPIK-7648.
 
 ## Layout
@@ -23,7 +23,7 @@ Grading is offline.
 
 ```bash
 uv run --with pyyaml python run_evals.py prepare     # seed a fresh project with known traces
-#  ... run the /diagnose skill on the project named in _work/triage/PROMPT.txt.
+#  ... run the /opik-diagnose skill on the project named in _work/triage/PROMPT.txt.
 #      It should write result.json = {status, scope, shortlist, source, next_step}.
 uv run --with pyyaml python run_evals.py grade       # score shortlist vs planted ids + metrics
 ```
@@ -34,9 +34,9 @@ uv run --with pyyaml python run_evals.py trigger-prepare
 #  ... a judge panel classifies each phrase (descriptions only) into verdicts.json ...
 uv run --with pyyaml python run_evals.py trigger-grade
 ```
-The menu presents the real `diagnose` description alongside decoys (`explain`,
+The menu presents the real `opik-diagnose` description alongside decoys (`opik-explain`,
 `instrument`, `evaluate`, `opik`, `code-review`) so the negatives are a real
-discrimination test — especially `explain` (debug ONE trace) vs `diagnose` (discover which).
+discrimination test — especially `opik-explain` (debug ONE trace) vs `opik-diagnose` (discover which).
 
 ## What the functional case checks
 

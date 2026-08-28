@@ -1,5 +1,5 @@
 ---
-name: diagnose
+name: opik-diagnose
 description: Surface the Opik traces worth a developer's attention, ranked by signal — errors, failed tool calls, latency, regressions, and low online-eval scores — plus Diagnostics issues. Reads live/production traces via the SDK (search_traces and agent_insights) and works with no MCP; uses the MCP issue entity when connected. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "which tool calls are failing", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and a project that has traces. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
@@ -21,7 +21,7 @@ Operate: **rank by real signal over live data, surface the few things worth a lo
 
 ## Inputs
 
-The entry point is `/diagnose` (the current project), `/diagnose <project>`, or `/diagnose <what to look for>` (e.g. "slow traces", "errors today"). Infer the rest; treat these as **optional overrides**:
+The entry point is `/opik-diagnose` (the current project), `/opik-diagnose <project>`, or `/opik-diagnose <what to look for>` (e.g. "slow traces", "errors today"). Infer the rest; treat these as **optional overrides**:
 
 - project (default: inferred from config/repo) · window (default: recent) · signal focus (default: all — errors, latency, regressions, low scores) · shortlist size (default: a handful).
 
@@ -74,8 +74,8 @@ Return the ranked shortlist and one next step. Give each item as a **clickable O
 ## Blockers
 
 Stop at the **earliest** blocker and return **exactly one** next step:
-- "Run `opik configure`, then rerun `/diagnose`."
-- "Which project should I scan? Pass `/diagnose <project>` or set it in the Opik config."
+- "Run `opik configure`, then rerun `/opik-diagnose`."
+- "Which project should I scan? Pass `/opik-diagnose <project>` or set it in the Opik config."
 - "This environment can't reach Opik — open the project's traces view, sort by errors/duration, or run where Opik is configured."
 
 ## Output
@@ -93,11 +93,11 @@ Invariants: `found` carries a non-empty `shortlist`, each item with a `signal`, 
 
 ## Examples
 
-**Triage a project.** `/diagnose`. `search_traces` on the project; two traces errored, one is 5x the p90 duration, one scored 0.2 on Hallucination. Shortlist = the two errors (rank 1-2), the latency outlier (3), the low-score trace (4), each with its signal; next step = "explain the top trace". → **`found`**.
+**Triage a project.** `/opik-diagnose`. `search_traces` on the project; two traces errored, one is 5x the p90 duration, one scored 0.2 on Hallucination. Shortlist = the two errors (rank 1-2), the latency outlier (3), the low-score trace (4), each with its signal; next step = "explain the top trace". → **`found`**.
 
-**Nothing wrong.** `/diagnose`. Reads fine, but no trace errored, ran slow, or scored low. → **`empty`**: "No traces crossed a threshold in the recent window."
+**Nothing wrong.** `/opik-diagnose`. Reads fine, but no trace errored, ran slow, or scored low. → **`empty`**: "No traces crossed a threshold in the recent window."
 
-**Blocked — no config.** `/diagnose`. No `~/.opik.config`, no `OPIK_API_KEY`. → **`blocked`**: "run `opik configure`, then rerun `/diagnose`." (No code touched.)
+**Blocked — no config.** `/opik-diagnose`. No `~/.opik.config`, no `OPIK_API_KEY`. → **`blocked`**: "run `opik configure`, then rerun `/opik-diagnose`." (No code touched.)
 
 ## Anti-patterns
 Dumping every trace instead of a ranked shortlist; surfacing offline experiment/`evaluate` results (out of scope); requiring the MCP (the SDK `agent_insights` path needs none); root-causing a trace here (hand it to `/explain`); **editing code** (this skill only surfaces); ranking by recency instead of signal.

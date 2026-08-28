@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""Deterministic grader for the `/diagnose` skill.
+"""Deterministic grader for the `/opik-diagnose` skill.
 
 Given a case's `assert` block, the planted trace ids (planted.json, written by
 the seeder), and the agent's result.json (status / shortlist / source /

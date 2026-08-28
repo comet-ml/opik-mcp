@@ -1,5 +1,5 @@
 # mypy: ignore-errors
-"""Seed a unique Opik project with attention-worthy traces for the /diagnose evals.
+"""Seed a unique Opik project with attention-worthy traces for the /opik-diagnose evals.
 
 Emits: 1 errored, 1 slow, 1 low-online-eval-score, and 2 normal traces into a
 fresh project (unique name per run, so precision checks aren't polluted by
@@ -15,7 +15,9 @@ import time
 import uuid
 from pathlib import Path
 
-PROJECT = os.environ.get("DIAGNOSE_EVAL_PROJECT") or ("opik-diagnose-eval-" + uuid.uuid4().hex[:8])
+PROJECT = os.environ.get("OPIK_DIAGNOSE_EVAL_PROJECT") or (
+    "opik-diagnose-eval-" + uuid.uuid4().hex[:8]
+)
 os.environ["OPIK_PROJECT_NAME"] = PROJECT
 
 import opik  # noqa: E402
