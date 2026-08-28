@@ -293,6 +293,41 @@ LifecycleSource = Literal["main", "lifespan"]
 # falling back to an install id.
 UserIdKind = Literal["comet_user", "install_id"]
 
+# ``install_id_kind``: whether ``install_id`` is a real on-disk id ("file") or the
+# nil-UUID sentinel used when HOME is unwritable ("fallback"). The classifier is
+# ``identity.install_id_kind``.
+#
+# CRITICAL for BI, because the sentinel is a SHARED identity rather than a missing
+# one: every deployment with an unwritable HOME reports the SAME ``install_id``,
+# so unrelated installs merge into one counted row. On the hosted server that is
+# 100% of events — hundreds of people behind a single "install". Any tile that
+# counts installs, or attributes one host/workspace per install, must exclude
+# ``install_id_kind = 'fallback'`` or it is silently reporting an aggregate as an
+# individual. ``install_id`` itself is unchanged, so no existing tile moves until
+# it opts in.
+InstallIdKind = Literal["file", "fallback"]
+
+# ``identity_lookup``: why ``user_id_kind`` came out the way it did. Exists because
+# "anonymous" has two causes that must not be added together, and which were
+# previously indistinguishable:
+#
+# - "resolved"        — an identity was found; ``user_id`` is a Comet login.
+# - "none_expected"   — no inbound credential, so anonymity is CORRECT, not a
+#                       fault. Local and self-hosted Opik run with auth disabled
+#                       by design; ~60% of all tool calls are this.
+# - "miss"            — a credential WAS presented and we still could not resolve
+#                       it. This is a DEFECT, and it is the one number that says
+#                       whether hosted identity is actually working. Causes:
+#                       the handshake introspection failed, the pod restarted and
+#                       emptied the in-memory store, the credential was evicted,
+#                       or the credential is an API key forwarded to a hosted
+#                       server, which ``caller_identity`` cannot resolve at all.
+#
+# Without this split, a hosted server resolving nothing looks identical to a
+# laptop running open-source Opik: both report ``user_id_kind='install_id'``. That
+# is precisely why the hosted deploy could not be verified from the data.
+IdentityLookup = Literal["resolved", "none_expected", "miss"]
+
 # ``workspace_kind``: where the reported ``workspace`` name came from. The
 # classifier is ``client._resolve_workspace``. CRITICAL for BI: "placeholder" is
 # the literal "default" on an install that resolved nothing, and it collides with

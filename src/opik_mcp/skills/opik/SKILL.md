@@ -1,6 +1,6 @@
 ---
 name: opik
-description: Reference for the Opik SDK — tracing, span types, framework integrations, threads, and the prompt library (Python, TypeScript, REST). Use for "what span types exist", "how do I flush", "track_openai", "add OpikTracer", "version a prompt". To instrument a repo end to end, use the `instrument` skill.
+description: Reference for the Opik SDK — tracing, span types, framework integrations, threads, and the prompt library (Python, TypeScript, REST). Use for "what span types exist", "how do I flush", "track_openai", "add OpikTracer", "version a prompt". To instrument a repo end to end, use the `opik-instrument` skill.
 metadata:
   last_updated: "2026-07-27"
   source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
@@ -10,7 +10,7 @@ metadata:
 
 Opik is an open-source LLM observability platform. This skill is a **reference**
 for the SDK. To instrument a codebase step by step (detect frameworks, add
-config, emit and verify a trace), use the task-shaped `instrument` skill.
+config, emit and verify a trace), use the task-shaped `opik-instrument` skill.
 
 ## Core concepts
 
@@ -142,4 +142,4 @@ def run(question: str) -> str:
 | Production monitoring, alerts, guardrails | `references/production.md` |
 | Evaluation datasets & test suites (reference) | `references/evaluation-datasets.md`, `references/evaluation-test-suites.md` |
 
-To build and run an evaluation, use the `evaluate` skill. For repo instrumentation and config, use the `instrument` skill.
+To build and run an evaluation, use the `opik-evaluate` skill. For repo instrumentation and config, use the `opik-instrument` skill.

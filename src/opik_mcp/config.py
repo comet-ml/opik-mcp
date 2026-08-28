@@ -194,6 +194,12 @@ class Settings(BaseSettings):
     # auto-approval on when the user thought they opted out.
     opik_mcp_auto_approve: Literal["enabled", "disabled"] = "enabled"
 
+    # ask_ollie is off in every deployment we ship, hosted included (decided
+    # 2026-08-27). It failed 90.6% of MCP calls over 30 days, and the tool is
+    # unregistered rather than made to fail — see `server.apply_tool_visibility`.
+    # Kept as a switch so it can be restored without a code change.
+    opik_mcp_ask_ollie_enabled: bool = False
+
     # Maximum seconds to wait for the user to answer an elicitation prompt
     # (currently used only by `ask_ollie` mid-stream tool-call confirms).
     # Timeout is treated as a deny — the safer default; the user can always
