@@ -24,6 +24,7 @@ Marked `e2e` and excluded from the default `pytest` run (see `pyproject.toml`);
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -33,7 +34,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.shared.exceptions import McpError
-from mcp.types import TextResourceContents
+from mcp.types import InitializeResult, TextResourceContents, Tool
 from pydantic import AnyUrl
 
 from opik_mcp.skills_catalog import (
@@ -56,7 +57,7 @@ _TIMEOUT_S = 60
 ALWAYS_ADVERTISED = frozenset({"read", "list", "write", "schema", "run_experiment", "read_skill"})
 
 
-def _server_params() -> StdioServerParameters:
+def _server_params(**extra_env: str) -> StdioServerParameters:
     return StdioServerParameters(
         # The interpreter running the tests, so the subprocess uses the same
         # environment the suite was installed into rather than whatever `python`
@@ -77,20 +78,41 @@ def _server_params() -> StdioServerParameters:
             "OPIK_MCP_SENTRY_ENABLED": "false",
             # Keep the subprocess's own logging off the captured stderr.
             "OPIK_MCP_LOG_LEVEL": "WARNING",
+            # Per-test overrides last, so a test can flip a feature flag and get
+            # a server configured the way a real deployment would be.
+            **extra_env,
         },
     )
 
 
 @asynccontextmanager
-async def _session() -> AsyncIterator[ClientSession]:
+async def _session(**extra_env: str) -> AsyncIterator[ClientSession]:
     """A live client session against a freshly spawned server subprocess."""
     with anyio.fail_after(_TIMEOUT_S):
         async with (
-            stdio_client(_server_params()) as (read, write),
+            stdio_client(_server_params(**extra_env)) as (read, write),
             ClientSession(read, write) as session,
         ):
             await session.initialize()
             yield session
+
+
+@asynccontextmanager
+async def _handshake(**extra_env: str) -> AsyncIterator[tuple[InitializeResult, list[Tool]]]:
+    """The handshake result and the advertised tools, from one live server.
+
+    Both halves from the SAME process: the point of the tests using this is that
+    two independent mechanisms agree, and reading them from separate servers
+    would let a mismatch pass.
+    """
+    with anyio.fail_after(_TIMEOUT_S):
+        async with (
+            stdio_client(_server_params(**extra_env)) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            init = await session.initialize()
+            tools = (await session.list_tools()).tools
+            yield init, tools
 
 
 @pytest.fixture
@@ -213,3 +235,79 @@ async def test_the_session_instructions_name_the_skills() -> None:
     assert "read_skill" in instructions
     for name in skill_names():
         assert name in instructions
+
+
+# --- the blob and the tool list must agree ------------------------------- #
+#
+# Two independent mechanisms decide what a session is told about:
+# `apply_tool_visibility` removes a disabled tool from the registry, and
+# `instructions.render_instructions` writes the prose. Nothing structural keeps
+# them in step, and they drifted: `ask_ollie` is opt-in and default-OFF, yet the
+# blob described it in every session, telling agents to use a tool that was not
+# there. It was reported from a live session twice before being fixed, because
+# the unit tests call `render_instructions` directly — they never ask a running
+# server what it actually sends.
+#
+# These do. Both halves come from one process, over a real handshake, so a
+# mismatch cannot hide behind a second server.
+
+
+def _bulleted_tool_names(instructions: str) -> set[str]:
+    """Tool names the blob presents as `- <name>: …` bullets.
+
+    "Direct writes" is prose introducing `write`/`schema` rather than a tool
+    name, so it is excluded by matching only lowercase identifiers.
+    """
+    return set(re.findall(r"^- ([a-z_]+):", instructions, re.MULTILINE))
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_the_blob_describes_no_tool_the_server_does_not_advertise() -> None:
+    """The general invariant, against a default-configured server."""
+    async with _handshake() as (init, tools):
+        advertised = {t.name for t in tools}
+        described = _bulleted_tool_names(init.instructions or "")
+
+    phantom = described - advertised
+    assert not phantom, (
+        f"the session instructions describe {sorted(phantom)}, which this server "
+        f"does not advertise (tools/list: {sorted(advertised)})"
+    )
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_a_disabled_tool_is_absent_from_both_surfaces() -> None:
+    """`ask_ollie` off — the default, so this is the common case, not an edge."""
+    async with _handshake(OPIK_MCP_ASK_OLLIE_ENABLED="false") as (init, tools):
+        assert "ask_ollie" not in {t.name for t in tools}
+        assert "ollie" not in (init.instructions or "").lower(), (
+            "ask_ollie is not advertised, but the session instructions still "
+            "describe it — an agent would spend a turn discovering it is absent"
+        )
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_an_enabled_tool_is_present_on_both_surfaces() -> None:
+    """The other direction, which is what stops the gate being satisfied by
+    deleting the text outright: with the flag ON, `ask_ollie` must be advertised
+    AND described. Without this, "no Ollie anywhere" would pass forever while
+    silently leaving an advertised tool undocumented."""
+    async with _handshake(OPIK_MCP_ASK_OLLIE_ENABLED="true") as (init, tools):
+        assert "ask_ollie" in {t.name for t in tools}
+        instructions = init.instructions or ""
+        assert "ask_ollie" in _bulleted_tool_names(instructions), (
+            "ask_ollie is advertised but the session instructions do not describe it"
+        )
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_read_skill_is_described_because_it_is_always_advertised() -> None:
+    """The same invariant read the other way for the tool this branch adds: it
+    is not behind a flag, so it must appear in both surfaces unconditionally."""
+    async with _handshake() as (init, tools):
+        assert "read_skill" in {t.name for t in tools}
+        assert "read_skill" in _bulleted_tool_names(init.instructions or "")
