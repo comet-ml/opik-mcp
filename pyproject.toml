@@ -46,6 +46,14 @@ path = "src/opik_mcp/_version.py"
 
 [tool.hatch.build]
 artifacts = ["src/opik_mcp/_version.py"]
+# `evals/` holds fixture repositories and grading harnesses (OPIK-7800) that no
+# agent reads and no code imports. `skills_catalog.EXCLUDED_DIRS` already keeps
+# them off both MCP surfaces and out of the published pack — but nothing kept
+# them out of the WHEEL, so they were about to reach every user's site-packages
+# for the first time: 41 KB across 18 files, including runnable fixture scripts
+# (`agent.py`, `seed.py`, `grader.py`). 0.2.24 shipped none of it only because
+# the two skills that carry evals landed after it was tagged.
+exclude = ["src/opik_mcp/skills/*/evals"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/opik_mcp"]
