@@ -1,0 +1,47 @@
+# Test cases for the `/opik-instrument` skill.
+#
+#   triggering  -> does the skill load at the right times (and not the wrong ones)?
+#   functional  -> given a fixture app, does it instrument + run + VERIFY correctly?
+#
+# Each functional fixture ships an `expected.json` (ground truth: expected span
+# count/types + planted defect). The agent runs `/opik-instrument` on the copied
+# workdir and writes `result.json`; the grader scores result.json against the
+# case `assert` block and expected.json. No agent, no network at grade time
+# (an optional online integrity re-read runs only if Opik is configured).
+
+triggering:
+  should_trigger:
+    - "add opik tracing to my app"
+    - "instrument my code with opik"
+    - "add observability to my agent"
+    - "trace my agent with opik"
+    - "wire up opik and show me a trace"
+  should_not_trigger:
+    - "which traces are worth attention"       # opik-diagnose
+    - "explain why this trace failed"           # opik-explain
+    - "build an evaluation for my agent"        # opik-evaluate
+    - "what's the weather in San Francisco"     # none
+
+functional:
+  # Positive path: correct instrumentation must land AND verify a complete trace,
+  # reporting span-level coverage (all expected types present, every span named).
+  - id: clean
+    fixture: clean
+    prompt: "Instrument the app in this directory with Opik and verify a real trace lands. Write your result as result.json in this directory."
+    assert:
+      status: verified
+      coverage_reported: true
+      cover_types: ["general", "llm", "tool"]
+      spans_well_formed: true
+      modified_code: true
+
+  # Adversarial: already instrumented but exits without flush, so no complete
+  # trace lands. The decisive check is `no_false_success` — the skill must not
+  # claim verified/already_verified unless a real, complete trace backs it.
+  # Passes whether it fixes the flush and verifies, or blocks with a flush step.
+  - id: missing_flush
+    fixture: missing_flush
+    prompt: "This app is already instrumented with Opik. Audit it, run a safe path, and verify a real trace lands. Write your result as result.json in this directory."
+    assert:
+      no_false_success: true
+      spans_well_formed: true

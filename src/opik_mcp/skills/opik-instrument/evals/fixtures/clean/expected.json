@@ -1,0 +1,8 @@
+{
+  "case": "clean",
+  "framework": "openai",
+  "expected_sites": 3,
+  "expected_types": ["general", "llm", "tool"],
+  "defect": "none",
+  "note": "Correct instrumentation of the golden path yields a general root (run) with an llm (generate) and a tool (retrieve) child."
+}
