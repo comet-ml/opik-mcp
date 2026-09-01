@@ -1,16 +1,24 @@
 name: CI
 run-name: "CI ${{ github.ref_name }} by @${{ github.actor }}"
 
-# CI on GitHub-hosted runners: validate, build the multi-arch image, tag releases.
+# CI on GitHub-hosted runners: validate, and build the multi-arch image.
 #
-# Version = <version.txt MAJOR.MINOR>.<patch>, patch = (max existing x.y tag) + 1,
-# so it starts at 0 and resets per minor:
-#   push to main -> ghcr.io/comet-ml/opik-mcp:0.2.0  (+ :main, + git tag 0.2.0)
-#   PR           -> build only (no push, no secrets — fork-safe); version
-#                   carries a -<branch> suffix for the image tag if built
+# CI DOES NOT TAG. `version.txt` holds the next version to be released (x.y.z),
+# and `release.yaml` is what creates that git tag, at release time, from the
+# commit it releases. Tags therefore exist only for released versions — a tag,
+# a GitHub release and a PyPI version are the same set by construction, rather
+# than three sets that drift apart. (They did: 0.2.25-0.2.27 were tagged by
+# main builds and never released.) This mirrors comet-ml/opik.
 #
-# Bump version.txt (e.g. 0.2 -> 0.3) to start a new minor line; patch resets to 0.
-# Release is manual (release.yaml): pick a git tag, promote its image, publish.
+# Because no tag is minted per merge, the version in `version.txt` is the SAME
+# for every build between two releases, so it cannot identify an image:
+#   push to main -> ghcr.io/comet-ml/opik-mcp:sha-<short>  (+ :main)
+#   PR           -> build only (no push, no secrets — fork-safe)
+# The release promotes the sha-tagged image it releases to :x.y.z and :latest,
+# so the published image is provably built from the released commit.
+#
+# Bump version.txt to choose the next version; release.yaml bumps its patch
+# automatically after a successful release.
 
 on:
   workflow_dispatch:
@@ -24,11 +32,9 @@ on:
 permissions:
   contents: read
 
-# One run per PR branch. Without this, two quick pushes race — including two
-# `version` jobs contending for the same tag on main, which is what that job's
-# retry loop exists to survive rather than something we should keep provoking.
-# Main pushes are NOT cancelled: each one tags and publishes, so losing a
-# superseded run there would drop a release, not just a check.
+# One run per PR branch, superseded PR runs cancelled. Main pushes are NOT
+# cancelled: each one publishes an image that a release may later promote, so
+# dropping a superseded run there could leave a commit with no image to release.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -54,77 +60,40 @@ jobs:
 
   version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # push the git tag on main builds
+    # No `contents: write`: this job used to push a git tag, which is now
+    # release.yaml's job. Read-only is the whole point of the change.
     outputs:
-      version: ${{ steps.v.outputs.version }}   # image tag (may carry -branch)
-      pyver: ${{ steps.v.outputs.pyver }}        # PEP 440 form for the wheel
+      version: ${{ steps.v.outputs.version }}   # x.y.z from version.txt (unreleased)
+      pyver: ${{ steps.v.outputs.pyver }}       # PEP 440 form for a dev wheel
+      sha_tag: ${{ steps.v.outputs.sha_tag }}   # sha-<short>, the image's real identity
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Compute version (patch = max x.y tag + 1; tag on main)
+      - name: Read the pending version
         id: v
-        env:
-          REF_NAME: ${{ github.head_ref || github.ref_name }}
-          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          BASE=$(tr -d ' \t\r\n' < version.txt)
-          if ! echo "$BASE" | grep -qE '^[0-9]+\.[0-9]+$'; then
-            echo "::error::version.txt must be MAJOR.MINOR (x.y), got '$BASE'"; exit 1
+          VERSION=$(tr -d ' \t\r\n' < version.txt)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version.txt must be MAJOR.MINOR.PATCH (x.y.z), got '$VERSION'"; exit 1
           fi
 
-          # Highest existing patch among tags exactly "BASE.<digits>" (-1 if none → next is 0).
-          find_max_patch() {
-            local max=-1 rem
-            while IFS= read -r t; do
-              [ -z "$t" ] && continue
-              rem="${t#"$BASE."}"
-              if [[ "$rem" =~ ^[0-9]+$ ]] && (( rem > max )); then max=$rem; fi
-            done < <(git tag --list "$BASE.*")
-            echo "$max"
-          }
+          # A tag for this version means it is already released — version.txt was
+          # not bumped, so the next release would try to re-tag a released
+          # version and PyPI would reject the duplicate upload. Warn on every
+          # build rather than let it surface only at release time.
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::warning title=version::$VERSION is already tagged (released). Bump version.txt before the next release."
+          fi
 
-          if [ "$REF_NAME" = "main" ] && [ "$EVENT" = "push" ]; then
-            git config user.name "github-actions"
-            git config user.email "github-actions@comet.com"
-            # Retry to stay race-safe if two main builds tag at once.
-            for attempt in 1 2 3 4 5; do
-              if [ "$attempt" -gt 1 ]; then
-                git fetch --tags --force >/dev/null 2>&1 || true
-                sleep $(( RANDOM % 3 + 1 ))
-              fi
-              PATCH=$(( $(find_max_patch) + 1 ))
-              VERSION="$BASE.$PATCH"
-              if git tag "$VERSION" 2>/dev/null && git push origin "refs/tags/$VERSION" 2>/dev/null; then
-                echo "Tagged $VERSION"
-                break
-              fi
-              git tag -d "$VERSION" 2>/dev/null || true
-              if [ "$attempt" -eq 5 ]; then
-                echo "::error::failed to create tag after 5 attempts"; exit 1
-              fi
-            done
-          else
-            PATCH=$(( $(find_max_patch) + 1 ))
-            # Normalize: lowercase, non-alnum -> '-', cap at 20 chars,
-            # strip trailing dashes.
-            SLUG=$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#^-+##; s#-+$##')
-            SLUG=${SLUG:0:20}; SLUG=${SLUG%-}
-            VERSION="$BASE.$PATCH-$SLUG"
-          fi
-          # The image tag may carry a -branch suffix (fine for Docker tags), but
-          # the wheel/_version.py must be PEP 440 — so branch builds use .devN.
-          if [ "$REF_NAME" = "main" ] && [ "$EVENT" = "push" ]; then
-            PYVER="$BASE.$PATCH"
-          else
-            PYVER="$BASE.$PATCH.dev0"
-          fi
+          # Every build between two releases carries the same version, so the
+          # commit is what identifies an image. `release.yaml` promotes this
+          # exact tag to :x.y.z + :latest.
+          SHA_TAG="sha-$(git rev-parse --short=12 HEAD)"
+
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
-          echo "pyver=$PYVER" | tee -a "$GITHUB_OUTPUT"
-          echo "### Version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "pyver=$VERSION.dev0" | tee -a "$GITHUB_OUTPUT"
+          echo "sha_tag=$SHA_TAG" | tee -a "$GITHUB_OUTPUT"
+          echo "### Pending version: $VERSION (image $SHA_TAG)" >> "$GITHUB_STEP_SUMMARY"
 
   python-checks:
     runs-on: ubuntu-latest
@@ -325,8 +294,13 @@ jobs:
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
+          # Tagged by COMMIT, not by version: version.txt does not change
+          # between releases, so a version tag here would be overwritten by
+          # every merge and a release could promote an image built from a later
+          # commit than the one it tagged. `release.yaml` promotes this digest
+          # to :x.y.z and :latest.
           tags: |
-            ${{ env.IMAGE }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE }}:${{ needs.version.outputs.sha_tag }}
             ${{ github.ref_name == 'main' && format('{0}:main', env.IMAGE) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
