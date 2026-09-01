@@ -27,6 +27,7 @@ from datetime import UTC, datetime
 from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
 from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
 from opik_mcp.opik_client import opik_rest_base
+from opik_mcp.skills_catalog import skill_names
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 _TEMPLATE = """\
@@ -56,6 +57,9 @@ requires Opik domain expertise. Returns a thread_id you can pass back for \
 follow-ups. Writes Ollie performs mid-stream (scores, comments, test-suite \
 items, prompts) execute without a per-action confirmation step — be \
 intentional about what you ask for.
+- read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
+Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
+task — unless it's already in your context, in which case use what you have.
 
 Today's date is {date}.\
 """
@@ -127,6 +131,7 @@ def render_instructions(
         date=date,
         default_project_clause=default_project_clause,
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
+        skill_names=", ".join(skill_names()),
     )
 
 

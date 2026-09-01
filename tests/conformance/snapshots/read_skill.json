@@ -1,0 +1,16 @@
+{
+  "properties": {
+    "skill_name": {
+      "description": "A skill name ('opik-instrument'), a path inside a skill ('opik/references/tracing-python.md'), or a resource URI ('opik://skills/opik/SKILL.md'). The tool description lists every skill and every readable path.",
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Skill Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "skill_name"
+  ],
+  "title": "read_skillArguments",
+  "type": "object"
+}

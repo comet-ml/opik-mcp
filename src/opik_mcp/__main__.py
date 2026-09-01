@@ -346,9 +346,14 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # whoever can spawn the process already owns its stdio.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
         from opik_mcp.server import apply_tool_visibility, mcp
+        from opik_mcp.skills_resources import install_skill_resources
 
         apply_tool_visibility(mcp)
         install_tools_listed_emitter(mcp)
+        # stdio hosts (Claude Code, Cursor) are the ones most likely to browse
+        # resources, so the skills must be served on this path too — build_app()
+        # never runs here.
+        install_skill_resources(mcp)
         logger.info("startup transport=stdio")
         mcp.run(transport="stdio")
         return
