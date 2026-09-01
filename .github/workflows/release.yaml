@@ -59,10 +59,24 @@ jobs:
           # Pin the SHA once, here. Every later job resolves from this rather
           # than from `main`, so a merge landing mid-release cannot make the tag,
           # the image and the wheel come from three different commits.
-          SHA=$(git rev-parse HEAD)
+          #
+          # ON A REPLAY THE TAG WINS, not main. A replay finishes a release that
+          # already tagged and published from an earlier commit; main has almost
+          # certainly moved on by then (very likely to the fix that made the
+          # replay necessary). Taking main's HEAD would promote an image built
+          # from the WRONG commit and stamp the released version on it, leaving
+          # the tag, the wheel and the image disagreeing about what 0.x.y is.
+          EXISTING_TAG_SHA=$(git ls-remote --tags origin "refs/tags/$VERSION" | awk '{print $1}')
+          if [ -n "$EXISTING_TAG_SHA" ]; then
+            git fetch --depth=1 origin "refs/tags/$VERSION" >/dev/null 2>&1 || true
+            SHA=$(git rev-parse "refs/tags/$VERSION^{commit}" 2>/dev/null || echo "$EXISTING_TAG_SHA")
+            echo "::notice title=validate::$VERSION is already tagged; releasing that commit (${SHA:0:12}), not main."
+          else
+            SHA=$(git rev-parse HEAD)
+          fi
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "sha=$SHA" | tee -a "$GITHUB_OUTPUT"
-          echo "sha_tag=sha-$(git rev-parse --short=12 HEAD)" | tee -a "$GITHUB_OUTPUT"
+          echo "sha_tag=sha-${SHA:0:12}" | tee -a "$GITHUB_OUTPUT"
           echo "### Releasing $VERSION from ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
 
   create-git-tag:
@@ -113,16 +127,26 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       # Promotes the image CI built for this exact commit. No rebuild, so the
       # released digest is provably the one that passed CI on that commit.
-      - name: Promote the commit's image to :x.y.z and :latest
+      # WAITS for the image rather than requiring the operator to time the
+      # release. Releasing right after a merge is the normal thing to do, and
+      # the multi-arch build takes ~75s — 0.2.28 failed by looking 35s too
+      # early. Ten minutes covers a cold cache; the failure message still names
+      # the cause if CI genuinely did not run.
+      - name: Wait for the commit's image, then promote it to :x.y.z and :latest
         env:
           SHA_TAG: ${{ needs.validate.outputs.sha_tag }}
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          if ! docker buildx imagetools inspect "${IMAGE}:${SHA_TAG}" >/dev/null 2>&1; then
-            echo "::error::${IMAGE}:${SHA_TAG} not found — the main build for this commit has not published an image yet. Wait for CI on that commit, then re-run with reuse_existing_tag: true."
-            exit 1
-          fi
+          deadline=$(( SECONDS + 600 ))
+          until docker buildx imagetools inspect "${IMAGE}:${SHA_TAG}" >/dev/null 2>&1; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::${IMAGE}:${SHA_TAG} never appeared after 10 minutes. Check the CI run for this commit, then re-run this workflow with reuse_existing_tag: true."
+              exit 1
+            fi
+            echo "waiting for ${IMAGE}:${SHA_TAG} (main's build-image is probably still running)…"
+            sleep 20
+          done
           docker buildx imagetools create \
             -t "${IMAGE}:${VERSION}" \
             -t "${IMAGE}:latest" \
@@ -163,6 +187,15 @@ jobs:
           uv build
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A PyPI version can be uploaded exactly once, so without this a
+          # REPLAY (`reuse_existing_tag: true`, after a later job failed) dies
+          # here on a duplicate and skips the very jobs it was re-run to
+          # finish. That happened on 0.2.28: PyPI succeeded, promote-image lost
+          # a race, and the recovery path could not get past this step.
+          # `skip-existing` makes the upload idempotent — a replay confirms the
+          # version is published rather than failing because it is.
+          skip-existing: true
       - name: Summary
         run: |
           echo "### PyPI: \`opik-mcp ${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
@@ -175,13 +208,20 @@ jobs:
         with:
           ref: ${{ needs.validate.outputs.sha }}
           fetch-depth: 0
+      # Replay-safe, for the same reason as `skip-existing` on the PyPI upload:
+      # a re-run exists to finish a release, so a step that already succeeded
+      # must be a no-op rather than the thing that stops it finishing.
       - name: Create GitHub release for the tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          gh release create "${{ needs.validate.outputs.version }}" \
-            --title "${{ needs.validate.outputs.version }}" \
-            --generate-notes
+          set -euo pipefail
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "::notice title=github-release::release $VERSION already exists; leaving it as is."
+          else
+            gh release create "$VERSION" --title "$VERSION" --generate-notes
+          fi
           echo "### Release: [\`${{ needs.validate.outputs.version }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }})" >> "$GITHUB_STEP_SUMMARY"
 
       # Remove the rolling draft maintained by release-drafter now that a real
