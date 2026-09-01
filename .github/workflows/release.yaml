@@ -1,17 +1,31 @@
 name: Release
-run-name: "Release ${{ inputs.tag }} by @${{ github.actor }}"
+run-name: "Release by @${{ github.actor }}"
 
-# Manual release of a CI-built version. Pick a git tag created by a main build
-# (x.y.z). Nothing is rebuilt: the existing GHCR image is promoted to :latest,
-# and the chart + PyPI package are published at that version from the tag's source.
+# Manual release. THIS WORKFLOW CREATES THE TAG — nothing else in the repo does.
+#
+# The version comes from `version.txt` (x.y.z, the pending release), so there is
+# no version to type and no wrong tag to pick. The tag is created here at the
+# commit being released, the image built from that commit is promoted, the chart
+# and PyPI package are published, the GitHub release is created, and finally
+# `version.txt` is bumped on main for the next cycle. Mirrors comet-ml/opik.
+#
+# Consequence, which is the point: a git tag exists only for a released version,
+# so tags, GitHub releases and PyPI versions are one set rather than three that
+# drift. (Before this, main builds tagged every merge and 0.2.25-0.2.27 were
+# tagged but never released.)
+#
+# ORDERING. The tag is created FIRST, because the chart and PyPI jobs build from
+# `refs/tags/<version>` and a release must be reproducible from a ref. If a later
+# job fails, re-run with `reuse_existing_tag: true` rather than deleting the tag.
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        type: string
-        required: true
-        description: "Git tag to release (x.y.z, created by a main build — e.g. 0.2.42)"
+      reuse_existing_tag:
+        type: boolean
+        required: false
+        default: false
+        description: "Reuse the existing tag for version.txt instead of creating it. Use to replay a release whose tag was already pushed by a failed run."
 
 permissions:
   contents: write   # create the GitHub release
@@ -27,18 +41,68 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+      sha_tag: ${{ steps.v.outputs.sha_tag }}
     steps:
-      - name: Validate tag format
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - name: Read version.txt and pin the commit being released
         id: v
         run: |
-          TAG=$(echo "${{ inputs.tag }}" | tr -d ' \t\r\n')
-          if ! echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::tag must be x.y.z (a main-build tag), got '$TAG'"; exit 1
+          set -euo pipefail
+          VERSION=$(tr -d ' \t\r\n' < version.txt)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version.txt must be MAJOR.MINOR.PATCH (x.y.z), got '$VERSION'"; exit 1
           fi
-          echo "version=$TAG" | tee -a "$GITHUB_OUTPUT"
+
+          # Pin the SHA once, here. Every later job resolves from this rather
+          # than from `main`, so a merge landing mid-release cannot make the tag,
+          # the image and the wheel come from three different commits.
+          SHA=$(git rev-parse HEAD)
+          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "sha=$SHA" | tee -a "$GITHUB_OUTPUT"
+          echo "sha_tag=sha-$(git rev-parse --short=12 HEAD)" | tee -a "$GITHUB_OUTPUT"
+          echo "### Releasing $VERSION from ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
+
+  create-git-tag:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - name: Create and push the release tag
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          REUSE: ${{ inputs.reuse_existing_tag }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(git ls-remote --tags origin "refs/tags/$VERSION" | awk '{print $1}')
+
+          if [ "$REUSE" = "true" ]; then
+            if [ -n "$EXISTING" ]; then
+              echo "::warning title=create-git-tag::reusing existing tag $VERSION at $EXISTING — verify that is the commit you mean to release."
+              exit 0
+            fi
+            echo "::error::reuse_existing_tag=true but origin has no tag $VERSION. Refusing to create one silently."
+            exit 1
+          fi
+
+          if [ -n "$EXISTING" ]; then
+            echo "::error::tag $VERSION already exists at $EXISTING — version.txt was not bumped after the last release. Bump it, or re-run with reuse_existing_tag to replay."
+            exit 1
+          fi
+
+          git config --local user.email "github-actions@comet.com"
+          git config --local user.name "github-actions"
+          git tag "$VERSION"
+          git push --no-verify origin "refs/tags/$VERSION"
 
   promote-image:
-    needs: validate
+    needs: [validate, create-git-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v3
@@ -47,20 +111,31 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tag released image as :latest (no rebuild)
+      # Promotes the image CI built for this exact commit. No rebuild, so the
+      # released digest is provably the one that passed CI on that commit.
+      - name: Promote the commit's image to :x.y.z and :latest
+        env:
+          SHA_TAG: ${{ needs.validate.outputs.sha_tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
+          set -euo pipefail
+          if ! docker buildx imagetools inspect "${IMAGE}:${SHA_TAG}" >/dev/null 2>&1; then
+            echo "::error::${IMAGE}:${SHA_TAG} not found — the main build for this commit has not published an image yet. Wait for CI on that commit, then re-run with reuse_existing_tag: true."
+            exit 1
+          fi
           docker buildx imagetools create \
+            -t "${IMAGE}:${VERSION}" \
             -t "${IMAGE}:latest" \
-            "${IMAGE}:${{ needs.validate.outputs.version }}"
-          echo "### Image: \`${IMAGE}:${{ needs.validate.outputs.version }}\` → \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
+            "${IMAGE}:${SHA_TAG}"
+          echo "### Image: \`${IMAGE}:${SHA_TAG}\` → \`:${VERSION}\`, \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
 
   publish-chart:
-    needs: validate
+    needs: [validate, create-git-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.validate.outputs.version }}
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
@@ -74,13 +149,13 @@ jobs:
           echo "### Chart: \`oci://ghcr.io/comet-ml/charts/opik-mcp:${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   pypi:
-    needs: validate
+    needs: [validate, create-git-tag]
     runs-on: ubuntu-latest
     environment: pypi
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.validate.outputs.version }}
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: astral-sh/setup-uv@v6
       - name: Stamp the release version + build
         run: |
@@ -93,12 +168,12 @@ jobs:
           echo "### PyPI: \`opik-mcp ${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   github-release:
-    needs: [validate, promote-image, publish-chart, pypi]
+    needs: [validate, create-git-tag, promote-image, publish-chart, pypi]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.validate.outputs.version }}
+          ref: ${{ needs.validate.outputs.sha }}
           fetch-depth: 0
       - name: Create GitHub release for the tag
         env:
@@ -115,3 +190,37 @@ jobs:
         uses: hugo19941994/delete-draft-releases@v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Closes the loop: version.txt always names an UNRELEASED version, so the next
+  # release has nothing to type and cannot collide with a published one. Runs
+  # last and only on success — bumping after a failed release would strand the
+  # version that failed, with no tag and no way to retry it by name.
+  bump-version:
+    needs: [validate, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - name: Bump the patch on main
+        env:
+          RELEASED: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(tr -d ' \t\r\n' < version.txt)
+          if [ "$CURRENT" != "$RELEASED" ]; then
+            # Someone bumped it by hand mid-release, or main moved. Their value
+            # wins: overwriting it could silently re-release a version.
+            echo "::warning title=bump-version::version.txt is $CURRENT, not the released $RELEASED — leaving it alone."
+            exit 0
+          fi
+          NEXT="${RELEASED%.*}.$(( ${RELEASED##*.} + 1 ))"
+          printf '%s\n' "$NEXT" > version.txt
+          git config --local user.email "github-actions@comet.com"
+          git config --local user.name "github-actions"
+          git add version.txt
+          git commit -m "Bump version.txt to $NEXT after releasing $RELEASED"
+          git push origin main
+          echo "### Next version: \`$NEXT\` (was \`$RELEASED\`)" >> "$GITHUB_STEP_SUMMARY"

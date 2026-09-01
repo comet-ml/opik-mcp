@@ -45,8 +45,10 @@ help:
 	@echo "  make legacy-lint    - eslint in legacy/typescript"
 	@echo "  make legacy-start   - node build/index.js in legacy/typescript"
 
-# Generate the git-ignored version file. CI/release pass VERSION=<x.y.z>;
-# locally it falls back to <MAJOR.MINOR from version.txt>.dev0.
+# Generate the git-ignored version file. The release passes VERSION=<x.y.z>;
+# every other build falls back to `<version.txt>.dev0` — version.txt holds the
+# next, UNRELEASED version (release.yaml bumps it), so a dev build is always a
+# pre-release of the version that is coming, never a claim to be a released one.
 version:
 	@printf '__version__ = "%s"\n' "$${VERSION:-$$(tr -d '[:space:]' < version.txt).dev0}" > $(VERSION_FILE)
 	@echo "wrote $(VERSION_FILE): $$(cat $(VERSION_FILE))"

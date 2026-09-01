@@ -38,9 +38,10 @@ dev = [
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
 
-# Version comes from a generated, git-ignored file (`make version` / CI writes it;
-# version.txt holds only MAJOR.MINOR). `artifacts` force-includes it in the
-# sdist/wheel despite .gitignore, so building from an sdist resolves the version.
+# Version comes from a generated, git-ignored file (`make version` writes it from
+# version.txt, which holds the next unreleased x.y.z). `artifacts` force-includes
+# it in the sdist/wheel despite .gitignore, so building from an sdist resolves
+# the version.
 [tool.hatch.version]
 path = "src/opik_mcp/_version.py"
 
