@@ -90,10 +90,22 @@ jobs:
           # exact tag to :x.y.z + :latest.
           SHA_TAG="sha-$(git rev-parse --short=12 HEAD)"
 
+          # On main, the image built here is the RELEASE CANDIDATE for $VERSION:
+          # `release.yaml` promotes this exact digest to :x.y.z rather than
+          # rebuilding, so whatever is stamped now is what production reports
+          # forever. Stamping `.dev0` there put `0.2.29.dev0` into prod and out
+          # of every BI cohort that filters dev builds. Off main nothing is
+          # promoted, so `.dev0` is correct and keeps branch wheels from
+          # claiming to be the release.
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "main" ]; then
+            PYVER="$VERSION"
+          else
+            PYVER="$VERSION.dev0"
+          fi
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
-          echo "pyver=$VERSION.dev0" | tee -a "$GITHUB_OUTPUT"
+          echo "pyver=$PYVER" | tee -a "$GITHUB_OUTPUT"
           echo "sha_tag=$SHA_TAG" | tee -a "$GITHUB_OUTPUT"
-          echo "### Pending version: $VERSION (image $SHA_TAG)" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Pending version: $VERSION (stamped $PYVER, image $SHA_TAG)" >> "$GITHUB_STEP_SUMMARY"
 
   python-checks:
     runs-on: ubuntu-latest
