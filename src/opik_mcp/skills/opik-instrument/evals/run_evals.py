@@ -133,9 +133,9 @@ def trigger_prepare() -> None:
     trig = load_cases().get("triggering", {})
     TRIG.mkdir(parents=True, exist_ok=True)
     menu = [{"name": "opik-instrument", "description": _skill_description()}, *DECOY_SKILLS]
-    phrases = [{"phrase": p, "expect": "opik-instrument"} for p in trig.get("should_trigger", [])] + [
-        {"phrase": p, "expect": "not-opik-instrument"} for p in trig.get("should_not_trigger", [])
-    ]
+    phrases = [
+        {"phrase": p, "expect": "opik-instrument"} for p in trig.get("should_trigger", [])
+    ] + [{"phrase": p, "expect": "not-opik-instrument"} for p in trig.get("should_not_trigger", [])]
     (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
     lines = [
         "# Triggering judge input",

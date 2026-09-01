@@ -143,7 +143,11 @@ def grade_case(
         add("cover_types", want.issubset(got), f"types={sorted(got)} missing {sorted(want - got)}")
 
     if a.get("spans_well_formed"):
-        bad = [s for s in spans if not str(s.get("name", "")).strip() or not str(s.get("type", "")).strip()]
+        bad = [
+            s
+            for s in spans
+            if not str(s.get("name", "")).strip() or not str(s.get("type", "")).strip()
+        ]
         add("spans_well_formed", not bad, f"malformed spans (empty name/type): {bad}")
 
     # --- instrumentation actually happened ------------------------------
@@ -154,7 +158,11 @@ def grade_case(
     if a.get("next_step_contains"):
         ns = str(result.get("next_step") or "").lower()
         missing = [s for s in a["next_step_contains"] if s.lower() not in ns]
-        add("next_step_contains", not missing, f"next_step={result.get('next_step')!r} missing {missing}")
+        add(
+            "next_step_contains",
+            not missing,
+            f"next_step={result.get('next_step')!r} missing {missing}",
+        )
 
     # --- optional online integrity (skipped if unavailable) -------------
     tid = result.get("trace_id")
