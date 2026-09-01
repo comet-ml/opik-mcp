@@ -85,6 +85,15 @@ To find the newest trace instead of using a known id, use the client's trace sea
 
 Traces are asynchronous — allow a few seconds after the run and make sure the flush ran.
 
+**Verify coverage, not just arrival.** A trace arriving is necessary but not sufficient — batching can silently drop or truncate spans, so a trace can land *incomplete* and still look fine. Before reporting `verified`:
+- **Count vs. expected.** Compare `len(client.search_spans(trace_id=tid))` against the call sites you instrumented on the path you ran (entrypoint + each traced tool/LLM). Fewer spans than expected means spans were dropped — do not report `verified`.
+- **Every span is well-formed.** Each span has a non-empty `name` and `type`; LLM spans carry input/output (and usage where the integration provides it). A span returned with an empty `name`/`type` is the batching-race symptom below, not a real span.
+
+**Common ingestion traps.** If the trace is empty, partial, or has unnamed spans, it is almost always one of these — not a bug in the instrumentation you added:
+- **Batching race on fast spans.** With batching on, a span created and ended within one flush window can be reordered by the backend and dropped (or stripped of its name). Ensure a single `flush()` at the very end and allow a few seconds before verifying.
+- **Post-hoc scores dropped.** A feedback score attached *after* a span closes (`log_traces_feedback_scores` / `log_spans_feedback_scores` by id) is lost if the span's create hasn't reached the backend yet — flush before posting the score, and reference the span by id.
+- **Missing flush.** The most common empty-trace cause: a script that exits without `opik.flush_tracker()` / `await client.flush()`.
+
 ### 7. Report
 Return a short human result + the trace link (see **Output**), then make the single expansion offer.
 
