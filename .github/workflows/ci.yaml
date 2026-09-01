@@ -27,6 +27,20 @@ permissions:
 env:
   IMAGE: ghcr.io/comet-ml/opik-mcp
 
+  # TELEMETRY OFF FOR THE WHOLE WORKFLOW. A CI run is not product usage: BI
+  # funnels and the Sentry project must not see it, and `is_ci` only LABELS an
+  # event, it does not suppress one. Set at workflow level rather than per job
+  # so a job added later inherits the opt-out instead of having to remember it.
+  #
+  # These duplicate `tests/conftest.py`, deliberately: the conftest covers the
+  # pytest process and anything inheriting its env, this covers every other way
+  # a job could reach our code (a make target, a script, a future step).
+  OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_SENTRY_ENABLED: "false"
+  # Honoured by many third-party CLIs, which matters here because `skills-pack`
+  # runs `npx skills` — someone else's binary, with its own telemetry posture.
+  DO_NOT_TRACK: "1"
+
 jobs:
 
   version:

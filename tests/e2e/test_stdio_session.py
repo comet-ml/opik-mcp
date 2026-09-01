@@ -65,10 +65,16 @@ def _server_params() -> StdioServerParameters:
         args=["-m", "opik_mcp"],
         env={
             **os.environ,
-            # A CI run is not product usage. `is_ci` would label these events
-            # rather than suppress them, and a test suite must not post to the
-            # analytics endpoint at all.
+            # Both telemetry channels off, explicitly rather than by inheritance.
+            # A CI run is not product usage: `is_ci` would label these events
+            # rather than suppress them, and a test must not post to the
+            # analytics endpoint or the Sentry project at all. conftest already
+            # puts both flags in os.environ, and `setup_sentry` has its own
+            # pytest guard — but this server runs in a child process, so the
+            # opt-out is restated where it takes effect instead of resting on
+            # two layers of inheritance.
             "OPIK_MCP_ANALYTICS_ENABLED": "false",
+            "OPIK_MCP_SENTRY_ENABLED": "false",
             # Keep the subprocess's own logging off the captured stderr.
             "OPIK_MCP_LOG_LEVEL": "WARNING",
         },

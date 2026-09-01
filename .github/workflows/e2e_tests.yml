@@ -56,10 +56,14 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Belt and braces: `tests/e2e` already sets this in the subprocess env it
-  # spawns. A CI run is not product usage and must never reach the analytics
-  # endpoint — if a future test spawns the server another way, this still holds.
+  # Both telemetry channels off for the whole workflow. `tests/e2e` and
+  # `tests/conftest.py` also set these, deliberately: this is the outermost of
+  # three layers, and it is the one that still holds if a future step reaches
+  # our code without going through pytest at all. A CI run is not product usage
+  # — `is_ci` only LABELS an event, it does not suppress one.
   OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_SENTRY_ENABLED: "false"
+  DO_NOT_TRACK: "1"
   OPIK_MCP_LOG_LEVEL: WARNING
 
 jobs:
