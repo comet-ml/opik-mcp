@@ -1,4 +1,4 @@
-.PHONY: help version install run run-dev dev inspect test test-live conformance lint format typecheck check \
+.PHONY: help version install run run-dev dev inspect test test-live conformance e2e lint format typecheck check \
         skills-pack skills-verify skills-verify-source \
         docker-build docker-run \
         legacy-install legacy-build legacy-test legacy-lint legacy-start
@@ -23,6 +23,7 @@ help:
 	@echo "  make inspect    - launch MCP Inspector against running server"
 	@echo "  make test       - pytest"
 	@echo "  make conformance- pytest tests/conformance (MCP wire contract)"
+	@echo "  make e2e        - pytest -m e2e (real stdio subprocess; not in make check)"
 	@echo "  make lint       - ruff check + format check"
 	@echo "  make format     - ruff format + ruff check --fix"
 	@echo "  make typecheck  - mypy"
@@ -76,6 +77,19 @@ test-live:
 # you're iterating on the tool surface.
 conformance:
 	uv run pytest tests/conformance -v
+
+# End-to-end: spawns `python -m opik_mcp` as a real subprocess and drives it over
+# stdio. NOT part of `make test` / `make check` — `addopts` deselects the marker so
+# the default suite stays in-process — so this target and the e2e_tests workflow
+# are the only things that run it. It is the only suite that exercises
+# `__main__`'s stdio startup path, which every MCP host actually uses. Needs no
+# credentials and no backend.
+#
+# PYTEST_ARGS is how CI adds `--junitxml` without forking the command: the
+# workflow runs this exact target, so what CI does and what you can reproduce
+# locally cannot drift.
+e2e:
+	uv run pytest -m e2e -v $(PYTEST_ARGS)
 
 lint:
 	uv run ruff check .

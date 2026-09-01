@@ -1,0 +1,113 @@
+name: MCP E2E Tests
+run-name: "MCP E2E Tests ${{ github.ref_name }} by @${{ github.actor }}"
+
+# End-to-end (OPIK-7472): the server as a REAL SUBPROCESS, driven over stdio.
+#
+# Its own pipeline rather than a job in `ci.yaml`, so a transport failure reads
+# as "the transport broke" on the PR instead of being buried in a 1,400-test
+# `make check` run, and so it can be required, re-run, and reasoned about on its
+# own. Mirrors the `*_e2e_tests` workflows in comet-ml/opik.
+#
+# WHAT ONLY THIS CATCHES. Every other suite builds the FastMCP instance
+# in-process — even the conformance tests, which speak real MCP over an
+# in-memory transport — so none of them runs `__main__`. But stdio is how Claude
+# Code and Cursor launch this server, and `__main__._run_transport` has its own
+# startup path: it installs tool visibility, the tools_listed emitter and the
+# skill resources itself, separately from `build_app()`. Drop one of those calls
+# and `make check` stays green while every stdio host loses the surface.
+#
+# Hermetic, unlike opik's SDK e2e suites: there is no backend to stand up and no
+# credentials to inject. Skill content ships inside the wheel and the tests
+# assert on the transport, so this needs nothing but a Python and a checkout.
+#
+# NOTE ON THE PATHS FILTER: if this workflow is made a REQUIRED status check,
+# drop the `paths:` filters or add a skip-job that reports success. GitHub leaves
+# a required check that never ran pending forever, which silently blocks every PR
+# that touches only docs.
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'tests/e2e/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Makefile'
+      - '.github/workflows/e2e_tests.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'tests/e2e/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'Makefile'
+      - '.github/workflows/e2e_tests.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Belt and braces: `tests/e2e` already sets this in the subprocess env it
+  # spawns. A CI run is not product usage and must never reach the analytics
+  # endpoint — if a future test spawns the server another way, this still holds.
+  OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_LOG_LEVEL: WARNING
+
+jobs:
+  e2e:
+    name: Drive the server over stdio
+    runs-on: ubuntu-latest
+    # The whole suite runs in ~5s locally; ten minutes is generous headroom for a
+    # cold runner and still fails fast if a server hangs at startup. The tests
+    # carry their own 60s per-session deadline underneath this.
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Only "Publish test report" needs these; kept off the workflow-level
+      # default (least privilege).
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 'latest'
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      - name: Drive the server over stdio as a real subprocess
+        run: make e2e PYTEST_ARGS="--junitxml=${{ github.workspace }}/e2e-results.xml"
+
+      - name: Publish test report
+        uses: EnricoMi/publish-unit-test-result-action/linux@v2
+        if: always()
+        with:
+          action_fail: true
+          comment_mode: failures
+          check_name: MCP E2E Test Results
+          files: ${{ github.workspace }}/e2e-results.xml
+
+      - name: Attach results on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: ${{ github.workspace }}/e2e-results.xml
+          retention-days: 7
