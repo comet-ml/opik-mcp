@@ -8,9 +8,17 @@ and `__main__._run_transport` has its own startup path: it calls
 `apply_tool_visibility`, `install_tools_listed_emitter` and
 `install_skill_resources` itself, separately from `build_app()`.
 
-The concrete regression: delete the `install_skill_resources(mcp)` line from
-`__main__` and every existing test still passes, while every stdio host silently
-loses the resource surface. These tests fail instead.
+Two concrete regressions this file exists for, both of which shipped or nearly
+shipped because no in-process test could see them:
+
+1. Delete the `install_skill_resources(mcp)` line from `__main__` and every
+   other test still passes, while every stdio host silently loses the resource
+   surface.
+2. The session instructions described `ask_ollie` while `apply_tool_visibility`
+   was removing it from the registry — two mechanisms that must agree, with
+   nothing structural keeping them in step. Reported from a live session twice;
+   the unit tests could not catch it because they call the renderer directly
+   instead of asking a running server what it sends.
 
 They are e2e in the sense that matters here — a real process, a real pipe, a real
 client session — not in the sense of talking to a live Opik backend: skills ship

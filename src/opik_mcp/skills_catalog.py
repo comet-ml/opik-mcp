@@ -247,13 +247,13 @@ def _references(skill: str) -> tuple[SkillFile, ...]:
     return tuple(f for f in iter_skill_files() if f.skill == skill and not f.is_entry_point)
 
 
-def reference_names(skill: str) -> tuple[str, ...]:
-    """The names of a skill's reference documents — `tracing-python`, not a path.
+def _reference_names(skill: str) -> tuple[str, ...]:
+    """A skill's reference documents by bare name — `tracing-python`, not a path.
 
-    A skill's supporting documents live in `references/*.md` on disk, but the tool
-    contract deals in names: an agent asks for a skill, and optionally one of that
-    skill's references by name. Directory layout is this module's business, not the
-    caller's.
+    Private, and used for one thing: `resolve` accepts `opik/tracing-python` as
+    well as the advertised `opik/references/tracing-python.md`, because the
+    directory and the suffix are noise a caller may reasonably drop. The tool
+    advertises paths, so this is a tolerance, not a second documented form.
     """
     return tuple(
         f.path.removeprefix("references/").removesuffix(".md")
@@ -327,7 +327,7 @@ def resolve(skill_name: str) -> SkillFile:
 
     # Not an exact path — try it as a bare reference name before giving up.
     wanted = relative.removeprefix("references/").removesuffix(".md")
-    if wanted in reference_names(skill):
+    if wanted in _reference_names(skill):
         return next(f for f in _references(skill) if f.path.endswith(f"{wanted}.md"))
 
     raise UnknownSkillError(
