@@ -55,6 +55,14 @@ include = ["/src", "/README.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `tests/e2e` spawns the server as a subprocess per test, so it is excluded from
+# the default run — `make test` stays in-process and fast. It is NOT optional
+# coverage: `make e2e` and the `e2e` CI job run it on every PR, because it is the
+# only suite that exercises `__main__`'s stdio startup path.
+addopts = "-m 'not e2e'"
+markers = [
+    "e2e: spawns `python -m opik_mcp` over stdio; run by `make e2e` and the e2e CI job",
+]
 
 [tool.ruff]
 line-length = 100

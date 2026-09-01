@@ -47,6 +47,8 @@ from typing import Any
 
 from skills_ref import SkillProperties, read_properties, validate
 
+from opik_mcp.skills_catalog import EXCLUDED_DIRS
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SRC = REPO_ROOT / "src" / "opik_mcp" / "skills"
 DEFAULT_OUT = REPO_ROOT / "dist" / "opik-skills"
@@ -57,10 +59,13 @@ MANIFEST_SCHEMA_VERSION = 1
 UNVERSIONED = "0.0.0.dev0"
 UNKNOWN_COMMIT = "unknown"
 
-#: Directory names never published. `evals/` holds fixture repositories and harnesses
-#: (OPIK-7800) that no agent reads; the product installs this pack globally with
-#: `--all`, so shipping them would push megabytes onto every user's machine.
-EXCLUDED_DIRS = frozenset({"evals", "__pycache__"})
+#: Directory names never published — imported from the package (OPIK-7472), not
+#: redeclared here. `evals/` holds fixture repositories and harnesses (OPIK-7800)
+#: that no agent reads; the product installs this pack globally with `--all`, so
+#: shipping them would push megabytes onto every user's machine. The MCP serves the
+#: same tree over `resources/*` and `read_skill`, and "what the pack publishes" and
+#: "what the MCP serves" drifting apart is exactly the kind of difference nobody
+#: notices until a user compares the two.
 
 #: Relative paths to Markdown a SKILL.md tells the agent to read, in the two forms
 #: the skills use: a Markdown link, and a bare backticked path in prose. Both are

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -112,7 +113,49 @@ def test_render_mentions_tool_selection_guidance() -> None:
     out = render_instructions(_settings())
     assert "read" in out
     assert "list" in out
-    assert "ask_ollie" in out
+    assert "read_skill" in out
+
+
+# --- the blob must describe only what this connection advertises ---------- #
+
+
+def test_ask_ollie_is_described_when_it_is_enabled() -> None:
+    out = render_instructions(_settings(opik_mcp_ask_ollie_enabled=True))
+    assert "ask_ollie: use for investigative questions" in out
+    assert "Skip ask_ollie for these" in out
+
+
+def test_ask_ollie_is_absent_when_it_is_not_advertised() -> None:
+    """`apply_tool_visibility` REMOVES ask_ollie when it is off, so the tool
+    never reaches tools/list. A blob that still described it would cost an agent
+    a turn discovering a tool it was told to use does not exist — and unlike a
+    tool list, the blob is delivered as authoritative context rather than as
+    something to check. Default-off, so this is the common case, not the edge."""
+    out = render_instructions(_settings(opik_mcp_ask_ollie_enabled=False))
+    assert "ollie" not in out.lower()
+
+
+def test_the_default_project_clause_drops_ask_ollie_as_an_example_too() -> None:
+    """The easy half to miss: the clause names ask_ollie as a tool that takes
+    `project_name`, in a passage rendered for an entirely different reason."""
+    out = render_instructions(
+        _settings(opik_default_project_name="chatbot-prod", opik_mcp_ask_ollie_enabled=False)
+    )
+    assert "chatbot-prod" in out, "the default-project clause should still render"
+    assert "ollie" not in out.lower()
+
+
+def test_the_blob_names_no_tool_that_is_not_advertised() -> None:
+    """The general rule, checked against the live registry rather than a list:
+    every `name:`-style tool mention in the blob must be a tool this server
+    actually advertises. Catches the next tool that gets gated behind a flag."""
+    settings = _settings(opik_mcp_ask_ollie_enabled=False)
+    advertised = {t.name for t in mcp._tool_manager.list_tools()} - {"ask_ollie"}
+    out = render_instructions(settings)
+
+    mentioned = {word.rstrip(":") for word in re.findall(r"^- (\w+)", out, re.MULTILINE)}
+    unknown = {m for m in mentioned if m not in advertised and m != "Direct"}
+    assert not unknown, f"the blob describes tools that are not advertised: {sorted(unknown)}"
 
 
 def test_render_includes_default_project_name_when_set() -> None:

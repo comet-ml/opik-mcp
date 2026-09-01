@@ -24,8 +24,31 @@ on:
 permissions:
   contents: read
 
+# One run per PR branch. Without this, two quick pushes race — including two
+# `version` jobs contending for the same tag on main, which is what that job's
+# retry loop exists to survive rather than something we should keep provoking.
+# Main pushes are NOT cancelled: each one tags and publishes, so losing a
+# superseded run there would drop a release, not just a check.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   IMAGE: ghcr.io/comet-ml/opik-mcp
+
+  # TELEMETRY OFF FOR THE WHOLE WORKFLOW. A CI run is not product usage: BI
+  # funnels and the Sentry project must not see it, and `is_ci` only LABELS an
+  # event, it does not suppress one. Set at workflow level rather than per job
+  # so a job added later inherits the opt-out instead of having to remember it.
+  #
+  # These duplicate `tests/conftest.py`, deliberately: the conftest covers the
+  # pytest process and anything inheriting its env, this covers every other way
+  # a job could reach our code (a make target, a script, a future step).
+  OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_SENTRY_ENABLED: "false"
+  # Honoured by many third-party CLIs, which matters here because `skills-pack`
+  # runs `npx skills` — someone else's binary, with its own telemetry posture.
+  DO_NOT_TRACK: "1"
 
 jobs:
 
@@ -118,6 +141,49 @@ jobs:
         run: uv sync --extra dev
       - name: Run lint + typecheck + tests
         run: make check
+
+  # End-to-end (OPIK-7472): the server as a REAL SUBPROCESS, driven over stdio.
+  #
+  # WHAT ONLY THIS CATCHES. Every suite `python-checks` runs builds the FastMCP
+  # instance in-process — even the conformance tests, which speak real MCP over
+  # an in-memory transport — so none of them runs `__main__`. But stdio is how
+  # Claude Code and Cursor launch this server, and `__main__._run_transport` has
+  # its own startup path: it installs tool visibility, the tools_listed emitter
+  # and the skill resources itself, separately from `build_app()`. Drop one of
+  # those calls and `make check` stays green while every stdio host loses the
+  # surface. Verified by doing exactly that.
+  #
+  # A JOB, NOT ITS OWN WORKFLOW. It was briefly a separate `e2e_tests.yml`,
+  # mirroring the `*_e2e_tests` workflows in comet-ml/opik — reverted, because
+  # those are separate for reasons that do not hold here: they stand up a
+  # docker-compose backend, fan out over a version matrix, need secrets, and run
+  # for half an hour in a monorepo where path filters genuinely skip work. This
+  # one is hermetic and takes seconds, GitHub already reports every job as its
+  # own status check, and a separate workflow needs a `paths:` filter — which
+  # leaves a required check pending forever on any PR that misses the filter.
+  #
+  # Deliberately NOT in `make check`: `addopts` deselects the `e2e` marker so the
+  # default suite stays in-process and fast. This job and `make e2e` are what run
+  # it. Hermetic — skill content ships in the wheel, so no backend, no credentials.
+  e2e:
+    runs-on: ubuntu-latest
+    # ~5s locally; ten minutes is headroom for a cold runner and still fails fast
+    # if a server hangs at startup. The tests carry a 60s per-session deadline
+    # underneath this.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: 'latest'
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --extra dev
+      - name: Drive the server over stdio as a real subprocess
+        run: make e2e
 
   # The published `opik-skills` pack (OPIK-7621). Built on every PR so a change to
   # the authored skills is verified before it can reach users; published only from

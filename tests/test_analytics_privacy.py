@@ -50,6 +50,9 @@ FORBIDDEN = [
     "free-text-list-name-UNIQUE-CANARY-9d4e5f6a",
     # write.data canary (PII payload inside the structured object)
     "write-data-payload-UNIQUE-CANARY-1a2b3c4d",
+    # read_skill.skill_name canary — the argument is caller-supplied free text,
+    # so an unknown value must collapse to a constant rather than be echoed.
+    "free-text-skill-name-UNIQUE-CANARY-3c7b8a9d",
     # PR1 fingerprint canaries — install env values that MUST never appear
     # in any analytics event payload.
     "FORBIDDEN-CANARY-getpass-username-7c4a2b1c",
@@ -748,6 +751,121 @@ async def _noop_coroutine(result: str) -> str:
 
 async def _noop_coroutine_result(result: Any) -> Any:
     return result
+
+
+# --- read_skill: usage BI without echoing the argument (OPIK-7472) ------- #
+#
+# `skill` is emitted as a raw label, which is only safe because the value space
+# is closed — the skills bundled in the wheel. The argument itself is
+# caller-supplied, so these tests exist to prove the guard that keeps it closed:
+# anything not in the catalog collapses to "unknown" rather than minting a new
+# BI label (and, in the free-text case, leaking the caller's prose).
+
+
+@pytest.mark.anyio
+async def test_read_skill_props_report_the_skill_the_form_and_whether_it_was_a_reference(
+    recorder: _Recorder,
+) -> None:
+    """Three questions BI has of this tool: which skills earn their place, which
+    documented form callers use, and whether they read whole skills or drill into
+    the documents a SKILL.md points at."""
+    from opik_mcp import server
+
+    await server.read_skill(skill_name="opik")
+    props = _tool_called(recorder.events)
+    assert props["skill"] == "opik"
+    assert props["request_shape"] == "name"
+    assert props["is_reference"] == "false"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("requested", "shape", "is_reference"),
+    [
+        ("opik-instrument", "name", "false"),
+        ("opik/references/observability.md", "path", "true"),
+        ("opik://skills/opik/SKILL.md", "uri", "false"),
+        ("opik://skills/opik/references/observability.md", "uri", "true"),
+    ],
+)
+async def test_read_skill_shape_labels(
+    recorder: _Recorder, requested: str, shape: str, is_reference: str
+) -> None:
+    """A `uri` in the data means the caller browsed `resources/list` first — which
+    is how we learn whether the resource surface is being discovered at all."""
+    from opik_mcp import server
+
+    await server.read_skill(skill_name=requested)
+    props = _tool_called(recorder.events)
+    assert props["request_shape"] == shape
+    assert props["is_reference"] == is_reference
+
+
+@pytest.mark.anyio
+async def test_read_skill_never_emits_the_document_path(recorder: _Recorder) -> None:
+    """16 of the 21 bundled files are references, so the path would be the
+    highest-cardinality label on the event — and it informs no decision that
+    `is_reference` doesn't. Only the shape and the skill are recorded."""
+    from opik_mcp import server
+
+    await server.read_skill(skill_name="opik/references/tracing-python.md")
+    props = _tool_called(recorder.events)
+    assert props["skill"] == "opik"
+    assert "tracing-python" not in json.dumps(props)
+
+
+@pytest.mark.anyio
+async def test_read_skill_free_text_argument_never_reaches_analytics(
+    recorder: _Recorder,
+) -> None:
+    """A bad `skill_name` is free text — a user's prose, a pasted path, anything.
+
+    The failing call still emits `tool_called` (BI needs the failure), and the
+    argument appears nowhere in it. `instrument_tool` skips `props_fn` unless the
+    call completed, so the per-tool labels are absent here by construction; the
+    guard that keeps the `skill` label space closed on the *success* path is
+    covered by `test_read_skill_props_collapse_an_unknown_skill_to_a_constant`.
+    """
+    from opik_mcp import server
+    from opik_mcp.skills_catalog import UnknownSkillError
+
+    with pytest.raises(UnknownSkillError):
+        await server.read_skill(skill_name=FORBIDDEN[9])
+    _assert_no_leak(recorder.events)
+    props = _tool_called(recorder.events)
+    assert props["success"] == "false"
+    assert "skill" not in props
+
+
+def test_read_skill_props_collapse_an_unknown_skill_to_a_constant() -> None:
+    """The label guard, exercised directly on the props builder.
+
+    `skill` is emitted raw, which is only defensible while the value space stays
+    closed to the bundled skills. Nothing reaches the props builder with an
+    unknown skill today — resolution raises first — so the guard is tested here
+    rather than through the tool, and stays honest if resolution later grows
+    aliases or fuzzy matching.
+    """
+    from opik_mcp.server import _read_skill_props
+
+    props = _read_skill_props(None, {"skill_name": FORBIDDEN[9]})
+    assert props["skill"] == "unknown"
+    assert FORBIDDEN[9] not in json.dumps(props)
+
+
+@pytest.mark.anyio
+async def test_read_skill_emits_the_validation_error_kind_on_a_bad_argument(
+    recorder: _Recorder,
+) -> None:
+    """`UnknownSkillError` declares `error_kind = "validation"`, so a wrong skill
+    name lands in the user-side bucket and never pages anyone."""
+    from opik_mcp import server
+    from opik_mcp.skills_catalog import UnknownSkillError
+
+    with pytest.raises(UnknownSkillError):
+        await server.read_skill(skill_name="not-a-skill")
+    props = _tool_called(recorder.events)
+    assert props["error_kind"] == "validation"
 
 
 # --- cross-event privacy sweep ------------------------------------------ #

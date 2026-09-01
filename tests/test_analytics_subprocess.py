@@ -107,6 +107,14 @@ def _run_opik_mcp(
         # Stamp every event payload so receiver-side filters can drop the
         # test traffic if these somehow leak to a real receiver.
         "OPIK_MCP_ANALYTICS_SOURCE": "opik-mcp-test",
+        # Sentry off explicitly. The clean baseline above is the point of this
+        # helper, but it also drops ``PYTEST_CURRENT_TEST`` — so
+        # ``error_tracking._in_pytest()`` returns False inside this child and
+        # its pytest guard does not apply. Analytics here is redirected to a
+        # local capture server by the caller; Sentry has no such redirect, so
+        # an exception on a path that reached ``setup_sentry`` would go to the
+        # real project. These tests deliberately crash the process.
+        "OPIK_MCP_SENTRY_ENABLED": "false",
     }
     return subprocess.run(
         [sys.executable, "-m", "opik_mcp"],

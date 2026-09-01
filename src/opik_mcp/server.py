@@ -47,6 +47,14 @@ from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.uri import looks_like_thread_url
 from opik_mcp.run_experiment import run_experiment_impl
 from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
+from opik_mcp.skills_catalog import (
+    SKILLS_URI_PREFIX,
+    read_skill_tool_description,
+    request_shape,
+    run_read_skill,
+    skill_names,
+)
+from opik_mcp.skills_resources import install_skill_resources
 from opik_mcp.writes import (
     SCHEMA_TOOL_DESCRIPTION,
     WRITE_TOOL_DESCRIPTION,
@@ -125,6 +133,33 @@ def _ask_ollie_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "had_page_context": str(kwargs.get("page_context") is not None).lower(),
         "had_project_name": str(kwargs.get("project_name") is not None).lower(),
         "attach_resources_count": bucket_count(len(kwargs.get("attach_resources") or [])),
+    }
+
+
+def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    """Analytics labels for ``read_skill``.
+
+    Three low-cardinality labels, three distinct questions.
+
+    ``skill`` is safe as a raw label because the value space is closed — the
+    handful of skills bundled in the wheel — but only after the guard below:
+    the argument is caller-supplied, so an unknown value must collapse to a
+    constant rather than mint a new label per typo. The document path is never
+    emitted: 16 of the 21 bundled files are references, so it would be the
+    highest-cardinality label on the event for no decision it informs.
+
+    ``request_shape`` says which documented form the caller used, which is how we
+    learn whether the resource surface is being discovered at all — a `uri` means
+    the caller browsed `resources/list` first. ``is_reference`` says whether they
+    read a whole skill or drilled into one of its supporting documents.
+    """
+    requested = str(kwargs.get("skill_name", "")).strip().strip("/")
+    skill = requested.removeprefix(SKILLS_URI_PREFIX).removeprefix("../").partition("/")[0]
+    is_reference = not requested.endswith("SKILL.md") and "/" in requested.removeprefix("../")
+    return {
+        "skill": skill if skill in skill_names() else "unknown",
+        "request_shape": request_shape(requested),
+        "is_reference": str(is_reference).lower(),
     }
 
 
@@ -570,6 +605,51 @@ async def schema(
     if ctx is not None:
         await ctx.info(f"schema.called operation={operation}")
     return run_schema(operation=operation)
+
+
+# --- read_skill (OPIK-7472) --------------------------------------------- #
+#
+# The same documents are also served as MCP resources (see ``skills_resources``).
+# The tool exists because resource browsing is a host capability, not a model
+# one: many hosts surface resources to the user and never to the LLM, so on
+# those a resources-only implementation would ship skills no agent can reach.
+#
+# One argument, several forms: a skill name, a path inside a skill, or the
+# resource URI a host that browsed `resources/list` already holds. 16 of the 21
+# bundled files are supporting documents a SKILL.md tells the agent to go read,
+# so a name-only contract would leave `opik` a 5 KB index with 130 KB of
+# unreachable references behind it.
+#
+# The description is rendered from the bundled tree — both the routing list and
+# the full path inventory — so a new skill cannot be shipped unmentioned, and a
+# caller never has to guess a path.
+#
+# No `enum` on `skill_name`: the argument accepts paths and URIs as well as the
+# five names, so an enum would advertise a closed set the tool does not enforce
+# and reject valid calls at the host's schema check.
+
+
+@mcp.tool(description=read_skill_tool_description())
+@instrument_tool("read_skill", props_fn=_read_skill_props)
+async def read_skill(
+    skill_name: Annotated[
+        str,
+        Field(
+            description=(
+                "A skill name ('opik-instrument'), a path inside a skill "
+                "('opik/references/tracing-python.md'), or a resource URI "
+                "('opik://skills/opik/SKILL.md'). The tool description lists every "
+                "skill and every readable path."
+            ),
+            min_length=1,
+            max_length=512,
+        ),
+    ],
+    ctx: Context[ServerSession, None] | None = None,
+) -> str:
+    if ctx is not None:
+        await ctx.info(f"read_skill.called skill_name={skill_name}")
+    return run_read_skill(skill_name)
 
 
 # --- middleware ---------------------------------------------------------- #
@@ -1170,6 +1250,7 @@ def build_app() -> ASGIApp:
     apply_tool_visibility(mcp)
     install_tools_listed_emitter(mcp)
     install_session_instructions(mcp)
+    install_skill_resources(mcp)
     s = get_settings()
     # Serve the transport at the configured path so it matches the advertised
     # resource URI behind a non-rewriting path-prefix proxy. Read at app-build
