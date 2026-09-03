@@ -47,7 +47,7 @@ for users with non-default configs.
 
 The TS server exposed many narrow tools grouped into toolsets (`core`,
 `expert-prompts`, `expert-datasets`, `metrics`, ...). The Python server
-consolidates everything into six tools driven by a JSON-Schema dispatcher:
+consolidates everything into a handful of tools driven by a JSON-Schema dispatcher:
 
 | Python tool | What it does |
 |---|---|
@@ -55,8 +55,7 @@ consolidates everything into six tools driven by a JSON-Schema dispatcher:
 | `list`       | Page through a collection. |
 | `write`      | Mutating operations (scores, comments, prompt versions, experiments, ...) — uses an `operation` discriminator. |
 | `schema`     | Returns the JSON Schema + example payload for any `write` operation. |
-| `ask_ollie`  | Investigative questions, cross-entity synthesis. Returns a `thread_id` for follow-ups. |
-| `run_experiment` | Launches an experiment over a dataset. |
+| `read_skill` | Reads one of the Opik agent skills bundled with the server. |
 
 If you previously referenced toolset names in `OPIK_TOOLSETS`, you can drop
 that variable — there's nothing equivalent to set.
@@ -66,8 +65,8 @@ that variable — there's nothing equivalent to set.
 After updating your MCP client config and restarting the host:
 
 1. Open the MCP tool palette in your host (Claude Desktop / Cursor / VS Code).
-2. Confirm you see `read`, `list`, `write`, `schema`, `ask_ollie`,
-   `run_experiment` instead of the older `get-trace`, `list-prompts`, etc.
+2. Confirm you see `read`, `list`, `write`, `schema`, `read_skill`
+   instead of the older `get-trace`, `list-prompts`, etc.
 3. Try one read: ask the assistant *"list the first 3 traces in
    `<your-project>`"* — it should call `list` and return JSON.
 

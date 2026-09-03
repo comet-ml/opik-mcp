@@ -261,7 +261,7 @@ def test_transport_crash_propagates_full_context_to_sentry(
         "transport": "stdio",
     }
     # Transaction puts ``startup`` next to the exception type in Sentry's
-    # issue listing, alongside ``read`` / ``write`` / ``ask_ollie`` for
+    # issue listing, alongside ``read`` / ``write`` for
     # tool failures.
     assert call["transaction"] == "startup"
     # Fingerprint splits transport_crash from any future startup-phase

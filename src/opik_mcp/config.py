@@ -1,6 +1,6 @@
 import re
 from functools import lru_cache
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -76,7 +76,7 @@ _LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "
 
 
 class MissingConfigError(RuntimeError):
-    """Raised when an ask_ollie call is attempted without required env vars.
+    """Raised when a call is attempted without the required env vars.
 
     Deterministic and classifiable (the server is missing api_key/workspace),
     so it buckets as ``validation`` rather than ``unknown`` — it's a malformed
@@ -120,23 +120,6 @@ class Settings(BaseSettings):
     # only `project_name` on every write path. The backend's write DTOs treat
     # `project_id` as READ_ONLY on traces/spans.
     opik_default_project_name: str | None = None
-
-    opik_mcp_pod_ready_timeout_s: int = 120
-    opik_mcp_pod_ready_interval_s: int = 2
-
-    # Cadence for the watchdog heartbeat emitted while the SSE stream is silent.
-    # Hosts that reset their tool-call timeout on `notifications/progress` (per
-    # MCP spec §Lifecycle/Timeouts) need to see one at least every host-default
-    # interval. 15s sits safely under typical 60s host defaults with margin.
-    opik_mcp_heartbeat_interval_s: float = 15.0
-
-    # Hard ceiling on how long the pod can be silent (no real SSE event) before
-    # ask_ollie aborts the call. Without this, a stalled pod combined with a
-    # working heartbeat keeps the host hanging indefinitely — the heartbeat
-    # would happily reset the host's timeout forever. 300s covers cold SDK
-    # roundtrips and large test-suite evals while still bounding the worst case.
-    # Set to 0 to disable (debug only).
-    opik_mcp_stream_idle_timeout_s: float = 300.0
 
     # OAuth Authorization Server URL — advertised as ``authorization_servers``
     # in ``/.well-known/oauth-protected-resource`` per RFC 9728. The MCP host
@@ -184,33 +167,6 @@ class Settings(BaseSettings):
     opik_mcp_allowed_origins: str = "http://127.0.0.1:*,http://localhost:*,http://[::1]:*"
 
     opik_mcp_reload: bool = False
-
-    # YOLO mode toggle. "enabled" (default) auto-approves every pod
-    # `confirm_required` (audit row written before the confirm POST). "disabled"
-    # surfaces each confirm_required to the host LLM as a typed pod-stream error
-    # carrying the pod-supplied `summary`; no audit row, no confirm POST. The
-    # user can re-issue manually after deciding. Validated strictly so a typo
-    # ("disable", "off") fails loudly at startup rather than silently leaving
-    # auto-approval on when the user thought they opted out.
-    opik_mcp_auto_approve: Literal["enabled", "disabled"] = "enabled"
-
-    # ask_ollie is off in every deployment we ship, hosted included (decided
-    # 2026-08-27). It failed 90.6% of MCP calls over 30 days, and the tool is
-    # unregistered rather than made to fail — see `server.apply_tool_visibility`.
-    # Kept as a switch so it can be restored without a code change.
-    opik_mcp_ask_ollie_enabled: bool = False
-
-    # Maximum seconds to wait for the user to answer an elicitation prompt
-    # (currently used only by `ask_ollie` mid-stream tool-call confirms).
-    # Timeout is treated as a deny — the safer default; the user can always
-    # re-issue. 60s matches typical chat-UI attention spans without holding
-    # the host's tool-call slot open indefinitely.
-    opik_mcp_elicit_timeout_seconds: float = 60.0
-
-    @field_validator("opik_mcp_auto_approve", mode="before")
-    @classmethod
-    def _lowercase_toggle(cls, v: Any) -> Any:
-        return v.lower() if isinstance(v, str) else v
 
     @field_validator("opik_mcp_http_path", mode="before")
     @classmethod
@@ -286,15 +242,9 @@ def get_settings() -> Settings:
 def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
     """The one message for an unfilled workspace, wherever it is noticed.
 
-    Both entry points to Opik reach the backend with a ``Comet-Workspace``
-    header: ``opik_client.resolve_opik_config`` for the data tools and
-    ``require_ollie_config`` for ``ask_ollie``. They share this so the wording
-    does not depend on which tool the user happened to call.
-
-    They do NOT check the same inputs. ``resolve_opik_config`` also sees the
-    inbound header, because it forwards it; ``ask_ollie`` is settings-driven by
-    design (pod discovery is per-install, not per-request), so a hosted caller
-    sending a placeholder header is caught on the data tools only.
+    Every call into Opik reaches the backend with a ``Comet-Workspace`` header
+    resolved by ``opik_client.resolve_opik_config``; this is the wording it
+    raises so the message does not depend on which tool the user called.
     """
     return MissingConfigError(
         f"{source} is {value!r}, which looks like a config placeholder that was "
@@ -306,21 +256,6 @@ def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
 # Named for the error message. Pydantic resolves the alias for us and does not
 # report which spelling matched, so name both rather than guess wrong.
 WORKSPACE_ENV_VARS = "OPIK_WORKSPACE (or COMET_WORKSPACE)"
-
-
-def require_ollie_config(settings: Settings) -> tuple[str, str]:
-    if not settings.opik_api_key:
-        raise MissingConfigError("OPIK_API_KEY is required to use ask_ollie")
-    # Workspace is optional — fall back to "default" (Opik SDK convention),
-    # which on cloud resolves to the account's default workspace. Anything that
-    # goes wrong past that point surfaces its own error from pod discovery,
-    # which beats a hard config failure here.
-    workspace = settings.comet_workspace or DEFAULT_WORKSPACE
-    if looks_unsubstituted(workspace):
-        # ask_ollie does not go through resolve_opik_config, so without this it
-        # keeps hitting the opaque upstream error that guard exists to replace.
-        raise unfilled_workspace_error(workspace, WORKSPACE_ENV_VARS)
-    return settings.opik_api_key, workspace
 
 
 def installation_type(settings: Settings) -> str:

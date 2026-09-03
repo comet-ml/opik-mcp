@@ -28,7 +28,6 @@ from opik_mcp.analytics import (
 from opik_mcp.analytics.environment import cached_call_context_env, collect_environment_fingerprint
 from opik_mcp.analytics.events import bucket_count, bucket_path
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
-from opik_mcp.ask_ollie import AskOllieResult, run_ask_ollie
 from opik_mcp.auth_context import (
     classify_bearer,
     inbound_authorization,
@@ -37,16 +36,13 @@ from opik_mcp.auth_context import (
     resolved_workspace_name,
     settings_auth_mode,
 )
-from opik_mcp.config import MissingConfigError, Settings, get_settings
+from opik_mcp.config import Settings, get_settings
 from opik_mcp.credential_identity import remember_identity, remember_session
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import resolve_oauth_identity
-from opik_mcp.opik_client import make_opik_client, resolve_opik_config
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.uri import looks_like_thread_url
-from opik_mcp.run_experiment import run_experiment_impl
-from opik_mcp.run_experiment_models import RunExperimentConfig, RunExperimentResult
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
     read_skill_tool_description,
@@ -127,15 +123,6 @@ def _schema_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     return {"operation": str(kwargs.get("operation", ""))}
 
 
-def _ask_ollie_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-    return {
-        "had_continuation": str(kwargs.get("thread_id") is not None).lower(),
-        "had_page_context": str(kwargs.get("page_context") is not None).lower(),
-        "had_project_name": str(kwargs.get("project_name") is not None).lower(),
-        "attach_resources_count": bucket_count(len(kwargs.get("attach_resources") or [])),
-    }
-
-
 def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     """Analytics labels for ``read_skill``.
 
@@ -160,21 +147,6 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "skill": skill if skill in skill_names() else "unknown",
         "request_shape": request_shape(requested),
         "is_reference": str(is_reference).lower(),
-    }
-
-
-def _run_experiment_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-    cfg = kwargs.get("experiment_config") or {}
-    prompts = cfg.get("prompts") if isinstance(cfg, dict) else None
-    return {
-        "prompt_count_bucket": bucket_count(len(prompts) if isinstance(prompts, list) else 0),
-        "had_dataset_version_id": str(
-            isinstance(cfg, dict) and bool(cfg.get("dataset_version_id"))
-        ).lower(),
-        "had_prompt_version": str(
-            isinstance(prompts, list)
-            and any(isinstance(p, dict) and bool(p.get("prompt_version_id")) for p in prompts)
-        ).lower(),
     }
 
 
@@ -356,170 +328,6 @@ async def list_entities(
         project_name=project_name,
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
-    )
-
-
-# --- ask_ollie ----------------------------------------------------------- #
-
-
-@mcp.tool()
-@instrument_tool("ask_ollie", props_fn=_ask_ollie_props)
-async def ask_ollie(
-    query: Annotated[
-        str,
-        Field(
-            description=(
-                "The user's natural-language question for Ollie, the Opik in-product "
-                "assistant. Ollie can read the caller's Opik workspace (traces, "
-                "experiments, projects, prompts, datasets), summarize activity, and "
-                "help debug LLM apps. Be specific — Ollie sees the workspace but not "
-                "the surrounding chat. Example: 'Which traces from project demo failed "
-                "today and why?'"
-            ),
-            max_length=10_000,
-        ),
-    ],
-    page_context: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Free-form markdown describing what the user is currently looking at "
-                "in Opik (URL, selected trace, visible filters, etc.). This is a "
-                "human-readable view snapshot — NOT the place to put structured "
-                "project scope (use `project_name` for that). Ollie uses this for "
-                "grounding when prose alone is ambiguous. Max ~30k chars."
-            ),
-            max_length=30_000,
-        ),
-    ] = None,
-    attach_resources: Annotated[
-        list[str] | None,
-        Field(
-            description=(
-                "List of opik:// URIs (traces, spans, experiments, prompts, …) "
-                "to materialize and hand to Ollie alongside the query. The MCP "
-                "server pre-resolves each URI with the same parser the `read` "
-                "tool uses. Currently a no-op pending the `ollie-assist` pod "
-                "ChatRequest schema accepting the field — passing it is safe; "
-                "it'll be wired through once the pod side lands."
-            ),
-        ),
-    ] = None,
-    thread_id: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Thread id from a previous ask_ollie response. DEFAULT: reuse the "
-                "most recent thread_id so Ollie keeps context across follow-ups. "
-                "Omit ONLY on the first call, or when the user pivots to an "
-                "unrelated topic (e.g. switches projects, asks about something "
-                "new). When in doubt, reuse. IMPORTANT: Ollie does NOT persist "
-                "project state across messages — if you set `project_name` on "
-                "the first call, you must pass it again on every follow-up, "
-                "even when continuing the same thread_id."
-            ),
-        ),
-    ] = None,
-    project_name: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Opik project name to scope Ollie's reads to. Without this, "
-                "Ollie's read tools query the whole workspace. Pass on every "
-                "call once you know which project the user is working in — "
-                "Ollie does not persist project state across messages within "
-                "a thread."
-            ),
-            max_length=200,
-        ),
-    ] = None,
-    ctx: Context[ServerSession, None] | None = None,
-) -> AskOllieResult:
-    """Ask Ollie, the Opik in-product AI assistant, a question.
-
-    Use this for investigative questions ("why did X fail?"), cross-entity
-    synthesis, or when domain expertise is required. For straightforward
-    "show me X" / "what is Y" reads, prefer `read` / `list` which are
-    cheaper. Ollie has direct read access to the workspace; the surrounding
-    chat does not.
-
-    Returns the assistant's final text plus a `thread_id`. Reuse that
-    `thread_id` on subsequent calls by default — Ollie has no memory across
-    threads, so dropping it loses all prior context. Start a fresh thread
-    (omit `thread_id`) only when the user explicitly changes topics.
-
-    Writes Ollie performs mid-stream (scores, comments, test-suite items,
-    prompts) execute without a per-action confirmation step; auto-approvals
-    are recorded on the `opik_mcp.audit` logger.
-    """
-    return await run_ask_ollie(
-        query=query,
-        page_context=page_context,
-        attach_resources=attach_resources,
-        thread_id=thread_id,
-        project_name=project_name,
-        ctx=ctx,
-    )
-
-
-# --- run_experiment ----------------------------------------------------- #
-
-
-_RUN_EXPERIMENT_DESCRIPTION = (
-    "Submit an experiment on a test-suite-backed dataset. opik-backend runs "
-    "each prompt variant against every item in the suite asynchronously and "
-    "applies the suite's scoring assertions. Returns the created "
-    "`experiment_ids` immediately — the run itself typically takes 10-30+ "
-    "minutes server-side.\n\n"
-    "This tool is fire-and-return: it does NOT wait for completion. To check "
-    'progress, the caller uses `read("experiment", <id>)`; the experiment '
-    "record carries `status` and `trace_count`. The result also includes a "
-    "`summary_url` deep-linking the Opik UI compare view.\n\n"
-    "Use for: rerunning an evaluation, trying a prompt on a known test suite, "
-    "comparing models against the same test suite.\n\n"
-    "Does NOT support ad-hoc (non-test-suite) datasets — those require "
-    "client-side LLM execution which this tool intentionally does not do."
-)
-
-
-@mcp.tool(description=_RUN_EXPERIMENT_DESCRIPTION)
-@instrument_tool("run_experiment", props_fn=_run_experiment_props)
-async def run_experiment(
-    experiment_config: Annotated[
-        dict[str, Any],
-        Field(
-            description=(
-                "Experiment-execution config. Required: `dataset_name`, "
-                "`dataset_id` (UUID of a test-suite dataset), `prompts` "
-                "(non-empty list of `{model, messages, configs?, "
-                "prompt_version_id?}`). Optional: `dataset_version_id`, "
-                "`version_hash`, `project_name`. One experiment is created "
-                'per prompt variant. Call `schema("run_experiment")` if '
-                "the shape is unclear."
-            )
-        ),
-    ],
-    ctx: Context[ServerSession, None] | None = None,
-) -> RunExperimentResult:
-    """Run an experiment via opik-backend `/experiments/execute`."""
-    config = RunExperimentConfig.model_validate(experiment_config)
-    settings = get_settings()
-    client = make_opik_client(settings)
-    _, _, workspace = resolve_opik_config(settings)
-    # Workspace may be None when an OAuth bearer arrives without a
-    # Comet-Workspace header (the backend derives it from the token row, but
-    # we need the name client-side to build the experiment summary URL).
-    if workspace is None:
-        raise MissingConfigError(
-            "run_experiment requires a workspace — set COMET_WORKSPACE or "
-            "send a Comet-Workspace header"
-        )
-    comet_base = settings.comet_url_override.rstrip("/")
-    return await run_experiment_impl(
-        config=config,
-        client=client,
-        comet_base_url=comet_base,
-        workspace=workspace,
     )
 
 
@@ -1228,26 +1036,7 @@ def install_session_instructions(server: FastMCP) -> None:
     lowlevel.create_initialization_options = create_initialization_options  # type: ignore[method-assign]
 
 
-def apply_tool_visibility(mcp_instance: Any) -> None:
-    """Unregister tools this deployment has not enabled.
-
-    Removal, not a runtime error: the tool disappears from ``tools/list``, so an
-    agent never sees it and cannot spend a turn discovering it does not work.
-
-    Governs ``ask_ollie`` only. Idempotent and non-fatal — both startup paths
-    call it, and ``remove_tool`` raises on a name that is already gone.
-    """
-    if get_settings().opik_mcp_ask_ollie_enabled:
-        return
-    try:
-        mcp_instance.remove_tool("ask_ollie")
-        logger.info("ask_ollie disabled (OPIK_MCP_ASK_OLLIE_ENABLED=false); tool not advertised")
-    except Exception:
-        logger.debug("ask_ollie already absent from the tool registry", exc_info=True)
-
-
 def build_app() -> ASGIApp:
-    apply_tool_visibility(mcp)
     install_tools_listed_emitter(mcp)
     install_session_instructions(mcp)
     install_skill_resources(mcp)

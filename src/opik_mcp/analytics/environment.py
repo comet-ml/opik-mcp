@@ -493,7 +493,7 @@ def collect_environment_fingerprint() -> dict[str, str]:
 def cached_call_context_env() -> dict[str, str]:
     """Process-stable env subset stamped on every per-call analytics event.
 
-    ``tool_called`` / ``ask_ollie_completed`` carry these so BI can segment by
+    ``tool_called`` carries these so BI can segment by
     real-user cohort (``is_ci='false' AND is_container='false'``) on a single
     table — without joining each call back to ``server_started`` on
     ``install_id`` (a join that drops ~35% of calls in practice).

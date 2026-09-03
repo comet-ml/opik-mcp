@@ -242,7 +242,7 @@ def main() -> None:
         settings = get_settings()
     except ValidationError as e:
         # Settings construction failed — typically a bad COMET_WORKSPACE_ID
-        # UUID or an unrecognised OPIK_MCP_AUTO_APPROVE literal. The singleton
+        # UUID or an out-of-range numeric override. The singleton
         # route would re-construct Settings and re-raise; use a dedicated
         # fallback client that doesn't depend on the broken config so the
         # event still lands. Sentry isn't informed here — the values that
@@ -345,10 +345,9 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # speaks MCP over stdin/stdout. No port, no inbound auth, no uvicorn —
         # whoever can spawn the process already owns its stdio.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
-        from opik_mcp.server import apply_tool_visibility, mcp
+        from opik_mcp.server import mcp
         from opik_mcp.skills_resources import install_skill_resources
 
-        apply_tool_visibility(mcp)
         install_tools_listed_emitter(mcp)
         # stdio hosts (Claude Code, Cursor) are the ones most likely to browse
         # resources, so the skills must be served on this path too — build_app()

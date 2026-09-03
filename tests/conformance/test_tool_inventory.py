@@ -20,8 +20,6 @@ EXPECTED_TOOLS: frozenset[str] = frozenset(
         "list",
         "write",
         "schema",
-        "ask_ollie",
-        "run_experiment",
         # OPIK-7472. Resources carry the same skills, but resource browsing is a
         # host capability rather than a model one — on hosts that never surface
         # resources to the LLM, this tool is the only way an agent reaches them.
