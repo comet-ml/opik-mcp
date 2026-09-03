@@ -119,7 +119,7 @@ async def test_tools_listed_props_shape(recorder: _Recorder) -> None:
     assert props["tool_count_bucket"] in {"0", "1-10", "11-100", "101-1000", ">1000"}
     # Session-context block: stamped on every per-call event so BI can
     # segment tools_listed on the same dimensions as tool_called /
-    # ask_ollie_completed without joining back to session_initialized.
+    # tool_called without joining back to session_initialized.
     # No session in this test path → host falls back to defaults but the
     # env keys are always present.
     assert props["mcp_host"] == "other"

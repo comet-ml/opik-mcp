@@ -1,4 +1,4 @@
-"""Per-call session-context block on tool_called / ask_ollie_completed.
+"""Per-call session-context block on tool_called.
 
 BI segments per-call events by real-user cohort (``is_ci`` / ``is_container``)
 and MCP host on a single table, without joining each call back to

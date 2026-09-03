@@ -1,6 +1,6 @@
 import pytest
 
-from opik_mcp.config import MissingConfigError, Settings, require_ollie_config
+from opik_mcp.config import Settings
 
 
 def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -35,8 +35,6 @@ def test_defaults_when_env_unset(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.opik_api_key is None
     assert s.comet_workspace is None
     assert s.comet_url_override == "https://www.comet.com"
-    assert s.opik_mcp_pod_ready_timeout_s == 120
-    assert s.opik_mcp_pod_ready_interval_s == 2
 
 
 def test_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,26 +45,6 @@ def test_loads_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.opik_api_key == "k1"
     assert s.comet_workspace == "ws1"
     assert s.comet_url_override == "https://dev.comet.com"
-
-
-def test_require_ollie_config_returns_pair() -> None:
-    s = Settings(opik_api_key="k", comet_workspace="w")
-    assert require_ollie_config(s) == ("k", "w")
-
-
-def test_require_ollie_config_missing_api_key() -> None:
-    s = Settings(opik_api_key=None, comet_workspace="w")
-    with pytest.raises(MissingConfigError, match="OPIK_API_KEY"):
-        require_ollie_config(s)
-
-
-def test_require_ollie_config_defaults_workspace_when_unset() -> None:
-    """Workspace is optional now — when unset it falls back to "default"
-    (matching the Opik SDK) instead of hard-failing."""
-    from opik_mcp.config import DEFAULT_WORKSPACE
-
-    s = Settings(opik_api_key="k", comet_workspace=None)
-    assert require_ollie_config(s) == ("k", DEFAULT_WORKSPACE)
 
 
 def test_default_project_name_parses_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,67 +83,3 @@ def test_analytics_timeouts_have_sensible_defaults() -> None:
     s = Settings()
     assert s.opik_mcp_analytics_connect_timeout_s == 5.0
     assert s.opik_mcp_analytics_total_timeout_s == 10.0
-
-
-# --- opik_mcp_auto_approve validator ---
-
-
-@pytest.mark.parametrize("raw", ["DISABLED", "Disabled", "disabled"])
-def test_auto_approve_case_insensitive(raw: str) -> None:
-    """Shell envs vary on capitalization; the validator must normalise.
-
-    Without the lowercase validator, `Literal["enabled", "disabled"]` would
-    reject `"DISABLED"` at Settings construction — that's a worse UX than
-    quietly normalising.
-    """
-    # mypy sees the Literal["enabled", "disabled"] field type and rejects
-    # "DISABLED" — but the whole point of this test is to prove the runtime
-    # validator accepts it. Ignore the static check at the call site.
-    s = Settings(opik_api_key="k", comet_workspace="w", opik_mcp_auto_approve=raw)  # type: ignore[arg-type]
-    assert s.opik_mcp_auto_approve == "disabled"
-
-
-def test_auto_approve_default_is_enabled() -> None:
-    """Production default is YOLO ON — changing this is a breaking change
-    requiring an ADR update, so make it impossible to do silently."""
-    assert Settings(opik_api_key="k", comet_workspace="w").opik_mcp_auto_approve == "enabled"
-
-
-def test_auto_approve_rejects_typo() -> None:
-    """A typo like "off"/"disable" must fail loudly at construction — otherwise
-    the user thinks they opted out while auto-approval is still on."""
-    from pydantic import ValidationError
-
-    with pytest.raises(ValidationError):
-        Settings(opik_api_key="k", comet_workspace="w", opik_mcp_auto_approve="off")  # type: ignore[arg-type]
-
-
-def test_ask_ollie_refuses_an_unfilled_workspace_placeholder() -> None:
-    """ask_ollie does not go through resolve_opik_config, so it needs its own
-    guard or it keeps hitting the opaque upstream error."""
-    from opik_mcp.config import MissingConfigError, Settings, require_ollie_config
-
-    s = Settings(opik_api_key="k", comet_workspace="${input:OPIK_WORKSPACE}")
-    with pytest.raises(MissingConfigError) as excinfo:
-        require_ollie_config(s)
-    assert "config placeholder" in str(excinfo.value)
-    assert "workspace name" in str(excinfo.value)
-
-
-def test_ask_ollie_still_falls_back_to_default_when_unset() -> None:
-    from opik_mcp.config import DEFAULT_WORKSPACE, Settings, require_ollie_config
-
-    _key, workspace = require_ollie_config(Settings(opik_api_key="k", comet_workspace=None))
-    assert workspace == DEFAULT_WORKSPACE
-
-
-def test_the_workspace_error_names_both_env_spellings() -> None:
-    """Pydantic resolves the alias and does not say which one matched, so the
-    message must not guess."""
-    from opik_mcp.config import MissingConfigError, Settings, require_ollie_config
-
-    s = Settings(comet_workspace="<your-workspace>", opik_api_key="k")
-    with pytest.raises(MissingConfigError) as excinfo:
-        require_ollie_config(s)
-    assert "OPIK_WORKSPACE" in str(excinfo.value)
-    assert "COMET_WORKSPACE" in str(excinfo.value)

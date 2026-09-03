@@ -2,8 +2,7 @@
 
 **The official Model Context Protocol (MCP) server for [Opik](https://github.com/comet-ml/opik), the open-source LLM observability and evaluation platform, built by [Comet](https://www.comet.com).**
 Plug your AI host (Claude Code, Cursor, VS Code Copilot, MCP Inspector) directly
-into your Opik workspace: read traces, log scores, save prompt versions, and ask
-[Ollie](#ask_ollie), Opik's in-product AI assistant, investigative questions, all
+into your Opik workspace: read traces, log scores, and save prompt versions, all
 from the chat.
 
 Built for LLM engineers who already run Opik and want to drive it from the same
@@ -14,8 +13,8 @@ AI assistant they code with.
 > in your MCP client config. Full guide: [`legacy/typescript/MIGRATION.md`](./legacy/typescript/MIGRATION.md).
 
 ```
-You:    "Why did the experiment 'gpt-4o-rerank-v3' regress on factuality?"
-Claude: → ask_ollie → reads experiment + traces → "Three traces failed because…"
+You:    "Which traces in project 'demo' failed today?"
+Claude: → list(entity_type="trace", project_name="demo") → "Three traces failed…"
 
 You:    "Score trace 7f2e… 0.9 on helpfulness with reason 'great recovery'."
 Claude: → write(score.create) → done
@@ -121,8 +120,7 @@ Reload Cursor; the green dot next to `opik-mcp` in the MCP panel confirms the
 connection. Ask in chat: **"list my Opik projects"**.
 
 > **Cursor 60s timeout.** Cursor enforces a hard tool-call timeout that doesn't
-> reset on progress notifications. Long `ask_ollie` turns will fail on Cursor.
-> See [Known host limits](#known-host-limits).
+> reset on progress notifications. See [Known host limits](#known-host-limits).
 
 ### VS Code Copilot
 
@@ -180,26 +178,23 @@ the same `env` block in your host config:
 Omit `OPIK_WORKSPACE` on an open-source deployment, where `default` is the only
 workspace; keep it on a self-hosted Comet, which has real named ones.
 
-`ask_ollie` and `run_experiment` are available on Comet Cloud only — on
-self-hosted those calls will fail at dispatch, so use `read` / `list` / `write`
-directly. Setting `OPIK_MCP_ANALYTICS_SOURCE=""` opts your install out of the
+Setting `OPIK_MCP_ANALYTICS_SOURCE=""` opts your install out of the
 cloud-Comet source label on telemetry events.
 
 ---
 
 ## Tools
 
-`opik-mcp` exposes a small, outcome-oriented surface — six tools that cover
-the full lifecycle (read → annotate → curate → author → iterate).
+`opik-mcp` exposes a small, outcome-oriented surface that covers the full
+lifecycle (read → annotate → curate → author → iterate).
 
 | Tool | Purpose |
 |---|---|
 | [`read`](#read) | Universal read by id / name / `opik://` URI |
 | [`list`](#list) | Universal list with optional name filter + pagination |
-| [`ask_ollie`](#ask_ollie) | Investigate / synthesize via the Opik in-product assistant |
 | [`write`](#write) | Universal write — log traces/spans, score, comment, save prompts, manage test suites & experiments |
 | [`schema`](#schema) | Introspect write-operation schemas (used by the LLM to construct valid payloads) |
-| [`run_experiment`](#run_experiment) | Run an evaluation experiment end-to-end via Ollie |
+| `read_skill` | Read one of the Opik agent skills bundled with this server |
 
 ### `read`
 
@@ -228,29 +223,6 @@ list(entity_type="experiment", page=1, size=25)
 list(entity_type="experiment", name="rerank")          # name substring filter
 list(entity_type="trace", project_id="<project-uuid>") # traces of one project
 ```
-
-### `ask_ollie`
-
-For investigative questions, cross-entity synthesis, or anything that needs
-Opik domain expertise. Ollie has direct read access to your workspace and can
-execute writes (scores, comments, test-suite items, prompt versions) mid-stream
-when asked.
-
-```python
-ask_ollie(query="Why are spans in project 'demo' slower this week than last?")
-ask_ollie(query="Compare experiments A and B on factuality. Score the bottom 5 traces of A 0.2 with reason.")
-```
-
-Returns the assistant's final text plus a `thread_id`. Pass it back on
-follow-ups to preserve context — Ollie has no memory across threads.
-
-**YOLO mode (default).** Writes Ollie performs mid-stream execute without a
-per-action confirmation. Each auto-approval is logged as a JSON audit row on
-the `opik_mcp.audit` Python logger. To require confirmation instead, set
-`OPIK_MCP_AUTO_APPROVE=disabled` — Ollie's confirm requests then surface as
-typed errors you can manually re-issue.
-
-> Available on Comet Cloud only.
 
 ### `write`
 
@@ -295,23 +267,6 @@ schema(operation="score.create")
 schema(operation="prompt_version.save")
 ```
 
-### `run_experiment`
-
-Run an evaluation experiment end-to-end via Ollie. Takes a single
-`experiment_config` dict that mirrors Opik's experiment shape (prompt, test
-suite, scorers); Ollie executes the run and writes results back as an Opik
-experiment.
-
-```python
-run_experiment(experiment_config={
-  "test_suite_name": "qa-eval-v2",
-  "prompt_name": "welcome-msg",
-  # … see `schema(operation="experiment.create")` for the full shape
-})
-```
-
-> Available on Comet Cloud only.
-
 ---
 
 ## Configuration
@@ -322,7 +277,7 @@ Every setting is an environment variable. Required ones in **bold**.
 
 | Variable | Default | Notes |
 |---|---|---|
-| **`OPIK_API_KEY`** | — | Required for `ask_ollie` and any authenticated read/write. |
+| **`OPIK_API_KEY`** | — | Required for any authenticated read/write. |
 | `OPIK_WORKSPACE` | _unset_ | Workspace name. On cloud with an API key, unset sends `default`, which resolves to your account's **default** workspace — set it explicitly if you work in a different one, or reads come from the wrong workspace silently. Leave unset over OAuth (the token carries it) and on local/OSS (`default` is the only workspace there). |
 | `COMET_WORKSPACE` | — | Deprecated alias for `OPIK_WORKSPACE` (backward compat). `OPIK_WORKSPACE` wins if both are set. |
 | `COMET_WORKSPACE_ID` | _unset_ | Optional workspace UUID. Stamped into analytics events when set, and takes precedence over the resolved one. Rarely needed — OAuth installs get the UUID from the token automatically. |
@@ -359,17 +314,6 @@ Note for local OSS installs: the OSS backend does not authenticate requests,
 so an HTTP opik-mcp in front of it is as open as the OSS REST API itself.
 Keep the default `127.0.0.1` bind (and prefer stdio) on shared networks.
 
-### Ollie / long calls
-
-| Variable | Default | Notes |
-|---|---|---|
-| `OPIK_MCP_AUTO_APPROVE` | `enabled` | `disabled` to require a per-action approval before Ollie's mid-stream writes proceed. On hosts that advertise the MCP `elicitation` capability the user sees a yes/no prompt; on dumber hosts the request surfaces as a typed error you can manually re-issue. |
-| `OPIK_MCP_ELICIT_TIMEOUT_SECONDS` | `60` | How long Ollie's mid-stream confirmation prompt may wait for the user before being treated as a cancel. `0` disables the bound (debug only). |
-| `OPIK_MCP_POD_READY_TIMEOUT_S` | `120` | Ollie pod cold-start poll cap. |
-| `OPIK_MCP_POD_READY_INTERVAL_S` | `2` | Cold-start poll interval. |
-| `OPIK_MCP_HEARTBEAT_INTERVAL_S` | `15.0` | Watchdog cadence — emits a `notifications/progress` tick when the pod is silent, keeping host timeouts at bay. |
-| `OPIK_MCP_STREAM_IDLE_TIMEOUT_S` | `300.0` | Hard ceiling on pod silence before `ask_ollie` aborts. `0` disables (debug only). |
-
 ### Telemetry
 
 Anonymous usage events (event type + timing only — no query content). A SHA-256
@@ -389,41 +333,28 @@ key never leaves the process. **Opt out:** `OPIK_MCP_ANALYTICS_ENABLED=false`.
 
 ## Known host limits
 
-The MCP spec lets hosts reset their tool-call timeout on
-`notifications/progress` — `opik-mcp` emits one per Ollie SSE event plus a
-15-second watchdog heartbeat. Reality is uneven:
+Hosts differ in how long they let a single tool call run:
 
-- **Claude Code** — no documented tool-call timeout; heartbeat keeps the call
-  alive until `message_end`. Recommended.
+- **Claude Code** — no documented tool-call timeout. Recommended.
 - **Cursor** — hard 60s timeout that does **not** reset on progress
   ([upstream bug](https://forum.cursor.com/t/mcp-tool-timeout/74465)).
-  Long Ollie turns will fail. Keep `ask_ollie` queries focused.
 - **MCP Inspector** — `MAX_TOTAL_TIMEOUT` bounds total duration (default 60s).
   Raise it in the Inspector UI for long operations.
 
-If a call gets stuck, set `OPIK_MCP_LOG_LEVEL=DEBUG` — heartbeat failures
-(usually host disconnects) are logged on `opik_mcp.ask_ollie` at debug level.
+If a call gets stuck, set `OPIK_MCP_LOG_LEVEL=DEBUG` for the full request log.
 
 ---
 
 ## Troubleshooting
 
-**`OPIK_API_KEY is required to use ask_ollie`** — the var isn't reaching the
-server process. In Claude Code / Cursor / VS Code, env vars only apply when
-inside the `env` block of the MCP server config, not your shell. Restart the
-host after editing.
-
-**`ask_ollie` returns "pod not ready" after 2 minutes** — the Ollie pod
-cold-start exceeded `OPIK_MCP_POD_READY_TIMEOUT_S`. Retry — the second call
-usually hits a warm pod.
-
-**`ask_ollie` / `run_experiment` fails with a dispatch error on self-hosted
-Opik** — those tools are available on Comet Cloud only. Use `read` / `list` /
-`write` directly on self-hosted.
+**`OPIK_API_KEY` isn't picked up** — the var isn't reaching the server
+process. In Claude Code / Cursor / VS Code, env vars only apply when inside
+the `env` block of the MCP server config, not your shell. Restart the host
+after editing.
 
 **Cursor call times out at 60s** — Cursor's known bug, not `opik-mcp`. Either
-shorten the Ollie query, or run the same operation on Claude Code which has no
-hard cap.
+narrow the call (smaller `size`, a tighter window), or run the same operation
+on Claude Code which has no hard cap.
 
 ---
 
@@ -448,7 +379,6 @@ Common targets:
 | `make dev` | Run via `mcp dev` (Inspector dev-mode wrapper). |
 | `make inspect` | Launch MCP Inspector against a running server. |
 | `make test` | `uv run pytest -q`. |
-| `make test-live` | Live end-to-end against `dev.comet.com` (set `OPIK_API_KEY` + `OPIK_WORKSPACE`). |
 | `make lint` | `ruff check` + format check. |
 | `make format` | `ruff format` + `ruff check --fix`. |
 | `make typecheck` | `mypy`. |
@@ -458,7 +388,7 @@ Repo layout:
 
 ```
 opik-mcp/
-├── src/opik_mcp/        ← server, tools, ask_ollie, analytics
+├── src/opik_mcp/        ← server, tools, analytics
 ├── tests/               ← pytest suites
 ├── scripts/             ← live-BE smoke + MCP-session smoke
 ├── legacy/typescript/   ← deprecated v2 TS server

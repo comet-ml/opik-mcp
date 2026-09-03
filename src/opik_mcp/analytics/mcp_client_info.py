@@ -264,7 +264,7 @@ def _host_context(session: Any) -> dict[str, str]:
 def call_context_props(session: Any) -> dict[str, str]:
     """The session-context block stamped on every per-call analytics event.
 
-    Six fields BI uses to segment ``tool_called`` / ``ask_ollie_completed`` by
+    Six fields BI uses to segment ``tool_called`` by
     real-user cohort and MCP host WITHOUT joining back to ``server_started`` /
     ``session_initialized`` on ``install_id``:
 

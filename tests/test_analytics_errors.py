@@ -20,24 +20,7 @@ from opik_mcp.analytics.errors import (
     derive_http_status,
     unwrap_to_real_cause,
 )
-from opik_mcp.comet_client import (
-    CometAuthError,
-    CometPermissionError,
-    CometProtocolError,
-    OllieNotEnabledError,
-)
 from opik_mcp.config import MissingConfigError
-from opik_mcp.ollie_client import (
-    ConfirmDeclinedError,
-    ConfirmPostError,
-    OllieAuthError,
-    OllieStreamError,
-    PodErrorEventError,
-    PodNotReadyError,
-    PodSessionCreateError,
-    PodSessionLostError,
-    PodStreamIdleError,
-)
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikNotFoundError,
@@ -125,16 +108,9 @@ def test_bucket_http_status_boundaries(status: int, expected: str) -> None:
         (OpikNotFoundError("x"), 404),
         (OpikValidationError("x"), 400),
         (OpikServerError("x"), 500),
-        (CometPermissionError("x"), 403),
-        (CometAuthError("x"), 401),
+        (MissingConfigError("x"), 400),
         # Exceptions without a canonical status return None — the BI receiver
         # is expected to treat the absent property as "no status known".
-        (OllieAuthError("x"), None),
-        (OllieStreamError("x"), None),
-        (OllieNotEnabledError("x"), None),
-        (CometProtocolError("x"), None),
-        (PodNotReadyError("x"), None),
-        (MissingConfigError("x"), 400),
         (httpx.ConnectError("refused"), None),
         (httpx.ReadTimeout("slow"), None),
         (ValueError("x"), None),
@@ -142,18 +118,6 @@ def test_bucket_http_status_boundaries(status: int, expected: str) -> None:
 )
 def test_derive_http_status_class_lookup(exc: BaseException, expected: int | None) -> None:
     assert derive_http_status(exc) == expected
-
-
-# --- ask_ollie-specific taxonomy ---------------------------------------- #
-#
-# The ``error_kind`` allowlist carries BOTH the coarse cross-tool buckets
-# (auth / permission / validation / …) AND the ask_ollie-specific buckets
-# (comet_auth / session_evicted / stream_idle / …). The same field is shared
-# across every tool, but ask_ollie-only typed exceptions stamp the granular
-# value so dashboards can split ``ask_ollie_completed`` failures without
-# joining to a second field. Buckets must be MUTUALLY EXCLUSIVE between
-# vocabularies — a regression that flipped CometAuthError back to "auth"
-# would conflate ``ask_ollie`` events with ``read``/``list``/``write`` events.
 
 
 def test_derive_http_status_reads_httpx_response() -> None:
@@ -176,17 +140,6 @@ def test_derive_http_status_reads_httpx_response() -> None:
         (OpikNotFoundError("x"), "not_found"),
         (OpikValidationError("x"), "validation"),
         (OpikServerError("x"), "upstream_5xx"),
-        # ask_ollie-specific buckets (Comet / Ollie typed exceptions). Same
-        # ``error_kind`` field as above, but the values are scoped to the
-        # ask_ollie pipeline — these exception classes never surface from
-        # read/list/write paths.
-        (CometPermissionError("x"), "comet_permission"),
-        (CometAuthError("x"), "comet_auth"),
-        (OllieAuthError("x"), "pod_auth"),
-        (PodNotReadyError("x"), "pod_not_ready"),
-        (OllieNotEnabledError("x"), "ollie_not_enabled"),
-        (CometProtocolError("x"), "comet_protocol"),
-        (OllieStreamError("x"), "stream_protocol"),
         # Pydantic argument validation lands in the same bucket as Opik's
         # typed validation error — analytics keeps them apart via
         # ``exception_type``.
@@ -257,28 +210,6 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     (OpikNotFoundError, "not_found", 404),
     (OpikValidationError, "validation", 400),
     (OpikServerError, "upstream_5xx", 500),
-    # ask_ollie-specific (Comet + Ollie) classes use the granular vocabulary
-    # so dashboards can split the ask_ollie pipeline by stage without joining
-    # to a second field.
-    (CometAuthError, "comet_auth", 401),
-    (CometPermissionError, "comet_permission", 403),
-    (OllieAuthError, "pod_auth", None),
-    (OllieStreamError, "stream_protocol", None),
-    # OllieStreamError subclasses pin each ask_ollie raise site to its own
-    # bucket. They are typed leaves — NOT pure wrappers — so a
-    # ``ConfirmPostError`` raised ``from httpx.ConnectError`` surfaces as
-    # ``confirm_failed``, not ``network``. The type-exact wrapper match in
-    # ``_is_wrapper_exception`` is what makes that work; see
-    # ``test_bucket_exception_subclass_type_exact_unwrap`` below.
-    (PodSessionCreateError, "session_create_failed", None),
-    (PodSessionLostError, "session_evicted", None),
-    (PodErrorEventError, "stream_error_frame", None),
-    (PodStreamIdleError, "stream_idle", None),
-    (ConfirmDeclinedError, "cancelled", None),
-    (ConfirmPostError, "confirm_failed", None),
-    (OllieNotEnabledError, "ollie_not_enabled", None),
-    (CometProtocolError, "comet_protocol", None),
-    (PodNotReadyError, "pod_not_ready", None),
     (MissingConfigError, "validation", 400),
     # Write-tool envelope: base "unknown" since concrete code never raises bare
     # WriteError; each live subclass shadows the bucket.
@@ -348,13 +279,10 @@ def test_bucket_exception_never_reads_args_or_str() -> None:
 
 
 def test_bucket_exception_subclass_resolves_before_parent() -> None:
-    """``OpikPermissionError`` extends ``OpikAuthError`` and
-    ``CometPermissionError`` extends ``CometAuthError``. The bucketing layer
+    """``OpikPermissionError`` extends ``OpikAuthError``. The bucketing layer
     must surface the SUBCLASS's ClassVar (Python's normal MRO) — a regression
     that flipped resolution order would mask every 403 as a 401."""
     assert bucket_exception(OpikPermissionError("x")) == "permission"
-    # CometPermissionError gets its ask_ollie-specific bucket, NOT the parent's.
-    assert bucket_exception(CometPermissionError("x")) == "comet_permission"
 
 
 # --- unwrap_to_real_cause ------------------------------------------------ #
@@ -393,18 +321,6 @@ def test_unwrap_follows_cause_through_tool_error() -> None:
     chain = _raise_chain(ToolError("user-facing"), OpikAuthError("401"))
     real = unwrap_to_real_cause(chain)
     assert isinstance(real, OpikAuthError)
-
-
-def test_unwrap_follows_cause_through_ollie_stream_error() -> None:
-    """``OllieStreamError`` is the wrapper at the ``ask_ollie`` boundary; an
-    underlying ``httpx.HTTPStatusError`` must be reachable through it."""
-    request = httpx.Request("GET", "https://example.invalid/")
-    response = httpx.Response(503, request=request)
-    inner = httpx.HTTPStatusError("synthetic", request=request, response=response)
-    chain = _raise_chain(OllieStreamError("stream died"), inner)
-    real = unwrap_to_real_cause(chain)
-    assert isinstance(real, httpx.HTTPStatusError)
-    assert real.response.status_code == 503
 
 
 def test_unwrap_follows_context_when_no_explicit_cause() -> None:
@@ -455,11 +371,11 @@ def test_unwrap_prefers_explicit_cause_over_implicit_context() -> None:
 
 
 def test_unwrap_walks_multi_layer_chain() -> None:
-    """Nested wrappers — e.g. an ``ask_ollie`` invocation surfaced as a
-    ``ToolError`` somewhere upstream. Unwrap must reach the typed leaf."""
+    """Nested wrappers — a ``ToolError`` raised from another ``ToolError``
+    somewhere upstream. Unwrap must reach the typed leaf."""
     chain = _raise_chain(
         ToolError("outer"),
-        OllieStreamError("middle"),
+        ToolError("middle"),
         OpikServerError("inner"),
     )
     real = unwrap_to_real_cause(chain)
@@ -517,8 +433,7 @@ def test_unwrap_bounded_max_depth() -> None:
 
 # Every entry in this matrix mirrors a real production code path:
 #   ``raise ToolError(_format_client_error(...)) from e``
-# in read_tool/list_tool/write_tool, and the parallel OllieStreamError
-# raise-sites in ollie_client.py. Pre-unwrap, all of these landed in
+# in read_tool/list_tool/write_tool. Pre-unwrap, all of these landed in
 # "unknown / ToolError" in BI — the gap that motivated this whole change.
 _WRAPPED_BUCKET_MATRIX = [
     (OpikAuthError("401"), "auth", 401),
@@ -526,15 +441,8 @@ _WRAPPED_BUCKET_MATRIX = [
     (OpikNotFoundError("404"), "not_found", 404),
     (OpikValidationError("400"), "validation", 400),
     (OpikServerError("500"), "upstream_5xx", 500),
-    # Comet/Pod typed exceptions carry the ask_ollie-specific ClassVar
-    # buckets through the wrapper unchanged — the unwrap surfaces the
-    # leaf, and the leaf's ClassVar wins.
-    (CometAuthError("401"), "comet_auth", 401),
-    (CometPermissionError("403"), "comet_permission", 403),
-    (PodNotReadyError("warmup"), "pod_not_ready", None),
     (httpx.ReadTimeout("slow"), "timeout", None),
     (httpx.ConnectError("refused"), "network", None),
-    (OllieAuthError("ppauth"), "pod_auth", None),
     (MissingConfigError("no key"), "validation", 400),
 ]
 
@@ -546,18 +454,6 @@ def test_bucket_exception_unwraps_tool_error(
     """``ToolError`` is the FastMCP-contract wrapper around every read/list/
     write failure. The classifier must look through it to the real cause."""
     chain = _raise_chain(ToolError("user-facing"), inner)
-    assert bucket_exception(chain) == expected_bucket
-    assert derive_http_status(chain) == expected_status
-
-
-@pytest.mark.parametrize("inner, expected_bucket, expected_status", _WRAPPED_BUCKET_MATRIX)
-def test_bucket_exception_unwraps_ollie_stream_error(
-    inner: Exception, expected_bucket: str, expected_status: int | None
-) -> None:
-    """``OllieStreamError`` is the wrapper at the ``ask_ollie`` boundary; it
-    also wraps real upstream causes (e.g. SSE error frames carrying a
-    propagated HTTP status). Same unwrap contract as ``ToolError``."""
-    chain = _raise_chain(OllieStreamError("stream died"), inner)
     assert bucket_exception(chain) == expected_bucket
     assert derive_http_status(chain) == expected_status
 
@@ -582,16 +478,6 @@ def test_bucket_exception_bare_tool_error_stays_unknown() -> None:
     candidates rather than silently routing them somewhere wrong."""
     assert bucket_exception(ToolError("bare")) == "unknown"
     assert derive_http_status(ToolError("bare")) is None
-
-
-def test_bucket_exception_bare_ollie_stream_error_uses_classvar() -> None:
-    """Bare ``OllieStreamError`` raised as a leaf (no chained cause) surfaces
-    its ClassVar bucket ``stream_protocol`` — the bare-leaf raise itself is
-    a protocol-drift signal. Subclasses pin their own ClassVar
-    (``session_evicted`` / ``confirm_failed`` / …) and aren't unwrapped past
-    because the wrapper match is type-exact."""
-    assert bucket_exception(OllieStreamError("no session_id")) == "stream_protocol"
-    assert derive_http_status(OllieStreamError("no session_id")) is None
 
 
 def test_bucket_exception_unwrap_does_not_read_message() -> None:
@@ -692,59 +578,3 @@ def test_backend_error_without_extra_status_falls_back_to_classvar() -> None:
     bare = BackendError(operation="trace.create")
     assert bucket_exception(bare) == "unknown"
     assert derive_http_status(bare) is None
-
-
-# --- OllieStreamError subclasses are typed leaves, not wrappers ---------- #
-#
-# ``_is_wrapper_exception`` uses ``type(exc) in _WRAPPER_CLASSES`` (exact
-# match, NOT ``isinstance``). The bare ``OllieStreamError`` class IS in the
-# wrapper tuple — its subclasses are NOT. This is load-bearing: a
-# ``ConfirmPostError`` raised ``from httpx.ConnectError`` MUST surface as
-# ``confirm_failed`` (the subclass's ClassVar) rather than being unwrapped
-# to the httpx cause's ``network`` bucket. If anyone ever flips the wrapper
-# check to ``isinstance(exc, _WRAPPER_CLASSES)``, every typed subclass
-# silently loses its bucket — these tests pin the contract.
-
-
-@pytest.mark.parametrize(
-    "subclass, expected_bucket",
-    [
-        (PodSessionCreateError, "session_create_failed"),
-        (PodSessionLostError, "session_evicted"),
-        (PodErrorEventError, "stream_error_frame"),
-        (PodStreamIdleError, "stream_idle"),
-        (ConfirmDeclinedError, "cancelled"),
-        (ConfirmPostError, "confirm_failed"),
-    ],
-)
-def test_bucket_exception_subclass_type_exact_unwrap(
-    subclass: type[OllieStreamError], expected_bucket: str
-) -> None:
-    """Every ``OllieStreamError`` subclass raised with a chained cause MUST
-    keep its own ClassVar bucket — the cause's bucket is intentionally
-    ignored because the subclass is a typed leaf, not a pure wrapper."""
-    chain = _raise_chain(subclass("synthetic"), httpx.ConnectError("refused"))
-    assert bucket_exception(chain) == expected_bucket
-
-
-def test_confirm_post_error_preserves_confirm_failed_over_network() -> None:
-    """The canonical regression case the type-exact match was introduced
-    for: ``ConfirmPostError`` raised ``from httpx.ConnectError`` must
-    surface as ``confirm_failed``, NOT ``network``. The cause class still
-    survives via ``cause_type`` on the emit (covered by wrapper tests)."""
-    chain = _raise_chain(ConfirmPostError("pod unreachable"), httpx.ConnectError("refused"))
-    assert bucket_exception(chain) == "confirm_failed"
-    # And the cause is still reachable for ``cause_type`` derivation —
-    # unwrap stops at the subclass leaf, which IS the chain root.
-    real = unwrap_to_real_cause(chain)
-    assert isinstance(real, ConfirmPostError)
-    assert real is not real.__cause__  # cause survives on the leaf
-
-
-def test_bare_ollie_stream_error_still_unwraps_to_cause() -> None:
-    """The bare ``OllieStreamError`` class IS in the wrapper tuple — a bare
-    ``raise OllieStreamError(...) from httpx.ConnectError(...)`` chain must
-    still unwrap to ``network``. This is the historical wrapper case the
-    type-exact match preserves while shielding the subclasses."""
-    chain = _raise_chain(OllieStreamError("wrapped"), httpx.ConnectError("refused"))
-    assert bucket_exception(chain) == "network"

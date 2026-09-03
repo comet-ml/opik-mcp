@@ -25,19 +25,7 @@ from opik_mcp.analytics.wrappers import (
     _reset_seen_sessions_for_tests,
     instrument_tool,
 )
-from opik_mcp.comet_client import (
-    CometAuthError,
-    CometPermissionError,
-    CometProtocolError,
-    OllieNotEnabledError,
-)
 from opik_mcp.config import MissingConfigError
-from opik_mcp.ollie_client import (
-    ConfirmDeclinedError,
-    OllieAuthError,
-    OllieStreamError,
-    PodNotReadyError,
-)
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikNotFoundError,
@@ -107,25 +95,8 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
         (OpikNotFoundError("x"), "not_found", 404),
         (OpikValidationError("x"), "validation", 400),
         (OpikServerError("x"), "upstream_5xx", 500),
-        # Comet hierarchy mirrors Opik's: permission before auth, both class-keyed.
-        # ``comet_auth`` and ``comet_permission`` are ask_ollie-specific
-        # ClassVar buckets — distinct from generic write/read 401/403 so BI
-        # can split pod-discovery failures from regular tool failures.
-        (CometAuthError("x"), "comet_auth", 401),
-        (CometPermissionError("x"), "comet_permission", 403),
-        # Control-flow errors that don't map to an upstream status — each
-        # carries its own ClassVar bucket so BI can distinguish the source.
-        (CometProtocolError("x"), "comet_protocol", None),
-        (OllieNotEnabledError("x"), "ollie_not_enabled", None),
-        (OllieStreamError("x"), "stream_protocol", None),
         (MissingConfigError("x"), "validation", 400),
-        # Pod warmup timeout has its own ClassVar bucket so BI can split it
-        # from generic httpx timeouts; httpx.TimeoutException stays "timeout".
-        (PodNotReadyError("x"), "pod_not_ready", None),
         (httpx.ReadTimeout("read timed out"), "timeout", None),
-        # OllieAuthError = PPAUTH cookie rejected by pod (distinct ClassVar
-        # bucket so dashboards can split it from Comet API-key auth).
-        (OllieAuthError("x"), "pod_auth", None),
         (httpx.ConnectError("connect refused"), "network", None),
         (httpx.ReadError("read error"), "network", None),
         # Validation: typed Opik validation + pydantic argument validation
@@ -531,12 +502,6 @@ def sentry_recorder(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Se
     [
         # Server-side bugs and infrastructure failures — Sentry's bread and butter.
         (OpikServerError("x"), "upstream_5xx"),
-        # Pod/Comet protocol drifts have their own ClassVar buckets now.
-        # They're real bugs (contract drifts / stream failures) so Sentry
-        # still captures them — they're NOT in ``_USER_SIDE_ERROR_KINDS``.
-        (CometProtocolError("x"), "comet_protocol"),
-        (OllieStreamError("x"), "stream_protocol"),
-        (PodNotReadyError("x"), "pod_not_ready"),
         (httpx.ConnectError("x"), "network"),
         (ValueError("x"), "unknown"),
     ],
@@ -575,15 +540,6 @@ async def test_sentry_captures_non_user_side_failures(
         OpikPermissionError("x"),
         OpikValidationError("x"),
         OpikNotFoundError("x"),
-        CometAuthError("x"),
-        CometPermissionError("x"),
-        OllieNotEnabledError("x"),
-        OllieAuthError("x"),
-        # ConfirmDeclinedError is the user declining an elicit prompt — a
-        # deliberate cancellation, not a failure. Its ClassVar bucket is
-        # ``"cancelled"``, which sits in ``_USER_SIDE_ERROR_KINDS``, so the
-        # skip-list test is what pins the contract from the wrapper side.
-        ConfirmDeclinedError("user said no"),
     ],
 )
 @pytest.mark.anyio
@@ -827,12 +783,8 @@ def _wrap_with_cause(wrapper: Exception, inner: Exception) -> Exception:
         (OpikNotFoundError("x"), "not_found", 404),
         (OpikValidationError("x"), "validation", 400),
         (OpikServerError("x"), "upstream_5xx", 500),
-        (CometAuthError("x"), "comet_auth", 401),
-        (CometPermissionError("x"), "comet_permission", 403),
-        (PodNotReadyError("x"), "pod_not_ready", None),
         (httpx.ReadTimeout("x"), "timeout", None),
         (httpx.ConnectError("x"), "network", None),
-        (OllieAuthError("x"), "pod_auth", None),
         # MissingConfigError buckets "validation" through the wrapper — and the
         # Sentry skip-list still has to recognize it (covered separately below).
         (MissingConfigError("x"), "validation", 400),
@@ -919,26 +871,6 @@ async def test_tool_error_wrapping_http_status_error_routes_by_wire_status(
     assert props["cause_type"] == "HTTPStatusError"
 
 
-@pytest.mark.anyio
-async def test_ollie_stream_error_unwraps_to_upstream_cause(recorder: _Recorder) -> None:
-    """``OllieStreamError`` is raised both as a leaf and as a wrapper around
-    upstream HTTP failures (``ollie_client.py`` raising from a 404; pod error
-    SSE frames carrying an HTTP cause). Wrapped case must route by cause."""
-
-    @instrument_tool("ask_ollie")
-    async def fn() -> str:
-        raise _wrap_with_cause(OllieStreamError("stream died"), OpikServerError("upstream 500"))
-
-    with pytest.raises(OllieStreamError):
-        await fn()
-
-    _, props = recorder.events[0]
-    assert props["error_kind"] == "upstream_5xx"
-    assert props["http_status"] == "500"
-    assert props["exception_type"] == "OllieStreamError"
-    assert props["cause_type"] == "OpikServerError"
-
-
 # --- Sentry routing follows the unwrapped cause -------------------------- #
 
 
@@ -952,14 +884,10 @@ async def test_ollie_stream_error_unwraps_to_upstream_cause(recorder: _Recorder)
         OpikPermissionError("x"),
         OpikValidationError("x"),
         OpikNotFoundError("x"),
-        CometAuthError("x"),
-        CometPermissionError("x"),
-        OllieAuthError("x"),
         # Class-level user-side skip via _USER_SIDE_EXCEPTIONS. Pre-unwrap
         # the isinstance check ran against the wrapper class and failed open
         # — Sentry got paged for every MissingConfigError-via-ToolError.
         MissingConfigError("x"),
-        OllieNotEnabledError("x"),
     ],
 )
 @pytest.mark.anyio
@@ -989,9 +917,7 @@ async def test_sentry_skips_user_side_failures_through_tool_error_wrapper(
         # Server-side bugs and infra failures — Sentry's intended payload.
         # Each one is the wrapped equivalent of the bare-cause tests above.
         (OpikServerError("x"), "upstream_5xx"),
-        (PodNotReadyError("x"), "pod_not_ready"),
         (httpx.ConnectError("x"), "network"),
-        (CometProtocolError("x"), "comet_protocol"),
         # An unexpected RuntimeError carrying nothing typed — the classic
         # "real bug" shape. Even through a wrapper, must reach Sentry.
         (RuntimeError("unexpected"), "unknown"),

@@ -15,9 +15,7 @@ security:
     - any-glob-to-any-file:
       - 'src/opik_mcp/config.py'
       - 'src/opik_mcp/server.py'
-      - 'src/opik_mcp/comet_client.py'
       - 'src/opik_mcp/opik_client.py'
-      - 'src/opik_mcp/ollie_client.py'
 
 dependencies:
   - changed-files:

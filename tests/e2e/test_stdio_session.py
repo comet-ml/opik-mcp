@@ -5,8 +5,8 @@ instance in-process — `tests/conformance` even speaks real MCP over an in-memo
 transport — so all of them exercise `server.mcp` directly and none of them runs
 `__main__`. But stdio is how Claude Code and Cursor actually launch this server,
 and `__main__._run_transport` has its own startup path: it calls
-`apply_tool_visibility`, `install_tools_listed_emitter` and
-`install_skill_resources` itself, separately from `build_app()`.
+`install_tools_listed_emitter` and `install_skill_resources` itself, separately
+from `build_app()`.
 
 Two concrete regressions this file exists for, both of which shipped or nearly
 shipped because no in-process test could see them:
@@ -14,11 +14,11 @@ shipped because no in-process test could see them:
 1. Delete the `install_skill_resources(mcp)` line from `__main__` and every
    other test still passes, while every stdio host silently loses the resource
    surface.
-2. The session instructions described `ask_ollie` while `apply_tool_visibility`
-   was removing it from the registry — two mechanisms that must agree, with
-   nothing structural keeping them in step. Reported from a live session twice;
-   the unit tests could not catch it because they call the renderer directly
-   instead of asking a running server what it sends.
+2. The session instructions described a tool the registry did not advertise —
+   two mechanisms that must agree, with nothing structural keeping them in
+   step. Reported from a live session twice; the unit tests could not catch it
+   because they call the renderer directly instead of asking a running server
+   what it sends.
 
 They are e2e in the sense that matters here — a real process, a real pipe, a real
 client session — not in the sense of talking to a live Opik backend: skills ship
@@ -58,11 +58,9 @@ from opik_mcp.skills_catalog import (
 _TIMEOUT_S = 60
 
 #: Tools every deployment advertises. Deliberately a subset check, not equality:
-#: `ask_ollie` is opt-in (`OPIK_MCP_ASK_OLLIE_ENABLED`, default false) and
-#: `apply_tool_visibility` removes it, so an exact set would encode this job's env
-#: rather than the product. `tests/conformance/test_tool_inventory.py` owns the
-#: exact-surface rule; what this file owns is that the stdio path advertises at all.
-ALWAYS_ADVERTISED = frozenset({"read", "list", "write", "schema", "run_experiment", "read_skill"})
+#: `tests/conformance/test_tool_inventory.py` owns the exact-surface rule; what
+#: this file owns is that the stdio path advertises at all.
+ALWAYS_ADVERTISED = frozenset({"read", "list", "write", "schema", "read_skill"})
 
 
 def _server_params(**extra_env: str) -> StdioServerParameters:
@@ -247,14 +245,13 @@ async def test_the_session_instructions_name_the_skills() -> None:
 
 # --- the blob and the tool list must agree ------------------------------- #
 #
-# Two independent mechanisms decide what a session is told about:
-# `apply_tool_visibility` removes a disabled tool from the registry, and
-# `instructions.render_instructions` writes the prose. Nothing structural keeps
-# them in step, and they drifted: `ask_ollie` is opt-in and default-OFF, yet the
-# blob described it in every session, telling agents to use a tool that was not
-# there. It was reported from a live session twice before being fixed, because
-# the unit tests call `render_instructions` directly — they never ask a running
-# server what it actually sends.
+# Two independent mechanisms decide what a session is told about: the tool
+# registry, and `instructions.render_instructions`, which writes the prose.
+# Nothing structural keeps them in step, and they have drifted before — the blob
+# described a tool that was not advertised, telling agents to use something that
+# was not there. It was reported from a live session twice before being fixed,
+# because the unit tests call `render_instructions` directly — they never ask a
+# running server what it actually sends.
 #
 # These do. Both halves come from one process, over a real handshake, so a
 # mismatch cannot hide behind a second server.
@@ -282,33 +279,6 @@ async def test_the_blob_describes_no_tool_the_server_does_not_advertise() -> Non
         f"the session instructions describe {sorted(phantom)}, which this server "
         f"does not advertise (tools/list: {sorted(advertised)})"
     )
-
-
-@pytest.mark.e2e
-@pytest.mark.anyio
-async def test_a_disabled_tool_is_absent_from_both_surfaces() -> None:
-    """`ask_ollie` off — the default, so this is the common case, not an edge."""
-    async with _handshake(OPIK_MCP_ASK_OLLIE_ENABLED="false") as (init, tools):
-        assert "ask_ollie" not in {t.name for t in tools}
-        assert "ollie" not in (init.instructions or "").lower(), (
-            "ask_ollie is not advertised, but the session instructions still "
-            "describe it — an agent would spend a turn discovering it is absent"
-        )
-
-
-@pytest.mark.e2e
-@pytest.mark.anyio
-async def test_an_enabled_tool_is_present_on_both_surfaces() -> None:
-    """The other direction, which is what stops the gate being satisfied by
-    deleting the text outright: with the flag ON, `ask_ollie` must be advertised
-    AND described. Without this, "no Ollie anywhere" would pass forever while
-    silently leaving an advertised tool undocumented."""
-    async with _handshake(OPIK_MCP_ASK_OLLIE_ENABLED="true") as (init, tools):
-        assert "ask_ollie" in {t.name for t in tools}
-        instructions = init.instructions or ""
-        assert "ask_ollie" in _bulleted_tool_names(instructions), (
-            "ask_ollie is advertised but the session instructions do not describe it"
-        )
 
 
 @pytest.mark.e2e

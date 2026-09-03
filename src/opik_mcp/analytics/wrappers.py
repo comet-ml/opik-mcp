@@ -30,7 +30,6 @@ from opik_mcp.analytics.errors import (
 )
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
 from opik_mcp.analytics.mcp_client_info import call_context_props, collect_session_props
-from opik_mcp.comet_client import OllieNotEnabledError
 from opik_mcp.config import MissingConfigError
 
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
@@ -55,30 +54,17 @@ _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
         "permission",  # 403 — workspace access denied
         "validation",  # 400/422 — payload rejected by Opik or pydantic
         "not_found",  # 404 — entity doesn't exist
-        # ask_ollie-specific user-config buckets. These are all
-        # caller-actionable (bad key, missing workspace access, ollie not
-        # turned on, user declined an elicit prompt) — Sentry would only
-        # surface noise.
-        "comet_auth",  # bad/expired OPIK_API_KEY at the Comet layer
-        "comet_permission",  # workspace access denied at the Comet layer
-        "ollie_not_enabled",  # workspace doesn't have ollie-assist enabled
-        "pod_auth",  # PPAUTH cookie rejected by the pod
-        "cancelled",  # user-initiated cancellation (ConfirmDeclinedError)
+        "cancelled",  # host-initiated cancellation
     }
 )
 
 
-# Belt-and-braces class-based Sentry skip-list. Both classes already bucket
-# into ``_USER_SIDE_ERROR_KINDS`` via their ``ClassVar[ErrorKind]``
-# (``MissingConfigError`` → ``"validation"``, ``OllieNotEnabledError`` →
-# ``"ollie_not_enabled"``), so the bucket-based filter above is the primary
-# gate. This list stays as a defensive backstop — a future re-classification
-# of either class (e.g. ``MissingConfigError`` reclassified to ``"unknown"``)
-# would silently start paging Sentry otherwise.
-_USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    MissingConfigError,
-    OllieNotEnabledError,
-)
+# Belt-and-braces class-based Sentry skip-list. ``MissingConfigError`` already
+# buckets into ``_USER_SIDE_ERROR_KINDS`` via its ``ClassVar[ErrorKind]``
+# (``"validation"``), so the bucket-based filter above is the primary gate.
+# This list stays as a defensive backstop — a future re-classification of the
+# class (e.g. to ``"unknown"``) would silently start paging Sentry otherwise.
+_USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (MissingConfigError,)
 
 
 # Indirection so tests can patch the singleton.
@@ -175,7 +161,7 @@ def _report_to_sentry(
     Cursor, custom) hit a given Sentry issue.
 
     ``cause_type`` mirrors the BI prop — when the raise site wraps a real
-    upstream class via ``ToolError`` / ``OllieStreamError``, the leaf class
+    upstream class via ``ToolError``, the leaf class
     is what Sentry triage actually cares about, so we tag both.
     """
     tags: dict[str, str] = {"tool_name": tool_name, "error_kind": error_kind}
@@ -257,8 +243,8 @@ def instrument_tool(
                     # so dashboards can distinguish cancellations from errors.
                     error_kind = "cancelled"
                 elif isinstance(exc, Exception):
-                    # Unwrap pure-envelope wrappers (ToolError, OllieStreamError)
-                    # so the bucket reflects the real cause. ``exception_type``
+                    # Unwrap the pure-envelope wrapper (ToolError) so the
+                    # bucket reflects the real cause. ``exception_type``
                     # keeps the wrapper class (where in our code the failure
                     # surfaced); ``cause_type`` carries the leaf (what actually
                     # broke upstream). Both emit only when distinct.
@@ -382,7 +368,7 @@ def _maybe_emit_tools_listed(result: Any) -> None:
 
     props = {"tool_count_bucket": bucket_count(len(tools))}
     # Stamp env cohort + bucketed MCP host so tools_listed segments on the
-    # same dimensions as tool_called and ask_ollie_completed. ``session``
+    # same dimensions as tool_called. ``session``
     # may be None when invoked outside a host (HTTP probe, test); the
     # helper returns empty dict in that case.
     props.update(call_context_props(session))

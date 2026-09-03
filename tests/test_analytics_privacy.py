@@ -8,8 +8,8 @@ pinned in ``tests/test_analytics_client_build_event.py`` instead, which calls
 ``_build_event`` directly. Asserting it here would pass vacuously.
 
 Drives the *real* MCP tool entry points (server.read, server.list_entities,
-server.write, run_ask_ollie) so the wrapper's `props_fn` is exercised on
-every call. Each test:
+server.write) so the wrapper's `props_fn` is exercised on every call.
+Each test:
 
 1. Calls the actual tool with PII-shaped inputs.
 2. Asserts the wrapper emitted `tool_called` (an empty recorder is a bug, not
@@ -25,14 +25,11 @@ that simply drops the event entirely.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
-from opik_mcp.comet_client import PodDiscovery
-from opik_mcp.ollie_client import OnTick, SSEEvent
 
 # Substrings that must NEVER appear in any analytics event. Each one is a
 # realistic free-text payload a user might pass, chosen to be globally unique
@@ -77,8 +74,6 @@ class _Recorder:
 def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
     r = _Recorder()
     monkeypatch.setattr("opik_mcp.analytics.wrappers._client", lambda: r)
-    monkeypatch.setattr("opik_mcp.ask_ollie._analytics", lambda: r)
-    monkeypatch.setattr("opik_mcp.audit._analytics_for_audit", lambda: r)
     return r
 
 
@@ -110,73 +105,6 @@ def _tool_called(events: list[tuple[str, dict[str, str]]]) -> dict[str, str]:
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
-
-
-class _FakeComet:
-    async def discover_pod(self, workspace: str) -> PodDiscovery:
-        return PodDiscovery(compute_url="http://c", ppauth="p")
-
-
-async def _message_end_iter() -> AsyncIterator[SSEEvent]:
-    yield SSEEvent(event="message_end", data={"payload": {}})
-
-
-class _FakeOllie:
-    async def wait_ready(
-        self, compute_url: str, ppauth: str, *, on_tick: OnTick | None = None
-    ) -> None:
-        pass
-
-    async def create_session(
-        self, compute_url: str, ppauth: str, workspace: str, body: dict[str, Any]
-    ) -> str:
-        return "sess-1"
-
-    def stream_events(
-        self,
-        compute_url: str,
-        ppauth: str,
-        workspace: str,
-        session_id: str,
-        *,
-        last_event_id: int | None = None,
-    ) -> AsyncIterator[SSEEvent]:
-        return _message_end_iter()
-
-    async def confirm_session(
-        self,
-        compute_url: str,
-        ppauth: str,
-        workspace: str,
-        session_id: str,
-        *,
-        tool_use_id: str,
-        decision: str,
-    ) -> None:
-        pass
-
-
-# --- ask_ollie ------------------------------------------------------------ #
-
-
-@pytest.mark.anyio
-async def test_ask_ollie_strips_all_user_text(recorder: _Recorder) -> None:
-    from opik_mcp.ask_ollie import run_ask_ollie
-    from opik_mcp.config import Settings
-
-    await run_ask_ollie(
-        query=FORBIDDEN[0],
-        page_context=FORBIDDEN[1],
-        project_name=FORBIDDEN[4],
-        attach_resources=[FORBIDDEN[5]],
-        settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
-        comet_client=_FakeComet(),
-        ollie_client=_FakeOllie(),
-    )
-    _assert_no_leak(recorder.events)
-    # An ask_ollie_completed event MUST have fired even when the call ran
-    # against the fake stack — otherwise the "no leak" assertion is vacuous.
-    assert any(et == "opik_mcp_ask_ollie_completed" for et, _ in recorder.events)
 
 
 # --- write: drive server.write so _write_props executes ------------------ #
@@ -483,193 +411,13 @@ async def test_tool_called_cause_type_is_class_only(
     assert props["http_status"] == "401"
 
 
-class _CanaryOllieClient:
-    """``_OllieClientProto`` fake that fires an SSE ``error`` frame whose
-    ``message`` field is a unique canary. Used to verify the pod's error
-    message never reaches the ``ask_ollie_completed`` analytics event."""
-
-    canary_message: str = "ollie-stream-error-UNIQUE-CANARY-9a8b7c6d"
-    # Shape-valid identifier: lowercase alnum + ``_-``, ≤ 32 chars. Matches
-    # ``_UPSTREAM_CODE_PATTERN`` in ask_ollie.py — passes through to BI
-    # unchanged so the test can assert the wire-up actually surfaces it.
-    canary_code: str = "rate_limited_canary"
-
-    async def wait_ready(
-        self, compute_url: str, ppauth: str, *, on_tick: OnTick | None = None
-    ) -> None:
-        pass
-
-    async def create_session(
-        self, compute_url: str, ppauth: str, workspace: str, body: dict[str, Any]
-    ) -> str:
-        return "sess-canary"
-
-    def stream_events(
-        self,
-        compute_url: str,
-        ppauth: str,
-        workspace: str,
-        session_id: str,
-        *,
-        last_event_id: int | None = None,
-    ) -> AsyncIterator[SSEEvent]:
-        return self._error_iter()
-
-    async def _error_iter(self) -> AsyncIterator[SSEEvent]:
-        yield SSEEvent(
-            event="error",
-            data={"payload": {"message": self.canary_message, "code": self.canary_code}},
-        )
-
-    async def confirm_session(
-        self,
-        compute_url: str,
-        ppauth: str,
-        workspace: str,
-        session_id: str,
-        *,
-        tool_use_id: str,
-        decision: str,
-    ) -> None:
-        pass
-
-
-@pytest.mark.anyio
-async def test_ask_ollie_failure_strips_stream_error_message(recorder: _Recorder) -> None:
-    """A pod-side SSE ``error`` frame carries a free-text ``message`` plus
-    an optional structured ``code``. The completed event MUST surface only
-    the coarse bucket + class name + (length-capped) code — never the
-    message body."""
-    from opik_mcp.ask_ollie import run_ask_ollie
-    from opik_mcp.config import Settings
-    from opik_mcp.ollie_client import OllieStreamError
-
-    fake = _CanaryOllieClient()
-    with pytest.raises(OllieStreamError):
-        await run_ask_ollie(
-            query="placeholder-query",
-            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
-            comet_client=_FakeComet(),
-            ollie_client=fake,
-        )
-
-    payload = json.dumps(recorder.events)
-    assert fake.canary_message not in payload, (
-        f"PRIVACY BREACH: pod error message {fake.canary_message!r} leaked into analytics"
-    )
-
-    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
-    assert completed, "ask_ollie must emit a completed event on the error path"
-    props = completed[0]
-    assert props["completion_state"] == "error"
-    # Pod error frame surfaces as ``PodErrorEventError`` (subclass of
-    # ``OllieStreamError`` raised at the SSE ``error`` event site) — its
-    # ClassVar pins ``error_kind`` to ``stream_error_frame``.
-    assert props["error_kind"] == "stream_error_frame"
-    assert props["exception_type"] == "PodErrorEventError"
-    # ``code`` IS allowlisted into analytics — it's the one field pod authors
-    # are expected to keep enum-shaped. Shape-valid codes (alnum + ``_-``,
-    # ≤ 32 chars) pass through unchanged; anything else collapses to
-    # ``"other"`` so a misbehaving pod can't smuggle text past the cap. The
-    # canary here is shape-valid by construction; the long/uppercase rejection
-    # path has its own test below.
-    assert props["upstream_error_code"] == fake.canary_code
-
-
-class _LongCodeOllieClient(_CanaryOllieClient):
-    """Same canary stream as ``_CanaryOllieClient`` but with a code field
-    that violates the identifier shape (uppercase, > 32 chars, dashes after
-    uppercase). Used to verify the shape-check bucket fires."""
-
-    # 100 chars + uppercase + sentence punctuation — comfortably outside the
-    # ``^[a-z0-9][a-z0-9_-]{0,31}$`` shape. If any character of the canary
-    # tail appears in the recorded props, the shape-check regressed.
-    canary_code: str = "x" * 64 + "TAIL-MUST-BE-CHOPPED-UNIQUE-CANARY-d4e5f6a7"
-
-
-@pytest.mark.anyio
-async def test_ask_ollie_failure_buckets_misshaped_upstream_error_code_to_other(
-    recorder: _Recorder,
-) -> None:
-    """Pod-controlled ``code`` that doesn't match the stable-identifier shape
-    (alnum + ``_-``, ≤ 32 chars) MUST collapse to ``"other"`` on emit — the
-    earlier 64-char truncation was insufficient because uppercase, spaces,
-    and punctuation could still slip ~64 chars of pod-controlled text past
-    the message-stripping privacy contract. The shape check is the load-
-    bearing fix; this test pins it on the end-to-end emit path."""
-    from opik_mcp.ask_ollie import run_ask_ollie
-    from opik_mcp.config import Settings
-    from opik_mcp.ollie_client import OllieStreamError
-
-    fake = _LongCodeOllieClient()
-    assert len(fake.canary_code) > 32  # guard the test itself: must violate cap
-
-    with pytest.raises(OllieStreamError):
-        await run_ask_ollie(
-            query="placeholder-query",
-            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
-            comet_client=_FakeComet(),
-            ollie_client=fake,
-        )
-
-    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
-    assert completed
-    code = completed[0]["upstream_error_code"]
-    assert code == "other", f"expected misshaped code bucketed to 'other', got: {code!r}"
-    # Belt-and-braces: NO substring of the canary may appear anywhere in
-    # the recorded payload — the bucket helper is the only path that
-    # touches the field, but if a future change adds a second emit site,
-    # this catches the leak.
-    payload = json.dumps(recorder.events)
-    assert "TAIL-MUST-BE-CHOPPED" not in payload
-
-
-@pytest.mark.anyio
-async def test_ask_ollie_failure_typed_exception_bucketed_correctly(
-    recorder: _Recorder,
-) -> None:
-    """A typed pod-discovery failure (``CometPermissionError``) must surface
-    as ``error_kind=permission`` even when the exception message is PII."""
-    from opik_mcp.ask_ollie import run_ask_ollie
-    from opik_mcp.comet_client import CometPermissionError
-    from opik_mcp.config import Settings
-
-    canary = "comet-permission-message-UNIQUE-CANARY-5e6f7a8b"
-
-    class _PermissionComet:
-        async def discover_pod(self, workspace: str) -> PodDiscovery:
-            raise CometPermissionError(canary)
-
-    with pytest.raises(CometPermissionError):
-        await run_ask_ollie(
-            query="placeholder-query",
-            settings=Settings(opik_api_key="k", comet_workspace="ws-1"),
-            comet_client=_PermissionComet(),
-            ollie_client=_FakeOllie(),
-        )
-
-    payload = json.dumps(recorder.events)
-    assert canary not in payload
-    completed = [props for et, props in recorder.events if et == "opik_mcp_ask_ollie_completed"]
-    assert completed
-    props = completed[0]
-    assert props["completion_state"] == "error"
-    # CometPermissionError's ClassVar pins ``error_kind`` to
-    # ``comet_permission`` (ask_ollie-specific bucket) — distinct from a
-    # generic write/read 403 which buckets as ``permission``.
-    assert props["error_kind"] == "comet_permission"
-    assert props["exception_type"] == "CometPermissionError"
-    # No SSE error frame on this path → no upstream_error_code.
-    assert "upstream_error_code" not in props
-
-
 # --- per-call session context: bucketed host + env, no raw strings -------- #
 
 
 def test_call_context_props_buckets_host_without_leak(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The per-call session-context block (stamped on tool_called /
-    ask_ollie_completed) must bucket the MCP host and env cohort — never echo
-    a raw ``clientInfo.name``, version, protocolVersion, or HOME path."""
+    """The per-call session-context block (stamped on tool_called) must
+    bucket the MCP host and env cohort — never echo a raw ``clientInfo.name``,
+    version, protocolVersion, or HOME path."""
     from types import SimpleNamespace
 
     from opik_mcp.analytics.mcp_client_info import (
