@@ -29,6 +29,7 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel, ValidationError
 
+from opik_mcp.charts import dashboard_ops
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.opik_client import (
     OpikAuthError,
@@ -89,14 +90,18 @@ async def run_write(
 
     # Live path only: build the client and resolve any identifiers the wire
     # needs but the caller doesn't carry (thread comments target the BE by the
-    # thread's model UUID; the caller passes the thread_id string). dry_run stays
-    # pure — no client, no backend calls — so it never depends on config/network.
+    # thread's model UUID; the caller passes the thread_id string — dashboards
+    # take a name where the wire takes an id, and their edits need the config
+    # that is already stored). dry_run stays pure — no client, no backend calls
+    # — so it never depends on config/network.
     http_client: OpikClient | None = None
+    context: dict[str, Any] = {}
     if not dry_run:
         http_client = client if client is not None else make_opik_client(settings or get_settings())
         await _resolve_thread_comment_target(op, items, http_client)
+        context = await dashboard_ops.resolve_context(op, items[0], http_client, settings=settings)
 
-    method, path, body = _build_request_with_method(op, items, is_batch=is_batch)
+    method, path, body = _build_request_with_method(op, items, is_batch=is_batch, context=context)
 
     if dry_run:
         would_call: dict[str, Any] = {
@@ -118,11 +123,16 @@ async def run_write(
                 "thread comments resolve the thread_id string to the thread's model "
                 "UUID at execution; the live path will use /threads/{model_uuid}/comments."
             )
+        dashboard_note = dashboard_ops.preview_note(op)
+        if dashboard_note is not None:
+            would_call["note"] = dashboard_note
         return {"dry_run": True, "would_call": would_call}
 
     assert http_client is not None  # set above whenever not dry_run
     resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
-    return _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
+    return _stage4_finalize(
+        op, resp, items, is_batch=is_batch, method=method, path=path, context=context
+    )
 
 
 async def _resolve_thread_comment_target(
@@ -378,7 +388,11 @@ def _stage3_authorize(op: WriteOperation, scopes: frozenset[str]) -> None:
 
 
 def _build_request_with_method(
-    op: WriteOperation, items: list[BaseModel], *, is_batch: bool
+    op: WriteOperation,
+    items: list[BaseModel],
+    *,
+    is_batch: bool,
+    context: dict[str, Any] | None = None,
 ) -> tuple[str, str, dict[str, Any] | list[Any]]:
     """Wrap ``_build_request`` and apply per-batch method overrides.
 
@@ -389,7 +403,7 @@ def _build_request_with_method(
     know about the per-route method asymmetry. Score's PUT batch endpoint
     is left alone (PUT is the correct method for the feedback-scores route).
     """
-    path, body = _build_request(op, items, is_batch=is_batch)
+    path, body = _build_request(op, items, is_batch=is_batch, context=context or {})
     method = op.method
     if is_batch and method == "PATCH" and op.batch_endpoint is not None:
         method = "POST"
@@ -397,7 +411,11 @@ def _build_request_with_method(
 
 
 def _build_request(
-    op: WriteOperation, items: list[BaseModel], *, is_batch: bool
+    op: WriteOperation,
+    items: list[BaseModel],
+    *,
+    is_batch: bool,
+    context: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any] | list[Any]]:
     """Translate validated models into ``(path, body)`` for the BE.
 
@@ -405,8 +423,18 @@ def _build_request(
     a generic dump because the BE's batch envelopes ("traces", "spans",
     "scores", "experiment_items") and path-encoded routes are operation-
     specific and trying to abstract them produces brittle indirection.
+
+    ``context`` carries what only a backend round-trip could supply (resolved
+    ids, a dashboard's current config); it is empty on the ``dry_run`` path
+    and for every operation that needs nothing resolved.
     """
     name = op.name
+
+    if name in dashboard_ops.DASHBOARD_OPERATIONS:
+        # Dashboards compile through their own module: the body is a config
+        # document assembled from ChartSpecs, and three of the four operations
+        # merge into a config fetched during resolution.
+        return dashboard_ops.build_request(op, items[0], context if context is not None else {})
 
     if name == "trace.create":
         if is_batch:
@@ -587,12 +615,13 @@ def _stage4_finalize(
     is_batch: bool,
     method: str,
     path: str,
+    context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     status = resp.status_code
     if not (200 <= status < 300):
         raise BackendError.build(op.name, status, _safe_body(resp), method=method, path=path)
     body = _safe_body(resp)
-    return {
+    envelope: dict[str, Any] = {
         "ok": True,
         "operation": op.name,
         "method": method,
@@ -602,6 +631,35 @@ def _stage4_finalize(
         "item_count": len(items),
         "backend_body": body,
     }
+    details = (context or {}).get("result")
+    if isinstance(details, dict) and details:
+        # What the caller needs to act next and cannot read off the backend
+        # body: the widget ids just created (to chart or remove them) and the
+        # dashboard's UI link. Only dashboard operations populate this.
+        envelope["details"] = _with_dashboard_link(details, body, context or {})
+    return envelope
+
+
+def _with_dashboard_link(
+    details: dict[str, Any], body: Any, context: dict[str, Any]
+) -> dict[str, Any]:
+    """Fill in the created dashboard's id/URL from the response.
+
+    ``dashboard.create`` is the one case where neither is knowable before the
+    call — the backend mints the id — so the link is completed here rather
+    than left off the one operation whose result a user most wants to open.
+    """
+    if details.get("dashboard_id") or not isinstance(body, dict):
+        return details
+    dashboard_id = body.get("id")
+    if not isinstance(dashboard_id, str):
+        return details
+    settings = context.get("settings")
+    completed = {"dashboard_id": dashboard_id, **details}
+    url = dashboard_ops.dashboard_url(dashboard_id, settings) if settings is not None else None
+    if url is not None:
+        completed["dashboard_url"] = url
+    return completed
 
 
 def _safe_body(resp: httpx.Response) -> Any:

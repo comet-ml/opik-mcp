@@ -29,6 +29,7 @@ class FakeOpikClient:
     test_suite_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    dashboards: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -63,6 +64,10 @@ class FakeOpikClient:
     async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = {"prompt_id": prompt_id, **kw}
         return self.prompt_versions
+
+    async def list_dashboards(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        return self.dashboards
 
     async def list_spans(self, **_: Any) -> dict[str, Any]:
         # Not exercised by the list tool (span has no list_fn) — included to

@@ -111,6 +111,14 @@ class FakeOpikClient:
     async def list_prompts(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
+    async def get_dashboard(self, dashboard_id: str) -> dict[str, Any]:
+        # Dashboards have their own suite (test_dashboard_entity.py); these two
+        # exist so the fake still satisfies the OpikReadClient Protocol.
+        raise OpikNotFoundError(f"dashboard {dashboard_id!r} not found (404).")
+
+    async def list_dashboards(self, **_: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
     async def get_thread(
         self,
         thread_id: str,

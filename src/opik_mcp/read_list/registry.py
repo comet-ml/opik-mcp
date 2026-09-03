@@ -27,6 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from opik_mcp.charts.config import flatten_charts
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
@@ -246,6 +247,23 @@ async def _fetch_thread(
     }
 
 
+async def _fetch_dashboard(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+    """Dashboard metadata + its charts, flattened.
+
+    The stored ``config`` is a nested frontend document — sections holding
+    widgets, plus a parallel layout array of grid geometry. None of that
+    nesting answers a question anyone asks of a dashboard, and the layout
+    answers none at all, so the read returns the metadata with a flat
+    ``charts`` list: one entry per widget carrying its section, id, title,
+    type and query config. That is the shape ``chart_data`` and
+    ``dashboard.remove_chart`` take ids from.
+    """
+    dashboard = await client.get_dashboard(entity_id)
+    charts = flatten_charts(dashboard.get("config"))
+    meta = {k: v for k, v in dashboard.items() if k != "config"}
+    return {"dashboard": meta, "charts": charts, "chart_count": len(charts)}
+
+
 async def _unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
     """Sentinel for list-only entities. The read tool raises before calling this."""
     raise NotImplementedError(
@@ -270,6 +288,10 @@ async def _search_prompt(client: OpikReadClient, name: str) -> list[dict[str, An
 
 async def _search_test_suite(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
     return _candidates(await client.list_test_suites(name=name, size=5))
+
+
+async def _search_dashboard(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
+    return _candidates(await client.list_dashboards(name=name, size=5))
 
 
 # --- list fns ------------------------------------------------------------- #
@@ -315,6 +337,12 @@ async def _list_prompt_versions(client: OpikListClient, **kw: Any) -> dict[str, 
         raise ValueError("list prompt_version requires prompt_id")
     kw.pop("name", None)
     return await client.list_prompt_versions(prompt_id, **kw)
+
+
+async def _list_dashboards(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # ``project_id`` is optional here (unlike traces/threads): passing it lists
+    # the dashboards scoped to that project, omitting it lists the workspace's.
+    return await client.list_dashboards(**kw)
 
 
 async def _list_threads(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -484,6 +512,20 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         description=(
             "Prompt version. Currently list-only — pass prompt_id to enumerate. "
             "Use read('prompt', id) to get the prompt + all versions in one call."
+        ),
+    ),
+    "dashboard": EntityHandler(
+        entity_type="dashboard",
+        fetch_fn=_fetch_dashboard,
+        search_by_name_fn=_search_dashboard,
+        list_fn=_list_dashboards,
+        list_extra_fields=("type", "created_at"),
+        description=(
+            "Dashboard + its charts, flattened: {dashboard, charts, chart_count}. "
+            "Each chart carries its widget_id, section, title, type and query "
+            "config — pass a widget_id to chart_data to run it. list('dashboard') "
+            "enumerates the workspace's dashboards; add project_id for a "
+            "project's own."
         ),
     ),
     "thread": EntityHandler(

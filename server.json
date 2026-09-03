@@ -1,0 +1,55 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.comet-ml/opik-mcp",
+  "title": "Opik",
+  "description": "Read Opik traces and spans, log feedback scores, manage prompts, and run evaluations.",
+  "version": "0.2.23",
+  "repository": {
+    "url": "https://github.com/comet-ml/opik-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "opik-mcp",
+      "version": "0.2.23",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OPIK_API_KEY",
+          "description": "Opik API key, from https://www.comet.com/api/my/settings/. Not needed for a local open-source Opik, or when connecting over OAuth.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "OPIK_WORKSPACE",
+          "description": "Workspace name as it appears in the Comet URL. Leave unset for OAuth or a local open-source Opik; set it for a named cloud workspace or self-hosted Comet, otherwise reads silently come back from the account default.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "COMET_URL_OVERRIDE",
+          "description": "Base URL of a self-hosted Comet deployment. Defaults to https://www.comet.com.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "OPIK_URL",
+          "description": "Full Opik REST base URL. Only needed when Opik is served from a different host or path than the Comet UI; otherwise derived from COMET_URL_OVERRIDE.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://www.comet.com/_mcp/server"
+    }
+  ]
+}
