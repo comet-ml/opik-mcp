@@ -92,6 +92,10 @@ SKILL_SUMMARIES: dict[str, str] = {
         '"what is broken in production", "which traces need attention", "find failing '
         'or slow traces", "triage my agent".'
     ),
+    "opik-dashboards": (
+        '"chart our p99 latency", "which model costs the most", "build me a dashboard '
+        'for this project", "what does this dashboard show".'
+    ),
     "opik-explain": (
         '"why did this trace fail", "explain this trace", "debug this trace", "why is '
         'my agent slow or wrong".'

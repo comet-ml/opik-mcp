@@ -40,6 +40,7 @@ TOOLS = (
     "ask_ollie",
     "run_experiment",
     "read_skill",
+    "chart_data",
 )
 
 

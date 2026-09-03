@@ -1,0 +1,232 @@
+{
+  "properties": {
+    "breakdown": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Split the series by a dimension.",
+      "enum": [
+        "tags",
+        "metadata",
+        "name",
+        "error_info",
+        "error_type",
+        "model",
+        "provider",
+        "type",
+        "guardrail_name"
+      ],
+      "title": "Breakdown"
+    },
+    "breakdown_key": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Metadata field to group by when breakdown='metadata'.",
+      "title": "Breakdown Key"
+    },
+    "dashboard": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Replay a saved chart: the dashboard's id or name.",
+      "title": "Dashboard"
+    },
+    "end": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO-8601 window end. Defaults to now.",
+      "title": "End"
+    },
+    "filters": {
+      "anyOf": [
+        {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Opik filter objects \u2014 {field, operator, value, key?} \u2014 applied to the metric's own entity (traces, spans or threads).",
+      "title": "Filters"
+    },
+    "interval": {
+      "anyOf": [
+        {
+          "maxLength": 16,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Bucket size: hourly, daily, weekly, total, or 'auto' (default) to pick one from the window.",
+      "title": "Interval"
+    },
+    "max_points": {
+      "default": 90,
+      "description": "Cap on points per series (most recent kept).",
+      "maximum": 1000,
+      "minimum": 2,
+      "title": "Max Points",
+      "type": "integer"
+    },
+    "max_series": {
+      "default": 20,
+      "description": "Cap on returned series (largest kept).",
+      "maximum": 100,
+      "minimum": 1,
+      "title": "Max Series",
+      "type": "integer"
+    },
+    "metric": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Metric to chart, e.g. 'trace_count', 'duration', 'cost', 'feedback_scores', 'span_token_usage'. Optional only when replaying a saved widget via dashboard+widget.",
+      "title": "Metric"
+    },
+    "project_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Project to chart, by UUID.",
+      "title": "Project Id"
+    },
+    "project_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Chart several projects at once (max 10); each is returned as its own series.",
+      "title": "Project Ids"
+    },
+    "project_name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Project to chart, by name.",
+      "title": "Project Name"
+    },
+    "start": {
+      "anyOf": [
+        {
+          "maxLength": 64,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO-8601 window start, e.g. '2026-08-01T00:00:00Z'.",
+      "title": "Start"
+    },
+    "sub_metric": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Which series to keep under a breakdown: a percentile (p50/p90/p99) for duration metrics, the score name for feedback scores, the usage key for token usage.",
+      "title": "Sub Metric"
+    },
+    "widget": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Which chart on that dashboard, by widget_id or title \u2014 from read('dashboard', \u2026).charts[]. Optional when it holds one chart.",
+      "title": "Widget"
+    },
+    "window": {
+      "anyOf": [
+        {
+          "maxLength": 16,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Relative window ending now: '24h', '7d', '4w', '3m'. Defaults to '7d'. Ignored when start/end are given.",
+      "title": "Window"
+    }
+  },
+  "title": "chart_dataArguments",
+  "type": "object"
+}

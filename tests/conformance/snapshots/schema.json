@@ -14,7 +14,11 @@
         "experiment.create",
         "experiment_item.create",
         "thread.close",
-        "thread.open"
+        "thread.open",
+        "dashboard.create",
+        "dashboard.update",
+        "dashboard.add_charts",
+        "dashboard.remove_charts"
       ],
       "title": "Operation",
       "type": "string"

@@ -37,6 +37,18 @@ from opik_mcp.auth_context import (
     resolved_workspace_name,
     settings_auth_mode,
 )
+from opik_mcp.charts.query import (
+    DEFAULT_MAX_POINTS,
+    DEFAULT_MAX_SERIES,
+    MAX_PROJECTS,
+    run_chart_data,
+)
+from opik_mcp.charts.vocabulary import (
+    BREAKDOWN_FIELDS,
+    INTERVALS,
+    METRIC_NAMES,
+    METRICS,
+)
 from opik_mcp.config import MissingConfigError, Settings, get_settings
 from opik_mcp.credential_identity import remember_identity, remember_session
 from opik_mcp.instructions import render_instructions
@@ -101,6 +113,31 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "had_name_filter": str(kwargs.get("name") is not None).lower(),
         "page": str(kwargs.get("page", 1)),
         "size": str(kwargs.get("size", 25)),
+    }
+
+
+def _chart_data_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    """Analytics labels for ``chart_data``.
+
+    ``metric`` and ``breakdown`` are closed vocabularies (see
+    ``charts.vocabulary``), so they are safe as raw labels and they are the
+    two dimensions that say what people actually chart. ``source`` separates
+    an ad-hoc question from replaying a saved widget — the difference between
+    "an agent computed a chart" and "an agent read the user's dashboard".
+    """
+    metric = str(kwargs.get("metric") or "")
+    breakdown = str(kwargs.get("breakdown") or "")
+    return {
+        "source": "widget" if kwargs.get("dashboard") is not None else "spec",
+        "metric": metric if metric in METRIC_NAMES else ("alias_or_unknown" if metric else "none"),
+        "breakdown": breakdown
+        if breakdown in BREAKDOWN_FIELDS
+        else ("other" if breakdown else "none"),
+        "had_filters": str(bool(kwargs.get("filters"))).lower(),
+        "project_count_bucket": bucket_count(
+            len(kwargs.get("project_ids") or [])
+            or (1 if kwargs.get("project_id") or kwargs.get("project_name") else 0)
+        ),
     }
 
 
@@ -356,6 +393,186 @@ async def list_entities(
         project_name=project_name,
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
+    )
+
+
+# --- chart_data (OPIK-8210) ---------------------------------------------- #
+#
+# The description is rendered from ``charts.vocabulary`` rather than written
+# out, for the same reason the write tool's is rendered from its registry: the
+# metric list IS the tool's contract, and a hand-maintained copy of it would
+# drift the first time opik-backend gains a metric type.
+
+
+def _chart_metric_catalog() -> str:
+    families = {"trace": "Traces", "span": "Spans", "thread": "Threads"}
+    lines: list[str] = []
+    for family, label in families.items():
+        names = [m.name for m in METRICS.values() if m.family == family]
+        lines.append(f"- {label}: {', '.join(names)}")
+    return "\n".join(lines)
+
+
+_CHART_DATA_DESCRIPTION = (
+    "Run an Opik metric query and get the numbers back — the data behind a "
+    "dashboard chart, with or without the dashboard.\n\n"
+    "Use it to ANSWER a question with data ('has p99 latency moved this "
+    "week?', 'which model is burning the most tokens?'), to CHECK a chart "
+    "before saving it with write('dashboard.create', …), and to READ a chart "
+    "a user is looking at (pass `dashboard` + `widget`).\n\n"
+    f"Metrics:\n{_chart_metric_catalog()}\n\n"
+    "Notes:\n"
+    "- Scope: project_name, project_id, or project_ids "
+    f"(max {MAX_PROJECTS}) — or dashboard+widget, which brings its own.\n"
+    "- Window: `window='7d'` (h/d/w/m) or explicit start/end. The bucket size "
+    f"is chosen from the window unless you pass interval ({', '.join(INTERVALS)}).\n"
+    "- `breakdown` splits the series (name, model, provider, tags, metadata, "
+    "type, error_info, error_type, guardrail_name). Multi-series metrics "
+    "(duration, token_usage, feedback_scores) need `sub_metric` under a "
+    "breakdown — a percentile, a usage key, or a score name.\n"
+    "- Each series comes back with its points AND a summary "
+    "(first/last/min/max/avg/total/change_pct) computed over the whole window, "
+    "so the summary is still exact when points are trimmed."
+)
+
+
+@mcp.tool(description=_CHART_DATA_DESCRIPTION)
+@instrument_tool("chart_data", props_fn=_chart_data_props)
+async def chart_data(
+    metric: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Metric to chart, e.g. 'trace_count', 'duration', 'cost', "
+                "'feedback_scores', 'span_token_usage'. Optional only when "
+                "replaying a saved widget via dashboard+widget."
+            ),
+            max_length=200,
+        ),
+    ] = None,
+    project_name: Annotated[
+        str | None,
+        Field(description="Project to chart, by name.", max_length=200),
+    ] = None,
+    project_id: Annotated[
+        str | None,
+        Field(description="Project to chart, by UUID."),
+    ] = None,
+    project_ids: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                f"Chart several projects at once (max {MAX_PROJECTS}); each is "
+                "returned as its own series."
+            ),
+        ),
+    ] = None,
+    window: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Relative window ending now: '24h', '7d', '4w', '3m'. "
+                "Defaults to '7d'. Ignored when start/end are given."
+            ),
+            max_length=16,
+        ),
+    ] = None,
+    start: Annotated[
+        str | None,
+        Field(description="ISO-8601 window start, e.g. '2026-08-01T00:00:00Z'.", max_length=64),
+    ] = None,
+    end: Annotated[
+        str | None,
+        Field(description="ISO-8601 window end. Defaults to now.", max_length=64),
+    ] = None,
+    interval: Annotated[
+        str | None,
+        Field(
+            description=(
+                f"Bucket size: {', '.join(INTERVALS)}, or 'auto' (default) to pick "
+                "one from the window."
+            ),
+            max_length=16,
+        ),
+    ] = None,
+    breakdown: Annotated[
+        str | None,
+        Field(
+            description="Split the series by a dimension.",
+            json_schema_extra={"enum": list(BREAKDOWN_FIELDS)},
+        ),
+    ] = None,
+    breakdown_key: Annotated[
+        str | None,
+        Field(description="Metadata field to group by when breakdown='metadata'.", max_length=200),
+    ] = None,
+    sub_metric: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Which series to keep under a breakdown: a percentile (p50/p90/p99) "
+                "for duration metrics, the score name for feedback scores, the usage "
+                "key for token usage."
+            ),
+            max_length=200,
+        ),
+    ] = None,
+    filters: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Opik filter objects — {field, operator, value, key?} — applied to "
+                "the metric's own entity (traces, spans or threads)."
+            ),
+        ),
+    ] = None,
+    dashboard: Annotated[
+        str | None,
+        Field(
+            description="Replay a saved chart: the dashboard's id or name.",
+            max_length=200,
+        ),
+    ] = None,
+    widget: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Which chart on that dashboard, by widget_id or title — from "
+                "read('dashboard', …).charts[]. Optional when it holds one chart."
+            ),
+            max_length=200,
+        ),
+    ] = None,
+    max_series: Annotated[
+        int,
+        Field(description="Cap on returned series (largest kept).", ge=1, le=100),
+    ] = DEFAULT_MAX_SERIES,
+    max_points: Annotated[
+        int,
+        Field(description="Cap on points per series (most recent kept).", ge=2, le=1000),
+    ] = DEFAULT_MAX_POINTS,
+    ctx: Context[ServerSession, None] | None = None,
+) -> str:
+    """Run a chart's query and return its series, summarised."""
+    if ctx is not None:
+        await ctx.info(f"chart_data.called metric={metric} dashboard={dashboard}")
+    return await run_chart_data(
+        metric=metric,
+        project_name=project_name,
+        project_id=project_id,
+        project_ids=project_ids,
+        window=window,
+        start=start,
+        end=end,
+        interval=interval,
+        breakdown=breakdown,
+        breakdown_key=breakdown_key,
+        sub_metric=sub_metric,
+        filters=filters,
+        dashboard=dashboard,
+        widget=widget,
+        max_series=max_series,
+        max_points=max_points,
     )
 
 

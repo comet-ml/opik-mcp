@@ -1,4 +1,4 @@
-"""Pydantic models for the 10 write operations (spec §3).
+"""Pydantic models for the write operations (spec §3, plus dashboards).
 
 Each operation has one model that validates a single-item payload. Batch
 form is handled at the dispatcher level by validating an array against the
@@ -27,6 +27,8 @@ from pydantic import (
     Field,
     model_validator,
 )
+
+from opik_mcp.charts.spec import ChartSpec
 
 # --- shared types --------------------------------------------------------- #
 
@@ -456,6 +458,150 @@ class ThreadOpen(_ThreadLifecycle):
     """``POST /v1/private/traces/threads/open`` — reopen a thread (→ active)."""
 
 
+# --- 13-16. dashboards --------------------------------------------------- #
+#
+# A dashboard is a name plus one opaque ``config`` document holding every
+# chart. These four models never expose that document: the caller describes
+# charts as ``ChartSpec``s and ``charts.dashboard_ops`` compiles them, because
+# the config's shape is a private frontend contract (grid geometry, a version
+# the UI migrates) that no agent should be asked to author. See
+# ``charts/config.py`` for what is actually stored.
+
+DashboardTypeLiteral = Literal["multi_project", "experiments"]
+"""opik-backend's ``DashboardType``. ``multi_project`` is the observability
+dashboard these operations build; ``experiments`` dashboards are driven by
+experiment-selection widgets this surface does not author."""
+
+_DASHBOARD_REF_DESC = (
+    "The dashboard to edit: its UUID, or its exact name. A name matching "
+    "several dashboards is refused with the ids listed."
+)
+
+
+class DashboardCreate(_StrictBase):
+    """``POST /v1/private/dashboards`` — a new dashboard, optionally with charts.
+
+    ``project_name`` / ``project_id`` scope the dashboard to one project (it
+    then shows on that project's Dashboards tab) AND become the default
+    project for any chart that doesn't name its own — a chart with no project
+    renders as "not configured" in the UI, so the inheritance is what makes a
+    one-line create produce a dashboard that actually shows data.
+    """
+
+    name: str = Field(min_length=1, max_length=120, description="Dashboard name.")
+    description: str | None = Field(default=None, max_length=1000)
+    type: DashboardTypeLiteral = Field(default="multi_project")
+    project_name: str | None = Field(
+        default=None,
+        max_length=200,
+        description=(
+            "Scope the dashboard (and its charts) to this project. Must already "
+            "exist. Mutually exclusive with project_id."
+        ),
+    )
+    project_id: UUID | None = Field(default=None, description="Same as project_name, by UUID.")
+    section_title: str = Field(
+        default="Overview",
+        max_length=120,
+        description="Title of the section holding these charts.",
+    )
+    charts: list[ChartSpec] = Field(
+        default_factory=list,
+        max_length=50,
+        description=(
+            "Charts to create the dashboard with. Each is a ChartSpec — "
+            "{kind, metric, breakdown, filters, …}; call schema('dashboard.create') "
+            "for the full field list. An empty list creates an empty dashboard."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _validate_project_xor(self) -> DashboardCreate:
+        if self.project_name is not None and self.project_id is not None:
+            raise ValueError("project_xor: pass either `project_name` or `project_id`, not both.")
+        return self
+
+
+class DashboardUpdate(_StrictBase):
+    """``PATCH /v1/private/dashboards/{id}`` — rename, re-describe, or rebuild.
+
+    Passing ``charts`` REPLACES every chart on the dashboard (the backend
+    stores one config document and the PATCH overwrites it). To add or drop
+    individual charts without touching the rest, use ``dashboard.add_charts``
+    / ``dashboard.remove_charts``.
+    """
+
+    dashboard: str = Field(min_length=1, max_length=200, description=_DASHBOARD_REF_DESC)
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = Field(default=None, max_length=1000)
+    type: DashboardTypeLiteral | None = Field(default=None)
+    charts: list[ChartSpec] | None = Field(
+        default=None,
+        max_length=50,
+        description="Replace every chart on the dashboard with these.",
+    )
+    section_title: str = Field(
+        default="Overview",
+        max_length=120,
+        description="Section title used when `charts` rebuilds the dashboard.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_has_change(self) -> DashboardUpdate:
+        if (
+            self.name is None
+            and self.description is None
+            and self.type is None
+            and self.charts is None
+        ):
+            raise ValueError(
+                "dashboard_update_empty: pass at least one of `name`, `description`, "
+                "`type` or `charts`."
+            )
+        return self
+
+
+class DashboardAddCharts(_StrictBase):
+    """``PATCH /v1/private/dashboards/{id}`` — append charts to a dashboard.
+
+    Read-modify-write on the live config, so every existing chart and its
+    grid position survive. Adding several charts in one call is one fetch and
+    one write; adding them one at a time is a race with anyone editing the
+    dashboard in the UI.
+    """
+
+    dashboard: str = Field(min_length=1, max_length=200, description=_DASHBOARD_REF_DESC)
+    charts: list[ChartSpec] = Field(
+        min_length=1,
+        max_length=20,
+        description="Charts to append, in order.",
+    )
+    section: str | None = Field(
+        default=None,
+        max_length=120,
+        description=(
+            "Section to append to, by title or id. Defaults to the last section; "
+            "a title that doesn't exist yet is created."
+        ),
+    )
+
+
+class DashboardRemoveCharts(_StrictBase):
+    """``PATCH /v1/private/dashboards/{id}`` — drop charts by widget id.
+
+    Widget ids come from ``read('dashboard', …)``, which lists every chart
+    with its ``widget_id``. The layout entry goes with the widget: an orphaned
+    one leaves a hole in the grid that the UI cannot fill or remove.
+    """
+
+    dashboard: str = Field(min_length=1, max_length=200, description=_DASHBOARD_REF_DESC)
+    widget_ids: list[str] = Field(
+        min_length=1,
+        max_length=50,
+        description="Widget ids to remove — from read('dashboard', …).charts[].widget_id.",
+    )
+
+
 # --- examples (used by registry + validation errors) --------------------- #
 #
 # One validated example per operation. These are the source of truth for the
@@ -539,6 +685,35 @@ EXAMPLES: dict[str, dict[str, Any]] = {
     },
     "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
     "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
+    "dashboard.create": {
+        "name": "Chatbot health",
+        "project_name": "demo",
+        "charts": [
+            {"kind": "stat", "metric": "trace_count", "title": "Traces"},
+            {"kind": "metric", "metric": "trace_count", "breakdown": "name"},
+            {"kind": "metric", "metric": "duration", "chart_type": "line"},
+            {"kind": "metric", "metric": "cost"},
+        ],
+    },
+    "dashboard.update": {"dashboard": "Chatbot health", "name": "Chatbot health (prod)"},
+    "dashboard.add_charts": {
+        "dashboard": "Chatbot health",
+        "section": "Quality",
+        "charts": [
+            {
+                "kind": "metric",
+                "metric": "feedback_scores",
+                "project_name": "demo",
+                "title": "Hallucination score",
+                "breakdown": "name",
+                "sub_metric": "hallucination",
+            }
+        ],
+    },
+    "dashboard.remove_charts": {
+        "dashboard": "Chatbot health",
+        "widget_ids": ["mcp0f3a91c2e4"],
+    },
 }
 
 
@@ -557,6 +732,10 @@ MODELS: dict[str, type[BaseModel]] = {
     "experiment_item.create": ExperimentItemCreate,
     "thread.close": ThreadClose,
     "thread.open": ThreadOpen,
+    "dashboard.create": DashboardCreate,
+    "dashboard.update": DashboardUpdate,
+    "dashboard.add_charts": DashboardAddCharts,
+    "dashboard.remove_charts": DashboardRemoveCharts,
 }
 
 
@@ -568,6 +747,11 @@ __all__ = [
     "EXAMPLES",
     "MODELS",
     "CommentCreate",
+    "DashboardAddCharts",
+    "DashboardCreate",
+    "DashboardRemoveCharts",
+    "DashboardTypeLiteral",
+    "DashboardUpdate",
     "ExperimentCreate",
     "ExperimentItem",
     "ExperimentItemCreate",

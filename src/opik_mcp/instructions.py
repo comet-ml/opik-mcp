@@ -43,16 +43,22 @@ Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
 reads. read takes (entity_type, id_or_name_or_uri); list takes (entity_type, \
 optional name filter, page, size). Readable entity types include trace, span, \
-project, experiment, prompt, test_suite, thread. Composite reads (trace, prompt, \
-thread) inline their child collections so one call usually gets the full picture. \
-For a thread, pass the thread link/URI or a project_id — read('thread', …) \
-returns the messages list, and list('thread', project_id=…) enumerates a \
-project's threads.
+project, experiment, prompt, test_suite, thread, dashboard. Composite reads \
+(trace, prompt, thread, dashboard) inline their child collections so one call \
+usually gets the full picture. For a thread, pass the thread link/URI or a \
+project_id — read('thread', …) returns the messages list, and \
+list('thread', project_id=…) enumerates a project's threads.
+- chart_data: the numbers behind any Opik metric — volume, latency, cost, \
+tokens, errors, feedback scores — over a project and a window, optionally \
+broken down by name/model/provider/tags/metadata. Use it to ANSWER a \
+quantitative question, and to check a chart before saving it with the \
+dashboard.* write operations. Pass dashboard+widget to re-run a chart the user \
+already has.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X").{prefer_narrow_clause} The full write surface is two tools: write (takes \
 operation + data; pass a list for batch) and schema (returns an op's JSON \
-Schema + bundled example). Operations covered by Phase 1: \
+Schema + bundled example). Operations: \
 {write_operations}. run_experiment is a separate tool. Always consult \
 tools/list for what's actually advertised on this connection.{ask_ollie_clause}
 - read_skill: Opik's own agent skills ({skill_names}) ship with this server. \

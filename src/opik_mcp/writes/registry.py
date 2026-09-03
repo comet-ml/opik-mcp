@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from opik_mcp.writes.models import EXAMPLES, MODELS
 from opik_mcp.writes.scopes import (
+    SCOPE_DASHBOARD_EDIT,
     SCOPE_DATASET_EDIT,
     SCOPE_EXPERIMENT_CREATE,
     SCOPE_PROMPT_CREATE,
@@ -219,6 +220,82 @@ _REGISTRY: dict[str, WriteOperation] = {
         ),
         example=EXAMPLES["thread.open"],
         failure_modes=("thread_project_missing",),
+    ),
+    # --- dashboards / charts (OPIK-8210) --- #
+    #
+    # All four go through ``charts.dashboard_ops`` rather than the generic
+    # body builder: they resolve names to ids against the backend, and the
+    # three edit operations read the dashboard's current config before
+    # writing it back (opik-backend replaces ``config`` wholesale on PATCH).
+    "dashboard.create": WriteOperation(
+        name="dashboard.create",
+        pydantic_model=MODELS["dashboard.create"],
+        endpoint="/v1/private/dashboards",
+        method="POST",
+        oauth_scope=SCOPE_DASHBOARD_EDIT,
+        supports_batch=False,
+        description=(
+            "Create a dashboard, with its charts. Charts are described as "
+            "ChartSpecs ({kind, metric, breakdown, filters, …}); the widget "
+            "JSON and grid layout are generated."
+        ),
+        example=EXAMPLES["dashboard.create"],
+        failure_modes=("chart_spec_invalid", "project_not_found", "project_ambiguous"),
+    ),
+    "dashboard.update": WriteOperation(
+        name="dashboard.update",
+        pydantic_model=MODELS["dashboard.update"],
+        endpoint="/v1/private/dashboards/{id}",
+        method="PATCH",
+        oauth_scope=SCOPE_DASHBOARD_EDIT,
+        supports_batch=False,
+        parent_id_fields=("dashboard",),
+        description=(
+            "Rename / re-describe a dashboard, or rebuild it: passing `charts` "
+            "REPLACES every chart on it."
+        ),
+        example=EXAMPLES["dashboard.update"],
+        failure_modes=(
+            "dashboard_update_empty",
+            "dashboard_not_found",
+            "dashboard_ambiguous",
+            "chart_spec_invalid",
+        ),
+    ),
+    "dashboard.add_charts": WriteOperation(
+        name="dashboard.add_charts",
+        pydantic_model=MODELS["dashboard.add_charts"],
+        endpoint="/v1/private/dashboards/{id}",
+        method="PATCH",
+        oauth_scope=SCOPE_DASHBOARD_EDIT,
+        supports_batch=False,
+        parent_id_fields=("dashboard",),
+        description=(
+            "Append charts to an existing dashboard, keeping everything already "
+            "on it. Pass them all in one call — each call is a read-modify-write."
+        ),
+        example=EXAMPLES["dashboard.add_charts"],
+        failure_modes=(
+            "dashboard_not_found",
+            "dashboard_ambiguous",
+            "dashboard_config_unreadable",
+            "chart_spec_invalid",
+            "project_not_found",
+        ),
+    ),
+    "dashboard.remove_charts": WriteOperation(
+        name="dashboard.remove_charts",
+        pydantic_model=MODELS["dashboard.remove_charts"],
+        endpoint="/v1/private/dashboards/{id}",
+        method="PATCH",
+        oauth_scope=SCOPE_DASHBOARD_EDIT,
+        supports_batch=False,
+        parent_id_fields=("dashboard", "widget_ids"),
+        description=(
+            "Remove charts from a dashboard by widget id — the ids read('dashboard', …) lists."
+        ),
+        example=EXAMPLES["dashboard.remove_charts"],
+        failure_modes=("dashboard_not_found", "dashboard_ambiguous", "widget_not_found"),
     ),
 }
 

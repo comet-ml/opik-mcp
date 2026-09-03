@@ -12,6 +12,7 @@ Recognized shapes (matching the deleted ``resources.py`` URI templates):
 - ``opik://test-suites/{id}``               → ("test_suite", id)
 - ``opik://experiments/{id}``               → ("experiment", id)
 - ``opik://prompts/{id}``                   → ("prompt", id)
+- ``opik://dashboards/{id}``                → ("dashboard", id)
 - ``opik://projects/{pid}/threads/{tid}``   → ("thread", tid, project_id=pid)
 
 A pasted Opik web thread link (``https://…/projects/{pid}/…?thread={tid}``) is
@@ -61,6 +62,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^opik://test-suites/([^/?#]+)$"), "test_suite"),
     (re.compile(r"^opik://experiments/([^/?#]+)$"), "experiment"),
     (re.compile(r"^opik://prompts/([^/?#]+)$"), "prompt"),
+    (re.compile(r"^opik://dashboards/([^/?#]+)$"), "dashboard"),
 ]
 
 # Threads carry a project id AND a thread id, so they need two capture groups —

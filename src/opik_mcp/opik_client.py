@@ -166,6 +166,15 @@ class OpikListClient(Protocol):
         self, prompt_id: str, /, *, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
+    async def list_dashboards(
+        self,
+        *,
+        name: str | None = None,
+        project_id: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
 
 class OpikReadClient(OpikListClient, Protocol):
     """Adds singleton ``get_*`` endpoints to ``OpikListClient`` for the read tool.
@@ -196,6 +205,8 @@ class OpikReadClient(OpikListClient, Protocol):
         project_name: str | None = None,
         truncate: bool = False,
     ) -> dict[str, Any]: ...
+
+    async def get_dashboard(self, dashboard_id: str, /) -> dict[str, Any]: ...
 
 
 # --- client --------------------------------------------------------------- #
@@ -598,6 +609,63 @@ class OpikClient:
             f"/v1/private/prompts/{prompt_id}/versions",
             params={"page": page, "size": size},
             entity_hint=f"prompt {prompt_id!r} versions",
+        )
+
+    # -- reads: dashboards / charts --
+
+    async def list_dashboards(
+        self,
+        *,
+        name: str | None = None,
+        project_id: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/dashboards`` — Spring Page envelope.
+
+        ``name`` is a case-insensitive substring filter (used for the read
+        tool's name lookup). ``project_id`` narrows to the dashboards scoped to
+        one project; without it the page covers the workspace's dashboards.
+        """
+        params: dict[str, Any] = {"page": page, "size": size}
+        if name is not None:
+            params["name"] = name
+        if project_id is not None:
+            params["project_id"] = project_id
+        return await self._get_json(
+            "/v1/private/dashboards",
+            params=params,
+            entity_hint="dashboards",
+        )
+
+    async def get_dashboard(self, dashboard_id: str) -> dict[str, Any]:
+        """``GET /v1/private/dashboards/{id}`` — dashboard + its ``config`` blob.
+
+        ``config`` is an opaque JSON document owned by the Opik frontend (see
+        ``charts.config``); the read tool flattens it into a chart list rather
+        than handing the nesting to the model.
+        """
+        return await self._get_json(
+            f"/v1/private/dashboards/{dashboard_id}",
+            params=None,
+            entity_hint=f"dashboard {dashboard_id!r}",
+        )
+
+    async def get_project_metrics(
+        self,
+        project_id: str,
+        body: dict[str, Any],
+    ) -> dict[str, Any]:
+        """``POST /v1/private/projects/{id}/metrics`` — one chart's time series.
+
+        POST-with-body because the request carries filters and a breakdown, not
+        because it writes: this is the read behind every ``project_metrics``
+        dashboard widget, and behind the ``chart_data`` tool.
+        """
+        return await self._post_json(
+            f"/v1/private/projects/{project_id}/metrics",
+            json=body,
+            entity_hint=f"metrics for project {project_id!r}",
         )
 
     # -- internals --
