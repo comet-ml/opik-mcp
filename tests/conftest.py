@@ -80,7 +80,7 @@ def _disable_workspace_introspection() -> Generator[None]:
     """Stub OAuth workspace introspection to a no-op by default.
 
     The ``initialize`` handshake resolves the caller's identity by POSTing to
-    opik-backend's ``/opik/auth-oauth`` (``server.resolve_oauth_identity``).
+    opik-backend's ``/opik/auth-oauth`` (``server.introspect_oauth_token``).
     Left live, every test that sends a session-less OAuth bearer to ``/mcp`` would
     fire a real network call — slow, flaky, and able to land in another test's
     ``@respx.mock`` window. Stubbed to ``unknown`` by default — the fail-open

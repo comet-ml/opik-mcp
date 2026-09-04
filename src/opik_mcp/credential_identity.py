@@ -30,7 +30,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, NamedTuple
 
 # One entry per active credential. Sized well above any realistic concurrent
 # user count for a single pod while staying trivially small in memory.
@@ -169,12 +169,27 @@ def lookup_session_digest(credential: str) -> str | None:
 # stored: a freshly refreshed token must work on its first use, and a rejection
 # is cheap. Bounded like the identity store, for the same reason.
 
-_VALIDATIONS: OrderedDict[str, tuple[float, float | None]] = OrderedDict()
+
+class _Validation(NamedTuple):
+    trust_until: float
+    """Monotonic instant until which the last "valid" answer is trusted."""
+
+    dead_from: float | None
+    """Monotonic instant the backend said the token expires, if it said."""
+
+
+# NOTE on keys: this store and the identity store are keyed on the bare OAuth
+# token (what ``classify_bearer`` returns); the session store is keyed on the
+# full ``Authorization`` header value. Same digest function, different inputs —
+# a lookup with the wrong one silently misses. Pre-dates the validation cache.
+_VALIDATIONS: OrderedDict[str, _Validation] = OrderedDict()
 
 # Clock skew allowance between opik-backend's ``expires_at`` and this pod.
 EXPIRY_SKEW_MARGIN_S = 10.0
 
-ValidationVerdict = Literal["valid", "expired"]
+# Same words as ``oauth_identity.IntrospectionStatus`` for the same verdicts, so
+# the middleware switches on one vocabulary. ``None`` from a lookup means "ask".
+ValidationVerdict = Literal["valid", "invalid"]
 
 
 def _now() -> float:
@@ -202,7 +217,7 @@ def remember_validation(
         return
     key = credential_digest(credential)
     with _LOCK:
-        _VALIDATIONS[key] = (trust_until, dead_from)
+        _VALIDATIONS[key] = _Validation(trust_until, dead_from)
         _VALIDATIONS.move_to_end(key)
         while len(_VALIDATIONS) > MAX_TRACKED_CREDENTIALS:
             _VALIDATIONS.popitem(last=False)
@@ -216,11 +231,10 @@ def lookup_validation(credential: str) -> ValidationVerdict | None:
         entry = _VALIDATIONS.get(key)
         if entry is None:
             return None
-        trust_until, dead_from = entry
-        if dead_from is not None and now >= dead_from:
+        if entry.dead_from is not None and now >= entry.dead_from:
             _VALIDATIONS.pop(key, None)
-            return "expired"
-        if now < trust_until:
+            return "invalid"
+        if now < entry.trust_until:
             _VALIDATIONS.move_to_end(key)
             return "valid"
         return None

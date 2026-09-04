@@ -22,9 +22,10 @@ import httpx
 
 from opik_mcp.auth_context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
+    classify_bearer,
     inbound_authorization,
     inbound_workspace,
-    note_backend_401,
+    oauth_token_expired_hint,
 )
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
@@ -34,6 +35,7 @@ from opik_mcp.config import (
     looks_unsubstituted,
     unfilled_workspace_error,
 )
+from opik_mcp.credential_identity import forget_validation
 from opik_mcp.error_kinds import ErrorKind
 
 # --- errors --------------------------------------------------------------- #
@@ -816,7 +818,7 @@ def opik_rest_base(settings: Settings) -> str | None:
     Single source of truth for the rule: an explicit ``OPIK_URL`` override wins;
     otherwise derive from ``COMET_URL_OVERRIDE + "/opik/api"``. Shared by
     ``resolve_opik_config`` (which treats ``None`` as a fatal misconfig) and
-    ``oauth_identity.resolve_oauth_identity`` (which treats ``None`` as "skip,
+    ``oauth_identity.introspect_oauth_token`` (which treats ``None`` as "skip,
     fall back to the static workspace"), so both agree on where Opik lives.
     """
     if settings.opik_url:
@@ -835,6 +837,25 @@ def make_opik_client(settings: Settings) -> OpikClient:
 def _score_body(score: FeedbackScore) -> dict[str, Any]:
     """FeedbackScore → JSON body with ``None`` fields stripped."""
     return _drop_none(asdict(score))
+
+
+def note_backend_401() -> str | None:
+    """opik-backend just answered 401 to the call this request is forwarding.
+
+    If the inbound bearer is an OAuth token, its cached validation is dropped so
+    the NEXT MCP request re-asks the backend and gets the ``invalid_token`` 401
+    that triggers the host's refresh — now, not after the cache TTL. Returns the
+    tool-error hint for that bearer (``None`` for an API key); see
+    ``auth_context.oauth_token_expired_hint``. Called from every place a backend
+    401 is turned into an error: here for reads/lists, ``writes.dispatch`` for
+    writes.
+    """
+    auth = inbound_authorization.get()
+    if auth:
+        mode, token = classify_bearer(auth)
+        if mode == "oauth":
+            forget_validation(token)
+    return oauth_token_expired_hint()
 
 
 def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:

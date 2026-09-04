@@ -76,8 +76,13 @@ async def test_expired_oauth_token_gets_401_with_invalid_token_challenge(
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "outcome",
-    [httpx.Response(503), httpx.ConnectError("backend down")],
-    ids=["5xx", "connection-error"],
+    [
+        httpx.Response(503),
+        httpx.ConnectError("backend down"),
+        httpx.Response(200, text="<html>not json</html>"),
+        httpx.Response(200, json=["not", "an", "object"]),
+    ],
+    ids=["5xx", "connection-error", "non-json-200", "non-object-200"],
 )
 async def test_introspection_failure_fails_open(
     http_client: httpx.AsyncClient, outcome: httpx.Response | Exception

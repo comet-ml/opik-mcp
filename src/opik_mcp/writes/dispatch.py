@@ -37,6 +37,7 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
     make_opik_client,
+    note_backend_401,
 )
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
@@ -590,6 +591,10 @@ def _stage4_finalize(
 ) -> dict[str, Any]:
     status = resp.status_code
     if not (200 <= status < 300):
+        if status == 401:
+            # Drop the cached OAuth validation so the next request re-validates
+            # and meets the 401 that triggers the host's refresh (OPIK-8252).
+            note_backend_401()
         raise BackendError.build(op.name, status, _safe_body(resp), method=method, path=path)
     body = _safe_body(resp)
     return {

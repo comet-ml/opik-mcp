@@ -22,8 +22,6 @@ of the MCP tool implementations.
 
 from contextvars import ContextVar
 
-from opik_mcp.credential_identity import forget_validation
-
 # Access-token prefix minted by opik-backend (McpOAuthTokenUtils.ACCESS_PREFIX).
 # OAuth-passthrough detection MUST match the issuer: a mismatch makes a real
 # OAuth bearer fall through to the API-key path, which then forwards a stale
@@ -42,7 +40,7 @@ inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorizatio
 inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", default=None)
 
 # OAuth-authorized workspace *name*, resolved from the opaque bearer via
-# ``oauth_identity.resolve_oauth_identity`` on the ``initialize`` handshake.
+# ``oauth_identity.introspect_oauth_token`` (the same call that validates it).
 # Consumed ONLY by the instructions blob (``instructions.render_instructions``)
 # so an agent can truthfully name the workspace it is operating against. Kept
 # deliberately separate from ``inbound_workspace`` so this read-only display
@@ -151,30 +149,11 @@ def oauth_token_expired_hint() -> str | None:
     no inbound bearer at all), so API-key callers keep their "check OPIK_API_KEY"
     guidance. Single source of truth for every layer that renders a backend 401
     — the read/list client, the write envelope — so the wording cannot drift.
+    Pure: the cache eviction that goes with a backend 401 lives beside the HTTP
+    call (``opik_client.note_backend_401``), not in a message helper.
     """
     auth = inbound_authorization.get()
     if not auth:
         return None
     mode, _ = classify_bearer(auth)
     return OAUTH_TOKEN_EXPIRED_HINT if mode == "oauth" else None
-
-
-def note_backend_401() -> str | None:
-    """opik-backend just answered 401 to the call this request is forwarding.
-
-    Two things follow, both keyed on the inbound bearer. If it is an OAuth
-    token, its cached validation is dropped so the NEXT MCP request re-asks the
-    backend and gets the ``invalid_token`` 401 that triggers the host's refresh
-    — now, not after the cache TTL. And the returned hint (or ``None`` for an
-    API key) is what the tool error should say; see
-    :func:`oauth_token_expired_hint`. One call site per rendering layer keeps
-    the two in lockstep.
-    """
-    auth = inbound_authorization.get()
-    if not auth:
-        return None
-    mode, token = classify_bearer(auth)
-    if mode != "oauth":
-        return None
-    forget_validation(token)
-    return OAUTH_TOKEN_EXPIRED_HINT

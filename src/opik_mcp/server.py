@@ -38,6 +38,7 @@ from opik_mcp.auth_context import (
 )
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.credential_identity import (
+    ResolvedIdentity,
     forget_validation,
     lookup_identity,
     lookup_validation,
@@ -595,54 +596,10 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # their single point of enforcement.
         identity = None
         if auth_mode == "oauth":
-            settings = get_settings()
-            verdict = lookup_validation(oauth_token)
-            if verdict == "expired":
-                # The backend told us when this token dies and that instant has
-                # passed: no need to ask again.
-                return self._invalid_token()
-            if verdict == "valid":
-                # Trusted from an earlier request. A second handshake on the
-                # same token (host reconnect) still needs the identity for the
-                # instructions blob; it was remembered when the token was first
-                # validated.
-                identity = lookup_identity(oauth_token)
-            else:
-                introspection = await introspect_oauth_token(auth, settings)
-                if introspection.status == "invalid":
-                    forget_validation(oauth_token)
-                    return self._invalid_token()
-                # ``unknown`` (no REST base, network, 5xx) falls through and
-                # caches nothing: a backend hiccup must degrade to "forward as
-                # before", never to a mass logout.
-                if introspection.status == "valid":
-                    remember_validation(
-                        oauth_token,
-                        ttl_s=settings.opik_mcp_oauth_validation_cache_ttl_s,
-                        expires_in_s=introspection.expires_in_s,
-                    )
-                identity = introspection.identity
-                # RFC 8707 audience check, observe-only for now: the AS and
-                # opik-mcp are configured independently, and a strict reject on a
-                # mismatch (even a trailing slash) would lock every host out in
-                # one deploy. The warning is how we confirm the two agree before
-                # enforcing.
-                expected_resource = settings.opik_mcp_resource_uri
-                if (
-                    introspection.resource
-                    and expected_resource
-                    and introspection.resource.rstrip("/") != expected_resource.rstrip("/")
-                ):
-                    logger.warning(
-                        "OAuth token bound to resource %r but this server is %r",
-                        introspection.resource,
-                        expected_resource,
-                    )
-            if identity is not None:
-                # Held against the token, not this request: the analytics layer
-                # builds events in the MCP session task and never sees a request,
-                # and a second session on the same token needs no second lookup.
-                remember_identity(oauth_token, identity)
+            outcome = await self._validate_oauth_bearer(auth, oauth_token)
+            if isinstance(outcome, Response):
+                return outcome
+            identity = outcome
 
         # Capture the inbound auth + workspace headers for the duration of
         # this request so the outbound :class:`OpikClient` can forward them.
@@ -686,6 +643,58 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             inbound_mcp_session_id.reset(session_id_token)
             if resolved_token is not None:
                 resolved_workspace_name.reset(resolved_token)
+
+    async def _validate_oauth_bearer(
+        self, auth: str, oauth_token: str
+    ) -> Response | ResolvedIdentity | None:
+        """Validate an OAuth bearer: the 401 to send, or the identity it stands for.
+
+        Cache first, opik-backend's introspection endpoint on a miss. A definite
+        "invalid" (cached expiry, or a 401 from introspection) is answered with
+        ``_invalid_token``; ``unknown`` (no REST base, network, 5xx) falls
+        through and caches nothing — a backend hiccup must degrade to "forward
+        as before", never to a mass logout. A "valid" answer is remembered for
+        the configured TTL, capped at the backend's ``expires_at``. The identity
+        (``None`` when the backend named nobody) is remembered against the
+        token: the analytics layer builds events in the MCP session task and
+        never sees a request, and a second handshake on the same token (host
+        reconnect) reads it back instead of asking again.
+        """
+        settings = get_settings()
+        verdict = lookup_validation(oauth_token)
+        if verdict == "invalid":
+            return self._invalid_token()
+        if verdict == "valid":
+            return lookup_identity(oauth_token)
+        introspection = await introspect_oauth_token(auth, settings)
+        if introspection.status == "invalid":
+            forget_validation(oauth_token)
+            return self._invalid_token()
+        if introspection.status == "valid":
+            remember_validation(
+                oauth_token,
+                ttl_s=settings.opik_mcp_oauth_validation_cache_ttl_s,
+                expires_in_s=introspection.expires_in_s,
+            )
+            # RFC 8707 audience check, observe-only for now: the AS and opik-mcp
+            # are configured independently, and a strict reject on a mismatch
+            # would lock every host out in one deploy. Compared exactly as
+            # configured — a trailing-slash difference is precisely what a
+            # strict check would trip on, so the warning must show it.
+            expected_resource = settings.opik_mcp_resource_uri
+            if (
+                introspection.resource
+                and expected_resource
+                and introspection.resource != expected_resource
+            ):
+                logger.warning(
+                    "OAuth token bound to resource %r but this server is %r",
+                    introspection.resource,
+                    expected_resource,
+                )
+        if introspection.identity is not None:
+            remember_identity(oauth_token, introspection.identity)
+        return introspection.identity
 
     def _unauthorized(self) -> Response:
         # No credentials presented: RFC 6750 §3.1 says the challenge carries no

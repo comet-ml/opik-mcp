@@ -10,13 +10,16 @@ which cannot attribute a call without a user and a workspace.
 
 opik-backend exposes a purpose-built introspection endpoint for exactly this —
 ``POST /opik/auth-oauth`` (``OAuthValidateTokenResource``) returns the full
-``ValidatedToken``: ``user_name``, ``workspace_id`` and ``workspace_name``. We
-call it once per token, on the ``initialize`` handshake, forwarding the inbound
-bearer verbatim, and keep the whole answer in ``credential_identity``.
+``ValidatedToken``: ``user_name``, ``workspace_id`` and ``workspace_name``. Since
+OPIK-8252 the same call is also how opik-mcp discharges its resource-server duty
+(MCP authorization spec, Token Handling): ``BearerAuthMiddleware`` asks it on
+every request carrying an OAuth bearer (cached, see ``credential_identity``)
+and answers ``invalid_token`` 401 when the backend says the token is dead.
 
-This is best-effort: any failure (unconfigured base, non-200, network error,
-malformed body) returns ``None`` so the handshake never breaks — the blob simply
-falls back to the static settings workspace and the call is reported anonymously.
+The outcome is three-way on purpose — see :data:`IntrospectionStatus`. A
+definite 401 is the only rejection; any failure to get an answer (unconfigured
+base, non-200, network error, malformed body) is ``unknown``, so the request
+is forwarded as before and the blob falls back to the static workspace.
 """
 
 from __future__ import annotations
@@ -107,7 +110,10 @@ async def introspect_oauth_token(authorization: str, settings: Settings) -> Intr
         logger.debug("token introspection failed", exc_info=True)
         return Introspection(status="unknown")
     if not isinstance(body, dict):
-        return Introspection(status="valid")
+        # A 200 whose body is not the ValidatedToken object is malformed, and a
+        # malformed answer is no answer: fail open and cache nothing.
+        logger.debug("token introspection: non-object body %r", type(body).__name__)
+        return Introspection(status="unknown")
     workspace_name = _text(body.get("workspace_name"))
     user_name = _text(body.get("user_name"))
     identity = None
@@ -141,16 +147,6 @@ def _seconds_until(expires_at: str | None) -> float | None:
     return max(0.0, (when - datetime.now(UTC)).total_seconds())
 
 
-async def resolve_oauth_identity(authorization: str, settings: Settings) -> ResolvedIdentity | None:
-    """Introspect an inbound OAuth bearer → the identity it stands for, or ``None``.
-
-    Thin best-effort view over :func:`introspect_oauth_token` for callers that
-    only care who the token stands for: any non-``valid`` outcome collapses to
-    ``None`` so the caller degrades gracefully.
-    """
-    return (await introspect_oauth_token(authorization, settings)).identity
-
-
 def _text(value: object) -> str | None:
     """A non-empty string from the introspection body, or ``None``.
 
@@ -167,5 +163,4 @@ __all__ = [
     "Introspection",
     "IntrospectionStatus",
     "introspect_oauth_token",
-    "resolve_oauth_identity",
 ]
