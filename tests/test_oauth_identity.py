@@ -173,3 +173,19 @@ async def test_returns_none_when_base_unconfigured() -> None:
     # without any network call.
     s = Settings(opik_url=None, comet_url_override="")
     assert (await introspect_oauth_token(AUTH, s)).status == "unknown"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_fail_open_is_logged_at_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """An ``unknown`` outcome forwards the request unvalidated. That must be
+    visible at the default INFO level, or a resource server that cannot reach
+    its introspection endpoint looks identical to one whose tokens simply expire."""
+    respx.post("https://opik.test/api/opik/auth-oauth").mock(return_value=httpx.Response(503))
+    with caplog.at_level("WARNING", logger="opik_mcp"):
+        assert (await introspect_oauth_token(AUTH, _settings())).status == "unknown"
+    assert any(
+        "failed open" in rec.message and "503" in rec.message
+        for rec in caplog.records
+        if rec.levelname == "WARNING"
+    )

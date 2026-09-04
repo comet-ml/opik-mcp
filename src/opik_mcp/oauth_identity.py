@@ -98,21 +98,39 @@ async def introspect_oauth_token(authorization: str, settings: Settings) -> Intr
         if resp.status_code == 401:
             return Introspection(status="invalid")
         if resp.status_code != 200:
-            logger.debug("token introspection: non-200 status %s", resp.status_code)
+            # WARNING, not DEBUG: an ``unknown`` here means the request is
+            # forwarded UNVALIDATED (fail-open). A run of these in production is
+            # the difference between "the token died inside the cache window"
+            # and "the resource server cannot reach its introspection endpoint"
+            # — invisible at the default INFO level otherwise.
+            logger.warning(
+                "OAuth token introspection failed open: %s %s returned %s",
+                "POST",
+                url,
+                resp.status_code,
+            )
             return Introspection(status="unknown")
         body = resp.json()
-    except Exception:
+    except Exception as exc:
         # Must NEVER raise: this runs inside the auth middleware on every
         # request. Catch broadly on purpose — beyond httpx.HTTPError + the
         # ValueError from resp.json() on a non-JSON body, httpx raises
         # httpx.InvalidURL (a direct Exception subclass, NOT an HTTPError) for a
         # malformed REST base, which would otherwise 500 the request.
-        logger.debug("token introspection failed", exc_info=True)
+        logger.warning(
+            "OAuth token introspection failed open: POST %s raised %s",
+            url,
+            type(exc).__name__,
+        )
         return Introspection(status="unknown")
     if not isinstance(body, dict):
         # A 200 whose body is not the ValidatedToken object is malformed, and a
         # malformed answer is no answer: fail open and cache nothing.
-        logger.debug("token introspection: non-object body %r", type(body).__name__)
+        logger.warning(
+            "OAuth token introspection failed open: POST %s returned a %s, not an object",
+            url,
+            type(body).__name__,
+        )
         return Introspection(status="unknown")
     workspace_name = _text(body.get("workspace_name"))
     user_name = _text(body.get("user_name"))
