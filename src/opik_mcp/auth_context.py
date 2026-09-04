@@ -17,7 +17,14 @@ outbound :class:`OpikClient` is constructed for that request. When unset
 
 ASGI runs every request in its own asyncio task, so ``ContextVar`` gives us
 per-request isolation without threading anything through the call signatures
-of the MCP tool implementations.
+of the MCP tool implementations. One catch: a tool does NOT run in the request
+task. The SDK forks the MCP session task from the ``initialize`` request, so
+inside a tool these vars hold the handshake-time values — and an OAuth bearer
+changes mid-session once the host refreshes it (OPIK-8252). ``server.
+install_request_auth_rebinding`` therefore re-binds ``inbound_authorization``
+and ``inbound_workspace`` on every ``tools/call`` from the request the SDK
+attaches to its request context, so the outbound client forwards the bearer
+of the request that is actually being served.
 """
 
 from contextvars import ContextVar
