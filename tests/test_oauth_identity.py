@@ -1,9 +1,10 @@
-"""Unit tests for OAuth token → workspace-name introspection.
+"""Unit tests for OAuth token introspection.
 
-``resolve_oauth_identity`` POSTs the inbound bearer to opik-backend's
-``/opik/auth-oauth`` introspection endpoint and pulls ``workspace_name`` out of
-the ``ValidatedToken`` response. It is best-effort: any failure resolves to
-``None`` so the ``initialize`` handshake never breaks.
+``introspect_oauth_token`` POSTs the inbound bearer to opik-backend's
+``/opik/auth-oauth`` endpoint and reads the ``ValidatedToken`` response into a
+three-way outcome: ``valid`` (with whatever identity the body names),
+``invalid`` (a definite 401), or ``unknown`` (no answer could be had). Only the
+second may ever be turned into a rejection; the third fails open.
 """
 
 import httpx
@@ -11,7 +12,7 @@ import pytest
 import respx
 
 from opik_mcp.config import Settings
-from opik_mcp.oauth_identity import resolve_oauth_identity
+from opik_mcp.oauth_identity import introspect_oauth_token
 
 AUTH = "Bearer opik_mcp_at_abc123"
 
@@ -41,7 +42,9 @@ async def test_resolves_workspace_name_on_200() -> None:
             },
         )
     )
-    identity = await resolve_oauth_identity(AUTH, _settings())
+    result = await introspect_oauth_token(AUTH, _settings())
+    assert result.status == "valid"
+    identity = result.identity
     assert identity is not None
     assert identity.workspace_name == "andreicautisanu"
     # The whole ValidatedToken is retained now — BI needs the user and the
@@ -55,9 +58,9 @@ async def test_resolves_workspace_name_on_200() -> None:
 
 @pytest.mark.anyio
 @respx.mock
-async def test_returns_none_on_401() -> None:
+async def test_401_is_a_definite_invalid() -> None:
     respx.post("https://opik.test/api/opik/auth-oauth").mock(return_value=httpx.Response(401))
-    assert await resolve_oauth_identity(AUTH, _settings()) is None
+    assert (await introspect_oauth_token(AUTH, _settings())).status == "invalid"
 
 
 @pytest.mark.anyio
@@ -70,7 +73,7 @@ async def test_returns_none_on_invalid_url() -> None:
     request-build time (before any transport / respx mock is consulted).
     """
     s = _settings(opik_url="http://exa mple.com/api")
-    assert await resolve_oauth_identity(AUTH, s) is None
+    assert (await introspect_oauth_token(AUTH, s)).status == "unknown"
 
 
 @pytest.mark.anyio
@@ -79,7 +82,7 @@ async def test_returns_none_on_network_error() -> None:
     respx.post("https://opik.test/api/opik/auth-oauth").mock(
         side_effect=httpx.ConnectError("backend unreachable")
     )
-    assert await resolve_oauth_identity(AUTH, _settings()) is None
+    assert (await introspect_oauth_token(AUTH, _settings())).status == "unknown"
 
 
 @pytest.mark.anyio
@@ -88,7 +91,18 @@ async def test_returns_none_on_non_json_body() -> None:
     respx.post("https://opik.test/api/opik/auth-oauth").mock(
         return_value=httpx.Response(200, text="<html>not json</html>")
     )
-    assert await resolve_oauth_identity(AUTH, _settings()) is None
+    assert (await introspect_oauth_token(AUTH, _settings())).status == "unknown"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_returns_unknown_on_non_object_body() -> None:
+    """A 200 carrying JSON that is not the ValidatedToken object is malformed:
+    no answer, so nothing may be cached on it."""
+    respx.post("https://opik.test/api/opik/auth-oauth").mock(
+        return_value=httpx.Response(200, json=["not", "an", "object"])
+    )
+    assert (await introspect_oauth_token(AUTH, _settings())).status == "unknown"
 
 
 @pytest.mark.anyio
@@ -104,7 +118,7 @@ async def test_keeps_a_user_only_response() -> None:
     respx.post("https://opik.test/api/opik/auth-oauth").mock(
         return_value=httpx.Response(200, json={"user_name": "u"})
     )
-    identity = await resolve_oauth_identity(AUTH, _settings())
+    identity = (await introspect_oauth_token(AUTH, _settings())).identity
     assert identity is not None
     assert identity.user_name == "u"
     assert identity.workspace_name is None
@@ -112,11 +126,14 @@ async def test_keeps_a_user_only_response() -> None:
 
 @pytest.mark.anyio
 @respx.mock
-async def test_returns_none_when_the_body_identifies_nobody() -> None:
+async def test_a_body_identifying_nobody_is_valid_but_anonymous() -> None:
     respx.post("https://opik.test/api/opik/auth-oauth").mock(
         return_value=httpx.Response(200, json={"resource": "https://opik.test/api/v1/mcp"})
     )
-    assert await resolve_oauth_identity(AUTH, _settings()) is None
+    result = await introspect_oauth_token(AUTH, _settings())
+    assert result.status == "valid"
+    assert result.identity is None
+    assert result.resource == "https://opik.test/api/v1/mcp"
 
 
 @pytest.mark.anyio
@@ -128,7 +145,7 @@ async def test_blank_fields_collapse_to_none_not_empty_strings() -> None:
             200, json={"user_name": "u", "workspace_name": "   ", "workspace_id": ""}
         )
     )
-    identity = await resolve_oauth_identity(AUTH, _settings())
+    identity = (await introspect_oauth_token(AUTH, _settings())).identity
     assert identity is not None
     assert identity.workspace_name is None
     assert identity.workspace_id is None
@@ -140,9 +157,11 @@ async def test_derives_url_from_comet_url_override() -> None:
     route = respx.post("https://demo.comet.com/opik/api/opik/auth-oauth").mock(
         return_value=httpx.Response(200, json={"workspace_name": "demo-ws"})
     )
-    identity = await resolve_oauth_identity(
-        AUTH, Settings(opik_url=None, comet_url_override="https://demo.comet.com/")
-    )
+    identity = (
+        await introspect_oauth_token(
+            AUTH, Settings(opik_url=None, comet_url_override="https://demo.comet.com/")
+        )
+    ).identity
     assert identity is not None
     assert identity.workspace_name == "demo-ws"
     assert route.called
@@ -153,4 +172,20 @@ async def test_returns_none_when_base_unconfigured() -> None:
     # No OPIK_URL and an explicitly empty COMET_URL_OVERRIDE → no base → skip
     # without any network call.
     s = Settings(opik_url=None, comet_url_override="")
-    assert await resolve_oauth_identity(AUTH, s) is None
+    assert (await introspect_oauth_token(AUTH, s)).status == "unknown"
+
+
+@pytest.mark.anyio
+@respx.mock
+async def test_fail_open_is_logged_at_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """An ``unknown`` outcome forwards the request unvalidated. That must be
+    visible at the default INFO level, or a resource server that cannot reach
+    its introspection endpoint looks identical to one whose tokens simply expire."""
+    respx.post("https://opik.test/api/opik/auth-oauth").mock(return_value=httpx.Response(503))
+    with caplog.at_level("WARNING", logger="opik_mcp"):
+        assert (await introspect_oauth_token(AUTH, _settings())).status == "unknown"
+    assert any(
+        "failed open" in rec.message and "503" in rec.message
+        for rec in caplog.records
+        if rec.levelname == "WARNING"
+    )

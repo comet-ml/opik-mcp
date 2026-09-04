@@ -295,14 +295,19 @@ Every setting is an environment variable. Required ones in **bold**.
 | `OPIK_MCP_RELOAD` | `false` | `true` to enable uvicorn `--reload` (dev only). |
 | `OPIK_MCP_AS_URL` | _unset_ | OAuth Authorization Server URL, advertised in `/.well-known/oauth-protected-resource` (RFC 9728) and used as the proxy target for AS-discovery probes. Required for MCP hosts to bootstrap the OAuth dance over HTTP. |
 | `OPIK_MCP_RESOURCE_URI` | _unset_ | Canonical public URI of this server, advertised as `resource` in the protected-resource metadata and used to derive the `WWW-Authenticate` hint. |
+| `OPIK_MCP_OAUTH_VALIDATION_CACHE_TTL_S` | `30` | How long a "valid" answer from opik-backend's token introspection is trusted before the next request on the same OAuth token asks again. Bounds the backend load added by per-request validation and the window in which an expired token is still forwarded (that window also ends on the first 401 the backend returns). Capped by the token's own `expires_at` when the backend reports one. |
 | `OPIK_MCP_LOG_LEVEL` | `INFO` | stderr logger threshold. |
 
 #### Choosing a transport
 
-opik-mcp performs **no local credential validation** on HTTP transport: any
-well-formed `Authorization: Bearer …` (an Opik API key or an `opik_mcp_at_…`
-OAuth access token) is forwarded verbatim to opik-backend, which is the
-single point of auth enforcement. Pick the transport by deployment shape:
+Two bearer shapes, two contracts on HTTP transport. An `opik_mcp_at_…` OAuth
+access token is **validated on every request** against opik-backend's token
+introspection endpoint (cached, see `OPIK_MCP_OAUTH_VALIDATION_CACHE_TTL_S`);
+an expired or revoked token gets an HTTP 401 with
+`WWW-Authenticate: Bearer error="invalid_token"`, which is what MCP hosts key
+their silent `refresh_token` grant on. An Opik API key is **not validated
+locally**: it is forwarded verbatim to opik-backend, which is its single point
+of enforcement. Pick the transport by deployment shape:
 
 | Scenario | Transport |
 |---|---|

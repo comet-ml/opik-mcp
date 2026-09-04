@@ -23,6 +23,7 @@ from opik_mcp.config import Settings, get_settings
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikNotFoundError,
+    OpikPermissionError,
     OpikReadClient,
     OpikServerError,
     OpikValidationError,
@@ -77,12 +78,18 @@ def _format_client_error(
             "Verify the ID is a valid UUID and belongs to the current workspace. "
             f"Detail: {exc}"
         )
-    if isinstance(exc, OpikAuthError):
+    if isinstance(exc, OpikPermissionError):
         return (
             f"Permission denied fetching {entity_type} '{entity_id}'. "
             "The current workspace may not have access to this entity. "
             f"Detail: {exc}"
         )
+    if isinstance(exc, OpikAuthError):
+        # A 401 is about the credential, not the workspace: an expired OAuth
+        # token or a bad API key. The client error already says which and what
+        # to do about it; wrapping it in "permission denied" sent users (and the
+        # model) hunting for workspace access that was never the problem.
+        return f"Authentication failed fetching {entity_type} '{entity_id}'. Detail: {exc}"
     if isinstance(exc, OpikValidationError):
         return (
             f"Validation error fetching {entity_type} '{entity_id}': "

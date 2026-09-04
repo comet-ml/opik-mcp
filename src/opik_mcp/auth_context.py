@@ -5,8 +5,9 @@ When opik-mcp runs over HTTP transport with OAuth, the MCP host attaches
 per RFC 6750 and opik-mcp's job is to
 forward that bearer onward to opik-backend's data API verbatim. Permission
 enforcement lives at the data API endpoint via `@RequiredPermissions`
-annotations; opik-mcp performs no local validation and makes no separate
-validator round-trip.
+annotations. OAuth bearers are additionally validated up front by
+``BearerAuthMiddleware`` (introspection round-trip, ``invalid_token`` 401 when
+dead — OPIK-8252); API-key bearers are not validated locally.
 
 These ContextVars are set by ``BearerAuthMiddleware`` for the duration of
 each inbound HTTP request and read by ``resolve_opik_config`` when the
@@ -16,7 +17,14 @@ outbound :class:`OpikClient` is constructed for that request. When unset
 
 ASGI runs every request in its own asyncio task, so ``ContextVar`` gives us
 per-request isolation without threading anything through the call signatures
-of the MCP tool implementations.
+of the MCP tool implementations. One catch: a tool does NOT run in the request
+task. The SDK forks the MCP session task from the ``initialize`` request, so
+inside a tool these vars hold the handshake-time values — and an OAuth bearer
+changes mid-session once the host refreshes it (OPIK-8252). ``server.
+install_request_auth_rebinding`` therefore re-binds ``inbound_authorization``
+and ``inbound_workspace`` on every ``tools/call`` from the request the SDK
+attaches to its request context, so the outbound client forwards the bearer
+of the request that is actually being served.
 """
 
 from contextvars import ContextVar
@@ -39,7 +47,7 @@ inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorizatio
 inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", default=None)
 
 # OAuth-authorized workspace *name*, resolved from the opaque bearer via
-# ``oauth_identity.resolve_oauth_identity`` on the ``initialize`` handshake.
+# ``oauth_identity.introspect_oauth_token`` (the same call that validates it).
 # Consumed ONLY by the instructions blob (``instructions.render_instructions``)
 # so an agent can truthfully name the workspace it is operating against. Kept
 # deliberately separate from ``inbound_workspace`` so this read-only display
@@ -125,3 +133,34 @@ def settings_auth_mode(*, has_api_key: bool, has_as_url: bool) -> str:
     if has_as_url:
         return "oauth"
     return "none"
+
+
+# What a tool error says when opik-backend answers 401 to a call made with an
+# OAuth bearer. Worded for the MODEL, which is what reads tool errors: the
+# token — not the user's configuration — is the problem, and the fix is to
+# retry, because the retry is the request that meets ``BearerAuthMiddleware``'s
+# ``invalid_token`` 401 and triggers the host's ``refresh_token`` grant. Telling
+# the model to "reconnect" here made it send users to the settings page for a
+# recovery the client would have done on its own (OPIK-8252).
+OAUTH_TOKEN_EXPIRED_HINT = (
+    "The Opik access token is expired or revoked. Retry this call — the MCP client "
+    "refreshes the token on the next request."
+)
+
+
+def oauth_token_expired_hint() -> str | None:
+    """The 401 hint for the credential this request is forwarding, or ``None``.
+
+    Reads the inbound bearer for the current request: ``OAUTH_TOKEN_EXPIRED_HINT``
+    when it is an OAuth token, ``None`` for an API key (or stdio, where there is
+    no inbound bearer at all), so API-key callers keep their "check OPIK_API_KEY"
+    guidance. Single source of truth for every layer that renders a backend 401
+    — the read/list client, the write envelope — so the wording cannot drift.
+    Pure: the cache eviction that goes with a backend 401 lives beside the HTTP
+    call (``opik_client.note_backend_401``), not in a message helper.
+    """
+    auth = inbound_authorization.get()
+    if not auth:
+        return None
+    mode, _ = classify_bearer(auth)
+    return OAUTH_TOKEN_EXPIRED_HINT if mode == "oauth" else None

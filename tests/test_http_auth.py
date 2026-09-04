@@ -1,10 +1,13 @@
 """Integration tests for inbound auth on the HTTP transport.
 
-opik-mcp performs no local credential validation — any well-formed
-``Authorization: Bearer …`` is accepted and forwarded verbatim to
-opik-backend, which is the single point of auth enforcement. The middleware
-only rejects requests that carry no usable bearer at all (missing header or
-a non-Bearer scheme), returning 401 so MCP hosts bootstrap the OAuth dance.
+Two bearer shapes, two contracts. An ``opik_mcp_at_``-prefixed OAuth token is
+validated against opik-backend on every request and rejected with an
+``invalid_token`` 401 when dead (OPIK-8252; see
+``test_oauth_token_validation.py`` for that contract). Any other well-formed
+``Authorization: Bearer …`` is an API key: accepted and forwarded verbatim to
+opik-backend, which is its single point of enforcement. Requests that carry no
+usable bearer at all (missing header or a non-Bearer scheme) get a 401 so MCP
+hosts bootstrap the OAuth dance.
 """
 
 import httpx
@@ -40,11 +43,12 @@ async def test_non_bearer_scheme_returns_401(http_client: httpx.AsyncClient) -> 
 
 
 @pytest.mark.anyio
-async def test_any_bearer_initializes(http_client: httpx.AsyncClient) -> None:
-    """No local validation: opik-mcp accepts the bearer and forwards it.
-
-    ``initialize`` makes no outbound opik-backend call, so it succeeds
-    regardless of whether the token would later be accepted upstream.
+async def test_api_key_bearer_initializes(http_client: httpx.AsyncClient) -> None:
+    """API keys are not validated locally: opik-mcp accepts the bearer and
+    forwards it. ``initialize`` makes no outbound opik-backend call, so it
+    succeeds regardless of whether the key would later be accepted upstream.
+    (The OAuth-shaped bearer below is still accepted here only because conftest
+    stubs introspection to ``unknown`` — the fail-open outcome.)
     """
     r = await http_client.post(
         "/mcp",
@@ -71,15 +75,19 @@ async def test_initialize_names_oauth_workspace(
     """
 
     from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
+    from opik_mcp.oauth_identity import Introspection
 
-    async def fake_resolve(_auth: str, _settings: object) -> ResolvedIdentity:
-        return ResolvedIdentity(
-            user_name="andrei",
-            workspace_name="andreicautisanu",
-            workspace_id="ws-uuid-e2e",
+    async def fake_resolve(_auth: str, _settings: object) -> Introspection:
+        return Introspection(
+            status="valid",
+            identity=ResolvedIdentity(
+                user_name="andrei",
+                workspace_name="andreicautisanu",
+                workspace_id="ws-uuid-e2e",
+            ),
         )
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", fake_resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", fake_resolve)
     r = await http_client.post(
         "/mcp",
         json=INITIALIZE,

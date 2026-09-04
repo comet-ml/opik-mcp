@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import hashlib
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from typing import Literal, NamedTuple
 
 # One entry per active credential. Sized well above any realistic concurrent
 # user count for a single pod while staying trivially small in memory.
@@ -156,20 +158,114 @@ def lookup_session_digest(credential: str) -> str | None:
         return digest
 
 
+# --- OAuth validation cache (OPIK-8252) ------------------------------------- #
+#
+# Credential digest -> (trust the token until, token is dead from). Both are
+# monotonic instants. The first is the validation-cache TTL (or the token's own
+# expiry minus a skew margin, whichever comes first); the second is the token's
+# expiry as the backend reported it, or ``None`` when it did not. A hit before
+# the first is "valid, skip the backend"; a request after the second is "dead,
+# answer 401 without asking"; in between, ask again. Only POSITIVE answers are
+# stored: a freshly refreshed token must work on its first use, and a rejection
+# is cheap. Bounded like the identity store, for the same reason.
+
+
+class _Validation(NamedTuple):
+    trust_until: float
+    """Monotonic instant until which the last "valid" answer is trusted."""
+
+    dead_from: float | None
+    """Monotonic instant the backend said the token expires, if it said."""
+
+
+# NOTE on keys: this store and the identity store are keyed on the bare OAuth
+# token (what ``classify_bearer`` returns); the session store is keyed on the
+# full ``Authorization`` header value. Same digest function, different inputs —
+# a lookup with the wrong one silently misses. Pre-dates the validation cache.
+_VALIDATIONS: OrderedDict[str, _Validation] = OrderedDict()
+
+# Clock skew allowance between opik-backend's ``expires_at`` and this pod.
+EXPIRY_SKEW_MARGIN_S = 10.0
+
+# Same words as ``oauth_identity.IntrospectionStatus`` for the same verdicts, so
+# the middleware switches on one vocabulary. ``None`` from a lookup means "ask".
+ValidationVerdict = Literal["valid", "invalid"]
+
+
+def _now() -> float:
+    """Monotonic clock for the validation cache. Module-level so tests can advance it."""
+    return time.monotonic()
+
+
+def remember_validation(
+    credential: str, *, ttl_s: float, expires_in_s: float | None = None
+) -> None:
+    """Record that opik-backend just accepted this credential.
+
+    ``expires_in_s`` is how long the backend says the token has left (from its
+    ``expires_at``), or ``None`` when it did not say. With it, trust is capped at
+    the expiry minus :data:`EXPIRY_SKEW_MARGIN_S`; an entry that would be
+    untrustworthy immediately is not stored, so the next request asks again.
+    """
+    now = _now()
+    trust_until = now + ttl_s
+    dead_from: float | None = None
+    if expires_in_s is not None:
+        dead_from = now + expires_in_s
+        trust_until = min(trust_until, dead_from - EXPIRY_SKEW_MARGIN_S)
+    if trust_until <= now:
+        return
+    key = credential_digest(credential)
+    with _LOCK:
+        _VALIDATIONS[key] = _Validation(trust_until, dead_from)
+        _VALIDATIONS.move_to_end(key)
+        while len(_VALIDATIONS) > MAX_TRACKED_CREDENTIALS:
+            _VALIDATIONS.popitem(last=False)
+
+
+def lookup_validation(credential: str) -> ValidationVerdict | None:
+    """What the cache knows about this credential right now, or ``None`` (ask)."""
+    key = credential_digest(credential)
+    now = _now()
+    with _LOCK:
+        entry = _VALIDATIONS.get(key)
+        if entry is None:
+            return None
+        if entry.dead_from is not None and now >= entry.dead_from:
+            _VALIDATIONS.pop(key, None)
+            return "invalid"
+        if now < entry.trust_until:
+            _VALIDATIONS.move_to_end(key)
+            return "valid"
+        return None
+
+
+def forget_validation(credential: str) -> None:
+    """Drop a cached validation — opik-backend just rejected this credential."""
+    with _LOCK:
+        _VALIDATIONS.pop(credential_digest(credential), None)
+
+
 def reset_identities_for_tests() -> None:
-    """Drop every resolved identity and session pairing. Test-only."""
+    """Drop every resolved identity, session pairing and validation. Test-only."""
     with _LOCK:
         _STORE.clear()
         _SESSIONS.clear()
+        _VALIDATIONS.clear()
 
 
 __all__ = [
+    "EXPIRY_SKEW_MARGIN_S",
     "MAX_TRACKED_CREDENTIALS",
     "ResolvedIdentity",
+    "ValidationVerdict",
     "credential_digest",
+    "forget_validation",
     "lookup_identity",
     "lookup_session_digest",
+    "lookup_validation",
     "remember_identity",
     "remember_session",
+    "remember_validation",
     "reset_identities_for_tests",
 ]
