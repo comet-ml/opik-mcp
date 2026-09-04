@@ -266,3 +266,131 @@ async def test_upstream_403_keeps_the_permission_wording(http_client: httpx.Asyn
     text = _error_text(result)
     assert "permission denied" in text.lower()
     assert "expired" not in text.lower()
+
+
+# --- validation cache ----------------------------------------------------------- #
+
+
+class _Clock:
+    """Monotonic clock the validation cache reads; tests advance it by hand."""
+
+    def __init__(self) -> None:
+        self.now = 1_000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
+    c = _Clock()
+    monkeypatch.setattr("opik_mcp.credential_identity._now", c)
+    return c
+
+
+def _session_headers(token: str) -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}{token}",
+        "Accept": "application/json, text/event-stream",
+        "Mcp-Session-Id": "session-held-by-the-host",
+    }
+
+
+@pytest.mark.anyio
+async def test_valid_token_is_cached_for_the_ttl(
+    http_client: httpx.AsyncClient, clock: _Clock
+) -> None:
+    """Validating on every request must not double the load on opik-backend:
+    inside the TTL the answer is remembered, after it the backend is asked again."""
+    ttl = get_settings().opik_mcp_oauth_validation_cache_ttl_s
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post(_introspection_url()).mock(return_value=_valid_introspection())
+        headers = _session_headers("cached")
+
+        await http_client.post("/mcp", json=INITIALIZE, headers=headers)
+        clock.advance(ttl / 2)
+        await http_client.post("/mcp", json=INITIALIZE, headers=headers)
+        assert route.call_count == 1
+
+        clock.advance(ttl)
+        await http_client.post("/mcp", json=INITIALIZE, headers=headers)
+        assert route.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_upstream_401_evicts_the_cached_validation(
+    http_client: httpx.AsyncClient, clock: _Clock
+) -> None:
+    """A token that dies inside the cache window reaches opik-backend once. That
+    401 must drop the cache entry so the very next MCP request re-validates and
+    gets the ``invalid_token`` 401 — not after the TTL, now."""
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post(_introspection_url()).mock(return_value=_valid_introspection())
+        mock.get(_project_url()).mock(return_value=httpx.Response(401))
+        await _read_project(http_client, f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}dies-in-window")
+        assert route.call_count == 1
+
+        clock.advance(1)
+        await http_client.post("/mcp", json=INITIALIZE, headers=_session_headers("dies-in-window"))
+        assert route.call_count == 2
+
+
+def _introspection_with_expiry(seconds_from_now: float) -> httpx.Response:
+    from datetime import UTC, datetime, timedelta
+
+    expires_at = (datetime.now(UTC) + timedelta(seconds=seconds_from_now)).isoformat()
+    body = _valid_introspection().json()
+    return httpx.Response(200, json={**body, "expires_at": expires_at})
+
+
+@pytest.mark.anyio
+async def test_cache_is_capped_by_the_backend_expires_at(
+    http_client: httpx.AsyncClient, clock: _Clock
+) -> None:
+    """Once opik-backend reports ``expires_at`` the entry is trusted until that
+    instant minus a skew margin, not the whole TTL; and a request landing after
+    the expiry is answered 401 from the cache without asking the backend."""
+    from opik_mcp.credential_identity import EXPIRY_SKEW_MARGIN_S
+
+    ttl = get_settings().opik_mcp_oauth_validation_cache_ttl_s
+    expires_in = ttl - 5
+    assert expires_in - EXPIRY_SKEW_MARGIN_S > 0
+    headers = _session_headers("short-lived")
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post(_introspection_url()).mock(
+            return_value=_introspection_with_expiry(expires_in)
+        )
+        await http_client.post("/mcp", json=INITIALIZE, headers=headers)
+        assert route.call_count == 1
+
+        # Past (expires_at - margin) but inside the TTL: ask again. (The SDK
+        # answers 404 for a session id it never minted — that is after the
+        # middleware, which is all this test observes.)
+        clock.advance(expires_in - EXPIRY_SKEW_MARGIN_S + 1)
+        r = await http_client.post("/mcp", json=INITIALIZE, headers=headers)
+        assert r.status_code != 401
+        assert route.call_count == 2
+
+    # Fresh entry, then time runs out entirely: 401 straight from the cache.
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post(_introspection_url()).mock(
+            return_value=_introspection_with_expiry(expires_in)
+        )
+        await http_client.post("/mcp", json=INITIALIZE, headers=_session_headers("doomed"))
+        assert route.call_count == 1
+        clock.advance(expires_in + 1)
+        r = await http_client.post("/mcp", json=INITIALIZE, headers=_session_headers("doomed"))
+        assert r.status_code == 401
+        assert 'error="invalid_token"' in r.headers["WWW-Authenticate"]
+        assert route.call_count == 1
+
+
+def test_validation_cache_ttl_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    from opik_mcp.config import Settings
+
+    assert Settings().opik_mcp_oauth_validation_cache_ttl_s == 30.0
+    monkeypatch.setenv("OPIK_MCP_OAUTH_VALIDATION_CACHE_TTL_S", "5")
+    assert Settings().opik_mcp_oauth_validation_cache_ttl_s == 5.0

@@ -139,6 +139,15 @@ class Settings(BaseSettings):
     # to the static workspace), so a short ceiling is safe.
     opik_mcp_oauth_introspect_timeout_s: float = 5.0
 
+    # How long a "valid" answer from that introspection is trusted before the
+    # next request on the same OAuth bearer asks opik-backend again (OPIK-8252).
+    # Bounds two things at once: the backend load added by validating every
+    # request, and the window in which a token that expired or was revoked is
+    # still forwarded (it then meets the backend's own 401 and the entry is
+    # dropped, so the window ends on the first failing call). When the backend
+    # reports ``expires_at`` the entry is capped at that instant regardless.
+    opik_mcp_oauth_validation_cache_ttl_s: float = 30.0
+
     opik_mcp_log_level: str = "INFO"
     opik_mcp_transport: str = "stdio"
     opik_mcp_host: str = "127.0.0.1"

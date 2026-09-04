@@ -24,7 +24,7 @@ from opik_mcp.auth_context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
     inbound_workspace,
-    oauth_token_expired_hint,
+    note_backend_401,
 )
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
@@ -844,7 +844,7 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
     detail = _error_detail(resp)
     suffix = f" — {detail}" if detail else ""
     if status == 401:
-        hint = oauth_token_expired_hint() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+        hint = note_backend_401() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
         raise OpikAuthError(f"Opik rejected the request (401). {hint}{suffix}")
     if status == 403:
         raise OpikPermissionError(

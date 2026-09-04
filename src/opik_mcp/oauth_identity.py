@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 import httpx
@@ -52,6 +53,11 @@ class Introspection:
     status: IntrospectionStatus
     identity: ResolvedIdentity | None = None
     resource: str | None = None
+    # Seconds until the token expires, from the backend's ``expires_at`` (an
+    # ISO-8601 instant). ``None`` when the backend did not report one — older
+    # opik-backend releases don't, and the validation cache then falls back to
+    # its TTL alone. Never negative: an already-past ``expires_at`` reads as 0.
+    expires_in_s: float | None = None
 
 
 # JAX-RS path of opik-backend's token-introspection endpoint
@@ -117,7 +123,22 @@ async def introspect_oauth_token(authorization: str, settings: Settings) -> Intr
         status="valid",
         identity=identity,
         resource=_text(body.get("resource")),
+        expires_in_s=_seconds_until(_text(body.get("expires_at"))),
     )
+
+
+def _seconds_until(expires_at: str | None) -> float | None:
+    """Seconds from now until an ISO-8601 instant, floored at 0; ``None`` if absent/unparseable."""
+    if expires_at is None:
+        return None
+    try:
+        when = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError:
+        logger.debug("token introspection: unparseable expires_at %r", expires_at)
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - datetime.now(UTC)).total_seconds())
 
 
 async def resolve_oauth_identity(authorization: str, settings: Settings) -> ResolvedIdentity | None:
