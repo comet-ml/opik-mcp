@@ -39,7 +39,7 @@ from opik_mcp.auth_context import (
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.credential_identity import remember_identity, remember_session
 from opik_mcp.instructions import render_instructions
-from opik_mcp.oauth_identity import resolve_oauth_identity
+from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.uri import looks_like_thread_url
@@ -523,16 +523,18 @@ _READY_PROBE_TIMEOUT_S = 2.0
 
 
 class BearerAuthMiddleware(BaseHTTPMiddleware):
-    """Bearer-shape check + per-request bearer-capture for outbound forwarding.
+    """Bearer-shape check, OAuth token validation, and per-request bearer-capture.
 
-    opik-mcp performs **no local credential validation**. Any well-formed
-    ``Authorization: Bearer …`` header is accepted; the full header value is
-    captured into a ContextVar and forwarded verbatim on the outbound call to
-    opik-backend (see :mod:`opik_mcp.auth_context`). opik-backend's
-    ``AuthFilter`` is the single point of auth enforcement — it validates the
-    bearer (API key or an ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed OAuth token) and enforces
-    ``@RequiredPermissions`` on the data API endpoint. Deployments where the
-    backend enforces auth are protected end-to-end; OSS installs without
+    Two bearer shapes, two contracts. An ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed
+    OAuth token is validated against opik-backend's introspection endpoint on
+    every request and answered with an ``invalid_token`` 401 when dead — the
+    resource-server duty the MCP authorization spec puts on us, and the only
+    signal a host has to refresh (OPIK-8252). Any other well-formed
+    ``Authorization: Bearer …`` is an API key and is **not validated locally**:
+    the full header value is captured into a ContextVar and forwarded verbatim
+    on the outbound call to opik-backend (see :mod:`opik_mcp.auth_context`),
+    whose ``AuthFilter`` is its single point of enforcement. Deployments where
+    the backend enforces auth are protected end-to-end; OSS installs without
     backend auth are as open via MCP as via their own REST API.
 
     Missing/empty ``Authorization`` returns 401 with a ``WWW-Authenticate``
@@ -573,21 +575,52 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
             # clean recovery path instead of an opaque upstream 401.
             return self._unauthorized()
 
+        auth_mode, oauth_token = classify_bearer(auth)
+        mcp_session_id = request.headers.get("mcp-session-id")
+        # OAuth bearers are validated on EVERY request to the MCP path before
+        # anything is forwarded (MCP authorization spec 2026-07-28, Token
+        # Handling: the resource server MUST validate the access token and MUST
+        # answer 401 for an invalid or expired one). That 401 is the only signal
+        # a host has to run the ``refresh_token`` grant — a dead token that
+        # reached opik-backend used to come back as a tool error inside HTTP 200,
+        # and hosts kept a "connected" connector that could not make a call.
+        # API-key bearers are forwarded untouched: opik-backend's AuthFilter is
+        # their single point of enforcement.
+        identity = None
+        if auth_mode == "oauth":
+            settings = get_settings()
+            introspection = await introspect_oauth_token(auth, settings)
+            if introspection.status == "invalid":
+                return self._invalid_token()
+            # ``unknown`` (no REST base, network, 5xx) falls through: a backend
+            # hiccup must degrade to "forward as before", never to a mass logout.
+            identity = introspection.identity
+            # RFC 8707 audience check, observe-only for now: the AS and opik-mcp
+            # are configured independently, and a strict reject on a mismatch
+            # (even a trailing slash) would lock every host out in one deploy.
+            # The warning is how we confirm the two agree before enforcing.
+            expected_resource = settings.opik_mcp_resource_uri
+            if (
+                introspection.resource
+                and expected_resource
+                and introspection.resource.rstrip("/") != expected_resource.rstrip("/")
+            ):
+                logger.warning(
+                    "OAuth token bound to resource %r but this server is %r",
+                    introspection.resource,
+                    expected_resource,
+                )
+            if identity is not None:
+                # Held against the token, not this request: the analytics layer
+                # builds events in the MCP session task and never sees a request,
+                # and a second session on the same token needs no second lookup.
+                remember_identity(oauth_token, identity)
+
         # Capture the inbound auth + workspace headers for the duration of
         # this request so the outbound :class:`OpikClient` can forward them.
         auth_token = inbound_authorization.set(auth)
         workspace = request.headers.get("comet-workspace")
         workspace_token = inbound_workspace.set(workspace)
-        # On the session-creating request — the MCP ``initialize`` handshake is
-        # the only one without an ``Mcp-Session-Id`` — resolve the OAuth-authorized
-        # workspace NAME so the per-session instructions blob can name it. In OAuth
-        # mode the host sends no ``Comet-Workspace`` header and the token is opaque
-        # to us, so we introspect it here (once per session); tool calls carry a
-        # session id and skip this. Best-effort: a failure leaves the blob on its
-        # static fallback and never blocks the handshake.
-        resolved_token = None
-        auth_mode, oauth_token = classify_bearer(auth)
-        mcp_session_id = request.headers.get("mcp-session-id")
         # TELEMETRY ONLY — see ``auth_context.inbound_mcp_session_id``. The
         # session id is the stable unit the hosted funnel needs: a client keeps it
         # across OAuth token refreshes, so an 8-hour session counts once instead of
@@ -601,15 +634,14 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         # `None` for the life of the session. `remember_session` below closes
         # that gap by keying the id to the credential instead; the ContextVar
         # still serves events emitted inside a request, such as `auth_rejected`.
-        if mcp_session_id is None and auth_mode == "oauth":
-            identity = await resolve_oauth_identity(auth, get_settings())
-            if identity is not None:
-                # Held against the token, not this request: the analytics layer
-                # builds events in the MCP session task and never sees a request,
-                # and a second session on the same token needs no second lookup.
-                remember_identity(oauth_token, identity)
-                if identity.workspace_name:
-                    resolved_token = resolved_workspace_name.set(identity.workspace_name)
+        #
+        # The OAuth-authorized workspace NAME feeds the per-session instructions
+        # blob so an agent can truthfully say which workspace it operates against.
+        # In OAuth mode the host sends no ``Comet-Workspace`` header, so this is
+        # the only place the name is known.
+        resolved_token = None
+        if identity is not None and identity.workspace_name:
+            resolved_token = resolved_workspace_name.set(identity.workspace_name)
         try:
             response = await call_next(request)
             if mcp_session_id is None:
@@ -628,15 +660,41 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
                 resolved_workspace_name.reset(resolved_token)
 
     def _unauthorized(self) -> Response:
-        # RFC 6750 §3 + RFC 9728: pointing MCP hosts at protected-resource
-        # metadata is what kicks off automatic OAuth discovery — without
-        # this, hosts have no way to find the AS without out-of-band config.
-        headers: dict[str, str] = {}
-        if self._resource_metadata_url:
-            headers["WWW-Authenticate"] = (
-                f'Bearer realm="opik-mcp", resource_metadata="{self._resource_metadata_url}"'
-            )
-        return JSONResponse({"error": "unauthorized"}, status_code=401, headers=headers)
+        # No credentials presented: RFC 6750 §3.1 says the challenge carries no
+        # ``error`` parameter in that case. Pointing MCP hosts at protected-
+        # resource metadata (RFC 9728) is what kicks off automatic OAuth
+        # discovery — without it, hosts have no way to find the AS without
+        # out-of-band config.
+        return JSONResponse(
+            {"error": "unauthorized"}, status_code=401, headers=self._challenge_headers()
+        )
+
+    def _invalid_token(self) -> Response:
+        # A well-formed bearer that opik-backend no longer accepts. RFC 6750 §3.1
+        # ``invalid_token`` is the code hosts key their refresh on: the token is
+        # expired or revoked, re-run the ``refresh_token`` grant (or re-authorize
+        # if that fails too) — as opposed to a bare 401 that reads as "start the
+        # discovery dance from scratch".
+        description = "The access token is invalid or expired"
+        return JSONResponse(
+            {"error": "invalid_token", "error_description": description},
+            status_code=401,
+            headers=self._challenge_headers(error="invalid_token", error_description=description),
+        )
+
+    def _challenge_headers(self, **params: str) -> dict[str, str]:
+        """``WWW-Authenticate: Bearer …`` per RFC 6750 §3 + RFC 9728, or nothing.
+
+        Omitted entirely when no resource-metadata URL is configured: a
+        challenge that cannot point at the metadata gives a host nothing to act
+        on, and some host parsers reject a bare/empty value outright.
+        """
+        if not self._resource_metadata_url:
+            return {}
+        parts = ['realm="opik-mcp"']
+        parts.extend(f'{key}="{value}"' for key, value in params.items())
+        parts.append(f'resource_metadata="{self._resource_metadata_url}"')
+        return {"WWW-Authenticate": "Bearer " + ", ".join(parts)}
 
 
 def _has_absolute_resource_metadata_url(settings: Settings) -> bool:
@@ -671,9 +729,9 @@ def _classify_rejection_reason(status_code: int, auth_header: str) -> str:
         return "not_bearer"
     if not auth_header[len("bearer ") :].strip():
         return "empty_token"
-    # A well-formed bearer that still got a 401 — BearerAuthMiddleware forwards
-    # those onward, so today this only arises if a downstream layer 401s a valid
-    # shape. Its own bucket (never echoes the token) so BI doesn't conflate it
+    # A well-formed bearer that still got a 401: an OAuth token opik-backend's
+    # introspection reported dead (expired/revoked) — the refresh trigger for
+    # hosts. Its own bucket (never echoes the token) so BI doesn't conflate it
     # with genuinely-missing-header rejections.
     return "token_rejected"
 

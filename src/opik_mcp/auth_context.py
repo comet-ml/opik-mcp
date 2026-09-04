@@ -5,8 +5,9 @@ When opik-mcp runs over HTTP transport with OAuth, the MCP host attaches
 per RFC 6750 and opik-mcp's job is to
 forward that bearer onward to opik-backend's data API verbatim. Permission
 enforcement lives at the data API endpoint via `@RequiredPermissions`
-annotations; opik-mcp performs no local validation and makes no separate
-validator round-trip.
+annotations. OAuth bearers are additionally validated up front by
+``BearerAuthMiddleware`` (introspection round-trip, ``invalid_token`` 401 when
+dead — OPIK-8252); API-key bearers are not validated locally.
 
 These ContextVars are set by ``BearerAuthMiddleware`` for the duration of
 each inbound HTTP request and read by ``resolve_opik_config`` when the

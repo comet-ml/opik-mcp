@@ -3,6 +3,9 @@
 The middleware is exercised here by driving it directly with stub call_next
 + manually constructed Starlette ``Request`` objects, asserting the
 ContextVar capture/reset behavior the integration suite can't observe.
+Introspection is stubbed at ``server.introspect_oauth_token``; the HTTP-level
+contract (real resolver against a mocked backend) lives in
+``test_oauth_token_validation.py``.
 """
 
 from typing import Any
@@ -21,6 +24,7 @@ from opik_mcp.credential_identity import (
     lookup_session_digest,
     reset_identities_for_tests,
 )
+from opik_mcp.oauth_identity import Introspection
 from opik_mcp.server import BearerAuthMiddleware
 
 
@@ -112,14 +116,17 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
     from opik_mcp.auth_context import resolved_workspace_name
     from opik_mcp.credential_identity import ResolvedIdentity
 
-    async def fake_resolve(_auth: str, _settings: object) -> ResolvedIdentity:
-        return ResolvedIdentity(
-            user_name="u",
-            workspace_name="andreicautisanu",
-            workspace_id="ws-id",
+    async def fake_resolve(_auth: str, _settings: object) -> Introspection:
+        return Introspection(
+            status="valid",
+            identity=ResolvedIdentity(
+                user_name="u",
+                workspace_name="andreicautisanu",
+                workspace_id="ws-id",
+            ),
         )
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", fake_resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", fake_resolve)
     mw = _build_middleware()
     request = _make_request({"authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc"})
 
@@ -136,20 +143,23 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
 
 
 @pytest.mark.anyio
-async def test_skips_resolution_when_session_already_exists(
+async def test_validates_requests_that_already_carry_a_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Requests carrying an Mcp-Session-Id are tool calls, not the handshake —
-    they must not pay the introspection round-trip."""
+    """Every request with an OAuth bearer is validated, tool calls included
+    (OPIK-8252): the access token can expire mid-session, and the 401 that
+    tells the host to refresh has to come from the request that hit the dead
+    token. The identity is not re-published on those requests; the blob only
+    reads it on the handshake."""
     from opik_mcp.auth_context import resolved_workspace_name
 
     calls: list[str] = []
 
-    async def spy_resolve(auth: str, _settings: object) -> None:
+    async def spy_resolve(auth: str, _settings: object) -> Introspection:
         calls.append(auth)
-        return None
+        return Introspection(status="valid")
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", spy_resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", spy_resolve)
     mw = _build_middleware()
     request = _make_request(
         {
@@ -164,8 +174,9 @@ async def test_skips_resolution_when_session_already_exists(
         captured["resolved"] = resolved_workspace_name.get()
         return JSONResponse({"ok": True})
 
-    await mw.dispatch(request, call_next)
-    assert calls == []
+    resp = await mw.dispatch(request, call_next)
+    assert resp.status_code == 200
+    assert calls == [f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc"]
     assert captured["resolved"] is None
 
 
@@ -175,11 +186,11 @@ async def test_skips_resolution_for_api_key_bearer(monkeypatch: pytest.MonkeyPat
     an API-key-shaped bearer keeps the legacy header/settings workspace path."""
     calls: list[str] = []
 
-    async def spy_resolve(auth: str, _settings: object) -> None:
+    async def spy_resolve(auth: str, _settings: object) -> Introspection:
         calls.append(auth)
-        return None
+        return Introspection(status="valid")
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", spy_resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", spy_resolve)
     mw = _build_middleware()
     request = _make_request({"authorization": "Bearer some-static-api-key"})
 
@@ -309,10 +320,10 @@ async def test_handshake_stores_the_resolved_identity_against_the_token(
         workspace_id="ws-uuid-1",
     )
 
-    async def _resolve(*_a: object, **_k: object) -> ResolvedIdentity:
-        return resolved
+    async def _resolve(*_a: object, **_k: object) -> Introspection:
+        return Introspection(status="valid", identity=resolved)
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", _resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", _resolve)
 
     mw = _build_middleware()
     request = _make_request({"authorization": f"Bearer {token}"})
@@ -331,18 +342,19 @@ async def test_handshake_stores_the_resolved_identity_against_the_token(
 
 
 @pytest.mark.anyio
-async def test_tool_call_requests_do_not_reintrospect(
+async def test_tool_call_on_a_dead_token_is_answered_401(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Only the session-creating request introspects. Every later request carries
-    an ``Mcp-Session-Id`` and must not pay a round-trip for an answer we hold."""
-    calls: list[str] = []
+    """A token that expires mid-session dies on a tool call, not on a handshake.
+    That request must get the ``invalid_token`` 401 (OPIK-8252) — it is the only
+    signal the host has to run the ``refresh_token`` grant — and nothing may be
+    forwarded on the dead credential."""
+    forwarded: list[str] = []
 
-    async def _resolve(*_a: object, **_k: object) -> None:
-        calls.append("resolved")
-        return None
+    async def _resolve(*_a: object, **_k: object) -> Introspection:
+        return Introspection(status="invalid")
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", _resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", _resolve)
 
     mw = _build_middleware()
     request = _make_request(
@@ -353,23 +365,29 @@ async def test_tool_call_requests_do_not_reintrospect(
     )
 
     async def call_next(_r: Request) -> Response:
+        forwarded.append("called")
         return JSONResponse({"ok": True})
 
-    await mw.dispatch(request, call_next)
-    assert calls == []
+    resp = await mw.dispatch(request, call_next)
+    assert resp.status_code == 401
+    assert forwarded == []
+    assert 'error="invalid_token"' in resp.headers["WWW-Authenticate"]
+    # Nothing leaks past a rejected request.
+    assert inbound_authorization.get() is None
 
 
 @pytest.mark.anyio
 async def test_failed_introspection_leaves_the_handshake_working(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Telemetry and display niceties must never cost a session."""
+    """A backend hiccup (network, 5xx: ``unknown``) must never cost a session —
+    only a definite ``invalid`` answer is a rejection."""
     from opik_mcp.credential_identity import lookup_identity
 
-    async def _resolve(*_a: object, **_k: object) -> None:
-        return None
+    async def _resolve(*_a: object, **_k: object) -> Introspection:
+        return Introspection(status="unknown")
 
-    monkeypatch.setattr("opik_mcp.server.resolve_oauth_identity", _resolve)
+    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", _resolve)
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}unresolvable"
     mw = _build_middleware()

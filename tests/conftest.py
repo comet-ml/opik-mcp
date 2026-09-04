@@ -83,9 +83,11 @@ def _disable_workspace_introspection() -> Generator[None]:
     opik-backend's ``/opik/auth-oauth`` (``server.resolve_oauth_identity``).
     Left live, every test that sends a session-less OAuth bearer to ``/mcp`` would
     fire a real network call — slow, flaky, and able to land in another test's
-    ``@respx.mock`` window. Disabled by default (mirrors the analytics default
-    above); tests that exercise resolution ``monkeypatch.setattr`` this, and the
-    ``resolve_oauth_identity`` unit tests call the real function directly.
+    ``@respx.mock`` window. Stubbed to ``unknown`` by default — the fail-open
+    outcome, so the request is forwarded exactly as with no introspection at
+    all (mirrors the analytics default above); tests that exercise validation
+    ``monkeypatch.setattr`` the real function back, and the ``oauth_identity``
+    unit tests call it directly.
 
     Uses a standalone ``pytest.MonkeyPatch()`` rather than the ``monkeypatch``
     *fixture* on purpose: depending on that fixture from an autouse fixture pulls
@@ -95,11 +97,13 @@ def _disable_workspace_introspection() -> Generator[None]:
     on ``cache_info``). A self-owned instance keeps fixture ordering untouched.
     """
 
-    async def _none(*_args: object, **_kwargs: object) -> None:
-        return None
+    from opik_mcp.oauth_identity import Introspection
+
+    async def _unknown(*_args: object, **_kwargs: object) -> Introspection:
+        return Introspection(status="unknown")
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.server.resolve_oauth_identity", _none)
+    mp.setattr("opik_mcp.server.introspect_oauth_token", _unknown)
     try:
         yield
     finally:
