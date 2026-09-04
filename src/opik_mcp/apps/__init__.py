@@ -43,8 +43,10 @@ UI_TOOL_META: Final[dict[str, Any]] = {"ui": {"resourceUri": UI_URI}}
 APP_TOOL_META: Final[dict[str, Any]] = {"ui": {"resourceUri": UI_URI, "visibility": ["app"]}}
 
 #: No CSP relaxations: the document inlines its styles, script and logo, and asks
-#: for no fonts, so it needs nothing from the deny-by-default policy.
-_RESOURCE_META: Final[dict[str, Any]] = {"ui": {"prefers_border": False}}
+#: for no fonts, so it needs nothing from the deny-by-default policy. The card draws
+#: its own border, so the host is asked not to add another (``prefersBorder`` is the
+#: spec's camelCase key — hosts ignore anything else).
+_RESOURCE_META: Final[dict[str, Any]] = {"ui": {"prefersBorder": False}}
 
 
 def _ui_root(settings: Settings) -> str:
@@ -69,24 +71,39 @@ def queue_url(settings: Settings, queue_id: str) -> str | None:
     return f"{_ui_root(settings)}/{settings.comet_workspace}/sme?queueId={queue_id}"
 
 
+#: Feedback-score ``source`` values that mean "a rule wrote this, not a person".
+AUTO_SCORE_SOURCES: Final = frozenset({"online_scoring"})
+
+
 def score_summary(item: dict[str, Any], names: list[str]) -> dict[str, Any]:
     """An item's review state: the queue's scores that were set, and by whom.
 
     Mirrors the frontend's ``isItemProcessedByUser`` / ``getDistinctAnnotatorCount``
     (``lib/annotation-queues.ts``): a score counts as the human's verdict only if it
-    is one the queue asked for.
+    is one the queue asked for. Scores an online evaluation rule wrote are kept
+    apart in ``auto_scores`` — they must not mark the item reviewed, and the panel
+    shows them beside the controls so the reviewer can agree or overrule.
     """
     scores: dict[str, Any] = {}
+    auto: dict[str, Any] = {}
     reviewers: set[str] = set()
     for score in item.get("feedback_scores") or []:
         if names and score.get("name") not in names:
+            continue
+        if score.get("source") in AUTO_SCORE_SOURCES:
+            auto[score.get("name")] = score.get("value")
             continue
         scores[score.get("name")] = score.get("value")
         by_author = score.get("value_by_author") or {}
         reviewers.update(by_author.keys())
         if not by_author and score.get("last_updated_by"):
             reviewers.add(score["last_updated_by"])
-    return {"scores": scores, "reviewers": sorted(reviewers), "reviewed": bool(scores)}
+    return {
+        "scores": scores,
+        "auto_scores": auto,
+        "reviewers": sorted(reviewers),
+        "reviewed": bool(scores),
+    }
 
 
 def _thread_envelope(settings: Settings, fetched: Any, envelope: dict[str, Any]) -> dict[str, Any]:
@@ -180,6 +197,7 @@ __all__ = [
     "APP_ENTITY_TYPES",
     "APP_MIME_TYPE",
     "APP_TOOL_META",
+    "AUTO_SCORE_SOURCES",
     "REVIEW_HTML",
     "UI_TOOL_META",
     "UI_URI",

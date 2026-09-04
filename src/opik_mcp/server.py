@@ -328,7 +328,9 @@ async def app_data(
     project_id: Annotated[str | None, Field()] = None,
     project_name: Annotated[str | None, Field(max_length=200)] = None,
 ) -> dict[str, Any]:
-    """Full entity payload for the MCP App iframe. Not for model use — call read()."""
+    """Internal data channel for the Opik review panel (an MCP App). Never call this
+    as a model: it returns an uncompressed payload meant for the iframe and nothing a
+    person cannot already get from review(). For data, call read() instead."""
     if entity_type not in APP_ENTITY_TYPES:
         raise ToolError(f"The review panel has no view for {entity_type!r}.")
     settings = get_settings()

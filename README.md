@@ -313,14 +313,27 @@ extension (`io.modelcontextprotocol/ui`) — Claude Desktop, Claude on the web, 
 Copilot, Goose and others — it also renders an interactive panel:
 
 - **`review('thread', …)`** — the conversation turn by turn with latency, cost and tokens
-  per turn, thumbs up/down per answer, a thread-level score, a comment box, and
-  *Close thread*.
+  per turn, a per-turn latency/cost sparkline above the transcript (the slowest turn
+  is highlighted, failed turns are red, a click jumps to the turn), thumbs up/down per
+  answer, a thread-level score, a comment box, and *Close thread*. Scores an online evaluation rule already wrote show as dashed
+  pills, so the person sees what the judge said before deciding.
 - **`review('annotation_queue', …)`** — the reviewer's instructions, progress across the
   queue, item navigation, and score controls generated from the queue's own feedback
-  definitions. Each save pushes the verdict to the model silently via
-  `ui/update-model-context`; *Finish review* adds one short message so the agent takes a
-  turn, and the panel switches to a completed state. A human decision continues the
-  agent's work without anyone retyping it.
+  definitions, with the rule's verdict beside each control (it turns red when the
+  human overrules it). *Skip* bookmarks a thread without writing anything; the
+  keyboard does the rest (`J`/`K` threads, `1`–`9` options, `S` skip, `⌘/Ctrl+Enter`
+  save). Each save pushes the verdict to the model silently via
+  `ui/update-model-context` — scores, skipped threads and human-vs-rule disagreements;
+  *Finish review* adds one short message so the agent takes a turn, and the panel
+  switches to a completed state. A human decision continues the agent's work without
+  anyone retyping it.
+
+The panel follows the host: it applies the host's style tokens and fonts from
+`hostContext.styles` (Opik's palette is the fallback), tracks theme changes, sizes
+itself to `containerDimensions` and `safeAreaInsets`, and offers a full-screen toggle
+via `ui/request-display-mode` for long conversations. It answers
+`ui/resource-teardown`, previews streamed `tool-input-partial` arguments, and hides
+controls the host did not advertise in `hostCapabilities`.
 
 Every action in the panel goes through the same [`write`](#write) operations the model
 uses, so scores and comments are attributed to the human and audited identically.
@@ -558,7 +571,9 @@ that the `ui://` resource is advertised with the MCP App mime type.
 extension to show the panel (Claude Desktop / Claude on the web, VS Code Copilot,
 Goose). In a host without it — Claude Code today, MCP Inspector — the tool still
 returns its text, which is the point of the design: nothing depends on the panel
-appearing.
+appearing. One caveat for such hosts: they do not know `_meta.ui.visibility`, so
+the app-only `app_data` tool appears in the model's list there; its description
+tells the model to use `read()` instead.
 
 To exercise it you need something reviewable in your workspace:
 

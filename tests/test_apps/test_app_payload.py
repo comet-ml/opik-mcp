@@ -170,3 +170,58 @@ async def test_queue_list_accepts_project_scope() -> None:
         client=client,  # type: ignore[arg-type]
     )
     assert "annotation_queue" in out
+
+
+def test_score_summary_keeps_rule_scores_apart_from_the_human_verdict() -> None:
+    """An online evaluation rule scoring a queue item must not count as a review.
+
+    Before, any score with a name the queue asked for flipped ``reviewed`` — so a
+    queue an LLM judge had already touched looked finished before a person opened
+    it. Rule scores travel separately so the panel can show them beside the controls.
+    """
+    from opik_mcp.apps import score_summary
+
+    item = {
+        "feedback_scores": [
+            {"name": "Policy accuracy", "value": 1, "source": "online_scoring"},
+            {"name": "unrelated", "value": 0, "source": "online_scoring"},
+        ]
+    }
+    summary = score_summary(item, ["Policy accuracy"])
+    assert summary["reviewed"] is False
+    assert summary["scores"] == {}
+    assert summary["auto_scores"] == {"Policy accuracy": 1}
+
+    item["feedback_scores"].append(
+        {"name": "Policy accuracy", "value": 0, "source": "ui", "value_by_author": {"ana": {}}}
+    )
+    summary = score_summary(item, ["Policy accuracy"])
+    assert summary["reviewed"] is True
+    assert summary["scores"] == {"Policy accuracy": 0}
+    assert summary["auto_scores"] == {"Policy accuracy": 1}
+    assert summary["reviewers"] == ["ana"]
+
+
+@pytest.mark.anyio
+async def test_queue_items_carry_rule_scores_for_the_panel(settings: Settings) -> None:
+    client = FakeClient(
+        definitions=[{"name": "Policy accuracy", "type": "categorical", "details": {}}],
+        queue_threads=[
+            {
+                "id": THREAD_ID,
+                "number_of_messages": 4,
+                "feedback_scores": [
+                    {"name": "Policy accuracy", "value": 0.5, "source": "online_scoring"}
+                ],
+            }
+        ],
+    )
+    payload = await build_app_payload(
+        client,  # type: ignore[arg-type]
+        settings,
+        entity_type="annotation_queue",
+        entity_id=QUEUE_ID,
+    )
+    item = payload["items"][0]
+    assert item["reviewed"] is False
+    assert item["auto_scores"] == {"Policy accuracy": 0.5}

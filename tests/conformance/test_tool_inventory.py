@@ -101,3 +101,49 @@ async def test_every_tool_has_nonempty_description() -> None:
         tools = await session.list_tools()
     missing = [t.name for t in tools.tools if not (t.description or "").strip()]
     assert not missing, f"tools missing descriptions: {missing}"
+
+
+@pytest.mark.anyio
+async def test_app_resource_meta_uses_spec_keys() -> None:
+    """The ``ui://`` resource's ``_meta.ui`` must use the extension's camelCase keys.
+
+    ``prefers_border`` looked right and was silently ignored by every host; the
+    spec's key is ``prefersBorder``. Pinned so a snake_case slip cannot come back.
+    """
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        resources = await session.list_resources()
+    app = next(r for r in resources.resources if str(r.uri) == UI_URI)
+    ui = (app.meta or {}).get("ui") or {}
+    assert ui.get("prefersBorder") is False
+    assert "prefers_border" not in ui
+
+
+def test_review_document_speaks_the_apps_dialect() -> None:
+    """Pins the wire shapes the panel sends and answers, by name.
+
+    The document is hand-rolled JS with no SDK to type-check it, so the cheapest
+    guard against drifting off the ext-apps spec is to pin the identifiers: the
+    ``ui/initialize`` params are ``appInfo`` / ``appCapabilities`` (not the MCP
+    client's ``clientInfo`` / ``capabilities``), ``ui/resource-teardown`` is a
+    request that gets an answer, and the host's style tokens are what the
+    stylesheet reads first.
+    """
+    from opik_mcp.apps.review_html import REVIEW_HTML
+
+    assert '"ui/initialize"' in REVIEW_HTML
+    assert "appInfo:" in REVIEW_HTML and "appCapabilities:" in REVIEW_HTML
+    assert "clientInfo" not in REVIEW_HTML
+    for method in (
+        "ui/resource-teardown",
+        "ui/notifications/tool-input-partial",
+        "ui/notifications/tool-cancelled",
+        "ui/notifications/host-context-changed",
+        "ui/request-display-mode",
+        "ui/update-model-context",
+        "ui/message",
+    ):
+        assert method in REVIEW_HTML, method
+    assert "var(--color-background-primary" in REVIEW_HTML
+    assert "var(--font-sans" in REVIEW_HTML
+    assert "event.source !== window.parent" in REVIEW_HTML
