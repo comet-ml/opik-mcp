@@ -610,6 +610,11 @@ def _build_request(
             body.pop(dropped, None)
         return op.endpoint.format(queue_id=queue_id), body
 
+    if name == "feedback_definition.create":
+        # Workspace-level, fixed endpoint, and the model is already the BE's
+        # FeedbackDefinition shape ({name, type, details, description?}).
+        return op.endpoint, _dump(items[0])
+
     # Belt-and-braces — every registry entry is matched above. If a new
     # operation lands without a branch here, fail loudly.
     raise RuntimeError(f"dispatch: unhandled operation {name!r}")  # pragma: no cover

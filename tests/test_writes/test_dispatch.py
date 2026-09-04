@@ -652,3 +652,59 @@ async def test_all_scopes_grants_every_operation() -> None:
 
     for op in WRITE_REGISTRY.values():
         assert op.oauth_scope in ALL_WRITE_SCOPES, op.name
+
+
+# --- feedback_definition.create ------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_feedback_definition_create_posts_fixed_endpoint_with_body() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/feedback-definitions/").mock(
+            return_value=httpx.Response(201)
+        )
+        await run_write(
+            operation="feedback_definition.create",
+            data={
+                "name": "Policy accuracy",
+                "type": "categorical",
+                "details": {"categories": {"invented": 0, "accurate": 1}},
+            },
+            client=_client(),
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "name": "Policy accuracy",
+        "type": "categorical",
+        "details": {"categories": {"invented": 0, "accurate": 1}},
+    }
+
+
+@pytest.mark.anyio
+async def test_every_registry_operation_reaches_the_wire() -> None:
+    """Every op in the registry must have a dispatch branch.
+
+    Drives each op's own bundled example through a dry run, which walks the
+    whole pipeline up to the request without a backend. A registry entry that
+    lands without a ``_build_request`` branch fails here instead of at first use.
+    """
+    from opik_mcp.writes.registry import WRITE_REGISTRY
+
+    for op in WRITE_REGISTRY.values():
+        data = op.example
+        if op.name == "annotation_queue_item.add":
+            # ``thread_ids`` needs a live lookup; ``ids`` is the offline form.
+            data = {
+                "queue_id": "00000000-0000-0000-0000-000000000001",
+                "ids": ["00000000-0000-0000-0000-000000000002"],
+            }
+        elif op.name == "annotation_queue.create":
+            data = {
+                **data,
+                "project_name": None,
+                "project_id": "00000000-0000-0000-0000-000000000003",
+            }
+        with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+            mock.route().mock(return_value=httpx.Response(500))
+            result = await run_write(operation=op.name, data=data, dry_run=True, client=_client())
+        assert result["would_call"]["method"] == op.method, op.name
