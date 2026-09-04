@@ -24,6 +24,7 @@ from opik_mcp.auth_context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
     inbound_workspace,
+    oauth_token_expired_hint,
 )
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
@@ -45,7 +46,8 @@ from opik_mcp.error_kinds import ErrorKind
 
 
 class OpikAuthError(RuntimeError):
-    """Opik rejected the API key (401)."""
+    """Opik rejected the credential (401): a bad API key, or an OAuth access token
+    that expired or was revoked (see ``auth_context.oauth_token_expired_hint``)."""
 
     error_kind: ClassVar[ErrorKind] = "auth"
     http_status: ClassVar[int | None] = 401
@@ -842,9 +844,8 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
     detail = _error_detail(resp)
     suffix = f" — {detail}" if detail else ""
     if status == 401:
-        raise OpikAuthError(
-            f"Opik rejected the request (401). Check OPIK_API_KEY and OPIK_WORKSPACE.{suffix}"
-        )
+        hint = oauth_token_expired_hint() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+        raise OpikAuthError(f"Opik rejected the request (401). {hint}{suffix}")
     if status == 403:
         raise OpikPermissionError(
             f"Opik rejected the request (403). The API key is valid but lacks "

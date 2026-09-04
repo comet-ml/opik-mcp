@@ -126,3 +126,32 @@ def settings_auth_mode(*, has_api_key: bool, has_as_url: bool) -> str:
     if has_as_url:
         return "oauth"
     return "none"
+
+
+# What a tool error says when opik-backend answers 401 to a call made with an
+# OAuth bearer. Worded for the MODEL, which is what reads tool errors: the
+# token — not the user's configuration — is the problem, and the fix is to
+# retry, because the retry is the request that meets ``BearerAuthMiddleware``'s
+# ``invalid_token`` 401 and triggers the host's ``refresh_token`` grant. Telling
+# the model to "reconnect" here made it send users to the settings page for a
+# recovery the client would have done on its own (OPIK-8252).
+OAUTH_TOKEN_EXPIRED_HINT = (
+    "The Opik access token is expired or revoked. Retry this call — the MCP client "
+    "refreshes the token on the next request."
+)
+
+
+def oauth_token_expired_hint() -> str | None:
+    """The 401 hint for the credential this request is forwarding, or ``None``.
+
+    Reads the inbound bearer for the current request: ``OAUTH_TOKEN_EXPIRED_HINT``
+    when it is an OAuth token, ``None`` for an API key (or stdio, where there is
+    no inbound bearer at all), so API-key callers keep their "check OPIK_API_KEY"
+    guidance. Single source of truth for every layer that renders a backend 401
+    — the read/list client, the write envelope — so the wording cannot drift.
+    """
+    auth = inbound_authorization.get()
+    if not auth:
+        return None
+    mode, _ = classify_bearer(auth)
+    return OAUTH_TOKEN_EXPIRED_HINT if mode == "oauth" else None

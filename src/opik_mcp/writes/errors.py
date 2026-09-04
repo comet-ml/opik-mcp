@@ -13,6 +13,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, Final, Literal
 
+from opik_mcp.auth_context import oauth_token_expired_hint
 from opik_mcp.error_kinds import ErrorKind
 
 ErrorCode = Literal[
@@ -165,9 +166,12 @@ class BackendError(WriteError):
         method: str,
         path: str,
     ) -> BackendError:
+        message = f"Backend rejected {method} {path} with status {status}."
+        if status == 401 and (hint := oauth_token_expired_hint()):
+            message = f"{message} {hint}"
         return cls(
             operation=operation,
-            message=f"Backend rejected {method} {path} with status {status}.",
+            message=message,
             extra={
                 "backend_error": {
                     "status": status,

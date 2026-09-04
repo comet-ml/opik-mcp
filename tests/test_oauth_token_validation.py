@@ -146,3 +146,123 @@ async def test_handshake_validates_once_and_names_the_workspace(
     assert r.status_code == 200
     assert route.call_count == 1
     assert "andreicautisanu" in r.text
+
+
+# --- tool errors on an upstream 401 ------------------------------------------ #
+
+PROJECT_ID = "0f1c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b"
+
+
+def _valid_introspection() -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "user_name": "andrei",
+            "workspace_id": "ws-uuid",
+            "workspace_name": "andreicautisanu",
+            "resource": "https://www.comet.com/opik/api/v1/mcp",
+        },
+    )
+
+
+def _project_url() -> str:
+    base = opik_rest_base(get_settings())
+    return f"{base}/v1/private/projects/{PROJECT_ID}"
+
+
+def _jsonrpc_result(r: httpx.Response) -> dict[str, object]:
+    """The JSON-RPC result out of either a JSON or an SSE-framed response."""
+    if r.headers.get("content-type", "").startswith("text/event-stream"):
+        payloads = [
+            line[len("data:") :].strip() for line in r.text.splitlines() if line.startswith("data:")
+        ]
+        assert payloads, r.text
+        body = httpx.Response(200, content=payloads[-1]).json()
+    else:
+        body = r.json()
+    assert "result" in body, body
+    result: dict[str, object] = body["result"]
+    return result
+
+
+async def _read_project(http_client: httpx.AsyncClient, authorization: str) -> dict[str, object]:
+    """Run ``read(project, PROJECT_ID)`` over a fresh MCP session as the host would."""
+    headers = {"Authorization": authorization, "Accept": "application/json, text/event-stream"}
+    init = await http_client.post("/mcp", json=INITIALIZE, headers=headers)
+    assert init.status_code == 200, init.text
+    session = {**headers, "Mcp-Session-Id": init.headers["mcp-session-id"]}
+    await http_client.post(
+        "/mcp",
+        json={"jsonrpc": "2.0", "method": "notifications/initialized"},
+        headers=session,
+    )
+    r = await http_client.post(
+        "/mcp",
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {
+                "name": "read",
+                "arguments": {"entity_type": "project", "id": PROJECT_ID},
+            },
+        },
+        headers=session,
+    )
+    assert r.status_code == 200, r.text
+    return _jsonrpc_result(r)
+
+
+def _error_text(result: dict[str, object]) -> str:
+    assert result.get("isError") is True, result
+    content = result["content"]
+    assert isinstance(content, list)
+    return " ".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
+
+
+@pytest.mark.anyio
+async def test_upstream_401_in_oauth_mode_says_token_expired_retry(
+    http_client: httpx.AsyncClient,
+) -> None:
+    """A token that dies inside the validation window still reaches opik-backend
+    once. The tool error must tell the model the *token* expired and to retry —
+    not to check API keys, and not to tell the user to reconnect — because the
+    retry is what runs into the 401 that triggers the host's refresh."""
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post(_introspection_url()).mock(return_value=_valid_introspection())
+        mock.get(_project_url()).mock(return_value=httpx.Response(401))
+        result = await _read_project(
+            http_client, f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}dies-mid-window"
+        )
+
+    text = _error_text(result)
+    assert "access token" in text.lower()
+    assert "expired" in text.lower()
+    assert "retry" in text.lower()
+    assert "OPIK_API_KEY" not in text
+    assert "permission denied" not in text.lower()
+
+
+@pytest.mark.anyio
+async def test_upstream_401_in_api_key_mode_keeps_the_api_key_wording(
+    http_client: httpx.AsyncClient,
+) -> None:
+    with respx.mock(assert_all_called=True) as mock:
+        mock.get(_project_url()).mock(return_value=httpx.Response(401))
+        result = await _read_project(http_client, "Bearer some-static-api-key")
+
+    text = _error_text(result)
+    assert "OPIK_API_KEY" in text
+
+
+@pytest.mark.anyio
+async def test_upstream_403_keeps_the_permission_wording(http_client: httpx.AsyncClient) -> None:
+    """403 really is about workspace access; only the 401 wording changed."""
+    with respx.mock(assert_all_called=True) as mock:
+        mock.post(_introspection_url()).mock(return_value=_valid_introspection())
+        mock.get(_project_url()).mock(return_value=httpx.Response(403))
+        result = await _read_project(http_client, f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}no-access")
+
+    text = _error_text(result)
+    assert "permission denied" in text.lower()
+    assert "expired" not in text.lower()
