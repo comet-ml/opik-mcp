@@ -1,9 +1,9 @@
 # Opik MCP Server
 
 **The official Model Context Protocol (MCP) server for [Opik](https://github.com/comet-ml/opik), the open-source LLM observability and evaluation platform, built by [Comet](https://www.comet.com).**
-Plug your AI host (Claude Code, Cursor, VS Code Copilot, MCP Inspector) directly
-into your Opik workspace: read traces, log scores, and save prompt versions, all
-from the chat.
+Plug your AI host (Claude Code, Cursor, VS Code Copilot, Codex, opencode, or any
+MCP client) directly into your Opik workspace: read traces, log scores, and save
+prompt versions, all from the chat.
 
 Built for LLM engineers who already run Opik and want to drive it from the same
 AI assistant they code with.
@@ -22,7 +22,34 @@ Claude: → write(score.create) → done
 
 ---
 
-## Install
+## Quick start
+
+One command registers the server with the AI clients on your machine, installs
+the Opik skill pack, and verifies the connection. It needs [`uv`](https://docs.astral.sh/uv/)
+and no Opik SDK:
+
+```bash
+uvx opik mcp configure
+```
+
+It detects Claude Code, Cursor, VS Code Copilot, Codex and opencode, and uses the
+hosted server on Opik Cloud (browser sign-in, no API key stored) or this local
+server elsewhere. Any other MCP client can take the hosted URL directly:
+
+```bash
+npx add-mcp https://www.comet.com/opik/api/v1/mcp --name opik-mcp
+```
+
+[![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=opik-mcp&config=eyJ1cmwiOiJodHRwczovL3d3dy5jb21ldC5jb20vb3Bpay9hcGkvdjEvbWNwIn0%3D)
+[![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=opik-mcp&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fwww.comet.com%2Fopik%2Fapi%2Fv1%2Fmcp%22%7D)
+
+Setup guide, troubleshooting and FAQ: [comet.com/docs/opik/mcp-server](https://www.comet.com/docs/opik/mcp-server).
+The rest of this README covers the local server, which the command above sets up
+for self-hosted and open-source Opik, and which you can also configure by hand.
+
+---
+
+## Manual install
 
 `opik-mcp` is a Python package (requires Python 3.13+). The recommended way to
 run it is `uvx`, which fetches and runs the latest published version on demand —
@@ -360,6 +387,11 @@ after editing.
 **Cursor call times out at 60s** — Cursor's known bug, not `opik-mcp`. Either
 narrow the call (smaller `size`, a tighter window), or run the same operation
 on Claude Code which has no hard cap.
+
+**Server not showing, sign-in not opening, wrong workspace, `uvx` not found.**
+These are covered in the [troubleshooting section of the docs](https://www.comet.com/docs/opik/mcp-server#troubleshooting).
+`opik mcp status` (from the same `uvx opik` CLI) lists every client that has the
+server configured and whether its config has drifted.
 
 ---
 
