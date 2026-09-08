@@ -29,8 +29,13 @@ class FakeOpikClient:
     test_suite_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    issues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
+
+    async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        return self.issues
 
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -276,6 +281,98 @@ async def test_list_forwards_only_kwargs_the_entity_declares() -> None:
     )
     assert "p-1" in out
     assert set(fake.last_kwargs) == {"page", "size"}
+
+
+# --- agent_insights_issue (Diagnostics) ---------------------------------- #
+
+ISSUE_ROW = {
+    "id": "is-1",
+    "name": "Tool call loop on weather lookup",
+    "severity": "high",
+    "status": "open",
+    "total_occurrences": 300,
+    "latest_count": 12,
+    "last_seen": "2026-09-07",
+    "cause": "The agent retries the same tool call when the API times out.",
+    "suggested_fix": "Cap retries at 2.",
+}
+
+
+@pytest.mark.anyio
+async def test_list_issues_renders_diagnostics_columns_in_backend_order() -> None:
+    second = {**ISSUE_ROW, "id": "is-2", "name": "Empty answer", "severity": "low"}
+    fake = FakeOpikClient(issues={"content": [ISSUE_ROW, second], "total": 2})
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake)
+    lines = out.splitlines()
+    first = "is-1 | Tool call loop on weather lookup | high | open | 300 | 12 | 2026-09-07"
+    second_row = "is-2 | Empty answer | low | open | 300 | 12 | 2026-09-07"
+    assert "id | name | severity | status | total_occurrences | latest_count | last_seen" in lines
+    assert first in lines
+    assert lines.index(first) < lines.index(second_row)
+    # Long prose stays out of the table — that is what read() is for.
+    assert "Cap retries" not in out
+    assert fake.last_kwargs.get("project_id") == "p-1"
+    assert "sorting" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issues_defaults_to_open_status() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", client=fake)
+    assert fake.last_kwargs.get("status") == "open"
+
+
+@pytest.mark.anyio
+async def test_list_issues_forwards_explicit_status() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", status="resolved", client=fake)
+    assert fake.last_kwargs.get("status") == "resolved"
+
+
+@pytest.mark.anyio
+async def test_list_issues_forwards_window_only_when_given() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", client=fake)
+    assert "from_date" not in fake.last_kwargs
+    assert "to_date" not in fake.last_kwargs
+
+    await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        from_date="2026-09-01",
+        to_date="2026-09-08",
+        client=fake,
+    )
+    assert fake.last_kwargs.get("from_date") == "2026-09-01"
+    assert fake.last_kwargs.get("to_date") == "2026-09-08"
+
+
+@pytest.mark.anyio
+async def test_list_issues_requires_project_scope() -> None:
+    with pytest.raises(ToolError, match=r"requires project_id \(or project_name\)"):
+        await run_list("agent_insights_issue", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_list_issues_ignores_name_filter() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", name="loop", client=fake)
+    assert "name" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issue_filters_not_forwarded_to_other_entities() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "a"}], "total": 1})
+    await run_list(
+        "project", status="resolved", from_date="2026-09-01", to_date="2026-09-08", client=fake
+    )
+    assert set(fake.last_kwargs) == {"page", "size"}
+
+
+@pytest.mark.anyio
+async def test_list_issues_empty_state() -> None:
+    out = await run_list("agent_insights_issue", project_id="p-1", client=FakeOpikClient())
+    assert "No agent_insights_issues found" in out
 
 
 @pytest.mark.anyio

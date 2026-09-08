@@ -286,8 +286,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project UUID for project-scoped lists (trace, thread). "
-                "Pass this OR project_name."
+                "Parent project UUID for project-scoped lists (trace, thread, "
+                "agent_insights_issue). Pass this OR project_name."
             )
         ),
     ] = None,
@@ -295,7 +295,7 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project name — alternative to project_id for trace/thread "
+                "Parent project name — alternative to project_id for project-scoped "
                 "lists, so you don't need to resolve the UUID first."
             ),
             max_length=200,
@@ -309,6 +309,39 @@ async def list_entities(
         str | None,
         Field(description="Required when listing prompt_versions. UUID of the prompt."),
     ] = None,
+    status: Annotated[
+        str | None,
+        Field(
+            description=(
+                "agent_insights_issue only: which Diagnostics issues to list. "
+                "Defaults to 'open' (what is broken now); 'resolved' and 'closed' "
+                "show issues already dealt with. Ignored for other entity types."
+            ),
+            json_schema_extra={"enum": ["open", "resolved", "closed"]},
+        ),
+    ] = None,
+    from_date: Annotated[
+        str | None,
+        Field(
+            description=(
+                "agent_insights_issue only: start of the aggregation window as an "
+                "ISO date (YYYY-MM-DD). Omit both dates for all-time counts, which "
+                "is what the Diagnostics page shows. Ignored for other entity types."
+            ),
+            pattern=r"^\d{4}-\d{2}-\d{2}$",
+        ),
+    ] = None,
+    to_date: Annotated[
+        str | None,
+        Field(
+            description=(
+                "agent_insights_issue only: end of the aggregation window as an ISO "
+                "date (YYYY-MM-DD), inclusive. Defaults to today. Ignored for other "
+                "entity types."
+            ),
+            pattern=r"^\d{4}-\d{2}-\d{2}$",
+        ),
+    ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
     """List Opik entities with optional name filter and pagination.
@@ -320,6 +353,9 @@ async def list_entities(
     Project-scoped types require their parent:
     - trace: project_id or project_name
     - thread: project_id or project_name
+    - agent_insights_issue: project_id or project_name (Diagnostics issues,
+      open ones by default; columns: severity, status, total_occurrences,
+      latest_count, last_seen)
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
@@ -337,6 +373,9 @@ async def list_entities(
         project_name=project_name,
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
+        status=status,
+        from_date=from_date,
+        to_date=to_date,
     )
 
 

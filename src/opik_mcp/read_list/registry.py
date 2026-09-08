@@ -340,6 +340,16 @@ async def _list_threads(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_threads(**kw)
 
 
+async def _list_agent_insights_issues(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # "What is broken" means open issues, so that is the default; the caller
+    # asks for resolved/closed explicitly. No name filter exists on the backend.
+    # No ``sorting`` is sent: the backend's default (last seen, then total
+    # occurrences) is the Diagnostics page's ranking.
+    kw.pop("name", None)
+    kw.setdefault("status", "open")
+    return await client.list_agent_insights_issues(**kw)
+
+
 # --- trace skeleton compression ------------------------------------------ #
 
 
@@ -516,6 +526,30 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "messagesTruncated}. Requires project scope — pass a thread link/URI "
             "or project_id. list('thread', project_id=…) enumerates a project's "
             "threads."
+        ),
+    ),
+    "agent_insights_issue": EntityHandler(
+        entity_type="agent_insights_issue",
+        fetch_fn=_unsupported_fetch,
+        list_fn=_list_agent_insights_issues,
+        list_extra_fields=(
+            "severity",
+            "status",
+            "total_occurrences",
+            "latest_count",
+            "last_seen",
+        ),
+        list_required_kwargs=("project_id",),
+        list_optional_kwargs=("status", "from_date", "to_date"),
+        id_only=True,
+        description=(
+            "Diagnostics issue (Agent Insights): a recurring failure the "
+            "Diagnostics job grouped across a project's traces, with severity, "
+            "status, occurrence counts, cause and suggested fix. "
+            "list('agent_insights_issue', project_id=… | project_name=…) returns "
+            "open issues ranked as the Diagnostics page ranks them (most recently "
+            "seen first); pass status='resolved' or 'closed' for the rest. Counts "
+            "are all-time unless from_date/to_date narrow the window."
         ),
     ),
 }

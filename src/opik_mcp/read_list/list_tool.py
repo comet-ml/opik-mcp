@@ -5,9 +5,12 @@ table (mirrors ollie's format) — easier for the LLM to scan than nested
 JSON and lossless for the columns we care about (id, name, plus a few
 entity-specific fields like ``created_at`` / ``dataset_name``).
 
-Project-scoped lists (``trace``, ``test_suite_item``, ``prompt_version``)
-require their parent id via ``project_id`` / ``test_suite_id`` /
-``prompt_id`` — enforced via the registry's ``list_required_kwargs``.
+Project-scoped lists (``trace``, ``thread``, ``agent_insights_issue``,
+``test_suite_item``, ``prompt_version``) require their parent id via
+``project_id`` / ``test_suite_id`` / ``prompt_id`` — enforced via the
+registry's ``list_required_kwargs``. Entity-specific filters (``status``,
+``from_date``, ``to_date`` for Diagnostics issues) are forwarded only to the
+entity that declares them in ``list_optional_kwargs``.
 """
 
 from __future__ import annotations
@@ -45,6 +48,9 @@ async def run_list(
     project_name: str | None = None,
     test_suite_id: str | None = None,
     prompt_id: str | None = None,
+    status: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
     settings: Settings | None = None,
     client: OpikListClient | None = None,
 ) -> str:
@@ -74,6 +80,9 @@ async def run_list(
         "project_name": project_name,
         "test_suite_id": test_suite_id,
         "prompt_id": prompt_id,
+        "status": status,
+        "from_date": from_date,
+        "to_date": to_date,
     }
     for key, value in candidates.items():
         if value is not None and key in accepted:

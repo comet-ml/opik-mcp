@@ -1,8 +1,9 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, prompt_version, test_suite, test_suite_item, thread, trace.",
+      "description": "One of: agent_insights_issue, experiment, project, prompt, prompt_version, test_suite, test_suite_item, thread, trace.",
       "enum": [
+        "agent_insights_issue",
         "experiment",
         "project",
         "prompt",
@@ -14,6 +15,20 @@
       ],
       "title": "Entity Type",
       "type": "string"
+    },
+    "from_date": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: start of the aggregation window as an ISO date (YYYY-MM-DD). Omit both dates for all-time counts, which is what the Diagnostics page shows. Ignored for other entity types.",
+      "title": "From Date"
     },
     "name": {
       "anyOf": [
@@ -47,7 +62,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project UUID for project-scoped lists (trace, thread). Pass this OR project_name.",
+      "description": "Parent project UUID for project-scoped lists (trace, thread, agent_insights_issue). Pass this OR project_name.",
       "title": "Project Id"
     },
     "project_name": {
@@ -61,7 +76,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project name \u2014 alternative to project_id for trace/thread lists, so you don't need to resolve the UUID first.",
+      "description": "Parent project name \u2014 alternative to project_id for project-scoped lists, so you don't need to resolve the UUID first.",
       "title": "Project Name"
     },
     "prompt_id": {
@@ -85,6 +100,24 @@
       "title": "Size",
       "type": "integer"
     },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: which Diagnostics issues to list. Defaults to 'open' (what is broken now); 'resolved' and 'closed' show issues already dealt with. Ignored for other entity types.",
+      "enum": [
+        "open",
+        "resolved",
+        "closed"
+      ],
+      "title": "Status"
+    },
     "test_suite_id": {
       "anyOf": [
         {
@@ -97,6 +130,20 @@
       "default": null,
       "description": "Required when listing test_suite_items. UUID of the suite.",
       "title": "Test Suite Id"
+    },
+    "to_date": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: end of the aggregation window as an ISO date (YYYY-MM-DD), inclusive. Defaults to today. Ignored for other entity types.",
+      "title": "To Date"
     }
   },
   "required": [

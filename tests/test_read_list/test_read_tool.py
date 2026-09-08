@@ -155,6 +155,9 @@ class FakeOpikClient:
     async def list_test_suite_items(self, _test_suite_id: str, **_kw: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
+    async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
 
 UUID = "11111111-2222-3333-4444-555555555555"
 

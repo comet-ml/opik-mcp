@@ -73,9 +73,20 @@ def test_optional_kwargs_never_overlap_required_ones() -> None:
         assert not set(handler.list_required_kwargs) & set(handler.list_optional_kwargs)
 
 
-def test_optional_kwargs_default_empty() -> None:
-    """No entity declares optional kwargs yet; the gate must drop everything
-    the caller passes beyond the required parent id."""
-    for handler in ENTITY_REGISTRY.values():
+def test_only_agent_insights_issue_declares_optional_kwargs() -> None:
+    """Every other entity takes nothing beyond its parent id, so the gate
+    must drop whatever else the caller passes."""
+    for entity_type, handler in ENTITY_REGISTRY.items():
+        if entity_type == "agent_insights_issue":
+            continue
         assert handler.list_optional_kwargs == ()
         assert handler.read_optional_kwargs == ()
+
+
+def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
+    handler = ENTITY_REGISTRY["agent_insights_issue"]
+    assert "agent_insights_issue" in LISTABLE_TYPES
+    assert handler.list_required_kwargs == ("project_id",)
+    assert set(handler.list_optional_kwargs) == {"status", "from_date", "to_date"}
+    assert handler.id_only is True
+    assert handler.search_by_name_fn is None

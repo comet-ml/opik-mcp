@@ -243,13 +243,26 @@ read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
 ### `list`
 
 Browse a collection with optional name filter and pagination. Project-scoped
-types (`trace`, `test_suite_item`, `prompt_version`) require their parent UUID.
+types (`trace`, `thread`, `agent_insights_issue`) take `project_id` or
+`project_name`; sub-collections (`test_suite_item`, `prompt_version`) require
+their parent UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
 list(entity_type="experiment", name="rerank")          # name substring filter
 list(entity_type="trace", project_id="<project-uuid>") # traces of one project
+list(entity_type="agent_insights_issue", project_name="demo")             # open Diagnostics issues
+list(entity_type="agent_insights_issue", project_id="<uuid>", status="resolved")
 ```
+
+**Diagnostics issues.** `agent_insights_issue` is the Diagnostics page over
+the MCP: the recurring failures Opik's Diagnostics job grouped for a project,
+ranked as the UI ranks them (most recently seen first). Columns are `severity`,
+`status`, `total_occurrences` (all-time sum), `latest_count` (the most recent
+report day, the number the issue's own description refers to) and `last_seen`.
+Open issues are listed by default; pass `status="resolved"` or `"closed"` for
+the rest. Counts are all-time so they match the UI; `from_date` / `to_date`
+(ISO dates) narrow the window.
 
 ### `write`
 
