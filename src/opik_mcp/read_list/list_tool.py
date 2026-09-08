@@ -155,7 +155,8 @@ def _format_table(
     name: str | None,
 ) -> str:
     """Pipe-delimited table — mirrors ollie's ``_format_table``."""
-    columns: tuple[str, ...] = ("id", "name", *handler.list_extra_fields)
+    base = ("id", "name") if handler.list_has_name else ("id",)
+    columns: tuple[str, ...] = (*base, *handler.list_extra_fields)
     count = len(content)
     if name:
         header = (
@@ -189,14 +190,22 @@ def _cell(item: dict[str, Any], col: str) -> Any:
 
     ``error_type`` is derived from the error container when the record does
     not carry it flat: the backend's list payload has ``error_info.exception_type``.
+    A feedback-score list (``[{name, value}, …]``) renders as ``name=value`` pairs.
     """
     if col in item:
-        return item[col]
+        val = item[col]
+        if isinstance(val, list) and val and all(isinstance(s, dict) for s in val):
+            return _score_summary(val)
+        return val
     if col == "error_type":
         info = item.get("error_info")
         if isinstance(info, dict):
             return info.get("exception_type")
     return None
+
+
+def _score_summary(scores: list[dict[str, Any]]) -> str:
+    return ", ".join(f"{s.get('name')}={s.get('value')}" for s in scores if "name" in s)
 
 
 __all__ = ["run_list"]

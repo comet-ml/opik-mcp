@@ -254,6 +254,10 @@ list(entity_type="trace", project_name="demo",
      filters='error_info is_not_empty AND duration > 5000')
 list(entity_type="span", project_name="demo",          # spans across the whole project
      filters='type = "llm" AND usage.total_tokens > 10000')
+list(entity_type="thread", project_name="demo",
+     filters='number_of_messages > 20 AND feedback_scores.helpfulness < 0.5')
+list(entity_type="experiment",
+     filters='dataset_id = "<dataset-uuid>" AND tags contains "baseline"')
 ```
 
 **Filters.** `trace`, `span`, `thread` and `experiment` take an OQL string, the

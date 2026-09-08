@@ -65,6 +65,9 @@ class EntityHandler:
     list_fn: ListFn | None = None
     list_extra_fields: tuple[str, ...] = ()
     list_required_kwargs: tuple[str, ...] = ()
+    list_has_name: bool = True
+    """False for entities whose records carry no ``name`` (thread) — the table
+    then starts at ``id`` instead of rendering an always-empty name column."""
     compress_fn: CompressFn | None = None
     id_only: bool = False
     """True if the entity is addressed only by UUID (no name lookup).
@@ -465,7 +468,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         fetch_fn=_fetch_experiment,
         search_by_name_fn=_search_experiment,
         list_fn=_list_experiments,
-        list_extra_fields=("dataset_name", "created_at"),
+        # feedback_scores is the experiment's per-metric averages, rendered as
+        # ``name=value`` pairs so a comparison list reads without a read() per row.
+        list_extra_fields=("dataset_name", "created_at", "feedback_scores"),
         description="Experiment status + summary scores.",
     ),
     "prompt": EntityHandler(
@@ -506,8 +511,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         entity_type="thread",
         fetch_fn=_fetch_thread,
         list_fn=_list_threads,
-        list_extra_fields=("status", "number_of_messages", "last_updated_at"),
+        list_extra_fields=("status", "number_of_messages", "duration", "last_updated_at"),
         list_required_kwargs=("project_id",),
+        list_has_name=False,
         compress_fn=_compress_thread,
         id_only=True,
         needs_project=True,

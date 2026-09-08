@@ -233,3 +233,106 @@ async def test_span_rows_carry_span_columns_by_default() -> None:
     out = await run_list("span", project_id="p-1", client=fake)
     assert "id | name | type | trace_id | duration | model | error_type" in out
     assert "s-1 | openai.chat | llm | t-1 | 812.0 | gpt-4o | RateLimitError" in out
+
+
+# --- thread / experiment ---------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_thread_filters_reach_the_backend_with_the_sdk_default() -> None:
+    fake = FakeOpikClient()
+    await run_list(
+        "thread",
+        project_name="demo",
+        filters=(
+            'status = "active" AND number_of_messages > 20 AND feedback_scores.helpfulness < 0.5'
+        ),
+        client=fake,
+    )
+    assert _sent_filters(fake) == [
+        {"field": "status", "operator": "=", "key": "", "value": "active"},
+        {"field": "number_of_messages", "operator": ">", "key": "", "value": "20"},
+        {"field": "feedback_scores", "operator": "<", "key": "helpfulness", "value": "0.5"},
+        SDK_SOURCE,
+    ]
+
+
+@pytest.mark.anyio
+async def test_experiment_filters_reach_the_backend_without_a_source_default() -> None:
+    fake = FakeOpikClient()
+    await run_list(
+        "experiment",
+        name="rerank",
+        filters='dataset_id = "ds-1" AND tags contains "baseline"',
+        client=fake,
+    )
+    assert fake.last_kwargs.get("name") == "rerank"
+    assert _sent_filters(fake) == [
+        {"field": "dataset_id", "operator": "=", "key": "", "value": "ds-1"},
+        {"field": "tags", "operator": "contains", "key": "", "value": "baseline"},
+    ]
+
+
+@pytest.mark.anyio
+async def test_experiment_list_without_filters_sends_none() -> None:
+    fake = FakeOpikClient()
+    out = await run_list("experiment", client=fake)
+    assert "filters" not in fake.last_kwargs
+    assert not out.startswith("[list:")
+
+
+@pytest.mark.anyio
+async def test_thread_and_experiment_unknown_fields_list_their_own_fields() -> None:
+    with pytest.raises(ToolError) as ei:
+        await run_list("thread", project_id="p-1", filters='model = "x"', client=FakeOpikClient())
+    assert "first_message" in str(ei.value) and "model" in str(ei.value)
+
+    with pytest.raises(ToolError) as ei:
+        await run_list("experiment", filters="duration > 5", client=FakeOpikClient())
+    assert "experiment_scores" in str(ei.value) and "Unknown field 'duration'" in str(ei.value)
+
+
+@pytest.mark.anyio
+async def test_thread_rows_carry_duration() -> None:
+    fake = FakeOpikClient(
+        threads=_page(
+            [
+                {
+                    "id": "th-1",
+                    "status": "inactive",
+                    "number_of_messages": 12,
+                    "duration": 91000.0,
+                    "last_updated_at": "2026-09-08T09:00:00Z",
+                }
+            ]
+        )
+    )
+    out = await run_list("thread", project_id="p-1", client=fake)
+    assert "id | status | number_of_messages | duration | last_updated_at" in out
+    assert "th-1 | inactive | 12 | 91000.0 | 2026-09-08T09:00:00Z" in out
+
+
+@pytest.mark.anyio
+async def test_experiment_rows_summarise_feedback_scores() -> None:
+    fake = FakeOpikClient(
+        experiments=_page(
+            [
+                {
+                    "id": "e-1",
+                    "name": "rerank-v2",
+                    "dataset_name": "golden",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "feedback_scores": [
+                        {"name": "accuracy", "value": 0.8125},
+                        {"name": "hallucination", "value": 0.1},
+                    ],
+                }
+            ]
+        )
+    )
+    out = await run_list("experiment", client=fake)
+    assert "id | name | dataset_name | created_at | feedback_scores" in out
+    assert (
+        "e-1 | rerank-v2 | golden | 2026-09-01T00:00:00Z | accuracy=0.8125, hallucination=0.1"
+        in out
+    )
