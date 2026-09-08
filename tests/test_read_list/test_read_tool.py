@@ -688,7 +688,11 @@ async def test_read_issue_medium_drops_row_metadata_to_meet_budget() -> None:
     ]
     detail = {**_ISSUE_DETAIL, "details": rows}
     out = await run_read(
-        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=1_000, client=_issue_fake(detail)
+        "agent_insights_issue",
+        ISSUE,
+        project_id="p-9",
+        max_tokens=1_000,
+        client=_issue_fake(detail),
     )
     header, payload = out.split("\n", 1)
     assert "compression=MEDIUM" in header

@@ -505,12 +505,16 @@ def _compress_thread(data: dict[str, Any], max_tokens: int | None) -> tuple[str,
 
 
 def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
-    """Issue+details: FULL → MEDIUM (truncated strings) → SKELETON (ids only).
+    """Issue+details: FULL → MEDIUM (rows without metadata, then truncated
+    strings) → SKELETON (ids only).
 
-    An all-time read carries one row per report day, each with prose in its
-    metadata. SKELETON drops the rows but keeps every example trace id — the
-    ids are the reason for the read, and the generic pipeline would truncate
-    exactly the field we came for.
+    Unlike trace/thread, MEDIUM here is budget-aware. An issue read is mostly
+    per-day rows whose ``metadata`` repeats the example ids (already lifted
+    into ``example_trace_ids``) and carries a confidence justification; that
+    is the bulk of the tokens and none of the reason for the read. So MEDIUM
+    first drops row metadata, then truncates long strings, and returns as
+    soon as the body fits. If it still does not fit, SKELETON — the agent
+    asked for a small answer, so the global 50k threshold is not the bar.
     """
     full_json = compact_json(data)
     full_tokens = estimate_tokens(full_json)
@@ -519,9 +523,21 @@ def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
     if full_tokens <= budget:
         return full_json, CompressionTier.FULL
 
-    if full_tokens < TOKEN_SKELETON_THRESHOLD:
-        truncated = truncate_strings(data, ".agent_insights_issue")
-        return compact_json(truncated), CompressionTier.MEDIUM
+    pruned = {
+        **data,
+        "details": [
+            {key: value for key, value in row.items() if key != "metadata"}
+            for row in data.get("details") or []
+            if isinstance(row, dict)
+        ],
+    }
+    pruned_json = compact_json(pruned)
+    if estimate_tokens(pruned_json) <= budget:
+        return pruned_json, CompressionTier.MEDIUM
+
+    truncated_json = compact_json(truncate_strings(pruned, ".agent_insights_issue"))
+    if estimate_tokens(truncated_json) <= budget:
+        return truncated_json, CompressionTier.MEDIUM
 
     issue = data.get("issue") or {}
     skeleton = {
