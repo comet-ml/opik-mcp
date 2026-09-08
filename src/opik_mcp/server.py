@@ -268,7 +268,8 @@ async def read(
       trace_url_template} — the Diagnostics issue with cause and suggested fix,
       the deduped ids of traces that exhibit it (open one with read('trace', id)),
       the per-day breakdown, the issue's Diagnostics page link, and a template
-      for linking any example trace. Needs project scope like thread.
+      for linking any example trace (both links omitted when the Opik URL or
+      the session's workspace is unknown). Needs project scope like thread.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
     Output is a one-line `[read: …]` header (entity_type, id, compression

@@ -726,8 +726,8 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "example_trace_ids, details, url, trace_url_template}: the record with "
             "cause and suggested fix, the deduped ids of traces that exhibit it "
             "(open one with read('trace', id)), the per-day breakdown, and UI links "
-            "to hand the user. Counts are all-time unless from_date/to_date narrow "
-            "the window."
+            "to hand the user (omitted when the Opik URL or workspace is unknown). "
+            "Counts are all-time unless from_date/to_date narrow the window."
         ),
     ),
 }

@@ -40,10 +40,11 @@ Opik's Diagnostics already groups a project's recurring failures into ranked iss
 ```text
 list('agent_insights_issue', project_name='<project>')        # open issues, ranked as the Diagnostics page ranks them
 read('agent_insights_issue', '<issue id>', project_name='<project>')
-#  → {issue: {name, cause, suggested_fix, severity, status, …}, example_trace_ids: [...], details: [...]}
+#  → {issue: {name, cause, suggested_fix, severity, status, …}, example_trace_ids: [...], details: [...],
+#     url: '<the issue's Diagnostics page>', trace_url_template: '<…/logs?trace={trace_id}>'}
 ```
 
-Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` / `trace_url` come from the first `example_trace_ids` entry (read the top few issues to get them), `why` carries the issue name, severity, `latest_count` and the cause. Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `from_date` to narrow to the window.
+Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` comes from the first `example_trace_ids` entry (read the top few issues to get them) and `trace_url` from `trace_url_template` with that id filled in; mention the issue's `url` so the user can open the Diagnostics page itself. `why` carries the issue name, severity, `latest_count` and the cause. The link fields are absent when the server cannot name the UI base or workspace — fall back to the trace redirect URL then. Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `from_date` to narrow to the window.
 
 **Without the MCP**, the SDK REST client reads the same issues:
 

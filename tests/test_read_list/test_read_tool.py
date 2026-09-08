@@ -819,6 +819,21 @@ async def test_read_issue_skeleton_keeps_url() -> None:
 
 
 @pytest.mark.anyio
+async def test_read_window_kwargs_dropped_for_entities_that_do_not_declare_them() -> None:
+    """from_date/to_date belong to the issue read; a thread fetcher takes
+    neither, so the gate must drop them instead of crashing the fetch."""
+    out = await run_read(
+        "thread",
+        THREAD,
+        project_id="p-9",
+        from_date="2026-09-01",
+        to_date="2026-09-08",
+        client=_thread_fake(),
+    )
+    assert f"[read: thread {THREAD}" in out
+
+
+@pytest.mark.anyio
 async def test_read_thread_has_no_link_fields() -> None:
     """Links are an issue-read affordance; other composites are unchanged."""
     out = await run_read(

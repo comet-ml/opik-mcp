@@ -62,6 +62,18 @@ def test_link_workspace_is_none_for_oauth_bearer_with_unknown_workspace() -> Non
         inbound_authorization.reset(tok)
 
 
+def test_link_workspace_trusts_inbound_header_under_oauth() -> None:
+    """An explicit Comet-Workspace header is cross-checked against the token
+    server-side, so it is a safe name to link with even under OAuth."""
+    tok_auth = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
+    tok_ws = inbound_workspace.set("header-ws")
+    try:
+        assert link_workspace(_settings()) == "header-ws"
+    finally:
+        inbound_workspace.reset(tok_ws)
+        inbound_authorization.reset(tok_auth)
+
+
 def test_link_workspace_uses_settings_for_api_key_sessions() -> None:
     tok = inbound_authorization.set("plain-api-key")
     try:
