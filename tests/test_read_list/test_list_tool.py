@@ -466,6 +466,39 @@ async def test_list_issues_unknown_project_name_is_a_clear_error() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_issues_project_name_resolved_once_per_process() -> None:
+    """Every call with project_name used to pay a second round trip. The
+    resolved id is cached, so the follow-up call skips the projects lookup."""
+    fake = FakeOpikClient(projects={"content": [{"id": "p-demo", "name": "demo"}], "total": 1})
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    await run_list("agent_insights_issue", project_name="demo", status="resolved", client=fake)
+    assert fake.project_lookups == 1
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_name_cache_is_per_name() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-demo", "name": "demo"}], "total": 1})
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    fake.projects = {"content": [{"id": "p-other", "name": "other"}], "total": 1}
+    await run_list("agent_insights_issue", project_name="other", client=fake)
+    assert fake.project_lookups == 2
+    assert fake.last_kwargs.get("project_id") == "p-other"
+
+
+@pytest.mark.anyio
+async def test_list_issues_unresolved_project_name_is_not_cached() -> None:
+    """A miss must not be remembered: the project may be created a moment later."""
+    fake = FakeOpikClient()
+    with pytest.raises(ToolError):
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    fake.projects = {"content": [{"id": "p-demo", "name": "demo"}], "total": 1}
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert fake.project_lookups == 2
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
 async def test_list_issues_project_id_wins_over_name_without_lookup() -> None:
     fake = FakeOpikClient()
     await run_list("agent_insights_issue", project_id="p-9", project_name="demo", client=fake)

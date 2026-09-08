@@ -592,6 +592,18 @@ async def test_read_issue_unknown_project_name_is_a_clear_error() -> None:
 
 
 @pytest.mark.anyio
+async def test_read_issue_reuses_project_id_resolved_by_an_earlier_call() -> None:
+    """list then read by the same project_name is the agent's normal flow;
+    the second call must not pay the projects lookup again."""
+    fake = _issue_fake()
+    fake.projects_by_name = {"demo": [{"id": "p-demo", "name": "demo"}]}
+    await run_read("agent_insights_issue", ISSUE, project_name="demo", client=fake)
+    await run_read("agent_insights_issue", ISSUE, project_name="demo", client=fake)
+    assert fake.project_lookups == 1
+    assert fake.last_issue_kwargs["project_id"] == "p-demo"
+
+
+@pytest.mark.anyio
 async def test_read_issue_project_id_wins_over_name_without_lookup() -> None:
     fake = _issue_fake()
     await run_read(
@@ -652,6 +664,57 @@ async def test_read_issue_via_canonical_uri() -> None:
     )
     assert f"[read: agent_insights_issue {ISSUE}" in out
     assert fake.last_issue_kwargs["project_id"] == "p-uri"
+
+
+@pytest.mark.anyio
+async def test_read_issue_medium_drops_row_metadata_to_meet_budget() -> None:
+    """The per-row metadata (ids already lifted into example_trace_ids, plus
+    prose) is the bulk of an issue read. When the FULL body is over budget,
+    MEDIUM drops it first — and that alone should bring the seven-row fixture
+    under a 1,000-token budget while keeping every row's counts."""
+    rows = [
+        {
+            "report_day": f"2026-09-0{d}",
+            "count": d,
+            "total_count": 10 * d,
+            "users_impacted": 1,
+            "total_users": 40,
+            "metadata": {
+                "example_trace_ids": [f"tr-{d}-{i}" for i in range(5)],
+                "confidence_justification": "why " * 150,
+            },
+        }
+        for d in range(1, 8)
+    ]
+    detail = {**_ISSUE_DETAIL, "details": rows}
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=1_000, client=_issue_fake(detail)
+    )
+    header, payload = out.split("\n", 1)
+    assert "compression=MEDIUM" in header
+    assert len(payload) // 4 <= 1_000
+    body = json.loads(payload)
+    assert len(body["example_trace_ids"]) == 35
+    assert len(body["details"]) == 7
+    assert body["details"][0]["count"] == 1
+    assert "metadata" not in body["details"][0]
+    # The prose the agent came for is intact at this tier.
+    assert body["issue"]["suggested_fix"] == _ISSUE_DETAIL["suggested_fix"]
+
+
+@pytest.mark.anyio
+async def test_read_issue_falls_to_skeleton_when_still_over_budget() -> None:
+    """A budget too small for even the pruned rows gets SKELETON regardless of
+    the global 50k threshold — the agent asked for a small answer."""
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=150, client=_issue_fake()
+    )
+    header, payload = out.split("\n", 1)
+    assert "compression=SKELETON" in header
+    body = json.loads(payload)
+    assert body["example_trace_ids"] == ["tr-a", "tr-b", "tr-c"]
+    assert body["issue"]["name"] == _ISSUE_DETAIL["name"]
+    assert "details" not in body
 
 
 @pytest.mark.anyio
