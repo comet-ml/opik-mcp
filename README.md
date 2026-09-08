@@ -242,14 +242,39 @@ read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
 
 ### `list`
 
-Browse a collection with optional name filter and pagination. Project-scoped
-types (`trace`, `test_suite_item`, `prompt_version`) require their parent UUID.
+Browse or search a collection with pagination. Project-scoped types (`trace`,
+`thread`, `test_suite_item`, `prompt_version`) require their parent — a project
+UUID or name, a suite UUID, a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
 list(entity_type="experiment", name="rerank")          # name substring filter
-list(entity_type="trace", project_id="<project-uuid>") # traces of one project
+list(entity_type="trace", project_name="demo")         # latest traces of one project
+list(entity_type="trace", project_name="demo",
+     filters='error_info is_not_empty AND duration > 5000')
 ```
+
+**Filters.** `trace`, `span`, `thread` and `experiment` take an OQL string, the
+same grammar as the SDK's `search_traces(filter_string=…)`:
+
+```
+<field>[.<key>] <op> <value> [AND ...]
+ops: = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in
+```
+
+Strings go in double quotes, numbers are bare, `duration` is in milliseconds,
+dates are ISO-8601 instants with a timezone (`"2026-09-08T10:00:00Z"`).
+Scores and dictionaries take a key: `feedback_scores.accuracy < 0.5`,
+`metadata.environment = "prod"`. `AND` is the only connector.
+
+Like the UI's Logs page, trace, span and thread lists add `source = "sdk"` so
+evaluator, playground and experiment traces stay out of the way; name `source`
+yourself to see them. The first output line echoes the filter that was applied.
+
+A bad filter fails before reaching the backend with what is needed to fix it:
+the position of a syntax error, the closest field name, the valid operators for
+the field's type, or the expected value format. Ask `schema("list.trace")` (or
+`list.span`, `list.thread`, `list.experiment`) for the full field reference.
 
 ### `write`
 

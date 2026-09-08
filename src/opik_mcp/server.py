@@ -274,6 +274,22 @@ async def list_entities(
             max_length=200,
         ),
     ] = None,
+    filters: Annotated[
+        str | None,
+        Field(
+            description=(
+                "OQL filter for trace, span, thread, experiment. "
+                "<field>[.<key>] <op> <value> [AND ...]; ops: = != > >= < <= contains "
+                "not_contains starts_with ends_with is_empty is_not_empty in not_in. "
+                "Strings in double quotes, numbers bare, duration in ms. E.g. "
+                "'error_info is_not_empty AND duration > 5000' or "
+                "'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. "
+                'trace/span/thread add source = "sdk" unless you name source. '
+                'Field reference: schema("list.trace").'
+            ),
+            max_length=2000,
+        ),
+    ] = None,
     page: Annotated[
         int,
         Field(description="Page number (1-indexed).", ge=1, le=10_000),
@@ -311,11 +327,12 @@ async def list_entities(
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
-    """List Opik entities with optional name filter and pagination.
+    """List Opik entities with optional filters and pagination.
 
     Output is a pipe-delimited table with id, name, and a few entity-specific
-    columns, plus a pagination footer when more pages exist. Use read() to
-    get full details on any specific item.
+    columns, plus a pagination footer when more pages exist. When filters
+    apply, the first line echoes what was applied. Use read() to get full
+    details on any specific item.
 
     Project-scoped types require their parent:
     - trace: project_id or project_name
@@ -324,13 +341,15 @@ async def list_entities(
     - prompt_version: prompt_id
 
     Workspace-wide types (project, experiment, prompt, test_suite) accept
-    an optional `name` substring filter.
+    an optional `name` substring filter. trace, span, thread, experiment
+    accept an OQL `filters` string.
     """
     if ctx is not None:
         await ctx.info(f"list.called entity_type={entity_type} page={page} size={size}")
     return await run_list(
         entity_type=entity_type,
         name=name,
+        filters=filters,
         page=page,
         size=size,
         project_id=project_id,

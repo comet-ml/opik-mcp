@@ -418,7 +418,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         entity_type="trace",
         fetch_fn=_fetch_trace,
         list_fn=_list_traces,
-        list_extra_fields=("start_time", "end_time"),
+        # Triage columns: what a "which traces need attention" list needs
+        # without a read() per row. error_type is derived from error_info.
+        list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
         list_required_kwargs=("project_id",),
         compress_fn=_compress_trace,
         id_only=True,
