@@ -15,6 +15,7 @@ substring hit would read the wrong project's Diagnostics with nothing to say so.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from typing import Any
 
@@ -29,25 +30,36 @@ _LOOKUP_PAGE_SIZE = 100
 # The agent's normal flow is list-then-read with the same project_name, and
 # each call used to pay the projects round trip again (~370 ms on cloud). A
 # project's id never changes, and a rename is rare, so a short-lived cache is
-# safe. Keyed by the client's REST base + workspace as well as the name: in
-# hosted mode one process serves many workspaces, and the same name means a
-# different project in each.
+# safe. The key is the client's REST base, workspace AND a hash of its
+# credential, plus the name: in hosted mode one process serves many tenants,
+# the same name means a different project in each, and under OAuth
+# passthrough the workspace is token-derived server-side and may be unknown
+# here — the credential is then the only thing that tells tenants apart.
 _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX_ENTRIES = 512
-_cache: dict[tuple[str | None, str | None, str], tuple[str, float]] = {}
+_CacheKey = tuple[str | None, str | None, str | None, str]
+_cache: dict[_CacheKey, tuple[str, float]] = {}
 
 
-def _cache_key(client: OpikListClient, project_name: str) -> tuple[str | None, str | None, str]:
-    base_url = getattr(client, "_base_url", None)
-    workspace = getattr(client, "_workspace", None)
+def _str_attr(client: OpikListClient, name: str) -> str | None:
+    value = getattr(client, name, None)
+    return value if isinstance(value, str) and value else None
+
+
+def _cache_key(client: OpikListClient, project_name: str) -> _CacheKey:
+    credential = _str_attr(client, "_api_key")
+    credential_hash = (
+        hashlib.sha256(credential.encode()).hexdigest()[:16] if credential is not None else None
+    )
     return (
-        base_url if isinstance(base_url, str) else None,
-        workspace if isinstance(workspace, str) else None,
+        _str_attr(client, "_base_url"),
+        _str_attr(client, "_workspace"),
+        credential_hash,
         project_name,
     )
 
 
-def _cache_get(key: tuple[str | None, str | None, str]) -> str | None:
+def _cache_get(key: _CacheKey) -> str | None:
     hit = _cache.get(key)
     if hit is None:
         return None
@@ -58,7 +70,7 @@ def _cache_get(key: tuple[str | None, str | None, str]) -> str | None:
     return project_id
 
 
-def _cache_put(key: tuple[str | None, str | None, str], project_id: str) -> None:
+def _cache_put(key: _CacheKey, project_id: str) -> None:
     if len(_cache) >= _CACHE_MAX_ENTRIES:
         # Bounded and rarely full; dropping the oldest insertion is enough.
         _cache.pop(next(iter(_cache)), None)
@@ -66,6 +78,8 @@ def _cache_put(key: tuple[str | None, str | None, str], project_id: str) -> None
 
 
 def reset_project_cache_for_tests() -> None:
+    """Drop every cached project id. Test-only: fakes carry no credential, so
+    they all share one key and one test's resolution would satisfy the next."""
     _cache.clear()
 
 

@@ -36,6 +36,11 @@ class FakeOpikClient:
 
     project_lookups: int = 0
     fail_issues_with: Exception | None = None
+    # Credential identity the project-name cache keys on; None mimics a fake
+    # with no config, as every other test here has.
+    _base_url: str | None = None
+    _workspace: str | None = None
+    _api_key: str | None = None
 
     async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -474,6 +479,36 @@ async def test_list_issues_project_name_resolved_once_per_process() -> None:
     await run_list("agent_insights_issue", project_name="demo", status="resolved", client=fake)
     assert fake.project_lookups == 1
     assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_name_cache_is_per_credential() -> None:
+    """Hosted OAuth passthrough: one process, many bearers, and the client's
+    workspace may be unknown (it lives server-side). Two tenants asking for
+    the same project name must never share a resolved id."""
+    tenant_a = FakeOpikClient(projects={"content": [{"id": "p-a", "name": "demo"}], "total": 1})
+    tenant_a._base_url = "https://opik.test/api"
+    tenant_a._workspace = None
+    tenant_a._api_key = "Bearer opik_mcp_at_aaa"
+    tenant_b = FakeOpikClient(projects={"content": [{"id": "p-b", "name": "demo"}], "total": 1})
+    tenant_b._base_url = "https://opik.test/api"
+    tenant_b._workspace = None
+    tenant_b._api_key = "Bearer opik_mcp_at_bbb"
+
+    await run_list("agent_insights_issue", project_name="demo", client=tenant_a)
+    await run_list("agent_insights_issue", project_name="demo", client=tenant_b)
+    assert tenant_a.last_kwargs.get("project_id") == "p-a"
+    assert tenant_b.last_kwargs.get("project_id") == "p-b"
+    assert tenant_b.project_lookups == 1
+
+    # Same credential again: served from the cache.
+    same_as_a = FakeOpikClient(projects={"content": [], "total": 0})
+    same_as_a._base_url = "https://opik.test/api"
+    same_as_a._workspace = None
+    same_as_a._api_key = "Bearer opik_mcp_at_aaa"
+    await run_list("agent_insights_issue", project_name="demo", client=same_as_a)
+    assert same_as_a.project_lookups == 0
+    assert same_as_a.last_kwargs.get("project_id") == "p-a"
 
 
 @pytest.mark.anyio

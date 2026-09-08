@@ -77,6 +77,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
+    reset_project_cache_for_tests()
     os.environ.pop(LIFECYCLE_SENTINEL, None)
 
 

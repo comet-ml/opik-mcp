@@ -6,9 +6,14 @@ two can never disagree about where the UI lives.
 
 from __future__ import annotations
 
-from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
+from opik_mcp.auth_context import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    inbound_authorization,
+    inbound_workspace,
+    resolved_workspace_name,
+)
 from opik_mcp.config import Settings
-from opik_mcp.read_list.ui_links import current_workspace, opik_ui_base
+from opik_mcp.read_list.ui_links import current_workspace, link_workspace, opik_ui_base
 
 
 def _settings(**overrides: object) -> Settings:
@@ -37,6 +42,33 @@ def test_ui_base_none_when_unconfigured() -> None:
 def test_workspace_falls_back_to_settings_then_default() -> None:
     assert current_workspace(_settings()) == "demo-ws"
     assert current_workspace(_settings(comet_workspace=None)) == "default"
+
+
+def test_link_workspace_is_none_for_oauth_bearer_with_unknown_workspace() -> None:
+    """Under an OAuth bearer the workspace lives server-side. If neither the
+    header nor introspection named it, a link built from the static settings
+    fallback would point at the wrong workspace — so no link at all."""
+    tok = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
+    try:
+        assert link_workspace(_settings()) is None
+        # ...but the instructions blob keeps its best-effort name.
+        assert current_workspace(_settings()) == "demo-ws"
+        tok_res = resolved_workspace_name.set("oauth-ws")
+        try:
+            assert link_workspace(_settings()) == "oauth-ws"
+        finally:
+            resolved_workspace_name.reset(tok_res)
+    finally:
+        inbound_authorization.reset(tok)
+
+
+def test_link_workspace_uses_settings_for_api_key_sessions() -> None:
+    tok = inbound_authorization.set("plain-api-key")
+    try:
+        assert link_workspace(_settings()) == "demo-ws"
+    finally:
+        inbound_authorization.reset(tok)
+    assert link_workspace(_settings()) == "demo-ws"
 
 
 def test_workspace_prefers_inbound_header_then_resolved_name() -> None:

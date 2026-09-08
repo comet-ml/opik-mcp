@@ -182,6 +182,10 @@ async def run_read(
         # here rather than inside the fetcher, and before compression so every
         # tier can decide what to keep.
         data.update(handler.link_fn(resolved_settings, data))
+    # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
+    # (e.g. the project an issue was read under); they are never the agent's.
+    for private_key in [key for key in data if key.startswith("_")]:
+        del data[private_key]
 
     compressed_text, tier = compress_for(handler, data, max_tokens)
     full_json = compact_json(data)

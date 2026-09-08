@@ -9,7 +9,12 @@ the derivation here means neither can drift from where REST calls go.
 
 from __future__ import annotations
 
-from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
+from opik_mcp.auth_context import (
+    classify_bearer,
+    inbound_authorization,
+    inbound_workspace,
+    resolved_workspace_name,
+)
 from opik_mcp.config import DEFAULT_WORKSPACE, Settings
 from opik_mcp.opik_client import opik_rest_base
 
@@ -42,12 +47,32 @@ def current_workspace(settings: Settings) -> str:
     )
 
 
-def project_page_url(settings: Settings, project_id: str, page: str) -> str | None:
-    """``<ui>/<workspace>/projects/<project_id>/<page>``, or ``None`` if unconfigured."""
-    base = opik_ui_base(settings)
-    if base is None:
+def link_workspace(settings: Settings) -> str | None:
+    """Workspace to build a **link** with, or ``None`` when it cannot be known.
+
+    Same precedence as :func:`current_workspace`, with one difference: under an
+    OAuth bearer the workspace is derived from the token server-side, so if
+    neither the inbound header nor introspection named it, the static settings
+    fallback would produce a link into the wrong workspace. The instructions
+    blob can afford a best-effort name; a link cannot.
+    """
+    known = inbound_workspace.get() or resolved_workspace_name.get()
+    if known:
+        return known
+    auth = inbound_authorization.get()
+    if auth and classify_bearer(auth)[0] == "oauth":
         return None
-    return f"{base}/{current_workspace(settings)}/projects/{project_id}/{page}"
+    return settings.comet_workspace or DEFAULT_WORKSPACE
 
 
-__all__ = ["current_workspace", "opik_ui_base", "project_page_url"]
+def project_page_url(settings: Settings, project_id: str, page: str) -> str | None:
+    """``<ui>/<workspace>/projects/<project_id>/<page>``, or ``None`` when the
+    UI base or the workspace cannot be known for this session."""
+    base = opik_ui_base(settings)
+    workspace = link_workspace(settings)
+    if base is None or workspace is None:
+        return None
+    return f"{base}/{workspace}/projects/{project_id}/{page}"
+
+
+__all__ = ["current_workspace", "link_workspace", "opik_ui_base", "project_page_url"]

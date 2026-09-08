@@ -762,6 +762,30 @@ async def test_read_issue_resolved_status_links_to_resolved_view() -> None:
 
 
 @pytest.mark.anyio
+async def test_read_issue_omits_links_under_oauth_bearer_with_unknown_workspace() -> None:
+    """Hosted OAuth: the workspace is token-derived server-side. If this
+    process could not name it, a link built from the static fallback would
+    point at the wrong workspace, so the read carries none."""
+    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+
+    tok = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
+    try:
+        out = await run_read(
+            "agent_insights_issue",
+            ISSUE,
+            project_id="p-9",
+            client=_issue_fake(),
+            settings=_UI_SETTINGS,
+        )
+    finally:
+        inbound_authorization.reset(tok)
+    body = _payload(out)
+    assert "url" not in body
+    assert "trace_url_template" not in body
+    assert "_project_id" not in body
+
+
+@pytest.mark.anyio
 async def test_read_issue_omits_links_when_opik_url_unconfigured() -> None:
     """No URL is better than a wrong one."""
     bare = Settings(

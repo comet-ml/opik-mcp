@@ -88,10 +88,12 @@ class EntityHandler:
     """Optional: UI links to attach to the fetched composite before compression.
 
     Called by ``read`` with the session's ``Settings`` and the fetched data;
-    returns extra top-level fields (e.g. ``url``). Fetchers cannot do this
-    themselves — they see a client, not settings — and the UI base/workspace
-    are session facts, not entity facts. Return ``{}`` when Opik's URL is
-    unconfigured: no link beats a wrong one.
+    returns extra top-level fields (e.g. ``url``) and must not mutate the
+    data. Fetchers cannot do this themselves — they see a client, not
+    settings — and the UI base/workspace are session facts, not entity
+    facts. A fetcher may stash inputs for the link under underscore-prefixed
+    keys; ``read`` strips those before compression. Return ``{}`` when Opik's
+    URL or the workspace cannot be known: no link beats a wrong one.
     """
     compress_fn: CompressFn | None = None
     id_only: bool = False
@@ -309,11 +311,12 @@ async def _fetch_agent_insights_issue(
 ) -> dict[str, Any]:
     """Diagnostics issue + deduped example trace ids + per-day breakdown.
 
-    One backend call. Returns ``{issue, example_trace_ids, details}``: the
-    issue record without its ``details`` array, the trace ids the agent can
-    open with ``read('trace', id)``, and the per-day rows unchanged. Trace
-    bodies are deliberately not inlined — that would turn one read into N+1
-    calls and blow the default budget on any issue with several examples.
+    One backend call. Returns ``{issue, example_trace_ids, details}`` plus a
+    private ``_project_id`` (see below): the issue record without its
+    ``details`` array, the trace ids the agent can open with
+    ``read('trace', id)``, and the per-day rows unchanged. Trace bodies are
+    deliberately not inlined — that would turn one read into N+1 calls and
+    blow the default budget on any issue with several examples.
     """
     # The agent-insights endpoints take project_id only; resolve the name here
     # so the read contract stays "project_id or project_name" for every
@@ -337,7 +340,8 @@ async def _fetch_agent_insights_issue(
     return {
         "issue": issue,
         # The link_fn needs the project the issue was read under; the backend
-        # record does not carry it. Kept private so it never reaches the agent.
+        # record does not carry it. Underscore-prefixed keys are stripped by
+        # the read tool after links are attached, so it never reaches the agent.
         "_project_id": project_id,
         "example_trace_ids": _example_trace_ids(details),
         "details": details,
@@ -348,7 +352,7 @@ def _issue_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
     """The issue's Diagnostics page (open or resolved view, by status) and a
     template for deep-linking any of its example traces — the two links the
     diagnose skill has to hand the user."""
-    project_id = data.pop("_project_id", None)
+    project_id = data.get("_project_id")
     issue = data.get("issue") or {}
     issue_id = issue.get("id")
     if not isinstance(project_id, str) or not isinstance(issue_id, str):
