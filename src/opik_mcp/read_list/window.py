@@ -40,26 +40,28 @@ def is_relative(value: str) -> bool:
     return _RELATIVE.match(value.strip()) is not None
 
 
-def to_minute(instant: str) -> str:
-    """``2026-08-09T11:03:11.376Z`` → ``2026-08-09T11:03Z`` for compact echoes."""
-    return instant[:16] + "Z"
+def to_minute(dt: datetime) -> str:
+    """``2026-08-09T11:03:11.376+00:00`` → ``2026-08-09T11:03Z`` for compact echoes."""
+    return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%MZ")
+
+
+# The shape ``Instant.parse`` accepts: date, ``T``, hh:mm:ss, optional fraction,
+# ``Z`` or an offset. ``datetime.fromisoformat`` is looser (space separator,
+# hour-only time, bare date, naive time), so it is gated by this first.
+_INSTANT: Final = re.compile(r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$")
 
 
 def parse_instant(value: str) -> datetime | None:
-    """Parse a strict ISO-8601 instant: ``T`` separator, timezone required.
-
-    ``datetime.fromisoformat`` is looser than the backend's ``Instant.parse``
-    (it takes a space separator, a bare date, a naive time). Anything the
-    backend would 400 on is rejected here so the local check means something.
-    """
+    """Parse a strict ISO-8601 instant, the form the backend's ``Instant.parse``
+    accepts. Anything the backend would 400 on is rejected here so the local
+    check means something."""
     text = value.strip()
-    if "T" not in text:
+    if not _INSTANT.match(text):
         return None
     try:
-        parsed = datetime.fromisoformat(text)
+        return datetime.fromisoformat(text)
     except ValueError:
         return None
-    return parsed if parsed.tzinfo is not None else None
 
 
 def resolve_instant(param: str, value: str, *, now: datetime | None = None) -> datetime:

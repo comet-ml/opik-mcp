@@ -304,7 +304,7 @@ async def list_entities(
                 "strings quoted, numbers bare (duration in ms). E.g. "
                 "'error_info is_not_empty AND duration > 5000', "
                 "'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. "
-                'Reference: schema("list.trace").'
+                'trace/span/thread default to source = "sdk". Reference: schema("list.trace").'
             ),
             max_length=2000,
         ),

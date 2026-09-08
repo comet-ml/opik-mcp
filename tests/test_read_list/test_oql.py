@@ -263,7 +263,13 @@ def test_usage_without_a_metric_names_the_usage_fields() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    ["2026-09-08 10:00:00Z", "2026-09-08", "2026-09-08T10:00:00"],
+    [
+        "2026-09-08 10:00:00Z",
+        "2026-09-08",
+        "2026-09-08T10:00:00",
+        "2026-09-08T10Z",
+        "2026-09-08T10:00Z",
+    ],
 )
 def test_dates_the_backend_would_refuse_are_rejected_locally(value: str) -> None:
     """``Instant.parse`` wants a ``T`` separator and a timezone; Python's

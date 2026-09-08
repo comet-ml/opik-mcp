@@ -145,13 +145,31 @@ async def test_empty_result_with_an_explicit_source_carries_no_hint() -> None:
 
 
 @pytest.mark.anyio
-async def test_empty_result_under_the_agents_own_constraints_carries_no_hint() -> None:
-    """With a window or filters of the agent's own, those are the likelier
-    reason for an empty page; the source hint would point the wrong way."""
-    out = await run_list("trace", project_id="p-1", since="30d", client=FakeOpikClient())
-    assert "No traces found." in out and "playground" not in out
+async def test_empty_result_under_the_agents_own_filters_carries_no_hint() -> None:
+    """With filters of the agent's own, those are the likelier reason for an
+    empty page; the source hint would point the wrong way."""
     out = await run_list("trace", project_id="p-1", filters="duration > 5", client=FakeOpikClient())
     assert "No traces found." in out and "playground" not in out
+
+
+@pytest.mark.anyio
+async def test_a_sort_does_not_suppress_the_source_hint() -> None:
+    """Sorting changes order, not membership — the empty page still needs the why."""
+    out = await run_list("trace", project_id="p-1", sort="duration desc", client=FakeOpikClient())
+    assert "playground" in out
+
+
+@pytest.mark.anyio
+async def test_window_with_traffic_inside_it_points_at_the_source_default() -> None:
+    """The project's last trace is inside the window yet the page is empty: the
+    sdk default hid it (experiment/evaluator traces). Say so."""
+    fake = FakeOpikClient(
+        projects=_page(
+            [{"id": "p-1", "name": "demo", "last_updated_trace_at": "2026-09-08T10:00:00Z"}]
+        )
+    )
+    out = await run_list("trace", project_name="demo", since="2026-09-08T00:00:00Z", client=fake)
+    assert "playground" in out and "before your window" not in out
 
 
 @pytest.mark.anyio
@@ -294,6 +312,33 @@ async def test_cells_are_compact_seconds_whole_ms_and_plain_decimals() -> None:
     assert "t-1 | completion | 2026-07-31T11:26:45Z | 82 | " in out
     assert "| 0.0000135 | 2026-07-31T11:26:46Z" in out
     assert "e-05" not in out
+
+
+@pytest.mark.anyio
+async def test_half_milliseconds_round_up_and_non_finite_values_render_empty() -> None:
+    fake = FakeOpikClient(
+        traces=_page(
+            [
+                {"id": "t-1", "name": "a", "duration": 82.5},
+                {"id": "t-2", "name": "b", "duration": float("nan")},
+                {"id": "t-3", "name": "c", "duration": float("inf"), "total_estimated_cost": -0.5},
+            ]
+        )
+    )
+    out = await run_list("trace", project_id="p-1", client=fake)
+    assert "t-1 | a |  | 83 |  | " in out
+    assert "t-2 | b |  |  |  | " in out
+    assert "t-3 | c |  |  |  | -0.5" in out
+
+
+@pytest.mark.anyio
+async def test_a_404_that_is_not_about_the_project_keeps_the_backend_message() -> None:
+    class SomethingElseMissing(FakeOpikClient):
+        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+            raise OpikNotFoundError("traces not found (404). — Workspace 'ws' not found")
+
+    with pytest.raises(ToolError, match=r"Failed to list traces: .*Workspace 'ws' not found"):
+        await run_list("trace", project_name="demo", client=SomethingElseMissing())
 
 
 @pytest.mark.anyio

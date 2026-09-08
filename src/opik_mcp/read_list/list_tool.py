@@ -23,8 +23,9 @@ from __future__ import annotations
 import difflib
 import json
 import logging
+import math
 import re
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 import httpx
@@ -52,7 +53,6 @@ from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityH
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
     WindowError,
-    format_instant,
     is_relative,
     parse_instant,
     resolve_window,
@@ -163,10 +163,10 @@ async def run_list(
             from_time, to_time = resolve_window(since, until)
         except WindowError as err:
             raise ToolError(str(err)) from err
-        if from_time is not None:
+        if since is not None and from_time is not None:
             kw["from_time"] = from_time
             applied.append(f"since: {_window_echo(since, from_time)}")
-        if to_time is not None:
+        if until is not None and to_time is not None:
             kw["to_time"] = to_time
             applied.append(f"until: {_window_echo(until, to_time)}")
 
@@ -200,7 +200,9 @@ async def run_list(
     try:
         page_body = await handler.list_fn(opik, **kw)
     except OpikNotFoundError as e:
-        if kw.get("project_name"):
+        # The backend's 404 for a misspelled project names it ("Project name: X
+        # not found"); only that case gets the did-you-mean recovery.
+        if kw.get("project_name") and kw["project_name"] in str(e):
             raise ToolError(await _unknown_project_message(opik, kw["project_name"])) from e
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
     except (OpikAuthError, OpikValidationError, OpikServerError) as e:
@@ -230,25 +232,18 @@ async def run_list(
 
     header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
     if not content:
-        empty = (
-            f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
+        # "No agent constraints" = nothing but the default source clause, no
+        # window, no search. A sort does not change what matches.
+        unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
+        empty = await _empty_message(
+            opik,
+            entity_type,
+            name=name,
+            project_name=kw.get("project_name"),
+            project_id=kw.get("project_id"),
+            from_time=kw.get("from_time"),
+            unconstrained=unconstrained,
         )
-        if source_defaulted and len(clauses) == 1 and len(applied) == 1:
-            # Seen live: a project holding only experiment traces looks empty
-            # under the sdk default. Say so here, where the agent is looking —
-            # but only when the default is the sole constraint; with a window
-            # or filters of the agent's own, those are the likelier reason.
-            empty += (
-                ' Only source = "sdk" rows are listed by default; add source = "experiment", '
-                '"evaluator" or "playground" to filters to see the others.'
-            )
-        elif "from_time" in kw:
-            # Seen live: since="30d" on a project whose traffic ended weeks
-            # earlier looks like a project with no traffic. One project read
-            # tells the agent which it is, and how far to widen the window.
-            last_trace = await _last_trace_hint(opik, kw, kw["from_time"])
-            if last_trace:
-                empty += " " + last_trace
         return f"{header}\n{empty}" if header else empty
 
     extra = _requested_columns(sort_field, clauses)
@@ -256,24 +251,91 @@ async def run_list(
     return f"{header}\n{table}" if header else table
 
 
-def _window_echo(raw: str | None, resolved: str) -> str:
+_SOURCE_HINT = (
+    'Only source = "sdk" rows are listed by default; add source = "experiment", '
+    '"evaluator" or "playground" to filters to see the others.'
+)
+
+
+async def _empty_message(
+    opik: OpikListClient,
+    entity_type: str,
+    *,
+    name: str | None,
+    project_name: str | None,
+    project_id: str | None,
+    from_time: str | None,
+    unconstrained: bool,
+) -> str:
+    """The empty-page reply, with the one hint that explains it when we can.
+
+    Two cases seen live look identical without help: a project holding only
+    experiment traces under the ``source = "sdk"`` default, and a window that
+    starts after the project's last trace. The first costs nothing to explain;
+    the second costs one project read, spent only on an empty windowed page.
+    """
+    empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
+    if from_time is None:
+        return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
+
+    rows = await _project_rows(opik, name=project_name)
+    match = [
+        p
+        for p in rows
+        if (p.get("name") == project_name if project_name else p.get("id") == project_id)
+    ]
+    if not match:
+        return empty
+    last = match[0].get("last_updated_trace_at")
+    if not last:
+        return f"{empty} This project has no traces yet."
+    last_dt, start_dt = parse_instant(str(last)), parse_instant(from_time)
+    if last_dt is None or start_dt is None:
+        return empty
+    if last_dt < start_dt:
+        return f"{empty} Last trace in this project: {to_minute(last_dt)}, before your window."
+    # Traffic exists inside the window, so the default source is what hid it.
+    return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
+
+
+def _window_echo(raw: str, resolved: str) -> str:
     """``30d (2026-08-09T11:03Z)`` for shorthand, the bound to the minute for ISO."""
-    minute = to_minute(resolved)
-    if raw is not None and is_relative(raw):
+    resolved_dt = parse_instant(resolved)
+    minute = to_minute(resolved_dt) if resolved_dt is not None else resolved
+    if is_relative(raw):
         return f"{raw.strip()} ({minute})"
     return minute
+
+
+async def _project_rows(opik: OpikListClient, *, name: str | None = None) -> list[dict[str, Any]]:
+    """One page of projects for the side lookups (did-you-mean, last-trace hint).
+
+    ``name`` is the backend's substring filter, so the caller still matches
+    exactly. Failures are logged and yield ``[]``: these lookups decorate an
+    answer the agent already has and must never replace it with an error.
+    """
+    try:
+        body = (
+            await opik.list_projects(name=name, size=100)
+            if name
+            else await opik.list_projects(size=100)
+        )
+    except (
+        OpikAuthError,
+        OpikNotFoundError,
+        OpikValidationError,
+        OpikServerError,
+        httpx.HTTPError,
+    ):
+        logger.debug("project lookup for a list hint failed; skipping the hint", exc_info=True)
+        return []
+    return [p for p in body.get("content") or [] if isinstance(p, dict)]
 
 
 async def _unknown_project_message(opik: OpikListClient, project_name: str) -> str:
     """One extra call on a project-name 404: the names that do exist, and the
     closest one. The backend matches names exactly, so a typo is the common case."""
-    try:
-        body = await opik.list_projects(size=100)
-        names = [
-            p["name"] for p in body.get("content") or [] if isinstance(p, dict) and "name" in p
-        ]
-    except Exception:  # recovery must never mask the 404 itself
-        names = []
+    names = [p["name"] for p in await _project_rows(opik) if isinstance(p.get("name"), str)]
     message = f"Project {project_name!r} not found."
     close = difflib.get_close_matches(project_name, names, n=1, cutoff=0.6)
     if close:
@@ -281,28 +343,6 @@ async def _unknown_project_message(opik: OpikListClient, project_name: str) -> s
     if names:
         message += f" Projects: {', '.join(names)}."
     return message
-
-
-async def _last_trace_hint(opik: OpikListClient, kw: dict[str, Any], from_time: str) -> str | None:
-    """For an empty windowed page: when the project's last trace landed."""
-    try:
-        if kw.get("project_name"):
-            body = await opik.list_projects(name=kw["project_name"], size=5)
-            rows = [p for p in body.get("content") or [] if p.get("name") == kw["project_name"]]
-        else:
-            body = await opik.list_projects(size=100)
-            rows = [p for p in body.get("content") or [] if p.get("id") == kw.get("project_id")]
-    except Exception:  # a hint must never turn an empty page into an error
-        return None
-    if not rows:
-        return None
-    last = rows[0].get("last_updated_trace_at")
-    if not last:
-        return "This project has no traces yet."
-    last_dt, start_dt = parse_instant(str(last)), parse_instant(from_time)
-    if last_dt is None or start_dt is None or last_dt >= start_dt:
-        return None
-    return f"Last trace in this project: {to_minute(format_instant(last_dt))}, before your window."
 
 
 # Filter fields that make no sense as a table column: bodies (never shown in a
@@ -419,8 +459,11 @@ def _render(col: str, val: Any) -> str:
     plain decimals. Every page pays for every character here."""
     if val is None:
         return ""
+    if isinstance(val, float) and not math.isfinite(val):
+        return ""
     if col in _COLUMN_LABELS and isinstance(val, int | float) and not isinstance(val, bool):
-        return str(round(val))
+        # Half-up, not banker's: 82.5 ms reads as 83, the way a person rounds.
+        return str(Decimal(repr(val)).quantize(Decimal(1), rounding=ROUND_HALF_UP))
     if isinstance(val, float):
         text = repr(val)
         if "e" in text or "E" in text:

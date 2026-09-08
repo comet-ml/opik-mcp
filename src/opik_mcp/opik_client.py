@@ -962,9 +962,12 @@ def make_opik_client(settings: Settings, *, timeout: float | None = None) -> Opi
     over 30 s to answer on a cold cache.
     """
     base_url, api_key, workspace = resolve_opik_config(settings)
-    if timeout is None:
-        return OpikClient(base_url=base_url, api_key=api_key, workspace=workspace)
-    return OpikClient(base_url=base_url, api_key=api_key, workspace=workspace, timeout=timeout)
+    return OpikClient(
+        base_url=base_url,
+        api_key=api_key,
+        workspace=workspace,
+        timeout=_DEFAULT_TIMEOUT if timeout is None else timeout,
+    )
 
 
 def _score_body(score: FeedbackScore) -> dict[str, Any]:
