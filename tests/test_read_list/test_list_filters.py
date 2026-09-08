@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -120,6 +121,35 @@ async def test_naming_source_disables_the_default() -> None:
 
 
 @pytest.mark.anyio
+async def test_empty_result_under_the_default_source_says_how_to_widen_it() -> None:
+    """Seen live: a project holding only experiment traces answers 'No traces
+    found' under the sdk default. The agent needs to learn why in that reply."""
+    out = await run_list("trace", project_id="p-1", client=FakeOpikClient())
+    assert out.splitlines()[0] == '[list: trace | filters: source = "sdk"]'
+    assert "No traces found." in out
+    assert 'source = "experiment"' in out and "evaluator" in out and "playground" in out
+
+
+@pytest.mark.anyio
+async def test_empty_result_with_an_explicit_source_carries_no_hint() -> None:
+    out = await run_list(
+        "trace", project_id="p-1", filters='source = "evaluator"', client=FakeOpikClient()
+    )
+    assert "No traces found." in out
+    assert "playground" not in out
+
+
+@pytest.mark.anyio
+async def test_empty_result_under_the_agents_own_constraints_carries_no_hint() -> None:
+    """With a window or filters of the agent's own, those are the likelier
+    reason for an empty page; the source hint would point the wrong way."""
+    out = await run_list("trace", project_id="p-1", since="30d", client=FakeOpikClient())
+    assert "No traces found." in out and "playground" not in out
+    out = await run_list("trace", project_id="p-1", filters="duration > 5", client=FakeOpikClient())
+    assert "No traces found." in out and "playground" not in out
+
+
+@pytest.mark.anyio
 async def test_header_echoes_the_applied_filter_including_the_default() -> None:
     fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
     out = await run_list("trace", project_id="p-1", filters="duration > 5000", client=fake)
@@ -179,6 +209,35 @@ async def test_every_error_class_reaches_the_agent_through_the_tool(
     assert message.startswith("Invalid filters for trace:")
     assert fragment in message
     assert 'schema("list.trace")' in message
+
+
+@pytest.mark.anyio
+async def test_backend_timeout_is_reported_with_a_way_out() -> None:
+    """``httpx.ReadTimeout`` stringifies to '' — seen live when a free-text
+    search took longer than the client timeout. The agent must get a message
+    that says what happened and how to narrow the query."""
+
+    class TimingOut(FakeOpikClient):
+        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+            raise httpx.ReadTimeout("")
+
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace", project_id="p-1", search="order-42", client=TimingOut())
+    message = str(ei.value)
+    assert "did not answer in time" in message
+    assert "list(trace" in message
+    assert "since" in message and "size" in message
+    assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
+
+
+@pytest.mark.anyio
+async def test_backend_unreachable_is_reported_with_the_reason() -> None:
+    class Unreachable(FakeOpikClient):
+        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+            raise httpx.ConnectError("nodename nor servname provided")
+
+    with pytest.raises(ToolError, match=r"Could not reach Opik.*nodename nor servname"):
+        await run_list("trace", project_id="p-1", client=Unreachable())
 
 
 # --- default columns ----------------------------------------------------- #

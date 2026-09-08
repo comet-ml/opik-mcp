@@ -24,6 +24,7 @@ import json
 import logging
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.config import Settings, get_settings
@@ -115,6 +116,7 @@ async def run_list(
 
     applied: list[str] = []
     clauses: list[dict[str, str]] = []
+    source_defaulted = False
     if entity_type in SUPPORTED_ENTITIES or filters:
         try:
             clauses = compile_filters(entity_type, filters or "")
@@ -124,6 +126,7 @@ async def run_list(
             c["field"] == "source" for c in clauses
         ):
             clauses.append(dict(_SDK_SOURCE_CLAUSE))
+            source_defaulted = True
         if clauses:
             kw["filters"] = json.dumps(clauses, separators=(",", ":"))
             applied.append(f"filters: {render_filters(entity_type, clauses)}")
@@ -179,6 +182,16 @@ async def run_list(
         page_body = await handler.list_fn(opik, **kw)
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
+    except httpx.TimeoutException as e:
+        # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
+        # sees an error with no text. Seen live: a free-text search that the
+        # backend took >30s to answer on a cold cache.
+        raise ToolError(
+            f"Opik did not answer in time for list({entity_type}, …). Narrow the query — "
+            "a shorter since window, fewer filters, a smaller size, or drop search — and retry."
+        ) from e
+    except httpx.HTTPError as e:
+        raise ToolError(f"Could not reach Opik for list({entity_type}, …): {e}") from e
 
     content_raw = page_body.get("content") or []
     content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
@@ -197,6 +210,15 @@ async def run_list(
         empty = (
             f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
         )
+        if source_defaulted and len(clauses) == 1 and len(applied) == 1:
+            # Seen live: a project holding only experiment traces looks empty
+            # under the sdk default. Say so here, where the agent is looking —
+            # but only when the default is the sole constraint; with a window
+            # or filters of the agent's own, those are the likelier reason.
+            empty += (
+                ' Only source = "sdk" rows are listed by default; add source = "experiment", '
+                '"evaluator" or "playground" to filters to see the others.'
+            )
         return f"{header}\n{empty}" if header else empty
 
     extra = _requested_columns(sort_field, clauses)
