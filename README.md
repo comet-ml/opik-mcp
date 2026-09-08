@@ -289,6 +289,20 @@ checked against the entity's sortable list before the call, because the backend
 silently ignores fields it cannot sort by. On very large workspaces the backend
 drops sorting altogether; the header says so when that happens.
 
+**Time window and search.** `trace`, `span` and `thread` take `since` and
+`until`, each a relative span (`"30m"`, `"1h"`, `"7d"`) or an ISO-8601 instant
+with a timezone, so "the last hour" needs no clock arithmetic. The window is by
+record creation time, which is cheap for the backend and agrees with
+`start_time` within seconds for live traffic; use `start_time` in `filters`
+for an exact bound. The same three types take `search`, free text matched
+anywhere in id, name, input, output, metadata, tags and thread id.
+
+```python
+list(entity_type="trace", project_name="demo", since="1h",
+     filters="error_info is_not_empty", sort="duration desc")
+list(entity_type="trace", project_name="demo", search="order-42")
+```
+
 ### `write`
 
 Universal write dispatcher. Pass `operation` + `data` and the dispatcher

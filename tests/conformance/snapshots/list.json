@@ -92,6 +92,34 @@
       "description": "Required when listing prompt_versions. UUID of the prompt.",
       "title": "Prompt Id"
     },
+    "search": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free text for trace, span, thread: matches anywhere in id, name, input, output, metadata, tags, thread_id (spans: model, provider too).",
+      "title": "Search"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Start of the time window for trace, span, thread: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Windows are by record creation time; for an exact start_time bound use filters.",
+      "title": "Since"
+    },
     "size": {
       "default": 25,
       "description": "Items per page. Capped at 100.",
@@ -126,6 +154,20 @@
       "default": null,
       "description": "Required when listing test_suite_items. UUID of the suite.",
       "title": "Test Suite Id"
+    },
+    "until": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "End of the time window, same forms as since.",
+      "title": "Until"
     }
   },
   "required": [

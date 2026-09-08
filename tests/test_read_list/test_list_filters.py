@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -233,6 +234,93 @@ async def test_span_rows_carry_span_columns_by_default() -> None:
     out = await run_list("span", project_id="p-1", client=fake)
     assert "id | name | type | trace_id | duration | model | error_type" in out
     assert "s-1 | openai.chat | llm | t-1 | 812.0 | gpt-4o | RateLimitError" in out
+
+
+# --- since / until window, search ------------------------------------------- #
+
+
+def _instant(value: str) -> datetime:
+    return datetime.fromisoformat(value)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("shorthand", "delta"), [("1h", 3600), ("30m", 1800), ("7d", 7 * 86400)])
+async def test_relative_since_resolves_against_now(shorthand: str, delta: int) -> None:
+    fake = FakeOpikClient()
+    before = datetime.now(UTC)
+    await run_list("trace", project_id="p-1", since=shorthand, client=fake)
+    sent = fake.last_kwargs["from_time"]
+    assert sent.endswith("Z")
+    assert abs((before - _instant(sent)).total_seconds() - delta) < 5
+    assert "to_time" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_iso_window_passes_through_and_is_echoed() -> None:
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
+    out = await run_list(
+        "trace",
+        project_id="p-1",
+        since="2026-09-08T00:00:00Z",
+        until="2026-09-08T12:00:00+00:00",
+        client=fake,
+    )
+    assert fake.last_kwargs["from_time"] == "2026-09-08T00:00:00Z"
+    assert fake.last_kwargs["to_time"] == "2026-09-08T12:00:00Z"
+    assert out.splitlines()[0] == (
+        '[list: trace | filters: source = "sdk" | since: 2026-09-08T00:00:00Z'
+        " | until: 2026-09-08T12:00:00Z]"
+    )
+
+
+@pytest.mark.anyio
+async def test_malformed_window_value_names_both_accepted_forms() -> None:
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace", project_id="p-1", since="yesterday", client=FakeOpikClient())
+    message = str(ei.value)
+    assert "since" in message and "'yesterday'" in message
+    assert "1h" in message and "2026-09-08T10:00:00Z" in message
+
+
+@pytest.mark.anyio
+async def test_until_before_since_is_rejected_locally() -> None:
+    with pytest.raises(ToolError, match=r"until .* is before since"):
+        await run_list(
+            "trace",
+            project_id="p-1",
+            since="2026-09-08T12:00:00Z",
+            until="2026-09-08T00:00:00Z",
+            client=FakeOpikClient(),
+        )
+
+
+@pytest.mark.anyio
+async def test_window_on_experiment_is_rejected_with_a_clear_message() -> None:
+    with pytest.raises(ToolError, match="experiments have no time window"):
+        await run_list("experiment", since="1h", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_window_on_thread_is_forwarded() -> None:
+    fake = FakeOpikClient()
+    await run_list("thread", project_id="p-1", since="2026-09-08T00:00:00Z", client=fake)
+    assert fake.last_kwargs["from_time"] == "2026-09-08T00:00:00Z"
+
+
+@pytest.mark.anyio
+async def test_search_is_forwarded_for_spans_and_echoed() -> None:
+    fake = FakeOpikClient(spans=_page([{"id": "s-1", "name": "tool"}]))
+    out = await run_list("span", project_id="p-1", search="order-42", client=fake)
+    assert fake.last_kwargs["search"] == "order-42"
+    assert out.splitlines()[0] == '[list: span | filters: source = "sdk" | search: "order-42"]'
+
+
+@pytest.mark.anyio
+async def test_search_on_a_type_without_it_is_dropped_with_a_note() -> None:
+    fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
+    out = await run_list("project", search="demo", client=fake)
+    assert "search" not in fake.last_kwargs
+    assert out.splitlines()[0] == "[list: project | search ignored (only trace, span, thread)]"
 
 
 # --- sort ------------------------------------------------------------------ #

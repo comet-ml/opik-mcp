@@ -44,6 +44,7 @@ from opik_mcp.read_list.oql import (
 )
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 from opik_mcp.read_list.sorting import SortError, compile_sort
+from opik_mcp.read_list.window import WindowError, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
@@ -54,6 +55,10 @@ _TRUNCATE_AT = 60
 # defaults to the SDK source. Experiments are one source by definition.
 _SOURCE_DEFAULTED = frozenset({"trace", "span", "thread"})
 _SDK_SOURCE_CLAUSE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
+# Entities whose backend list takes from_time/to_time and free-text search.
+# Experiments have neither.
+_WINDOWED = ("trace", "span", "thread")
+_SEARCHABLE_TEXT = ("trace", "span", "thread")
 
 
 async def run_list(
@@ -62,6 +67,9 @@ async def run_list(
     name: str | None = None,
     filters: str | None = None,
     sort: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    search: str | None = None,
     page: int = 1,
     size: int = 25,
     project_id: str | None = None,
@@ -123,6 +131,33 @@ async def run_list(
             applied.append(f"filters: {render_filters(entity_type, clauses)}")
         # Bodies never reach the table, so let the backend trim them.
         kw["truncate"] = True
+
+    if since is not None or until is not None:
+        if entity_type not in _WINDOWED:
+            why = (
+                "experiments have no time window on the backend."
+                if entity_type == "experiment"
+                else f"only {', '.join(_WINDOWED)} take a time window."
+            )
+            unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
+            raise ToolError(str(unsupported)) from unsupported
+        try:
+            from_time, to_time = resolve_window(since, until)
+        except WindowError as err:
+            raise ToolError(str(err)) from err
+        if from_time is not None:
+            kw["from_time"] = from_time
+            applied.append(f"since: {from_time}")
+        if to_time is not None:
+            kw["to_time"] = to_time
+            applied.append(f"until: {to_time}")
+
+    if search is not None and search.strip():
+        if entity_type in _SEARCHABLE_TEXT:
+            kw["search"] = search
+            applied.append(f'search: "{search}"')
+        else:
+            applied.append(f"search ignored (only {', '.join(_SEARCHABLE_TEXT)})")
 
     sort_label: str | None = None
     if sort is not None:

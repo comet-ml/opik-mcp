@@ -301,6 +301,32 @@ async def list_entities(
             max_length=200,
         ),
     ] = None,
+    since: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Start of the time window for trace, span, thread: a relative span "
+                "('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. "
+                "Windows are by record creation time; for an exact start_time bound "
+                "use filters."
+            ),
+            max_length=40,
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Field(description="End of the time window, same forms as since.", max_length=40),
+    ] = None,
+    search: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Free text for trace, span, thread: matches anywhere in id, name, input, "
+                "output, metadata, tags, thread_id (spans: model, provider too)."
+            ),
+            max_length=500,
+        ),
+    ] = None,
     page: Annotated[
         int,
         Field(description="Page number (1-indexed).", ge=1, le=10_000),
@@ -354,7 +380,8 @@ async def list_entities(
 
     Workspace-wide types (project, experiment, prompt, test_suite) accept
     an optional `name` substring filter. trace, span, thread, experiment
-    accept an OQL `filters` string and a `sort`.
+    accept an OQL `filters` string and a `sort`; trace, span, thread also
+    take a `since`/`until` window and free-text `search`.
     """
     if ctx is not None:
         await ctx.info(f"list.called entity_type={entity_type} page={page} size={size}")
@@ -363,6 +390,9 @@ async def list_entities(
         name=name,
         filters=filters,
         sort=sort,
+        since=since,
+        until=until,
+        search=search,
         page=page,
         size=size,
         project_id=project_id,
