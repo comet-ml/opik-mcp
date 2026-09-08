@@ -41,6 +41,7 @@ class FakeOpikClient:
     thread_messages: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     issues_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_issue_kwargs: dict[str, Any] = field(default_factory=dict)
+    project_lookups: int = 0
     fail_list_traces: bool = False
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
@@ -55,6 +56,7 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
+        self.project_lookups += 1
         content = self.projects_by_name.get(name or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
 
@@ -554,6 +556,47 @@ async def test_read_issue_skeleton_keeps_every_example_trace_id() -> None:
     assert body["example_trace_ids"] == [f"tr-{i}" for i in range(120)]
     assert "details" not in body
     assert "read('trace'" in body["note"]
+
+
+@pytest.mark.anyio
+async def test_read_issue_resolves_exact_project_name() -> None:
+    fake = _issue_fake()
+    fake.projects_by_name = {
+        "demo": [{"id": "p-demo-2", "name": "demo-2"}, {"id": "p-demo", "name": "demo"}]
+    }
+    out = await run_read("agent_insights_issue", ISSUE, project_name="demo", client=fake)
+    assert f"[read: agent_insights_issue {ISSUE}" in out
+    assert fake.last_issue_kwargs["project_id"] == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_read_issue_ambiguous_project_name_lists_candidates() -> None:
+    fake = _issue_fake()
+    fake.projects_by_name = {"demo": [{"id": "p-1", "name": "demo"}, {"id": "p-2", "name": "demo"}]}
+    with pytest.raises(ToolError) as exc:
+        await run_read("agent_insights_issue", ISSUE, project_name="demo", client=fake)
+    msg = str(exc.value)
+    assert "p-1" in msg and "p-2" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_read_issue_unknown_project_name_is_a_clear_error() -> None:
+    fake = _issue_fake()
+    with pytest.raises(ToolError) as exc:
+        await run_read("agent_insights_issue", ISSUE, project_name="ghost", client=fake)
+    assert "No project named 'ghost'" in str(exc.value)
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_read_issue_project_id_wins_over_name_without_lookup() -> None:
+    fake = _issue_fake()
+    await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", project_name="demo", client=fake
+    )
+    assert fake.last_issue_kwargs["project_id"] == "p-9"
+    assert fake.project_lookups == 0
 
 
 @pytest.mark.anyio

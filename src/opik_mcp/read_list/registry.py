@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient, OpikReadClient, OpikValidationError
+from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
     TOKEN_SKELETON_THRESHOLD,
@@ -39,6 +39,8 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
+from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.project_scope import resolve_project_id
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -303,12 +305,14 @@ async def _fetch_agent_insights_issue(
     calls and blow the default budget on any issue with several examples.
     """
     if project_id is None:
-        # The agent-insights endpoints take project_id only. Name resolution
-        # is the next slice; until then say so instead of sending nothing.
-        raise OpikValidationError(
-            "agent_insights_issue needs project_id (a UUID) for now — resolve the "
-            "project name with list('project', name=…) first."
-        )
+        # The agent-insights endpoints take project_id only; resolve the name
+        # here so the read contract stays "project_id or project_name" for
+        # every project-scoped entity. An explicit project_id always wins.
+        if project_name is None:
+            raise EntityArgValidationError(
+                "read('agent_insights_issue') requires project_id or project_name."
+            )
+        project_id = await resolve_project_id(client, project_name)
     body = await client.get_agent_insights_issue(
         entity_id, project_id=project_id, from_date=from_date, to_date=to_date
     )
@@ -412,6 +416,16 @@ async def _list_agent_insights_issues(client: OpikListClient, **kw: Any) -> dict
     # occurrences) is the Diagnostics page's ranking.
     kw.pop("name", None)
     kw.setdefault("status", "open")
+    # The backend takes project_id only. The list tool lets project_name
+    # satisfy the project requirement (as for trace/thread), so resolve it
+    # here; an explicit project_id wins and skips the lookup.
+    project_name = kw.pop("project_name", None)
+    if kw.get("project_id") is None:
+        if project_name is None:
+            raise EntityArgValidationError(
+                "list('agent_insights_issue') requires project_id or project_name."
+            )
+        kw["project_id"] = await resolve_project_id(client, project_name)
     return await client.list_agent_insights_issues(**kw)
 
 

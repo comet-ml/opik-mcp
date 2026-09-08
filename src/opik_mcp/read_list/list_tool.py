@@ -106,6 +106,11 @@ async def run_list(
 
     try:
         page_body = await handler.list_fn(opik, **kw)
+    except EntityArgValidationError as e:
+        # A list_fn may reject its own arguments (e.g. a project_name that
+        # resolves to no or several projects). Surface it as the same typed
+        # validation error the tool raises for a missing parent id.
+        raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
 

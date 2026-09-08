@@ -227,6 +227,11 @@ async def _fetch_with_name_lookup(
                 client, entity_id, project_id=project_id, project_name=project_name, **extra
             )
         return await handler.fetch_fn(client, entity_id, **extra)
+    except EntityArgValidationError as e:
+        # A fetcher may reject its own scope (e.g. a project_name that resolves
+        # to no or several projects). Same typed cause as the tool's own
+        # argument checks, so analytics buckets it as validation/400.
+        raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e
 

@@ -33,12 +33,15 @@ class FakeOpikClient:
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
+    project_lookups: int = 0
+
     async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         return self.issues
 
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        self.project_lookups += 1
         return self.projects
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
@@ -373,6 +376,65 @@ async def test_list_issue_filters_not_forwarded_to_other_entities() -> None:
 async def test_list_issues_empty_state() -> None:
     out = await run_list("agent_insights_issue", project_id="p-1", client=FakeOpikClient())
     assert "No agent_insights_issues found" in out
+
+
+# --- project_name resolution (the backend takes project_id only) --------- #
+
+
+@pytest.mark.anyio
+async def test_list_issues_resolves_exact_project_name_to_id() -> None:
+    """The projects endpoint is a substring search; only the exact name counts."""
+    fake = FakeOpikClient(
+        projects={
+            "content": [
+                {"id": "p-demo-2", "name": "demo-2"},
+                {"id": "p-demo", "name": "demo"},
+            ],
+            "total": 2,
+        },
+        issues={"content": [ISSUE_ROW], "total": 1},
+    )
+    out = await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert "is-1" in out
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+    assert "project_name" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issues_ambiguous_project_name_lists_candidates() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-1", "name": "demo"}, {"id": "p-2", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    msg = str(exc.value)
+    assert "p-1" in msg
+    assert "p-2" in msg
+    assert "project_id" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_unknown_project_name_is_a_clear_error() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "demo-2"}], "total": 1})
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    msg = str(exc.value)
+    assert "No project named 'demo'" in msg
+    assert "list('project'" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_id_wins_over_name_without_lookup() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-9", project_name="demo", client=fake)
+    assert fake.last_kwargs.get("project_id") == "p-9"
+    assert "project_name" not in fake.last_kwargs
+    assert fake.project_lookups == 0
 
 
 @pytest.mark.anyio
