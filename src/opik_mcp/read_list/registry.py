@@ -95,6 +95,9 @@ class EntityHandler:
     keys; ``read`` strips those before compression. Return ``{}`` when Opik's
     URL or the workspace cannot be known: no link beats a wrong one.
     """
+    list_has_name: bool = True
+    """False for entities whose records carry no ``name`` (thread) — the table
+    then starts at ``id`` instead of rendering an always-empty name column."""
     compress_fn: CompressFn | None = None
     id_only: bool = False
     """True if the entity is addressed only by UUID (no name lookup).
@@ -444,6 +447,14 @@ async def _list_threads(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_threads(**kw)
 
 
+async def _list_spans(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # Project-wide span search: no ``trace_id`` — that scoping (and ``type``)
+    # is expressed in OQL (``trace_id = "…"``, ``type = "llm"``). ``name``
+    # filtering isn't supported by opik-backend; drop it if passed.
+    kw.pop("name", None)
+    return await client.list_spans(**kw)
+
+
 async def _list_agent_insights_issues(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     # "What is broken" means open issues, so that is the default; the caller
     # asks for resolved/closed explicitly. No name filter exists on the backend.
@@ -591,7 +602,7 @@ def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
     skeleton["note"] = (
         "SKELETON compression: cause, suggested fix and per-day details "
         "omitted. Use read('trace', trace_id) on an example, or re-read with "
-        "from_date/to_date to narrow the window."
+        "since/until to narrow the window."
     )
     return compact_json(skeleton), CompressionTier.SKELETON
 
@@ -605,14 +616,18 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         fetch_fn=_fetch_project,
         search_by_name_fn=_search_project,
         list_fn=_list_projects,
-        list_extra_fields=("created_at",),
+        # last_updated_trace_at lets the agent pick the project with live
+        # traffic in one call instead of probing each one.
+        list_extra_fields=("created_at", "last_updated_trace_at"),
         description="Project metadata + stats (trace_count, last activity).",
     ),
     "trace": EntityHandler(
         entity_type="trace",
         fetch_fn=_fetch_trace,
         list_fn=_list_traces,
-        list_extra_fields=("start_time", "end_time"),
+        # Triage columns: what a "which traces need attention" list needs
+        # without a read() per row. error_type is derived from error_info.
+        list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
         list_required_kwargs=("project_id",),
         compress_fn=_compress_trace,
         id_only=True,
@@ -624,8 +639,14 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
     "span": EntityHandler(
         entity_type="span",
         fetch_fn=_fetch_span,
+        list_fn=_list_spans,
+        list_extra_fields=("type", "trace_id", "duration", "model", "error_type"),
+        list_required_kwargs=("project_id",),
         id_only=True,
-        description="Single span: inputs, outputs, metadata, timing, feedback_scores.",
+        description=(
+            "Single span: inputs, outputs, metadata, timing, feedback_scores. "
+            "list('span', project_id=…, filters=…) searches spans across a project."
+        ),
     ),
     "test_suite": EntityHandler(
         entity_type="test_suite",
@@ -643,7 +664,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         fetch_fn=_fetch_experiment,
         search_by_name_fn=_search_experiment,
         list_fn=_list_experiments,
-        list_extra_fields=("dataset_name", "created_at"),
+        # feedback_scores is the experiment's per-metric averages, rendered as
+        # ``name=value`` pairs so a comparison list reads without a read() per row.
+        list_extra_fields=("dataset_name", "created_at", "feedback_scores"),
         description="Experiment status + summary scores.",
     ),
     "prompt": EntityHandler(
@@ -684,8 +707,17 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         entity_type="thread",
         fetch_fn=_fetch_thread,
         list_fn=_list_threads,
-        list_extra_fields=("status", "number_of_messages", "last_updated_at"),
+        # first_message stands in for the name a thread doesn't have: the
+        # agent can pick the conversation without a read() per row.
+        list_extra_fields=(
+            "first_message",
+            "status",
+            "number_of_messages",
+            "duration",
+            "last_updated_at",
+        ),
         list_required_kwargs=("project_id",),
+        list_has_name=False,
         compress_fn=_compress_thread,
         id_only=True,
         needs_project=True,
@@ -727,7 +759,8 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "cause and suggested fix, the deduped ids of traces that exhibit it "
             "(open one with read('trace', id)), the per-day breakdown, and UI links "
             "to hand the user (omitted when the Opik URL or workspace is unknown). "
-            "Counts are all-time unless from_date/to_date narrow the window."
+            "Counts are all-time unless since/until narrow the window (truncated "
+            "to UTC report days)."
         ),
     ),
 }

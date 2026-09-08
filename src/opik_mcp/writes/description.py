@@ -50,7 +50,9 @@ def build_write_description() -> str:
 WRITE_TOOL_DESCRIPTION: Final[str] = build_write_description()
 SCHEMA_TOOL_DESCRIPTION: Final[str] = (
     "Return the JSON Schema, OAuth scope, and one validated example for a "
-    "write operation's `data` payload. Pure lookup — no backend call."
+    "write operation's `data` payload, or — for `list.trace` / `list.span` / "
+    "`list.thread` / `list.experiment` — the list tool's filterable fields with "
+    "their operators and its sortable fields. Pure lookup — no backend call."
 )
 
 

@@ -39,6 +39,7 @@ from opik_mcp.read_list.registry import (
 )
 from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
+from opik_mcp.read_list.window import WindowError, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
 
@@ -112,6 +113,8 @@ async def run_read(
     max_tokens: int | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
     **entity_kwargs: Any,
@@ -171,6 +174,24 @@ async def run_read(
         for key, value in entity_kwargs.items()
         if value is not None and key in handler.read_optional_kwargs
     }
+    if since is not None or until is not None:
+        # Same since/until vocabulary as ``list``. Only day-windowed reads
+        # (Diagnostics issues) take it; the backend aggregates per report day,
+        # so the instant window is truncated to its UTC days.
+        if "from_date" not in handler.read_optional_kwargs:
+            err = WindowError(
+                f"since/until are not supported for read({entity_type!r}); only "
+                f"agent_insights_issue takes a window on read."
+            )
+            raise ToolError(str(err)) from err
+        try:
+            from_time, to_time = resolve_window(since, until)
+        except WindowError as e:
+            raise ToolError(str(e)) from e
+        if from_time is not None:
+            extra["from_date"] = from_time[:10]
+        if to_time is not None:
+            extra["to_date"] = to_time[:10]
 
     resolved_settings = settings or get_settings()
     opik = client if client is not None else make_opik_client(resolved_settings)

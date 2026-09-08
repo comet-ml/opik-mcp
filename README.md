@@ -254,7 +254,7 @@ the Diagnostics issue record (name, description, cause, suggested fix,
 severity, status), the deduplicated ids of the traces that exhibit it (the
 same sample the Diagnostics page shows — open one with `read("trace", id)`),
 and the per-day breakdown. Trace bodies are not inlined, so the read stays one
-backend call. `from_date` / `to_date` narrow the per-day rows; the default is
+backend call. `since` / `until` narrow the per-day rows; the default is
 all-time. When the server knows the Opik URL and the session's workspace, the
 read also carries `url` (the issue's Diagnostics page) and `trace_url_template`
 (a deep link for any of the example traces), so the assistant can hand you
@@ -263,17 +263,79 @@ resolved the links are omitted rather than guessed.
 
 ### `list`
 
-Browse a collection with optional name filter and pagination. Project-scoped
-types (`trace`, `thread`, `agent_insights_issue`) take `project_id` or
-`project_name`; sub-collections (`test_suite_item`, `prompt_version`) require
-their parent UUID.
+Browse or search a collection with pagination. Project-scoped types (`trace`,
+`span`, `thread`, `agent_insights_issue`, `test_suite_item`, `prompt_version`)
+need their parent: a project UUID or name, a suite UUID, or a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
 list(entity_type="experiment", name="rerank")          # name substring filter
-list(entity_type="trace", project_id="<project-uuid>") # traces of one project
 list(entity_type="agent_insights_issue", project_name="demo")             # open Diagnostics issues
 list(entity_type="agent_insights_issue", project_id="<uuid>", status="resolved")
+list(entity_type="trace", project_name="demo")         # latest traces of one project
+list(entity_type="trace", project_name="demo",
+     filters='error_info is_not_empty AND duration > 5000')
+list(entity_type="span", project_name="demo",          # spans across the whole project
+     filters='type = "llm" AND usage.total_tokens > 10000')
+list(entity_type="thread", project_name="demo",
+     filters='number_of_messages > 20 AND feedback_scores.helpfulness < 0.5')
+list(entity_type="experiment",
+     filters='dataset_id = "<dataset-uuid>" AND tags contains "baseline"')
+```
+
+**Filters.** `trace`, `span`, `thread` and `experiment` take an OQL string, the
+same grammar as the SDK's `search_traces(filter_string=…)`:
+
+```
+<field>[.<key>] <op> <value> [AND ...]
+ops: = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in
+```
+
+Strings go in double quotes, numbers are bare, `duration` is in milliseconds,
+dates are ISO-8601 instants with a timezone (`"2026-09-08T10:00:00Z"`).
+Scores and dictionaries take a key: `feedback_scores.accuracy < 0.5`,
+`metadata.environment = "prod"`. `AND` is the only connector.
+
+Like the UI's Logs page, trace, span and thread lists add `source = "sdk"` so
+evaluator, playground and experiment traces stay out of the way; name `source`
+yourself to see them. The first output line echoes the filter that was applied.
+
+A bad filter fails before reaching the backend with what is needed to fix it:
+the position of a syntax error, the closest field name, the valid operators for
+the field's type, or the expected value format. Ask `schema("list.trace")` (or
+`list.span`, `list.thread`, `list.experiment`) for the full field reference.
+
+**Sort.** The same four types take `sort="<field> [asc|desc]"`, `desc` by
+default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
+`sort="feedback_scores.accuracy asc"`, `sort="usage.total_tokens"`. The field is
+checked against the entity's sortable list before the call, because the backend
+silently ignores fields it cannot sort by. On very large workspaces the backend
+drops sorting altogether; the header says so when that happens.
+
+**Time window and search.** `trace`, `span` and `thread` take `since` and
+`until`, each a relative span (`"30m"`, `"1h"`, `"7d"`) or an ISO-8601 instant
+with a timezone, so "the last hour" needs no clock arithmetic. The window is by
+record creation time, which is cheap for the backend and agrees with
+`start_time` within seconds for live traffic. For an exact bound, put
+`start_time` in `filters`. The same three types take `search`, free text matched
+anywhere in id, name, input, output, metadata, tags and thread id. Search scans
+the whole project on the backend, so the first call on a large project can take
+tens of seconds. Those calls get a 60-second timeout. Adding `since` makes them
+fast again.
+
+**Reading the table.** Durations are labelled `duration_ms` / `ttft_ms` and
+shown as whole milliseconds; the field stays `duration` in `filters` and
+`sort`. Timestamps are shown to the second and costs as plain decimals.
+Project rows carry `last_updated_trace_at` so you can see which project has
+live traffic; thread rows carry the first message. An empty page under a time
+window says when the project's last trace landed, and an empty page under the
+default `source = "sdk"` says how to see the other sources. A misspelled
+`project_name` comes back with the closest existing name.
+
+```python
+list(entity_type="trace", project_name="demo", since="1h",
+     filters="error_info is_not_empty", sort="duration desc")
+list(entity_type="trace", project_name="demo", search="order-42")
 ```
 
 **Diagnostics issues.** `agent_insights_issue` is the Diagnostics page over
@@ -282,8 +344,9 @@ ranked as the UI ranks them (most recently seen first). Columns are `severity`,
 `status`, `total_occurrences` (all-time sum), `latest_count` (the most recent
 report day, the number the issue's own description refers to) and `last_seen`.
 Open issues are listed by default; pass `status="resolved"` or `"closed"` for
-the rest. Counts are all-time so they match the UI; `from_date` / `to_date`
-(ISO dates) narrow the window.
+the rest. Counts are all-time so they match the UI; the same `since` / `until`
+as for traces narrow the window, truncated to UTC report days because
+Diagnostics aggregates per day.
 
 ### `write`
 
@@ -326,6 +389,15 @@ call.
 ```python
 schema(operation="score.create")
 schema(operation="prompt_version.save")
+```
+
+The same tool answers `list.trace`, `list.span`, `list.thread` and
+`list.experiment` with the `list` tool's reference for that entity: every
+filterable field with its type and valid operators, the sortable fields, whether
+a time window and free-text search apply, and two example filters.
+
+```python
+schema(operation="list.trace")
 ```
 
 ---

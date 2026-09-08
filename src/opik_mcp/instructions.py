@@ -40,19 +40,24 @@ in workspace "{workspace}". The Opik UI is at {opik_url}.
 Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
 reads. read takes (entity_type, id_or_name_or_uri); list takes (entity_type, \
-optional name filter, page, size). Readable entity types include trace, span, \
-project, experiment, prompt, test_suite, thread, agent_insights_issue. Composite \
-reads (trace, prompt, thread, agent_insights_issue) inline their child collections \
-so one call usually gets the full picture. \
-For a thread, pass the thread link/URI or a project_id — read('thread', …) \
-returns the messages list, and list('thread', project_id=…) enumerates a \
-project's threads. For "what is broken in production", \
-list('agent_insights_issue', project_name=…) returns the project's Diagnostics \
-(Agent Insights) issues — recurring failures already grouped and ranked, open \
-ones by default, counts all-time unless from_date/to_date narrow them — instead \
-of ranking raw traces yourself; read('agent_insights_issue', id, project_id=…) \
-adds the cause, the suggested fix and example_trace_ids to open with \
-read('trace', …).
+page, size, and a name substring for workspace-wide types). For trace, span, \
+thread and experiment, list \
+also takes filters (OQL, the same language as search_traces(filter_string=…)), \
+sort, since/until and search, so one call answers most questions: \
+list('trace', project_name=…, since="1h", filters="error_info is_not_empty", \
+sort="duration desc"). Field reference: schema("list.trace"). Readable entity \
+types include trace, span, project, experiment, prompt, test_suite, thread, \
+agent_insights_issue. Composite reads (trace, prompt, thread, \
+agent_insights_issue) inline their child collections so one call usually gets \
+the full picture. For a thread, pass the thread link/URI or a project_id — \
+read('thread', …) returns the messages list, and list('thread', project_id=…) \
+enumerates a project's threads. For "what is broken in production", start with \
+list('agent_insights_issue', project_name=…): the project's Diagnostics (Agent \
+Insights) issues — recurring failures already grouped and ranked, open ones by \
+default, counts all-time unless since/until narrow them — instead of ranking \
+raw traces yourself; read('agent_insights_issue', id, project_name=…) adds the \
+cause, the suggested fix, example_trace_ids to open with read('trace', …), and \
+UI links.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \

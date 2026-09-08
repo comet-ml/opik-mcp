@@ -283,6 +283,95 @@ async def test_list_props_emits_had_name_filter_false_when_absent(
     assert props["had_name_filter"] == "false"
 
 
+@pytest.mark.anyio
+async def test_list_props_record_the_search_shape_without_values(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Filter field names, sort field, window and search are shape signals;
+    filter values, search text and metadata/score keys never leave the process."""
+    from opik_mcp import server
+
+    monkeypatch.setattr(
+        "opik_mcp.server.run_list",
+        lambda **_kw: _noop_coroutine("[list: trace | filters: …]\n"),
+    )
+
+    await server.list_entities(
+        entity_type="trace",
+        project_name=FORBIDDEN[4],
+        filters=(
+            f'metadata."{FORBIDDEN[0]}" = "{FORBIDDEN[1]}" AND feedback_scores.'
+            f'"{FORBIDDEN[2]}" < 1 AND duration > 5000 AND tags contains "{FORBIDDEN[3]}"'
+        ),
+        sort=f"feedback_scores.{FORBIDDEN[5]} desc",
+        since="1h",
+        search=FORBIDDEN[6],
+    )
+    _assert_no_leak(recorder.events)
+    props = _tool_called(recorder.events)
+    assert props["has_filters"] == "true"
+    assert props["filter_fields"] == "duration,feedback_scores,metadata,tags"
+    assert props["has_sort"] == "true"
+    assert props["sort_field"] == "feedback_scores.*"
+    assert props["has_window"] == "true"
+    assert props["has_search"] == "true"
+
+
+@pytest.mark.anyio
+async def test_list_props_shape_signals_are_false_on_a_bare_call(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from opik_mcp import server
+
+    monkeypatch.setattr(
+        "opik_mcp.server.run_list",
+        lambda **_kw: _noop_coroutine("[list: trace | filters: …]\n"),
+    )
+    await server.list_entities(entity_type="trace", project_id="p-1")
+    props = _tool_called(recorder.events)
+    assert props["has_filters"] == "false"
+    assert props["filter_fields"] == ""
+    assert props["has_sort"] == "false"
+    assert props["sort_field"] == ""
+    assert props["has_window"] == "false"
+    assert props["has_search"] == "false"
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_cause"),
+    [
+        # A field name must be a bare word; the canary is made one so the
+        # failure is the *unknown field* path, not a syntax error on '-'.
+        ({"filters": f"{FORBIDDEN[0].replace('-', '_')} > 5"}, "OQLUnknownFieldError"),
+        ({"filters": f"name = {FORBIDDEN[1]}"}, "OQLSyntaxError"),
+        ({"filters": f'error_info = "{FORBIDDEN[2]}"'}, "OQLBadOperatorError"),
+        ({"filters": f'start_time > "{FORBIDDEN[3]}"'}, "OQLBadValueError"),
+        ({"sort": FORBIDDEN[5]}, "SortError"),
+        ({"since": FORBIDDEN[6]}, "WindowError"),
+    ],
+)
+@pytest.mark.anyio
+async def test_list_validation_failures_record_their_class_and_nothing_else(
+    recorder: _Recorder, kwargs: dict[str, str], expected_cause: str
+) -> None:
+    """A rejected filter/sort/window is bucketed by exception class only — the
+    offending string (which may carry customer data) never reaches analytics."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from opik_mcp import server
+
+    with pytest.raises(ToolError):
+        await server.list_entities(entity_type="trace", project_id="p-1", **kwargs)
+    _assert_no_leak(recorder.events)
+    payload = json.dumps(recorder.events)
+    for value in kwargs.values():
+        assert value not in payload, f"PRIVACY BREACH: {value!r} leaked into analytics"
+    props = _tool_called(recorder.events)
+    assert props["success"] == "false"
+    assert props["error_kind"] == "validation"
+    assert props["cause_type"] == expected_cause
+
+
 # --- failure paths: error_kind / exception_type / http_status MUST be bucketed -- #
 #
 # When a tool raises, the wrapper emits ``error_kind`` + ``exception_type`` (+

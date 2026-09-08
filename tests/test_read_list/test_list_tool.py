@@ -239,13 +239,6 @@ async def test_list_rejects_unknown_entity_type() -> None:
         await run_list("widget", client=FakeOpikClient())
 
 
-@pytest.mark.anyio
-async def test_list_rejects_span_singleton_entity() -> None:
-    """``span`` has no list_fn — it's id-only."""
-    with pytest.raises(ToolError, match="Cannot list 'span'"):
-        await run_list("span", client=FakeOpikClient())
-
-
 # --- size / page clamping ------------------------------------------------ #
 
 
@@ -348,15 +341,43 @@ async def test_list_issues_forwards_window_only_when_given() -> None:
     assert "from_date" not in fake.last_kwargs
     assert "to_date" not in fake.last_kwargs
 
-    await run_list(
+    # The same since/until vocabulary as traces, truncated to UTC report days
+    # because the Diagnostics backend aggregates per day.
+    out = await run_list(
         "agent_insights_issue",
         project_id="p-1",
-        from_date="2026-09-01",
-        to_date="2026-09-08",
+        since="2026-09-01T15:30:00Z",
+        until="2026-09-08T02:00:00+02:00",
         client=fake,
     )
     assert fake.last_kwargs.get("from_date") == "2026-09-01"
     assert fake.last_kwargs.get("to_date") == "2026-09-08"
+    assert "from_time" not in fake.last_kwargs
+    assert "since: 2026-09-01" in out
+    assert "until: 2026-09-08" in out
+
+
+@pytest.mark.anyio
+async def test_list_issues_accept_relative_window() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", since="7d", client=fake)
+    from_date = fake.last_kwargs.get("from_date")
+    assert isinstance(from_date, str) and len(from_date) == 10
+    assert "to_date" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issues_inverted_window_rejected_before_backend() -> None:
+    fake = FakeOpikClient()
+    with pytest.raises(ToolError, match="before since"):
+        await run_list(
+            "agent_insights_issue",
+            project_id="p-1",
+            since="2026-09-09T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=fake,
+        )
+    assert fake.last_kwargs == {}
 
 
 @pytest.mark.anyio
@@ -375,9 +396,7 @@ async def test_list_issues_ignores_name_filter() -> None:
 @pytest.mark.anyio
 async def test_list_issue_filters_not_forwarded_to_other_entities() -> None:
     fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "a"}], "total": 1})
-    await run_list(
-        "project", status="resolved", from_date="2026-09-01", to_date="2026-09-08", client=fake
-    )
+    await run_list("project", status="resolved", client=fake)
     assert set(fake.last_kwargs) == {"page", "size"}
 
 
@@ -393,8 +412,8 @@ async def test_list_issues_bad_window_surfaces_backend_validation_message() -> N
         await run_list(
             "agent_insights_issue",
             project_id="p-1",
-            from_date="2026-09-09",
-            to_date="2026-09-01",
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
             client=fake,
         )
     assert "from_date" in str(exc.value)

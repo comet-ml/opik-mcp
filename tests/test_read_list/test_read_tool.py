@@ -70,13 +70,14 @@ class FakeOpikClient:
     async def list_spans(
         self,
         *,
-        trace_id: str,
+        trace_id: str | None = None,
         project_id: str | None = None,
         project_name: str | None = None,
         page: int = 1,
         size: int = 100,
+        **_search: Any,
     ) -> dict[str, Any]:
-        content = self.trace_spans.get(trace_id, [])
+        content = self.trace_spans.get(trace_id or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
 
     async def get_span(self, span_id: str) -> dict[str, Any]:
@@ -91,6 +92,7 @@ class FakeOpikClient:
         name: str | None = None,
         page: int = 1,
         size: int = 10,
+        **_search: Any,
     ) -> dict[str, Any]:
         content = self.experiments_by_name.get(name or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
@@ -137,6 +139,7 @@ class FakeOpikClient:
         filters: str | None = None,
         page: int = 1,
         size: int = 10,
+        **_search: Any,
     ) -> dict[str, Any]:
         if self.fail_list_traces:
             raise OpikServerError("boom")
@@ -465,8 +468,8 @@ async def test_read_issue_passes_project_and_window_to_client() -> None:
         "agent_insights_issue",
         ISSUE,
         project_id="p-9",
-        from_date="2026-09-01",
-        to_date="2026-09-08",
+        since="2026-09-01T15:30:00Z",
+        until="2026-09-08T02:00:00+02:00",
         client=fake,
     )
     assert fake.last_issue_kwargs == {
@@ -474,6 +477,30 @@ async def test_read_issue_passes_project_and_window_to_client() -> None:
         "from_date": "2026-09-01",
         "to_date": "2026-09-08",
     }
+
+
+@pytest.mark.anyio
+async def test_read_issue_accepts_relative_window() -> None:
+    fake = _issue_fake()
+    await run_read("agent_insights_issue", ISSUE, project_id="p-9", since="7d", client=fake)
+    from_date = fake.last_issue_kwargs["from_date"]
+    assert isinstance(from_date, str) and len(from_date) == 10
+    assert fake.last_issue_kwargs["to_date"] is None
+
+
+@pytest.mark.anyio
+async def test_read_issue_inverted_window_rejected_before_backend() -> None:
+    fake = _issue_fake()
+    with pytest.raises(ToolError, match="before since"):
+        await run_read(
+            "agent_insights_issue",
+            ISSUE,
+            project_id="p-9",
+            since="2026-09-09T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=fake,
+        )
+    assert fake.last_issue_kwargs == {}
 
 
 @pytest.mark.anyio
@@ -630,8 +657,8 @@ async def test_read_issue_bad_window_surfaces_backend_validation_message() -> No
             "agent_insights_issue",
             ISSUE,
             project_id="p-9",
-            from_date="2026-09-09",
-            to_date="2026-09-01",
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
             client=fake,
         )
     assert "from_date" in str(exc.value)
@@ -819,16 +846,24 @@ async def test_read_issue_skeleton_keeps_url() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_window_kwargs_dropped_for_entities_that_do_not_declare_them() -> None:
-    """from_date/to_date belong to the issue read; a thread fetcher takes
-    neither, so the gate must drop them instead of crashing the fetch."""
+async def test_read_window_rejected_for_entities_that_do_not_declare_it() -> None:
+    """since/until belong to the issue read; a thread fetcher takes neither, so
+    the read says so (as list does) rather than silently ignoring the window."""
+    with pytest.raises(ToolError, match="since/until are not supported for read\\('thread'\\)"):
+        await run_read(
+            "thread",
+            THREAD,
+            project_id="p-9",
+            since="7d",
+            client=_thread_fake(),
+        )
+
+
+@pytest.mark.anyio
+async def test_read_undeclared_entity_kwargs_dropped() -> None:
+    """Any other kwarg an entity does not declare is dropped, not forwarded."""
     out = await run_read(
-        "thread",
-        THREAD,
-        project_id="p-9",
-        from_date="2026-09-01",
-        to_date="2026-09-08",
-        client=_thread_fake(),
+        "thread", THREAD, project_id="p-9", client=_thread_fake(), not_a_real_kwarg="x"
     )
     assert f"[read: thread {THREAD}" in out
 
