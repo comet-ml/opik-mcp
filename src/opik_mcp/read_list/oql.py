@@ -184,8 +184,17 @@ class OQLError(EntityArgValidationError):
     """The ``filters`` string does not validate. Carries every issue found.
 
     Subclasses ``EntityArgValidationError`` so the analytics wrapper buckets
-    it as validation/400 like the other list-argument failures.
+    it as validation/400 like the other list-argument failures. Instantiating
+    ``OQLError`` yields the per-kind subclass of the first issue (``OQLSyntaxError``
+    etc.): analytics records only exception class names, so the class is how
+    "which kind of mistake do agents make" reaches a dashboard without the
+    string itself ever leaving the process.
     """
+
+    def __new__(cls, entity_type: str, query: str, issues: list[OQLIssue]) -> OQLError:
+        if cls is OQLError and issues:
+            cls = _KIND_CLASSES[issues[0].kind]
+        return super().__new__(cls)
 
     def __init__(self, entity_type: str, query: str, issues: list[OQLIssue]) -> None:
         self.entity_type = entity_type
@@ -208,6 +217,35 @@ class OQLError(EntityArgValidationError):
         if self.entity_type in FILTERABLE_FIELDS:
             lines.append(f'Field reference: schema("list.{self.entity_type}").')
         return "\n".join(lines)
+
+
+class OQLSyntaxError(OQLError):
+    """Grammar problem: quoting, operator shape, trailing text, OR."""
+
+
+class OQLUnknownFieldError(OQLError):
+    """A field the entity does not have."""
+
+
+class OQLBadOperatorError(OQLError):
+    """An operator the field's type does not support."""
+
+
+class OQLBadValueError(OQLError):
+    """A value in the wrong format, or a missing key on a keyed field."""
+
+
+class OQLUnsupportedEntityError(OQLError):
+    """``filters`` on an entity type that has none."""
+
+
+_KIND_CLASSES: Final[dict[IssueKind, type[OQLError]]] = {
+    "syntax": OQLSyntaxError,
+    "unknown_field": OQLUnknownFieldError,
+    "bad_operator": OQLBadOperatorError,
+    "bad_value": OQLBadValueError,
+    "unsupported_entity": OQLUnsupportedEntityError,
+}
 
 
 @dataclass(frozen=True)
@@ -565,6 +603,22 @@ def filter_fields(entity_type: str) -> dict[str, FieldType]:
     return dict(FILTERABLE_FIELDS[entity_type])
 
 
+def filter_field_names(entity_type: str, query: str | None) -> list[str]:
+    """Sorted, de-duplicated field names a query uses — keys stripped.
+
+    For analytics: says *which fields* agents filter on without carrying the
+    values or the user-named keys. Returns ``[]`` for anything that does not
+    parse; the failure itself is recorded by exception class elsewhere.
+    """
+    if not query:
+        return []
+    try:
+        clauses = compile_filters(entity_type, query)
+    except OQLError:
+        return []
+    return sorted({c["field"] for c in clauses})
+
+
 def render_filters(entity_type: str, clauses: list[dict[str, str]]) -> str:
     """Render a compiled filter array back to OQL, for the applied-filters header.
 
@@ -606,9 +660,15 @@ __all__ = [
     "USAGE_FIELDS",
     "FieldType",
     "IssueKind",
+    "OQLBadOperatorError",
+    "OQLBadValueError",
     "OQLError",
     "OQLIssue",
+    "OQLSyntaxError",
+    "OQLUnknownFieldError",
+    "OQLUnsupportedEntityError",
     "compile_filters",
+    "filter_field_names",
     "filter_fields",
     "render_filters",
 ]

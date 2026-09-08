@@ -50,7 +50,9 @@ from opik_mcp.credential_identity import (
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
+from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_thread_url
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
@@ -102,11 +104,28 @@ def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
 
 
 def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    """Analytics labels for ``list``.
+
+    The search surface (OPIK-8283) is recorded as *shape* only: which filter
+    fields were used (names, never values or the ``.key`` a score or metadata
+    filter carries — those are user vocabulary), which field was sorted on
+    (dynamic ``feedback_scores.<name>`` collapses to its prefix), and whether
+    a window / free-text search was present. Failed validations don't reach
+    this function; they are bucketed by exception class in the wrapper.
+    """
+    filters = kwargs.get("filters")
+    sort = kwargs.get("sort")
     return {
         "entity_type": kwargs.get("entity_type", ""),
         "had_name_filter": str(kwargs.get("name") is not None).lower(),
         "page": str(kwargs.get("page", 1)),
         "size": str(kwargs.get("size", 25)),
+        "has_filters": str(bool(filters)).lower(),
+        "filter_fields": ",".join(filter_field_names(kwargs.get("entity_type", ""), filters)),
+        "has_sort": str(bool(sort)).lower(),
+        "sort_field": sort_field_label(sort),
+        "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),
+        "has_search": str(bool(kwargs.get("search"))).lower(),
     }
 
 

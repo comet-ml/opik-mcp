@@ -156,6 +156,22 @@ def is_sortable(entity_type: str, field: str) -> bool:
     return False
 
 
+def sort_field_label(sort: str | None) -> str:
+    """The sort field for analytics: a dynamic ``prefix.<name>`` collapses to
+    ``prefix.*`` so a user-named score never becomes a label; anything that
+    is not a known static or dynamic field collapses to ``""``."""
+    if not sort:
+        return ""
+    field = sort.split()[0]
+    for allowed in {a for fields in SORTABLE_FIELDS.values() for a in fields}:
+        if allowed.endswith(".*"):
+            if field.startswith(allowed[:-1]):
+                return allowed
+        elif field == allowed:
+            return field
+    return ""
+
+
 def sortable_names(entity_type: str) -> list[str]:
     """Human form of the sortable list: dynamic prefixes shown as ``x.<name>``."""
     return [f"{f[:-2]}.<name>" if f.endswith(".*") else f for f in SORTABLE_FIELDS[entity_type]]
@@ -168,5 +184,6 @@ __all__ = [
     "SortError",
     "compile_sort",
     "is_sortable",
+    "sort_field_label",
     "sortable_names",
 ]
