@@ -2,7 +2,7 @@
 name: opik
 description: Reference for the Opik SDK — tracing, span types, framework integrations, threads, and the prompt library (Python, TypeScript, REST). Use for "what span types exist", "how do I flush", "track_openai", "add OpikTracer", "version a prompt". To instrument a repo end to end, use the `opik-instrument` skill.
 metadata:
-  last_updated: "2026-07-27"
+  last_updated: "2026-09-08"
   source_commit: "TODO — pin to the Opik release this was verified against (OPIK-7471)"
 ---
 
@@ -116,6 +116,46 @@ def run(question: str) -> str:
         metadata={"model": "gpt-4o", "temperature": 0.7},
     )
     return llm(p.format(product="Opik"), model=p.metadata["model"])
+```
+
+## Searching traces
+
+One filter grammar, OQL, serves both the hosted MCP's `list` tool and the
+SDK's `search_traces` / `search_spans` / `search_threads`:
+
+```
+<field>[.<key>] <op> <value> [AND ...]
+ops: = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in
+```
+
+Strings in double quotes, numbers bare, `duration` in **milliseconds**, dates as
+ISO-8601 instants with a timezone (`"2026-09-08T10:00:00Z"`). Scores and
+dictionaries take a key: `feedback_scores.accuracy < 0.5`,
+`metadata.environment = "prod"`. `AND` is the only connector.
+
+```
+error_info is_not_empty AND duration > 5000
+type = "llm" AND usage.total_tokens > 10000            # spans
+feedback_scores.hallucination > 0.5 AND start_time >= "2026-09-08T00:00:00Z"
+```
+
+With the MCP connected, prefer `list` — it also sorts (`sort="duration desc"`),
+windows (`since="1h"`, `"7d"`), and searches free text (`search="order-42"`):
+
+```
+list(entity_type="trace", project_name="<project>", since="1h",
+     filters="error_info is_not_empty", sort="duration desc")
+```
+
+Trace, span and thread lists add `source = "sdk"` unless you name `source`, so
+evaluator, playground and experiment traces stay out of the way. A rejected
+filter comes back with what fixes it; `schema("list.trace")` (or `list.span`,
+`list.thread`, `list.experiment`) is the full field and operator reference.
+
+Without the MCP, the same string goes to the SDK:
+
+```python
+client.search_traces(project_name="<project>", filter_string="error_info is_not_empty")
 ```
 
 ## Anti-patterns

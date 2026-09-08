@@ -8,7 +8,7 @@ allowed-tools:
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-08-24"
+  last_updated: "2026-09-08"
   source_commit: "2.0.0"
   argument-hint: "[trace id, or a description of the behavior to explain]"
 ---
@@ -52,10 +52,23 @@ spans = client.search_spans(trace_id=tid)   # spans come from a SEPARATE call, n
 # Your anchor is the first span that errored, returned wrong output, or dominates the duration.
 ```
 
-For a **pattern**, pull the matching set scoped to the project, then look for the shared failing span across them:
+For a **pattern**, pull the matching set scoped to the project, then look for the shared failing span across them. With the MCP, one `list` call does the filtering and ordering server-side — `filters` is an OQL string, `sort` is `"<field> [asc|desc]"`, `since` takes `"1h"` / `"7d"`:
+
+```
+list(entity_type="trace", project_name="<project>", since="7d",
+     filters="error_info is_not_empty", sort="start_time desc")        # error traces
+list(entity_type="trace", project_name="<project>", since="7d",
+     sort="duration desc")                                             # slow traces (duration in ms)
+list(entity_type="trace", project_name="<project>", since="7d",
+     filters="feedback_scores.hallucination > 0.5")                    # low-scored traces
+list(entity_type="span",  project_name="<project>", since="7d",
+     filters='name = "<span name>" AND error_info is_not_empty')       # the shared failing span, across traces
+```
+
+The applied filter is echoed on the first line; a rejected one comes back with what fixes it (`schema("list.trace")` is the full field reference). Without the MCP, the SDK takes the same grammar:
 
 ```python
-traces = client.search_traces(project_name="<project>", filters={...})  # e.g. error traces, low-score traces, high-duration traces
+traces = client.search_traces(project_name="<project>", filter_string="error_info is_not_empty")
 ```
 
 Traces are asynchronous; if you just produced the trace, allow a few seconds and confirm the flush ran.
@@ -92,7 +105,7 @@ Invariants: `explained` must carry a `root_cause` **and** at least one evidence 
 
 **Single trace — tool failure.** `/opik-explain 019fd8a7-...`. Fetch trace + spans; the `retrieve` (`tool`) span returned empty and the `llm` span then hallucinated. Open `retrieve()` in the repo: the query filter is wrong. Root cause = the retrieval filter, evidence = the empty `tool` span feeding the `llm` span; next step = "fix the filter in `retrieve()` (or `/opik-test` it)". → **`explained`**.
 
-**Pattern — slowness.** `/opik-explain why responses got slow this week`. `search_traces` for high-duration traces; the same external `tool` span dominates each. Root cause = that call's latency; evidence = the shared slow span across N traces; next step = "add a timeout/cache around it". → **`explained`**.
+**Pattern — slowness.** `/opik-explain why responses got slow this week`. `list('trace', since="7d", sort="duration desc")` (or `search_traces` without the MCP) for the slowest traces; the same external `tool` span dominates each. Root cause = that call's latency; evidence = the shared slow span across N traces; next step = "add a timeout/cache around it". → **`explained`**.
 
 **Blocked — bad id.** `/opik-explain 123`. `get_trace_content` finds nothing. → **`not_found`**: "No trace `123` in project `X` — confirm the id/project and rerun." (No code touched.)
 
@@ -101,6 +114,6 @@ Dumping the span tree without naming a cause; guessing a cause without reading t
 
 ## References
 
-SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (`search_traces`, error/latency/cost analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span-type model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
+SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/SKILL.md` (**Searching traces** — the OQL filter grammar shared by the MCP `list` tool and `search_traces`), `../opik/references/production.md` (`search_traces`, error/latency/cost analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span-type model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
 
 If the `opik` skill isn't installed, say so in the report and use <https://www.comet.com/docs/opik/> rather than working from memory.
