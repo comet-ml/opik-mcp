@@ -243,8 +243,8 @@ read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
 ### `list`
 
 Browse or search a collection with pagination. Project-scoped types (`trace`,
-`span`, `thread`, `test_suite_item`, `prompt_version`) require their parent — a
-project UUID or name, a suite UUID, a prompt UUID.
+`span`, `thread`, `test_suite_item`, `prompt_version`) need their parent: a
+project UUID or name, a suite UUID, or a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
@@ -293,12 +293,12 @@ drops sorting altogether; the header says so when that happens.
 `until`, each a relative span (`"30m"`, `"1h"`, `"7d"`) or an ISO-8601 instant
 with a timezone, so "the last hour" needs no clock arithmetic. The window is by
 record creation time, which is cheap for the backend and agrees with
-`start_time` within seconds for live traffic; use `start_time` in `filters`
-for an exact bound. The same three types take `search`, free text matched
-anywhere in id, name, input, output, metadata, tags and thread id. Search is a
-full scan on the backend and can take tens of seconds on a large project the
-first time; those calls get a 60-second timeout, and narrowing with `since`
-first keeps them quick.
+`start_time` within seconds for live traffic. For an exact bound, put
+`start_time` in `filters`. The same three types take `search`, free text matched
+anywhere in id, name, input, output, metadata, tags and thread id. Search scans
+the whole project on the backend, so the first call on a large project can take
+tens of seconds. Those calls get a 60-second timeout. Adding `since` makes them
+fast again.
 
 **Reading the table.** Durations are labelled `duration_ms` / `ttft_ms` and
 shown as whole milliseconds; the field stays `duration` in `filters` and
