@@ -28,44 +28,72 @@ WINDOW_FORMS: Final = (
 
 
 class WindowError(EntityArgValidationError):
-    """``since`` / ``until`` does not validate (kind ``bad_window`` in analytics)."""
+    """``since`` / ``until`` does not validate.
 
-    kind: str = "bad_window"
+    Analytics buckets the failure by this class name (``cause_type``); the
+    offending value never leaves the process.
+    """
 
 
-def resolve_instant(param: str, value: str, *, now: datetime | None = None) -> str:
-    """Turn a ``since``/``until`` value into a UTC ``…Z`` instant string."""
+def parse_instant(value: str) -> datetime | None:
+    """Parse a strict ISO-8601 instant: ``T`` separator, timezone required.
+
+    ``datetime.fromisoformat`` is looser than the backend's ``Instant.parse``
+    (it takes a space separator, a bare date, a naive time). Anything the
+    backend would 400 on is rejected here so the local check means something.
+    """
+    text = value.strip()
+    if "T" not in text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def resolve_instant(param: str, value: str, *, now: datetime | None = None) -> datetime:
+    """Turn a ``since``/``until`` value into an aware UTC datetime."""
     now = now or datetime.now(UTC)
     m = _RELATIVE.match(value.strip())
     if m:
         amount, unit = int(m.group(1)), m.group(2)
-        return _format(now - timedelta(seconds=amount * _UNIT_SECONDS[unit]))
-    try:
-        parsed = datetime.fromisoformat(value.strip())
-    except ValueError:
-        parsed = None
-    if parsed is None or parsed.tzinfo is None:
+        return now - timedelta(seconds=amount * _UNIT_SECONDS[unit])
+    parsed = parse_instant(value)
+    if parsed is None:
         raise WindowError(f"Invalid {param} {value!r}: expected {WINDOW_FORMS}.")
-    return _format(parsed)
+    return parsed
 
 
 def resolve_window(
     since: str | None, until: str | None, *, now: datetime | None = None
 ) -> tuple[str | None, str | None]:
-    """Resolve both bounds and check their order."""
+    """Resolve both bounds to ``…Z`` strings and check their order."""
     now = now or datetime.now(UTC)
-    from_time = resolve_instant("since", since, now=now) if since is not None else None
-    to_time = resolve_instant("until", until, now=now) if until is not None else None
-    if from_time and to_time and to_time < from_time:
-        raise WindowError(f"until ({to_time}) is before since ({from_time}).")
-    return from_time, to_time
+    start = resolve_instant("since", since, now=now) if since is not None else None
+    end = resolve_instant("until", until, now=now) if until is not None else None
+    if start is not None and end is not None and end < start:
+        raise WindowError(
+            f"until ({format_instant(end)}) is before since ({format_instant(start)})."
+        )
+    return (
+        format_instant(start) if start is not None else None,
+        format_instant(end) if end is not None else None,
+    )
 
 
-def _format(dt: datetime) -> str:
+def format_instant(dt: datetime) -> str:
     dt = dt.astimezone(UTC)
     if dt.microsecond:
         return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-__all__ = ["WINDOW_FORMS", "WindowError", "resolve_instant", "resolve_window"]
+__all__ = [
+    "WINDOW_FORMS",
+    "WindowError",
+    "format_instant",
+    "parse_instant",
+    "resolve_instant",
+    "resolve_window",
+]

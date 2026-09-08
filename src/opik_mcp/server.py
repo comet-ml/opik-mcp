@@ -298,14 +298,13 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "OQL filter for trace, span, thread, experiment. "
-                "<field>[.<key>] <op> <value> [AND ...]; ops: = != > >= < <= contains "
-                "not_contains starts_with ends_with is_empty is_not_empty in not_in. "
-                "Strings in double quotes, numbers bare, duration in ms. E.g. "
-                "'error_info is_not_empty AND duration > 5000' or "
+                "OQL filter for trace, span, thread, experiment: "
+                "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
+                "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
+                "strings quoted, numbers bare (duration in ms). E.g. "
+                "'error_info is_not_empty AND duration > 5000', "
                 "'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. "
-                'trace/span/thread add source = "sdk" unless you name source. '
-                'Field reference: schema("list.trace").'
+                'Reference: schema("list.trace").'
             ),
             max_length=2000,
         ),

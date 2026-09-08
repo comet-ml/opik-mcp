@@ -151,6 +151,36 @@ async def test_filters_on_an_unsupported_type_name_the_supported_ones() -> None:
         await run_list("project", filters='name = "x"', client=FakeOpikClient())
 
 
+@pytest.mark.anyio
+async def test_empty_filters_on_an_unsupported_type_is_the_same_as_none() -> None:
+    fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
+    out = await run_list("project", filters="", client=fake)
+    assert "filters" not in fake.last_kwargs
+    assert "truncate" not in fake.last_kwargs
+    assert out.startswith("Found 1 projects")
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("query", "fragment"),
+    [
+        ("duration > five", "Syntax error at position"),
+        ("metadata.env >= 5", "'>=' is not valid for 'metadata' (dictionary)"),
+        ('start_time > "yesterday"', "ISO-8601 instant with a timezone"),
+        ('durration > 5 AND error_info = "x"', "2. Operator '='"),
+    ],
+)
+async def test_every_error_class_reaches_the_agent_through_the_tool(
+    query: str, fragment: str
+) -> None:
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace", project_id="p-1", filters=query, client=FakeOpikClient())
+    message = str(ei.value)
+    assert message.startswith("Invalid filters for trace:")
+    assert fragment in message
+    assert 'schema("list.trace")' in message
+
+
 # --- default columns ----------------------------------------------------- #
 
 
@@ -295,6 +325,29 @@ async def test_until_before_since_is_rejected_locally() -> None:
 
 
 @pytest.mark.anyio
+async def test_window_order_is_checked_on_instants_not_strings() -> None:
+    """A sub-second ``until`` sorts before ``since`` as text ('.' < 'Z') but is
+    later in time; the bounds must be compared as instants."""
+    fake = FakeOpikClient()
+    await run_list(
+        "trace",
+        project_id="p-1",
+        since="2026-09-08T10:00:00Z",
+        until="2026-09-08T10:00:00.500Z",
+        client=fake,
+    )
+    assert fake.last_kwargs["to_time"] == "2026-09-08T10:00:00.500Z"
+
+
+@pytest.mark.anyio
+async def test_space_separated_date_is_rejected_before_the_backend_would() -> None:
+    with pytest.raises(ToolError, match="Invalid since"):
+        await run_list(
+            "trace", project_id="p-1", since="2026-09-08 10:00:00Z", client=FakeOpikClient()
+        )
+
+
+@pytest.mark.anyio
 async def test_window_on_experiment_is_rejected_with_a_clear_message() -> None:
     with pytest.raises(ToolError, match="experiments have no time window"):
         await run_list("experiment", since="1h", client=FakeOpikClient())
@@ -387,6 +440,24 @@ async def test_header_echoes_the_sort_and_flags_a_dropped_one() -> None:
     out = await run_list("trace", project_id="p-1", sort="duration", client=dropped)
     assert (
         "sort: duration desc (dropped by the backend for this workspace size" in out.splitlines()[0]
+    )
+
+
+@pytest.mark.anyio
+async def test_header_lists_filters_sort_window_search_in_that_order() -> None:
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
+    out = await run_list(
+        "trace",
+        project_id="p-1",
+        filters="duration > 5000",
+        sort="duration",
+        since="2026-09-08T00:00:00Z",
+        search="order-42",
+        client=fake,
+    )
+    assert out.splitlines()[0] == (
+        '[list: trace | filters: duration > 5000 AND source = "sdk" | sort: duration desc'
+        ' | since: 2026-09-08T00:00:00Z | search: "order-42"]'
     )
 
 

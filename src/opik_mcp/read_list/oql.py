@@ -33,10 +33,10 @@ from __future__ import annotations
 
 import difflib
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Final, Literal
 
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.window import parse_instant
 
 FieldType = Literal[
     "string",
@@ -163,6 +163,16 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
     },
 }
 SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(FILTERABLE_FIELDS)
+# The per-entity search surface beyond filters, in one place so the list tool
+# and the schema reference cannot disagree. Experiments have no ``source``
+# (they are one source by definition), no time window and no free-text search.
+SOURCE_DEFAULTED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
+"""Lists that add ``source = "sdk"`` unless the caller names ``source`` — the
+UI's Logs page default, so evaluator / playground / experiment traces don't
+crowd out application traffic."""
+WINDOWED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
+"""Lists whose backend endpoint takes ``from_time``/``to_time`` and free-text
+``search`` (the two capabilities ship together on the backend)."""
 
 GRAMMAR_LINE: Final = (
     "<field>[.<key>] <op> <value> [AND ...] — strings in double quotes, numbers bare, "
@@ -453,7 +463,7 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
 
     # usage.<x> is a flat composite field name, not a dictionary key.
     if field == "usage":
-        composite = f"usage.{key}"
+        composite = f"usage.{key}" if key is not None else "usage"
         if composite not in fields:
             return None, OQLIssue(
                 "unknown_field",
@@ -505,11 +515,7 @@ def _validate_value(field: str, ftype: str, key: str | None, raw: _RawClause) ->
     if raw.operator in NO_VALUE_OPERATORS:
         return None
     if ftype == "date_time":
-        try:
-            parsed = datetime.fromisoformat(raw.value)
-        except ValueError:
-            parsed = None
-        if parsed is None or parsed.tzinfo is None:
+        if parse_instant(raw.value) is None:
             return OQLIssue(
                 "bad_value",
                 f"Invalid value \"{raw.value}\" for '{field}': expected an ISO-8601 instant "
@@ -562,7 +568,7 @@ def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
         # Clauses parsed before the syntax error still get validated so the
         # agent sees every problem in one round.
         raw_clauses = []
-        for raw in _partial(parser):
+        for raw in _clauses_before_error(parser):
             clause, issue = _validate(entity_type, raw)
             if issue is not None:
                 issues.append(issue)
@@ -582,7 +588,7 @@ def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
     return compiled
 
 
-def _partial(parser: _Parser) -> list[_RawClause]:
+def _clauses_before_error(parser: _Parser) -> list[_RawClause]:
     """Clauses fully parsed before a syntax error — re-run the parser on the
     prefix up to the failing clause. Cheap (queries are short) and keeps the
     parser itself free of error-recovery state."""
@@ -656,8 +662,10 @@ __all__ = [
     "KEYED_TYPES",
     "MILLISECOND_FIELDS",
     "OPERATORS_BY_TYPE",
+    "SOURCE_DEFAULTED_ENTITIES",
     "SUPPORTED_ENTITIES",
     "USAGE_FIELDS",
+    "WINDOWED_ENTITIES",
     "FieldType",
     "IssueKind",
     "OQLBadOperatorError",

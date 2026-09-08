@@ -253,6 +253,26 @@ def test_unknown_top_level_field_is_rejected_not_defaulted_to_string() -> None:
     assert ei.value.kinds == ("unknown_field",)
 
 
+def test_usage_without_a_metric_names_the_usage_fields() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", "usage > 5")
+    assert ei.value.kinds == ("unknown_field",)
+    assert "Unknown field 'usage'" in str(ei.value)
+    assert "usage.total_tokens" in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2026-09-08 10:00:00Z", "2026-09-08", "2026-09-08T10:00:00"],
+)
+def test_dates_the_backend_would_refuse_are_rejected_locally(value: str) -> None:
+    """``Instant.parse`` wants a ``T`` separator and a timezone; Python's
+    ``fromisoformat`` is looser, so the local check must be stricter than it."""
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", f'start_time > "{value}"')
+    assert ei.value.kinds == ("bad_value",)
+
+
 def test_unknown_entity_type_is_rejected() -> None:
     with pytest.raises(OQLError) as ei:
         compile_filters("project", 'name = "x"')

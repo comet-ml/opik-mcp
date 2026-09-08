@@ -112,9 +112,11 @@ SORT_FORM: Final = "<field> [asc|desc]"
 
 
 class SortError(EntityArgValidationError):
-    """The ``sort`` string does not validate (kind ``bad_sort`` in analytics)."""
+    """The ``sort`` string does not validate.
 
-    kind: str = "bad_sort"
+    Analytics buckets the failure by this class name (``cause_type``); the
+    offending string never leaves the process.
+    """
 
 
 def compile_sort(entity_type: str, sort: str) -> tuple[str, str]:

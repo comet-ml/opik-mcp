@@ -19,16 +19,13 @@ from opik_mcp.read_list.oql import (
     KEYED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
+    SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
+    WINDOWED_ENTITIES,
 )
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 
 LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = tuple(f"list.{e}" for e in SUPPORTED_ENTITIES)
-
-# Kept in step with list_tool: which entities take from_time/to_time + search,
-# and which get the UI's ``source = "sdk"`` default.
-_WINDOWED_OR_SEARCHABLE: Final = frozenset({"trace", "span", "thread"})
-_SOURCE_DEFAULTED: Final = frozenset({"trace", "span", "thread"})
 
 FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
     "trace": (
@@ -68,7 +65,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         "fields": fields,
         "examples": list(FILTER_EXAMPLES[entity_type]),
     }
-    if entity_type in _SOURCE_DEFAULTED:
+    if entity_type in SOURCE_DEFAULTED_ENTITIES:
         filters["default"] = 'source = "sdk" unless you name source'
 
     return {
@@ -76,8 +73,8 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         "entity_type": entity_type,
         "filters": filters,
         "sort": {"form": SORT_FORM, "fields": sortable_names(entity_type)},
-        "window": entity_type in _WINDOWED_OR_SEARCHABLE,
-        "search": entity_type in _WINDOWED_OR_SEARCHABLE,
+        "window": entity_type in WINDOWED_ENTITIES,
+        "search": entity_type in WINDOWED_ENTITIES,
     }
 
 

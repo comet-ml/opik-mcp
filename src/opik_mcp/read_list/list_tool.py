@@ -37,7 +37,9 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
+    SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
+    WINDOWED_ENTITIES,
     OQLError,
     compile_filters,
     render_filters,
@@ -51,14 +53,7 @@ logger = logging.getLogger("opik_mcp.read_list.list")
 _MAX_SIZE = 100
 _TRUNCATE_AT = 60
 
-# Entities whose backend list endpoint stores a ``source`` and whose UI list
-# defaults to the SDK source. Experiments are one source by definition.
-_SOURCE_DEFAULTED = frozenset({"trace", "span", "thread"})
 _SDK_SOURCE_CLAUSE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
-# Entities whose backend list takes from_time/to_time and free-text search.
-# Experiments have neither.
-_WINDOWED = ("trace", "span", "thread")
-_SEARCHABLE_TEXT = ("trace", "span", "thread")
 
 
 async def run_list(
@@ -120,25 +115,31 @@ async def run_list(
 
     applied: list[str] = []
     clauses: list[dict[str, str]] = []
-    if entity_type in SUPPORTED_ENTITIES or filters is not None:
+    if entity_type in SUPPORTED_ENTITIES or filters:
         try:
             clauses = compile_filters(entity_type, filters or "")
         except OQLError as err:
             raise ToolError(str(err)) from err
-        if entity_type in _SOURCE_DEFAULTED and not any(c["field"] == "source" for c in clauses):
+        if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
+            c["field"] == "source" for c in clauses
+        ):
             clauses.append(dict(_SDK_SOURCE_CLAUSE))
         if clauses:
             kw["filters"] = json.dumps(clauses, separators=(",", ":"))
             applied.append(f"filters: {render_filters(entity_type, clauses)}")
+    if entity_type in WINDOWED_ENTITIES:
         # Bodies never reach the table, so let the backend trim them.
         kw["truncate"] = True
+    # The sort label is filled in after the response (the backend may have
+    # dropped the sort), but it belongs right after the filters in the header.
+    sort_slot = len(applied)
 
     if since is not None or until is not None:
-        if entity_type not in _WINDOWED:
+        if entity_type not in WINDOWED_ENTITIES:
             why = (
                 "experiments have no time window on the backend."
                 if entity_type == "experiment"
-                else f"only {', '.join(_WINDOWED)} take a time window."
+                else f"only {', '.join(WINDOWED_ENTITIES)} take a time window."
             )
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
@@ -154,11 +155,11 @@ async def run_list(
             applied.append(f"until: {to_time}")
 
     if search is not None and search.strip():
-        if entity_type in _SEARCHABLE_TEXT:
+        if entity_type in WINDOWED_ENTITIES:
             kw["search"] = search
             applied.append(f'search: "{search}"')
         else:
-            applied.append(f"search ignored (only {', '.join(_SEARCHABLE_TEXT)})")
+            applied.append(f"search ignored (only {', '.join(WINDOWED_ENTITIES)})")
 
     sort_label: str | None = None
     sort_field: str | None = None
@@ -189,7 +190,7 @@ async def run_list(
         # workspace — the only signal that the page is not actually ordered.
         if page_body.get("sortable_by") == []:
             sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
-        applied.append(sort_label)
+        applied.insert(sort_slot, sort_label)
 
     header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
     if not content:
