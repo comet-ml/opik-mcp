@@ -63,3 +63,19 @@ def test_needs_project_is_thread_only() -> None:
     """Only thread declares needs_project — every other fetcher is (client, id)."""
     for entity_type, handler in ENTITY_REGISTRY.items():
         assert handler.needs_project is (entity_type == "thread")
+
+
+def test_optional_kwargs_never_overlap_required_ones() -> None:
+    """A kwarg is either required or optional for an entity, never both — the
+    list tool's forwarding gate unions the two, so an overlap would hide a
+    missing-parent error."""
+    for handler in ENTITY_REGISTRY.values():
+        assert not set(handler.list_required_kwargs) & set(handler.list_optional_kwargs)
+
+
+def test_optional_kwargs_default_empty() -> None:
+    """No entity declares optional kwargs yet; the gate must drop everything
+    the caller passes beyond the required parent id."""
+    for handler in ENTITY_REGISTRY.values():
+        assert handler.list_optional_kwargs == ()
+        assert handler.read_optional_kwargs == ()

@@ -65,6 +65,21 @@ class EntityHandler:
     list_fn: ListFn | None = None
     list_extra_fields: tuple[str, ...] = ()
     list_required_kwargs: tuple[str, ...] = ()
+    """Entity-specific kwargs ``list_fn`` cannot run without (a parent id).
+
+    ``project_id`` is special: ``project_name`` satisfies it too, since every
+    project-scoped list accepts either.
+    """
+    list_optional_kwargs: tuple[str, ...] = ()
+    """Entity-specific kwargs ``list_fn`` accepts but does not require.
+
+    The ``list`` tool forwards a kwarg only when the entity declares it here
+    or in ``list_required_kwargs``; anything else the caller passed is dropped
+    so a confused call degrades to a plain list instead of a client TypeError.
+    """
+    read_optional_kwargs: tuple[str, ...] = ()
+    """Entity-specific kwargs ``fetch_fn`` accepts beyond the id and project
+    scope. Same forwarding rule as ``list_optional_kwargs``, for ``read``."""
     compress_fn: CompressFn | None = None
     id_only: bool = False
     """True if the entity is addressed only by UUID (no name lookup).

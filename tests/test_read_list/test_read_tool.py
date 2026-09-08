@@ -399,3 +399,17 @@ async def test_read_invalid_entity_type_chains_typed_cause() -> None:
         await run_read("not_real", "00000000-0000-0000-0000-000000000000")
 
     assert isinstance(ei.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_read_missing_project_scope_error_is_entity_neutral() -> None:
+    """The scope error names the entity and every way to supply scope —
+    project_id, project_name, or a pasted link/URI — without assuming the
+    entity is a thread."""
+    with pytest.raises(ToolError) as exc:
+        await run_read("thread", THREAD, client=_thread_fake())
+    msg = str(exc.value)
+    assert "read('thread')" in msg
+    assert "project_id" in msg
+    assert "project_name" in msg
+    assert "link" in msg

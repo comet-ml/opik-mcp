@@ -114,6 +114,7 @@ async def run_read(
     project_name: str | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
+    **entity_kwargs: Any,
 ) -> str:
     """Read tool entrypoint. See ``server.py`` for the registered tool.
 
@@ -155,15 +156,24 @@ async def run_read(
 
     if handler.needs_project and project_id is None and project_name is None:
         err = EntityArgValidationError(
-            f"read({entity_type!r}) requires project scope. Pass the full thread "
-            f"link/URI, or a project_id — e.g. "
-            f"read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
+            f"read({entity_type!r}) requires project scope. Pass project_id or "
+            f"project_name, or paste the {entity_type}'s Opik link/URI as the id — "
+            f"e.g. read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
         )
         raise ToolError(str(err)) from err
 
+    # Entity-specific kwargs reach the fetcher only when its registry entry
+    # declares them — same gate as ``list``, so a kwarg meant for one entity is
+    # dropped rather than crashing another's fetcher.
+    extra = {
+        key: value
+        for key, value in entity_kwargs.items()
+        if value is not None and key in handler.read_optional_kwargs
+    }
+
     opik = client if client is not None else make_opik_client(settings or get_settings())
     data = await _fetch_with_name_lookup(
-        handler, opik, id, project_id=project_id, project_name=project_name
+        handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
     )
 
     compressed_text, tier = compress_for(handler, data, max_tokens)
@@ -181,6 +191,7 @@ async def _fetch_with_name_lookup(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve name → id when the input doesn't look like a UUID.
 
@@ -209,12 +220,13 @@ async def _fetch_with_name_lookup(
         # 0 candidates: fall through with the raw id; the fetch call below
         # will 404 with a clear message if it really doesn't exist.
 
+    extra = extra or {}
     try:
         if handler.needs_project:
             return await handler.fetch_fn(
-                client, entity_id, project_id=project_id, project_name=project_name
+                client, entity_id, project_id=project_id, project_name=project_name, **extra
             )
-        return await handler.fetch_fn(client, entity_id)
+        return await handler.fetch_fn(client, entity_id, **extra)
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e
 

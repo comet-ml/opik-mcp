@@ -258,3 +258,29 @@ async def test_list_missing_required_kwarg_chains_typed_cause() -> None:
         await run_list("trace")
 
     assert isinstance(ei.value.__cause__, EntityArgValidationError)
+
+
+# --- entity-specific kwargs are registry-gated --------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_forwards_only_kwargs_the_entity_declares() -> None:
+    """Parent ids meant for other entities never reach a workspace-wide list_fn.
+
+    ``list('project', project_id=…, test_suite_id=…, prompt_id=…)`` is a
+    confused call, but it must degrade to a plain project list rather than
+    blow up the client with unexpected kwargs."""
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "a"}], "total": 1})
+    out = await run_list(
+        "project", project_id="p-1", test_suite_id="ts-1", prompt_id="pr-1", client=fake
+    )
+    assert "p-1" in out
+    assert set(fake.last_kwargs) == {"page", "size"}
+
+
+@pytest.mark.anyio
+async def test_list_forwards_declared_parent_id_to_sub_collection() -> None:
+    fake = FakeOpikClient(prompt_versions={"content": [{"id": "v-1"}], "total": 1})
+    await run_list("prompt_version", prompt_id="pr-1", test_suite_id="ts-1", client=fake)
+    assert fake.last_kwargs.get("prompt_id") == "pr-1"
+    assert "test_suite_id" not in fake.last_kwargs

@@ -61,17 +61,23 @@ async def run_list(
     kw: dict[str, Any] = {"page": page, "size": size}
     if name:
         kw["name"] = name
-    if project_id is not None:
-        kw["project_id"] = project_id
-    # Only project-scoped lists (trace, thread) take project_name; forwarding it
-    # to a workspace-wide list_fn (projects/experiments/…) would be an unexpected
-    # kwarg. Gate on the same signal the required-check uses.
-    if project_name is not None and "project_id" in handler.list_required_kwargs:
-        kw["project_name"] = project_name
-    if test_suite_id is not None:
-        kw["test_suite_id"] = test_suite_id
-    if prompt_id is not None:
-        kw["prompt_id"] = prompt_id
+    # Entity-specific kwargs are forwarded only when the registry entry declares
+    # them (required or optional). A parent id meant for another entity, or
+    # project scope on a workspace-wide list, would otherwise reach the client
+    # as an unexpected kwarg. ``project_name`` rides along with ``project_id``:
+    # every project-scoped client method accepts either.
+    accepted = set(handler.list_required_kwargs) | set(handler.list_optional_kwargs)
+    if "project_id" in accepted:
+        accepted.add("project_name")
+    candidates: dict[str, Any] = {
+        "project_id": project_id,
+        "project_name": project_name,
+        "test_suite_id": test_suite_id,
+        "prompt_id": prompt_id,
+    }
+    for key, value in candidates.items():
+        if value is not None and key in accepted:
+            kw[key] = value
 
     for required in handler.list_required_kwargs:
         if kw.get(required) is None:
