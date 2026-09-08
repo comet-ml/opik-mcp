@@ -27,6 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
@@ -39,6 +40,8 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
+from opik_mcp.read_list.project_scope import require_project_id
+from opik_mcp.read_list.ui_links import project_page_url
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -54,6 +57,7 @@ FetchFn = Callable[..., Awaitable[dict[str, Any]]]
 SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]]
 ListFn = Callable[..., Awaitable[dict[str, Any]]]
 CompressFn = Callable[[dict[str, Any], int | None], tuple[str, CompressionTier]]
+LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,32 @@ class EntityHandler:
     list_fn: ListFn | None = None
     list_extra_fields: tuple[str, ...] = ()
     list_required_kwargs: tuple[str, ...] = ()
+    """Entity-specific kwargs ``list_fn`` cannot run without (a parent id).
+
+    ``project_id`` is special: ``project_name`` satisfies it too, since every
+    project-scoped list accepts either.
+    """
+    list_optional_kwargs: tuple[str, ...] = ()
+    """Entity-specific kwargs ``list_fn`` accepts but does not require.
+
+    The ``list`` tool forwards a kwarg only when the entity declares it here
+    or in ``list_required_kwargs``; anything else the caller passed is dropped
+    so a confused call degrades to a plain list instead of a client TypeError.
+    """
+    read_optional_kwargs: tuple[str, ...] = ()
+    """Entity-specific kwargs ``fetch_fn`` accepts beyond the id and project
+    scope. Same forwarding rule as ``list_optional_kwargs``, for ``read``."""
+    link_fn: LinkFn | None = None
+    """Optional: UI links to attach to the fetched composite before compression.
+
+    Called by ``read`` with the session's ``Settings`` and the fetched data;
+    returns extra top-level fields (e.g. ``url``) and must not mutate the
+    data. Fetchers cannot do this themselves — they see a client, not
+    settings — and the UI base/workspace are session facts, not entity
+    facts. A fetcher may stash inputs for the link under underscore-prefixed
+    keys; ``read`` strips those before compression. Return ``{}`` when Opik's
+    URL or the workspace cannot be known: no link beats a wrong one.
+    """
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
     then starts at ``id`` instead of rendering an always-empty name column."""
@@ -76,13 +106,14 @@ class EntityHandler:
     saves one round-trip on every non-UUID input for traces/spans/etc.
     """
     needs_project: bool = False
-    """True if ``fetch_fn`` needs project scope (thread only).
+    """True if ``fetch_fn`` needs project scope (thread, agent_insights_issue).
 
-    A thread id is unique only within a project, so ``read`` must pass
-    ``project_id`` / ``project_name`` into the fetcher. The read tool branches
-    on this flag: when set it calls ``fetch_fn(client, id, project_id=…,
-    project_name=…)`` and requires one of them; otherwise it calls
-    ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
+    A thread id is unique only within a project, and the agent-insights
+    endpoints require ``project_id`` as a query parameter, so ``read`` must
+    pass ``project_id`` / ``project_name`` into the fetcher. The read tool
+    branches on this flag: when set it calls ``fetch_fn(client, id,
+    project_id=…, project_name=…)`` and requires one of them; otherwise it
+    calls ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
     """
 
 
@@ -249,6 +280,94 @@ async def _fetch_thread(
     }
 
 
+def _example_trace_ids(details: list[dict[str, Any]]) -> list[str]:
+    """Deduplicated union of each per-day row's ``metadata.example_trace_ids``.
+
+    First-seen order over the rows as the backend returns them (ascending
+    report day), which is what the Diagnostics page's affected-traces sample
+    shows. ``metadata`` is free-form JSON written by the Diagnostics job — a
+    row without it, or with a non-object value, contributes nothing rather
+    than failing the read.
+    """
+    seen: dict[str, None] = {}
+    for row in details:
+        metadata = row.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        ids = metadata.get("example_trace_ids")
+        if not isinstance(ids, list):
+            continue
+        for trace_id in ids:
+            if isinstance(trace_id, str) and trace_id:
+                seen.setdefault(trace_id, None)
+    return list(seen)
+
+
+async def _fetch_agent_insights_issue(
+    client: OpikReadClient,
+    entity_id: str,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict[str, Any]:
+    """Diagnostics issue + deduped example trace ids + per-day breakdown.
+
+    One backend call. Returns ``{issue, example_trace_ids, details}`` plus a
+    private ``_project_id`` (see below): the issue record without its
+    ``details`` array, the trace ids the agent can open with
+    ``read('trace', id)``, and the per-day rows unchanged. Trace bodies are
+    deliberately not inlined — that would turn one read into N+1 calls and
+    blow the default budget on any issue with several examples.
+    """
+    # The agent-insights endpoints take project_id only; resolve the name here
+    # so the read contract stays "project_id or project_name" for every
+    # project-scoped entity. An explicit project_id always wins.
+    project_id = await require_project_id(
+        client,
+        project_id=project_id,
+        project_name=project_name,
+        caller="read('agent_insights_issue')",
+    )
+    body = await client.get_agent_insights_issue(
+        entity_id, project_id=project_id, from_date=from_date, to_date=to_date
+    )
+    details_raw = body.get("details")
+    details = (
+        [row for row in details_raw if isinstance(row, dict)]
+        if isinstance(details_raw, list)
+        else []
+    )
+    issue = {key: value for key, value in body.items() if key != "details"}
+    return {
+        "issue": issue,
+        # The link_fn needs the project the issue was read under; the backend
+        # record does not carry it. Underscore-prefixed keys are stripped by
+        # the read tool after links are attached, so it never reaches the agent.
+        "_project_id": project_id,
+        "example_trace_ids": _example_trace_ids(details),
+        "details": details,
+    }
+
+
+def _issue_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
+    """The issue's Diagnostics page (open or resolved view, by status) and a
+    template for deep-linking any of its example traces — the two links the
+    diagnose skill has to hand the user."""
+    project_id = data.get("_project_id")
+    issue = data.get("issue") or {}
+    issue_id = issue.get("id")
+    if not isinstance(project_id, str) or not isinstance(issue_id, str):
+        return {}
+    view = "diagnostics" if issue.get("status") == "open" else "diagnostics/resolved"
+    page = project_page_url(settings, project_id, f"{view}?issue={issue_id}")
+    traces = project_page_url(settings, project_id, "logs?trace={trace_id}")
+    if page is None or traces is None:
+        return {}
+    return {"url": page, "trace_url_template": traces}
+
+
 async def _unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
     """Sentinel for list-only entities. The read tool raises before calling this."""
     raise NotImplementedError(
@@ -336,6 +455,25 @@ async def _list_spans(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_spans(**kw)
 
 
+async def _list_agent_insights_issues(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # "What is broken" means open issues, so that is the default; the caller
+    # asks for resolved/closed explicitly. No name filter exists on the backend.
+    # No ``sorting`` is sent: the backend's default (last seen, then total
+    # occurrences) is the Diagnostics page's ranking.
+    kw.pop("name", None)
+    kw.setdefault("status", "open")
+    # The backend takes project_id only. The list tool lets project_name
+    # satisfy the project requirement (as for trace/thread), so resolve it
+    # here; an explicit project_id wins and skips the lookup.
+    kw["project_id"] = await require_project_id(
+        client,
+        project_id=kw.get("project_id"),
+        project_name=kw.pop("project_name", None),
+        caller="list('agent_insights_issue')",
+    )
+    return await client.list_agent_insights_issues(**kw)
+
+
 # --- trace skeleton compression ------------------------------------------ #
 
 
@@ -410,6 +548,62 @@ def _compress_thread(data: dict[str, Any], max_tokens: int | None) -> tuple[str,
             "Use read('trace', trace_id) for details."
         ),
     }
+    return compact_json(skeleton), CompressionTier.SKELETON
+
+
+def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
+    """Issue+details: FULL → MEDIUM (rows without metadata, then truncated
+    strings) → SKELETON (ids only).
+
+    Unlike trace/thread, MEDIUM here is budget-aware. An issue read is mostly
+    per-day rows whose ``metadata`` repeats the example ids (already lifted
+    into ``example_trace_ids``) and carries a confidence justification; that
+    is the bulk of the tokens and none of the reason for the read. So MEDIUM
+    first drops row metadata, then truncates long strings, and returns as
+    soon as the body fits. If it still does not fit, SKELETON — the agent
+    asked for a small answer, so the global 50k threshold is not the bar.
+    """
+    full_json = compact_json(data)
+    full_tokens = estimate_tokens(full_json)
+
+    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
+    if full_tokens <= budget:
+        return full_json, CompressionTier.FULL
+
+    pruned = {
+        **data,
+        "details": [
+            {key: value for key, value in row.items() if key != "metadata"}
+            for row in data.get("details") or []
+            if isinstance(row, dict)
+        ],
+    }
+    pruned_json = compact_json(pruned)
+    if estimate_tokens(pruned_json) <= budget:
+        return pruned_json, CompressionTier.MEDIUM
+
+    truncated_json = compact_json(truncate_strings(pruned, ".agent_insights_issue"))
+    if estimate_tokens(truncated_json) <= budget:
+        return truncated_json, CompressionTier.MEDIUM
+
+    issue = data.get("issue") or {}
+    skeleton: dict[str, Any] = {
+        "issue": {
+            "id": issue.get("id"),
+            "name": issue.get("name"),
+            "severity": issue.get("severity"),
+            "status": issue.get("status"),
+        },
+        "example_trace_ids": data.get("example_trace_ids") or [],
+    }
+    for link_key in ("url", "trace_url_template"):
+        if link_key in data:
+            skeleton[link_key] = data[link_key]
+    skeleton["note"] = (
+        "SKELETON compression: cause, suggested fix and per-day details "
+        "omitted. Use read('trace', trace_id) on an example, or re-read with "
+        "since/until to narrow the window."
+    )
     return compact_json(skeleton), CompressionTier.SKELETON
 
 
@@ -533,6 +727,40 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "messagesTruncated}. Requires project scope — pass a thread link/URI "
             "or project_id. list('thread', project_id=…) enumerates a project's "
             "threads."
+        ),
+    ),
+    "agent_insights_issue": EntityHandler(
+        entity_type="agent_insights_issue",
+        fetch_fn=_fetch_agent_insights_issue,
+        list_fn=_list_agent_insights_issues,
+        list_extra_fields=(
+            "severity",
+            "status",
+            "total_occurrences",
+            "latest_count",
+            "last_seen",
+        ),
+        list_required_kwargs=("project_id",),
+        list_optional_kwargs=("status", "from_date", "to_date"),
+        read_optional_kwargs=("from_date", "to_date"),
+        link_fn=_issue_links,
+        compress_fn=_compress_issue,
+        id_only=True,
+        needs_project=True,
+        description=(
+            "Diagnostics issue (Agent Insights): a recurring failure the "
+            "Diagnostics job grouped across a project's traces, with severity, "
+            "status, occurrence counts, cause and suggested fix. "
+            "list('agent_insights_issue', project_id=… | project_name=…) returns "
+            "open issues ranked as the Diagnostics page ranks them (most recently "
+            "seen first); pass status='resolved' or 'closed' for the rest. "
+            "read('agent_insights_issue', id, project_id=…) returns {issue, "
+            "example_trace_ids, details, url, trace_url_template}: the record with "
+            "cause and suggested fix, the deduped ids of traces that exhibit it "
+            "(open one with read('trace', id)), the per-day breakdown, and UI links "
+            "to hand the user (omitted when the Opik URL or workspace is unknown). "
+            "Counts are all-time unless since/until narrow the window (truncated "
+            "to UTC report days)."
         ),
     ),
 }

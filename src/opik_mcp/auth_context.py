@@ -48,12 +48,14 @@ inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", defa
 
 # OAuth-authorized workspace *name*, resolved from the opaque bearer via
 # ``oauth_identity.introspect_oauth_token`` (the same call that validates it).
-# Consumed ONLY by the instructions blob (``instructions.render_instructions``)
-# so an agent can truthfully name the workspace it is operating against. Kept
-# deliberately separate from ``inbound_workspace`` so this read-only display
-# value never leaks into the outbound ``Comet-Workspace`` header / data routing
-# (which stays token-derived server-side). ``None`` means "not resolved; fall
-# back to the static settings workspace".
+# Consumed ONLY for display: the instructions blob (``instructions.
+# render_instructions``) so an agent can truthfully name the workspace it is
+# operating against, and the UI links a ``read`` attaches
+# (``read_list.ui_links``). Kept deliberately separate from
+# ``inbound_workspace`` so this read-only display value never leaks into the
+# outbound ``Comet-Workspace`` header / data routing (which stays
+# token-derived server-side). ``None`` means "not resolved; the blob falls
+# back to the static settings workspace, links are omitted".
 resolved_workspace_name: ContextVar[str | None] = ContextVar(
     "resolved_workspace_name", default=None
 )

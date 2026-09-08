@@ -197,6 +197,17 @@ class OpikListClient(Protocol):
         self, prompt_id: str, /, *, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
+    async def list_agent_insights_issues(
+        self,
+        *,
+        project_id: str,
+        status: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
 
 class OpikReadClient(OpikListClient, Protocol):
     """Adds singleton ``get_*`` endpoints to ``OpikListClient`` for the read tool.
@@ -226,6 +237,16 @@ class OpikReadClient(OpikListClient, Protocol):
         project_id: str | None = None,
         project_name: str | None = None,
         truncate: bool = False,
+    ) -> dict[str, Any]: ...
+
+    async def get_agent_insights_issue(
+        self,
+        issue_id: str,
+        /,
+        *,
+        project_id: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
     ) -> dict[str, Any]: ...
 
 
@@ -728,6 +749,64 @@ class OpikClient:
             f"/v1/private/prompts/{prompt_id}/versions",
             params={"page": page, "size": size},
             entity_hint=f"prompt {prompt_id!r} versions",
+        )
+
+    # -- agent insights (the UI's "Diagnostics") --
+
+    async def list_agent_insights_issues(
+        self,
+        *,
+        project_id: str,
+        status: str | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/agent-insights/issues`` — a project's Diagnostics issues.
+
+        The backend takes ``project_id`` only (no ``project_name``), so name
+        resolution is the caller's job. ``status`` filters open/resolved/closed;
+        ``from_date`` / ``to_date`` (ISO dates) bound the aggregation window.
+        Omitted filters are not sent, which the backend reads as all statuses
+        and all-time — exactly what the Diagnostics page shows.
+        """
+        return await self._get_json(
+            "/v1/private/agent-insights/issues",
+            params=_drop_none(
+                {
+                    "project_id": project_id,
+                    "status": status,
+                    "from_date": from_date,
+                    "to_date": to_date,
+                    "page": page,
+                    "size": size,
+                }
+            ),
+            entity_hint="agent insights issues",
+        )
+
+    async def get_agent_insights_issue(
+        self,
+        issue_id: str,
+        *,
+        project_id: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/agent-insights/issues/{id}`` — one issue + per-day details.
+
+        An issue id is unique, but the backend still requires ``project_id`` as
+        a query parameter (it scopes the tenancy check). ``details`` is one row
+        per report day inside the window, ascending; each row's free-form
+        ``metadata`` is where the Diagnostics job puts ``example_trace_ids``.
+        """
+        return await self._get_json(
+            f"/v1/private/agent-insights/issues/{issue_id}",
+            params=_drop_none(
+                {"project_id": project_id, "from_date": from_date, "to_date": to_date}
+            ),
+            entity_hint=f"agent insights issue {issue_id!r}",
         )
 
     # -- internals --

@@ -76,6 +76,9 @@ class FakeOpikClient:
     async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
         return _page([])
 
+    async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
+        return _page([])
+
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:
     raw = fake.last_kwargs.get("filters")

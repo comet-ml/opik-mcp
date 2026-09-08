@@ -3,7 +3,7 @@ import contextlib
 import logging
 import time
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -53,7 +53,7 @@ from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.sorting import sort_field_label
-from opik_mcp.read_list.uri import looks_like_thread_url
+from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
     read_skill_tool_description,
@@ -91,7 +91,7 @@ def _looks_like_uuid(s: str) -> bool:
 
 def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     raw_id = str(kwargs.get("id", ""))
-    if raw_id.startswith("opik://") or looks_like_thread_url(raw_id):
+    if raw_id.startswith("opik://") or looks_like_opik_link(raw_id):
         id_kind = "uri"
     elif _looks_like_uuid(raw_id):
         id_kind = "uuid"
@@ -204,9 +204,10 @@ async def read(
         Field(
             description=(
                 "UUID, entity name (for nameable types), full opik:// URI "
-                "(e.g. opik://traces/<uuid>), or a pasted Opik thread link. When "
-                "a URI/link is passed, entity_type (and, for threads, the project) "
-                "is overridden from it."
+                "(e.g. opik://traces/<uuid>), or a pasted Opik link — a thread "
+                "link or a Diagnostics page link (…/projects/<pid>/diagnostics"
+                "?issue=<id>). When a URI/link is passed, entity_type (and, for "
+                "project-scoped entities, the project) is overridden from it."
             ),
             min_length=1,
             max_length=2048,
@@ -229,18 +230,39 @@ async def read(
         str | None,
         Field(
             description=(
-                "Project UUID. Required for entity_type='thread' unless the id is "
-                "a full thread URL/URI (which carries the project). Ignored for "
-                "globally-unique entities like trace/span."
+                "Project UUID. Required for entity_type='thread' and "
+                "'agent_insights_issue' unless the id is a full Opik URL/URI (which "
+                "carries the project). Ignored for globally-unique entities like "
+                "trace/span."
             ),
         ),
     ] = None,
     project_name: Annotated[
         str | None,
         Field(
-            description="Project name — alternative to project_id for thread reads.",
+            description=(
+                "Project name — alternative to project_id for project-scoped reads "
+                "(thread, agent_insights_issue)."
+            ),
             max_length=200,
         ),
+    ] = None,
+    since: Annotated[
+        str | None,
+        Field(
+            description=(
+                "agent_insights_issue only: start of the window for the per-day "
+                "details — a relative span ('7d', '24h') or an ISO-8601 instant with "
+                "timezone, truncated to UTC report days. Omit both bounds for "
+                "all-time, matching the Diagnostics page. Rejected for other entity "
+                "types."
+            ),
+            max_length=40,
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Field(description="End of the window, same forms as since.", max_length=40),
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
@@ -258,6 +280,12 @@ async def read(
     - thread: returns {thread, messages, messagesTruncated} — each message is one
       turn's trace input/output + a trace_id to read('trace', id). Needs project
       scope: pass a thread link/URI, or project_id/project_name.
+    - agent_insights_issue: returns {issue, example_trace_ids, details, url,
+      trace_url_template} — the Diagnostics issue with cause and suggested fix,
+      the deduped ids of traces that exhibit it (open one with read('trace', id)),
+      the per-day breakdown, the issue's Diagnostics page link, and a template
+      for linking any example trace (both links omitted when the Opik URL or
+      the session's workspace is unknown). Needs project scope like thread.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
     Output is a one-line `[read: …]` header (entity_type, id, compression
@@ -271,6 +299,8 @@ async def read(
         max_tokens=max_tokens,
         project_id=project_id,
         project_name=project_name,
+        since=since,
+        until=until,
     )
 
 
@@ -324,10 +354,12 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Start of the time window for trace, span, thread: a relative span "
-                "('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. "
-                "Windows are by record creation time; for an exact start_time bound "
-                "use filters."
+                "Start of the time window for trace, span, thread, agent_insights_issue: "
+                "a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with "
+                "timezone. Trace/span/thread windows are by record creation time (for an "
+                "exact start_time bound use filters); Diagnostics issues aggregate per "
+                "report day, so their window is the UTC days it spans and defaults to "
+                "all-time, matching the Diagnostics page."
             ),
             max_length=40,
         ),
@@ -359,8 +391,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project UUID for project-scoped lists (trace, span, thread). "
-                "Pass this OR project_name."
+                "Parent project UUID for project-scoped lists (trace, span, thread, "
+                "agent_insights_issue). Pass this OR project_name."
             )
         ),
     ] = None,
@@ -368,7 +400,7 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project name — alternative to project_id for trace/span/thread "
+                "Parent project name — alternative to project_id for project-scoped "
                 "lists, so you don't need to resolve the UUID first."
             ),
             max_length=200,
@@ -381,6 +413,16 @@ async def list_entities(
     prompt_id: Annotated[
         str | None,
         Field(description="Required when listing prompt_versions. UUID of the prompt."),
+    ] = None,
+    status: Annotated[
+        Literal["open", "resolved", "closed"] | None,
+        Field(
+            description=(
+                "agent_insights_issue only: which Diagnostics issues to list. "
+                "Defaults to 'open' (what is broken now); 'resolved' and 'closed' "
+                "show issues already dealt with. Ignored for other entity types."
+            ),
+        ),
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
@@ -395,6 +437,9 @@ async def list_entities(
     - trace: project_id or project_name
     - span: project_id or project_name (searches spans across the project)
     - thread: project_id or project_name
+    - agent_insights_issue: project_id or project_name (Diagnostics issues,
+      open ones by default; columns: severity, status, total_occurrences,
+      latest_count, last_seen)
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
@@ -419,6 +464,7 @@ async def list_entities(
         project_name=project_name,
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
+        status=status,
     )
 
 

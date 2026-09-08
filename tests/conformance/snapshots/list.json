@@ -1,8 +1,9 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, prompt_version, span, test_suite, test_suite_item, thread, trace.",
+      "description": "One of: agent_insights_issue, experiment, project, prompt, prompt_version, span, test_suite, test_suite_item, thread, trace.",
       "enum": [
+        "agent_insights_issue",
         "experiment",
         "project",
         "prompt",
@@ -62,7 +63,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project UUID for project-scoped lists (trace, span, thread). Pass this OR project_name.",
+      "description": "Parent project UUID for project-scoped lists (trace, span, thread, agent_insights_issue). Pass this OR project_name.",
       "title": "Project Id"
     },
     "project_name": {
@@ -76,7 +77,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project name \u2014 alternative to project_id for trace/span/thread lists, so you don't need to resolve the UUID first.",
+      "description": "Parent project name \u2014 alternative to project_id for project-scoped lists, so you don't need to resolve the UUID first.",
       "title": "Project Name"
     },
     "prompt_id": {
@@ -117,7 +118,7 @@
         }
       ],
       "default": null,
-      "description": "Start of the time window for trace, span, thread: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Windows are by record creation time; for an exact start_time bound use filters.",
+      "description": "Start of the time window for trace, span, thread, agent_insights_issue: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Trace/span/thread windows are by record creation time (for an exact start_time bound use filters); Diagnostics issues aggregate per report day, so their window is the UTC days it spans and defaults to all-time, matching the Diagnostics page.",
       "title": "Since"
     },
     "size": {
@@ -141,6 +142,24 @@
       "default": null,
       "description": "Sort for trace, span, thread, experiment: '<field> [asc|desc]', desc by default. E.g. 'duration desc', 'total_estimated_cost', 'feedback_scores.accuracy asc', 'usage.total_tokens'. One field only.",
       "title": "Sort"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "enum": [
+            "open",
+            "resolved",
+            "closed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: which Diagnostics issues to list. Defaults to 'open' (what is broken now); 'resolved' and 'closed' show issues already dealt with. Ignored for other entity types.",
+      "title": "Status"
     },
     "test_suite_id": {
       "anyOf": [

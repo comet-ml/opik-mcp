@@ -28,9 +28,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
-from opik_mcp.opik_client import opik_rest_base
+from opik_mcp.config import Settings, get_settings
+from opik_mcp.read_list.ui_links import current_workspace, opik_ui_base
 from opik_mcp.skills_catalog import skill_names
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
@@ -47,11 +46,18 @@ also takes filters (OQL, the same language as search_traces(filter_string=…)),
 sort, since/until and search, so one call answers most questions: \
 list('trace', project_name=…, since="1h", filters="error_info is_not_empty", \
 sort="duration desc"). Field reference: schema("list.trace"). Readable entity \
-types include trace, span, project, experiment, prompt, test_suite, thread. \
-Composite reads (trace, prompt, thread) inline their child collections so one \
-call usually gets the full picture. For a thread, pass the thread link/URI or a \
-project_id — read('thread', …) returns the messages list, and \
-list('thread', project_id=…) enumerates a project's threads.
+types include trace, span, project, experiment, prompt, test_suite, thread, \
+agent_insights_issue. Composite reads (trace, prompt, thread, \
+agent_insights_issue) inline their child collections so one call usually gets \
+the full picture. For a thread, pass the thread link/URI or a project_id — \
+read('thread', …) returns the messages list, and list('thread', project_id=…) \
+enumerates a project's threads. For "what is broken in production", start with \
+list('agent_insights_issue', project_name=…): the project's Diagnostics (Agent \
+Insights) issues — recurring failures already grouped and ranked, open ones by \
+default, counts all-time unless since/until narrow them — instead of ranking \
+raw traces yourself; read('agent_insights_issue', id, project_name=…) adds the \
+cause, the suggested fix, example_trace_ids to open with read('trace', …), and \
+UI links.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \
@@ -70,18 +76,11 @@ Today's date is {date}.\
 def _opik_ui_url(s: Settings) -> str:
     """Opik **UI** base URL for the blob, or a generic placeholder if unconfigured.
 
-    Derived from :func:`opik_rest_base` — the single source of truth for where
-    Opik lives (``OPIK_URL`` override, else ``COMET_URL_OVERRIDE + "/opik/api"``)
-    — so the UI link can never drift from where REST calls actually go. That base
-    is the REST **API** base (``…/opik/api``); the UI lives at the same origin
-    without the trailing ``/api`` segment, so we strip it.
+    Shares :func:`opik_ui_base` with the links a ``read`` attaches, so the blob
+    and the per-entity links can never disagree about where the UI lives.
     """
-    base = opik_rest_base(s)
-    if base is None:
-        return "(Opik URL not configured)"
-    if base.endswith("/api"):
-        base = base[: -len("/api")]
-    return base
+    base = opik_ui_base(s)
+    return base if base is not None else "(Opik URL not configured)"
 
 
 def _render_default_project_clause(s: Settings) -> str:
@@ -113,12 +112,7 @@ def render_instructions(
     ``resolved_workspace_name`` → the static ``Settings`` workspace → ``"default"``.
     """
     s = settings if settings is not None else get_settings()
-    workspace = (
-        inbound_workspace.get()
-        or resolved_workspace_name.get()
-        or s.comet_workspace
-        or DEFAULT_WORKSPACE
-    )
+    workspace = current_workspace(s)
     opik_url = _opik_ui_url(s)
 
     user_clause = f" as {user_email}" if user_email else ""

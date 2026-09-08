@@ -37,8 +37,9 @@ from opik_mcp.read_list.registry import (
     EntityHandler,
     compress_for,
 )
-from opik_mcp.read_list.uri import InvalidURI, looks_like_thread_url, looks_like_uri
+from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
+from opik_mcp.read_list.window import WindowError, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
 
@@ -112,8 +113,11 @@ async def run_read(
     max_tokens: int | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
+    **entity_kwargs: Any,
 ) -> str:
     """Read tool entrypoint. See ``server.py`` for the registered tool.
 
@@ -121,11 +125,12 @@ async def run_read(
     branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
     the host LLM gets the structured guidance.
     """
-    # Accept ``opik://…`` URIs and pasted web thread links as id input. When the
-    # URI encodes its own entity_type we trust it and override the explicit
-    # argument — that way the agent can paste a URI into either slot. A parsed
-    # thread URI/link also carries the project, which overrides the explicit arg.
-    if looks_like_uri(id) or looks_like_thread_url(id):
+    # Accept ``opik://…`` URIs and pasted web links (thread panel, Diagnostics
+    # page) as id input. When the URI encodes its own entity_type we trust it
+    # and override the explicit argument — that way the agent can paste a URI
+    # into either slot. A parsed project-scoped URI/link also carries the
+    # project, which overrides the explicit arg.
+    if looks_like_uri(id) or looks_like_opik_link(id):
         try:
             parsed = parse_uri(id)
         except InvalidURI as e:
@@ -155,16 +160,53 @@ async def run_read(
 
     if handler.needs_project and project_id is None and project_name is None:
         err = EntityArgValidationError(
-            f"read({entity_type!r}) requires project scope. Pass the full thread "
-            f"link/URI, or a project_id — e.g. "
-            f"read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
+            f"read({entity_type!r}) requires project scope. Pass project_id or "
+            f"project_name, or paste the {entity_type}'s Opik link/URI as the id — "
+            f"e.g. read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
         )
         raise ToolError(str(err)) from err
 
-    opik = client if client is not None else make_opik_client(settings or get_settings())
+    # Entity-specific kwargs reach the fetcher only when its registry entry
+    # declares them — same gate as ``list``, so a kwarg meant for one entity is
+    # dropped rather than crashing another's fetcher.
+    extra = {
+        key: value
+        for key, value in entity_kwargs.items()
+        if value is not None and key in handler.read_optional_kwargs
+    }
+    if since is not None or until is not None:
+        # Same since/until vocabulary as ``list``. Only day-windowed reads
+        # (Diagnostics issues) take it; the backend aggregates per report day,
+        # so the instant window is truncated to its UTC days.
+        if "from_date" not in handler.read_optional_kwargs:
+            err = WindowError(
+                f"since/until are not supported for read({entity_type!r}); only "
+                f"agent_insights_issue takes a window on read."
+            )
+            raise ToolError(str(err)) from err
+        try:
+            from_time, to_time = resolve_window(since, until)
+        except WindowError as e:
+            raise ToolError(str(e)) from e
+        if from_time is not None:
+            extra["from_date"] = from_time[:10]
+        if to_time is not None:
+            extra["to_date"] = to_time[:10]
+
+    resolved_settings = settings or get_settings()
+    opik = client if client is not None else make_opik_client(resolved_settings)
     data = await _fetch_with_name_lookup(
-        handler, opik, id, project_id=project_id, project_name=project_name
+        handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
     )
+    if handler.link_fn is not None:
+        # UI links are session facts (UI base, workspace), so they are attached
+        # here rather than inside the fetcher, and before compression so every
+        # tier can decide what to keep.
+        data.update(handler.link_fn(resolved_settings, data))
+    # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
+    # (e.g. the project an issue was read under); they are never the agent's.
+    for private_key in [key for key in data if key.startswith("_")]:
+        del data[private_key]
 
     compressed_text, tier = compress_for(handler, data, max_tokens)
     full_json = compact_json(data)
@@ -181,6 +223,7 @@ async def _fetch_with_name_lookup(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Resolve name → id when the input doesn't look like a UUID.
 
@@ -209,12 +252,18 @@ async def _fetch_with_name_lookup(
         # 0 candidates: fall through with the raw id; the fetch call below
         # will 404 with a clear message if it really doesn't exist.
 
+    extra = extra or {}
     try:
         if handler.needs_project:
             return await handler.fetch_fn(
-                client, entity_id, project_id=project_id, project_name=project_name
+                client, entity_id, project_id=project_id, project_name=project_name, **extra
             )
-        return await handler.fetch_fn(client, entity_id)
+        return await handler.fetch_fn(client, entity_id, **extra)
+    except EntityArgValidationError as e:
+        # A fetcher may reject its own scope (e.g. a project_name that resolves
+        # to no or several projects). Same typed cause as the tool's own
+        # argument checks, so analytics buckets it as validation/400.
+        raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e
 

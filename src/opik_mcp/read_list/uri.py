@@ -13,10 +13,13 @@ Recognized shapes (matching the deleted ``resources.py`` URI templates):
 - ``opik://experiments/{id}``               → ("experiment", id)
 - ``opik://prompts/{id}``                   → ("prompt", id)
 - ``opik://projects/{pid}/threads/{tid}``   → ("thread", tid, project_id=pid)
+- ``opik://projects/{pid}/agent-insights-issues/{iid}``
+                                            → ("agent_insights_issue", iid, project_id=pid)
 
-A pasted Opik web thread link (``https://…/projects/{pid}/…?thread={tid}``) is
-also recognized via ``looks_like_thread_url`` + ``parse`` so a user can drop a
-URL straight from the UI.
+Pasted Opik web links are also recognized via ``looks_like_opik_link`` +
+``parse`` so a user can drop a URL straight from the UI: a thread link
+(``https://…/projects/{pid}/…?thread={tid}``) and a Diagnostics link
+(``https://…/projects/{pid}/diagnostics…?issue={iid}``).
 
 List-shaped URIs (``opik://projects``, ``opik://projects/{id}/traces``,
 ``opik://test-suites/{id}/items``) are accepted only as best-effort hints
@@ -46,9 +49,9 @@ class ParsedURI(NamedTuple):
     entity_type: str
     entity_id: str
     project_id: str | None = None
-    """Set only for threads — a thread id is unique only within a project, so
-    the parser extracts the project from the URI/link and the read tool uses it
-    to scope the fetch. ``None`` for every other entity (globally-unique ids)."""
+    """Set for project-scoped entities (thread, agent_insights_issue) — the
+    parser extracts the project from the URI/link and the read tool uses it to
+    scope the fetch. ``None`` for every other entity (globally-unique ids)."""
 
 
 # Canonical singleton URI patterns. test-suites is hyphenated in the URI
@@ -66,13 +69,35 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
 # Threads carry a project id AND a thread id, so they need two capture groups —
 # handled ahead of the single-id ``_PATTERNS`` in ``parse``.
 _THREAD_URI_RE = re.compile(r"^opik://projects/([^/?#]+)/threads/([^/?#]+)$")
-# A pasted Opik web thread link: /projects/<projectId>/... with ?thread=<threadId>.
+# Same for Diagnostics issues: the backend wants project_id on the detail call.
+_ISSUE_URI_RE = re.compile(r"^opik://projects/([^/?#]+)/agent-insights-issues/([^/?#]+)$")
+# A pasted Opik web link: /projects/<projectId>/... with ?thread=<threadId>
+# (thread panel) or ?issue=<issueId> (Diagnostics page, open or resolved view).
 _WEB_PROJECT_RE = re.compile(r"/projects/([^/?#]+)")
 _WEB_THREAD_QS_RE = re.compile(r"[?&]thread=([^&#]+)")
+_WEB_ISSUE_QS_RE = re.compile(r"[?&]issue=([^&#]+)")
 
 
 def looks_like_uri(s: str) -> bool:
     return s.startswith("opik://")
+
+
+def looks_like_issue_url(s: str) -> bool:
+    """A pasted http(s) Diagnostics link — has a project path and an ``issue`` qs.
+
+    Same gate discipline as ``looks_like_thread_url``: the regexes here are the
+    ones ``parse`` extracts with, so passing the gate guarantees extraction.
+    """
+    return (
+        s.startswith(("http://", "https://"))
+        and _WEB_PROJECT_RE.search(s) is not None
+        and _WEB_ISSUE_QS_RE.search(s) is not None
+    )
+
+
+def looks_like_opik_link(s: str) -> bool:
+    """Any pasted Opik web link ``parse`` understands (thread or Diagnostics issue)."""
+    return looks_like_thread_url(s) or looks_like_issue_url(s)
 
 
 def looks_like_thread_url(s: str) -> bool:
@@ -116,12 +141,29 @@ def parse(uri: str) -> ParsedURI:
                 project_id=pm.group(1),
             )
 
+    # Diagnostics issues — canonical URI, then the pasted Diagnostics page link.
+    im = _ISSUE_URI_RE.match(uri)
+    if im is not None:
+        return ParsedURI(
+            entity_type="agent_insights_issue", entity_id=im.group(2), project_id=im.group(1)
+        )
+    if looks_like_issue_url(uri):
+        pm = _WEB_PROJECT_RE.search(uri)
+        qm = _WEB_ISSUE_QS_RE.search(uri)
+        if pm is not None and qm is not None:
+            return ParsedURI(
+                entity_type="agent_insights_issue",
+                entity_id=unquote(qm.group(1)),
+                project_id=pm.group(1),
+            )
+
     for pattern, entity_type in _PATTERNS:
         m = pattern.match(uri)
         if m is not None:
             return ParsedURI(entity_type=entity_type, entity_id=m.group(1))
     raise InvalidURI(
         f"URI {uri!r} starts with opik:// but matches no known entity shape. "
-        "Expected e.g. opik://traces/<uuid>, opik://projects/<uuid>, or "
-        "opik://projects/<projectId>/threads/<threadId>."
+        "Expected e.g. opik://traces/<uuid>, opik://projects/<uuid>, "
+        "opik://projects/<projectId>/threads/<threadId>, or "
+        "opik://projects/<projectId>/agent-insights-issues/<issueId>."
     )

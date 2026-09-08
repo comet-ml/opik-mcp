@@ -1,8 +1,9 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, span, test_suite, thread, trace.",
+      "description": "One of: agent_insights_issue, experiment, project, prompt, span, test_suite, thread, trace.",
       "enum": [
+        "agent_insights_issue",
         "experiment",
         "project",
         "prompt",
@@ -15,7 +16,7 @@
       "type": "string"
     },
     "id": {
-      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik thread link. When a URI/link is passed, entity_type (and, for threads, the project) is overridden from it.",
+      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik link \u2014 a thread link or a Diagnostics page link (\u2026/projects/<pid>/diagnostics?issue=<id>). When a URI/link is passed, entity_type (and, for project-scoped entities, the project) is overridden from it.",
       "maxLength": 2048,
       "minLength": 1,
       "title": "Id",
@@ -46,7 +47,7 @@
         }
       ],
       "default": null,
-      "description": "Project UUID. Required for entity_type='thread' unless the id is a full thread URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
+      "description": "Project UUID. Required for entity_type='thread' and 'agent_insights_issue' unless the id is a full Opik URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
       "title": "Project Id"
     },
     "project_name": {
@@ -60,8 +61,36 @@
         }
       ],
       "default": null,
-      "description": "Project name \u2014 alternative to project_id for thread reads.",
+      "description": "Project name \u2014 alternative to project_id for project-scoped reads (thread, agent_insights_issue).",
       "title": "Project Name"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: start of the window for the per-day details \u2014 a relative span ('7d', '24h') or an ISO-8601 instant with timezone, truncated to UTC report days. Omit both bounds for all-time, matching the Diagnostics page. Rejected for other entity types.",
+      "title": "Since"
+    },
+    "until": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "End of the window, same forms as since.",
+      "title": "Until"
     }
   },
   "required": [

@@ -55,6 +55,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
         _reset_seen_tools_listed_for_tests,
     )
     from opik_mcp.credential_identity import reset_identities_for_tests
+    from opik_mcp.read_list.project_scope import reset_project_cache_for_tests
 
     reset_analytics_for_tests()
     _reset_seen_sessions_for_tests()
@@ -62,6 +63,10 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
     _reset_detector_caches_for_tests()
+    # The project-name → id cache is process-wide and keyed by client config;
+    # test fakes carry no config, so without a reset one test's resolution
+    # would satisfy the next test's lookup.
+    reset_project_cache_for_tests()
     # main() sets this sentinel so the build_app() lifespan skips its own emit.
     # Clear it between tests or a test that calls main() leaves the build_app()
     # lifespan (e.g. the session http_client fixture) permanently muted.
@@ -72,6 +77,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
+    reset_project_cache_for_tests()
     os.environ.pop(LIFECYCLE_SENTINEL, None)
 
 

@@ -7,6 +7,7 @@ import pytest
 from opik_mcp.read_list.uri import (
     InvalidURI,
     ParsedURI,
+    looks_like_opik_link,
     looks_like_thread_url,
     looks_like_uri,
     parse,
@@ -85,3 +86,51 @@ def test_looks_like_thread_url() -> None:
 def test_thread_uri_not_confused_with_project_singleton() -> None:
     # A plain project singleton must still parse as project, not thread.
     assert parse("opik://projects/p-1") == ParsedURI("project", "p-1")
+
+
+# --- Diagnostics (agent insights) issues ---------------------------------- #
+
+
+def test_parse_canonical_issue_uri_carries_project() -> None:
+    assert parse("opik://projects/p-9/agent-insights-issues/is-1") == ParsedURI(
+        "agent_insights_issue", "is-1", project_id="p-9"
+    )
+
+
+def test_parse_web_diagnostics_link_extracts_project_and_issue() -> None:
+    url = "https://www.comet.com/opik/my-ws/projects/p-9/diagnostics?issue=is-1&tab=open"
+    assert parse(url) == ParsedURI("agent_insights_issue", "is-1", project_id="p-9")
+
+
+def test_parse_web_diagnostics_resolved_link_too() -> None:
+    url = "https://www.comet.com/opik/my-ws/projects/p-9/diagnostics/resolved?issue=is-2"
+    assert parse(url) == ParsedURI("agent_insights_issue", "is-2", project_id="p-9")
+
+
+def test_parse_web_issue_link_url_decodes_issue_id() -> None:
+    url = "https://x.test/ws/projects/p-9/diagnostics?issue=is%2F42"
+    assert parse(url) == ParsedURI("agent_insights_issue", "is/42", project_id="p-9")
+
+
+def test_looks_like_opik_link_covers_thread_and_issue_links() -> None:
+    assert looks_like_opik_link("https://x.test/ws/projects/p/traces?thread=t")
+    assert looks_like_opik_link("https://x.test/ws/projects/p/diagnostics?issue=i")
+    assert not looks_like_opik_link("https://x.test/ws/projects/p/diagnostics")  # no issue=
+    assert not looks_like_opik_link("https://x.test/ws/diagnostics?issue=i")  # no /projects/
+    assert not looks_like_opik_link("opik://projects/p/agent-insights-issues/i")  # not http
+    # 'issue=' inside another key is not an issue link.
+    assert not looks_like_opik_link("https://x.test/ws/projects/p/diagnostics?other_issue=i")
+
+
+def test_thread_query_wins_when_both_present() -> None:
+    """A URL carrying both keys is a thread link with an unrelated issue param;
+    the thread rule is checked first so existing behaviour is unchanged."""
+    url = "https://x.test/ws/projects/p-9/traces?thread=th-1&issue=is-1"
+    assert parse(url) == ParsedURI("thread", "th-1", project_id="p-9")
+
+
+def test_issue_uri_not_confused_with_thread_or_project() -> None:
+    assert parse("opik://projects/p-9/threads/th-1").entity_type == "thread"
+    assert parse("opik://projects/p-9").entity_type == "project"
+    with pytest.raises(InvalidURI):
+        parse("opik://projects/p-9/agent-insights-issues")  # collection, not a singleton

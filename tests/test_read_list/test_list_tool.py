@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.opik_client import OpikValidationError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 
@@ -29,11 +30,27 @@ class FakeOpikClient:
     test_suite_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    issues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
+    project_lookups: int = 0
+    fail_issues_with: Exception | None = None
+    # Credential identity the project-name cache keys on; None mimics a fake
+    # with no config, as every other test here has.
+    _base_url: str | None = None
+    _workspace: str | None = None
+    _api_key: str | None = None
+
+    async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        if self.fail_issues_with is not None:
+            raise self.fail_issues_with
+        return self.issues
+
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        self.project_lookups += 1
         return self.projects
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
@@ -251,3 +268,369 @@ async def test_list_missing_required_kwarg_chains_typed_cause() -> None:
         await run_list("trace")
 
     assert isinstance(ei.value.__cause__, EntityArgValidationError)
+
+
+# --- entity-specific kwargs are registry-gated --------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_forwards_only_kwargs_the_entity_declares() -> None:
+    """Parent ids meant for other entities never reach a workspace-wide list_fn.
+
+    ``list('project', project_id=…, test_suite_id=…, prompt_id=…)`` is a
+    confused call, but it must degrade to a plain project list rather than
+    blow up the client with unexpected kwargs."""
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "a"}], "total": 1})
+    out = await run_list(
+        "project", project_id="p-1", test_suite_id="ts-1", prompt_id="pr-1", client=fake
+    )
+    assert "p-1" in out
+    assert set(fake.last_kwargs) == {"page", "size"}
+
+
+# --- agent_insights_issue (Diagnostics) ---------------------------------- #
+
+ISSUE_ROW = {
+    "id": "is-1",
+    "name": "Tool call loop on weather lookup",
+    "severity": "high",
+    "status": "open",
+    "total_occurrences": 300,
+    "latest_count": 12,
+    "last_seen": "2026-09-07",
+    "cause": "The agent retries the same tool call when the API times out.",
+    "suggested_fix": "Cap retries at 2.",
+}
+
+
+@pytest.mark.anyio
+async def test_list_issues_renders_diagnostics_columns_in_backend_order() -> None:
+    second = {**ISSUE_ROW, "id": "is-2", "name": "Empty answer", "severity": "low"}
+    fake = FakeOpikClient(issues={"content": [ISSUE_ROW, second], "total": 2})
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake)
+    lines = out.splitlines()
+    first = "is-1 | Tool call loop on weather lookup | high | open | 300 | 12 | 2026-09-07"
+    second_row = "is-2 | Empty answer | low | open | 300 | 12 | 2026-09-07"
+    assert "id | name | severity | status | total_occurrences | latest_count | last_seen" in lines
+    assert first in lines
+    assert lines.index(first) < lines.index(second_row)
+    # Long prose stays out of the table — that is what read() is for.
+    assert "Cap retries" not in out
+    assert fake.last_kwargs.get("project_id") == "p-1"
+    assert "sorting" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issues_defaults_to_open_status() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", client=fake)
+    assert fake.last_kwargs.get("status") == "open"
+
+
+@pytest.mark.anyio
+async def test_list_issues_forwards_explicit_status() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", status="resolved", client=fake)
+    assert fake.last_kwargs.get("status") == "resolved"
+
+
+@pytest.mark.anyio
+async def test_list_issues_forwards_window_only_when_given() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", client=fake)
+    assert "from_date" not in fake.last_kwargs
+    assert "to_date" not in fake.last_kwargs
+
+    # The same since/until vocabulary as traces, truncated to UTC report days
+    # because the Diagnostics backend aggregates per day.
+    out = await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        since="2026-09-01T15:30:00Z",
+        until="2026-09-08T02:00:00+02:00",
+        client=fake,
+    )
+    assert fake.last_kwargs.get("from_date") == "2026-09-01"
+    assert fake.last_kwargs.get("to_date") == "2026-09-08"
+    assert "from_time" not in fake.last_kwargs
+    assert "since: 2026-09-01" in out
+    assert "until: 2026-09-08" in out
+
+
+@pytest.mark.anyio
+async def test_list_issues_accept_relative_window() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", since="7d", client=fake)
+    from_date = fake.last_kwargs.get("from_date")
+    assert isinstance(from_date, str) and len(from_date) == 10
+    assert "to_date" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issues_inverted_window_rejected_before_backend() -> None:
+    fake = FakeOpikClient()
+    with pytest.raises(ToolError, match="before since"):
+        await run_list(
+            "agent_insights_issue",
+            project_id="p-1",
+            since="2026-09-09T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=fake,
+        )
+    assert fake.last_kwargs == {}
+
+
+@pytest.mark.anyio
+async def test_list_issues_requires_project_scope() -> None:
+    with pytest.raises(ToolError, match=r"requires project_id \(or project_name\)"):
+        await run_list("agent_insights_issue", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_list_issues_ignores_name_filter() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-1", name="loop", client=fake)
+    assert "name" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issue_filters_not_forwarded_to_other_entities() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "a"}], "total": 1})
+    await run_list("project", status="resolved", client=fake)
+    assert set(fake.last_kwargs) == {"page", "size"}
+
+
+@pytest.mark.anyio
+async def test_list_issues_bad_window_surfaces_backend_validation_message() -> None:
+    fake = FakeOpikClient(
+        fail_issues_with=OpikValidationError(
+            "Opik rejected the request body (400) for agent insights issues — "
+            "Parameter 'from_date' must not be after 'to_date'"
+        )
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "agent_insights_issue",
+            project_id="p-1",
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
+            client=fake,
+        )
+    assert "from_date" in str(exc.value)
+    assert isinstance(exc.value.__cause__, OpikValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_ambiguous_project_name_lists_candidate_names() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-1", "name": "demo"}, {"id": "p-2", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert "project_id=p-1, name='demo'" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_list_issues_empty_state() -> None:
+    out = await run_list("agent_insights_issue", project_id="p-1", client=FakeOpikClient())
+    assert "No agent_insights_issues found" in out
+
+
+# --- project_name resolution (the backend takes project_id only) --------- #
+
+
+@pytest.mark.anyio
+async def test_list_issues_resolves_exact_project_name_to_id() -> None:
+    """The projects endpoint is a substring search; only the exact name counts."""
+    fake = FakeOpikClient(
+        projects={
+            "content": [
+                {"id": "p-demo-2", "name": "demo-2"},
+                {"id": "p-demo", "name": "demo"},
+            ],
+            "total": 2,
+        },
+        issues={"content": [ISSUE_ROW], "total": 1},
+    )
+    out = await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert "is-1" in out
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+    assert "project_name" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_list_issues_resolves_project_name_case_insensitively_like_the_backend() -> None:
+    """list('trace', project_name='Support-Agent-Demo') succeeds because the
+    backend matches project names case-insensitively; the same argument on the
+    issue entity must not fail. Exact case still wins when both exist."""
+    fake = FakeOpikClient(
+        projects={"content": [{"id": "p-demo", "name": "support-agent-demo"}], "total": 1},
+        issues={"content": [ISSUE_ROW], "total": 1},
+    )
+    out = await run_list("agent_insights_issue", project_name="Support-Agent-Demo", client=fake)
+    assert "is-1" in out
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_list_issues_exact_case_beats_case_insensitive_match() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-upper", "name": "Demo"}, {"id": "p-lower", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert fake.last_kwargs.get("project_id") == "p-lower"
+
+
+@pytest.mark.anyio
+async def test_list_issues_ambiguous_case_insensitive_match_lists_candidates() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-upper", "name": "Demo"}, {"id": "p-lower", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="DEMO", client=fake)
+    msg = str(exc.value)
+    assert "p-upper" in msg and "p-lower" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_ambiguous_project_name_lists_candidates() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-1", "name": "demo"}, {"id": "p-2", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    msg = str(exc.value)
+    assert "p-1" in msg
+    assert "p-2" in msg
+    assert "project_id" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_unknown_project_name_suggests_the_closest_one() -> None:
+    """Same recovery as a misspelled project_name on a trace list (#185): the
+    message names the closest existing project and lists the rest."""
+    fake = FakeOpikClient(
+        projects={
+            "content": [
+                {"id": "p-1", "name": "support-agent-demo"},
+                {"id": "p-2", "name": "probe"},
+            ],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="suport-agent-demo", client=fake)
+    msg = str(exc.value)
+    assert "Project 'suport-agent-demo' not found." in msg
+    assert "Did you mean 'support-agent-demo'?" in msg
+    assert "Projects: support-agent-demo, probe" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_unknown_project_name_without_a_close_match() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "probe"}], "total": 1})
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    msg = str(exc.value)
+    assert "Project 'demo' not found." in msg
+    assert "Did you mean" not in msg
+    assert "Projects: probe" in msg
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_name_resolved_once_per_process() -> None:
+    """Every call with project_name used to pay a second round trip. The
+    resolved id is cached, so the follow-up call skips the projects lookup."""
+    fake = FakeOpikClient(projects={"content": [{"id": "p-demo", "name": "demo"}], "total": 1})
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    await run_list("agent_insights_issue", project_name="demo", status="resolved", client=fake)
+    assert fake.project_lookups == 1
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_name_cache_is_per_credential() -> None:
+    """Hosted OAuth passthrough: one process, many bearers, and the client's
+    workspace may be unknown (it lives server-side). Two tenants asking for
+    the same project name must never share a resolved id."""
+    tenant_a = FakeOpikClient(projects={"content": [{"id": "p-a", "name": "demo"}], "total": 1})
+    tenant_a._base_url = "https://opik.test/api"
+    tenant_a._workspace = None
+    tenant_a._api_key = "Bearer opik_mcp_at_aaa"
+    tenant_b = FakeOpikClient(projects={"content": [{"id": "p-b", "name": "demo"}], "total": 1})
+    tenant_b._base_url = "https://opik.test/api"
+    tenant_b._workspace = None
+    tenant_b._api_key = "Bearer opik_mcp_at_bbb"
+
+    await run_list("agent_insights_issue", project_name="demo", client=tenant_a)
+    await run_list("agent_insights_issue", project_name="demo", client=tenant_b)
+    assert tenant_a.last_kwargs.get("project_id") == "p-a"
+    assert tenant_b.last_kwargs.get("project_id") == "p-b"
+    assert tenant_b.project_lookups == 1
+
+    # Same credential again: served from the cache.
+    same_as_a = FakeOpikClient(projects={"content": [], "total": 0})
+    same_as_a._base_url = "https://opik.test/api"
+    same_as_a._workspace = None
+    same_as_a._api_key = "Bearer opik_mcp_at_aaa"
+    await run_list("agent_insights_issue", project_name="demo", client=same_as_a)
+    assert same_as_a.project_lookups == 0
+    assert same_as_a.last_kwargs.get("project_id") == "p-a"
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_name_cache_is_per_name() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-demo", "name": "demo"}], "total": 1})
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    fake.projects = {"content": [{"id": "p-other", "name": "other"}], "total": 1}
+    await run_list("agent_insights_issue", project_name="other", client=fake)
+    assert fake.project_lookups == 2
+    assert fake.last_kwargs.get("project_id") == "p-other"
+
+
+@pytest.mark.anyio
+async def test_list_issues_unresolved_project_name_is_not_cached() -> None:
+    """A miss must not be remembered: the project may be created a moment later."""
+    fake = FakeOpikClient()
+    with pytest.raises(ToolError):
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    # A miss costs two calls: the filtered lookup and the unfiltered one that
+    # builds the did-you-mean. Neither result is remembered.
+    lookups_after_miss = fake.project_lookups
+    assert lookups_after_miss == 2
+    fake.projects = {"content": [{"id": "p-demo", "name": "demo"}], "total": 1}
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert fake.project_lookups == lookups_after_miss + 1
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_list_issues_project_id_wins_over_name_without_lookup() -> None:
+    fake = FakeOpikClient()
+    await run_list("agent_insights_issue", project_id="p-9", project_name="demo", client=fake)
+    assert fake.last_kwargs.get("project_id") == "p-9"
+    assert "project_name" not in fake.last_kwargs
+    assert fake.project_lookups == 0
+
+
+@pytest.mark.anyio
+async def test_list_forwards_declared_parent_id_to_sub_collection() -> None:
+    fake = FakeOpikClient(prompt_versions={"content": [{"id": "v-1"}], "total": 1})
+    await run_list("prompt_version", prompt_id="pr-1", test_suite_id="ts-1", client=fake)
+    assert fake.last_kwargs.get("prompt_id") == "pr-1"
+    assert "test_suite_id" not in fake.last_kwargs

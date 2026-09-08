@@ -5,10 +5,12 @@ table (mirrors ollie's format) — easier for the LLM to scan than nested
 JSON and lossless for the columns we care about (id, name, plus a few
 entity-specific fields like ``created_at`` / ``dataset_name``).
 
-Project-scoped lists (``trace``, ``span``, ``thread``, ``test_suite_item``,
-``prompt_version``) require their parent id via ``project_id`` /
-``test_suite_id`` / ``prompt_id`` — enforced via the registry's
-``list_required_kwargs``.
+Project-scoped lists (``trace``, ``span``, ``thread``, ``agent_insights_issue``,
+``test_suite_item``, ``prompt_version``) require their parent id via
+``project_id`` / ``test_suite_id`` / ``prompt_id`` — enforced via the
+registry's ``list_required_kwargs``. Entity-specific kwargs (``status`` for
+Diagnostics issues) are forwarded only to the entity that declares them in
+``list_optional_kwargs``.
 
 The searchable types (``trace``, ``span``, ``thread``, ``experiment``) also
 take ``filters`` — an OQL string compiled by ``oql.py`` into the backend's
@@ -16,11 +18,15 @@ filter array. Like the UI's Logs page, trace/span/thread lists add
 ``source = "sdk"`` unless the caller names ``source`` themselves, so
 evaluator / playground / experiment traces don't crowd out application
 traffic. Whatever was applied is echoed on the first output line.
+
+``since`` / ``until`` is one vocabulary for every windowed type: an instant
+window (``from_time`` / ``to_time``) for trace, span and thread, and a
+report-day window (``from_date`` / ``to_date``) for Diagnostics issues, whose
+backend aggregates by day.
 """
 
 from __future__ import annotations
 
-import difflib
 import json
 import logging
 import math
@@ -49,6 +55,7 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
+from opik_mcp.read_list.project_scope import project_rows, unknown_project_message
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
@@ -85,6 +92,7 @@ async def run_list(
     project_name: str | None = None,
     test_suite_id: str | None = None,
     prompt_id: str | None = None,
+    status: str | None = None,
     settings: Settings | None = None,
     client: OpikListClient | None = None,
 ) -> str:
@@ -101,17 +109,24 @@ async def run_list(
     kw: dict[str, Any] = {"page": page, "size": size}
     if name:
         kw["name"] = name
-    if project_id is not None:
-        kw["project_id"] = project_id
-    # Only project-scoped lists (trace, span, thread) take project_name;
-    # forwarding it to a workspace-wide list_fn (projects/experiments/…) would
-    # be an unexpected kwarg. Gate on the same signal the required-check uses.
-    if project_name is not None and "project_id" in handler.list_required_kwargs:
-        kw["project_name"] = project_name
-    if test_suite_id is not None:
-        kw["test_suite_id"] = test_suite_id
-    if prompt_id is not None:
-        kw["prompt_id"] = prompt_id
+    # Entity-specific kwargs are forwarded only when the registry entry declares
+    # them (required or optional). A parent id meant for another entity, or
+    # project scope on a workspace-wide list, would otherwise reach the client
+    # as an unexpected kwarg. ``project_name`` rides along with ``project_id``:
+    # every project-scoped client method accepts either.
+    accepted = set(handler.list_required_kwargs) | set(handler.list_optional_kwargs)
+    if "project_id" in accepted:
+        accepted.add("project_name")
+    candidates: dict[str, Any] = {
+        "project_id": project_id,
+        "project_name": project_name,
+        "test_suite_id": test_suite_id,
+        "prompt_id": prompt_id,
+        "status": status,
+    }
+    for key, value in candidates.items():
+        if value is not None and key in accepted:
+            kw[key] = value
 
     for required in handler.list_required_kwargs:
         if kw.get(required) is None:
@@ -151,11 +166,13 @@ async def run_list(
     sort_slot = len(applied)
 
     if since is not None or until is not None:
-        if entity_type not in WINDOWED_ENTITIES:
+        day_windowed = "from_date" in handler.list_optional_kwargs
+        if entity_type not in WINDOWED_ENTITIES and not day_windowed:
+            windowed = ", ".join((*WINDOWED_ENTITIES, "agent_insights_issue"))
             why = (
                 "experiments have no time window on the backend."
                 if entity_type == "experiment"
-                else f"only {', '.join(WINDOWED_ENTITIES)} take a time window."
+                else f"only {windowed} take a time window."
             )
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
@@ -163,12 +180,22 @@ async def run_list(
             from_time, to_time = resolve_window(since, until)
         except WindowError as err:
             raise ToolError(str(err)) from err
-        if since is not None and from_time is not None:
-            kw["from_time"] = from_time
-            applied.append(f"since: {_window_echo(since, from_time)}")
-        if until is not None and to_time is not None:
-            kw["to_time"] = to_time
-            applied.append(f"until: {_window_echo(until, to_time)}")
+        if day_windowed:
+            # Diagnostics aggregates per report day, so the backend takes
+            # dates; the instant window is truncated to its UTC days.
+            if since is not None and from_time is not None:
+                kw["from_date"] = from_time[:10]
+                applied.append(f"since: {kw['from_date']}")
+            if until is not None and to_time is not None:
+                kw["to_date"] = to_time[:10]
+                applied.append(f"until: {kw['to_date']}")
+        else:
+            if since is not None and from_time is not None:
+                kw["from_time"] = from_time
+                applied.append(f"since: {_window_echo(since, from_time)}")
+            if until is not None and to_time is not None:
+                kw["to_time"] = to_time
+                applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
         if entity_type in WINDOWED_ENTITIES:
@@ -199,11 +226,16 @@ async def run_list(
 
     try:
         page_body = await handler.list_fn(opik, **kw)
+    except EntityArgValidationError as e:
+        # A list_fn may reject its own arguments (e.g. a project_name that
+        # resolves to no or several projects). Surface it as the same typed
+        # validation error the tool raises for a missing parent id.
+        raise ToolError(str(e)) from e
     except OpikNotFoundError as e:
         # The backend's 404 for a misspelled project names it ("Project name: X
         # not found"); only that case gets the did-you-mean recovery.
         if kw.get("project_name") and kw["project_name"] in str(e):
-            raise ToolError(await _unknown_project_message(opik, kw["project_name"])) from e
+            raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
     except (OpikAuthError, OpikValidationError, OpikServerError) as e:
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
@@ -278,7 +310,7 @@ async def _empty_message(
     if from_time is None:
         return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
 
-    rows = await _project_rows(opik, name=project_name)
+    rows = await project_rows(opik, name=project_name)
     match = [
         p
         for p in rows
@@ -305,44 +337,6 @@ def _window_echo(raw: str, resolved: str) -> str:
     if is_relative(raw):
         return f"{raw.strip()} ({minute})"
     return minute
-
-
-async def _project_rows(opik: OpikListClient, *, name: str | None = None) -> list[dict[str, Any]]:
-    """One page of projects for the side lookups (did-you-mean, last-trace hint).
-
-    ``name`` is the backend's substring filter, so the caller still matches
-    exactly. Failures are logged and yield ``[]``: these lookups decorate an
-    answer the agent already has and must never replace it with an error.
-    """
-    try:
-        body = (
-            await opik.list_projects(name=name, size=100)
-            if name
-            else await opik.list_projects(size=100)
-        )
-    except (
-        OpikAuthError,
-        OpikNotFoundError,
-        OpikValidationError,
-        OpikServerError,
-        httpx.HTTPError,
-    ):
-        logger.debug("project lookup for a list hint failed; skipping the hint", exc_info=True)
-        return []
-    return [p for p in body.get("content") or [] if isinstance(p, dict)]
-
-
-async def _unknown_project_message(opik: OpikListClient, project_name: str) -> str:
-    """One extra call on a project-name 404: the names that do exist, and the
-    closest one. The backend matches names exactly, so a typo is the common case."""
-    names = [p["name"] for p in await _project_rows(opik) if isinstance(p.get("name"), str)]
-    message = f"Project {project_name!r} not found."
-    close = difflib.get_close_matches(project_name, names, n=1, cutoff=0.6)
-    if close:
-        message += f" Did you mean {close[0]!r}?"
-    if names:
-        message += f" Projects: {', '.join(names)}."
-    return message
 
 
 # Filter fields that make no sense as a table column: bodies (never shown in a

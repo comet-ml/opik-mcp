@@ -227,28 +227,51 @@ lifecycle (read → annotate → curate → author → iterate).
 
 One tool for any "show me X" question. Takes an `entity_type` plus an `id`
 (UUID or, for nameable types, a name) or a full `opik://` URI. Composite reads
-(`trace`, `prompt`) inline their children so a single call returns the full
-picture.
+(`trace`, `prompt`, `thread`, `agent_insights_issue`) inline their children so
+a single call returns the full picture.
 
 **Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
-`prompt`. Name-based lookup is available for `project`, `experiment`, `prompt`,
-`test_suite` (slower — two API calls — and may return multiple matches).
+`prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
+`project`, `experiment`, `prompt`, `test_suite` (slower — two API calls — and
+may return multiple matches). `thread` and `agent_insights_issue` are
+project-scoped: pass `project_id` or `project_name`, or a link/URI that carries
+the project.
 
 ```python
 read(entity_type="trace", id="7f2e3c8a-…")
 read(entity_type="project", id="demo")          # name lookup
 read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
+read(entity_type="agent_insights_issue", id="<issue-uuid>", project_id="<project-uuid>")
+read(entity_type="agent_insights_issue", id="https://www.comet.com/opik/<ws>/projects/<pid>/diagnostics?issue=<id>")
 ```
+
+A link copied from the Opik UI works as the `id`: a thread link or a
+Diagnostics page link carries the project, so no `project_id` is needed and
+the entity type is taken from the link.
+
+An `agent_insights_issue` read returns `{issue, example_trace_ids, details}`:
+the Diagnostics issue record (name, description, cause, suggested fix,
+severity, status), the deduplicated ids of the traces that exhibit it (the
+same sample the Diagnostics page shows — open one with `read("trace", id)`),
+and the per-day breakdown. Trace bodies are not inlined, so the read stays one
+backend call. `since` / `until` narrow the per-day rows; the default is
+all-time. When the server knows the Opik URL and the session's workspace, the
+read also carries `url` (the issue's Diagnostics page) and `trace_url_template`
+(a deep link for any of the example traces), so the assistant can hand you
+something clickable; under an OAuth session whose workspace could not be
+resolved the links are omitted rather than guessed.
 
 ### `list`
 
 Browse or search a collection with pagination. Project-scoped types (`trace`,
-`span`, `thread`, `test_suite_item`, `prompt_version`) need their parent: a
-project UUID or name, a suite UUID, or a prompt UUID.
+`span`, `thread`, `agent_insights_issue`, `test_suite_item`, `prompt_version`)
+need their parent: a project UUID or name, a suite UUID, or a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
 list(entity_type="experiment", name="rerank")          # name substring filter
+list(entity_type="agent_insights_issue", project_name="demo")             # open Diagnostics issues
+list(entity_type="agent_insights_issue", project_id="<uuid>", status="resolved")
 list(entity_type="trace", project_name="demo")         # latest traces of one project
 list(entity_type="trace", project_name="demo",
      filters='error_info is_not_empty AND duration > 5000')
@@ -314,6 +337,16 @@ list(entity_type="trace", project_name="demo", since="1h",
      filters="error_info is_not_empty", sort="duration desc")
 list(entity_type="trace", project_name="demo", search="order-42")
 ```
+
+**Diagnostics issues.** `agent_insights_issue` is the Diagnostics page over
+the MCP: the recurring failures Opik's Diagnostics job grouped for a project,
+ranked as the UI ranks them (most recently seen first). Columns are `severity`,
+`status`, `total_occurrences` (all-time sum), `latest_count` (the most recent
+report day, the number the issue's own description refers to) and `last_seen`.
+Open issues are listed by default; pass `status="resolved"` or `"closed"` for
+the rest. Counts are all-time so they match the UI; the same `since` / `until`
+as for traces narrow the window, truncated to UTC report days because
+Diagnostics aggregates per day.
 
 ### `write`
 
