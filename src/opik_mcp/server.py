@@ -3,7 +3,7 @@ import contextlib
 import logging
 import time
 from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -342,14 +342,13 @@ async def list_entities(
         Field(description="Required when listing prompt_versions. UUID of the prompt."),
     ] = None,
     status: Annotated[
-        str | None,
+        Literal["open", "resolved", "closed"] | None,
         Field(
             description=(
                 "agent_insights_issue only: which Diagnostics issues to list. "
                 "Defaults to 'open' (what is broken now); 'resolved' and 'closed' "
                 "show issues already dealt with. Ignored for other entity types."
             ),
-            json_schema_extra={"enum": ["open", "resolved", "closed"]},
         ),
     ] = None,
     from_date: Annotated[

@@ -103,6 +103,11 @@
     "status": {
       "anyOf": [
         {
+          "enum": [
+            "open",
+            "resolved",
+            "closed"
+          ],
           "type": "string"
         },
         {
@@ -111,11 +116,6 @@
       ],
       "default": null,
       "description": "agent_insights_issue only: which Diagnostics issues to list. Defaults to 'open' (what is broken now); 'resolved' and 'closed' show issues already dealt with. Ignored for other entity types.",
-      "enum": [
-        "open",
-        "resolved",
-        "closed"
-      ],
       "title": "Status"
     },
     "test_suite_id": {

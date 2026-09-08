@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.opik_client import OpikNotFoundError, OpikServerError
+from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.read_tool import run_read
 
@@ -41,6 +41,7 @@ class FakeOpikClient:
     thread_messages: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     issues_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_issue_kwargs: dict[str, Any] = field(default_factory=dict)
+    fail_issue_with: Exception | None = None
     project_lookups: int = 0
     fail_list_traces: bool = False
 
@@ -175,6 +176,8 @@ class FakeOpikClient:
             "from_date": from_date,
             "to_date": to_date,
         }
+        if self.fail_issue_with is not None:
+            raise self.fail_issue_with
         if issue_id not in self.issues_by_id:
             raise OpikNotFoundError(f"agent insights issue {issue_id!r} not found (404).")
         return self.issues_by_id[issue_id]
@@ -450,7 +453,6 @@ async def test_read_issue_returns_issue_example_trace_ids_and_details() -> None:
     assert body["example_trace_ids"] == ["tr-a", "tr-b", "tr-c"]
     # Per-day rows pass through unchanged.
     assert body["details"] == _ISSUE_DETAIL["details"]
-    assert _issue_fake().last_issue_kwargs == {}
 
 
 @pytest.mark.anyio
@@ -597,6 +599,28 @@ async def test_read_issue_project_id_wins_over_name_without_lookup() -> None:
     )
     assert fake.last_issue_kwargs["project_id"] == "p-9"
     assert fake.project_lookups == 0
+
+
+@pytest.mark.anyio
+async def test_read_issue_bad_window_surfaces_backend_validation_message() -> None:
+    """The backend rejects from_date > to_date with a 400; the agent must see
+    that reason, not a generic failure."""
+    fake = _issue_fake()
+    fake.fail_issue_with = OpikValidationError(
+        "Opik rejected the request body (400) for agent insights issue — "
+        "Parameter 'from_date' must not be after 'to_date'"
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_read(
+            "agent_insights_issue",
+            ISSUE,
+            project_id="p-9",
+            from_date="2026-09-09",
+            to_date="2026-09-01",
+            client=fake,
+        )
+    assert "from_date" in str(exc.value)
+    assert isinstance(exc.value.__cause__, OpikValidationError)
 
 
 @pytest.mark.anyio

@@ -39,8 +39,7 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
-from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.project_scope import resolve_project_id
+from opik_mcp.read_list.project_scope import require_project_id
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -304,15 +303,15 @@ async def _fetch_agent_insights_issue(
     bodies are deliberately not inlined — that would turn one read into N+1
     calls and blow the default budget on any issue with several examples.
     """
-    if project_id is None:
-        # The agent-insights endpoints take project_id only; resolve the name
-        # here so the read contract stays "project_id or project_name" for
-        # every project-scoped entity. An explicit project_id always wins.
-        if project_name is None:
-            raise EntityArgValidationError(
-                "read('agent_insights_issue') requires project_id or project_name."
-            )
-        project_id = await resolve_project_id(client, project_name)
+    # The agent-insights endpoints take project_id only; resolve the name here
+    # so the read contract stays "project_id or project_name" for every
+    # project-scoped entity. An explicit project_id always wins.
+    project_id = await require_project_id(
+        client,
+        project_id=project_id,
+        project_name=project_name,
+        caller="read('agent_insights_issue')",
+    )
     body = await client.get_agent_insights_issue(
         entity_id, project_id=project_id, from_date=from_date, to_date=to_date
     )
@@ -419,13 +418,12 @@ async def _list_agent_insights_issues(client: OpikListClient, **kw: Any) -> dict
     # The backend takes project_id only. The list tool lets project_name
     # satisfy the project requirement (as for trace/thread), so resolve it
     # here; an explicit project_id wins and skips the lookup.
-    project_name = kw.pop("project_name", None)
-    if kw.get("project_id") is None:
-        if project_name is None:
-            raise EntityArgValidationError(
-                "list('agent_insights_issue') requires project_id or project_name."
-            )
-        kw["project_id"] = await resolve_project_id(client, project_name)
+    kw["project_id"] = await require_project_id(
+        client,
+        project_id=kw.get("project_id"),
+        project_name=kw.pop("project_name", None),
+        caller="list('agent_insights_issue')",
+    )
     return await client.list_agent_insights_issues(**kw)
 
 

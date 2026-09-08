@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.opik_client import OpikValidationError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 
@@ -34,9 +35,12 @@ class FakeOpikClient:
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
     project_lookups: int = 0
+    fail_issues_with: Exception | None = None
 
     async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        if self.fail_issues_with is not None:
+            raise self.fail_issues_with
         return self.issues
 
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
@@ -370,6 +374,39 @@ async def test_list_issue_filters_not_forwarded_to_other_entities() -> None:
         "project", status="resolved", from_date="2026-09-01", to_date="2026-09-08", client=fake
     )
     assert set(fake.last_kwargs) == {"page", "size"}
+
+
+@pytest.mark.anyio
+async def test_list_issues_bad_window_surfaces_backend_validation_message() -> None:
+    fake = FakeOpikClient(
+        fail_issues_with=OpikValidationError(
+            "Opik rejected the request body (400) for agent insights issues — "
+            "Parameter 'from_date' must not be after 'to_date'"
+        )
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "agent_insights_issue",
+            project_id="p-1",
+            from_date="2026-09-09",
+            to_date="2026-09-01",
+            client=fake,
+        )
+    assert "from_date" in str(exc.value)
+    assert isinstance(exc.value.__cause__, OpikValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_ambiguous_project_name_lists_candidate_names() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-1", "name": "demo"}, {"id": "p-2", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert "project_id=p-1, name='demo'" in str(exc.value)
 
 
 @pytest.mark.anyio

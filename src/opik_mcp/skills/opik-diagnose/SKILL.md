@@ -43,7 +43,7 @@ read('agent_insights_issue', '<issue id>', project_name='<project>')
 #  → {issue: {name, cause, suggested_fix, severity, status, …}, example_trace_ids: [...], details: [...]}
 ```
 
-Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` / `trace_url` come from the first `example_trace_ids` entry (read the top few issues to get them), `why` carries the issue name, `latest_count` and the cause. Rank critical/high severity above the rest; within a severity, most recently seen first (that is the list's order). Counts are all-time to match the UI; pass `from_date` to narrow to the window.
+Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` / `trace_url` come from the first `example_trace_ids` entry (read the top few issues to get them), `why` carries the issue name, severity, `latest_count` and the cause. Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `from_date` to narrow to the window.
 
 **Without the MCP**, the SDK REST client reads the same issues:
 
@@ -74,7 +74,7 @@ Score each remaining candidate and keep the top few. Priority order:
 4. **Low online-eval score** — a feedback score below its threshold (Answer Relevance, Hallucination, etc.).
 5. **Regressions** — a signal that worsened versus the prior window.
 
-Merge these under the Diagnostics items: an open critical/high issue outranks a lone errored trace, a lone error outranks a low/medium issue with one occurrence. Give each shortlisted item the one signal that flagged it and a short why. Prefer a short, ranked list over a long one.
+Append these after the Diagnostics items, in the signal order above. Give each shortlisted item the one signal that flagged it and a short why. Prefer a short, ranked list over a long one.
 
 ### 5. Stay in scope
 Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/opik-evaluate` and `/opik-compare`, not rediscovered here.

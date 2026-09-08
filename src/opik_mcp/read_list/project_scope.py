@@ -51,8 +51,28 @@ async def resolve_project_id(client: OpikListClient, project_name: str) -> str:
         f"to one of these (or ask the user which they mean):",
     ]
     for item in exact[:10]:
-        lines.append(f"  - project_id={item['id']}")
+        lines.append(f"  - project_id={item['id']}, name={item.get('name', '')!r}")
     raise EntityArgValidationError("\n".join(lines))
 
 
-__all__ = ["resolve_project_id"]
+async def require_project_id(
+    client: OpikListClient,
+    *,
+    project_id: str | None,
+    project_name: str | None,
+    caller: str,
+) -> str:
+    """Project scope for an endpoint that wants a UUID: the explicit id wins,
+    otherwise the name is resolved, otherwise it is a validation error.
+
+    ``caller`` names the tool call in the error (``"read('agent_insights_issue')"``)
+    so the agent sees which argument list to fix.
+    """
+    if project_id is not None:
+        return project_id
+    if project_name is None:
+        raise EntityArgValidationError(f"{caller} requires project_id or project_name.")
+    return await resolve_project_id(client, project_name)
+
+
+__all__ = ["require_project_id", "resolve_project_id"]
