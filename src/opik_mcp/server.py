@@ -290,6 +290,17 @@ async def list_entities(
             max_length=2000,
         ),
     ] = None,
+    sort: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Sort for trace, span, thread, experiment: '<field> [asc|desc]', desc by "
+                "default. E.g. 'duration desc', 'total_estimated_cost', "
+                "'feedback_scores.accuracy asc', 'usage.total_tokens'. One field only."
+            ),
+            max_length=200,
+        ),
+    ] = None,
     page: Annotated[
         int,
         Field(description="Page number (1-indexed).", ge=1, le=10_000),
@@ -343,7 +354,7 @@ async def list_entities(
 
     Workspace-wide types (project, experiment, prompt, test_suite) accept
     an optional `name` substring filter. trace, span, thread, experiment
-    accept an OQL `filters` string.
+    accept an OQL `filters` string and a `sort`.
     """
     if ctx is not None:
         await ctx.info(f"list.called entity_type={entity_type} page={page} size={size}")
@@ -351,6 +362,7 @@ async def list_entities(
         entity_type=entity_type,
         name=name,
         filters=filters,
+        sort=sort,
         page=page,
         size=size,
         project_id=project_id,

@@ -235,6 +235,73 @@ async def test_span_rows_carry_span_columns_by_default() -> None:
     assert "s-1 | openai.chat | llm | t-1 | 812.0 | gpt-4o | RateLimitError" in out
 
 
+# --- sort ------------------------------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_sort_reaches_the_backend_as_one_sorting_field() -> None:
+    fake = FakeOpikClient()
+    await run_list("trace", project_id="p-1", sort="duration desc", client=fake)
+    assert json.loads(fake.last_kwargs["sorting"]) == [{"field": "duration", "direction": "DESC"}]
+
+
+@pytest.mark.anyio
+async def test_sort_direction_defaults_to_desc_and_is_case_insensitive() -> None:
+    fake = FakeOpikClient()
+    await run_list("trace", project_id="p-1", sort="total_estimated_cost", client=fake)
+    assert json.loads(fake.last_kwargs["sorting"])[0]["direction"] == "DESC"
+    await run_list("trace", project_id="p-1", sort="start_time ASC", client=fake)
+    assert json.loads(fake.last_kwargs["sorting"])[0]["direction"] == "ASC"
+
+
+@pytest.mark.anyio
+async def test_sort_accepts_dynamic_score_and_usage_fields() -> None:
+    fake = FakeOpikClient()
+    await run_list("trace", project_id="p-1", sort="feedback_scores.accuracy asc", client=fake)
+    assert json.loads(fake.last_kwargs["sorting"]) == [
+        {"field": "feedback_scores.accuracy", "direction": "ASC"}
+    ]
+    await run_list("span", project_id="p-1", sort="usage.total_tokens", client=fake)
+    assert json.loads(fake.last_kwargs["sorting"])[0]["field"] == "usage.total_tokens"
+
+
+@pytest.mark.anyio
+async def test_sort_on_an_unsupported_field_lists_the_sortable_ones() -> None:
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace", project_id="p-1", sort="error_type", client=FakeOpikClient())
+    message = str(ei.value)
+    assert "'error_type' is not sortable for trace" in message
+    assert "Sortable: " in message
+    assert "duration" in message and "feedback_scores.<name>" in message
+
+
+@pytest.mark.anyio
+async def test_sort_with_a_bad_direction_names_the_accepted_forms() -> None:
+    with pytest.raises(ToolError, match=r"<field> \[asc\|desc\]"):
+        await run_list("trace", project_id="p-1", sort="duration sideways", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_sort_on_an_unsupported_type_names_the_supported_ones() -> None:
+    with pytest.raises(ToolError, match="Sortable types: trace, span, thread, experiment"):
+        await run_list("project", sort="name", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_header_echoes_the_sort_and_flags_a_dropped_one() -> None:
+    honoured = FakeOpikClient(
+        traces=_page([{"id": "t-1", "name": "chat"}], sortable_by=["duration", "start_time"])
+    )
+    out = await run_list("trace", project_id="p-1", sort="duration", client=honoured)
+    assert out.splitlines()[0] == '[list: trace | filters: source = "sdk" | sort: duration desc]'
+
+    dropped = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}], sortable_by=[]))
+    out = await run_list("trace", project_id="p-1", sort="duration", client=dropped)
+    assert (
+        "sort: duration desc (dropped by the backend for this workspace size" in out.splitlines()[0]
+    )
+
+
 # --- thread / experiment ---------------------------------------------------- #
 
 

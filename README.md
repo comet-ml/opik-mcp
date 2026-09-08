@@ -282,6 +282,13 @@ the position of a syntax error, the closest field name, the valid operators for
 the field's type, or the expected value format. Ask `schema("list.trace")` (or
 `list.span`, `list.thread`, `list.experiment`) for the full field reference.
 
+**Sort.** The same four types take `sort="<field> [asc|desc]"`, `desc` by
+default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
+`sort="feedback_scores.accuracy asc"`, `sort="usage.total_tokens"`. The field is
+checked against the entity's sortable list before the call, because the backend
+silently ignores fields it cannot sort by. On very large workspaces the backend
+drops sorting altogether; the header says so when that happens.
+
 ### `write`
 
 Universal write dispatcher. Pass `operation` + `data` and the dispatcher

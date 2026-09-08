@@ -100,6 +100,20 @@
       "title": "Size",
       "type": "integer"
     },
+    "sort": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Sort for trace, span, thread, experiment: '<field> [asc|desc]', desc by default. E.g. 'duration desc', 'total_estimated_cost', 'feedback_scores.accuracy asc', 'usage.total_tokens'. One field only.",
+      "title": "Sort"
+    },
     "test_suite_id": {
       "anyOf": [
         {

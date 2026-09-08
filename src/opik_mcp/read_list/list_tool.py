@@ -43,6 +43,7 @@ from opik_mcp.read_list.oql import (
     render_filters,
 )
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
+from opik_mcp.read_list.sorting import SortError, compile_sort
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
@@ -60,6 +61,7 @@ async def run_list(
     *,
     name: str | None = None,
     filters: str | None = None,
+    sort: str | None = None,
     page: int = 1,
     size: int = 25,
     project_id: str | None = None,
@@ -122,6 +124,17 @@ async def run_list(
         # Bodies never reach the table, so let the backend trim them.
         kw["truncate"] = True
 
+    sort_label: str | None = None
+    if sort is not None:
+        try:
+            sort_field, direction = compile_sort(entity_type, sort)
+        except SortError as err:
+            raise ToolError(str(err)) from err
+        kw["sorting"] = json.dumps(
+            [{"field": sort_field, "direction": direction}], separators=(",", ":")
+        )
+        sort_label = f"sort: {sort_field} {direction.lower()}"
+
     opik = client if client is not None else make_opik_client(settings or get_settings())
 
     try:
@@ -133,6 +146,13 @@ async def run_list(
     content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
     total_raw = page_body.get("total")
     total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
+
+    if sort_label is not None:
+        # The backend blanks ``sortable_by`` when it dropped sorting for a large
+        # workspace — the only signal that the page is not actually ordered.
+        if page_body.get("sortable_by") == []:
+            sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
+        applied.append(sort_label)
 
     header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
     if not content:
