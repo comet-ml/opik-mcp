@@ -119,6 +119,7 @@ async def run_list(
             raise ToolError(str(err)) from err
 
     applied: list[str] = []
+    clauses: list[dict[str, str]] = []
     if entity_type in SUPPORTED_ENTITIES or filters is not None:
         try:
             clauses = compile_filters(entity_type, filters or "")
@@ -160,6 +161,7 @@ async def run_list(
             applied.append(f"search ignored (only {', '.join(_SEARCHABLE_TEXT)})")
 
     sort_label: str | None = None
+    sort_field: str | None = None
     if sort is not None:
         try:
             sort_field, direction = compile_sort(entity_type, sort)
@@ -196,8 +198,28 @@ async def run_list(
         )
         return f"{header}\n{empty}" if header else empty
 
-    table = _format_table(entity_type, handler, content, total, page, size, name)
+    extra = _requested_columns(sort_field, clauses)
+    table = _format_table(entity_type, handler, content, total, page, size, name, extra)
     return f"{header}\n{table}" if header else table
+
+
+# Filter fields that make no sense as a table column: bodies (never shown in a
+# list), the error container (error_type carries the useful part) and source
+# (it is a scope, not a per-row fact).
+_NEVER_COLUMNS = frozenset({"input", "output", "input_json", "output_json", "error_info", "source"})
+
+
+def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) -> list[str]:
+    """Columns the request names — the sort field first, then filter fields in
+    order of first mention. Nested references keep their ``field.key`` form."""
+    out: list[str] = []
+    if sort_field is not None:
+        out.append(sort_field)
+    for c in clauses:
+        col = f"{c['field']}.{c['key']}" if c.get("key") else c["field"]
+        if c["field"] not in _NEVER_COLUMNS and col not in out:
+            out.append(col)
+    return out
 
 
 def _format_table(
@@ -208,10 +230,19 @@ def _format_table(
     page: int,
     size: int,
     name: str | None,
+    extra_columns: list[str] | None = None,
 ) -> str:
-    """Pipe-delimited table — mirrors ollie's ``_format_table``."""
+    """Pipe-delimited table — mirrors ollie's ``_format_table``.
+
+    ``extra_columns`` are the fields the request sorted or filtered on; they
+    are appended after the entity's default columns (deduplicated) so the
+    table shows why each row is present and in what order.
+    """
     base = ("id", "name") if handler.list_has_name else ("id",)
     columns: tuple[str, ...] = (*base, *handler.list_extra_fields)
+    for col in extra_columns or ():
+        if col not in columns:
+            columns = (*columns, col)
     count = len(content)
     if name:
         header = (
@@ -246,6 +277,9 @@ def _cell(item: dict[str, Any], col: str) -> Any:
     ``error_type`` is derived from the error container when the record does
     not carry it flat: the backend's list payload has ``error_info.exception_type``.
     A feedback-score list (``[{name, value}, …]``) renders as ``name=value`` pairs.
+    A dotted column (``feedback_scores.accuracy``, ``usage.total_tokens``,
+    ``metadata.environment``) resolves into the nested value: a dict by key, a
+    list of named entries by ``name``. Anything missing renders empty.
     """
     if col in item:
         val = item[col]
@@ -256,6 +290,15 @@ def _cell(item: dict[str, Any], col: str) -> Any:
         info = item.get("error_info")
         if isinstance(info, dict):
             return info.get("exception_type")
+    if "." in col:
+        top, _, key = col.partition(".")
+        container = item.get(top)
+        if isinstance(container, dict):
+            return container.get(key)
+        if isinstance(container, list):
+            for entry in container:
+                if isinstance(entry, dict) and entry.get("name") == key:
+                    return entry.get("value")
     return None
 
 

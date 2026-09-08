@@ -390,6 +390,91 @@ async def test_header_echoes_the_sort_and_flags_a_dropped_one() -> None:
     )
 
 
+# --- columns follow the sort and filters ------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_sort_field_becomes_a_column_resolved_from_the_usage_map() -> None:
+    fake = FakeOpikClient(
+        traces=_page(
+            [
+                {
+                    "id": "t-1",
+                    "name": "chat",
+                    "usage": {"total_tokens": 4321, "prompt_tokens": 4000},
+                },
+                {"id": "t-2", "name": "chat"},
+            ]
+        )
+    )
+    out = await run_list("trace", project_id="p-1", sort="usage.total_tokens", client=fake)
+    header = out.splitlines()[3]
+    assert header == (
+        "id | name | start_time | duration | error_type | total_estimated_cost | usage.total_tokens"
+    )
+    assert "t-1 | chat |  |  |  |  | 4321" in out
+    assert "t-2 | chat |  |  |  |  | " in out
+
+
+@pytest.mark.anyio
+async def test_filter_fields_become_columns_deduplicated_and_in_order() -> None:
+    fake = FakeOpikClient(
+        traces=_page(
+            [
+                {
+                    "id": "t-1",
+                    "name": "chat",
+                    "duration": 9000,
+                    "tags": ["prod", "beta"],
+                    "metadata": {"environment": "staging", "region": "eu"},
+                    "feedback_scores": [{"name": "accuracy", "value": 0.42}],
+                }
+            ]
+        )
+    )
+    out = await run_list(
+        "trace",
+        project_id="p-1",
+        filters=(
+            'duration > 5000 AND tags contains "prod" AND metadata.environment = "staging" '
+            "AND feedback_scores.accuracy < 0.5 AND tags is_not_empty"
+        ),
+        sort="feedback_scores.accuracy asc",
+        client=fake,
+    )
+    header = out.splitlines()[3]
+    assert header == (
+        "id | name | start_time | duration | error_type | total_estimated_cost"
+        " | feedback_scores.accuracy | tags | metadata.environment"
+    )
+    assert "t-1 | chat |  | 9000 |  |  | 0.42 | ['prod', 'beta'] | staging" in out
+
+
+@pytest.mark.anyio
+async def test_body_and_source_fields_are_never_appended_as_columns() -> None:
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
+    out = await run_list(
+        "trace",
+        project_id="p-1",
+        filters='input contains "hello" AND error_info is_not_empty AND source = "evaluator"',
+        client=fake,
+    )
+    header = out.splitlines()[3]
+    assert header == "id | name | start_time | duration | error_type | total_estimated_cost"
+
+
+@pytest.mark.anyio
+async def test_dynamic_columns_still_truncate_long_values() -> None:
+    fake = FakeOpikClient(
+        spans=_page([{"id": "s-1", "name": "llm", "metadata": {"prompt": "x" * 200}}])
+    )
+    out = await run_list(
+        "span", project_id="p-1", filters='metadata.prompt contains "x"', client=fake
+    )
+    assert "x" * 57 + "..." in out
+    assert "x" * 58 not in out
+
+
 # --- thread / experiment ---------------------------------------------------- #
 
 
