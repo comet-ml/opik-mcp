@@ -346,6 +346,15 @@ schema(operation="score.create")
 schema(operation="prompt_version.save")
 ```
 
+The same tool answers `list.trace`, `list.span`, `list.thread` and
+`list.experiment` with the `list` tool's reference for that entity: every
+filterable field with its type and valid operators, the sortable fields, whether
+a time window and free-text search apply, and two example filters.
+
+```python
+schema(operation="list.trace")
+```
+
 ---
 
 ## Configuration

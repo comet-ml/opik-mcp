@@ -67,6 +67,7 @@ from opik_mcp.writes import (
     run_write,
 )
 from opik_mcp.writes.registry import WRITE_OPERATIONS
+from opik_mcp.writes.schema_tool import SCHEMA_KEYS
 
 logger = logging.getLogger("opik_mcp")
 
@@ -469,14 +470,21 @@ async def write(
     )
 
 
+SCHEMA_KEY_ENUM: list[str] = list(SCHEMA_KEYS)
+
+
 @mcp.tool(description=SCHEMA_TOOL_DESCRIPTION)
 @instrument_tool("schema", props_fn=_schema_props)
 async def schema(
     operation: Annotated[
         str,
         Field(
-            description="Operation whose schema to return.",
-            json_schema_extra={"enum": WRITE_OPERATION_ENUM},
+            description=(
+                "Write operation whose schema to return, or list.<entity> "
+                "(list.trace, list.span, list.thread, list.experiment) for the "
+                "filter and sort reference of the list tool."
+            ),
+            json_schema_extra={"enum": SCHEMA_KEY_ENUM},
         ),
     ],
     ctx: Context[ServerSession, None] | None = None,
