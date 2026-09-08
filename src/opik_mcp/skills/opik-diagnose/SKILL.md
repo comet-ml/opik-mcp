@@ -1,6 +1,6 @@
 ---
 name: opik-diagnose
-description: Surface the Opik traces worth a developer's attention, ranked by signal — errors, failed tool calls, latency, regressions, and low online-eval scores — plus Diagnostics issues. Reads live/production traces via the SDK (search_traces and agent_insights) and works with no MCP; uses the MCP issue entity when connected. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "which tool calls are failing", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
+description: Surface the Opik traces worth a developer's attention, ranked by signal — errors, failed tool calls, latency, regressions, and low online-eval scores — plus Diagnostics issues. Reads live/production traces through the hosted Opik MCP when it is connected (list with filters, sort and a time window) and falls back to the SDK (search_traces and agent_insights) otherwise, so it works with no MCP. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "which tool calls are failing", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and a project that has traces. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -8,7 +8,7 @@ allowed-tools:
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-08-24"
+  last_updated: "2026-09-08"
   source_commit: "2.0.0"
   argument-hint: "[optional: project name, or what to look for]"
 ---
@@ -32,17 +32,37 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 ### 1. Resolve scope
 Project (from config/repo) + a recent window. Confirm Opik is reachable: if `~/.opik.config` exists or `OPIK_API_KEY` is set, use it. Otherwise → **Blocker** ("run `opik configure`, then rerun").
 
-### 2. Pull candidate traces (SDK-first)
-The SDK is the primary path and needs no MCP.
+### 2. Pull candidate traces — MCP first, SDK fallback
+Check whether the hosted Opik MCP is connected and prefer it; fall back to SDK scripting when it isn't.
 
-```python
-import opik
-client = opik.Opik()
+- **MCP connected:** one `list` call per signal. The backend does the filtering and ordering, so each call returns a short, already-ranked page — no SDK, no client-side sorting. `since` takes `"1h"`, `"24h"`, `"7d"`; `filters` is an OQL string; `sort` is `"<field> [asc|desc]"` (desc by default). Trace lists hide evaluator/playground/experiment traces (`source = "sdk"`) unless you name `source`.
 
-traces = client.search_traces(project_name="<project>", max_results=200)  # recent window
-# Narrow server-side first when the volume is large; otherwise rank client-side (step 3).
-# Each trace carries the fields you rank on: error info, duration, feedback_scores.
-```
+  ```
+  list(entity_type="trace", project_name="<project>", since="24h",
+       filters="error_info is_not_empty", sort="start_time desc")         # errored
+  list(entity_type="span",  project_name="<project>", since="24h",
+       filters='type = "tool" AND error_info is_not_empty', sort="start_time desc")  # failed tool calls
+  list(entity_type="trace", project_name="<project>", since="24h",
+       sort="duration desc")                                              # latency outliers (ms)
+  list(entity_type="trace", project_name="<project>", since="24h",
+       filters="feedback_scores.<metric> < 0.5", sort="feedback_scores.<metric> asc")  # low online-eval score
+  list(entity_type="trace", project_name="<project>", since="7d", until="24h",
+       sort="duration desc")                                              # prior window, for regressions
+  ```
+
+  The table carries `duration`, `error_type` and cost by default plus every field you sorted or filtered on. A rejected filter comes back with what fixes it; `schema("list.trace")` is the full field reference.
+
+- **No MCP:** fall back to the SDK.
+
+  ```python
+  import opik
+  client = opik.Opik()
+
+  traces = client.search_traces(project_name="<project>", max_results=200)  # recent window
+  # Narrow server-side with filter_string='error_info is_not_empty' when the volume is
+  # large; otherwise rank client-side (step 3). Each trace carries the fields you rank
+  # on: error info, duration, feedback_scores.
+  ```
 
 ### 3. Rank by signal
 Score each candidate and keep the top few. Priority order:
@@ -93,7 +113,7 @@ Invariants: `found` carries a non-empty `shortlist`, each item with a `signal`, 
 
 ## Examples
 
-**Triage a project.** `/opik-diagnose`. `search_traces` on the project; two traces errored, one is 5x the p90 duration, one scored 0.2 on Hallucination. Shortlist = the two errors (rank 1-2), the latency outlier (3), the low-score trace (4), each with its signal; next step = "explain the top trace". → **`found`**.
+**Triage a project.** `/opik-diagnose`. `list('trace', since="24h", filters="error_info is_not_empty")`, `list('trace', since="24h", sort="duration desc")` and a low-score list on the project (or `search_traces` without the MCP); two traces errored, one is 5x the p90 duration, one scored 0.2 on Hallucination. Shortlist = the two errors (rank 1-2), the latency outlier (3), the low-score trace (4), each with its signal; next step = "explain the top trace". → **`found`**.
 
 **Nothing wrong.** `/opik-diagnose`. Reads fine, but no trace errored, ran slow, or scored low. → **`empty`**: "No traces crossed a threshold in the recent window."
 
@@ -104,6 +124,6 @@ Dumping every trace instead of a ranked shortlist; surfacing offline experiment/
 
 ## References
 
-SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/references/production.md` (`search_traces`, Diagnostics, online-eval scores, error/latency analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span/score model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
+SDK and observability detail live in the `opik` skill, installed beside this one. Read the files directly — paths are relative to this file: `../opik/SKILL.md` (**Searching traces** — the OQL filter grammar shared by the MCP `list` tool and `search_traces`), `../opik/references/production.md` (`search_traces`, Diagnostics, online-eval scores, error/latency analysis), `../opik/references/tracing-python.md` (SDK read APIs), `../opik/references/observability.md` (span/score model). If your host lays skills out differently, locate the `opik` skill's `references/` directory.
 
 If the `opik` skill isn't installed, say so in the report and use <https://www.comet.com/docs/opik/> rather than working from memory.

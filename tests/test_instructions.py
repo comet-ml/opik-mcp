@@ -116,6 +116,17 @@ def test_render_mentions_tool_selection_guidance() -> None:
     assert "read_skill" in out
 
 
+def test_render_tells_the_agent_list_can_filter_sort_and_window() -> None:
+    """Hosts that inject instructions but lazy-load tool schemas would otherwise
+    leave the agent paging through traces and sorting in its head."""
+    out = render_instructions(_settings())
+    assert "filters" in out and "OQL" in out
+    assert "sort" in out and "since" in out and "search" in out
+    assert 'since="1h"' in out and 'sort="duration desc"' in out
+    assert 'schema("list.trace")' in out
+    assert "optional name filter, page, size" not in out
+
+
 # --- the blob must describe only what this connection advertises ---------- #
 
 

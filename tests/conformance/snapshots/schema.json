@@ -1,7 +1,7 @@
 {
   "properties": {
     "operation": {
-      "description": "Operation whose schema to return.",
+      "description": "Write operation whose schema to return, or list.<entity> (list.trace, list.span, list.thread, list.experiment) for the filter and sort reference of the list tool.",
       "enum": [
         "trace.create",
         "trace.update",
@@ -14,7 +14,11 @@
         "experiment.create",
         "experiment_item.create",
         "thread.close",
-        "thread.open"
+        "thread.open",
+        "list.trace",
+        "list.span",
+        "list.thread",
+        "list.experiment"
       ],
       "title": "Operation",
       "type": "string"

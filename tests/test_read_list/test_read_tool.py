@@ -64,13 +64,14 @@ class FakeOpikClient:
     async def list_spans(
         self,
         *,
-        trace_id: str,
+        trace_id: str | None = None,
         project_id: str | None = None,
         project_name: str | None = None,
         page: int = 1,
         size: int = 100,
+        **_search: Any,
     ) -> dict[str, Any]:
-        content = self.trace_spans.get(trace_id, [])
+        content = self.trace_spans.get(trace_id or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
 
     async def get_span(self, span_id: str) -> dict[str, Any]:
@@ -85,6 +86,7 @@ class FakeOpikClient:
         name: str | None = None,
         page: int = 1,
         size: int = 10,
+        **_search: Any,
     ) -> dict[str, Any]:
         content = self.experiments_by_name.get(name or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
@@ -131,6 +133,7 @@ class FakeOpikClient:
         filters: str | None = None,
         page: int = 1,
         size: int = 10,
+        **_search: Any,
     ) -> dict[str, Any]:
         if self.fail_list_traces:
             raise OpikServerError("boom")

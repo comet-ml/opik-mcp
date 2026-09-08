@@ -50,7 +50,9 @@ from opik_mcp.credential_identity import (
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
+from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_thread_url
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
@@ -67,6 +69,7 @@ from opik_mcp.writes import (
     run_write,
 )
 from opik_mcp.writes.registry import WRITE_OPERATIONS
+from opik_mcp.writes.schema_tool import SCHEMA_KEYS
 
 logger = logging.getLogger("opik_mcp")
 
@@ -101,11 +104,28 @@ def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
 
 
 def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    """Analytics labels for ``list``.
+
+    The search surface (OPIK-8283) is recorded as *shape* only: which filter
+    fields were used (names, never values or the ``.key`` a score or metadata
+    filter carries — those are user vocabulary), which field was sorted on
+    (dynamic ``feedback_scores.<name>`` collapses to its prefix), and whether
+    a window / free-text search was present. Failed validations don't reach
+    this function; they are bucketed by exception class in the wrapper.
+    """
+    filters = kwargs.get("filters")
+    sort = kwargs.get("sort")
     return {
         "entity_type": kwargs.get("entity_type", ""),
         "had_name_filter": str(kwargs.get("name") is not None).lower(),
         "page": str(kwargs.get("page", 1)),
         "size": str(kwargs.get("size", 25)),
+        "has_filters": str(bool(filters)).lower(),
+        "filter_fields": ",".join(filter_field_names(kwargs.get("entity_type", ""), filters)),
+        "has_sort": str(bool(sort)).lower(),
+        "sort_field": sort_field_label(sort),
+        "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),
+        "has_search": str(bool(kwargs.get("search"))).lower(),
     }
 
 
@@ -274,6 +294,59 @@ async def list_entities(
             max_length=200,
         ),
     ] = None,
+    filters: Annotated[
+        str | None,
+        Field(
+            description=(
+                "OQL filter for trace, span, thread, experiment: "
+                "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
+                "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
+                "strings quoted, numbers bare (duration in ms). E.g. "
+                "'error_info is_not_empty AND duration > 5000', "
+                "'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. "
+                'trace/span/thread default to source = "sdk". Reference: schema("list.trace").'
+            ),
+            max_length=2000,
+        ),
+    ] = None,
+    sort: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Sort for trace, span, thread, experiment: '<field> [asc|desc]', desc by "
+                "default. E.g. 'duration desc', 'total_estimated_cost', "
+                "'feedback_scores.accuracy asc', 'usage.total_tokens'. One field only."
+            ),
+            max_length=200,
+        ),
+    ] = None,
+    since: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Start of the time window for trace, span, thread: a relative span "
+                "('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. "
+                "Windows are by record creation time; for an exact start_time bound "
+                "use filters."
+            ),
+            max_length=40,
+        ),
+    ] = None,
+    until: Annotated[
+        str | None,
+        Field(description="End of the time window, same forms as since.", max_length=40),
+    ] = None,
+    search: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Free text for trace, span, thread: matches anywhere in id, name, input, "
+                "output, metadata, tags, thread_id (spans: model, provider too). Expensive "
+                "on large projects; narrow with since first."
+            ),
+            max_length=500,
+        ),
+    ] = None,
     page: Annotated[
         int,
         Field(description="Page number (1-indexed).", ge=1, le=10_000),
@@ -286,7 +359,7 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project UUID for project-scoped lists (trace, thread). "
+                "Parent project UUID for project-scoped lists (trace, span, thread). "
                 "Pass this OR project_name."
             )
         ),
@@ -295,7 +368,7 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project name — alternative to project_id for trace/thread "
+                "Parent project name — alternative to project_id for trace/span/thread "
                 "lists, so you don't need to resolve the UUID first."
             ),
             max_length=200,
@@ -311,26 +384,35 @@ async def list_entities(
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
-    """List Opik entities with optional name filter and pagination.
+    """List Opik entities with optional filters and pagination.
 
     Output is a pipe-delimited table with id, name, and a few entity-specific
-    columns, plus a pagination footer when more pages exist. Use read() to
-    get full details on any specific item.
+    columns, plus a pagination footer when more pages exist. When filters
+    apply, the first line echoes what was applied. Use read() to get full
+    details on any specific item.
 
     Project-scoped types require their parent:
     - trace: project_id or project_name
+    - span: project_id or project_name (searches spans across the project)
     - thread: project_id or project_name
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
     Workspace-wide types (project, experiment, prompt, test_suite) accept
-    an optional `name` substring filter.
+    an optional `name` substring filter. trace, span, thread, experiment
+    accept an OQL `filters` string and a `sort`; trace, span, thread also
+    take a `since`/`until` window and free-text `search`.
     """
     if ctx is not None:
         await ctx.info(f"list.called entity_type={entity_type} page={page} size={size}")
     return await run_list(
         entity_type=entity_type,
         name=name,
+        filters=filters,
+        sort=sort,
+        since=since,
+        until=until,
+        search=search,
         page=page,
         size=size,
         project_id=project_id,
@@ -407,14 +489,21 @@ async def write(
     )
 
 
+SCHEMA_KEY_ENUM: list[str] = list(SCHEMA_KEYS)
+
+
 @mcp.tool(description=SCHEMA_TOOL_DESCRIPTION)
 @instrument_tool("schema", props_fn=_schema_props)
 async def schema(
     operation: Annotated[
         str,
         Field(
-            description="Operation whose schema to return.",
-            json_schema_extra={"enum": WRITE_OPERATION_ENUM},
+            description=(
+                "Write operation whose schema to return, or list.<entity> "
+                "(list.trace, list.span, list.thread, list.experiment) for the "
+                "filter and sort reference of the list tool."
+            ),
+            json_schema_extra={"enum": SCHEMA_KEY_ENUM},
         ),
     ],
     ctx: Context[ServerSession, None] | None = None,

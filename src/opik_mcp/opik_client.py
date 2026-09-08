@@ -127,6 +127,11 @@ class OpikListClient(Protocol):
         project_id: str | None = None,
         project_name: str | None = None,
         filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]: ...
@@ -136,6 +141,12 @@ class OpikListClient(Protocol):
         *,
         project_id: str | None = None,
         project_name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]: ...
@@ -143,9 +154,15 @@ class OpikListClient(Protocol):
     async def list_spans(
         self,
         *,
-        trace_id: str,
+        trace_id: str | None = None,
         project_id: str | None = None,
         project_name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 100,
     ) -> dict[str, Any]: ...
@@ -159,7 +176,17 @@ class OpikListClient(Protocol):
     ) -> dict[str, Any]: ...
 
     async def list_experiments(
-        self, *, name: str | None = None, page: int = 1, size: int = 10
+        self,
+        *,
+        name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
+        page: int = 1,
+        size: int = 10,
     ) -> dict[str, Any]: ...
 
     async def list_prompts(
@@ -209,6 +236,35 @@ _DEFAULT_TIMEOUT: Final = 30.0
 
 def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _search_params(
+    *,
+    filters: str | None,
+    sorting: str | None,
+    search: str | None,
+    from_time: str | None,
+    to_time: str | None,
+    truncate: bool | None,
+) -> dict[str, Any]:
+    """Query params shared by the searchable list endpoints (traces, spans,
+    threads, experiments). Only set values are sent: the backend treats an
+    empty ``filters=`` as malformed JSON and answers 400.
+
+    ``truncate`` is rendered as the lowercase literal the backend's boolean
+    query param parser expects (httpx would otherwise send ``True``)."""
+    params = _drop_none(
+        {
+            "filters": filters,
+            "sorting": sorting,
+            "search": search,
+            "from_time": from_time,
+            "to_time": to_time,
+        }
+    )
+    if truncate is not None:
+        params["truncate"] = "true" if truncate else "false"
+    return params
 
 
 class OpikClient:
@@ -349,15 +405,22 @@ class OpikClient:
         project_id: str | None = None,
         project_name: str | None = None,
         filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
         """``GET /v1/private/traces`` — requires ``project_id`` or ``project_name``.
 
         ``filters`` is the backend's JSON-encoded filter array (query param),
-        e.g. ``[{"field":"thread_id","operator":"=","value":"<id>"}]`` — used
-        by the thread read to pull a thread's messages. Forwarded only when set;
-        the ``list`` tool never passes it.
+        e.g. ``[{"field":"thread_id","operator":"=","value":"<id>"}]``; the
+        ``list`` tool compiles OQL into it and the thread read uses it to pull a
+        thread's messages. ``sorting`` is the JSON-encoded ``[{field,direction}]``
+        array, ``search`` a free-text term, ``from_time``/``to_time`` ISO-8601
+        instants. Each is forwarded only when set.
         """
         if project_id is None and project_name is None:
             raise ValueError("list_traces requires project_id or project_name")
@@ -366,8 +429,16 @@ class OpikClient:
             params["project_id"] = project_id
         if project_name is not None:
             params["project_name"] = project_name
-        if filters is not None:
-            params["filters"] = filters
+        params.update(
+            _search_params(
+                filters=filters,
+                sorting=sorting,
+                search=search,
+                from_time=from_time,
+                to_time=to_time,
+                truncate=truncate,
+            )
+        )
         return await self._get_json("/v1/private/traces", params=params, entity_hint="traces")
 
     async def get_trace(self, trace_id: str) -> dict[str, Any]:
@@ -383,6 +454,12 @@ class OpikClient:
         *,
         project_id: str | None = None,
         project_name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
@@ -390,7 +467,8 @@ class OpikClient:
 
         A thread groups traces by ``thread_id`` within one project, so listing
         requires ``project_id`` or ``project_name`` (like ``list_traces``).
-        Returns a Spring Page envelope ``{content, page, size, total}``.
+        Returns a Spring Page envelope ``{content, page, size, total}``. Search
+        params are the same as ``list_traces`` and forwarded only when set.
         """
         if project_id is None and project_name is None:
             raise ValueError("list_threads requires project_id or project_name")
@@ -399,6 +477,16 @@ class OpikClient:
             params["project_id"] = project_id
         if project_name is not None:
             params["project_name"] = project_name
+        params.update(
+            _search_params(
+                filters=filters,
+                sorting=sorting,
+                search=search,
+                from_time=from_time,
+                to_time=to_time,
+                truncate=truncate,
+            )
+        )
         return await self._get_json(
             "/v1/private/traces/threads",
             params=params,
@@ -437,31 +525,47 @@ class OpikClient:
     async def list_spans(
         self,
         *,
-        trace_id: str,
+        trace_id: str | None = None,
         project_id: str | None = None,
         project_name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 100,
     ) -> dict[str, Any]:
-        """``GET /v1/private/spans?trace_id=...&project_id=...`` — spans on one trace.
+        """``GET /v1/private/spans`` — spans of one trace, or across a project.
 
         opik-backend rejects ``GET /v1/private/spans`` with 400 if neither
         ``project_id`` nor ``project_name`` is supplied (the spans index is
-        sharded by project). Callers must thread one through; the resource
-        layer extracts ``project_id`` from the trace record it just fetched.
+        sharded by project). ``trace_id`` is optional: the trace read passes it
+        to inline one trace's spans, the ``list`` tool omits it to search spans
+        project-wide. Search params are the same as ``list_traces``.
         """
         if project_id is None and project_name is None:
             raise ValueError("list_spans requires project_id or project_name")
-        params: dict[str, Any] = {"trace_id": trace_id, "page": page, "size": size}
+        params: dict[str, Any] = {"page": page, "size": size}
+        if trace_id is not None:
+            params["trace_id"] = trace_id
         if project_id is not None:
             params["project_id"] = project_id
         if project_name is not None:
             params["project_name"] = project_name
-        return await self._get_json(
-            "/v1/private/spans",
-            params=params,
-            entity_hint=f"spans for trace {trace_id!r}",
+        params.update(
+            _search_params(
+                filters=filters,
+                sorting=sorting,
+                search=search,
+                from_time=from_time,
+                to_time=to_time,
+                truncate=truncate,
+            )
         )
+        hint = f"spans for trace {trace_id!r}" if trace_id is not None else "spans"
+        return await self._get_json("/v1/private/spans", params=params, entity_hint=hint)
 
     async def get_span(self, span_id: str) -> dict[str, Any]:
         """``GET /v1/private/spans/{id}`` — single span."""
@@ -522,13 +626,35 @@ class OpikClient:
         self,
         *,
         name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        from_time: str | None = None,
+        to_time: str | None = None,
+        truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
-        """``GET /v1/private/experiments`` — Spring Page envelope."""
+        """``GET /v1/private/experiments`` — Spring Page envelope.
+
+        ``name`` is the backend's case-insensitive partial match. The search
+        params are accepted for signature parity with the other searchable
+        lists and forwarded only when set; the ``list`` tool never sends a time
+        window or free-text search for experiments (the backend has neither).
+        """
         params: dict[str, Any] = {"page": page, "size": size}
         if name is not None:
             params["name"] = name
+        params.update(
+            _search_params(
+                filters=filters,
+                sorting=sorting,
+                search=search,
+                from_time=from_time,
+                to_time=to_time,
+                truncate=truncate,
+            )
+        )
         return await self._get_json(
             "/v1/private/experiments",
             params=params,
@@ -828,10 +954,20 @@ def opik_rest_base(settings: Settings) -> str | None:
     return None
 
 
-def make_opik_client(settings: Settings) -> OpikClient:
-    """Construct an ``OpikClient`` bound to the configured workspace."""
+def make_opik_client(settings: Settings, *, timeout: float | None = None) -> OpikClient:
+    """Construct an ``OpikClient`` bound to the configured workspace.
+
+    ``timeout`` overrides the default per-request timeout; the ``list`` tool
+    passes a longer one for free-text ``search``, which the backend can take
+    over 30 s to answer on a cold cache.
+    """
     base_url, api_key, workspace = resolve_opik_config(settings)
-    return OpikClient(base_url=base_url, api_key=api_key, workspace=workspace)
+    return OpikClient(
+        base_url=base_url,
+        api_key=api_key,
+        workspace=workspace,
+        timeout=_DEFAULT_TIMEOUT if timeout is None else timeout,
+    )
 
 
 def _score_body(score: FeedbackScore) -> dict[str, Any]:

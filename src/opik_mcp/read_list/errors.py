@@ -10,12 +10,13 @@ now chains through (``raise ToolError(str(err)) from err``). It owns the
 ``"validation"`` / 400 ClassVars so ``analytics/errors.bucket_exception``
 can route the bucket via ``getattr(type(real), "error_kind")``.
 
-We deliberately keep this as a single coarse class rather than per-failure-
-mode subclasses: the validation surface is small and stable, every case
-answers the same dashboard question ("the caller passed something the tool
-can't handle"), and BI's ``cause_type`` already carries the wrapper class
-for triage. Future divergence (e.g. a distinct ``entity_not_listable``
-bucket) can split the class then; YAGNI today.
+The entity-argument cases (unknown entity_type, missing parent id) stay on
+this one coarse class. The ``list`` search surface (OPIK-8283) subclasses it
+per failure kind — ``OQLSyntaxError`` … ``OQLBadValueError`` in ``oql.py``,
+``SortError`` in ``sorting.py``, ``WindowError`` in ``window.py`` — because
+the analytics wrapper records only exception class names on failure, and
+"which kind of filter mistake do agents make" is a question the dashboards
+need answered without ever seeing the string that failed.
 """
 
 from __future__ import annotations

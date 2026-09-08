@@ -222,13 +222,6 @@ async def test_list_rejects_unknown_entity_type() -> None:
         await run_list("widget", client=FakeOpikClient())
 
 
-@pytest.mark.anyio
-async def test_list_rejects_span_singleton_entity() -> None:
-    """``span`` has no list_fn — it's id-only."""
-    with pytest.raises(ToolError, match="Cannot list 'span'"):
-        await run_list("span", client=FakeOpikClient())
-
-
 # --- size / page clamping ------------------------------------------------ #
 
 
