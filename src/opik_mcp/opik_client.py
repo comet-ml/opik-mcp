@@ -212,6 +212,16 @@ class OpikReadClient(OpikListClient, Protocol):
         truncate: bool = False,
     ) -> dict[str, Any]: ...
 
+    async def get_agent_insights_issue(
+        self,
+        issue_id: str,
+        /,
+        *,
+        project_id: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict[str, Any]: ...
+
 
 # --- client --------------------------------------------------------------- #
 
@@ -648,6 +658,29 @@ class OpikClient:
                 }
             ),
             entity_hint="agent insights issues",
+        )
+
+    async def get_agent_insights_issue(
+        self,
+        issue_id: str,
+        *,
+        project_id: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/agent-insights/issues/{id}`` — one issue + per-day details.
+
+        An issue id is unique, but the backend still requires ``project_id`` as
+        a query parameter (it scopes the tenancy check). ``details`` is one row
+        per report day inside the window, ascending; each row's free-form
+        ``metadata`` is where the Diagnostics job puts ``example_trace_ids``.
+        """
+        return await self._get_json(
+            f"/v1/private/agent-insights/issues/{issue_id}",
+            params=_drop_none(
+                {"project_id": project_id, "from_date": from_date, "to_date": to_date}
+            ),
+            entity_hint=f"agent insights issue {issue_id!r}",
         )
 
     # -- internals --

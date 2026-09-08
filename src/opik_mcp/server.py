@@ -209,17 +209,42 @@ async def read(
         str | None,
         Field(
             description=(
-                "Project UUID. Required for entity_type='thread' unless the id is "
-                "a full thread URL/URI (which carries the project). Ignored for "
-                "globally-unique entities like trace/span."
+                "Project UUID. Required for entity_type='thread' and "
+                "'agent_insights_issue' unless the id is a full Opik URL/URI (which "
+                "carries the project). Ignored for globally-unique entities like "
+                "trace/span."
             ),
         ),
     ] = None,
     project_name: Annotated[
         str | None,
         Field(
-            description="Project name — alternative to project_id for thread reads.",
+            description=(
+                "Project name — alternative to project_id for project-scoped reads "
+                "(thread, agent_insights_issue)."
+            ),
             max_length=200,
+        ),
+    ] = None,
+    from_date: Annotated[
+        str | None,
+        Field(
+            description=(
+                "agent_insights_issue only: start of the window (ISO date, "
+                "YYYY-MM-DD) for the per-day details. Omit both dates for all-time, "
+                "matching the Diagnostics page. Ignored for other entity types."
+            ),
+            pattern=r"^\d{4}-\d{2}-\d{2}$",
+        ),
+    ] = None,
+    to_date: Annotated[
+        str | None,
+        Field(
+            description=(
+                "agent_insights_issue only: end of the window (ISO date, YYYY-MM-DD), "
+                "inclusive. Defaults to today. Ignored for other entity types."
+            ),
+            pattern=r"^\d{4}-\d{2}-\d{2}$",
         ),
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
@@ -238,6 +263,10 @@ async def read(
     - thread: returns {thread, messages, messagesTruncated} — each message is one
       turn's trace input/output + a trace_id to read('trace', id). Needs project
       scope: pass a thread link/URI, or project_id/project_name.
+    - agent_insights_issue: returns {issue, example_trace_ids, details} — the
+      Diagnostics issue with cause and suggested fix, the deduped ids of traces
+      that exhibit it (open one with read('trace', id)), and the per-day
+      breakdown. Needs project scope like thread.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
     Output is a one-line `[read: …]` header (entity_type, id, compression
@@ -251,6 +280,8 @@ async def read(
         max_tokens=max_tokens,
         project_id=project_id,
         project_name=project_name,
+        from_date=from_date,
+        to_date=to_date,
     )
 
 

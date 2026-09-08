@@ -210,6 +210,42 @@ async def test_list_agent_insights_issues_forwards_filters_only_when_set() -> No
 
 
 @pytest.mark.anyio
+async def test_get_agent_insights_issue_hits_singleton_path_with_project() -> None:
+    payload = {"id": "is-1", "name": "Tool loop", "details": []}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/issues/is-1").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_agent_insights_issue("is-1", project_id="p-1")
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1"}
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_issue_forwards_window_when_set() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/issues/is-1").mock(
+            return_value=httpx.Response(200, json={"id": "is-1", "details": []}),
+        )
+        await _client().get_agent_insights_issue(
+            "is-1", project_id="p-1", from_date="2026-09-01", to_date="2026-09-08"
+        )
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1", "from_date": "2026-09-01", "to_date": "2026-09-08"}
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_issue_maps_404_to_not_found() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/agent-insights/issues/is-x").mock(
+            return_value=httpx.Response(404, json={"message": "nope"}),
+        )
+        with pytest.raises(OpikNotFoundError, match="is-x"):
+            await _client().get_agent_insights_issue("is-x", project_id="p-1")
+
+
+@pytest.mark.anyio
 async def test_list_agent_insights_issues_maps_400_to_validation_error() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/agent-insights/issues").mock(

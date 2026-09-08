@@ -227,18 +227,30 @@ lifecycle (read → annotate → curate → author → iterate).
 
 One tool for any "show me X" question. Takes an `entity_type` plus an `id`
 (UUID or, for nameable types, a name) or a full `opik://` URI. Composite reads
-(`trace`, `prompt`) inline their children so a single call returns the full
-picture.
+(`trace`, `prompt`, `thread`, `agent_insights_issue`) inline their children so
+a single call returns the full picture.
 
 **Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
-`prompt`. Name-based lookup is available for `project`, `experiment`, `prompt`,
-`test_suite` (slower — two API calls — and may return multiple matches).
+`prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
+`project`, `experiment`, `prompt`, `test_suite` (slower — two API calls — and
+may return multiple matches). `thread` and `agent_insights_issue` are
+project-scoped: pass `project_id` or `project_name`, or a link/URI that carries
+the project.
 
 ```python
 read(entity_type="trace", id="7f2e3c8a-…")
 read(entity_type="project", id="demo")          # name lookup
 read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
+read(entity_type="agent_insights_issue", id="<issue-uuid>", project_id="<project-uuid>")
 ```
+
+An `agent_insights_issue` read returns `{issue, example_trace_ids, details}`:
+the Diagnostics issue record (name, description, cause, suggested fix,
+severity, status), the deduplicated ids of the traces that exhibit it (the
+same sample the Diagnostics page shows — open one with `read("trace", id)`),
+and the per-day breakdown. Trace bodies are not inlined, so the read stays one
+backend call. `from_date` / `to_date` narrow the per-day rows; the default is
+all-time.
 
 ### `list`
 

@@ -1,8 +1,9 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, span, test_suite, thread, trace.",
+      "description": "One of: agent_insights_issue, experiment, project, prompt, span, test_suite, thread, trace.",
       "enum": [
+        "agent_insights_issue",
         "experiment",
         "project",
         "prompt",
@@ -13,6 +14,20 @@
       ],
       "title": "Entity Type",
       "type": "string"
+    },
+    "from_date": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: start of the window (ISO date, YYYY-MM-DD) for the per-day details. Omit both dates for all-time, matching the Diagnostics page. Ignored for other entity types.",
+      "title": "From Date"
     },
     "id": {
       "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik thread link. When a URI/link is passed, entity_type (and, for threads, the project) is overridden from it.",
@@ -46,7 +61,7 @@
         }
       ],
       "default": null,
-      "description": "Project UUID. Required for entity_type='thread' unless the id is a full thread URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
+      "description": "Project UUID. Required for entity_type='thread' and 'agent_insights_issue' unless the id is a full Opik URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
       "title": "Project Id"
     },
     "project_name": {
@@ -60,8 +75,22 @@
         }
       ],
       "default": null,
-      "description": "Project name \u2014 alternative to project_id for thread reads.",
+      "description": "Project name \u2014 alternative to project_id for project-scoped reads (thread, agent_insights_issue).",
       "title": "Project Name"
+    },
+    "to_date": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: end of the window (ISO date, YYYY-MM-DD), inclusive. Defaults to today. Ignored for other entity types.",
+      "title": "To Date"
     }
   },
   "required": [

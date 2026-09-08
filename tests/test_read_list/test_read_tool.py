@@ -39,6 +39,8 @@ class FakeOpikClient:
     prompt_versions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     threads_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     thread_messages: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    issues_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    last_issue_kwargs: dict[str, Any] = field(default_factory=dict)
     fail_list_traces: bool = False
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
@@ -157,6 +159,23 @@ class FakeOpikClient:
 
     async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
+
+    async def get_agent_insights_issue(
+        self,
+        issue_id: str,
+        *,
+        project_id: str,
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> dict[str, Any]:
+        self.last_issue_kwargs = {
+            "project_id": project_id,
+            "from_date": from_date,
+            "to_date": to_date,
+        }
+        if issue_id not in self.issues_by_id:
+            raise OpikNotFoundError(f"agent insights issue {issue_id!r} not found (404).")
+        return self.issues_by_id[issue_id]
 
 
 UUID = "11111111-2222-3333-4444-555555555555"
@@ -368,6 +387,197 @@ async def test_read_surfaces_not_found_with_hint() -> None:
     msg = str(exc.value)
     assert "Not found" in msg
     assert UUID in msg
+
+
+# --- agent_insights_issue (Diagnostics) ---------------------------------- #
+
+ISSUE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+_ISSUE_DETAIL = {
+    "id": ISSUE,
+    "name": "Tool call loop on weather lookup",
+    "description": "The agent called get_weather 12 times in one turn.",
+    "cause": "Retries on API timeout have no cap.",
+    "suggested_fix": "Cap retries at 2 and surface the timeout.",
+    "status": "open",
+    "severity": "high",
+    "traces_query": "tool_name = 'get_weather'",
+    "details": [
+        {
+            "report_day": "2026-09-06",
+            "count": 7,
+            "total_count": 120,
+            "users_impacted": 3,
+            "total_users": 40,
+            "metadata": {"example_trace_ids": ["tr-a", "tr-b"], "confidence": 0.9},
+        },
+        {
+            "report_day": "2026-09-07",
+            "count": 5,
+            "total_count": 110,
+            "users_impacted": 2,
+            "total_users": 38,
+            "metadata": {"example_trace_ids": ["tr-b", "tr-c"]},
+        },
+    ],
+}
+
+
+def _issue_fake(detail: dict[str, Any] | None = None) -> FakeOpikClient:
+    return FakeOpikClient(issues_by_id={ISSUE: detail if detail is not None else _ISSUE_DETAIL})
+
+
+def _payload(out: str) -> dict[str, Any]:
+    """Strip the ``[read: …]`` header line and parse the JSON body."""
+    body = json.loads(out.split("\n", 1)[1])
+    assert isinstance(body, dict)
+    return body
+
+
+@pytest.mark.anyio
+async def test_read_issue_returns_issue_example_trace_ids_and_details() -> None:
+    out = await run_read("agent_insights_issue", ISSUE, project_id="p-9", client=_issue_fake())
+    assert f"[read: agent_insights_issue {ISSUE}" in out
+    body = _payload(out)
+    assert set(body) == {"issue", "example_trace_ids", "details"}
+    # The issue record is the backend's, minus the per-day rows.
+    assert body["issue"]["name"] == "Tool call loop on weather lookup"
+    assert body["issue"]["suggested_fix"] == "Cap retries at 2 and surface the timeout."
+    assert "details" not in body["issue"]
+    # Deduped across days, first-seen order over ascending report days.
+    assert body["example_trace_ids"] == ["tr-a", "tr-b", "tr-c"]
+    # Per-day rows pass through unchanged.
+    assert body["details"] == _ISSUE_DETAIL["details"]
+    assert _issue_fake().last_issue_kwargs == {}
+
+
+@pytest.mark.anyio
+async def test_read_issue_passes_project_and_window_to_client() -> None:
+    fake = _issue_fake()
+    await run_read(
+        "agent_insights_issue",
+        ISSUE,
+        project_id="p-9",
+        from_date="2026-09-01",
+        to_date="2026-09-08",
+        client=fake,
+    )
+    assert fake.last_issue_kwargs == {
+        "project_id": "p-9",
+        "from_date": "2026-09-01",
+        "to_date": "2026-09-08",
+    }
+
+
+@pytest.mark.anyio
+async def test_read_issue_window_omitted_by_default() -> None:
+    fake = _issue_fake()
+    await run_read("agent_insights_issue", ISSUE, project_id="p-9", client=fake)
+    assert fake.last_issue_kwargs["from_date"] is None
+    assert fake.last_issue_kwargs["to_date"] is None
+
+
+@pytest.mark.anyio
+async def test_read_issue_tolerates_rows_without_example_ids() -> None:
+    detail = {
+        **_ISSUE_DETAIL,
+        "details": [
+            {"report_day": "2026-09-01", "count": 1},  # no metadata at all
+            {"report_day": "2026-09-02", "count": 1, "metadata": "corrupt"},  # not an object
+            {"report_day": "2026-09-03", "count": 1, "metadata": {"confidence": 0.5}},
+            {"report_day": "2026-09-04", "count": 1, "metadata": {"example_trace_ids": ["tr-z"]}},
+        ],
+    }
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", client=_issue_fake(detail)
+    )
+    assert _payload(out)["example_trace_ids"] == ["tr-z"]
+
+
+@pytest.mark.anyio
+async def test_read_issue_with_no_details_has_empty_example_ids() -> None:
+    detail = {**_ISSUE_DETAIL, "details": []}
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", client=_issue_fake(detail)
+    )
+    body = _payload(out)
+    assert body["example_trace_ids"] == []
+    assert body["details"] == []
+
+
+@pytest.mark.anyio
+async def test_read_issue_requires_project_scope() -> None:
+    with pytest.raises(ToolError) as exc:
+        await run_read("agent_insights_issue", ISSUE, client=_issue_fake())
+    msg = str(exc.value)
+    assert "read('agent_insights_issue') requires project scope" in msg
+    assert "project_name" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_read_issue_not_found_names_entity_and_id() -> None:
+    with pytest.raises(ToolError) as exc:
+        await run_read("agent_insights_issue", "is-missing", project_id="p-9", client=_issue_fake())
+    msg = str(exc.value)
+    assert "agent_insights_issue" in msg
+    assert "is-missing" in msg
+    assert "not found" in msg
+
+
+@pytest.mark.anyio
+async def test_read_issue_skeleton_keeps_every_example_trace_id() -> None:
+    """An all-time read can carry hundreds of per-day rows. When it blows the
+    budget, the trace ids — the reason for the read — must survive; the
+    per-day rows are what gets dropped."""
+    rows = [
+        {
+            "report_day": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}",
+            "count": i,
+            "metadata": {
+                "example_trace_ids": [f"tr-{i}"],
+                "confidence_justification": "x" * 2_000,
+            },
+        }
+        for i in range(120)
+    ]
+    detail = {**_ISSUE_DETAIL, "details": rows}
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=500, client=_issue_fake(detail)
+    )
+    assert "compression=SKELETON" in out
+    body = _payload(out)
+    assert body["issue"]["id"] == ISSUE
+    assert body["issue"]["name"] == "Tool call loop on weather lookup"
+    assert body["issue"]["severity"] == "high"
+    assert body["issue"]["status"] == "open"
+    assert body["example_trace_ids"] == [f"tr-{i}" for i in range(120)]
+    assert "details" not in body
+    assert "read('trace'" in body["note"]
+
+
+@pytest.mark.anyio
+async def test_read_issue_medium_compression_keeps_trace_ids_too() -> None:
+    """Between FULL and SKELETON the generic string truncation runs; short ids
+    are untouched, so the list stays intact."""
+    rows = [
+        {
+            "report_day": f"2026-01-{1 + i:02d}",
+            "count": i,
+            "metadata": {"example_trace_ids": [f"tr-{i}"], "confidence_justification": "y" * 800},
+        }
+        for i in range(20)
+    ]
+    detail = {**_ISSUE_DETAIL, "details": rows}
+    out = await run_read(
+        "agent_insights_issue",
+        ISSUE,
+        project_id="p-9",
+        max_tokens=1_000,
+        client=_issue_fake(detail),
+    )
+    assert "compression=MEDIUM" in out
+    assert _payload(out)["example_trace_ids"] == [f"tr-{i}" for i in range(20)]
 
 
 # --- compression budget --------------------------------------------------- #

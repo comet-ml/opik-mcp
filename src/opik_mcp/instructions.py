@@ -50,7 +50,9 @@ project's threads. For "what is broken in production", \
 list('agent_insights_issue', project_name=…) returns the project's Diagnostics \
 (Agent Insights) issues — recurring failures already grouped and ranked, open \
 ones by default, counts all-time unless from_date/to_date narrow them — instead \
-of ranking raw traces yourself.
+of ranking raw traces yourself; read('agent_insights_issue', id, project_id=…) \
+adds the cause, the suggested fix and example_trace_ids to open with \
+read('trace', …).
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \

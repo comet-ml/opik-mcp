@@ -59,10 +59,11 @@ def test_thread_needs_project_and_is_id_only() -> None:
     assert handler.search_by_name_fn is None
 
 
-def test_needs_project_is_thread_only() -> None:
-    """Only thread declares needs_project — every other fetcher is (client, id)."""
+def test_needs_project_is_declared_by_project_scoped_reads_only() -> None:
+    """thread and agent_insights_issue need project scope on read — every other
+    fetcher is (client, id)."""
     for entity_type, handler in ENTITY_REGISTRY.items():
-        assert handler.needs_project is (entity_type == "thread")
+        assert handler.needs_project is (entity_type in {"thread", "agent_insights_issue"})
 
 
 def test_optional_kwargs_never_overlap_required_ones() -> None:
@@ -86,7 +87,11 @@ def test_only_agent_insights_issue_declares_optional_kwargs() -> None:
 def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
     handler = ENTITY_REGISTRY["agent_insights_issue"]
     assert "agent_insights_issue" in LISTABLE_TYPES
+    assert "agent_insights_issue" in READABLE_TYPES
     assert handler.list_required_kwargs == ("project_id",)
     assert set(handler.list_optional_kwargs) == {"status", "from_date", "to_date"}
+    assert set(handler.read_optional_kwargs) == {"from_date", "to_date"}
+    assert handler.needs_project is True
     assert handler.id_only is True
     assert handler.search_by_name_fn is None
+    assert handler.compress_fn is not None

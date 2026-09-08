@@ -27,7 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.opik_client import OpikListClient, OpikReadClient, OpikValidationError
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
     TOKEN_SKELETON_THRESHOLD,
@@ -88,13 +88,14 @@ class EntityHandler:
     saves one round-trip on every non-UUID input for traces/spans/etc.
     """
     needs_project: bool = False
-    """True if ``fetch_fn`` needs project scope (thread only).
+    """True if ``fetch_fn`` needs project scope (thread, agent_insights_issue).
 
-    A thread id is unique only within a project, so ``read`` must pass
-    ``project_id`` / ``project_name`` into the fetcher. The read tool branches
-    on this flag: when set it calls ``fetch_fn(client, id, project_id=…,
-    project_name=…)`` and requires one of them; otherwise it calls
-    ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
+    A thread id is unique only within a project, and the agent-insights
+    endpoints require ``project_id`` as a query parameter, so ``read`` must
+    pass ``project_id`` / ``project_name`` into the fetcher. The read tool
+    branches on this flag: when set it calls ``fetch_fn(client, id,
+    project_id=…, project_name=…)`` and requires one of them; otherwise it
+    calls ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
     """
 
 
@@ -258,6 +259,70 @@ async def _fetch_thread(
         "thread": thread,
         "messages": _thread_messages(traces),
         "messagesTruncated": truncated,
+    }
+
+
+def _example_trace_ids(details: list[dict[str, Any]]) -> list[str]:
+    """Deduplicated union of each per-day row's ``metadata.example_trace_ids``.
+
+    First-seen order over the rows as the backend returns them (ascending
+    report day), which is what the Diagnostics page's affected-traces sample
+    shows. ``metadata`` is free-form JSON written by the Diagnostics job — a
+    row without it, or with a non-object value, contributes nothing rather
+    than failing the read.
+    """
+    seen: dict[str, None] = {}
+    for row in details:
+        metadata = row.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        ids = metadata.get("example_trace_ids")
+        if not isinstance(ids, list):
+            continue
+        for trace_id in ids:
+            if isinstance(trace_id, str) and trace_id:
+                seen.setdefault(trace_id, None)
+    return list(seen)
+
+
+async def _fetch_agent_insights_issue(
+    client: OpikReadClient,
+    entity_id: str,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
+    from_date: str | None = None,
+    to_date: str | None = None,
+) -> dict[str, Any]:
+    """Diagnostics issue + deduped example trace ids + per-day breakdown.
+
+    One backend call. Returns ``{issue, example_trace_ids, details}``: the
+    issue record without its ``details`` array, the trace ids the agent can
+    open with ``read('trace', id)``, and the per-day rows unchanged. Trace
+    bodies are deliberately not inlined — that would turn one read into N+1
+    calls and blow the default budget on any issue with several examples.
+    """
+    if project_id is None:
+        # The agent-insights endpoints take project_id only. Name resolution
+        # is the next slice; until then say so instead of sending nothing.
+        raise OpikValidationError(
+            "agent_insights_issue needs project_id (a UUID) for now — resolve the "
+            "project name with list('project', name=…) first."
+        )
+    body = await client.get_agent_insights_issue(
+        entity_id, project_id=project_id, from_date=from_date, to_date=to_date
+    )
+    details_raw = body.get("details")
+    details = (
+        [row for row in details_raw if isinstance(row, dict)]
+        if isinstance(details_raw, list)
+        else []
+    )
+    issue = {key: value for key, value in body.items() if key != "details"}
+    return {
+        "issue": issue,
+        "example_trace_ids": _example_trace_ids(details),
+        "details": details,
     }
 
 
@@ -427,6 +492,43 @@ def _compress_thread(data: dict[str, Any], max_tokens: int | None) -> tuple[str,
     return compact_json(skeleton), CompressionTier.SKELETON
 
 
+def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
+    """Issue+details: FULL → MEDIUM (truncated strings) → SKELETON (ids only).
+
+    An all-time read carries one row per report day, each with prose in its
+    metadata. SKELETON drops the rows but keeps every example trace id — the
+    ids are the reason for the read, and the generic pipeline would truncate
+    exactly the field we came for.
+    """
+    full_json = compact_json(data)
+    full_tokens = estimate_tokens(full_json)
+
+    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
+    if full_tokens <= budget:
+        return full_json, CompressionTier.FULL
+
+    if full_tokens < TOKEN_SKELETON_THRESHOLD:
+        truncated = truncate_strings(data, ".agent_insights_issue")
+        return compact_json(truncated), CompressionTier.MEDIUM
+
+    issue = data.get("issue") or {}
+    skeleton = {
+        "issue": {
+            "id": issue.get("id"),
+            "name": issue.get("name"),
+            "severity": issue.get("severity"),
+            "status": issue.get("status"),
+        },
+        "example_trace_ids": data.get("example_trace_ids") or [],
+        "note": (
+            "SKELETON compression: cause, suggested fix and per-day details "
+            "omitted. Use read('trace', trace_id) on an example, or re-read with "
+            "from_date/to_date to narrow the window."
+        ),
+    }
+    return compact_json(skeleton), CompressionTier.SKELETON
+
+
 # --- registry ------------------------------------------------------------- #
 
 
@@ -530,7 +632,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
     ),
     "agent_insights_issue": EntityHandler(
         entity_type="agent_insights_issue",
-        fetch_fn=_unsupported_fetch,
+        fetch_fn=_fetch_agent_insights_issue,
         list_fn=_list_agent_insights_issues,
         list_extra_fields=(
             "severity",
@@ -541,15 +643,22 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         ),
         list_required_kwargs=("project_id",),
         list_optional_kwargs=("status", "from_date", "to_date"),
+        read_optional_kwargs=("from_date", "to_date"),
+        compress_fn=_compress_issue,
         id_only=True,
+        needs_project=True,
         description=(
             "Diagnostics issue (Agent Insights): a recurring failure the "
             "Diagnostics job grouped across a project's traces, with severity, "
             "status, occurrence counts, cause and suggested fix. "
             "list('agent_insights_issue', project_id=… | project_name=…) returns "
             "open issues ranked as the Diagnostics page ranks them (most recently "
-            "seen first); pass status='resolved' or 'closed' for the rest. Counts "
-            "are all-time unless from_date/to_date narrow the window."
+            "seen first); pass status='resolved' or 'closed' for the rest. "
+            "read('agent_insights_issue', id, project_id=…) returns {issue, "
+            "example_trace_ids, details}: the record with cause and suggested fix, "
+            "the deduped ids of traces that exhibit it (open one with "
+            "read('trace', id)), and the per-day breakdown. Counts are all-time "
+            "unless from_date/to_date narrow the window."
         ),
     ),
 }
