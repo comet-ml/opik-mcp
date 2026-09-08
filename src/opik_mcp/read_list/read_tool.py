@@ -37,7 +37,7 @@ from opik_mcp.read_list.registry import (
     EntityHandler,
     compress_for,
 )
-from opik_mcp.read_list.uri import InvalidURI, looks_like_thread_url, looks_like_uri
+from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
 
 logger = logging.getLogger("opik_mcp.read_list.read")
@@ -122,11 +122,12 @@ async def run_read(
     branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
     the host LLM gets the structured guidance.
     """
-    # Accept ``opik://…`` URIs and pasted web thread links as id input. When the
-    # URI encodes its own entity_type we trust it and override the explicit
-    # argument — that way the agent can paste a URI into either slot. A parsed
-    # thread URI/link also carries the project, which overrides the explicit arg.
-    if looks_like_uri(id) or looks_like_thread_url(id):
+    # Accept ``opik://…`` URIs and pasted web links (thread panel, Diagnostics
+    # page) as id input. When the URI encodes its own entity_type we trust it
+    # and override the explicit argument — that way the agent can paste a URI
+    # into either slot. A parsed project-scoped URI/link also carries the
+    # project, which overrides the explicit arg.
+    if looks_like_uri(id) or looks_like_opik_link(id):
         try:
             parsed = parse_uri(id)
         except InvalidURI as e:

@@ -51,7 +51,7 @@ from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
-from opik_mcp.read_list.uri import looks_like_thread_url
+from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
     read_skill_tool_description,
@@ -88,7 +88,7 @@ def _looks_like_uuid(s: str) -> bool:
 
 def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     raw_id = str(kwargs.get("id", ""))
-    if raw_id.startswith("opik://") or looks_like_thread_url(raw_id):
+    if raw_id.startswith("opik://") or looks_like_opik_link(raw_id):
         id_kind = "uri"
     elif _looks_like_uuid(raw_id):
         id_kind = "uuid"
@@ -184,9 +184,10 @@ async def read(
         Field(
             description=(
                 "UUID, entity name (for nameable types), full opik:// URI "
-                "(e.g. opik://traces/<uuid>), or a pasted Opik thread link. When "
-                "a URI/link is passed, entity_type (and, for threads, the project) "
-                "is overridden from it."
+                "(e.g. opik://traces/<uuid>), or a pasted Opik link — a thread "
+                "link or a Diagnostics page link (…/projects/<pid>/diagnostics"
+                "?issue=<id>). When a URI/link is passed, entity_type (and, for "
+                "project-scoped entities, the project) is overridden from it."
             ),
             min_length=1,
             max_length=2048,

@@ -600,6 +600,37 @@ async def test_read_issue_project_id_wins_over_name_without_lookup() -> None:
 
 
 @pytest.mark.anyio
+async def test_read_issue_via_pasted_diagnostics_link() -> None:
+    """The link carries the project, so no scope argument is needed, and it
+    overrides whatever entity_type the agent guessed."""
+    fake = _issue_fake()
+    url = f"https://www.comet.com/opik/ws/projects/p-link/diagnostics?issue={ISSUE}"
+    out = await run_read("trace", url, client=fake)
+    assert f"[read: agent_insights_issue {ISSUE}" in out
+    assert fake.last_issue_kwargs["project_id"] == "p-link"
+    assert fake.project_lookups == 0
+
+
+@pytest.mark.anyio
+async def test_read_issue_link_project_overrides_explicit_name() -> None:
+    fake = _issue_fake()
+    url = f"https://www.comet.com/opik/ws/projects/p-link/diagnostics?issue={ISSUE}"
+    await run_read("agent_insights_issue", url, project_name="ignored", client=fake)
+    assert fake.last_issue_kwargs["project_id"] == "p-link"
+    assert fake.project_lookups == 0
+
+
+@pytest.mark.anyio
+async def test_read_issue_via_canonical_uri() -> None:
+    fake = _issue_fake()
+    out = await run_read(
+        "agent_insights_issue", f"opik://projects/p-uri/agent-insights-issues/{ISSUE}", client=fake
+    )
+    assert f"[read: agent_insights_issue {ISSUE}" in out
+    assert fake.last_issue_kwargs["project_id"] == "p-uri"
+
+
+@pytest.mark.anyio
 async def test_read_issue_medium_compression_keeps_trace_ids_too() -> None:
     """Between FULL and SKELETON the generic string truncation runs; short ids
     are untouched, so the list stays intact."""

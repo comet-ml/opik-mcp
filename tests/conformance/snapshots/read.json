@@ -30,7 +30,7 @@
       "title": "From Date"
     },
     "id": {
-      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik thread link. When a URI/link is passed, entity_type (and, for threads, the project) is overridden from it.",
+      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik link \u2014 a thread link or a Diagnostics page link (\u2026/projects/<pid>/diagnostics?issue=<id>). When a URI/link is passed, entity_type (and, for project-scoped entities, the project) is overridden from it.",
       "maxLength": 2048,
       "minLength": 1,
       "title": "Id",

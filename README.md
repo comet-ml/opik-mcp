@@ -242,7 +242,12 @@ read(entity_type="trace", id="7f2e3c8a-…")
 read(entity_type="project", id="demo")          # name lookup
 read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
 read(entity_type="agent_insights_issue", id="<issue-uuid>", project_id="<project-uuid>")
+read(entity_type="agent_insights_issue", id="https://www.comet.com/opik/<ws>/projects/<pid>/diagnostics?issue=<id>")
 ```
+
+A link copied from the Opik UI works as the `id`: a thread link or a
+Diagnostics page link carries the project, so no `project_id` is needed and
+the entity type is taken from the link.
 
 An `agent_insights_issue` read returns `{issue, example_trace_ids, details}`:
 the Diagnostics issue record (name, description, cause, suggested fix,
