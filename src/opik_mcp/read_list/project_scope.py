@@ -16,12 +16,24 @@ listed back so the agent retries with ``project_id``; none is a clear error.
 
 from __future__ import annotations
 
+import difflib
 import hashlib
+import logging
 import time
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient
+import httpx
+
+from opik_mcp.opik_client import (
+    OpikAuthError,
+    OpikListClient,
+    OpikNotFoundError,
+    OpikServerError,
+    OpikValidationError,
+)
 from opik_mcp.read_list.errors import EntityArgValidationError
+
+logger = logging.getLogger("opik_mcp.read_list.project_scope")
 
 # Enough to see every exact match in any realistic workspace while keeping
 # the lookup a single page. The substring search may return more than this
@@ -78,6 +90,46 @@ def _cache_put(key: _CacheKey, project_id: str) -> None:
     _cache[key] = (project_id, time.monotonic() + _CACHE_TTL_SECONDS)
 
 
+async def project_rows(client: OpikListClient, *, name: str | None = None) -> list[dict[str, Any]]:
+    """One page of projects for the side lookups (did-you-mean, last-trace hint).
+
+    ``name`` is the backend's substring filter, so the caller still matches
+    the whole name. Failures are logged and yield ``[]``: these lookups
+    decorate an answer the agent already has and must never replace it with
+    an error.
+    """
+    try:
+        body = (
+            await client.list_projects(name=name, size=_LOOKUP_PAGE_SIZE)
+            if name
+            else await client.list_projects(size=_LOOKUP_PAGE_SIZE)
+        )
+    except (
+        OpikAuthError,
+        OpikNotFoundError,
+        OpikValidationError,
+        OpikServerError,
+        httpx.HTTPError,
+    ):
+        logger.debug("project lookup for a hint failed; skipping the hint", exc_info=True)
+        return []
+    return [p for p in body.get("content") or [] if isinstance(p, dict)]
+
+
+async def unknown_project_message(client: OpikListClient, project_name: str) -> str:
+    """One extra call when a project name resolves to nothing: the names that
+    do exist, and the closest one. A typo is the common case, and every
+    project-scoped entity answers it with the same words."""
+    names = [p["name"] for p in await project_rows(client) if isinstance(p.get("name"), str)]
+    message = f"Project {project_name!r} not found."
+    close = difflib.get_close_matches(project_name, names, n=1, cutoff=0.6)
+    if close:
+        message += f" Did you mean {close[0]!r}?"
+    if names:
+        message += f" Projects: {', '.join(names)}."
+    return message
+
+
 def reset_project_cache_for_tests() -> None:
     """Drop every cached project id. Test-only: fakes carry no credential, so
     they all share one key and one test's resolution would satisfy the next."""
@@ -123,11 +175,7 @@ async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
     if len(matches) == 1:
         return str(matches[0]["id"])
     if not matches:
-        raise EntityArgValidationError(
-            f"No project named {project_name!r} in this workspace. Check the "
-            f"spelling (the whole name must match), or find it with "
-            f"list('project', name={project_name!r}) and pass its project_id."
-        )
+        raise EntityArgValidationError(await unknown_project_message(client, project_name))
     lines = [
         f"Multiple projects match the name {project_name!r}. Retry with project_id "
         f"set to one of these (or ask the user which they mean):",
@@ -157,4 +205,10 @@ async def require_project_id(
     return await resolve_project_id(client, project_name)
 
 
-__all__ = ["require_project_id", "reset_project_cache_for_tests", "resolve_project_id"]
+__all__ = [
+    "project_rows",
+    "require_project_id",
+    "reset_project_cache_for_tests",
+    "resolve_project_id",
+    "unknown_project_message",
+]

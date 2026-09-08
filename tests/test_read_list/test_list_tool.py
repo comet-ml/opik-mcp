@@ -520,14 +520,36 @@ async def test_list_issues_ambiguous_project_name_lists_candidates() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_issues_unknown_project_name_is_a_clear_error() -> None:
-    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "demo-2"}], "total": 1})
+async def test_list_issues_unknown_project_name_suggests_the_closest_one() -> None:
+    """Same recovery as a misspelled project_name on a trace list (#185): the
+    message names the closest existing project and lists the rest."""
+    fake = FakeOpikClient(
+        projects={
+            "content": [
+                {"id": "p-1", "name": "support-agent-demo"},
+                {"id": "p-2", "name": "probe"},
+            ],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="suport-agent-demo", client=fake)
+    msg = str(exc.value)
+    assert "Project 'suport-agent-demo' not found." in msg
+    assert "Did you mean 'support-agent-demo'?" in msg
+    assert "Projects: support-agent-demo, probe" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
+async def test_list_issues_unknown_project_name_without_a_close_match() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "probe"}], "total": 1})
     with pytest.raises(ToolError) as exc:
         await run_list("agent_insights_issue", project_name="demo", client=fake)
     msg = str(exc.value)
-    assert "No project named 'demo'" in msg
-    assert "list('project'" in msg
-    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+    assert "Project 'demo' not found." in msg
+    assert "Did you mean" not in msg
+    assert "Projects: probe" in msg
 
 
 @pytest.mark.anyio
@@ -587,9 +609,13 @@ async def test_list_issues_unresolved_project_name_is_not_cached() -> None:
     fake = FakeOpikClient()
     with pytest.raises(ToolError):
         await run_list("agent_insights_issue", project_name="demo", client=fake)
+    # A miss costs two calls: the filtered lookup and the unfiltered one that
+    # builds the did-you-mean. Neither result is remembered.
+    lookups_after_miss = fake.project_lookups
+    assert lookups_after_miss == 2
     fake.projects = {"content": [{"id": "p-demo", "name": "demo"}], "total": 1}
     await run_list("agent_insights_issue", project_name="demo", client=fake)
-    assert fake.project_lookups == 2
+    assert fake.project_lookups == lookups_after_miss + 1
     assert fake.last_kwargs.get("project_id") == "p-demo"
 
 

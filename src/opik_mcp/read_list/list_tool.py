@@ -27,7 +27,6 @@ backend aggregates by day.
 
 from __future__ import annotations
 
-import difflib
 import json
 import logging
 import math
@@ -56,6 +55,7 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
+from opik_mcp.read_list.project_scope import project_rows, unknown_project_message
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
@@ -235,7 +235,7 @@ async def run_list(
         # The backend's 404 for a misspelled project names it ("Project name: X
         # not found"); only that case gets the did-you-mean recovery.
         if kw.get("project_name") and kw["project_name"] in str(e):
-            raise ToolError(await _unknown_project_message(opik, kw["project_name"])) from e
+            raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
     except (OpikAuthError, OpikValidationError, OpikServerError) as e:
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
@@ -310,7 +310,7 @@ async def _empty_message(
     if from_time is None:
         return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
 
-    rows = await _project_rows(opik, name=project_name)
+    rows = await project_rows(opik, name=project_name)
     match = [
         p
         for p in rows
@@ -337,44 +337,6 @@ def _window_echo(raw: str, resolved: str) -> str:
     if is_relative(raw):
         return f"{raw.strip()} ({minute})"
     return minute
-
-
-async def _project_rows(opik: OpikListClient, *, name: str | None = None) -> list[dict[str, Any]]:
-    """One page of projects for the side lookups (did-you-mean, last-trace hint).
-
-    ``name`` is the backend's substring filter, so the caller still matches
-    exactly. Failures are logged and yield ``[]``: these lookups decorate an
-    answer the agent already has and must never replace it with an error.
-    """
-    try:
-        body = (
-            await opik.list_projects(name=name, size=100)
-            if name
-            else await opik.list_projects(size=100)
-        )
-    except (
-        OpikAuthError,
-        OpikNotFoundError,
-        OpikValidationError,
-        OpikServerError,
-        httpx.HTTPError,
-    ):
-        logger.debug("project lookup for a list hint failed; skipping the hint", exc_info=True)
-        return []
-    return [p for p in body.get("content") or [] if isinstance(p, dict)]
-
-
-async def _unknown_project_message(opik: OpikListClient, project_name: str) -> str:
-    """One extra call on a project-name 404: the names that do exist, and the
-    closest one. The backend matches names exactly, so a typo is the common case."""
-    names = [p["name"] for p in await _project_rows(opik) if isinstance(p.get("name"), str)]
-    message = f"Project {project_name!r} not found."
-    close = difflib.get_close_matches(project_name, names, n=1, cutoff=0.6)
-    if close:
-        message += f" Did you mean {close[0]!r}?"
-    if names:
-        message += f" Projects: {', '.join(names)}."
-    return message
 
 
 # Filter fields that make no sense as a table column: bodies (never shown in a

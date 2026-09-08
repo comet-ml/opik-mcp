@@ -624,11 +624,15 @@ async def test_read_issue_ambiguous_project_name_lists_candidates() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_issue_unknown_project_name_is_a_clear_error() -> None:
+async def test_read_issue_unknown_project_name_suggests_the_closest_one() -> None:
     fake = _issue_fake()
+    # The unfiltered lookup (key "") is what the suggestion is built from.
+    fake.projects_by_name = {"": [{"id": "p-1", "name": "ghost-demo"}]}
     with pytest.raises(ToolError) as exc:
-        await run_read("agent_insights_issue", ISSUE, project_name="ghost", client=fake)
-    assert "No project named 'ghost'" in str(exc.value)
+        await run_read("agent_insights_issue", ISSUE, project_name="gost-demo", client=fake)
+    msg = str(exc.value)
+    assert "Project 'gost-demo' not found." in msg
+    assert "Did you mean 'ghost-demo'?" in msg
     assert isinstance(exc.value.__cause__, EntityArgValidationError)
 
 
