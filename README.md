@@ -255,7 +255,9 @@ severity, status), the deduplicated ids of the traces that exhibit it (the
 same sample the Diagnostics page shows — open one with `read("trace", id)`),
 and the per-day breakdown. Trace bodies are not inlined, so the read stays one
 backend call. `from_date` / `to_date` narrow the per-day rows; the default is
-all-time.
+all-time. When the Opik URL is configured the read also carries `url` (the
+issue's Diagnostics page) and `trace_url_template` (a deep link for any of the
+example traces), so the assistant can hand you something clickable.
 
 ### `list`
 

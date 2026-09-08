@@ -28,9 +28,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
-from opik_mcp.opik_client import opik_rest_base
+from opik_mcp.config import Settings, get_settings
+from opik_mcp.read_list.ui_links import current_workspace, opik_ui_base
 from opik_mcp.skills_catalog import skill_names
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
@@ -72,18 +71,11 @@ Today's date is {date}.\
 def _opik_ui_url(s: Settings) -> str:
     """Opik **UI** base URL for the blob, or a generic placeholder if unconfigured.
 
-    Derived from :func:`opik_rest_base` — the single source of truth for where
-    Opik lives (``OPIK_URL`` override, else ``COMET_URL_OVERRIDE + "/opik/api"``)
-    — so the UI link can never drift from where REST calls actually go. That base
-    is the REST **API** base (``…/opik/api``); the UI lives at the same origin
-    without the trailing ``/api`` segment, so we strip it.
+    Shares :func:`opik_ui_base` with the links a ``read`` attaches, so the blob
+    and the per-entity links can never disagree about where the UI lives.
     """
-    base = opik_rest_base(s)
-    if base is None:
-        return "(Opik URL not configured)"
-    if base.endswith("/api"):
-        base = base[: -len("/api")]
-    return base
+    base = opik_ui_base(s)
+    return base if base is not None else "(Opik URL not configured)"
 
 
 def _render_default_project_clause(s: Settings) -> str:
@@ -115,12 +107,7 @@ def render_instructions(
     ``resolved_workspace_name`` → the static ``Settings`` workspace → ``"default"``.
     """
     s = settings if settings is not None else get_settings()
-    workspace = (
-        inbound_workspace.get()
-        or resolved_workspace_name.get()
-        or s.comet_workspace
-        or DEFAULT_WORKSPACE
-    )
+    workspace = current_workspace(s)
     opik_url = _opik_ui_url(s)
 
     user_clause = f" as {user_email}" if user_email else ""

@@ -27,6 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
@@ -40,6 +41,7 @@ from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
 from opik_mcp.read_list.project_scope import require_project_id
+from opik_mcp.read_list.ui_links import project_page_url
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -55,6 +57,7 @@ FetchFn = Callable[..., Awaitable[dict[str, Any]]]
 SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]]
 ListFn = Callable[..., Awaitable[dict[str, Any]]]
 CompressFn = Callable[[dict[str, Any], int | None], tuple[str, CompressionTier]]
+LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
 
 
 @dataclass(frozen=True)
@@ -81,6 +84,15 @@ class EntityHandler:
     read_optional_kwargs: tuple[str, ...] = ()
     """Entity-specific kwargs ``fetch_fn`` accepts beyond the id and project
     scope. Same forwarding rule as ``list_optional_kwargs``, for ``read``."""
+    link_fn: LinkFn | None = None
+    """Optional: UI links to attach to the fetched composite before compression.
+
+    Called by ``read`` with the session's ``Settings`` and the fetched data;
+    returns extra top-level fields (e.g. ``url``). Fetchers cannot do this
+    themselves — they see a client, not settings — and the UI base/workspace
+    are session facts, not entity facts. Return ``{}`` when Opik's URL is
+    unconfigured: no link beats a wrong one.
+    """
     compress_fn: CompressFn | None = None
     id_only: bool = False
     """True if the entity is addressed only by UUID (no name lookup).
@@ -324,9 +336,29 @@ async def _fetch_agent_insights_issue(
     issue = {key: value for key, value in body.items() if key != "details"}
     return {
         "issue": issue,
+        # The link_fn needs the project the issue was read under; the backend
+        # record does not carry it. Kept private so it never reaches the agent.
+        "_project_id": project_id,
         "example_trace_ids": _example_trace_ids(details),
         "details": details,
     }
+
+
+def _issue_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
+    """The issue's Diagnostics page (open or resolved view, by status) and a
+    template for deep-linking any of its example traces — the two links the
+    diagnose skill has to hand the user."""
+    project_id = data.pop("_project_id", None)
+    issue = data.get("issue") or {}
+    issue_id = issue.get("id")
+    if not isinstance(project_id, str) or not isinstance(issue_id, str):
+        return {}
+    view = "diagnostics" if issue.get("status") == "open" else "diagnostics/resolved"
+    page = project_page_url(settings, project_id, f"{view}?issue={issue_id}")
+    traces = project_page_url(settings, project_id, "logs?trace={trace_id}")
+    if page is None or traces is None:
+        return {}
+    return {"url": page, "trace_url_template": traces}
 
 
 async def _unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
@@ -540,7 +572,7 @@ def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
         return truncated_json, CompressionTier.MEDIUM
 
     issue = data.get("issue") or {}
-    skeleton = {
+    skeleton: dict[str, Any] = {
         "issue": {
             "id": issue.get("id"),
             "name": issue.get("name"),
@@ -548,12 +580,15 @@ def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
             "status": issue.get("status"),
         },
         "example_trace_ids": data.get("example_trace_ids") or [],
-        "note": (
-            "SKELETON compression: cause, suggested fix and per-day details "
-            "omitted. Use read('trace', trace_id) on an example, or re-read with "
-            "from_date/to_date to narrow the window."
-        ),
     }
+    for link_key in ("url", "trace_url_template"):
+        if link_key in data:
+            skeleton[link_key] = data[link_key]
+    skeleton["note"] = (
+        "SKELETON compression: cause, suggested fix and per-day details "
+        "omitted. Use read('trace', trace_id) on an example, or re-read with "
+        "from_date/to_date to narrow the window."
+    )
     return compact_json(skeleton), CompressionTier.SKELETON
 
 
@@ -672,6 +707,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         list_required_kwargs=("project_id",),
         list_optional_kwargs=("status", "from_date", "to_date"),
         read_optional_kwargs=("from_date", "to_date"),
+        link_fn=_issue_links,
         compress_fn=_compress_issue,
         id_only=True,
         needs_project=True,
@@ -683,10 +719,11 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "open issues ranked as the Diagnostics page ranks them (most recently "
             "seen first); pass status='resolved' or 'closed' for the rest. "
             "read('agent_insights_issue', id, project_id=…) returns {issue, "
-            "example_trace_ids, details}: the record with cause and suggested fix, "
-            "the deduped ids of traces that exhibit it (open one with "
-            "read('trace', id)), and the per-day breakdown. Counts are all-time "
-            "unless from_date/to_date narrow the window."
+            "example_trace_ids, details, url, trace_url_template}: the record with "
+            "cause and suggested fix, the deduped ids of traces that exhibit it "
+            "(open one with read('trace', id)), the per-day breakdown, and UI links "
+            "to hand the user. Counts are all-time unless from_date/to_date narrow "
+            "the window."
         ),
     ),
 }

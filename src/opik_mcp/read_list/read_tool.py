@@ -172,10 +172,16 @@ async def run_read(
         if value is not None and key in handler.read_optional_kwargs
     }
 
-    opik = client if client is not None else make_opik_client(settings or get_settings())
+    resolved_settings = settings or get_settings()
+    opik = client if client is not None else make_opik_client(resolved_settings)
     data = await _fetch_with_name_lookup(
         handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
     )
+    if handler.link_fn is not None:
+        # UI links are session facts (UI base, workspace), so they are attached
+        # here rather than inside the fetcher, and before compression so every
+        # tier can decide what to keep.
+        data.update(handler.link_fn(resolved_settings, data))
 
     compressed_text, tier = compress_for(handler, data, max_tokens)
     full_json = compact_json(data)

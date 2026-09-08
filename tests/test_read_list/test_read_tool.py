@@ -13,6 +13,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.read_tool import run_read
@@ -444,7 +445,9 @@ async def test_read_issue_returns_issue_example_trace_ids_and_details() -> None:
     out = await run_read("agent_insights_issue", ISSUE, project_id="p-9", client=_issue_fake())
     assert f"[read: agent_insights_issue {ISSUE}" in out
     body = _payload(out)
-    assert set(body) == {"issue", "example_trace_ids", "details"}
+    assert {"issue", "example_trace_ids", "details"} <= set(body)
+    # The project the issue was read under feeds the UI links and never leaks.
+    assert "_project_id" not in body
     # The issue record is the backend's, minus the per-day rows.
     assert body["issue"]["name"] == "Tool call loop on weather lookup"
     assert body["issue"]["suggested_fix"] == "Cap retries at 2 and surface the timeout."
@@ -719,6 +722,85 @@ async def test_read_issue_falls_to_skeleton_when_still_over_budget() -> None:
     assert body["example_trace_ids"] == ["tr-a", "tr-b", "tr-c"]
     assert body["issue"]["name"] == _ISSUE_DETAIL["name"]
     assert "details" not in body
+
+
+# --- UI links on the issue read ------------------------------------------ #
+
+_UI_SETTINGS = Settings(
+    opik_api_key="k", comet_workspace="demo-ws", opik_url="https://opik.test/api"
+)
+
+
+@pytest.mark.anyio
+async def test_read_issue_carries_diagnostics_page_url_and_trace_url_template() -> None:
+    """The diagnose skill must hand back clickable links; the server knows
+    the UI base and workspace, so the read supplies them instead of making
+    the agent guess the URL shape."""
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", client=_issue_fake(), settings=_UI_SETTINGS
+    )
+    body = _payload(out)
+    assert body["url"] == f"https://opik.test/demo-ws/projects/p-9/diagnostics?issue={ISSUE}"
+    assert (
+        body["trace_url_template"] == "https://opik.test/demo-ws/projects/p-9/logs?trace={trace_id}"
+    )
+
+
+@pytest.mark.anyio
+async def test_read_issue_resolved_status_links_to_resolved_view() -> None:
+    detail = {**_ISSUE_DETAIL, "status": "resolved"}
+    out = await run_read(
+        "agent_insights_issue",
+        ISSUE,
+        project_id="p-9",
+        client=_issue_fake(detail),
+        settings=_UI_SETTINGS,
+    )
+    assert _payload(out)["url"] == (
+        f"https://opik.test/demo-ws/projects/p-9/diagnostics/resolved?issue={ISSUE}"
+    )
+
+
+@pytest.mark.anyio
+async def test_read_issue_omits_links_when_opik_url_unconfigured() -> None:
+    """No URL is better than a wrong one."""
+    bare = Settings(
+        opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
+    )
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_id="p-9", client=_issue_fake(), settings=bare
+    )
+    body = _payload(out)
+    assert "url" not in body
+    assert "trace_url_template" not in body
+
+
+@pytest.mark.anyio
+async def test_read_issue_skeleton_keeps_url() -> None:
+    out = await run_read(
+        "agent_insights_issue",
+        ISSUE,
+        project_id="p-9",
+        max_tokens=150,
+        client=_issue_fake(),
+        settings=_UI_SETTINGS,
+    )
+    header, payload = out.split("\n", 1)
+    assert "compression=SKELETON" in header
+    body = json.loads(payload)
+    assert body["url"].endswith(f"diagnostics?issue={ISSUE}")
+    # The skeleton keeps the example ids; the template is what makes them
+    # clickable, so it stays too.
+    assert body["trace_url_template"].endswith("/logs?trace={trace_id}")
+
+
+@pytest.mark.anyio
+async def test_read_thread_has_no_link_fields() -> None:
+    """Links are an issue-read affordance; other composites are unchanged."""
+    out = await run_read(
+        "thread", THREAD, project_id="p-9", client=_thread_fake(), settings=_UI_SETTINGS
+    )
+    assert "url" not in _payload(out)
 
 
 @pytest.mark.anyio

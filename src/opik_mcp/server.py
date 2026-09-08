@@ -264,10 +264,11 @@ async def read(
     - thread: returns {thread, messages, messagesTruncated} — each message is one
       turn's trace input/output + a trace_id to read('trace', id). Needs project
       scope: pass a thread link/URI, or project_id/project_name.
-    - agent_insights_issue: returns {issue, example_trace_ids, details} — the
-      Diagnostics issue with cause and suggested fix, the deduped ids of traces
-      that exhibit it (open one with read('trace', id)), and the per-day
-      breakdown. Needs project scope like thread.
+    - agent_insights_issue: returns {issue, example_trace_ids, details, url,
+      trace_url_template} — the Diagnostics issue with cause and suggested fix,
+      the deduped ids of traces that exhibit it (open one with read('trace', id)),
+      the per-day breakdown, the issue's Diagnostics page link, and a template
+      for linking any example trace. Needs project scope like thread.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
     Output is a one-line `[read: …]` header (entity_type, id, compression
