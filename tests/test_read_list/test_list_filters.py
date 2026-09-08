@@ -175,3 +175,61 @@ async def test_trace_rows_carry_triage_columns_by_default() -> None:
     assert "id | name | start_time | duration | error_type | total_estimated_cost" in out
     assert "t-1 | chat | 2026-09-08T10:00:00Z | 7123.5 | TimeoutError | 0.0042" in out
     assert "t-2 | chat |  | 120 |  | " in out
+
+
+# --- span: project-wide search --------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_span_list_requires_project_scope() -> None:
+    with pytest.raises(ToolError, match=r"list\('span'\) requires project_id \(or project_name\)"):
+        await run_list("span", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_span_filters_search_the_whole_project() -> None:
+    fake = FakeOpikClient()
+    await run_list(
+        "span",
+        project_name="demo",
+        filters='type = "llm" AND usage.total_tokens > 10000',
+        client=fake,
+    )
+    assert fake.last_kwargs.get("project_name") == "demo"
+    assert "trace_id" not in fake.last_kwargs
+    assert _sent_filters(fake) == [
+        {"field": "type", "operator": "=", "key": "", "value": "llm"},
+        {"field": "usage.total_tokens", "operator": ">", "key": "", "value": "10000"},
+        SDK_SOURCE,
+    ]
+
+
+@pytest.mark.anyio
+async def test_span_rejects_trace_only_fields_with_the_span_field_list() -> None:
+    with pytest.raises(ToolError) as ei:
+        await run_list("span", project_id="p-1", filters='thread_id = "t"', client=FakeOpikClient())
+    message = str(ei.value)
+    assert "Unknown field 'thread_id'" in message
+    assert "provider" in message and "llm_span_count" not in message
+
+
+@pytest.mark.anyio
+async def test_span_rows_carry_span_columns_by_default() -> None:
+    fake = FakeOpikClient(
+        spans=_page(
+            [
+                {
+                    "id": "s-1",
+                    "name": "openai.chat",
+                    "type": "llm",
+                    "trace_id": "t-1",
+                    "duration": 812.0,
+                    "model": "gpt-4o",
+                    "error_info": {"exception_type": "RateLimitError"},
+                }
+            ]
+        )
+    )
+    out = await run_list("span", project_id="p-1", client=fake)
+    assert "id | name | type | trace_id | duration | model | error_type" in out
+    assert "s-1 | openai.chat | llm | t-1 | 812.0 | gpt-4o | RateLimitError" in out

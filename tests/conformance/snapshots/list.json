@@ -1,12 +1,13 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, prompt_version, test_suite, test_suite_item, thread, trace.",
+      "description": "One of: experiment, project, prompt, prompt_version, span, test_suite, test_suite_item, thread, trace.",
       "enum": [
         "experiment",
         "project",
         "prompt",
         "prompt_version",
+        "span",
         "test_suite",
         "test_suite_item",
         "thread",
@@ -61,7 +62,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project UUID for project-scoped lists (trace, thread). Pass this OR project_name.",
+      "description": "Parent project UUID for project-scoped lists (trace, span, thread). Pass this OR project_name.",
       "title": "Project Id"
     },
     "project_name": {
@@ -75,7 +76,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project name \u2014 alternative to project_id for trace/thread lists, so you don't need to resolve the UUID first.",
+      "description": "Parent project name \u2014 alternative to project_id for trace/span/thread lists, so you don't need to resolve the UUID first.",
       "title": "Project Name"
     },
     "prompt_id": {

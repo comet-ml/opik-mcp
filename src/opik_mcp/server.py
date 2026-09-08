@@ -302,7 +302,7 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project UUID for project-scoped lists (trace, thread). "
+                "Parent project UUID for project-scoped lists (trace, span, thread). "
                 "Pass this OR project_name."
             )
         ),
@@ -311,7 +311,7 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Parent project name — alternative to project_id for trace/thread "
+                "Parent project name — alternative to project_id for trace/span/thread "
                 "lists, so you don't need to resolve the UUID first."
             ),
             max_length=200,
@@ -336,6 +336,7 @@ async def list_entities(
 
     Project-scoped types require their parent:
     - trace: project_id or project_name
+    - span: project_id or project_name (searches spans across the project)
     - thread: project_id or project_name
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id

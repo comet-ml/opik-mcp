@@ -325,6 +325,14 @@ async def _list_threads(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_threads(**kw)
 
 
+async def _list_spans(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    # Project-wide span search: no ``trace_id`` — that scoping (and ``type``)
+    # is expressed in OQL (``trace_id = "…"``, ``type = "llm"``). ``name``
+    # filtering isn't supported by opik-backend; drop it if passed.
+    kw.pop("name", None)
+    return await client.list_spans(**kw)
+
+
 # --- trace skeleton compression ------------------------------------------ #
 
 
@@ -432,8 +440,14 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
     "span": EntityHandler(
         entity_type="span",
         fetch_fn=_fetch_span,
+        list_fn=_list_spans,
+        list_extra_fields=("type", "trace_id", "duration", "model", "error_type"),
+        list_required_kwargs=("project_id",),
         id_only=True,
-        description="Single span: inputs, outputs, metadata, timing, feedback_scores.",
+        description=(
+            "Single span: inputs, outputs, metadata, timing, feedback_scores. "
+            "list('span', project_id=…, filters=…) searches spans across a project."
+        ),
     ),
     "test_suite": EntityHandler(
         entity_type="test_suite",

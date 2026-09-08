@@ -18,9 +18,11 @@ def test_list_only_entities_excluded_from_readable() -> None:
     assert "prompt_version" not in READABLE_TYPES
 
 
-def test_singletons_with_no_list_endpoint_excluded_from_listable() -> None:
-    """``span`` is fetchable by id but not enumerable — verify the dispatcher knows."""
-    assert "span" not in LISTABLE_TYPES
+def test_span_is_listable_with_project_scope() -> None:
+    """``span`` is enumerable project-wide (OPIK-8283); the project requirement
+    is what the ``list`` tool enforces before calling the backend."""
+    assert "span" in LISTABLE_TYPES
+    assert ENTITY_REGISTRY["span"].list_required_kwargs == ("project_id",)
 
 
 def test_id_only_flag_set_for_trace_span_prompt_version_test_suite_item() -> None:

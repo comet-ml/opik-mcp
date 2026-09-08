@@ -243,8 +243,8 @@ read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
 ### `list`
 
 Browse or search a collection with pagination. Project-scoped types (`trace`,
-`thread`, `test_suite_item`, `prompt_version`) require their parent — a project
-UUID or name, a suite UUID, a prompt UUID.
+`span`, `thread`, `test_suite_item`, `prompt_version`) require their parent — a
+project UUID or name, a suite UUID, a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
@@ -252,6 +252,8 @@ list(entity_type="experiment", name="rerank")          # name substring filter
 list(entity_type="trace", project_name="demo")         # latest traces of one project
 list(entity_type="trace", project_name="demo",
      filters='error_info is_not_empty AND duration > 5000')
+list(entity_type="span", project_name="demo",          # spans across the whole project
+     filters='type = "llm" AND usage.total_tokens > 10000')
 ```
 
 **Filters.** `trace`, `span`, `thread` and `experiment` take an OQL string, the
