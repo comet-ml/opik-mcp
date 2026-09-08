@@ -602,6 +602,17 @@ async def test_read_issue_resolves_exact_project_name() -> None:
 
 
 @pytest.mark.anyio
+async def test_read_issue_resolves_project_name_case_insensitively() -> None:
+    fake = _issue_fake()
+    fake.projects_by_name = {"Support-Agent-Demo": [{"id": "p-demo", "name": "support-agent-demo"}]}
+    out = await run_read(
+        "agent_insights_issue", ISSUE, project_name="Support-Agent-Demo", client=fake
+    )
+    assert f"[read: agent_insights_issue {ISSUE}" in out
+    assert fake.last_issue_kwargs["project_id"] == "p-demo"
+
+
+@pytest.mark.anyio
 async def test_read_issue_ambiguous_project_name_lists_candidates() -> None:
     fake = _issue_fake()
     fake.projects_by_name = {"demo": [{"id": "p-1", "name": "demo"}, {"id": "p-2", "name": "demo"}]}

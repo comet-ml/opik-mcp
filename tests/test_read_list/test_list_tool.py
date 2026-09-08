@@ -462,6 +462,47 @@ async def test_list_issues_resolves_exact_project_name_to_id() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_issues_resolves_project_name_case_insensitively_like_the_backend() -> None:
+    """list('trace', project_name='Support-Agent-Demo') succeeds because the
+    backend matches project names case-insensitively; the same argument on the
+    issue entity must not fail. Exact case still wins when both exist."""
+    fake = FakeOpikClient(
+        projects={"content": [{"id": "p-demo", "name": "support-agent-demo"}], "total": 1},
+        issues={"content": [ISSUE_ROW], "total": 1},
+    )
+    out = await run_list("agent_insights_issue", project_name="Support-Agent-Demo", client=fake)
+    assert "is-1" in out
+    assert fake.last_kwargs.get("project_id") == "p-demo"
+
+
+@pytest.mark.anyio
+async def test_list_issues_exact_case_beats_case_insensitive_match() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-upper", "name": "Demo"}, {"id": "p-lower", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    await run_list("agent_insights_issue", project_name="demo", client=fake)
+    assert fake.last_kwargs.get("project_id") == "p-lower"
+
+
+@pytest.mark.anyio
+async def test_list_issues_ambiguous_case_insensitive_match_lists_candidates() -> None:
+    fake = FakeOpikClient(
+        projects={
+            "content": [{"id": "p-upper", "name": "Demo"}, {"id": "p-lower", "name": "demo"}],
+            "total": 2,
+        }
+    )
+    with pytest.raises(ToolError) as exc:
+        await run_list("agent_insights_issue", project_name="DEMO", client=fake)
+    msg = str(exc.value)
+    assert "p-upper" in msg and "p-lower" in msg
+    assert isinstance(exc.value.__cause__, EntityArgValidationError)
+
+
+@pytest.mark.anyio
 async def test_list_issues_ambiguous_project_name_lists_candidates() -> None:
     fake = FakeOpikClient(
         projects={

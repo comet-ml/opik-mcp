@@ -6,11 +6,12 @@ through. The agent-insights (Diagnostics) endpoints do not, and the ``read`` /
 UUID for every project-scoped entity — so the MCP resolves it here rather than
 teaching the agent an exception.
 
-Resolution is deliberately strict. The projects endpoint is a substring search
-(``name=demo`` also matches ``demo-2``), so only an exact, case-sensitive name
-match counts. One match is used; several are listed back so the agent retries
-with ``project_id``; none is a clear error. Silently picking the first
-substring hit would read the wrong project's Diagnostics with nothing to say so.
+Resolution matches the whole name, the way the backend matches ``project_name``
+on the trace/thread endpoints (case-insensitively), so the same argument
+behaves the same on every project-scoped entity. The projects endpoint is a
+substring search (``name=demo`` also matches ``demo-2``), so substring hits
+are never used: one whole-name match is used (exact case first); several are
+listed back so the agent retries with ``project_id``; none is a clear error.
 """
 
 from __future__ import annotations
@@ -101,29 +102,38 @@ async def resolve_project_id(client: OpikListClient, project_name: str) -> str:
 
 
 async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
+    """Whole-name match, the way the backend matches ``project_name`` on the
+    trace/thread endpoints: case-insensitive, never a substring. An exact-case
+    match wins over a case-insensitive one so ``demo`` and ``Demo`` can coexist;
+    several case-insensitive matches are listed back rather than guessed."""
     page = await client.list_projects(name=project_name, page=1, size=_LOOKUP_PAGE_SIZE)
-    exact: list[dict[str, Any]] = [
+    named: list[dict[str, Any]] = [
         item
         for item in page.get("content") or []
         if isinstance(item, dict)
-        and item.get("name") == project_name
+        and isinstance(item.get("name"), str)
         and isinstance(item.get("id"), str)
         and item["id"]
     ]
+    exact = [item for item in named if item["name"] == project_name]
     if len(exact) == 1:
         return str(exact[0]["id"])
-    if not exact:
+    folded = project_name.casefold()
+    matches = exact or [item for item in named if item["name"].casefold() == folded]
+    if len(matches) == 1:
+        return str(matches[0]["id"])
+    if not matches:
         raise EntityArgValidationError(
             f"No project named {project_name!r} in this workspace. Check the "
-            f"spelling (the match is exact and case-sensitive), or find it with "
+            f"spelling (the whole name must match), or find it with "
             f"list('project', name={project_name!r}) and pass its project_id."
         )
     lines = [
-        f"Multiple projects are named {project_name!r}. Retry with project_id set "
-        f"to one of these (or ask the user which they mean):",
+        f"Multiple projects match the name {project_name!r}. Retry with project_id "
+        f"set to one of these (or ask the user which they mean):",
     ]
-    for item in exact[:10]:
-        lines.append(f"  - project_id={item['id']}, name={item.get('name', '')!r}")
+    for item in matches[:10]:
+        lines.append(f"  - project_id={item['id']}, name={item['name']!r}")
     raise EntityArgValidationError("\n".join(lines))
 
 
