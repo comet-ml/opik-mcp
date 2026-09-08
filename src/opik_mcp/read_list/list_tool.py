@@ -20,8 +20,11 @@ traffic. Whatever was applied is echoed on the first output line.
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
+import re
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -47,12 +50,22 @@ from opik_mcp.read_list.oql import (
 )
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 from opik_mcp.read_list.sorting import SortError, compile_sort
-from opik_mcp.read_list.window import WindowError, resolve_window
+from opik_mcp.read_list.window import (
+    WindowError,
+    format_instant,
+    is_relative,
+    parse_instant,
+    resolve_window,
+    to_minute,
+)
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
 _MAX_SIZE = 100
 _TRUNCATE_AT = 60
+# Free-text search is an ilike across several columns; on a cold cache the
+# backend took 32 s live. Everything else keeps the client's 30 s default.
+_SEARCH_TIMEOUT_S = 60.0
 
 _SDK_SOURCE_CLAUSE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
 
@@ -152,10 +165,10 @@ async def run_list(
             raise ToolError(str(err)) from err
         if from_time is not None:
             kw["from_time"] = from_time
-            applied.append(f"since: {from_time}")
+            applied.append(f"since: {_window_echo(since, from_time)}")
         if to_time is not None:
             kw["to_time"] = to_time
-            applied.append(f"until: {to_time}")
+            applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
         if entity_type in WINDOWED_ENTITIES:
@@ -176,11 +189,21 @@ async def run_list(
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
 
-    opik = client if client is not None else make_opik_client(settings or get_settings())
+    if client is not None:
+        opik = client
+    else:
+        # Free-text search can take the backend >30 s on a cold cache (seen
+        # live: 32 s); give only those calls a longer leash.
+        timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
+        opik = make_opik_client(settings or get_settings(), timeout=timeout)
 
     try:
         page_body = await handler.list_fn(opik, **kw)
-    except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
+    except OpikNotFoundError as e:
+        if kw.get("project_name"):
+            raise ToolError(await _unknown_project_message(opik, kw["project_name"])) from e
+        raise ToolError(f"Failed to list {entity_type}s: {e}") from e
+    except (OpikAuthError, OpikValidationError, OpikServerError) as e:
         raise ToolError(f"Failed to list {entity_type}s: {e}") from e
     except httpx.TimeoutException as e:
         # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
@@ -219,11 +242,67 @@ async def run_list(
                 ' Only source = "sdk" rows are listed by default; add source = "experiment", '
                 '"evaluator" or "playground" to filters to see the others.'
             )
+        elif "from_time" in kw:
+            # Seen live: since="30d" on a project whose traffic ended weeks
+            # earlier looks like a project with no traffic. One project read
+            # tells the agent which it is, and how far to widen the window.
+            last_trace = await _last_trace_hint(opik, kw, kw["from_time"])
+            if last_trace:
+                empty += " " + last_trace
         return f"{header}\n{empty}" if header else empty
 
     extra = _requested_columns(sort_field, clauses)
     table = _format_table(entity_type, handler, content, total, page, size, name, extra)
     return f"{header}\n{table}" if header else table
+
+
+def _window_echo(raw: str | None, resolved: str) -> str:
+    """``30d (2026-08-09T11:03Z)`` for shorthand, the bound to the minute for ISO."""
+    minute = to_minute(resolved)
+    if raw is not None and is_relative(raw):
+        return f"{raw.strip()} ({minute})"
+    return minute
+
+
+async def _unknown_project_message(opik: OpikListClient, project_name: str) -> str:
+    """One extra call on a project-name 404: the names that do exist, and the
+    closest one. The backend matches names exactly, so a typo is the common case."""
+    try:
+        body = await opik.list_projects(size=100)
+        names = [
+            p["name"] for p in body.get("content") or [] if isinstance(p, dict) and "name" in p
+        ]
+    except Exception:  # recovery must never mask the 404 itself
+        names = []
+    message = f"Project {project_name!r} not found."
+    close = difflib.get_close_matches(project_name, names, n=1, cutoff=0.6)
+    if close:
+        message += f" Did you mean {close[0]!r}?"
+    if names:
+        message += f" Projects: {', '.join(names)}."
+    return message
+
+
+async def _last_trace_hint(opik: OpikListClient, kw: dict[str, Any], from_time: str) -> str | None:
+    """For an empty windowed page: when the project's last trace landed."""
+    try:
+        if kw.get("project_name"):
+            body = await opik.list_projects(name=kw["project_name"], size=5)
+            rows = [p for p in body.get("content") or [] if p.get("name") == kw["project_name"]]
+        else:
+            body = await opik.list_projects(size=100)
+            rows = [p for p in body.get("content") or [] if p.get("id") == kw.get("project_id")]
+    except Exception:  # a hint must never turn an empty page into an error
+        return None
+    if not rows:
+        return None
+    last = rows[0].get("last_updated_trace_at")
+    if not last:
+        return "This project has no traces yet."
+    last_dt, start_dt = parse_instant(str(last)), parse_instant(from_time)
+    if last_dt is None or start_dt is None or last_dt >= start_dt:
+        return None
+    return f"Last trace in this project: {to_minute(format_instant(last_dt))}, before your window."
 
 
 # Filter fields that make no sense as a table column: bodies (never shown in a
@@ -275,13 +354,12 @@ def _format_table(
     else:
         header = f"Found {total} {entity_type}s (page {page}, showing {count} of {total}):"
 
-    col_header = " | ".join(columns)
+    col_header = " | ".join(_COLUMN_LABELS.get(c, c) for c in columns)
     rows: list[str] = []
     for item in content:
         values: list[str] = []
         for col in columns:
-            val = _cell(item, col)
-            s = "" if val is None else str(val)
+            s = _render(col, _cell(item, col))
             if len(s) > _TRUNCATE_AT:
                 s = s[: _TRUNCATE_AT - 3] + "..."
             values.append(s)
@@ -327,6 +405,33 @@ def _cell(item: dict[str, Any], col: str) -> Any:
 
 def _score_summary(scores: list[dict[str, Any]]) -> str:
     return ", ".join(f"{s.get('name')}={s.get('value')}" for s in scores if "name" in s)
+
+
+# Header labels that carry the unit the backend leaves implicit. The field
+# keeps its backend name in filters/sort (``duration > 5000``); only the
+# column heading says ``_ms`` so the agent never mistakes 82.461 for seconds.
+_COLUMN_LABELS = {"duration": "duration_ms", "ttft": "ttft_ms"}
+_ISO_WITH_FRACTION = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$")
+
+
+def _render(col: str, val: Any) -> str:
+    """One cell, compact: whole milliseconds, seconds-precision timestamps,
+    plain decimals. Every page pays for every character here."""
+    if val is None:
+        return ""
+    if col in _COLUMN_LABELS and isinstance(val, int | float) and not isinstance(val, bool):
+        return str(round(val))
+    if isinstance(val, float):
+        text = repr(val)
+        if "e" in text or "E" in text:
+            return format(Decimal(text), "f")
+        return text
+    if isinstance(val, str):
+        m = _ISO_WITH_FRACTION.match(val)
+        if m:
+            tz = "Z" if m.group(2) in ("Z", "+00:00") else m.group(2)
+            return m.group(1) + tz
+    return str(val)
 
 
 __all__ = ["run_list"]

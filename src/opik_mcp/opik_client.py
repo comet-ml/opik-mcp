@@ -954,10 +954,17 @@ def opik_rest_base(settings: Settings) -> str | None:
     return None
 
 
-def make_opik_client(settings: Settings) -> OpikClient:
-    """Construct an ``OpikClient`` bound to the configured workspace."""
+def make_opik_client(settings: Settings, *, timeout: float | None = None) -> OpikClient:
+    """Construct an ``OpikClient`` bound to the configured workspace.
+
+    ``timeout`` overrides the default per-request timeout; the ``list`` tool
+    passes a longer one for free-text ``search``, which the backend can take
+    over 30 s to answer on a cold cache.
+    """
     base_url, api_key, workspace = resolve_opik_config(settings)
-    return OpikClient(base_url=base_url, api_key=api_key, workspace=workspace)
+    if timeout is None:
+        return OpikClient(base_url=base_url, api_key=api_key, workspace=workspace)
+    return OpikClient(base_url=base_url, api_key=api_key, workspace=workspace, timeout=timeout)
 
 
 def _score_body(score: FeedbackScore) -> dict[str, Any]:

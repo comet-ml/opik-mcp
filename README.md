@@ -295,7 +295,19 @@ with a timezone, so "the last hour" needs no clock arithmetic. The window is by
 record creation time, which is cheap for the backend and agrees with
 `start_time` within seconds for live traffic; use `start_time` in `filters`
 for an exact bound. The same three types take `search`, free text matched
-anywhere in id, name, input, output, metadata, tags and thread id.
+anywhere in id, name, input, output, metadata, tags and thread id. Search is a
+full scan on the backend and can take tens of seconds on a large project the
+first time; those calls get a 60-second timeout, and narrowing with `since`
+first keeps them quick.
+
+**Reading the table.** Durations are labelled `duration_ms` / `ttft_ms` and
+shown as whole milliseconds; the field stays `duration` in `filters` and
+`sort`. Timestamps are shown to the second and costs as plain decimals.
+Project rows carry `last_updated_trace_at` so you can see which project has
+live traffic; thread rows carry the first message. An empty page under a time
+window says when the project's last trace landed, and an empty page under the
+default `source = "sdk"` says how to see the other sources. A misspelled
+`project_name` comes back with the closest existing name.
 
 ```python
 list(entity_type="trace", project_name="demo", since="1h",

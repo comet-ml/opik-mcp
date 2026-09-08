@@ -422,7 +422,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         fetch_fn=_fetch_project,
         search_by_name_fn=_search_project,
         list_fn=_list_projects,
-        list_extra_fields=("created_at",),
+        # last_updated_trace_at lets the agent pick the project with live
+        # traffic in one call instead of probing each one.
+        list_extra_fields=("created_at", "last_updated_trace_at"),
         description="Project metadata + stats (trace_count, last activity).",
     ),
     "trace": EntityHandler(
@@ -511,7 +513,15 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         entity_type="thread",
         fetch_fn=_fetch_thread,
         list_fn=_list_threads,
-        list_extra_fields=("status", "number_of_messages", "duration", "last_updated_at"),
+        # first_message stands in for the name a thread doesn't have: the
+        # agent can pick the conversation without a read() per row.
+        list_extra_fields=(
+            "first_message",
+            "status",
+            "number_of_messages",
+            "duration",
+            "last_updated_at",
+        ),
         list_required_kwargs=("project_id",),
         list_has_name=False,
         compress_fn=_compress_thread,

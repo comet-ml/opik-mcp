@@ -35,6 +35,16 @@ class WindowError(EntityArgValidationError):
     """
 
 
+def is_relative(value: str) -> bool:
+    """True for the shorthand form (``30m``, ``1h``, ``7d``, ``2w``)."""
+    return _RELATIVE.match(value.strip()) is not None
+
+
+def to_minute(instant: str) -> str:
+    """``2026-08-09T11:03:11.376Z`` → ``2026-08-09T11:03Z`` for compact echoes."""
+    return instant[:16] + "Z"
+
+
 def parse_instant(value: str) -> datetime | None:
     """Parse a strict ISO-8601 instant: ``T`` separator, timezone required.
 
@@ -93,7 +103,9 @@ __all__ = [
     "WINDOW_FORMS",
     "WindowError",
     "format_instant",
+    "is_relative",
     "parse_instant",
     "resolve_instant",
     "resolve_window",
+    "to_minute",
 ]

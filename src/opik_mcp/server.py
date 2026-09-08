@@ -341,7 +341,8 @@ async def list_entities(
         Field(
             description=(
                 "Free text for trace, span, thread: matches anywhere in id, name, input, "
-                "output, metadata, tags, thread_id (spans: model, provider too)."
+                "output, metadata, tags, thread_id (spans: model, provider too). Expensive "
+                "on large projects; narrow with since first."
             ),
             max_length=500,
         ),
