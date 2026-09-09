@@ -254,10 +254,9 @@ async def read(
         Field(
             description=(
                 "Start of the window, as a relative span ('7d', '24h') or an ISO-8601 "
-                "instant with timezone. Taken by project (the summary's period, "
-                "default 7d against the 7 days before) and agent_insights_issue (the "
-                "per-day details, truncated to UTC report days, all-time by default "
-                "to match the Diagnostics page). Rejected for other entity types."
+                "instant with timezone. On read: project (the summary's period, 7d by "
+                "default) and agent_insights_issue (per-day details, truncated to UTC "
+                "report days, all-time by default). Rejected for other types."
             ),
             max_length=40,
         ),
@@ -278,13 +277,11 @@ async def read(
 
     Special shapes:
     - project: returns {project, summary, vocabulary, contains, url} — the
-      record, the week's figures (trace count, error rate, average duration,
-      total cost, each against the 7 days before, SDK traffic only, as the
-      Logs page cards show; a rate or average over a period with no traces is
-      null, not zero), the names you can filter and break down by, and the
-      freshest experiment / test suite / dataset / prompt version / run in the
-      project. `since`/`until` pick another window. Empty parts are omitted;
-      a part that failed to load carries an error rather than looking empty.
+      week's figures against the 7 days before (SDK traffic only, as the Logs
+      cards show; a rate over a period with no traces is null, not zero), the
+      names you can filter and group by, and the freshest experiment / suite /
+      prompt version / run. `since`/`until` pick another window. Empty parts
+      are omitted; a part that failed to load says so instead of looking empty.
     - trace: returns {trace, spans, spansTruncated} with up to 200 spans inlined.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
     - thread: returns {thread, messages, messagesTruncated} — each message is one
@@ -438,8 +435,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "project_metric only: which metric to chart. Reference (units, which "
-                "entity each is about): schema('list.project_metric')."
+                "project_metric only: which metric to chart. "
+                "Reference: schema('list.project_metric')."
             ),
             json_schema_extra={"enum": sorted(METRIC_TYPES)},
         ),
@@ -449,6 +446,17 @@ async def list_entities(
         Field(
             description="project_metric only: bucket width. 'daily' by default.",
             json_schema_extra={"enum": sorted(METRIC_INTERVALS)},
+        ),
+    ] = None,
+    breakdown: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only: group each bucket by this field, or "
+                "'metadata.<key>'. Not valid for every metric — "
+                "schema('list.project_metric') says which."
+            ),
+            max_length=200,
         ),
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
@@ -501,6 +509,7 @@ async def list_entities(
         status=status,
         metric_type=metric_type,
         interval=interval,
+        breakdown=breakdown,
     )
 
 

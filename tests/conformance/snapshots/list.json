@@ -1,5 +1,19 @@
 {
   "properties": {
+    "breakdown": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "project_metric only: group each bucket by this field, or 'metadata.<key>'. Not valid for every metric \u2014 schema('list.project_metric') says which.",
+      "title": "Breakdown"
+    },
     "entity_type": {
       "description": "One of: agent_insights_issue, experiment, online_rule, project, project_metric, prompt, prompt_version, score_name, span, test_suite, test_suite_item, thread, trace.",
       "enum": [
@@ -63,7 +77,7 @@
         }
       ],
       "default": null,
-      "description": "project_metric only: which metric to chart. Reference (units, which entity each is about): schema('list.project_metric').",
+      "description": "project_metric only: which metric to chart. Reference: schema('list.project_metric').",
       "enum": [
         "guardrails_failed_count",
         "span_average_duration",

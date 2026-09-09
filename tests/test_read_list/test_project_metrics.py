@@ -15,7 +15,13 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.read_list.list_tool import run_list
-from opik_mcp.read_list.project_metrics import MAX_BUCKETS, METRICS, bucket_count
+from opik_mcp.read_list.project_metrics import (
+    MAX_BUCKETS,
+    MAX_SERIES,
+    METRICS,
+    bucket_count,
+    groupable_by,
+)
 from opik_mcp.writes.schema_tool import run_schema
 
 PROJECT = "01a08666-e863-76e8-809c-057f4aa151bc"
@@ -350,6 +356,206 @@ async def test_a_project_name_resolves_to_its_id() -> None:
     fake = _fake(projects={"content": [{"id": PROJECT, "name": "demo"}], "total": 1})
     await run_list("project_metric", project_name="demo", metric_type="trace_count", client=fake)
     assert fake.last_body["project_id"] == PROJECT
+
+
+# --- grouping ------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_span_metric_groups_by_model() -> None:
+    """ "Cost went up" is half an answer; "cost went up on one model" is the
+    whole one."""
+    fake = _fake(results=[_series("gpt-4o", [1.0, 2.0]), _series("claude-opus-4", [0.5, 0.4])])
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"] == {"field": "MODEL"}
+    assert _table(out)[0] == "time | gpt-4o | claude-opus-4"
+    assert "by model" in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_grouping_by_a_metadata_key_takes_the_key_inline() -> None:
+    """One argument, not two: a key that only makes sense with a field is two
+    chances to pass one without the other."""
+    fake = _fake()
+    await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_count",
+        breakdown="metadata.environment",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"] == {"field": "METADATA", "metadata_key": "environment"}
+
+
+@pytest.mark.anyio
+async def test_metadata_without_a_key_says_which_form_to_use() -> None:
+    with pytest.raises(ToolError, match=r"metadata\.<key>"):
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            breakdown="metadata",
+            client=_fake(),
+        )
+
+
+@pytest.mark.anyio
+async def test_a_metric_that_cannot_be_grouped_at_all_says_so_plainly() -> None:
+    """Seven of the twenty are missing from the backend's own compatibility
+    sets, and it answers them with a message that contradicts itself — "this
+    field supports Span metrics only", about a span metric. Refused locally
+    with the real reason, and without a round trip."""
+    fake = _fake()
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_cost",
+            breakdown="model",
+            client=fake,
+        )
+    message = str(exc.value)
+    assert "cannot be grouped at all" in message
+    assert "span_cost" in message
+    assert fake.calls == 0
+
+
+@pytest.mark.anyio
+async def test_a_grouping_the_metric_does_not_accept_lists_the_ones_it_does() -> None:
+    fake = _fake()
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            breakdown="model",
+            client=fake,
+        )
+    message = str(exc.value)
+    assert "cannot be grouped by model" in message
+    assert "tags" in message
+    assert fake.calls == 0
+
+
+@pytest.mark.anyio
+async def test_a_refusal_points_at_a_metric_that_answers_the_same_question() -> None:
+    """Per-model counts are a span question; `span_count` is where they live."""
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            breakdown="model",
+            client=_fake(),
+        )
+    assert "metric_type='span_count'" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_guardrail_grouping_belongs_to_one_metric_only() -> None:
+    fake = _fake()
+    await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="guardrails_failed_count",
+        breakdown="guardrail_name",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"] == {"field": "GUARDRAIL_NAME"}
+
+    with pytest.raises(ToolError, match="cannot be grouped by guardrail_name"):
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            breakdown="guardrail_name",
+            client=_fake(),
+        )
+
+
+def test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits() -> None:
+    """Transcribed from BreakdownField's sets, so this pins the transcription
+    against the seven found live rather than trusting it."""
+    ungroupable = {name for name in METRICS if not groupable_by(name)}
+    assert ungroupable == {
+        "trace_average_duration",
+        "trace_error_rate",
+        "span_average_duration",
+        "span_cost",
+        "span_error_rate",
+        "thread_average_duration",
+        "thread_cost",
+    }
+
+
+# --- width is capped on the way out --------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_metric_that_fans_out_per_score_name_is_capped() -> None:
+    """Feedback-score and token-usage metrics return one series per name with
+    no grouping asked for, and nothing bounds that — sixty score names would
+    be sixty columns. Unlike the bucket count this width is unknowable before
+    the call, so it is capped on the way out."""
+    many = [_series(f"score-{i:02d}", [float(i), float(i)]) for i in range(30)]
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_feedback_scores",
+        client=_fake(results=many),
+    )
+    columns = _table(out)[0].split(" | ")
+    assert len(columns) == MAX_SERIES + 1, "time plus the capped series"
+    assert f"of {len(many)} series" in out
+
+
+@pytest.mark.anyio
+async def test_the_widest_series_are_the_ones_kept() -> None:
+    """A change hides in the big series; keeping an arbitrary ten would as
+    often as not drop the one the question was about."""
+    results = [_series("tiny", [0.0, 0.1])] + [
+        _series(f"big-{i}", [100.0 + i, 100.0]) for i in range(MAX_SERIES)
+    ]
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_feedback_scores",
+        client=_fake(results=results),
+    )
+    assert "tiny" not in _table(out)[0]
+
+
+@pytest.mark.anyio
+async def test_a_capped_score_metric_says_where_all_the_names_are() -> None:
+    many = [_series(f"score-{i:02d}", [1.0]) for i in range(30)]
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_feedback_scores",
+        client=_fake(results=many),
+    )
+    assert f"list('score_name', project_id='{PROJECT}')" in out
+
+
+@pytest.mark.anyio
+async def test_a_capped_grouped_metric_does_not_point_at_score_names() -> None:
+    """Groups are not score names, and the backend already caps them at ten —
+    naming a list of score names there would send the agent somewhere useless."""
+    many = [_series(f"model-{i:02d}", [1.0]) for i in range(30)]
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=_fake(results=many),
+    )
+    assert "score_name" not in out
 
 
 # --- the reference -------------------------------------------------------- #

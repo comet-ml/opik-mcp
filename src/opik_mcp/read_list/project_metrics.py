@@ -94,6 +94,149 @@ _FILTER_ARRAY: Final = {
     "thread": "thread_filters",
 }
 
+# --- grouping ------------------------------------------------------------- #
+#
+# The compatibility rules are transcribed from ``BreakdownField`` rather than
+# discovered by trial, because the backend's refusals are unusable: ask to
+# group SPAN_COST by model and it answers "This field supports Span metrics
+# only" — about a span metric. The cause is that its SPAN_METRICS set omits
+# SPAN_COST, SPAN_AVERAGE_DURATION and SPAN_ERROR_RATE, and TRACE_METRICS omits
+# TRACE_AVERAGE_DURATION and TRACE_ERROR_RATE, and THREAD_METRICS omits
+# THREAD_AVERAGE_DURATION and THREAD_COST. Seven of the twenty metrics
+# therefore support no grouping at all. Filed as a backend bug; until it is
+# fixed, saying so plainly here beats a round trip for a self-contradiction.
+
+_GROUPABLE_TRACE: Final = frozenset(
+    {
+        "trace_duration",
+        "trace_count",
+        "trace_token_usage",
+        "trace_cost",
+        "trace_feedback_scores",
+        "guardrails_failed_count",
+    }
+)
+_GROUPABLE_SPAN: Final = frozenset(
+    {"span_count", "span_duration", "span_token_usage", "span_feedback_scores"}
+)
+_GROUPABLE_THREAD: Final = frozenset({"thread_count", "thread_duration", "thread_feedback_scores"})
+
+BREAKDOWNS: Final[dict[str, str]] = {
+    "tags": "TAGS",
+    "name": "NAME",
+    "error_info": "ERROR_INFO",
+    "error_type": "ERROR_TYPE",
+    "model": "MODEL",
+    "provider": "PROVIDER",
+    # The backend calls it TYPE; "type" alone would read as the metric's type.
+    "span_type": "TYPE",
+    "guardrail_name": "GUARDRAIL_NAME",
+    "metadata": "METADATA",
+}
+
+_METADATA_PREFIX: Final = "metadata."
+
+BACKEND_SERIES_CAP: Final = 10
+"""The backend's own limit on groups (``BreakdownQueryBuilder.LIMIT``).
+
+Documented rather than enforced here — the point is that a short list of
+groups is the backend truncating, not the project having only that many.
+"""
+
+
+def _allows(breakdown: str, metric_name: str) -> bool:
+    """Transcribed from ``BreakdownField.isCompatibleWith``."""
+    if breakdown == "tags":
+        return metric_name in _GROUPABLE_TRACE | _GROUPABLE_SPAN | _GROUPABLE_THREAD
+    if breakdown in ("metadata", "name", "error_info", "error_type"):
+        return metric_name in _GROUPABLE_TRACE | _GROUPABLE_SPAN
+    if breakdown in ("model", "provider", "span_type"):
+        return metric_name in _GROUPABLE_SPAN
+    if breakdown == "guardrail_name":
+        return metric_name == "guardrails_failed_count"
+    return False
+
+
+def groupable_by(metric_name: str) -> list[str]:
+    """The breakdowns this metric accepts — possibly none."""
+    return [name for name in BREAKDOWNS if _allows(name, metric_name)]
+
+
+def _same_question_elsewhere(breakdown: str, metric_name: str) -> str | None:
+    """A metric that answers the same question and does accept this grouping.
+
+    "Cost per model" is the obvious ask and ``trace_cost`` cannot answer it;
+    ``span_cost`` is where per-model cost lives — except that one is in the
+    backend's omitted set too, so the honest answer is sometimes that the
+    question is currently unanswerable. Only suggest a metric that works.
+    """
+    family = metric_name.split("_", 1)[-1]
+    for candidate in METRICS:
+        if (
+            candidate != metric_name
+            and candidate.endswith(family)
+            and _allows(breakdown, candidate)
+        ):
+            return candidate
+    return None
+
+
+def parse_breakdown(breakdown: str, metric_name: str) -> dict[str, str]:
+    """Resolve ``breakdown`` for a metric, or refuse with the reason.
+
+    Metadata takes its key inline — ``breakdown='metadata.environment'`` —
+    rather than through a second parameter: one argument instead of two, and
+    two arguments that only make sense together are two chances to pass one
+    without the other.
+    """
+    asked = breakdown.strip().lower()
+    key: str | None = None
+    if asked.startswith(_METADATA_PREFIX):
+        key = breakdown.strip()[len(_METADATA_PREFIX) :]
+        asked = "metadata"
+        if not key:
+            raise EntityArgValidationError(
+                "breakdown='metadata.<key>' needs the key to group by, "
+                "e.g. breakdown='metadata.environment'."
+            )
+    elif asked == "metadata":
+        raise EntityArgValidationError(
+            "Grouping by metadata needs a key: breakdown='metadata.<key>', "
+            "e.g. breakdown='metadata.environment'."
+        )
+
+    if asked not in BREAKDOWNS:
+        raise EntityArgValidationError(
+            f"Unknown breakdown {breakdown!r}. One of: "
+            f"{', '.join(name for name in BREAKDOWNS if name != 'metadata')}, "
+            "metadata.<key>."
+        )
+
+    if not _allows(asked, metric_name):
+        accepted = groupable_by(metric_name)
+        if not accepted:
+            raise EntityArgValidationError(
+                f"{metric_name} cannot be grouped at all — it is one of the seven "
+                "metrics missing from the backend's grouping sets "
+                f"({', '.join(_ungroupable())}). Chart it plain, or group a "
+                "related metric that does support it."
+            )
+        instead = _same_question_elsewhere(asked, metric_name)
+        hint = f" For this grouping, use metric_type='{instead}'." if instead else ""
+        raise EntityArgValidationError(
+            f"{metric_name} cannot be grouped by {asked}. It accepts: {', '.join(accepted)}.{hint}"
+        )
+
+    resolved = {"field": BREAKDOWNS[asked]}
+    if key is not None:
+        resolved["metadata_key"] = key
+    return resolved
+
+
+def _ungroupable() -> list[str]:
+    return [name for name in METRICS if not groupable_by(name)]
+
+
 INTERVALS: Final[dict[str, timedelta | None]] = {
     "hourly": timedelta(hours=1),
     "daily": timedelta(days=1),
@@ -265,18 +408,50 @@ def _time_label(raw: Any, interval: str) -> str:
     return raw[:16].replace("T", " ") if interval == "hourly" else raw[:10]
 
 
-def render(body: dict[str, Any], *, metric_name: str, interval: str) -> str:
+MAX_SERIES: Final = 10
+"""Columns kept, matching the backend's own cap on breakdown groups.
+
+Grouping is capped server-side, but the feedback-score and token-usage metrics
+fan out into one series per score name or usage key with no grouping asked for
+at all, and nothing bounds *that* — a project with sixty score names would
+otherwise return sixty columns. Unlike the bucket count, this width cannot be
+known before the call, so it is capped on the way out: the widest series are
+kept (a change hides in the big ones), the true count is stated, and the read
+says where the full list of names lives.
+"""
+
+
+def _series_weight(one: dict[str, Any]) -> float:
+    """Total magnitude across the window — the series most likely to matter."""
+    return sum(
+        abs(float(point["value"]))
+        for point in one["data"]
+        if isinstance(point, dict) and isinstance(point.get("value"), (int, float))
+    )
+
+
+def render(
+    body: dict[str, Any],
+    *,
+    metric_name: str,
+    interval: str,
+    names_source: str | None = None,
+) -> str:
     """The series as ``time | <series> …``, one row per bucket.
 
     Series are columns rather than repeated blocks, which is the whole reason
-    this is a table: a bucket's timestamp is printed once for every series
-    instead of once per series per point.
+    this is a table: a bucket's timestamp is printed once per row instead of
+    once per point.
     """
     raw = body.get("results")
     series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
     series = [s for s in series if isinstance(s.get("data"), list)]
     if not series:
         return f"No {metric_name} data in this window."
+
+    total_series = len(series)
+    if total_series > MAX_SERIES:
+        series = sorted(series, key=_series_weight, reverse=True)[:MAX_SERIES]
 
     # Buckets come back identical across series, so the first defines the rows.
     times = [point.get("time") for point in series[0]["data"] if isinstance(point, dict)]
@@ -290,6 +465,13 @@ def render(body: dict[str, Any], *, metric_name: str, interval: str) -> str:
             point = points[row] if row < len(points) and isinstance(points[row], dict) else {}
             cells.append(_number(point.get("value")))
         lines.append(" | ".join(cells))
+
+    if total_series > MAX_SERIES:
+        where = f" All {total_series} names: {names_source}." if names_source else ""
+        lines.append("")
+        lines.append(
+            f"The {MAX_SERIES} largest of {total_series} series, by total over the window.{where}"
+        )
     return "\n".join(lines)
 
 
@@ -353,6 +535,22 @@ def reference() -> dict[str, Any]:
                 "is called, naming the narrower requests that fit"
             ),
         },
+        "breakdowns": {
+            "syntax": ("breakdown='<field>', or 'metadata.<key>' to group by a metadata key"),
+            "by_metric": {name: groupable_by(name) or None for name in METRICS},
+            "series_cap": MAX_SERIES,
+            "backend_group_cap": BACKEND_SERIES_CAP,
+            "note": (
+                "seven metrics accept no grouping at all — they are missing from the "
+                "backend's own compatibility sets (BreakdownField), which is a backend "
+                "bug rather than a rule: asking anyway returns a message claiming the "
+                "field 'supports Span metrics only' about a span metric. Refused "
+                "locally instead. Grouped series are capped by the backend at "
+                f"{BACKEND_SERIES_CAP}; a metric that fans out per score name or usage "
+                f"key is capped here at {MAX_SERIES}, widest first, with the true count "
+                "reported."
+            ),
+        },
         "not_supported": {
             "page, size": "rows are time buckets, not records",
             "sort": "rows are ordered by time",
@@ -373,6 +571,7 @@ async def run_project_metric(
     since: str | None,
     until: str | None,
     filters: str | None,
+    breakdown: str | None = None,
     page: int | None = None,
     size: int | None = None,
     sort: str | None = None,
@@ -402,6 +601,9 @@ async def run_project_metric(
         # agent has to check they agree.
         clauses.append(dict(SDK_SOURCE_CLAUSE))
 
+    name = parse_metric_name(metric)
+    grouping = parse_breakdown(breakdown, name) if breakdown else None
+
     resolved = await require_project_id(
         client,
         project_id=project_id,
@@ -416,20 +618,26 @@ async def run_project_metric(
             since=window_since,
             until=window_until,
             clauses=clauses,
+            breakdown=grouping,
         ),
     )
 
-    applied = [
-        parse_metric_name(metric),
-        interval_name,
-        f"{window_since} → {window_until}",
-    ]
+    applied = [name, interval_name, f"{window_since} → {window_until}"]
     if clauses:
         applied.append(f"filters: {render_filters(metric.entity, clauses)}")
+    if breakdown:
+        applied.append(f"by {breakdown.strip().lower()}")
     header = f"[list: project_metric | {' | '.join(applied)}]"
-    return (
-        f"{header}\n{render(body, metric_name=parse_metric_name(metric), interval=interval_name)}"
+    # A score or usage metric fans out one series per name, so a truncated
+    # width points at the list that enumerates them; a grouped one is already
+    # capped by the backend and has no such list.
+    names_source = (
+        f"list('score_name', project_id='{resolved}')"
+        if grouping is None and name.endswith("feedback_scores")
+        else None
     )
+    table = render(body, metric_name=name, interval=interval_name, names_source=names_source)
+    return f"{header}\n{table}"
 
 
 def parse_metric_name(metric: Metric) -> str:
@@ -462,14 +670,19 @@ def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | N
 
 
 __all__ = [
+    "BACKEND_SERIES_CAP",
+    "BREAKDOWNS",
     "DEFAULT_INTERVAL",
     "DEFAULT_WINDOW_DAYS",
     "INTERVALS",
     "MAX_BUCKETS",
+    "MAX_SERIES",
     "METRICS",
     "Metric",
     "bucket_count",
     "check_size",
+    "groupable_by",
+    "parse_breakdown",
     "parse_interval",
     "parse_metric",
     "reference",

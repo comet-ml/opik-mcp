@@ -19,18 +19,28 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from opik_mcp.server import mcp
 
 # Ceiling on everything `tools/list` advertises: names + descriptions + input
-# schemas, as sent on the wire. Measured at 15,444 bytes (~3.9k tokens) on
-# 2026-09-09, the commit that added this test. The ceiling leaves ~2.0k bytes
-# (~500 tokens) of headroom, which is the budget OPIK-8284 allocated itself for
-# the project overview: a `project_metric` entity on `list` (~1.7k) plus two
-# drill-down entity names (~0.2k).
+# schemas, as sent on the wire.
 #
 # Raising this is a real decision, not a formality. The tool surface is resident
 # in the context of EVERY request the host makes, including the ones that never
 # touch Opik, so a bigger surface is the user's context spent on our behalf
 # whether they use us that turn or not. Prefer trimming a description or moving
 # reference material behind `schema()`, which is fetched only when wanted.
-SURFACE_BUDGET_BYTES = 17_500
+#
+# History:
+#   15,444  2026-09-09, when this test was added.
+#   17,498  OPIK-8284 complete — the project overview and the metric series.
+#           2,054 bytes (~513 tokens) for: `project_metric` on `list` with its
+#           metric/interval/breakdown params (~1.5k), two drill-down entity
+#           names, and the read tool's project shape. Came in one token under
+#           the 514 the first ceiling allowed.
+#
+# The ceiling sits ~300 bytes above the measurement on purpose. A budget with no
+# slack is a budget that gets raised in a hurry inside an unrelated PR the first
+# time someone fixes a typo in a description; this one still catches a real
+# regression while leaving room to reword. The slack costs nothing — a ceiling
+# is not an allocation, and unused headroom is not in anyone's context.
+SURFACE_BUDGET_BYTES = 17_800
 
 
 def surface_report(

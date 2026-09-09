@@ -134,6 +134,7 @@ async def run_list(
     status: str | None = None,
     metric_type: str | None = None,
     interval: str | None = None,
+    breakdown: str | None = None,
     settings: Settings | None = None,
     client: OpikListClient | None = None,
 ) -> str:
@@ -157,6 +158,7 @@ async def run_list(
             project_name=project_name,
             metric_type=metric_type,
             interval=interval,
+            breakdown=breakdown,
             since=since,
             until=until,
             filters=filters,
