@@ -90,6 +90,9 @@ class FakeOpikClient:
     async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
         return _page([])
 
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return _page([])
+
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:
     raw = fake.last_kwargs.get("filters")

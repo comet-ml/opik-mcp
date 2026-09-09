@@ -567,6 +567,32 @@ async def test_token_usage_names_is_project_scoped_on_the_path() -> None:
 
 
 @pytest.mark.anyio
+async def test_activities_is_project_scoped_and_paged() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/p-1/activities").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "page": 1,
+                    "size": 1,
+                    "total": 1,
+                    "content": [
+                        {
+                            "type": "experiment",
+                            "id": "e-1",
+                            "name": "baseline",
+                            "created_at": "2026-09-07T10:35:35.746Z",
+                        }
+                    ],
+                },
+            ),
+        )
+        body = await _client().list_project_activities("p-1", size=100)
+    assert dict(route.calls.last.request.url.params) == {"page": "1", "size": "100"}
+    assert body["content"][0]["type"] == "experiment"
+
+
+@pytest.mark.anyio
 async def test_automation_rules_keeps_the_trailing_slash() -> None:
     """The resource is mapped at ``/automations/evaluators/`` — with the
     trailing segment. Dropping it 404s, which is easy to do and easy to miss."""

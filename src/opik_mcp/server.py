@@ -275,11 +275,14 @@ async def read(
     correct ID.
 
     Special shapes:
-    - project: returns {project, summary, url} — the record plus the week's
-      figures (trace count, error rate, average duration, total cost, each
-      against the 7 days before, SDK traffic only), which is what the Logs
-      page cards show. A rate or average over a period with no traces is null,
-      not zero.
+    - project: returns {project, summary, vocabulary, contains, url} — the
+      record, the week's figures (trace count, error rate, average duration,
+      total cost, each against the 7 days before, SDK traffic only, as the
+      Logs page cards show; a rate or average over a period with no traces is
+      null, not zero), the names you can filter and break down by, and the
+      freshest experiment / test suite / dataset / prompt version / run in the
+      project. `since`/`until` pick another window. Empty parts are omitted;
+      a part that failed to load carries an error rather than looking empty.
     - trace: returns {trace, spans, spansTruncated} with up to 200 spans inlined.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
     - thread: returns {thread, messages, messagesTruncated} — each message is one

@@ -55,7 +55,11 @@ class FakeOpikClient:
     automation_rules: dict[str, Any] = field(
         default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
     )
+    activities: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
+    )
     fail_score_names_with: Exception | None = None
+    fail_activities_with: Exception | None = None
     in_flight: int = 0
     max_in_flight: int = 0
 
@@ -226,6 +230,11 @@ class FakeOpikClient:
 
     async def list_automation_rules(self, **_: Any) -> dict[str, Any]:
         return await self._concurrently(self.automation_rules)
+
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        if self.fail_activities_with is not None:
+            raise self.fail_activities_with
+        return await self._concurrently(self.activities)
 
     async def get_agent_insights_issue(
         self,
@@ -1282,6 +1291,111 @@ async def test_read_project_gathers_its_calls_concurrently() -> None:
     assert fake.max_in_flight > 1, (
         f"calls peaked at {fake.max_in_flight} in flight — the fan-out is serial"
     )
+
+
+# --- project overview: what the project contains ------------------------- #
+
+
+def _activity(kind: str, name: str, day: str, ident: str = "a-1") -> dict[str, Any]:
+    return {"type": kind, "id": ident, "name": name, "created_at": f"{day}T10:00:00.000Z"}
+
+
+@pytest.mark.anyio
+async def test_read_project_names_the_freshest_thing_of_each_kind() -> None:
+    """ "What is in here" is better answered by "the last experiment was
+    baseline-v4, two days ago" than by "there are 17 experiments"."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 4,
+            "total": 4,
+            "content": [
+                _activity("experiment", "baseline-v4", "2026-09-07", "e-4"),
+                _activity("prompt_version", "router", "2026-09-05", "p-1"),
+                _activity("experiment", "baseline-v3", "2026-09-01", "e-3"),
+                _activity("test_suite_version", "qa-set", "2026-08-28", "t-1"),
+            ],
+        }
+    )
+    contains = _payload(await run_read("project", UUID, client=fake))["contains"]
+    assert contains["experiment"] == {"name": "baseline-v4", "id": "e-4", "at": "2026-09-07"}
+    assert contains["prompt_version"]["name"] == "router"
+    assert contains["test_suite_version"]["name"] == "qa-set"
+    assert len(contains) == 3, "one entry per kind, not a feed of every event"
+
+
+@pytest.mark.anyio
+async def test_read_project_never_renders_the_daily_trace_count_as_a_name() -> None:
+    """The per-day trace entry carries the day's trace COUNT in the field every
+    other kind uses for a name. Passed through, an agent reads it as an object
+    called "5". The summary already reports traces properly, so the entry is
+    left out rather than reinterpreted."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 2,
+            "total": 2,
+            "content": [
+                _activity("trace_daily", "5", "2026-09-09"),
+                _activity("experiment", "baseline-v4", "2026-09-07", "e-4"),
+            ],
+        }
+    )
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "trace_daily" not in body["contains"]
+    assert body["contains"]["experiment"]["name"] == "baseline-v4"
+
+
+@pytest.mark.anyio
+async def test_read_project_does_not_invent_the_fields_the_backend_omits() -> None:
+    """The owning resource and the author come back absent, not null. Rendering
+    them as null would put two empty fields on every entry."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 1,
+            "total": 1,
+            "content": [_activity("experiment", "baseline", "2026-09-07", "e-1")],
+        }
+    )
+    entry = _payload(await run_read("project", UUID, client=fake))["contains"]["experiment"]
+    assert set(entry) == {"name", "id", "at"}
+
+
+@pytest.mark.anyio
+async def test_read_project_says_when_older_kinds_may_be_off_the_page() -> None:
+    """The feed is one stream ordered by date, and the per-day trace roll-up
+    grows by a row a day, so a project's only experiment can sit behind a year
+    of trace rows. When the feed is longer than the page, the block says the
+    absences are not proof of absence."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 2,
+            "total": 400,
+            "content": [
+                _activity("trace_daily", "5", "2026-09-09"),
+                _activity("experiment", "baseline", "2026-09-07", "e-1"),
+            ],
+        }
+    )
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "note" in body["contains"]
+    assert "400" in body["contains"]["note"]
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_contains_for_a_project_with_no_activity() -> None:
+    body = _payload(await run_read("project", UUID, client=_vocab_fake()))
+    assert "contains" not in body
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_failed_activity_call_explicitly() -> None:
+    fake = _vocab_fake(fail_activities_with=OpikServerError("activities 500"))
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "500" in body["contains"]["error"]
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
 
 
 @pytest.mark.anyio

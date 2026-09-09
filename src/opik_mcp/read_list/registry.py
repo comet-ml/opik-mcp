@@ -42,6 +42,7 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
+from opik_mcp.read_list.project_contents import project_contents
 from opik_mcp.read_list.project_scope import require_project_id
 from opik_mcp.read_list.project_summary import WINDOW_DAYS, trace_summary
 from opik_mcp.read_list.ui_links import project_page_url
@@ -212,11 +213,12 @@ async def _fetch_project(
     # decoration, so it goes out together — on the one connection this call
     # owns, that is a single round trip instead of four.
     project = await client.get_project(entity_id)
-    summary, scores, usage, rules = await asyncio.gather(
+    summary, scores, usage, rules, contents = await asyncio.gather(
         trace_summary(client, entity_id, since=since, until=until),
         project_vocabulary.score_names(client, entity_id),
         project_vocabulary.usage_keys(client, entity_id),
         project_vocabulary.online_rules(client, entity_id),
+        project_contents(client, entity_id),
     )
     data: dict[str, Any] = {
         "project": project,
@@ -228,6 +230,8 @@ async def _fetch_project(
     vocabulary = project_vocabulary.assemble(scores, usage, rules)
     if vocabulary is not None:
         data["vocabulary"] = vocabulary
+    if contents is not None:
+        data["contains"] = contents
     return data
 
 

@@ -212,6 +212,10 @@ class OpikListClient(Protocol):
 
     async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]: ...
 
+    async def list_project_activities(
+        self, project_id: str, /, *, page: int = 1, size: int = 10
+    ) -> dict[str, Any]: ...
+
     async def list_automation_rules(
         self, *, project_id: str, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
@@ -510,6 +514,30 @@ class OpikClient:
             f"/v1/private/projects/{project_id}/token-usage/names",
             params=None,
             entity_hint=f"project {project_id!r} token usage names",
+        )
+
+    async def list_project_activities(
+        self,
+        project_id: str,
+        /,
+        *,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/projects/{id}/activities`` — recent activity, all kinds.
+
+        One feed across experiments, dataset and test-suite versions, prompt
+        versions, optimization runs, alert events and a per-day trace roll-up,
+        newest first. ``size`` is capped at 100 by the backend.
+
+        Two shape notes: the owning resource and the author are omitted rather
+        than null, and the per-day trace entry carries the day's trace *count*
+        in the field every other kind uses for a name.
+        """
+        return await self._get_json(
+            f"/v1/private/projects/{project_id}/activities",
+            params={"page": page, "size": size},
+            entity_hint=f"project {project_id!r} activity",
         )
 
     async def list_automation_rules(
