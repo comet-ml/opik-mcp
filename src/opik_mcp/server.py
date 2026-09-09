@@ -445,6 +445,10 @@ async def list_entities(
     - agent_insights_issue: project_id or project_name (Diagnostics issues,
       open ones by default; columns: severity, status, total_occurrences,
       latest_count, last_seen)
+    - score_name: project_id or project_name (the project's feedback score
+      names — trace, span and thread scores together, one page, no id)
+    - online_rule: project_id or project_name (the automation rules scoring
+      this project's traces)
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 

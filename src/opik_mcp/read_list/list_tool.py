@@ -383,7 +383,11 @@ def _format_table(
     are appended after the entity's default columns (deduplicated) so the
     table shows why each row is present and in what order.
     """
-    base = ("id", "name") if handler.list_has_name else ("id",)
+    base = tuple(
+        column
+        for column, present in (("id", handler.list_has_id), ("name", handler.list_has_name))
+        if present
+    )
     columns: tuple[str, ...] = (*base, *handler.list_extra_fields)
     for col in extra_columns or ():
         if col not in columns:
@@ -412,6 +416,9 @@ def _format_table(
     if page * size < total:
         lines.append("")
         lines.append(f"Use page={page + 1} for next {size} results.")
+    if handler.list_footer is not None:
+        lines.append("")
+        lines.append(handler.list_footer)
     return "\n".join(lines)
 
 

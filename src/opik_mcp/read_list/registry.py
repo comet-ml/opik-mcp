@@ -121,6 +121,19 @@ class EntityHandler:
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
     then starts at ``id`` instead of rendering an always-empty name column."""
+    list_has_id: bool = True
+    """False for entities the backend addresses by name alone (score_name) —
+    the mirror of ``list_has_name``, so the table drops the id column rather
+    than printing a column of nothing on every row."""
+    list_footer: str | None = None
+    """One line appended under a non-empty listing: a caveat the rows cannot
+    carry themselves.
+
+    Only for something an agent would otherwise get wrong from the table alone
+    — a score name does not say whether it was attached to a trace, a span or
+    a thread, and filtering traces by a thread's score returns nothing that
+    looks like good news. The entity description is the wrong home for it:
+    nothing surfaces those to the agent."""
     compress_fn: CompressFn | None = None
     id_only: bool = False
     """True if the entity is addressed only by UUID (no name lookup).
@@ -452,6 +465,43 @@ async def _search_test_suite(client: OpikReadClient, name: str) -> list[dict[str
 
 async def _list_projects(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_projects(**kw)
+
+
+async def _list_score_names(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    """A project's feedback score names, as a page the list tool can render.
+
+    The endpoint answers ``{scores: [{name}]}`` rather than the Spring page
+    envelope every other listable endpoint uses, and it takes no paging — the
+    query is a ``distinct name`` with no ``LIMIT``. Adapting here keeps the
+    list tool's contract single-shaped; the whole set is one page because the
+    backend has no way to give us less.
+    """
+    project_id = await require_project_id(
+        client,
+        project_id=kw.get("project_id"),
+        project_name=kw.get("project_name"),
+        caller="list('score_name')",
+    )
+    body = await client.list_project_score_names(project_id)
+    raw = body.get("scores")
+    names = (
+        [row for row in raw if isinstance(row, dict) and row.get("name")]
+        if isinstance(raw, list)
+        else []
+    )
+    return {"content": names, "page": 1, "size": len(names), "total": len(names)}
+
+
+async def _list_online_rules(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+    project_id = await require_project_id(
+        client,
+        project_id=kw.get("project_id"),
+        project_name=kw.get("project_name"),
+        caller="list('online_rule')",
+    )
+    return await client.list_automation_rules(
+        project_id=project_id, page=kw.get("page", 1), size=kw.get("size", 10)
+    )
 
 
 async def _list_experiments(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -791,6 +841,43 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "messagesTruncated}. Requires project scope — pass a thread link/URI "
             "or project_id. list('thread', project_id=…) enumerates a project's "
             "threads."
+        ),
+    ),
+    "score_name": EntityHandler(
+        entity_type="score_name",
+        fetch_fn=_unsupported_fetch,
+        list_fn=_list_score_names,
+        list_required_kwargs=("project_id",),
+        # No id: the backend's combined query returns distinct names only, and
+        # no type: the service builds each entry from the name alone.
+        list_has_id=False,
+        list_footer=(
+            "Names cover trace, span and thread scores together — the endpoint does "
+            "not separate them, so a name alone does not say which kind it was "
+            "attached to. Filtering the wrong kind returns an empty result, not an "
+            "error."
+        ),
+        description=(
+            "A feedback score name recorded in a project — the axis names for "
+            "filters and breakdowns. list('score_name', project_id=… | project_name=…) "
+            "returns all of them in one page; the endpoint has no paging and no "
+            "entity_type predicate, so trace, span and thread score names come back "
+            "together and a name alone does not say which kind it was attached to. "
+            "No score type is reported: the combined endpoint does not carry it."
+        ),
+    ),
+    "online_rule": EntityHandler(
+        entity_type="online_rule",
+        fetch_fn=_unsupported_fetch,
+        list_fn=_list_online_rules,
+        list_extra_fields=("type", "enabled", "sampling_rate"),
+        list_required_kwargs=("project_id",),
+        description=(
+            "An automation rule evaluator configured on a project — what scores the "
+            "traces as they arrive, and therefore where most of a project's score "
+            "names come from. list('online_rule', project_id=… | project_name=…) "
+            "enumerates them with kind, whether they are enabled, and their sampling "
+            "rate."
         ),
     ),
     "agent_insights_issue": EntityHandler(

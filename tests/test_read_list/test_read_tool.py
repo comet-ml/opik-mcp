@@ -192,6 +192,15 @@ class FakeOpikClient:
     async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
+    async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
+        return {"scores": []}
+
+    async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
+        return {"names": []}
+
+    async def list_automation_rules(self, **_: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
     async def get_agent_insights_issue(
         self,
         issue_id: str,

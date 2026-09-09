@@ -208,6 +208,14 @@ class OpikListClient(Protocol):
         size: int = 10,
     ) -> dict[str, Any]: ...
 
+    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]: ...
+
+    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]: ...
+
+    async def list_automation_rules(
+        self, *, project_id: str, page: int = 1, size: int = 10
+    ) -> dict[str, Any]: ...
+
 
 class OpikReadClient(OpikListClient, Protocol):
     """Adds singleton ``get_*`` endpoints to ``OpikListClient`` for the read tool.
@@ -471,6 +479,55 @@ class OpikClient:
             f"/v1/private/projects/{project_id}/kpi-cards",
             json=body,
             entity_hint=f"project {project_id!r} KPI cards",
+        )
+
+    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:
+        """``GET /v1/private/projects/feedback-scores/names`` — one project's score names.
+
+        Returns ``{scores: [{name}]}``. The query is the multi-project one
+        narrowed to one project, so the id travels as a JSON array.
+
+        Two things this endpoint does *not* do, both load-bearing for callers:
+        it does not filter by entity kind (the underlying query has no
+        ``entity_type`` predicate, so trace, span and thread names come back
+        together), and it does not report a score's ``type`` — the service
+        builds each entry from the name alone.
+        """
+        return await self._get_json(
+            "/v1/private/projects/feedback-scores/names",
+            params={"project_ids": _json.dumps([project_id], separators=(",", ":"))},
+            entity_hint=f"project {project_id!r} score names",
+        )
+
+    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
+        """``GET /v1/private/projects/{id}/token-usage/names`` — ``{names: [...]}``.
+
+        The usage keys actually recorded in this project — ``prompt_tokens``,
+        ``completion_tokens``, whatever else the instrumentation reported. Empty
+        for a project whose traces carry no usage.
+        """
+        return await self._get_json(
+            f"/v1/private/projects/{project_id}/token-usage/names",
+            params=None,
+            entity_hint=f"project {project_id!r} token usage names",
+        )
+
+    async def list_automation_rules(
+        self,
+        *,
+        project_id: str,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/automations/evaluators/`` — a project's online rules.
+
+        The trailing slash is part of the mapped path; without it the backend
+        answers 404.
+        """
+        return await self._get_json(
+            "/v1/private/automations/evaluators/",
+            params={"project_id": project_id, "page": page, "size": size},
+            entity_hint=f"project {project_id!r} automation rules",
         )
 
     # -- reads: traces / spans --

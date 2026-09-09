@@ -539,6 +539,47 @@ async def test_kpi_cards_returns_the_stats_list_verbatim() -> None:
     assert body == payload
 
 
+# --- project vocabulary: score names, usage keys, automation rules -------- #
+
+
+@pytest.mark.anyio
+async def test_score_names_sends_the_project_id_as_a_json_array() -> None:
+    """``project_ids`` is a list-shaped query param, not a bare id — the
+    endpoint is the multi-project one narrowed to one project."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/feedback-scores/names").mock(
+            return_value=httpx.Response(200, json={"scores": [{"name": "Hallucination"}]}),
+        )
+        body = await _client().list_project_score_names("p-1")
+    assert route.calls.last.request.url.params["project_ids"] == '["p-1"]'
+    assert body["scores"] == [{"name": "Hallucination"}]
+
+
+@pytest.mark.anyio
+async def test_token_usage_names_is_project_scoped_on_the_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/p-1/token-usage/names").mock(
+            return_value=httpx.Response(200, json={"names": ["prompt_tokens"]}),
+        )
+        body = await _client().list_project_token_usage_names("p-1")
+    assert route.called
+    assert body["names"] == ["prompt_tokens"]
+
+
+@pytest.mark.anyio
+async def test_automation_rules_keeps_the_trailing_slash() -> None:
+    """The resource is mapped at ``/automations/evaluators/`` — with the
+    trailing segment. Dropping it 404s, which is easy to do and easy to miss."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/automations/evaluators/").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "r-1", "name": "judge"}])),
+        )
+        await _client().list_automation_rules(project_id="p-1", page=2, size=5)
+    req = route.calls.last.request
+    assert req.url.path.endswith("/automations/evaluators/")
+    assert dict(req.url.params) == {"project_id": "p-1", "page": "2", "size": "5"}
+
+
 @pytest.mark.anyio
 async def test_kpi_cards_maps_a_rejected_filter_to_validation() -> None:
     """The backend's 400 for a bad filter names neither the offending field nor
