@@ -22,6 +22,7 @@ plug into the existing dispatchers without further code changes.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -29,6 +30,7 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list import project_vocabulary
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
     TOKEN_SKELETON_THRESHOLD,
@@ -204,14 +206,29 @@ async def _fetch_project(
     of the read means the agent has an answer on the first call instead of a
     name and a creation date.
     """
+    # The record first, on its own: it is the primary payload, and a bad id or
+    # a project in another workspace should cost one call rather than fanning
+    # out four against something we cannot read. Everything after it is
+    # decoration, so it goes out together — on the one connection this call
+    # owns, that is a single round trip instead of four.
     project = await client.get_project(entity_id)
-    return {
+    summary, scores, usage, rules = await asyncio.gather(
+        trace_summary(client, entity_id, since=since, until=until),
+        project_vocabulary.score_names(client, entity_id),
+        project_vocabulary.usage_keys(client, entity_id),
+        project_vocabulary.online_rules(client, entity_id),
+    )
+    data: dict[str, Any] = {
         "project": project,
-        "summary": await trace_summary(client, entity_id, since=since, until=until),
+        "summary": summary,
         # link_fn needs the project the read was addressed by; underscore keys
         # are stripped by the read tool once links are attached.
         "_project_id": entity_id,
     }
+    vocabulary = project_vocabulary.assemble(scores, usage, rules)
+    if vocabulary is not None:
+        data["vocabulary"] = vocabulary
+    return data
 
 
 def _project_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:

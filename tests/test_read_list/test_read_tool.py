@@ -6,6 +6,7 @@ fetcher functions without spinning up httpx mocks.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -49,6 +50,29 @@ class FakeOpikClient:
     kpi_stats: list[dict[str, Any]] = field(default_factory=list)
     last_kpi_kwargs: dict[str, Any] = field(default_factory=dict)
     fail_kpi_with: Exception | None = None
+    score_names: dict[str, Any] = field(default_factory=lambda: {"scores": []})
+    usage_keys: dict[str, Any] = field(default_factory=lambda: {"names": []})
+    automation_rules: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
+    )
+    fail_score_names_with: Exception | None = None
+    in_flight: int = 0
+    max_in_flight: int = 0
+
+    async def _concurrently(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Yield once so overlapping callers are observable.
+
+        A serial fan-out never gets two of these in flight at the same time;
+        a gathered one gets all of them. That difference is the only way to
+        tell the two apart from outside.
+        """
+        self.in_flight += 1
+        try:
+            await asyncio.sleep(0)
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+            return result
+        finally:
+            self.in_flight -= 1
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
         if project_id not in self.projects_by_id:
@@ -74,7 +98,7 @@ class FakeOpikClient:
         }
         if self.fail_kpi_with is not None:
             raise self.fail_kpi_with
-        return {"stats": self.kpi_stats}
+        return await self._concurrently({"stats": self.kpi_stats})
 
     async def list_projects(
         self,
@@ -193,13 +217,15 @@ class FakeOpikClient:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
     async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
-        return {"scores": []}
+        if self.fail_score_names_with is not None:
+            raise self.fail_score_names_with
+        return await self._concurrently(self.score_names)
 
     async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
-        return {"names": []}
+        return await self._concurrently(self.usage_keys)
 
     async def list_automation_rules(self, **_: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return await self._concurrently(self.automation_rules)
 
     async def get_agent_insights_issue(
         self,
@@ -1155,6 +1181,107 @@ async def test_read_project_fails_when_the_project_record_fails() -> None:
     useful answer without it."""
     with pytest.raises(ToolError, match="Not found"):
         await run_read("project", UUID, client=FakeOpikClient())
+
+
+# --- project overview: the vocabulary ------------------------------------ #
+#
+# The map, not the content: which scores exist, which usage keys are recorded,
+# what is scoring the traces. Each was a separate discovery call, and an agent
+# that did not know to make them wrote filters against guessed names. Two of
+# the three lists are unbounded on the backend, so each is capped by count and
+# says how many there really are.
+
+
+def _vocab_fake(**kw: Any) -> FakeOpikClient:
+    kw.setdefault("score_names", {"scores": [{"name": "hallucination"}, {"name": "tone"}]})
+    kw.setdefault("usage_keys", {"names": ["prompt_tokens", "completion_tokens"]})
+    kw.setdefault(
+        "automation_rules",
+        {"content": [{"id": "r-1", "name": "judge"}], "total": 1},
+    )
+    return _project_fake(**kw)
+
+
+@pytest.mark.anyio
+async def test_read_project_carries_the_scores_usage_keys_and_rules() -> None:
+    body = _payload(await run_read("project", UUID, client=_vocab_fake()))
+    vocab = body["vocabulary"]
+    assert vocab["score_names"]["names"] == ["hallucination", "tone"]
+    assert vocab["usage_keys"]["names"] == ["prompt_tokens", "completion_tokens"]
+    assert vocab["online_rules"]["names"] == ["judge"]
+
+
+@pytest.mark.anyio
+async def test_read_project_caps_a_long_score_list_and_says_how_many_there_are() -> None:
+    """The backend's score-name query has no LIMIT, so a project with several
+    judge rules can carry enough names to dominate the payload. The cap keeps
+    the read predictable; the total keeps it honest."""
+    many = {"scores": [{"name": f"score-{i:03d}"} for i in range(60)]}
+    body = _payload(await run_read("project", UUID, client=_vocab_fake(score_names=many)))
+    scores = body["vocabulary"]["score_names"]
+    assert len(scores["names"]) == 25
+    assert scores["total"] == 60
+    assert "list('score_name'" in scores["all"]
+    assert UUID in scores["all"], "the pointer is callable as written"
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_total_even_when_nothing_was_cut() -> None:
+    """A total that appeared only on truncation would make its presence mean
+    "truncated", and the agent would read the short lists as complete only by
+    inference. It is always there; the pointer is what signals truncation."""
+    body = _payload(await run_read("project", UUID, client=_vocab_fake()))
+    scores = body["vocabulary"]["score_names"]
+    assert scores["total"] == 2
+    assert "all" not in scores
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_a_vocabulary_part_that_is_genuinely_empty() -> None:
+    """ "Nothing recorded yet" and "could not load" have to stay
+    distinguishable, so an empty part is absent rather than an empty list."""
+    body = _payload(await run_read("project", UUID, client=_vocab_fake(usage_keys={"names": []})))
+    assert "usage_keys" not in body["vocabulary"]
+    assert "score_names" in body["vocabulary"]
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_the_vocabulary_when_the_project_has_none() -> None:
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            client=_vocab_fake(
+                score_names={"scores": []},
+                usage_keys={"names": []},
+                automation_rules={"content": [], "total": 0},
+            ),
+        )
+    )
+    assert "vocabulary" not in body
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_failed_vocabulary_part_without_losing_the_rest() -> None:
+    fake = _vocab_fake(fail_score_names_with=OpikServerError("names 500"))
+    body = _payload(await run_read("project", UUID, client=fake))
+    vocab = body["vocabulary"]
+    assert "500" in vocab["score_names"]["error"]
+    assert "names" not in vocab["score_names"], "a failed part must not look like data"
+    assert vocab["usage_keys"]["names"] == ["prompt_tokens", "completion_tokens"]
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+
+
+@pytest.mark.anyio
+async def test_read_project_gathers_its_calls_concurrently() -> None:
+    """Five backend calls on one connection. Run in series they would cost
+    five round trips; the whole point of owning the connection was to make
+    them cost one."""
+    fake = _vocab_fake()
+    await run_read("project", UUID, client=fake)
+    assert fake.max_in_flight > 1, (
+        f"calls peaked at {fake.max_in_flight} in flight — the fan-out is serial"
+    )
 
 
 @pytest.mark.anyio
