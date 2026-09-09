@@ -84,9 +84,13 @@ def resolve_window(
     now = now or datetime.now(UTC)
     start = resolve_instant("since", since, now=now) if since is not None else None
     end = resolve_instant("until", until, now=now) if until is not None else None
-    if start is not None and end is not None and end < start:
+    if start is not None and end is not None and end <= start:
+        # Equal bounds used to pass, which asks the backend for a window that
+        # cannot contain anything. Whatever the caller meant, an empty answer
+        # would not have told them they had asked for one.
+        relation = "before" if end < start else "the same instant as"
         raise WindowError(
-            f"until ({format_instant(end)}) is before since ({format_instant(start)})."
+            f"until ({format_instant(end)}) is {relation} since ({format_instant(start)})."
         )
     return (
         format_instant(start) if start is not None else None,

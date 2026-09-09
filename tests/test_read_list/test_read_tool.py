@@ -1550,6 +1550,21 @@ async def test_read_project_rejects_an_inverted_window_before_the_backend() -> N
 
 
 @pytest.mark.anyio
+async def test_read_project_rejects_a_window_of_no_length() -> None:
+    """Equal bounds used to pass, asking the backend for a window that cannot
+    contain anything. An empty answer would not have told the caller they had
+    asked for one."""
+    with pytest.raises(ToolError, match="the same instant as"):
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=_project_fake(),
+        )
+
+
+@pytest.mark.anyio
 async def test_read_project_omits_the_link_when_opik_url_is_unconfigured() -> None:
     """No link beats a wrong one. The summary still arrives — the link is a
     convenience, the numbers are the answer."""
