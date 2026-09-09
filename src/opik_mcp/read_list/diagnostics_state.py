@@ -37,10 +37,17 @@ logger = logging.getLogger("opik_mcp.read_list.diagnostics_state")
 # The nightly job runs once a day; a scan older than its own period is stale.
 STALE_AFTER = timedelta(hours=24)
 
-# Operation names are fixed here so the hint can name them before they ship
-# (they land in the write registry as separate slices).
+# The write operations this hint points at. Named as constants rather than
+# imported from ``writes.registry``: ``writes`` already imports from
+# ``read_list`` (this module among them), so importing back would close a
+# cycle. ``tests/test_writes/test_registry.py`` asserts both names exist.
 ENABLE_OP = "agent_insights_job.enable"
 TRIGGER_OP = "agent_insights_job.trigger"
+
+
+#: The statuses ``list`` accepts, so a caller's string is never interpolated
+#: into the reply unchecked.
+_KNOWN_STATUSES = frozenset({"open", "resolved", "closed"})
 
 
 async def diagnostics_state_hint(
@@ -48,7 +55,8 @@ async def diagnostics_state_hint(
     settings: Settings,
     project_id: str,
     *,
-    issue_status: str,
+    issue_status: str | None = None,
+    windowed: bool = False,
     now: datetime | None = None,
 ) -> str | None:
     """One or two sentences explaining an empty issue list, or ``None`` when
@@ -72,12 +80,14 @@ async def diagnostics_state_hint(
     trigger_first = f"write('{TRIGGER_OP}', {scope}) runs the first scan now."
     trigger = f"Trigger a scan with write('{TRIGGER_OP}', {scope})."
 
+    status = issue_status if issue_status in _KNOWN_STATUSES else "open"
+    scoped = " in the requested window" if windowed else ""
     if job is None:
         sentences = [f"Diagnostics is not enabled for this project. {enable} {trigger_first}"]
-    elif job.get("status") == "disabled":
-        turned_off = _day(job.get("last_updated_at"))
-        when = f" on {turned_off}" if turned_off else ""
-        sentences = [f"Diagnostics was turned off for this project{when}. {enable} {trigger_first}"]
+    elif str(job.get("status")).lower() == "disabled":
+        # ``last_updated_at`` is the row's mtime — a trigger or a scan moves it
+        # — so it cannot be reported as the date somebody switched this off.
+        sentences = [f"Diagnostics is turned off for this project. {enable} {trigger_first}"]
     else:
         last_scan = parse_instant(str(job.get("last_scan_at") or ""))
         if last_scan is None:
@@ -88,7 +98,7 @@ async def diagnostics_state_hint(
                 f"{trigger}"
             ]
         else:
-            sentences = [f"No {issue_status} issues. Last scan: {to_minute(last_scan)}."]
+            sentences = [f"No {status} issues{scoped}. Last scan: {to_minute(last_scan)}."]
 
     if job is not None and job.get("last_failure_reason"):
         detail = job.get("last_failure_detail")
@@ -99,11 +109,6 @@ async def diagnostics_state_hint(
     if page is not None:
         sentences.append(f"Diagnostics page: {page}")
     return " ".join(sentences)
-
-
-def _day(value: Any) -> str | None:
-    dt = parse_instant(str(value)) if value else None
-    return dt.astimezone(UTC).strftime("%Y-%m-%d") if dt is not None else None
 
 
 __all__ = ["ENABLE_OP", "STALE_AFTER", "TRIGGER_OP", "diagnostics_state_hint"]

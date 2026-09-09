@@ -283,6 +283,9 @@ async def run_list(
             unconstrained=unconstrained,
             settings=resolved_settings,
             issue_status=kw.get("status"),
+            # Diagnostics issues take a report-day window, so an empty page
+            # under one says nothing about the project outside it.
+            windowed="from_date" in kw or "to_date" in kw,
         )
         return f"{header}\n{empty}" if header else empty
 
@@ -308,6 +311,7 @@ async def _empty_message(
     unconstrained: bool,
     settings: Settings,
     issue_status: str | None = None,
+    windowed: bool = False,
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
@@ -326,9 +330,14 @@ async def _empty_message(
         # list_fn; recover it the same way (cached) when the caller passed a name.
         scoped_id = project_id
         if scoped_id is None and project_name is not None:
+            # The list_fn already resolved this name (its own kwargs are a
+            # copy, so the id does not come back) — a cache hit, but treat any
+            # failure as "no hint": this runs outside run_list's error handling
+            # and must not turn an answered list into a raw client error.
             try:
                 scoped_id = await resolve_project_id(opik, project_name)
-            except EntityArgValidationError:
+            except Exception:
+                logger.debug("project re-resolve for the empty-list hint failed", exc_info=True)
                 return empty
         if scoped_id is None:
             return empty
@@ -336,7 +345,8 @@ async def _empty_message(
             opik,
             settings,
             scoped_id,
-            issue_status=issue_status or "open",
+            issue_status=issue_status,
+            windowed=windowed,
         )
         return f"{empty} {hint}" if hint else empty
     if from_time is None:

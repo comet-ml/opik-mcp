@@ -47,6 +47,7 @@ class FakeOpikClient:
     toggles: dict[str, Any] = field(default_factory=lambda: {"ollieEnabled": True})
     toggles_error: Exception | None = None
     toggles_reads: int = 0
+    projects_error: Exception | None = None
     # Credential identity the project-name cache keys on; None mimics a fake
     # with no config, as every other test here has.
     _base_url: str | None = None
@@ -78,6 +79,8 @@ class FakeOpikClient:
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         self.project_lookups += 1
+        if self.projects_error is not None:
+            raise self.projects_error
         return self.projects
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
@@ -507,13 +510,30 @@ async def test_empty_issues_hint_shows_a_payload_the_write_tool_accepts() -> Non
 
 
 @pytest.mark.anyio
-async def test_empty_issues_say_diagnostics_turned_off_with_date() -> None:
-    fake = FakeOpikClient(
-        job=_job("disabled", last_updated_at="2026-09-05T10:00:00.000Z", last_scan_at=_ago(96))
-    )
+async def test_empty_issues_say_diagnostics_is_turned_off() -> None:
+    fake = FakeOpikClient(job=_job("disabled", last_scan_at=_ago(96)))
     out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
-    assert "Diagnostics was turned off for this project on 2026-09-05" in out
+    assert "Diagnostics is turned off for this project" in out
     assert "agent_insights_job.enable" in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_disabled_state_tolerates_backend_casing() -> None:
+    fake = FakeOpikClient(job=_job("DISABLED"))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is turned off for this project" in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_ignore_an_unknown_status_in_the_all_clear() -> None:
+    """``status`` is enum-constrained at the tool boundary; a direct caller's
+    string must not be interpolated into the reply."""
+    fake = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(2)))
+    out = await run_list(
+        "agent_insights_issue", project_id="p-1", status="bogus", client=fake, settings=_UI
+    )
+    assert "No open issues" in out
+    assert "bogus" not in out
 
 
 @pytest.mark.anyio
@@ -523,6 +543,52 @@ async def test_empty_issues_say_enabled_but_never_scanned() -> None:
     assert "Diagnostics is enabled but has not scanned yet" in out
     assert "agent_insights_job.trigger" in out
     assert "agent_insights_job.enable" not in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_all_clear_says_it_only_covers_the_window() -> None:
+    """With since/until the page is narrowed, so "no open issues" is a claim
+    about the window, not about the project."""
+    fake = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(2)))
+    out = await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        since="7d",
+        client=fake,
+        settings=_UI,
+    )
+    assert "No open issues in the requested window." in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_stale_boundary_is_24_hours() -> None:
+    fresh = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(23)))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fresh, settings=_UI)
+    assert "No open issues" in out
+    stale = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(25)))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=stale, settings=_UI)
+    assert "older than a day" in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_disabled_state_does_not_invent_a_turn_off_date() -> None:
+    """``last_updated_at`` is the row's mtime — a trigger or a scan moves it —
+    so it cannot be reported as the date somebody turned Diagnostics off."""
+    fake = FakeOpikClient(
+        job=_job("disabled", last_updated_at="2026-09-05T10:00:00.000Z", last_scan_at=_ago(96))
+    )
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is turned off for this project" in out
+    assert "2026-09-05" not in out
+
+
+@pytest.mark.anyio
+async def test_issue_list_project_failure_is_a_tool_error_not_a_crash() -> None:
+    """The list's own resolve fails first; the hint never runs. Either way the
+    agent gets a ToolError, never a raw client exception."""
+    fake = FakeOpikClient(projects_error=OpikServerError("projects down"))
+    with pytest.raises(ToolError):
+        await run_list("agent_insights_issue", project_name="demo", client=fake, settings=_UI)
 
 
 @pytest.mark.anyio
@@ -627,11 +693,24 @@ async def test_deployment_gate_fails_open_when_toggles_cannot_be_read() -> None:
 
 
 @pytest.mark.anyio
-async def test_deployment_gate_is_read_once_per_process() -> None:
-    fake = FakeOpikClient(toggles={"ollieEnabled": False})
+async def test_deployment_gate_caches_the_available_answer() -> None:
+    fake = FakeOpikClient(toggles={"ollieEnabled": True})
     await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
     await run_list("agent_insights_issue", project_id="p-2", client=fake, settings=_UI)
     assert fake.toggles_reads == 1
+
+
+@pytest.mark.anyio
+async def test_deployment_gate_rechecks_while_unavailable() -> None:
+    """A cached "unavailable" would keep refusing for minutes after an operator
+    switches Ollie on, so only the available answer is remembered."""
+    fake = FakeOpikClient(toggles={"ollieEnabled": False})
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "not available on this deployment" in out
+    fake.toggles = {"ollieEnabled": True}
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is not enabled for this project" in out
+    assert fake.toggles_reads == 2
 
 
 @pytest.mark.anyio

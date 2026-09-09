@@ -420,21 +420,103 @@ async def test_job_enable_flips_an_existing_disabled_job() -> None:
 
 
 @pytest.mark.anyio
-async def test_job_enable_is_idempotent_when_already_enabled() -> None:
+async def test_job_enable_does_not_replay_the_create_key_on_the_patch() -> None:
+    """The follow-up is a different method and body, so it must not carry the
+    create's idempotency key — a backend that replays stored responses would
+    hand back the 409 and the envelope would report it as the PATCH result."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        post = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(409, json={"errors": ["Job already exists"]}),
+        )
+        patch = mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(200, json=_job()),
+        )
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            idempotency_key="caller-key-1",
+            client=_client(),
+        )
+    assert post.calls.last.request.headers.get("Idempotency-Key") == "caller-key-1"
+    assert patch.calls.last.request.headers.get("Idempotency-Key") != "caller-key-1"
+
+
+@pytest.mark.anyio
+async def test_job_enable_reports_the_conflict_when_the_follow_up_also_fails() -> None:
+    """A 409 that was not "job exists" must not vanish behind a PATCH error."""
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
         mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
-            return_value=httpx.Response(409, json={"errors": ["Job already exists"]}),
+            return_value=httpx.Response(409, json={"errors": ["Workspace conflict"]}),
         )
+        mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(404, json={"errors": ["Job not found"]}),
+        )
+        with pytest.raises(BackendError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.enable",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert "Workspace conflict" in json.dumps(body)
+
+
+@pytest.mark.anyio
+async def test_job_enable_dry_run_previews_the_real_path_for_an_id() -> None:
+    """With the UUID in hand nothing needs resolving, so the preview must be
+    the path that would actually be called."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/")
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            dry_run=True,
+            client=_client(),
+        )
+    assert out["would_call"]["path"] == f"/v1/private/agent-insights/jobs/{PROJECT}"
+
+
+@pytest.mark.anyio
+async def test_job_enable_dry_run_says_a_name_is_resolved_at_execution() -> None:
+    out = await run_write(
+        operation="agent_insights_job.enable",
+        data={"project_name": "demo"},
+        dry_run=True,
+        client=_client(),
+    )
+    assert "{project_id}" in out["would_call"]["path"]
+    assert "resolve" in out["would_call"]["note"]
+
+
+@pytest.mark.anyio
+async def test_job_enable_twice_in_a_row_is_safe() -> None:
+    """Whatever the job's state, the second call ends enabled and reports ok —
+    the agent never has to branch on whether it already ran this."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        create = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}")
+        create.side_effect = [
+            httpx.Response(201, json=_job()),
+            httpx.Response(409, json={"errors": ["Job already exists"]}),
+        ]
         mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
             return_value=httpx.Response(200, json=_job()),
         )
-        out = await run_write(
+        first = await run_write(
             operation="agent_insights_job.enable",
             data={"project_id": PROJECT},
             client=_client(),
         )
-    assert out["ok"] is True
+        second = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert first["ok"] is True and first["method"] == "POST"
+    assert second["ok"] is True and second["method"] == "PATCH"
+    assert second["backend_body"]["status"] == "enabled"
 
 
 @pytest.mark.anyio
@@ -493,11 +575,30 @@ async def test_job_enable_refused_when_ollie_is_off() -> None:
 
 
 @pytest.mark.anyio
-async def test_job_enable_requires_exactly_one_project_field() -> None:
+async def test_job_enable_requires_some_project_scope() -> None:
     with pytest.raises(ValidationFailedError) as exc_info:
         await run_write(operation="agent_insights_job.enable", data={}, client=_client())
     body = json.loads(exc_info.value.to_json())
     assert any(i.get("code") == "project_scope_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_job_enable_prefers_project_id_when_both_are_given() -> None:
+    """Same precedence read and list use, so one argument pair behaves the
+    same way everywhere: the id wins and the name is not looked up."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        projects = mock.get("/v1/private/projects")
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT, "project_name": "ignored"},
+            client=_client(),
+        )
+    assert route.called
+    assert not projects.called
 
 
 @pytest.mark.anyio
@@ -580,6 +681,33 @@ async def test_job_trigger_refused_when_ollie_is_off() -> None:
     assert not jobs.called
     body = json.loads(exc_info.value.to_json())
     assert any(i.get("code") == "diagnostics_unavailable" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_diagnostics_gate_is_read_once_across_writes() -> None:
+    """The toggles answer is deployment-wide, so a second operation in the
+    same process reuses it."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        toggles = mock.get("/v1/private/toggles/").mock(
+            return_value=httpx.Response(200, json=_TOGGLES_ON)
+        )
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(202),
+        )
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+        await run_write(
+            operation="agent_insights_job.trigger",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert len(toggles.calls) == 1
 
 
 @pytest.mark.anyio

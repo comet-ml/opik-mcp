@@ -51,7 +51,7 @@ Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id`
 | The list says | Do this |
 | --- | --- |
 | no open issues, last scan `<time>` | Diagnostics is working and found nothing. Continue to step 3. |
-| enabled but has not scanned yet, or last scan older than a day | `write('agent_insights_job.trigger', {project_name: '<project>'})`, report the Diagnostics page link, continue to step 3. No need to ask: a scan changes no data. |
+| enabled but has not scanned yet, or last scan older than a day | `write('agent_insights_job.trigger', {"project_name": "<project>"})`, report the Diagnostics page link, continue to step 3. No need to ask: a scan changes no data. |
 | not enabled for this project, or turned off | Ask the user once, in one sentence: "Enable daily Diagnostics for `<project>`? First results take a few minutes." On yes: `enable`, then `trigger`, report the link, continue. On no: continue and say the shortlist was built without Diagnostics. |
 | not available on this deployment | Continue, and say once that this deployment has no Diagnostics. Do not offer to enable it. |
 

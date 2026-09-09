@@ -18,7 +18,6 @@ declare a working feature unavailable.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import time
 from typing import Any
@@ -43,7 +42,11 @@ _OLLIE_FIELDS = ("ollieEnabled", "ollie_enabled")
 # could live forever; a few minutes keeps a mid-session rollout visible.
 _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX_ENTRIES = 64
-_CacheKey = tuple[str | None, str | None]
+_CacheKey = str | None
+#: Only "available" is cached. A cached "unavailable" would keep refusing
+#: enable/trigger for minutes after an operator switches Ollie on, with a
+#: message that reads permanent; the cost of not caching it is one extra GET
+#: per call on a deployment that has no Diagnostics at all.
 _cache: dict[_CacheKey, tuple[bool, float]] = {}
 
 UNAVAILABLE_SENTENCE = (
@@ -53,14 +56,15 @@ UNAVAILABLE_SENTENCE = (
 
 
 def _cache_key(client: OpikListClient) -> _CacheKey:
+    """Keyed by the deployment alone.
+
+    The toggles endpoint answers for the whole deployment, not per workspace
+    or per caller, so the credential is deliberately not part of the key: it
+    would mint a fresh entry on every OAuth token refresh and churn the cache
+    for an answer that does not vary.
+    """
     base_url = getattr(client, "_base_url", None)
-    credential = getattr(client, "_api_key", None)
-    credential_hash = (
-        hashlib.sha256(credential.encode()).hexdigest()[:16]
-        if isinstance(credential, str) and credential
-        else None
-    )
-    return (base_url if isinstance(base_url, str) and base_url else None, credential_hash)
+    return base_url if isinstance(base_url, str) and base_url else None
 
 
 def reset_deployment_cache_for_tests() -> None:
@@ -98,9 +102,10 @@ async def diagnostics_available(client: OpikListClient) -> bool:
             available = bool(toggles[field])
             break
 
-    if len(_cache) >= _CACHE_MAX_ENTRIES:
-        _cache.pop(next(iter(_cache)), None)
-    _cache[key] = (available, time.monotonic() + _CACHE_TTL_SECONDS)
+    if available:
+        if len(_cache) >= _CACHE_MAX_ENTRIES:
+            _cache.pop(next(iter(_cache)), None)
+        _cache[key] = (available, time.monotonic() + _CACHE_TTL_SECONDS)
     return available
 
 

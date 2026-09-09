@@ -107,6 +107,12 @@ async def run_write(
         # both resolved here, before any jobs request goes out.
         diagnostics_project_id = await _prepare_diagnostics_job(op, items, http_client)
 
+    if dry_run and op.name in _DIAGNOSTICS_JOB_OPS:
+        # A UUID the caller already passed needs no network, so the preview
+        # can be the real path; only a name is left as the template.
+        raw_id = getattr(items[0], "project_id", None)
+        diagnostics_project_id = str(raw_id) if raw_id is not None else None
+
     method, path, body = _build_request_with_method(
         op, items, is_batch=is_batch, project_id=diagnostics_project_id
     )
@@ -131,15 +137,35 @@ async def run_write(
                 "thread comments resolve the thread_id string to the thread's model "
                 "UUID at execution; the live path will use /threads/{model_uuid}/comments."
             )
+        if op.name in _DIAGNOSTICS_JOB_OPS and diagnostics_project_id is None:
+            would_call["note"] = (
+                "project_name is resolved to the project's UUID at execution; the "
+                "live path will carry that id. The live call also refuses if the "
+                "deployment has no Diagnostics, which dry_run does not check."
+            )
         return {"dry_run": True, "would_call": would_call}
 
     assert http_client is not None  # set above whenever not dry_run
     resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
     if op.name == "agent_insights_job.enable" and resp.status_code == 409:
-        # The job already exists, which is not a failure of "turn it on": flip
-        # its status instead, so a repeated enable is safe either way.
+        # The backend 409s this route when the job exists, which is not a
+        # failure of "turn it on": flip its status instead, so a repeated
+        # enable is safe. The follow-up is a different method and body, so it
+        # gets no idempotency key — replaying the create's key could hand back
+        # the stored 409 and report it as the PATCH's result. If the follow-up
+        # fails, the original conflict is carried into the error so a 409 that
+        # meant something else is not lost behind a PATCH failure.
+        conflict = _safe_body(resp)
         method, path, body = "PATCH", path, {"status": "enabled"}
-        resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
+        resp = await http_client.write_json(method, path, body)
+        if not (200 <= resp.status_code < 300):
+            raise BackendError.build(
+                op.name,
+                resp.status_code,
+                {"create_conflict": conflict, "update_error": _safe_body(resp)},
+                method=method,
+                path=path,
+            )
     if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
         # The backend 404s a trigger when the project has no job. That is a
         # missing prerequisite, not a lost resource, so name the fix.
@@ -148,8 +174,9 @@ async def run_write(
             [
                 ValidationIssue(
                     "",
-                    "Diagnostics is not enabled for this project; enable it first "
-                    "with write('agent_insights_job.enable', …).",
+                    "Diagnostics is not enabled for this project (or this backend "
+                    "has no Diagnostics API); enable it first with "
+                    "write('agent_insights_job.enable', …).",
                     "diagnostics_not_enabled",
                 )
             ],
@@ -170,6 +197,12 @@ async def run_write(
     return out
 
 
+#: The Diagnostics job operations. Both take the project in the path as a
+#: UUID and are pointless where the deployment has no Diagnostics, so the
+#: dispatcher treats them alike rather than branching on each name.
+_DIAGNOSTICS_JOB_OPS = frozenset({"agent_insights_job.enable", "agent_insights_job.trigger"})
+
+
 async def _prepare_diagnostics_job(
     op: WriteOperation, items: list[BaseModel], client: OpikClient
 ) -> str | None:
@@ -178,7 +211,7 @@ async def _prepare_diagnostics_job(
 
     Returns the project id, or ``None`` for every other operation.
     """
-    if not op.name.startswith("agent_insights_job."):
+    if op.name not in _DIAGNOSTICS_JOB_OPS:
         return None
     if not await diagnostics_available(client):
         raise ValidationFailedError.build(
@@ -494,7 +527,7 @@ def _build_request(
     """
     name = op.name
 
-    if name.startswith("agent_insights_job."):
+    if name in _DIAGNOSTICS_JOB_OPS:
         # The project is in the path and the payload was only ever scope, so
         # the body is empty. ``project_id`` is the resolved UUID (a name was
         # resolved before the call); dry_run has none, and echoes the template.
