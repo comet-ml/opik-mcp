@@ -538,9 +538,13 @@ async def test_empty_issues_ignore_an_unknown_status_in_the_all_clear() -> None:
 
 @pytest.mark.anyio
 async def test_empty_issues_say_enabled_but_never_scanned() -> None:
+    """The job record carries no "run in flight" field (the UI tracks that in
+    its own state), so a scan started a minute ago looks the same as none at
+    all. Say both rather than telling the agent to trigger a duplicate."""
     fake = FakeOpikClient(job=_job("enabled"))
     out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
-    assert "Diagnostics is enabled but has not scanned yet" in out
+    assert "Diagnostics is enabled but has no completed scan yet" in out
+    assert "may still be running" in out
     assert "agent_insights_job.trigger" in out
     assert "agent_insights_job.enable" not in out
 

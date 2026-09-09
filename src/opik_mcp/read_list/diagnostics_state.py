@@ -91,7 +91,13 @@ async def diagnostics_state_hint(
     else:
         last_scan = parse_instant(str(job.get("last_scan_at") or ""))
         if last_scan is None:
-            sentences = [f"Diagnostics is enabled but has not scanned yet. {trigger}"]
+            # The job record has no "run in flight" field, so a scan started a
+            # minute ago is indistinguishable from none at all. Cover both, or
+            # an agent that just triggered one is told to trigger another.
+            sentences = [
+                "Diagnostics is enabled but has no completed scan yet. A run "
+                f"started in the last few minutes may still be running; otherwise {trigger}"
+            ]
         elif now - last_scan > STALE_AFTER:
             sentences = [
                 f"Diagnostics is enabled; last scan {to_minute(last_scan)}, older than a day. "
