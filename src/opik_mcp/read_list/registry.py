@@ -41,6 +41,7 @@ from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
 from opik_mcp.read_list.project_scope import require_project_id
+from opik_mcp.read_list.project_summary import WINDOW_DAYS, trace_summary
 from opik_mcp.read_list.ui_links import project_page_url
 
 # Inline caps for composite reads — match the previous resources.py
@@ -154,7 +155,31 @@ def _candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def _fetch_project(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
-    return await client.get_project(entity_id)
+    """Project record + the week's figures.
+
+    The record alone carries no numbers — ``GET /projects/{id}`` serves the
+    ``View.Public`` projection, and every aggregate lives on ``View.Detailed``
+    — so "how is my project doing" needed a second call anyway. Making it part
+    of the read means the agent has an answer on the first call instead of a
+    name and a creation date.
+    """
+    project = await client.get_project(entity_id)
+    return {
+        "project": project,
+        "summary": await trace_summary(client, entity_id),
+        # link_fn needs the project the read was addressed by; underscore keys
+        # are stripped by the read tool once links are attached.
+        "_project_id": entity_id,
+    }
+
+
+def _project_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
+    """The project's Logs page — where the summary's numbers are on screen."""
+    project_id = data.get("_project_id")
+    if not isinstance(project_id, str):
+        return {}
+    page = project_page_url(settings, project_id, "logs")
+    return {} if page is None else {"url": page}
 
 
 async def _fetch_trace(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -619,7 +644,16 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         # last_updated_trace_at lets the agent pick the project with live
         # traffic in one call instead of probing each one.
         list_extra_fields=("created_at", "last_updated_trace_at"),
-        description="Project metadata + stats (trace_count, last activity).",
+        link_fn=_project_links,
+        description=(
+            "Project metadata + the week's figures. Returns {project, summary, url}: "
+            f"the record, then trace count, error rate, average duration and total "
+            f"cost over the last {WINDOW_DAYS} days against the {WINDOW_DAYS} before, "
+            "SDK-logged traffic only — the same four cards the Logs page shows. A "
+            "rate or an average over a period with no traces is reported as null, "
+            "not zero. If the metrics call fails, summary carries an error rather "
+            "than zeros."
+        ),
     ),
     "trace": EntityHandler(
         entity_type="trace",

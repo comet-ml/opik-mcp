@@ -467,3 +467,90 @@ async def test_non_object_json_surfaces_as_server_error() -> None:
         )
         with pytest.raises(OpikServerError, match="non-object"):
             await _client().get_project("p-1")
+
+
+# --- project KPI cards ---------------------------------------------------- #
+#
+# The wire shape here is easy to get wrong from the Java alone, and two of
+# these were: `filters` is a JSON-encoded STRING (KpiCardRequest declares
+# `String filters`, not a list), and the window travels as explicit instants
+# rather than a relative span. Verified live against www.comet.com.
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_posts_entity_type_window_and_filters_as_a_json_string() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json={"stats": []}),
+        )
+        await _client().get_project_kpi_cards(
+            "p-1",
+            entity_type="traces",
+            interval_start="2026-09-02T00:00:00Z",
+            interval_end="2026-09-09T00:00:00Z",
+            filters='[{"field":"source","operator":"=","value":"sdk"}]',
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "entity_type": "traces",
+        "interval_start": "2026-09-02T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "filters": '[{"field":"source","operator":"=","value":"sdk"}]',
+    }
+    assert isinstance(sent["filters"], str), "the backend declares filters as a String"
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_omits_unset_fields() -> None:
+    """An empty ``filters`` is malformed JSON to the backend, so it is omitted
+    rather than sent blank — same rule as the list endpoints' query params."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json={"stats": []}),
+        )
+        await _client().get_project_kpi_cards(
+            "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"entity_type": "traces", "interval_start": "2026-09-02T00:00:00Z"}
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_returns_the_stats_list_verbatim() -> None:
+    """Order is the backend's (count, avg_duration, total_cost, errors) — not
+    the UI's card order — and `avg_duration` is null while the counters are
+    zero for an empty period. The client passes both through untouched; the
+    registry is what interprets them."""
+    payload = {
+        "stats": [
+            {"type": "count", "current_value": 5.0, "previous_value": 0.0},
+            {"type": "avg_duration", "current_value": 602.24, "previous_value": None},
+            {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+            {"type": "errors", "current_value": 20.0, "previous_value": 0.0},
+        ]
+    }
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_project_kpi_cards(
+            "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+        )
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_maps_a_rejected_filter_to_validation() -> None:
+    """The backend's 400 for a bad filter names neither the offending field nor
+    the valid ones, so it is only useful as a typed error — local validation is
+    what produces a usable message."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(
+                400, json={"code": 400, "message": "Invalid filters query parameter '[…]'"}
+            ),
+        )
+        with pytest.raises(OpikValidationError):
+            await _client().get_project_kpi_cards(
+                "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+            )

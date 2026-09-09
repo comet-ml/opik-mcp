@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -45,11 +46,35 @@ class FakeOpikClient:
     fail_issue_with: Exception | None = None
     project_lookups: int = 0
     fail_list_traces: bool = False
+    kpi_stats: list[dict[str, Any]] = field(default_factory=list)
+    last_kpi_kwargs: dict[str, Any] = field(default_factory=dict)
+    fail_kpi_with: Exception | None = None
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
         if project_id not in self.projects_by_id:
             raise OpikNotFoundError(f"project {project_id!r} not found (404).")
         return self.projects_by_id[project_id]
+
+    async def get_project_kpi_cards(
+        self,
+        project_id: str,
+        /,
+        *,
+        entity_type: str,
+        interval_start: str,
+        interval_end: str | None = None,
+        filters: str | None = None,
+    ) -> dict[str, Any]:
+        self.last_kpi_kwargs = {
+            "project_id": project_id,
+            "entity_type": entity_type,
+            "interval_start": interval_start,
+            "interval_end": interval_end,
+            "filters": filters,
+        }
+        if self.fail_kpi_with is not None:
+            raise self.fail_kpi_with
+        return {"stats": self.kpi_stats}
 
     async def list_projects(
         self,
@@ -962,3 +987,171 @@ async def test_read_missing_project_scope_error_is_entity_neutral() -> None:
     assert "project_id" in msg
     assert "project_name" in msg
     assert "link" in msg
+
+
+# --- project overview: the week's numbers -------------------------------- #
+#
+# `read('project')` used to return eight metadata fields and not one number,
+# so "how is my project doing" was answered by counting raw traces. These pin
+# the summary block: the four figures the Logs page cards show, the window
+# they cover, and the two ways the backend's answer can mislead if passed
+# through as-is (metric order, and zero-vs-no-data).
+
+_PROJECT = {
+    "id": UUID,
+    "name": "demo",
+    "visibility": "private",
+    "last_updated_trace_at": "2026-09-09T13:41:26.910Z",
+}
+
+# The backend's own order — count, avg_duration, total_cost, errors — which is
+# NOT the order the UI renders the cards in.
+_STATS = [
+    {"type": "count", "current_value": 1204.0, "previous_value": 980.0},
+    {"type": "avg_duration", "current_value": 1830.4, "previous_value": 2100.9},
+    {"type": "total_cost", "current_value": 4.12, "previous_value": 3.05},
+    {"type": "errors", "current_value": 2.1, "previous_value": 4.7},
+]
+
+
+def _project_fake(**kw: Any) -> FakeOpikClient:
+    kw.setdefault("projects_by_id", {UUID: _PROJECT})
+    kw.setdefault("kpi_stats", _STATS)
+    return FakeOpikClient(**kw)
+
+
+@pytest.mark.anyio
+async def test_read_project_returns_the_four_figures_with_current_and_previous() -> None:
+    """The headline: traces, error rate, latency and cost, each against the
+    period before, so the agent can say what changed without a second call."""
+    body = _payload(await run_read("project", UUID, client=_project_fake()))
+    traces = body["summary"]["traces"]
+    assert traces["count"] == {"current": 1204.0, "previous": 980.0}
+    assert traces["errors"] == {"current": 2.1, "previous": 4.7}
+    assert traces["avg_duration"] == {"current": 1830.4, "previous": 2100.9}
+    assert traces["total_cost"] == {"current": 4.12, "previous": 3.05}
+    assert body["project"]["name"] == "demo"
+
+
+@pytest.mark.anyio
+async def test_read_project_maps_figures_by_type_not_by_position() -> None:
+    """The backend returns the stats in its own order, and it is not the UI's.
+    Reading them positionally would label cost as duration — silently, and
+    plausibly, which is the worst kind of wrong."""
+    shuffled = [_STATS[3], _STATS[2], _STATS[0], _STATS[1]]
+    body = _payload(await run_read("project", UUID, client=_project_fake(kpi_stats=shuffled)))
+    traces = body["summary"]["traces"]
+    assert traces["count"]["current"] == 1204.0
+    assert traces["total_cost"]["current"] == 4.12
+
+
+@pytest.mark.anyio
+async def test_read_project_covers_the_last_seven_days_against_the_previous_seven() -> None:
+    """The default window is the one the question asks about. The backend
+    derives the comparison period from the window's own length, so a 7-day
+    window compares against the 7 days before it."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    sent = fake.last_kpi_kwargs
+    start = datetime.fromisoformat(sent["interval_start"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(sent["interval_end"].replace("Z", "+00:00"))
+    assert (end - start) == timedelta(days=7)
+    assert end <= datetime.now(UTC) + timedelta(seconds=5)
+
+    window = body["summary"]["window"]
+    assert window["days"] == 7
+    assert window["since"] == sent["interval_start"]
+    assert window["until"] == sent["interval_end"]
+
+
+@pytest.mark.anyio
+async def test_read_project_counts_only_sdk_traffic_and_says_so() -> None:
+    """The Logs page cards hardcode source = "sdk", and so does list('trace').
+    A project read that quietly counted experiment and playground traffic too
+    would never reconcile with the number on the user's screen."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    assert json.loads(fake.last_kpi_kwargs["filters"]) == [
+        {"field": "source", "operator": "=", "value": "sdk"}
+    ]
+    assert fake.last_kpi_kwargs["entity_type"] == "traces"
+    assert body["summary"]["source"] == "sdk"
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_rate_over_no_traces_as_undefined() -> None:
+    """For an empty period the backend returns a zero count AND a zero error
+    rate. Passed through, that reads as "0% errors — healthy", which is advice
+    someone may act on. A rate and an average over no samples are undefined;
+    a count and a sum are honestly zero."""
+    empty = [
+        {"type": "count", "current_value": 0.0, "previous_value": 0.0},
+        {"type": "avg_duration", "current_value": None, "previous_value": None},
+        {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+        {"type": "errors", "current_value": 0.0, "previous_value": 0.0},
+    ]
+    body = _payload(await run_read("project", UUID, client=_project_fake(kpi_stats=empty)))
+    traces = body["summary"]["traces"]
+    assert traces["count"] == {"current": 0.0, "previous": 0.0}
+    assert traces["total_cost"] == {"current": 0.0, "previous": 0.0}
+    assert traces["errors"]["current"] is None
+    assert traces["avg_duration"]["current"] is None
+    assert "no" in body["summary"]["note"].lower()
+
+
+@pytest.mark.anyio
+async def test_read_project_keeps_a_real_zero_error_rate() -> None:
+    """The mirror case: traces ran and none failed. That zero is a fact and
+    must survive — blanking it would be as misleading as inventing it."""
+    clean = [
+        {"type": "count", "current_value": 300.0, "previous_value": 0.0},
+        {"type": "avg_duration", "current_value": 12.0, "previous_value": None},
+        {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+        {"type": "errors", "current_value": 0.0, "previous_value": 0.0},
+    ]
+    body = _payload(await run_read("project", UUID, client=_project_fake(kpi_stats=clean)))
+    assert body["summary"]["traces"]["errors"]["current"] == 0.0
+    assert "note" not in body["summary"]
+
+
+@pytest.mark.anyio
+async def test_read_project_says_the_metrics_failed_rather_than_reporting_zeros() -> None:
+    """A block that could not be loaded must never look like data. Same rule as
+    a thread's messages: an empty answer where the metadata says otherwise is
+    worse than an error."""
+    fake = _project_fake(fail_kpi_with=OpikServerError("kpi-cards 503"))
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    assert body["project"]["name"] == "demo", "the project record still arrives"
+    assert "traces" not in body["summary"]
+    assert "503" in body["summary"]["error"]
+    assert "list('trace'" in body["summary"]["error"], "the error names a way forward"
+
+
+@pytest.mark.anyio
+async def test_read_project_fails_when_the_project_record_fails() -> None:
+    """The project is the primary payload — unlike the summary, there is no
+    useful answer without it."""
+    with pytest.raises(ToolError, match="Not found"):
+        await run_read("project", UUID, client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_read_project_carries_a_link_to_its_page() -> None:
+    body = _payload(await run_read("project", UUID, client=_project_fake(), settings=_UI_SETTINGS))
+    assert body["url"] == f"https://opik.test/demo-ws/projects/{UUID}/logs"
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_the_link_when_opik_url_is_unconfigured() -> None:
+    """No link beats a wrong one. The summary still arrives — the link is a
+    convenience, the numbers are the answer."""
+    bare = Settings(
+        opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
+    )
+    body = _payload(await run_read("project", UUID, client=_project_fake(), settings=bare))
+    assert "url" not in body
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+    assert "_project_id" not in body

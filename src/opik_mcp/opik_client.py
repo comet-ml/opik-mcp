@@ -219,6 +219,17 @@ class OpikReadClient(OpikListClient, Protocol):
 
     async def get_project(self, project_id: str, /) -> dict[str, Any]: ...
 
+    async def get_project_kpi_cards(
+        self,
+        project_id: str,
+        /,
+        *,
+        entity_type: str,
+        interval_start: str,
+        interval_end: str | None = None,
+        filters: str | None = None,
+    ) -> dict[str, Any]: ...
+
     async def get_trace(self, trace_id: str, /) -> dict[str, Any]: ...
 
     async def get_span(self, span_id: str, /) -> dict[str, Any]: ...
@@ -411,11 +422,55 @@ class OpikClient:
         )
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
-        """``GET /v1/private/projects/{id}`` — single project record."""
+        """``GET /v1/private/projects/{id}`` — single project record.
+
+        Serves the ``View.Public`` projection: metadata and
+        ``last_updated_trace_at``, but none of the aggregates
+        (``trace_count``, ``error_count``, cost, duration) — those live on
+        ``View.Detailed``, which only ``GET /projects/stats`` returns.
+        """
         return await self._get_json(
             f"/v1/private/projects/{project_id}",
             params=None,
             entity_hint=f"project {project_id!r}",
+        )
+
+    async def get_project_kpi_cards(
+        self,
+        project_id: str,
+        /,
+        *,
+        entity_type: str,
+        interval_start: str,
+        interval_end: str | None = None,
+        filters: str | None = None,
+    ) -> dict[str, Any]:
+        """``POST /v1/private/projects/{id}/kpi-cards`` — the Logs page's four cards.
+
+        Returns ``{stats: [{type, current_value, previous_value}]}`` for
+        ``count``, ``errors`` (a percentage in [0, 100]), ``avg_duration`` (ms)
+        and ``total_cost`` (USD). The previous period is the backend's own:
+        ``[start - (end - start), start)``, so a 7-day window compares against
+        the 7 days before it.
+
+        Two wire details worth naming, both verified live rather than inferred:
+        ``filters`` is a JSON-encoded **string** (``KpiCardRequest`` declares
+        ``String filters``), and the entity kind decides the shape — ``threads``
+        comes back with three entries, no ``errors`` at all, because the backend
+        does not compute an error rate for threads.
+        """
+        body = _drop_none(
+            {
+                "entity_type": entity_type,
+                "interval_start": interval_start,
+                "interval_end": interval_end,
+                "filters": filters,
+            }
+        )
+        return await self._post_json(
+            f"/v1/private/projects/{project_id}/kpi-cards",
+            json=body,
+            entity_hint=f"project {project_id!r} KPI cards",
         )
 
     # -- reads: traces / spans --
