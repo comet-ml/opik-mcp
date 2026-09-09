@@ -349,16 +349,17 @@ as for traces narrow the window, truncated to UTC report days because
 Diagnostics aggregates per day.
 
 An empty list says why it is empty, because "nothing is broken" and "nobody
-turned Diagnostics on" look identical otherwise. It names one of: Diagnostics
-is unavailable on this deployment; it is not enabled for this project; it was
-turned off; it is enabled but has not scanned recently; or there are no open
-issues, with the time of the last scan. Where an action would help it names it,
-and it links the project's Diagnostics page. `write("agent_insights_job.enable",
-{"project_name": "demo"})` turns Diagnostics on (daily scans from then on, safe
-to repeat) and `write("agent_insights_job.trigger", …)` runs a scan now over the
-last 24 hours rather than waiting for the nightly run. Both need only the
-permission that reading issues needs, and both refuse on a deployment that has
-no Diagnostics.
+turned Diagnostics on" read the same otherwise. There are five states:
+Diagnostics is unavailable on this deployment, not enabled for this project,
+turned off, enabled but not scanned recently, or enabled and clean with the
+time of the last scan. The ones you can act on name the call to make, and every
+state links the project's Diagnostics page.
+
+`write("agent_insights_job.enable", {"project_name": "demo"})` turns Diagnostics
+on. It scans daily from then on, and calling it again is safe.
+`write("agent_insights_job.trigger", …)` scans the last 24 hours now, without
+waiting for the nightly run. Both take the permission that reading issues takes,
+and both refuse where the deployment has no Diagnostics.
 
 ### `write`
 
@@ -380,7 +381,7 @@ backend response.
 | `test_suite_item.upsert` | Upsert items into a test suite (always the envelope shape). |
 | `experiment.create` | Create an experiment scoped to a test suite. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
-| `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans). Idempotent. |
+| `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans, safe to repeat). |
 | `agent_insights_job.trigger` | Run a Diagnostics scan now, over the last 24 hours. |
 
 ```python
