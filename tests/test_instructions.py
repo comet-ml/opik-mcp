@@ -186,3 +186,12 @@ def test_render_names_the_trace_link_template() -> None:
 def test_render_omits_the_trace_link_when_opik_is_unconfigured() -> None:
     out = render_instructions(_settings(opik_url=None, comet_url_override=""))
     assert "session/redirect" not in out
+
+
+def test_render_says_a_dated_issue_report_is_not_the_whole_window() -> None:
+    """Diagnostics groups what its last scan saw. Asked for a week and handed
+    issues through yesterday, an agent that stops there reports a false
+    all-clear for the gap, so the blob sends it on to raw traces."""
+    out = render_instructions(_settings())
+    assert "Report covers data through" in out
+    assert "list('trace'" in out

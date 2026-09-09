@@ -8,8 +8,13 @@ never runs and the job never records a failure. Nothing in the data says
 
 The one honest signal is the backend's own service toggle, the same one the
 UI reads to decide whether to show the Diagnostics page. This module reads it
-and remembers the answer for the process, so the gate costs one request per
-deployment rather than one per call.
+on the paths that would otherwise promise a scan that cannot happen: an empty
+issue list, and the two job write operations.
+
+Read fresh every time. The gate is only consulted for Diagnostics work — a
+handful of calls in a session, against a cheap toggles endpoint — so a cache
+would trade a live answer for savings nobody measures, and an operator
+switching Ollie on mid-session sees it at once.
 
 Failing open is deliberate: a toggles endpoint that errors, or a backend too
 old to carry the field, must leave today's behaviour intact rather than
@@ -19,7 +24,6 @@ declare a working feature unavailable.
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any
 
 import httpx
@@ -38,51 +42,14 @@ logger = logging.getLogger("opik_mcp.read_list.deployment")
 # ``ollie_enabled``. Accept both so neither side's spelling is load-bearing.
 _OLLIE_FIELDS = ("ollieEnabled", "ollie_enabled")
 
-# A deployment's feature set does not change under a running session, so this
-# could live forever; a few minutes keeps a mid-session rollout visible.
-_CACHE_TTL_SECONDS = 300.0
-_CACHE_MAX_ENTRIES = 64
-_CacheKey = str | None
-#: Only "available" is cached. A cached "unavailable" would keep refusing
-#: enable/trigger for minutes after an operator switches Ollie on, with a
-#: message that reads permanent; the cost of not caching it is one extra GET
-#: per call on a deployment that has no Diagnostics at all.
-_cache: dict[_CacheKey, tuple[bool, float]] = {}
-
 UNAVAILABLE_SENTENCE = (
     "Diagnostics is not available on this deployment (Ollie is off); it cannot "
     "be enabled through the MCP."
 )
 
 
-def _cache_key(client: OpikListClient) -> _CacheKey:
-    """Keyed by the deployment alone.
-
-    The toggles endpoint answers for the whole deployment, not per workspace
-    or per caller, so the credential is deliberately not part of the key: it
-    would mint a fresh entry on every OAuth token refresh and churn the cache
-    for an answer that does not vary.
-    """
-    base_url = getattr(client, "_base_url", None)
-    return base_url if isinstance(base_url, str) and base_url else None
-
-
-def reset_deployment_cache_for_tests() -> None:
-    """Drop the cached toggles. Test-only: fakes carry no config, so they all
-    share one key and one test's answer would satisfy the next."""
-    _cache.clear()
-
-
 async def diagnostics_available(client: OpikListClient) -> bool:
     """Is Diagnostics available on this deployment? Fails open."""
-    key = _cache_key(client)
-    hit = _cache.get(key)
-    if hit is not None:
-        available, expires_at = hit
-        if time.monotonic() < expires_at:
-            return available
-        _cache.pop(key, None)
-
     try:
         toggles: dict[str, Any] = await client.get_service_toggles()
     except (
@@ -92,25 +59,13 @@ async def diagnostics_available(client: OpikListClient) -> bool:
         OpikServerError,
         httpx.HTTPError,
     ):
-        # Not cached: the next call retries rather than inheriting a guess.
         logger.debug("service toggles lookup failed; assuming Diagnostics is available")
         return True
 
-    available = True
     for field in _OLLIE_FIELDS:
         if field in toggles:
-            available = bool(toggles[field])
-            break
-
-    if available:
-        if len(_cache) >= _CACHE_MAX_ENTRIES:
-            _cache.pop(next(iter(_cache)), None)
-        _cache[key] = (available, time.monotonic() + _CACHE_TTL_SECONDS)
-    return available
+            return bool(toggles[field])
+    return True
 
 
-__all__ = [
-    "UNAVAILABLE_SENTENCE",
-    "diagnostics_available",
-    "reset_deployment_cache_for_tests",
-]
+__all__ = ["UNAVAILABLE_SENTENCE", "diagnostics_available"]

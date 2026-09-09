@@ -46,7 +46,10 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     make_opik_client,
 )
-from opik_mcp.read_list.diagnostics_state import diagnostics_state_hint
+from opik_mcp.read_list.diagnostics_state import (
+    diagnostics_coverage_note,
+    diagnostics_state_hint,
+)
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
     SOURCE_DEFAULTED_ENTITIES,
@@ -170,6 +173,7 @@ async def run_list(
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)
 
+    to_time: str | None = None
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
         if entity_type not in WINDOWED_ENTITIES and not day_windowed:
@@ -291,7 +295,61 @@ async def run_list(
 
     extra = _requested_columns(sort_field, clauses)
     table = _format_table(entity_type, handler, content, total, page, size, name, extra)
+    if entity_type == "agent_insights_issue":
+        note = await _issue_coverage_note(
+            opik,
+            resolved_settings,
+            project_name=kw.get("project_name"),
+            project_id=kw.get("project_id"),
+            to_time=to_time,
+        )
+        if note is not None:
+            table = f"{table}\n\n{note}"
     return f"{header}\n{table}" if header else table
+
+
+async def _issue_project_id(
+    opik: OpikListClient, project_id: str | None, project_name: str | None
+) -> str | None:
+    """The project id an issue list ran under, or ``None`` when it cannot be
+    recovered. The list_fn resolved the name already and got its own copy of
+    the kwargs, so a name has to be re-resolved here — a cache hit in practice.
+
+    Any failure is ``None``: this runs outside ``run_list``'s error handling
+    and must never turn an answered list into a raw client error."""
+    if project_id is not None:
+        return project_id
+    if project_name is None:
+        return None
+    try:
+        return await resolve_project_id(opik, project_name)
+    except Exception:
+        logger.debug("project re-resolve for a Diagnostics hint failed", exc_info=True)
+        return None
+
+
+async def _issue_coverage_note(
+    opik: OpikListClient,
+    settings: Settings,
+    *,
+    project_name: str | None,
+    project_id: str | None,
+    to_time: str | None,
+) -> str | None:
+    """As-of date for a non-empty Diagnostics page, and the uncovered tail."""
+    scoped_id = await _issue_project_id(opik, project_id, project_name)
+    if scoped_id is None:
+        return None
+    try:
+        return await diagnostics_coverage_note(
+            opik,
+            settings,
+            scoped_id,
+            window_end=parse_instant(to_time) if to_time else None,
+        )
+    except Exception:
+        logger.debug("coverage note for the issue list failed", exc_info=True)
+        return None
 
 
 _SOURCE_HINT = (
@@ -326,19 +384,7 @@ async def _empty_message(
     """
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
     if entity_type == "agent_insights_issue":
-        # The issue list's project scope is already resolved to an id by its
-        # list_fn; recover it the same way (cached) when the caller passed a name.
-        scoped_id = project_id
-        if scoped_id is None and project_name is not None:
-            # The list_fn already resolved this name (its own kwargs are a
-            # copy, so the id does not come back) — a cache hit, but treat any
-            # failure as "no hint": this runs outside run_list's error handling
-            # and must not turn an answered list into a raw client error.
-            try:
-                scoped_id = await resolve_project_id(opik, project_name)
-            except Exception:
-                logger.debug("project re-resolve for the empty-list hint failed", exc_info=True)
-                return empty
+        scoped_id = await _issue_project_id(opik, project_id, project_name)
         if scoped_id is None:
             return empty
         hint = await diagnostics_state_hint(

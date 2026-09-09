@@ -697,17 +697,19 @@ async def test_deployment_gate_fails_open_when_toggles_cannot_be_read() -> None:
 
 
 @pytest.mark.anyio
-async def test_deployment_gate_caches_the_available_answer() -> None:
+async def test_deployment_gate_reads_the_toggle_per_call() -> None:
+    """Not cached: the gate is consulted only for Diagnostics work, so a live
+    answer is worth more than the saved request."""
     fake = FakeOpikClient(toggles={"ollieEnabled": True})
     await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
     await run_list("agent_insights_issue", project_id="p-2", client=fake, settings=_UI)
-    assert fake.toggles_reads == 1
+    assert fake.toggles_reads == 2
 
 
 @pytest.mark.anyio
-async def test_deployment_gate_rechecks_while_unavailable() -> None:
-    """A cached "unavailable" would keep refusing for minutes after an operator
-    switches Ollie on, so only the available answer is remembered."""
+async def test_deployment_gate_sees_ollie_switched_on_mid_session() -> None:
+    """The reason the answer is not remembered: refusing for minutes after an
+    operator switches Ollie on would read as permanent."""
     fake = FakeOpikClient(toggles={"ollieEnabled": False})
     out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
     assert "not available on this deployment" in out
@@ -718,7 +720,7 @@ async def test_deployment_gate_rechecks_while_unavailable() -> None:
 
 
 @pytest.mark.anyio
-async def test_deployment_gate_miss_is_not_cached() -> None:
+async def test_deployment_gate_failure_does_not_stick() -> None:
     fake = FakeOpikClient(toggles_error=OpikServerError("boom"))
     await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
     fake.toggles_error = None
@@ -729,10 +731,95 @@ async def test_deployment_gate_miss_is_not_cached() -> None:
 
 
 @pytest.mark.anyio
-async def test_non_empty_issues_do_not_read_the_job() -> None:
-    fake = FakeOpikClient(issues={"content": [ISSUE_ROW], "total": 1})
+async def test_non_empty_issues_read_the_job_once_for_coverage() -> None:
+    """One extra GET buys the answer's as-of date. Without it a week-old report
+    reads as current, which is the false all-clear again in a new costume."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(1))
+    )
     await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
-    assert fake.job_reads == 0
+    assert fake.job_reads == 1
+
+
+@pytest.mark.anyio
+async def test_issue_list_names_what_the_report_covers() -> None:
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(0.2))
+    )
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "is-1" in out
+    assert "Report covers data through" in out
+    # Inside the grace window there is nothing to route: no gap, no fallback.
+    assert "not in it" not in out
+
+
+@pytest.mark.anyio
+async def test_issue_list_routes_to_traces_when_the_window_outruns_the_last_scan() -> None:
+    """The case that motivated this: asked for a week, scanned through
+    yesterday. The uncovered tail is named and the fallback given, so the
+    grouped list is not reported as the whole answer."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(20))
+    )
+    out = await run_list(
+        "agent_insights_issue", project_id="p-1", since="7d", client=fake, settings=_UI
+    )
+    assert "Report covers data through" in out
+    assert "20h" in out and "not in it" in out
+    assert "agent_insights_job.trigger" in out
+    assert "list('trace'" in out
+
+
+@pytest.mark.anyio
+async def test_issue_list_does_not_offer_a_trigger_that_cannot_close_the_gap() -> None:
+    """A trigger rescans the last 24 hours only, so for a wider gap it would
+    leave the middle missing while reading as the fix."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(96))
+    )
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "4d" in out and "not in it" in out
+    assert "list('trace'" in out
+    assert "rescans the last 24 hours, so it cannot close this gap" in out
+
+
+@pytest.mark.anyio
+async def test_issue_list_reports_no_gap_when_the_window_ends_before_the_scan() -> None:
+    """``until`` inside the scanned range asks for data the report fully
+    covers, so there is nothing to route."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(20))
+    )
+    out = await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        since="7d",
+        until="24h",
+        client=fake,
+        settings=_UI,
+    )
+    assert "Report covers data through" in out
+    assert "not in it" not in out
+
+
+@pytest.mark.anyio
+async def test_issue_list_coverage_note_is_dropped_when_the_job_cannot_be_read() -> None:
+    """Same rule as the empty-list hint: a failed side lookup must never turn
+    an answered list into an error or a guess."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job_error=OpikServerError("boom")
+    )
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "is-1" in out
+    assert "Report covers" not in out
+
+
+@pytest.mark.anyio
+async def test_issue_list_coverage_note_survives_a_job_without_a_scan_time() -> None:
+    fake = FakeOpikClient(issues={"content": [ISSUE_ROW], "total": 1}, job=_job())
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "is-1" in out
+    assert "Report covers" not in out
 
 
 # --- project_name resolution (the backend takes project_id only) --------- #

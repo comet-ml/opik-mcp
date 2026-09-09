@@ -57,6 +57,22 @@ Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id`
 
 Never wait or poll for a scan. Hand back the page link, finish the triage from traces, and say the grouped report will be there in a few minutes. A shortlist built while a scan you started is still running reports `source=diagnostics_pending`.
 
+**A non-empty list is not the whole answer either.** It ends with what the
+report covers, `Report covers data through <time>`, because the issues are
+whatever the last scan grouped. With a daily scan, today is usually not in
+them. When the line goes on to name an uncovered tail, the window the user
+asked about runs past the report and the gap is missing from the answer:
+
+| The coverage line says | Do this |
+| --- | --- |
+| `Report covers data through <time>` and nothing else | The report is current. Continue to step 3 as usual. |
+| `The last <N> are not in it: write('agent_insights_job.trigger', …)` | Trigger it, then go to step 3 for the gap with the `since` the line names. Do not wait for the rescan, and do not present the issues as covering the window. Report `source=diagnostics_pending`. |
+| `… a trigger rescans the last 24 hours, so it cannot close this gap` | Skip the trigger and go straight to step 3 with the `since` the line names — a rescan would leave the middle of the gap missing while looking like the fix. |
+
+Say the as-of date in the report when it matters: a user who asked for a week
+and got issues through yesterday should learn that from you, not discover it.
+
+
 **Without the MCP**, the SDK REST client reads the same issues:
 
 ```python

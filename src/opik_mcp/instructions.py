@@ -66,7 +66,11 @@ deployment, not enabled for the project, or enabled and clean — and where it \
 can be fixed, write('agent_insights_job.enable', …) turns Diagnostics on for \
 the project (ask the user first: it creates a standing daily scan) and \
 write('agent_insights_job.trigger', …) scans now instead of waiting for the \
-nightly run.{trace_link_clause}
+nightly run. A non-empty list dates itself ("Report covers data through …") \
+because the issues are whatever the last scan grouped; when it names an \
+uncovered tail, the requested window runs past the report, so close the gap \
+with list('trace', …, since=…) instead of answering from the issues \
+alone.{trace_link_clause}
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \

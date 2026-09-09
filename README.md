@@ -364,6 +364,13 @@ turned off, enabled but not scanned recently, or enabled and clean with the
 time of the last scan. The ones you can act on name the call to make, and every
 state links the project's Diagnostics page.
 
+A non-empty list dates itself. The issues are whatever the last scan grouped,
+so the reply ends with `Report covers data through <time>`, and when the window
+you asked about runs past that, it names the uncovered tail and how to close
+it: a trigger when a rescan reaches back far enough, otherwise raw traces with
+the `since` it gives you. Ask for a week on a project scanned nightly and the
+last day is missing from the grouped answer; this is what says so.
+
 `write("agent_insights_job.enable", {"project_name": "demo"})` turns Diagnostics
 on. It scans daily from then on, and calling it again is safe.
 `write("agent_insights_job.trigger", …)` scans the last 24 hours now, without

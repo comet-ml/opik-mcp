@@ -684,9 +684,9 @@ async def test_job_trigger_refused_when_ollie_is_off() -> None:
 
 
 @pytest.mark.anyio
-async def test_diagnostics_gate_is_read_once_across_writes() -> None:
-    """The toggles answer is deployment-wide, so a second operation in the
-    same process reuses it."""
+async def test_diagnostics_gate_is_read_per_write() -> None:
+    """Not cached: only Diagnostics work consults the gate, so each operation
+    pays one cheap GET and sees a toggle flipped since the last one."""
     with respx.mock(base_url=OPIK_BASE) as mock:
         toggles = mock.get("/v1/private/toggles/").mock(
             return_value=httpx.Response(200, json=_TOGGLES_ON)
@@ -707,7 +707,7 @@ async def test_diagnostics_gate_is_read_once_across_writes() -> None:
             data={"project_id": PROJECT},
             client=_client(),
         )
-    assert len(toggles.calls) == 1
+    assert len(toggles.calls) == 2
 
 
 @pytest.mark.anyio
