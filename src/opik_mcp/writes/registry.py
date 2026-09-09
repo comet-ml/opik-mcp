@@ -221,6 +221,52 @@ _REGISTRY: dict[str, WriteOperation] = {
         example=EXAMPLES["thread.open"],
         failure_modes=("thread_project_missing",),
     ),
+    "agent_insights_issue.resolve": WriteOperation(
+        name="agent_insights_issue.resolve",
+        pydantic_model=MODELS["agent_insights_issue.resolve"],
+        endpoint="/v1/private/agent-insights/issues/{issue_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Mark a Diagnostics (Agent Insights) issue resolved — the failure it groups has been "
+            "dealt with. It leaves the default issue list and shows under status='resolved'. Pass "
+            "issue_id + project_id or project_name. Do this only when the user asks: whether a "
+            "failure is fixed is their call, not an inference from the traces."
+        ),
+        example=EXAMPLES["agent_insights_issue.resolve"],
+        failure_modes=("project_scope_missing",),
+    ),
+    "agent_insights_issue.close": WriteOperation(
+        name="agent_insights_issue.close",
+        pydantic_model=MODELS["agent_insights_issue.close"],
+        endpoint="/v1/private/agent-insights/issues/{issue_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Mark a Diagnostics (Agent Insights) issue closed — not worth acting on, as opposed "
+            "to fixed. It leaves the default issue list and shows under status='closed'. Pass "
+            "issue_id + project_id or project_name. Do this only when the user asks."
+        ),
+        example=EXAMPLES["agent_insights_issue.close"],
+        failure_modes=("project_scope_missing",),
+    ),
+    "agent_insights_issue.reopen": WriteOperation(
+        name="agent_insights_issue.reopen",
+        pydantic_model=MODELS["agent_insights_issue.reopen"],
+        endpoint="/v1/private/agent-insights/issues/{issue_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Put a resolved or closed Diagnostics (Agent Insights) issue back on the open list, "
+            "for a failure that came back or was closed too early. Pass issue_id + project_id or "
+            "project_name."
+        ),
+        example=EXAMPLES["agent_insights_issue.reopen"],
+        failure_modes=("project_scope_missing",),
+    ),
     "agent_insights_job.enable": WriteOperation(
         name="agent_insights_job.enable",
         pydantic_model=MODELS["agent_insights_job.enable"],

@@ -480,6 +480,43 @@ class AgentInsightsJobTrigger(AgentInsightsJobAction):
     """``POST /v1/private/agent-insights/jobs/{projectId}/trigger`` — scan now."""
 
 
+class AgentInsightsIssueAction(_StrictBase):
+    """Shared shape for a Diagnostics (Agent Insights) issue's lifecycle moves.
+
+    ``PATCH /v1/private/agent-insights/issues/{issue_id}`` takes the issue in
+    the path and ``{project_id, status}`` in the body, and the backend requires
+    the project even though the issue id is unique — the same scope reading an
+    issue needs. ``project_name`` is resolved to the UUID by the dispatcher.
+    """
+
+    issue_id: UUID = Field(
+        description="The Diagnostics issue to move, as listed by list('agent_insights_issue', …)."
+    )
+    project_id: UUID | None = Field(default=None)
+    project_name: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _require_project(self) -> AgentInsightsIssueAction:
+        if self.project_name is None and self.project_id is None:
+            raise ValueError(
+                "project_scope_missing: pass `project_id` or `project_name` to "
+                "identify the project the issue belongs to."
+            )
+        return self
+
+
+class AgentInsightsIssueResolve(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=resolved`` — dealt with."""
+
+
+class AgentInsightsIssueClose(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=closed`` — not worth acting on."""
+
+
+class AgentInsightsIssueReopen(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=open`` — back on the list."""
+
+
 class ThreadClose(_ThreadLifecycle):
     """``POST /v1/private/traces/threads/close`` — mark a thread inactive/done."""
 
@@ -572,6 +609,18 @@ EXAMPLES: dict[str, dict[str, Any]] = {
     "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
     "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
     "agent_insights_job.enable": {"project_name": "demo"},
+    "agent_insights_issue.resolve": {
+        "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+        "project_name": "demo",
+    },
+    "agent_insights_issue.close": {
+        "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+        "project_name": "demo",
+    },
+    "agent_insights_issue.reopen": {
+        "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+        "project_name": "demo",
+    },
     "agent_insights_job.trigger": {"project_name": "demo"},
 }
 
@@ -592,6 +641,9 @@ MODELS: dict[str, type[BaseModel]] = {
     "thread.close": ThreadClose,
     "thread.open": ThreadOpen,
     "agent_insights_job.enable": AgentInsightsJobEnable,
+    "agent_insights_issue.resolve": AgentInsightsIssueResolve,
+    "agent_insights_issue.close": AgentInsightsIssueClose,
+    "agent_insights_issue.reopen": AgentInsightsIssueReopen,
     "agent_insights_job.trigger": AgentInsightsJobTrigger,
 }
 

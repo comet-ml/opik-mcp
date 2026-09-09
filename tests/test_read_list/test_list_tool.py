@@ -1017,3 +1017,27 @@ async def test_list_forwards_declared_parent_id_to_sub_collection() -> None:
     await run_list("prompt_version", prompt_id="pr-1", test_suite_id="ts-1", client=fake)
     assert fake.last_kwargs.get("prompt_id") == "pr-1"
     assert "test_suite_id" not in fake.last_kwargs
+
+
+# --- the "issue" alias ---------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_issue_is_accepted_as_a_short_name_for_the_entity() -> None:
+    """ "agent_insights_issue" is what the registry calls it; "issue" is what
+    the UI calls it and what an agent reaches for first."""
+    fake = FakeOpikClient(issues={"content": [ISSUE_ROW], "total": 1})
+    out = await run_list("issue", project_id="p-1", client=fake)
+    assert "is-1" in out
+    assert "Tool call loop" in out
+
+
+@pytest.mark.anyio
+async def test_the_alias_is_not_advertised_as_a_type_of_its_own() -> None:
+    """The enum is the closed set an agent picks from; the same entity under
+    two names there would only raise the question of which one is real."""
+    from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+
+    assert "issue" not in LISTABLE_TYPES
+    assert "issue" not in READABLE_TYPES
+    assert "agent_insights_issue" in LISTABLE_TYPES

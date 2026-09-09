@@ -766,6 +766,20 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
 }
 
 
+#: Short names accepted for an entity type, resolved before the registry
+#: lookup. Deliberately not advertised in the tools' ``entity_type`` enum: the
+#: enum is the closed set an agent should choose from, and listing a type twice
+#: under two names invites the question of which is real. This is a safety net
+#: for the guess an agent makes anyway — ``agent_insights_issue`` is a mouthful,
+#: and "issue" is what the UI calls it.
+ENTITY_ALIASES: dict[str, str] = {"issue": "agent_insights_issue"}
+
+
+def resolve_entity_type(entity_type: str) -> str:
+    """The registry name for ``entity_type``, mapping any alias."""
+    return ENTITY_ALIASES.get(entity_type, entity_type)
+
+
 READABLE_TYPES: tuple[str, ...] = tuple(
     t for t, h in ENTITY_REGISTRY.items() if h.fetch_fn is not _unsupported_fetch
 )
@@ -785,6 +799,7 @@ def compress_for(
 
 
 __all__ = [
+    "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
     "LISTABLE_TYPES",
     "READABLE_TYPES",

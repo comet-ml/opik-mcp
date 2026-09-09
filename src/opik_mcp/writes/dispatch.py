@@ -107,7 +107,7 @@ async def run_write(
         # both resolved here, before any jobs request goes out.
         diagnostics_project_id = await _prepare_diagnostics_job(op, items, http_client)
 
-    if dry_run and op.name in _DIAGNOSTICS_JOB_OPS:
+    if dry_run and (op.name in _DIAGNOSTICS_JOB_OPS or op.name in _DIAGNOSTICS_ISSUE_OPS):
         # A UUID the caller already passed needs no network, so the preview
         # can be the real path; only a name is left as the template.
         raw_id = getattr(items[0], "project_id", None)
@@ -142,6 +142,11 @@ async def run_write(
                 "project_name is resolved to the project's UUID at execution; the "
                 "live path will carry that id. The live call also refuses if the "
                 "deployment has no Diagnostics, which dry_run does not check."
+            )
+        if op.name in _DIAGNOSTICS_ISSUE_OPS and diagnostics_project_id is None:
+            would_call["note"] = (
+                "project_name is resolved to the project's UUID at execution; the "
+                "live body will carry that id."
             )
         return {"dry_run": True, "would_call": would_call}
 
@@ -184,6 +189,18 @@ async def run_write(
             example=op.example,
         )
     out = _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
+    if diagnostics_project_id is not None and op.name in _DIAGNOSTICS_ISSUE_OPS:
+        # A resolved or closed issue leaves the default page, so a link to
+        # "diagnostics" would land on a page the issue is no longer on.
+        status = _DIAGNOSTICS_ISSUE_STATUS[op.name]
+        view = "diagnostics" if status == "open" else "diagnostics/resolved"
+        issue_id = getattr(items[0], "issue_id", None)
+        page = project_page_url(
+            resolved_settings, diagnostics_project_id, f"{view}?issue={issue_id}"
+        )
+        if page is not None:
+            out["url"] = page
+        return out
     if diagnostics_project_id is not None:
         page = project_page_url(resolved_settings, diagnostics_project_id, "diagnostics")
         if page is not None:
@@ -202,24 +219,41 @@ async def run_write(
 #: dispatcher treats them alike rather than branching on each name.
 _DIAGNOSTICS_JOB_OPS = frozenset({"agent_insights_job.enable", "agent_insights_job.trigger"})
 
+#: Issue lifecycle moves, and the status each one writes. One backend route
+#: with three verbs in front of it: the caller says what they mean and the
+#: dispatcher supplies the value, so nobody has to remember the enum.
+#:
+#: Unlike the job operations these are *not* gated on the deployment toggle.
+#: They act on an issue that exists, which is proof Diagnostics runs here, so
+#: asking the toggles endpoint would spend a request to learn what the issue
+#: already establishes.
+_DIAGNOSTICS_ISSUE_STATUS = {
+    "agent_insights_issue.resolve": "resolved",
+    "agent_insights_issue.close": "closed",
+    "agent_insights_issue.reopen": "open",
+}
+_DIAGNOSTICS_ISSUE_OPS = frozenset(_DIAGNOSTICS_ISSUE_STATUS)
+
 
 async def _prepare_diagnostics_job(
     op: WriteOperation, items: list[BaseModel], client: OpikClient
 ) -> str | None:
-    """For a Diagnostics job action: refuse where Diagnostics cannot run, and
-    resolve the project to the UUID the jobs endpoints take in the path.
+    """For a Diagnostics action: refuse where Diagnostics cannot run (job
+    operations only), and resolve the project to the UUID the backend takes —
+    in the path for a job, in the body for an issue.
 
     Returns the project id, or ``None`` for every other operation.
     """
-    if op.name not in _DIAGNOSTICS_JOB_OPS:
+    if op.name in _DIAGNOSTICS_JOB_OPS:
+        if not await diagnostics_available(client):
+            raise ValidationFailedError.build(
+                op.name,
+                [ValidationIssue("", UNAVAILABLE_SENTENCE, "diagnostics_unavailable")],
+                expected_schema=op.pydantic_model.model_json_schema(),
+                example=op.example,
+            )
+    elif op.name not in _DIAGNOSTICS_ISSUE_OPS:
         return None
-    if not await diagnostics_available(client):
-        raise ValidationFailedError.build(
-            op.name,
-            [ValidationIssue("", UNAVAILABLE_SENTENCE, "diagnostics_unavailable")],
-            expected_schema=op.pydantic_model.model_json_schema(),
-            example=op.example,
-        )
     item = items[0]
     project_id = getattr(item, "project_id", None)
     if project_id is not None:
@@ -526,6 +560,18 @@ def _build_request(
     specific and trying to abstract them produces brittle indirection.
     """
     name = op.name
+
+    if name in _DIAGNOSTICS_ISSUE_OPS:
+        # The issue is in the path; the body is the project and the new status.
+        # ``project_id`` is the resolved UUID (a name was resolved before the
+        # call); dry_run has none unless the caller passed one.
+        single = _dump(items[0])
+        issue_id = single["issue_id"]
+        scope = project_id if project_id is not None else single.get("project_id", "{project_id}")
+        return (
+            op.endpoint.format(issue_id=issue_id),
+            {"project_id": str(scope), "status": _DIAGNOSTICS_ISSUE_STATUS[name]},
+        )
 
     if name in _DIAGNOSTICS_JOB_OPS:
         # The project is in the path and the payload was only ever scope, so

@@ -384,6 +384,15 @@ on. It scans daily from then on, and calling it again is safe.
 waiting for the nightly run. Both take the permission that reading issues takes,
 and both refuse where the deployment has no Diagnostics.
 
+An issue moves through its lifecycle with
+`write("agent_insights_issue.resolve", {"issue_id": "<uuid>", "project_name": "demo"})`
+— dealt with — or `…close` for one not worth acting on, and `…reopen` to put
+either back on the open list. All three take the same permission and answer
+with a link to the view the issue moved to, since a resolved issue is no longer
+on the default page. Whether a failure is fixed is a judgment call, so these
+are for when you ask: the assistant has no business tidying the list while
+triaging it.
+
 ### `write`
 
 Universal write dispatcher. Pass `operation` + `data` and the dispatcher

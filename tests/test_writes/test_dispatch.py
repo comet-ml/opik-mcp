@@ -1018,3 +1018,130 @@ async def test_all_scopes_grants_every_operation() -> None:
 
     for op in WRITE_REGISTRY.values():
         assert op.oauth_scope in ALL_WRITE_SCOPES, op.name
+
+
+# --- Diagnostics issue lifecycle ---------------------------------------- #
+
+ISSUE = "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("operation", "status"),
+    [
+        ("agent_insights_issue.resolve", "resolved"),
+        ("agent_insights_issue.close", "closed"),
+        ("agent_insights_issue.reopen", "open"),
+    ],
+)
+async def test_issue_lifecycle_patches_the_status(operation: str, status: str) -> None:
+    """The issue goes in the path, the project and the new status in the body —
+    the backend requires the project even though the issue id is unique."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        out = await run_write(
+            operation=operation,
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert route.called
+    assert json.loads(route.calls.last.request.content) == {
+        "project_id": PROJECT,
+        "status": status,
+    }
+    assert out["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_does_not_consult_the_deployment_gate() -> None:
+    """An issue exists, so Diagnostics demonstrably runs here. Asking the
+    toggles endpoint would spend a request to learn what the issue proves."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        toggles = mock.get("/v1/private/toggles/").mock(
+            return_value=httpx.Response(200, json=_TOGGLES_ON)
+        )
+        mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+        )
+    assert not toggles.called
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_resolves_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            )
+        )
+        route = mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE, "project_name": "demo"},
+            client=_client(),
+        )
+    assert json.loads(route.calls.last.request.content)["project_id"] == PROJECT
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_needs_a_project() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE},
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "project_scope_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_resolving_an_issue_links_the_view_it_moved_to() -> None:
+    """A resolved issue leaves the default page, so the link has to point at
+    the resolved view or it lands on a page the issue is no longer on."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        out = await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["url"].endswith(f"/diagnostics/resolved?issue={ISSUE}")
+
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        out = await run_write(
+            operation="agent_insights_issue.reopen",
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["url"].endswith(f"/diagnostics?issue={ISSUE}")
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_dry_run_shows_the_real_path_and_body() -> None:
+    out = await run_write(
+        operation="agent_insights_issue.close",
+        data={"issue_id": ISSUE, "project_id": PROJECT},
+        dry_run=True,
+    )
+    call = out["would_call"]
+    assert call["method"] == "PATCH"
+    assert call["path"] == f"/v1/private/agent-insights/issues/{ISSUE}"
+    assert call["body"] == {"project_id": PROJECT, "status": "closed"}

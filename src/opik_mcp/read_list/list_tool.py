@@ -64,7 +64,12 @@ from opik_mcp.read_list.project_scope import (
     resolve_project_id,
     unknown_project_message,
 )
-from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
+from opik_mcp.read_list.registry import (
+    ENTITY_REGISTRY,
+    LISTABLE_TYPES,
+    EntityHandler,
+    resolve_entity_type,
+)
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
     WindowError,
@@ -105,6 +110,7 @@ async def run_list(
     client: OpikListClient | None = None,
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
+    entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
     if handler is None or handler.list_fn is None:
         valid = ", ".join(sorted(LISTABLE_TYPES))

@@ -72,6 +72,12 @@ asked about runs past the report and the gap is missing from the answer:
 Say the as-of date in the report when it matters: a user who asked for a week
 and got issues through yesterday should learn that from you, not discover it.
 
+Triage never changes an issue's status. `agent_insights_issue.resolve`,
+`.close` and `.reopen` exist, and they are for when the user asks for them:
+whether a failure is dealt with is their call, and an issue marked resolved
+leaves the list everyone else reads. Surfacing an issue is this skill's job;
+retiring one is not.
+
 
 **Without the MCP**, the SDK REST client reads the same issues:
 

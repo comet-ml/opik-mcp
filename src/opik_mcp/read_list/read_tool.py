@@ -36,6 +36,7 @@ from opik_mcp.read_list.registry import (
     READABLE_TYPES,
     EntityHandler,
     compress_for,
+    resolve_entity_type,
 )
 from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
@@ -143,6 +144,7 @@ async def run_read(
             project_id = parsed.project_id
             project_name = None
 
+    entity_type = resolve_entity_type(entity_type)
     if entity_type not in READABLE_TYPES:
         if entity_type in ENTITY_REGISTRY:
             err = EntityArgValidationError(
