@@ -360,7 +360,9 @@ ranked as the UI ranks them (most recently seen first). Columns are `severity`,
 `status`, `total_occurrences` (all-time sum), `latest_count` (the most recent
 report day, the number the issue's own description refers to) and `last_seen`.
 Open issues are listed by default; pass `status="resolved"` or `"closed"` for
-the rest. Counts are all-time so they match the UI; the same `since` / `until`
+the rest. `read` and `list` also answer to `issue`, which is what the UI calls
+these; the long name is the one in the `entity_type` enum, so that one entity
+does not appear there twice. Counts are all-time so they match the UI; the same `since` / `until`
 as for traces narrow the window, truncated to UTC report days because
 Diagnostics aggregates per day.
 

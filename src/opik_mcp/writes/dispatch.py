@@ -137,73 +137,16 @@ async def run_write(
                 "thread comments resolve the thread_id string to the thread's model "
                 "UUID at execution; the live path will use /threads/{model_uuid}/comments."
             )
-        if op.name in _DIAGNOSTICS_JOB_OPS and diagnostics_project_id is None:
-            would_call["note"] = (
-                "project_name is resolved to the project's UUID at execution; the "
-                "live path will carry that id. The live call also refuses if the "
-                "deployment has no Diagnostics, which dry_run does not check."
-            )
-        if op.name in _DIAGNOSTICS_ISSUE_OPS and diagnostics_project_id is None:
-            would_call["note"] = (
-                "project_name is resolved to the project's UUID at execution; the "
-                "live body will carry that id."
-            )
+        diagnostics_note = _diagnostics_dry_run_note(op, diagnostics_project_id)
+        if diagnostics_note is not None:
+            would_call["note"] = diagnostics_note
         return {"dry_run": True, "would_call": would_call}
 
     assert http_client is not None  # set above whenever not dry_run
     resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
-    if op.name == "agent_insights_job.enable" and resp.status_code == 409:
-        # The backend 409s this route when the job exists, which is not a
-        # failure of "turn it on": flip its status instead, so a repeated
-        # enable is safe. The follow-up is a different method and body, so it
-        # gets no idempotency key — replaying the create's key could hand back
-        # the stored 409 and report it as the PATCH's result. If the follow-up
-        # fails, the original conflict is carried into the error so a 409 that
-        # meant something else is not lost behind a PATCH failure.
-        conflict = _safe_body(resp)
-        method, path, body = "PATCH", path, {"status": "enabled"}
-        resp = await http_client.write_json(method, path, body)
-        if not (200 <= resp.status_code < 300):
-            raise BackendError.build(
-                op.name,
-                resp.status_code,
-                {"create_conflict": conflict, "update_error": _safe_body(resp)},
-                method=method,
-                path=path,
-            )
-    if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
-        # The backend 404s a trigger when the project has no job. That is a
-        # missing prerequisite, not a lost resource, so name the fix.
-        raise _refuse(
-            op,
-            "",
-            "Diagnostics is not enabled for this project (or this backend has no "
-            "Diagnostics API); enable it first with write('agent_insights_job.enable', …).",
-            "diagnostics_not_enabled",
-        )
+    method, path, body, resp = await _diagnostics_retry(op, http_client, method, path, body, resp)
     out = _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
-    if diagnostics_project_id is not None and op.name in _DIAGNOSTICS_ISSUE_OPS:
-        # A resolved or closed issue leaves the default page, so a link to
-        # "diagnostics" would land on a page the issue is no longer on.
-        status = _DIAGNOSTICS_ISSUE_STATUS[op.name]
-        view = "diagnostics" if status == "open" else "diagnostics/resolved"
-        issue_id = getattr(items[0], "issue_id", None)
-        page = project_page_url(
-            resolved_settings, diagnostics_project_id, f"{view}?issue={issue_id}"
-        )
-        if page is not None:
-            out["url"] = page
-        return out
-    if diagnostics_project_id is not None:
-        page = project_page_url(resolved_settings, diagnostics_project_id, "diagnostics")
-        if page is not None:
-            out["url"] = page
-        if op.name == "agent_insights_job.trigger":
-            out["note"] = (
-                "Scan started over the last 24 hours. It takes a few minutes; "
-                "read the issues afterwards with list('agent_insights_issue', …), "
-                "and watch the run on the Diagnostics page."
-            )
+    _diagnostics_decorate(op, items, out, resolved_settings, diagnostics_project_id)
     return out
 
 
@@ -240,6 +183,110 @@ def _refuse(op: WriteOperation, field: str, message: str, code: str) -> Validati
         expected_schema=op.pydantic_model.model_json_schema(),
         example=op.example,
     )
+
+
+def _diagnostics_dry_run_note(op: WriteOperation, project_id: str | None) -> str | None:
+    """What a Diagnostics preview cannot show, when it cannot show it.
+
+    Only when the caller passed a name: with a UUID in hand the preview is the
+    real request, and saying otherwise would undersell it.
+    """
+    if project_id is not None:
+        return None
+    if op.name in _DIAGNOSTICS_JOB_OPS:
+        return (
+            "project_name is resolved to the project's UUID at execution; the live path "
+            "will carry that id. The live call also refuses if the deployment has no "
+            "Diagnostics, which dry_run does not check."
+        )
+    if op.name in _DIAGNOSTICS_ISSUE_OPS:
+        return (
+            "project_name is resolved to the project's UUID at execution; the live body "
+            "will carry that id."
+        )
+    return None
+
+
+async def _diagnostics_retry(
+    op: WriteOperation,
+    http_client: OpikClient,
+    method: str,
+    path: str,
+    body: dict[str, Any] | list[Any],
+    resp: httpx.Response,
+) -> tuple[str, str, dict[str, Any] | list[Any], httpx.Response]:
+    """Two backend answers that mean something other than what they say.
+
+    A 409 on enable means the job exists, which is not a failure of "turn it
+    on": flip its status instead, so a repeated enable is safe. The follow-up
+    is a different method and body, so it gets no idempotency key — replaying
+    the create's key could hand back the stored 409 and report it as the
+    PATCH's result. If the follow-up fails, the original conflict is carried
+    into the error, so a 409 that meant something else is not lost behind a
+    PATCH failure.
+
+    A 404 on trigger means the project has no job: a missing prerequisite, not
+    a lost resource, so name the fix.
+
+    Returns the request and response to finalize, which are the originals for
+    every other operation.
+    """
+    if op.name == "agent_insights_job.enable" and resp.status_code == 409:
+        conflict = _safe_body(resp)
+        method, body = "PATCH", {"status": "enabled"}
+        resp = await http_client.write_json(method, path, body)
+        if not (200 <= resp.status_code < 300):
+            raise BackendError.build(
+                op.name,
+                resp.status_code,
+                {"create_conflict": conflict, "update_error": _safe_body(resp)},
+                method=method,
+                path=path,
+            )
+    if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
+        raise _refuse(
+            op,
+            "",
+            "Diagnostics is not enabled for this project (or this backend has no "
+            "Diagnostics API); enable it first with write('agent_insights_job.enable', …).",
+            "diagnostics_not_enabled",
+        )
+    return method, path, body, resp
+
+
+def _diagnostics_decorate(
+    op: WriteOperation,
+    items: list[BaseModel],
+    out: dict[str, Any],
+    settings: Settings,
+    project_id: str | None,
+) -> None:
+    """Add the page to open and, for a trigger, what to expect there.
+
+    Mutates ``out`` in place, and does nothing at all for every operation that
+    is not about Diagnostics or where the UI cannot be named.
+    """
+    if project_id is None:
+        return
+    if op.name in _DIAGNOSTICS_ISSUE_OPS:
+        # A resolved or closed issue leaves the default page, so a link to
+        # "diagnostics" would land on a page the issue is no longer on.
+        status = _DIAGNOSTICS_ISSUE_STATUS[op.name]
+        view = "diagnostics" if status == "open" else "diagnostics/resolved"
+        issue_id = getattr(items[0], "issue_id", None)
+        page = project_page_url(settings, project_id, f"{view}?issue={issue_id}")
+        if page is not None:
+            out["url"] = page
+        return
+    page = project_page_url(settings, project_id, "diagnostics")
+    if page is not None:
+        out["url"] = page
+    if op.name == "agent_insights_job.trigger":
+        out["note"] = (
+            "Scan started over the last 24 hours. It takes a few minutes; "
+            "read the issues afterwards with list('agent_insights_issue', …), "
+            "and watch the run on the Diagnostics page."
+        )
 
 
 async def _prepare_diagnostics_scope(
