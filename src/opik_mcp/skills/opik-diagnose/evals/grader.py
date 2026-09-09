@@ -104,8 +104,12 @@ def grade_case(
         )
 
     if a.get("source_valid"):
+        # ``diagnostics_pending`` is the MCP path with a scan the run started
+        # itself: the shortlist still comes from traces, so it grades like one.
         add(
-            "source_valid", result.get("source") in {"sdk", "mcp"}, f"source={result.get('source')}"
+            "source_valid",
+            result.get("source") in {"sdk", "mcp", "diagnostics_pending"},
+            f"source={result.get('source')}",
         )
 
     if a.get("one_next_step"):
