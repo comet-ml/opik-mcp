@@ -70,6 +70,9 @@ class FakeOpikClient:
     async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"results": []}
+
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         return self.experiments

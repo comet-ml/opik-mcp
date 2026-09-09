@@ -51,6 +51,8 @@ from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.oql import filter_field_names
+from opik_mcp.read_list.project_metrics import INTERVALS as METRIC_INTERVALS
+from opik_mcp.read_list.project_metrics import METRICS as METRIC_TYPES
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_opik_link
@@ -432,6 +434,23 @@ async def list_entities(
             ),
         ),
     ] = None,
+    metric_type: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only: which metric to chart. Reference (units, which "
+                "entity each is about): schema('list.project_metric')."
+            ),
+            json_schema_extra={"enum": sorted(METRIC_TYPES)},
+        ),
+    ] = None,
+    interval: Annotated[
+        str | None,
+        Field(
+            description="project_metric only: bucket width. 'daily' by default.",
+            json_schema_extra={"enum": sorted(METRIC_INTERVALS)},
+        ),
+    ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
     """List Opik entities with optional filters and pagination.
@@ -452,6 +471,9 @@ async def list_entities(
       names — trace, span and thread scores together, one page, no id)
     - online_rule: project_id or project_name (the automation rules scoring
       this project's traces)
+    - project_metric: project_id or project_name, plus metric_type — one
+      metric over time. Rows are time buckets, not records, so page/size/sort
+      do not apply; since/until and interval decide the shape.
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
@@ -477,6 +499,8 @@ async def list_entities(
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
         status=status,
+        metric_type=metric_type,
+        interval=interval,
     )
 
 

@@ -25,7 +25,13 @@ from opik_mcp.read_list.oql import (
 )
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 
-LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = tuple(f"list.{e}" for e in SUPPORTED_ENTITIES)
+LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
+    *(f"list.{e}" for e in SUPPORTED_ENTITIES),
+    # Not an OQL entity of its own — a time series over one of them — but it
+    # has a reference of its own to answer, and it is the reference that keeps
+    # the metric table out of the tool description.
+    "list.project_metric",
+)
 
 FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
     "trace": (
@@ -49,6 +55,12 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
 
 def list_reference(entity_type: str) -> dict[str, Any]:
     """The ``schema("list.<entity>")`` payload. ``entity_type`` must be supported."""
+    if entity_type == "project_metric":
+        # Its own tables (metrics, intervals, limits) rather than OQL fields;
+        # the filter fields are those of whichever entity the metric is about.
+        from opik_mcp.read_list.project_metrics import reference
+
+        return reference()
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
         spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}

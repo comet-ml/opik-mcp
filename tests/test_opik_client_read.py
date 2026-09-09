@@ -567,6 +567,78 @@ async def test_token_usage_names_is_project_scoped_on_the_path() -> None:
 
 
 @pytest.mark.anyio
+async def test_project_metrics_posts_the_metric_interval_window_and_filters() -> None:
+    """Unlike kpi-cards, this endpoint takes the filters as a real array — and
+    a *separate* array per entity kind. Only the one the metric belongs to is
+    sent; the backend applies each to its own entity."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await _client().get_project_metrics(
+            "p-1",
+            metric_type="TRACE_COUNT",
+            interval="DAILY",
+            interval_start="2026-09-02T00:00:00Z",
+            interval_end="2026-09-09T00:00:00Z",
+            trace_filters=[{"field": "source", "operator": "=", "value": "sdk"}],
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "metric_type": "TRACE_COUNT",
+        "interval": "DAILY",
+        "interval_start": "2026-09-02T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "trace_filters": [{"field": "source", "operator": "=", "value": "sdk"}],
+    }
+
+
+@pytest.mark.anyio
+async def test_project_metrics_sends_breakdown_only_when_asked() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await _client().get_project_metrics(
+            "p-1",
+            metric_type="SPAN_COUNT",
+            interval="DAILY",
+            interval_start="2026-09-02T00:00:00Z",
+            breakdown={"field": "MODEL"},
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["breakdown"] == {"field": "MODEL"}
+    assert "trace_filters" not in sent
+
+
+@pytest.mark.anyio
+async def test_project_metrics_maps_an_incompatible_breakdown_to_validation() -> None:
+    """The backend answers 422 with a message that contradicts itself for span
+    metrics missing from its compatibility sets. Typed here; the readable
+    refusal is produced locally before the call."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(
+                422,
+                json={
+                    "errors": [
+                        "breakdown Group by field 'model' is not compatible with "
+                        "metric type 'SPAN_COST'. This field supports Span metrics only."
+                    ]
+                },
+            ),
+        )
+        with pytest.raises(OpikValidationError):
+            await _client().get_project_metrics(
+                "p-1",
+                metric_type="SPAN_COST",
+                interval="DAILY",
+                interval_start="2026-09-02T00:00:00Z",
+                breakdown={"field": "MODEL"},
+            )
+
+
+@pytest.mark.anyio
 async def test_activities_is_project_scoped_and_paged() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         route = mock.get("/v1/private/projects/p-1/activities").mock(

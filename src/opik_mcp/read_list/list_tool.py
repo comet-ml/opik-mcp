@@ -33,7 +33,7 @@ import math
 import re
 from contextlib import AsyncExitStack
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
@@ -43,6 +43,7 @@ from opik_mcp.opik_client import (
     OpikAuthError,
     OpikListClient,
     OpikNotFoundError,
+    OpikReadClient,
     OpikServerError,
     OpikValidationError,
     opik_client_for_call,
@@ -56,6 +57,7 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
+from opik_mcp.read_list.project_metrics import run_project_metric
 from opik_mcp.read_list.project_scope import project_rows, unknown_project_message
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -76,6 +78,42 @@ _TRUNCATE_AT = 60
 _SEARCH_TIMEOUT_S = 60.0
 
 _SDK_SOURCE_CLAUSE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
+_DEFAULT_SIZE = 25
+
+
+async def _run_metric_series(
+    *,
+    settings: Settings | None,
+    client: OpikListClient | None,
+    **kw: Any,
+) -> str:
+    """Own the connection, then hand off to the metric runner.
+
+    Same lifecycle as the collection path — the series is one call, but
+    resolving a project name is another, and both ride one connection.
+    """
+    async with AsyncExitStack() as stack:
+        opik = (
+            client
+            if client is not None
+            else await stack.enter_async_context(opik_client_for_call(settings or get_settings()))
+        )
+        try:
+            return await run_project_metric(cast("OpikReadClient", opik), **kw)
+        except EntityArgValidationError as err:
+            raise ToolError(str(err)) from err
+        except OQLError as err:
+            raise ToolError(str(err)) from err
+        except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
+            raise ToolError(f"Failed to chart project_metric: {err}") from err
+        except httpx.TimeoutException as err:
+            raise ToolError(
+                "Opik did not answer in time for list('project_metric', …). Narrow the "
+                "window or widen the interval and retry."
+            ) from err
+        except httpx.HTTPError as err:
+            raise ToolError(f"Could not reach Opik for list('project_metric', …): {err}") from err
+    raise AssertionError("unreachable: the exit stack always returns or raises")
 
 
 async def run_list(
@@ -94,6 +132,8 @@ async def run_list(
     test_suite_id: str | None = None,
     prompt_id: str | None = None,
     status: str | None = None,
+    metric_type: str | None = None,
+    interval: str | None = None,
     settings: Settings | None = None,
     client: OpikListClient | None = None,
 ) -> str:
@@ -103,6 +143,29 @@ async def run_list(
         valid = ", ".join(sorted(LISTABLE_TYPES))
         err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
         raise ToolError(str(err)) from err
+
+    if entity_type == "project_metric":
+        # A time series, not a collection: rows are time buckets, the filter
+        # fields belong to whichever entity the metric is about, and
+        # page/size/sort mean nothing. Handled whole by its own runner rather
+        # than as six special cases in the path below. ``page``/``size`` carry
+        # non-None defaults, so only a value the caller actually chose is
+        # refused — the defaults reaching here are indistinguishable from
+        # absence, and harmless.
+        return await _run_metric_series(
+            project_id=project_id,
+            project_name=project_name,
+            metric_type=metric_type,
+            interval=interval,
+            since=since,
+            until=until,
+            filters=filters,
+            page=page if page != 1 else None,
+            size=size if size != _DEFAULT_SIZE else None,
+            sort=sort,
+            settings=settings,
+            client=client,
+        )
 
     size = max(1, min(size, _MAX_SIZE))
     page = max(1, page)

@@ -236,6 +236,9 @@ class FakeOpikClient:
             raise self.fail_activities_with
         return await self._concurrently(self.activities)
 
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"results": []}
+
     async def get_agent_insights_issue(
         self,
         issue_id: str,

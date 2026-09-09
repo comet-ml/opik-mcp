@@ -210,6 +210,21 @@ class OpikListClient(Protocol):
 
     async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]: ...
 
+    async def get_project_metrics(
+        self,
+        project_id: str,
+        /,
+        *,
+        metric_type: str,
+        interval: str,
+        interval_start: str,
+        interval_end: str | None = None,
+        trace_filters: list[dict[str, str]] | None = None,
+        span_filters: list[dict[str, str]] | None = None,
+        thread_filters: list[dict[str, str]] | None = None,
+        breakdown: dict[str, str] | None = None,
+    ) -> dict[str, Any]: ...
+
     async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]: ...
 
     async def list_project_activities(
@@ -483,6 +498,53 @@ class OpikClient:
             f"/v1/private/projects/{project_id}/kpi-cards",
             json=body,
             entity_hint=f"project {project_id!r} KPI cards",
+        )
+
+    async def get_project_metrics(
+        self,
+        project_id: str,
+        /,
+        *,
+        metric_type: str,
+        interval: str,
+        interval_start: str,
+        interval_end: str | None = None,
+        trace_filters: list[dict[str, str]] | None = None,
+        span_filters: list[dict[str, str]] | None = None,
+        thread_filters: list[dict[str, str]] | None = None,
+        breakdown: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """``POST /v1/private/projects/{id}/metrics`` — one metric over time.
+
+        Returns ``{project_id, metric_type, interval, results: [{name, data:
+        [{time, value}]}]}``. One entry in ``results`` per series: one for a
+        plain metric, one per group when a breakdown is asked for, and one per
+        score name or usage key for the feedback-score and token-usage metrics
+        — which is why the width of the answer is not always knowable up front.
+
+        Every bucket in the window is emitted, including the empty ones, so the
+        row count follows from ``interval`` and the window alone: 8 for a daily
+        week, 169 for an hourly one, 1 for ``TOTAL``.
+
+        Filters are a real array here, unlike ``kpi-cards``, and there is one
+        array per entity kind; the caller sends the one its metric belongs to.
+        """
+        body = _drop_none(
+            {
+                "metric_type": metric_type,
+                "interval": interval,
+                "interval_start": interval_start,
+                "interval_end": interval_end,
+                "trace_filters": trace_filters,
+                "span_filters": span_filters,
+                "thread_filters": thread_filters,
+                "breakdown": breakdown,
+            }
+        )
+        return await self._post_json(
+            f"/v1/private/projects/{project_id}/metrics",
+            json=body,
+            entity_hint=f"project {project_id!r} metrics",
         )
 
     async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:

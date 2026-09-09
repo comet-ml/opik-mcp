@@ -462,6 +462,13 @@ async def _unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[s
     )
 
 
+async def _delegated_elsewhere(_client: OpikListClient, **_kw: Any) -> dict[str, Any]:
+    """Sentinel for an entity the list tool hands off before reaching the registry."""
+    raise NotImplementedError(
+        "This entity is handled by its own runner; the list tool delegates before here."
+    )
+
+
 # --- search-by-name (only entities with a name-filtered list endpoint) --- #
 
 
@@ -862,6 +869,24 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "messagesTruncated}. Requires project scope — pass a thread link/URI "
             "or project_id. list('thread', project_id=…) enumerates a project's "
             "threads."
+        ),
+    ),
+    "project_metric": EntityHandler(
+        entity_type="project_metric",
+        fetch_fn=_unsupported_fetch,
+        # Present so the type is listable and reachable, but the list tool
+        # delegates this entity whole to ``project_metrics.run_project_metric``
+        # rather than driving it through the collection path: rows are time
+        # buckets, the filter fields belong to whichever entity the metric is
+        # about, and page/size/sort are meaningless. Six special cases in the
+        # shared path, or one delegation — this is the delegation.
+        list_fn=_delegated_elsewhere,
+        list_required_kwargs=("project_id",),
+        list_optional_kwargs=("metric_type", "interval"),
+        description=(
+            "A time series for one project metric — trace/span/thread counts, "
+            "durations, error rates, costs, token usage and feedback scores. Rows are "
+            "time buckets, not records. Reference: schema('list.project_metric')."
         ),
     ),
     "score_name": EntityHandler(

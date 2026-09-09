@@ -76,14 +76,22 @@ def test_optional_kwargs_never_overlap_required_ones() -> None:
         assert not set(handler.list_required_kwargs) & set(handler.list_optional_kwargs)
 
 
-def test_only_agent_insights_issue_declares_optional_kwargs() -> None:
+_DECLARES_OPTIONAL_KWARGS = {
+    # Diagnostics issues: which status to list, and the report-day window.
+    "agent_insights_issue": {"status", "from_date", "to_date"},
+    # A metric series: which metric, and how wide the buckets are.
+    "project_metric": {"metric_type", "interval"},
+}
+
+
+def test_only_the_declared_entities_take_optional_kwargs() -> None:
     """Every other entity takes nothing beyond its parent id, so the gate
-    must drop whatever else the caller passes."""
+    must drop whatever else the caller passes. Pinned as a set rather than a
+    single name so a third entity has to be added here deliberately."""
     for entity_type, handler in ENTITY_REGISTRY.items():
-        if entity_type == "agent_insights_issue":
-            continue
-        assert handler.list_optional_kwargs == ()
-        assert handler.read_optional_kwargs == ()
+        expected = _DECLARES_OPTIONAL_KWARGS.get(entity_type, set())
+        assert set(handler.list_optional_kwargs) == expected, entity_type
+        assert handler.read_optional_kwargs == (), entity_type
 
 
 def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
