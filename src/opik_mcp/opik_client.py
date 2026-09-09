@@ -210,6 +210,8 @@ class OpikListClient(Protocol):
 
     async def get_agent_insights_job(self, project_id: str, /) -> dict[str, Any]: ...
 
+    async def get_service_toggles(self) -> dict[str, Any]: ...
+
 
 class OpikReadClient(OpikListClient, Protocol):
     """Adds singleton ``get_*`` endpoints to ``OpikListClient`` for the read tool.
@@ -798,6 +800,18 @@ class OpikClient:
             f"/v1/private/agent-insights/jobs/{project_id}",
             params=None,
             entity_hint=f"agent insights job for project {project_id!r}",
+        )
+
+    async def get_service_toggles(self) -> dict[str, Any]:
+        """``GET /v1/private/toggles/`` — the deployment's service toggles.
+
+        The same endpoint the UI's feature-toggle provider reads, so the MCP
+        and the UI can never disagree about which features a deployment has.
+        """
+        return await self._get_json(
+            "/v1/private/toggles/",
+            params=None,
+            entity_hint="service toggles",
         )
 
     async def get_agent_insights_issue(

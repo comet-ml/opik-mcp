@@ -42,6 +42,11 @@ class FakeOpikClient:
     job: dict[str, Any] | None = None
     job_error: Exception | None = None
     job_reads: int = 0
+    # Service toggles as the backend serves them; ``toggles_error`` mimics a
+    # failed lookup, which must fail open (Diagnostics assumed available).
+    toggles: dict[str, Any] = field(default_factory=lambda: {"ollieEnabled": True})
+    toggles_error: Exception | None = None
+    toggles_reads: int = 0
     # Credential identity the project-name cache keys on; None mimics a fake
     # with no config, as every other test here has.
     _base_url: str | None = None
@@ -63,6 +68,12 @@ class FakeOpikClient:
                 f"agent insights job for project {project_id!r} not found (404)."
             )
         return self.job
+
+    async def get_service_toggles(self) -> dict[str, Any]:
+        self.toggles_reads += 1
+        if self.toggles_error is not None:
+            raise self.toggles_error
+        return self.toggles
 
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -570,6 +581,58 @@ async def test_empty_issues_hint_resolves_project_name_once() -> None:
     out = await run_list("agent_insights_issue", project_name="demo", client=fake, settings=_UI)
     assert "https://opik.test/demo-ws/projects/p-demo/diagnostics" in out
     assert fake.project_lookups == 1
+
+
+@pytest.mark.anyio
+async def test_empty_issues_say_diagnostics_unavailable_on_this_deployment() -> None:
+    """With Ollie off nothing will ever scan, so proposing enable would be a
+    lie: the reply says the deployment has no Diagnostics and stops there."""
+    fake = FakeOpikClient(toggles={"ollieEnabled": False})
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is not available on this deployment" in out
+    assert "agent_insights_job" not in out
+    assert fake.job_reads == 0
+
+
+@pytest.mark.anyio
+async def test_deployment_gate_accepts_the_ui_field_spelling() -> None:
+    fake = FakeOpikClient(toggles={"ollie_enabled": False})
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "not available on this deployment" in out
+
+
+@pytest.mark.anyio
+async def test_deployment_gate_treats_a_missing_field_as_available() -> None:
+    """An older backend without the toggle must keep today's behaviour."""
+    fake = FakeOpikClient(toggles={"guardrailsEnabled": True})
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is not enabled for this project" in out
+
+
+@pytest.mark.anyio
+async def test_deployment_gate_fails_open_when_toggles_cannot_be_read() -> None:
+    fake = FakeOpikClient(toggles_error=OpikServerError("boom"))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is not enabled for this project" in out
+
+
+@pytest.mark.anyio
+async def test_deployment_gate_is_read_once_per_process() -> None:
+    fake = FakeOpikClient(toggles={"ollieEnabled": False})
+    await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    await run_list("agent_insights_issue", project_id="p-2", client=fake, settings=_UI)
+    assert fake.toggles_reads == 1
+
+
+@pytest.mark.anyio
+async def test_deployment_gate_miss_is_not_cached() -> None:
+    fake = FakeOpikClient(toggles_error=OpikServerError("boom"))
+    await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    fake.toggles_error = None
+    fake.toggles = {"ollieEnabled": False}
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "not available on this deployment" in out
+    assert fake.toggles_reads == 2
 
 
 @pytest.mark.anyio

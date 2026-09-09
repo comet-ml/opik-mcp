@@ -27,6 +27,7 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.read_list.deployment import UNAVAILABLE_SENTENCE, diagnostics_available
 from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.read_list.window import parse_instant, to_minute
 
@@ -51,6 +52,10 @@ async def diagnostics_state_hint(
 ) -> str | None:
     """One or two sentences explaining an empty issue list, or ``None`` when
     the job could not be read."""
+    if not await diagnostics_available(client):
+        # Nothing will ever scan here, so the project's job state is beside
+        # the point and proposing enable would be a lie.
+        return UNAVAILABLE_SENTENCE
     try:
         job: dict[str, Any] | None = await client.get_agent_insights_job(project_id)
     except OpikNotFoundError:

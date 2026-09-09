@@ -258,6 +258,15 @@ async def test_get_agent_insights_job_hits_project_path() -> None:
 
 
 @pytest.mark.anyio
+async def test_get_service_toggles_hits_the_toggles_path() -> None:
+    payload = {"ollieEnabled": True, "guardrailsEnabled": False}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=payload))
+        body = await _client().get_service_toggles()
+    assert body == payload
+
+
+@pytest.mark.anyio
 async def test_get_agent_insights_job_maps_404_to_not_found() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/agent-insights/jobs/p-1").mock(
