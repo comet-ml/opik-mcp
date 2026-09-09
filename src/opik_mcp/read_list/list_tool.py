@@ -46,6 +46,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     make_opik_client,
 )
+from opik_mcp.read_list.diagnostics_state import diagnostics_state_hint
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
     SOURCE_DEFAULTED_ENTITIES,
@@ -55,7 +56,11 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
-from opik_mcp.read_list.project_scope import project_rows, unknown_project_message
+from opik_mcp.read_list.project_scope import (
+    project_rows,
+    resolve_project_id,
+    unknown_project_message,
+)
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
@@ -216,13 +221,14 @@ async def run_list(
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
 
+    resolved_settings = settings or get_settings()
     if client is not None:
         opik = client
     else:
         # Free-text search can take the backend >30 s on a cold cache (seen
         # live: 32 s); give only those calls a longer leash.
         timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
-        opik = make_opik_client(settings or get_settings(), timeout=timeout)
+        opik = make_opik_client(resolved_settings, timeout=timeout)
 
     try:
         page_body = await handler.list_fn(opik, **kw)
@@ -275,6 +281,8 @@ async def run_list(
             project_id=kw.get("project_id"),
             from_time=kw.get("from_time"),
             unconstrained=unconstrained,
+            settings=resolved_settings,
+            issue_status=kw.get("status"),
         )
         return f"{header}\n{empty}" if header else empty
 
@@ -298,6 +306,8 @@ async def _empty_message(
     project_id: str | None,
     from_time: str | None,
     unconstrained: bool,
+    settings: Settings,
+    issue_status: str | None = None,
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
@@ -305,8 +315,30 @@ async def _empty_message(
     experiment traces under the ``source = "sdk"`` default, and a window that
     starts after the project's last trace. The first costs nothing to explain;
     the second costs one project read, spent only on an empty windowed page.
+
+    An empty Diagnostics issue list has its own ambiguity — never enabled, off,
+    unscanned, or genuinely clean — so it gets its own hint (see
+    ``diagnostics_state``).
     """
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
+    if entity_type == "agent_insights_issue":
+        # The issue list's project scope is already resolved to an id by its
+        # list_fn; recover it the same way (cached) when the caller passed a name.
+        scoped_id = project_id
+        if scoped_id is None and project_name is not None:
+            try:
+                scoped_id = await resolve_project_id(opik, project_name)
+            except EntityArgValidationError:
+                return empty
+        if scoped_id is None:
+            return empty
+        hint = await diagnostics_state_hint(
+            opik,
+            settings,
+            scoped_id,
+            issue_status=issue_status or "open",
+        )
+        return f"{empty} {hint}" if hint else empty
     if from_time is None:
         return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
 

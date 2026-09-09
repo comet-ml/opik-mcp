@@ -8,7 +8,8 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.opik_client import OpikValidationError
+from opik_mcp.config import Settings
+from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 
@@ -36,6 +37,11 @@ class FakeOpikClient:
 
     project_lookups: int = 0
     fail_issues_with: Exception | None = None
+    # Diagnostics job for the project: None mimics the backend's 404 (never
+    # enabled); an exception in ``job_error`` mimics a failed side lookup.
+    job: dict[str, Any] | None = None
+    job_error: Exception | None = None
+    job_reads: int = 0
     # Credential identity the project-name cache keys on; None mimics a fake
     # with no config, as every other test here has.
     _base_url: str | None = None
@@ -47,6 +53,16 @@ class FakeOpikClient:
         if self.fail_issues_with is not None:
             raise self.fail_issues_with
         return self.issues
+
+    async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
+        self.job_reads += 1
+        if self.job_error is not None:
+            raise self.job_error
+        if self.job is None:
+            raise OpikNotFoundError(
+                f"agent insights job for project {project_id!r} not found (404)."
+            )
+        return self.job
 
     async def list_projects(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -437,6 +453,130 @@ async def test_list_issues_ambiguous_project_name_lists_candidate_names() -> Non
 async def test_list_issues_empty_state() -> None:
     out = await run_list("agent_insights_issue", project_id="p-1", client=FakeOpikClient())
     assert "No agent_insights_issues found" in out
+
+
+# --- the empty issue list explains the project's Diagnostics state -------- #
+
+_UI = Settings(opik_api_key="k", comet_workspace="demo-ws", opik_url="https://opik.test/api")
+_NO_UI = Settings(opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override="")
+
+
+def _ago(hours: float) -> str:
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _job(status: str = "enabled", **fields: Any) -> dict[str, Any]:
+    return {"id": "job-1", "project_id": "p-1", "status": status, **fields}
+
+
+@pytest.mark.anyio
+async def test_empty_issues_say_diagnostics_never_enabled_and_how_to_enable() -> None:
+    """A 404 on the job means nobody ever turned Diagnostics on for the project.
+    The reply says so, names both write operations, and links the page."""
+    fake = FakeOpikClient()
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "No agent_insights_issues found." in out
+    assert "Diagnostics is not enabled for this project" in out
+    assert "agent_insights_job.enable" in out
+    assert "agent_insights_job.trigger" in out
+    assert "https://opik.test/demo-ws/projects/p-1/diagnostics" in out
+    assert fake.job_reads == 1
+
+
+@pytest.mark.anyio
+async def test_empty_issues_say_diagnostics_turned_off_with_date() -> None:
+    fake = FakeOpikClient(
+        job=_job("disabled", last_updated_at="2026-09-05T10:00:00.000Z", last_scan_at=_ago(96))
+    )
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics was turned off for this project on 2026-09-05" in out
+    assert "agent_insights_job.enable" in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_say_enabled_but_never_scanned() -> None:
+    fake = FakeOpikClient(job=_job("enabled"))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "Diagnostics is enabled but has not scanned yet" in out
+    assert "agent_insights_job.trigger" in out
+    assert "agent_insights_job.enable" not in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_say_last_scan_is_stale() -> None:
+    fake = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(72)))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "older than a day" in out
+    assert "agent_insights_job.trigger" in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_with_fresh_scan_is_an_all_clear() -> None:
+    """Only this state means nothing is wrong, so it says so and proposes nothing."""
+    scanned = _ago(2)
+    fake = FakeOpikClient(job=_job("enabled", last_scan_at=scanned))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "No open issues. Last scan:" in out
+    assert scanned[:16] in out  # to the minute, UTC
+    assert "agent_insights_job" not in out
+    assert "https://opik.test/demo-ws/projects/p-1/diagnostics" in out
+
+
+@pytest.mark.anyio
+async def test_empty_resolved_issues_name_the_status_in_the_all_clear() -> None:
+    fake = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(2)))
+    out = await run_list(
+        "agent_insights_issue", project_id="p-1", status="resolved", client=fake, settings=_UI
+    )
+    assert "No resolved issues. Last scan:" in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_quote_the_last_failure_reason() -> None:
+    fake = FakeOpikClient(
+        job=_job(
+            "enabled",
+            last_scan_at=_ago(30),
+            last_failed_at=_ago(1),
+            last_failure_reason="did_not_start",
+            last_failure_detail="Connection refused: react-svc:8080",
+        )
+    )
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert "The last run failed: did_not_start (Connection refused: react-svc:8080)." in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_hint_omits_link_when_ui_unknown() -> None:
+    fake = FakeOpikClient()
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_NO_UI)
+    assert "Diagnostics is not enabled for this project" in out
+    assert "https://" not in out
+
+
+@pytest.mark.anyio
+async def test_empty_issues_hint_degrades_when_job_lookup_fails() -> None:
+    """The hint decorates the answer; it must never replace it with an error."""
+    fake = FakeOpikClient(job_error=OpikServerError("boom"))
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert out.strip() == "No agent_insights_issues found."
+
+
+@pytest.mark.anyio
+async def test_empty_issues_hint_resolves_project_name_once() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-demo", "name": "demo"}], "total": 1})
+    out = await run_list("agent_insights_issue", project_name="demo", client=fake, settings=_UI)
+    assert "https://opik.test/demo-ws/projects/p-demo/diagnostics" in out
+    assert fake.project_lookups == 1
+
+
+@pytest.mark.anyio
+async def test_non_empty_issues_do_not_read_the_job() -> None:
+    fake = FakeOpikClient(issues={"content": [ISSUE_ROW], "total": 1})
+    await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert fake.job_reads == 0
 
 
 # --- project_name resolution (the backend takes project_id only) --------- #

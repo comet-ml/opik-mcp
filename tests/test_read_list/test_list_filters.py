@@ -79,6 +79,9 @@ class FakeOpikClient:
     async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
         return _page([])
 
+    async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
+        raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
+
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:
     raw = fake.last_kwargs.get("filters")
