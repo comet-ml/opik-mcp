@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -527,11 +529,14 @@ async def test_search_calls_get_a_longer_client_timeout(monkeypatch: pytest.Monk
 
     seen: list[float | None] = []
 
-    def fake_factory(settings: Any, *, timeout: float | None = None) -> FakeOpikClient:
+    @asynccontextmanager
+    async def fake_factory(
+        settings: Any, *, timeout: float | None = None
+    ) -> AsyncIterator[FakeOpikClient]:
         seen.append(timeout)
-        return FakeOpikClient()
+        yield FakeOpikClient()
 
-    monkeypatch.setattr(list_tool, "make_opik_client", fake_factory)
+    monkeypatch.setattr(list_tool, "opik_client_for_call", fake_factory)
     monkeypatch.setattr(list_tool, "get_settings", lambda: object())
     await run_list("trace", project_id="p-1", search="order-42")
     await run_list("trace", project_id="p-1")

@@ -31,6 +31,7 @@ import json
 import logging
 import math
 import re
+from contextlib import AsyncExitStack
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -44,7 +45,7 @@ from opik_mcp.opik_client import (
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
-    make_opik_client,
+    opik_client_for_call,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
@@ -216,71 +217,79 @@ async def run_list(
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
 
-    if client is not None:
-        opik = client
-    else:
-        # Free-text search can take the backend >30 s on a cold cache (seen
-        # live: 32 s); give only those calls a longer leash.
-        timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
-        opik = make_opik_client(settings or get_settings(), timeout=timeout)
+    # A list can be several backend calls: resolving a project name, the
+    # listing itself, and the did-you-mean / empty-result lookups. The
+    # connection is owned for the span of this call so they share it. A
+    # caller-supplied client keeps its own lifecycle — the exit stack never
+    # closes what it did not open.
+    async with AsyncExitStack() as stack:
+        if client is not None:
+            opik = client
+        else:
+            # Free-text search can take the backend >30 s on a cold cache (seen
+            # live: 32 s); give only those calls a longer leash.
+            timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
+            opik = await stack.enter_async_context(
+                opik_client_for_call(settings or get_settings(), timeout=timeout)
+            )
 
-    try:
-        page_body = await handler.list_fn(opik, **kw)
-    except EntityArgValidationError as e:
-        # A list_fn may reject its own arguments (e.g. a project_name that
-        # resolves to no or several projects). Surface it as the same typed
-        # validation error the tool raises for a missing parent id.
-        raise ToolError(str(e)) from e
-    except OpikNotFoundError as e:
-        # The backend's 404 for a misspelled project names it ("Project name: X
-        # not found"); only that case gets the did-you-mean recovery.
-        if kw.get("project_name") and kw["project_name"] in str(e):
-            raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
-        raise ToolError(f"Failed to list {entity_type}s: {e}") from e
-    except (OpikAuthError, OpikValidationError, OpikServerError) as e:
-        raise ToolError(f"Failed to list {entity_type}s: {e}") from e
-    except httpx.TimeoutException as e:
-        # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
-        # sees an error with no text. Seen live: a free-text search that the
-        # backend took >30s to answer on a cold cache.
-        raise ToolError(
-            f"Opik did not answer in time for list({entity_type}, …). Narrow the query — "
-            "a shorter since window, fewer filters, a smaller size, or drop search — and retry."
-        ) from e
-    except httpx.HTTPError as e:
-        raise ToolError(f"Could not reach Opik for list({entity_type}, …): {e}") from e
+        try:
+            page_body = await handler.list_fn(opik, **kw)
+        except EntityArgValidationError as e:
+            # A list_fn may reject its own arguments (e.g. a project_name that
+            # resolves to no or several projects). Surface it as the same typed
+            # validation error the tool raises for a missing parent id.
+            raise ToolError(str(e)) from e
+        except OpikNotFoundError as e:
+            # The backend's 404 for a misspelled project names it ("Project name: X
+            # not found"); only that case gets the did-you-mean recovery.
+            if kw.get("project_name") and kw["project_name"] in str(e):
+                raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
+            raise ToolError(f"Failed to list {entity_type}s: {e}") from e
+        except (OpikAuthError, OpikValidationError, OpikServerError) as e:
+            raise ToolError(f"Failed to list {entity_type}s: {e}") from e
+        except httpx.TimeoutException as e:
+            # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
+            # sees an error with no text. Seen live: a free-text search that the
+            # backend took >30s to answer on a cold cache.
+            raise ToolError(
+                f"Opik did not answer in time for list({entity_type}, …). Narrow the query — "
+                "a shorter since window, fewer filters, a smaller size, or drop search — and retry."
+            ) from e
+        except httpx.HTTPError as e:
+            raise ToolError(f"Could not reach Opik for list({entity_type}, …): {e}") from e
 
-    content_raw = page_body.get("content") or []
-    content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
-    total_raw = page_body.get("total")
-    total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
+        content_raw = page_body.get("content") or []
+        content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
+        total_raw = page_body.get("total")
+        total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
 
-    if sort_label is not None:
-        # The backend blanks ``sortable_by`` when it dropped sorting for a large
-        # workspace — the only signal that the page is not actually ordered.
-        if page_body.get("sortable_by") == []:
-            sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
-        applied.insert(sort_slot, sort_label)
+        if sort_label is not None:
+            # The backend blanks ``sortable_by`` when it dropped sorting for a large
+            # workspace — the only signal that the page is not actually ordered.
+            if page_body.get("sortable_by") == []:
+                sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
+            applied.insert(sort_slot, sort_label)
 
-    header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
-    if not content:
-        # "No agent constraints" = nothing but the default source clause, no
-        # window, no search. A sort does not change what matches.
-        unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
-        empty = await _empty_message(
-            opik,
-            entity_type,
-            name=name,
-            project_name=kw.get("project_name"),
-            project_id=kw.get("project_id"),
-            from_time=kw.get("from_time"),
-            unconstrained=unconstrained,
-        )
-        return f"{header}\n{empty}" if header else empty
+        header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
+        if not content:
+            # "No agent constraints" = nothing but the default source clause, no
+            # window, no search. A sort does not change what matches.
+            unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
+            empty = await _empty_message(
+                opik,
+                entity_type,
+                name=name,
+                project_name=kw.get("project_name"),
+                project_id=kw.get("project_id"),
+                from_time=kw.get("from_time"),
+                unconstrained=unconstrained,
+            )
+            return f"{header}\n{empty}" if header else empty
 
-    extra = _requested_columns(sort_field, clauses)
-    table = _format_table(entity_type, handler, content, total, page, size, name, extra)
-    return f"{header}\n{table}" if header else table
+        extra = _requested_columns(sort_field, clauses)
+        table = _format_table(entity_type, handler, content, total, page, size, name, extra)
+        return f"{header}\n{table}" if header else table
 
 
 _SOURCE_HINT = (

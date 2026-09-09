@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import re
+from contextlib import AsyncExitStack
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -27,7 +28,7 @@ from opik_mcp.opik_client import (
     OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    make_opik_client,
+    opik_client_for_call,
 )
 from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -194,26 +195,35 @@ async def run_read(
             extra["to_date"] = to_time[:10]
 
     resolved_settings = settings or get_settings()
-    opik = client if client is not None else make_opik_client(resolved_settings)
-    data = await _fetch_with_name_lookup(
-        handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
-    )
-    if handler.link_fn is not None:
-        # UI links are session facts (UI base, workspace), so they are attached
-        # here rather than inside the fetcher, and before compression so every
-        # tier can decide what to keep.
-        data.update(handler.link_fn(resolved_settings, data))
-    # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
-    # (e.g. the project an issue was read under); they are never the agent's.
-    for private_key in [key for key in data if key.startswith("_")]:
-        del data[private_key]
+    # A read can be several backend calls (a trace and its spans, a project and
+    # its metrics), so the connection is owned for the span of this call and
+    # every leg reuses it. A caller-supplied client keeps its own lifecycle —
+    # the exit stack never closes what it did not open.
+    async with AsyncExitStack() as stack:
+        opik = (
+            client
+            if client is not None
+            else await stack.enter_async_context(opik_client_for_call(resolved_settings))
+        )
+        data = await _fetch_with_name_lookup(
+            handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
+        )
+        if handler.link_fn is not None:
+            # UI links are session facts (UI base, workspace), so they are attached
+            # here rather than inside the fetcher, and before compression so every
+            # tier can decide what to keep.
+            data.update(handler.link_fn(resolved_settings, data))
+        # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
+        # (e.g. the project an issue was read under); they are never the agent's.
+        for private_key in [key for key in data if key.startswith("_")]:
+            del data[private_key]
 
-    compressed_text, tier = compress_for(handler, data, max_tokens)
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-    returned_tokens = estimate_tokens(compressed_text)
-    header = size_header(entity_type, id, tier, returned_tokens, full_tokens)
-    return f"{header}\n{compressed_text}"
+        compressed_text, tier = compress_for(handler, data, max_tokens)
+        full_json = compact_json(data)
+        full_tokens = estimate_tokens(full_json)
+        returned_tokens = estimate_tokens(compressed_text)
+        header = size_header(entity_type, id, tier, returned_tokens, full_tokens)
+        return f"{header}\n{compressed_text}"
 
 
 async def _fetch_with_name_lookup(
