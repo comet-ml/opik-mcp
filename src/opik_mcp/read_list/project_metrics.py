@@ -37,6 +37,7 @@ from typing import Any, Final
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
+    SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     compile_filters,
     render_filters,
@@ -49,16 +50,32 @@ from opik_mcp.read_list.window import resolve_window as window_bounds
 
 @dataclass(frozen=True)
 class Metric:
-    """One chartable metric: its backend name and the entity it is about.
+    """One chartable metric.
 
     ``entity`` decides which filter fields apply and which of the backend's
     three filter arrays the compiled filter goes into — a span metric is
     filtered by span fields, not trace fields.
+
+    ``name`` and ``family`` are carried rather than recovered from the dict
+    key: the name was being found by scanning ``METRICS`` for the value, and
+    the family by ``name.split("_", 1)[-1]``, which worked only because the
+    naming happens to be regular. Both are facts about the metric, so the
+    metric holds them.
     """
 
+    name: str
     backend: str
     entity: str
     unit: str
+    family: str
+    """What the metric measures, independent of the entity — ``count``,
+    ``cost``, ``error_rate``. Two metrics of the same family answer the same
+    question about different entities, which is what lets a refused grouping
+    point at the one that accepts it."""
+
+
+def _metric(name: str, backend: str, entity: str, unit: str, family: str) -> Metric:
+    return Metric(name=name, backend=backend, entity=entity, unit=unit, family=family)
 
 
 # Agent-facing names are consistently prefixed. The backend's own enum has a
@@ -66,26 +83,37 @@ class Metric:
 # trap: "cost" looks global and is not. The frontend renames the same two for
 # the same reason.
 METRICS: Final[dict[str, Metric]] = {
-    "trace_count": Metric("TRACE_COUNT", "trace", "traces"),
-    "trace_duration": Metric("DURATION", "trace", "ms"),
-    "trace_average_duration": Metric("TRACE_AVERAGE_DURATION", "trace", "ms"),
-    "trace_error_rate": Metric("TRACE_ERROR_RATE", "trace", "%"),
-    "trace_cost": Metric("COST", "trace", "USD"),
-    "trace_token_usage": Metric("TOKEN_USAGE", "trace", "tokens"),
-    "trace_feedback_scores": Metric("FEEDBACK_SCORES", "trace", "score"),
-    "guardrails_failed_count": Metric("GUARDRAILS_FAILED_COUNT", "trace", "failures"),
-    "span_count": Metric("SPAN_COUNT", "span", "spans"),
-    "span_duration": Metric("SPAN_DURATION", "span", "ms"),
-    "span_average_duration": Metric("SPAN_AVERAGE_DURATION", "span", "ms"),
-    "span_error_rate": Metric("SPAN_ERROR_RATE", "span", "%"),
-    "span_cost": Metric("SPAN_COST", "span", "USD"),
-    "span_token_usage": Metric("SPAN_TOKEN_USAGE", "span", "tokens"),
-    "span_feedback_scores": Metric("SPAN_FEEDBACK_SCORES", "span", "score"),
-    "thread_count": Metric("THREAD_COUNT", "thread", "threads"),
-    "thread_duration": Metric("THREAD_DURATION", "thread", "ms"),
-    "thread_average_duration": Metric("THREAD_AVERAGE_DURATION", "thread", "ms"),
-    "thread_cost": Metric("THREAD_COST", "thread", "USD"),
-    "thread_feedback_scores": Metric("THREAD_FEEDBACK_SCORES", "thread", "score"),
+    metric.name: metric
+    for metric in (
+        _metric("trace_count", "TRACE_COUNT", "trace", "traces", "count"),
+        _metric("trace_duration", "DURATION", "trace", "ms", "duration"),
+        _metric(
+            "trace_average_duration", "TRACE_AVERAGE_DURATION", "trace", "ms", "average_duration"
+        ),
+        _metric("trace_error_rate", "TRACE_ERROR_RATE", "trace", "%", "error_rate"),
+        _metric("trace_cost", "COST", "trace", "USD", "cost"),
+        _metric("trace_token_usage", "TOKEN_USAGE", "trace", "tokens", "token_usage"),
+        _metric("trace_feedback_scores", "FEEDBACK_SCORES", "trace", "score", "feedback_scores"),
+        _metric(
+            "guardrails_failed_count", "GUARDRAILS_FAILED_COUNT", "trace", "failures", "guardrails"
+        ),
+        _metric("span_count", "SPAN_COUNT", "span", "spans", "count"),
+        _metric("span_duration", "SPAN_DURATION", "span", "ms", "duration"),
+        _metric("span_average_duration", "SPAN_AVERAGE_DURATION", "span", "ms", "average_duration"),
+        _metric("span_error_rate", "SPAN_ERROR_RATE", "span", "%", "error_rate"),
+        _metric("span_cost", "SPAN_COST", "span", "USD", "cost"),
+        _metric("span_token_usage", "SPAN_TOKEN_USAGE", "span", "tokens", "token_usage"),
+        _metric("span_feedback_scores", "SPAN_FEEDBACK_SCORES", "span", "score", "feedback_scores"),
+        _metric("thread_count", "THREAD_COUNT", "thread", "threads", "count"),
+        _metric("thread_duration", "THREAD_DURATION", "thread", "ms", "duration"),
+        _metric(
+            "thread_average_duration", "THREAD_AVERAGE_DURATION", "thread", "ms", "average_duration"
+        ),
+        _metric("thread_cost", "THREAD_COST", "thread", "USD", "cost"),
+        _metric(
+            "thread_feedback_scores", "THREAD_FEEDBACK_SCORES", "thread", "score", "feedback_scores"
+        ),
+    )
 }
 
 _FILTER_ARRAY: Final = {
@@ -163,21 +191,28 @@ def groupable_by(metric_name: str) -> list[str]:
 
 
 def _same_question_elsewhere(breakdown: str, metric_name: str) -> str | None:
-    """A metric that answers the same question and does accept this grouping.
+    """A metric of the same family that does accept this grouping.
 
     "Cost per model" is the obvious ask and ``trace_cost`` cannot answer it;
     ``span_cost`` is where per-model cost lives — except that one is in the
-    backend's omitted set too, so the honest answer is sometimes that the
-    question is currently unanswerable. Only suggest a metric that works.
+    backend's omitted set too, so sometimes the honest answer is that the
+    question is currently unanswerable. Only a candidate that works is
+    suggested.
+
+    Matched on ``Metric.family`` rather than on a suffix of the name. The
+    suffix test made the suggestion depend on dict order: ``trace_count`` →
+    ``model`` landed on ``span_count`` only because ``guardrails_failed_count``,
+    which also ends in ``_count`` and comes earlier, happens not to be
+    span-groupable.
     """
-    family = metric_name.split("_", 1)[-1]
-    for candidate in METRICS:
+    asked = METRICS[metric_name]
+    for candidate in METRICS.values():
         if (
-            candidate != metric_name
-            and candidate.endswith(family)
-            and _allows(breakdown, candidate)
+            candidate.name != metric_name
+            and candidate.family == asked.family
+            and _allows(breakdown, candidate.name)
         ):
-            return candidate
+            return candidate.name
     return None
 
 
@@ -289,10 +324,15 @@ def _fitting_alternatives(interval: str, since: str, until: str) -> list[str]:
             out.append(f"interval='{name}' → {_rows(rows)}")
     width = INTERVALS[interval]
     if width is not None:
-        fits = width * (MAX_BUCKETS - 1)
-        days = fits // timedelta(days=1)
+        # Round the span DOWN to whole days so the suggestion is expressible as
+        # `since='<n>d'`, then quote the row count that span really produces —
+        # not MAX_BUCKETS. Saying "200 rows" for a request that returns 193 is
+        # a number the agent would repeat back to a person.
+        days = (width * (MAX_BUCKETS - 1)) // timedelta(days=1)
         if days >= 1:
-            out.append(f"since='{days}d' at interval='{interval}' → {_rows(MAX_BUCKETS)}")
+            narrowed = _iso(_instant(until) - timedelta(days=days))
+            rows = bucket_count(interval, narrowed, until)
+            out.append(f"since='{days}d' at interval='{interval}' → {_rows(rows)}")
     return out
 
 
@@ -558,9 +598,6 @@ def reference() -> dict[str, Any]:
     }
 
 
-SDK_SOURCE_CLAUSE: Final = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
-
-
 async def run_project_metric(
     client: OpikReadClient,
     *,
@@ -601,7 +638,7 @@ async def run_project_metric(
         # agent has to check they agree.
         clauses.append(dict(SDK_SOURCE_CLAUSE))
 
-    name = parse_metric_name(metric)
+    name = metric.name
     grouping = parse_breakdown(breakdown, name) if breakdown else None
 
     resolved = await require_project_id(
@@ -638,14 +675,6 @@ async def run_project_metric(
     )
     table = render(body, metric_name=name, interval=interval_name, names_source=names_source)
     return f"{header}\n{table}"
-
-
-def parse_metric_name(metric: Metric) -> str:
-    """The agent-facing name for a resolved metric — for echoing back."""
-    for name, candidate in METRICS.items():
-        if candidate is metric:
-            return name
-    return metric.backend.lower()
 
 
 def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | None) -> None:

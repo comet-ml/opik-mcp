@@ -23,18 +23,10 @@ letting the silence be read as an answer.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Final
 
-from opik_mcp.opik_client import (
-    OpikAuthError,
-    OpikNotFoundError,
-    OpikReadClient,
-    OpikServerError,
-    OpikValidationError,
-)
-
-logger = logging.getLogger("opik_mcp.read_list.project_contents")
+from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.read_list.decorations import block
 
 FEED_PAGE: Final = 100
 """The backend's maximum. There are seven kinds and the feed is dominated by
@@ -43,13 +35,6 @@ older kinds a chance to appear."""
 
 _TRACE_ROLLUP: Final = "trace_daily"
 """The kind whose ``name`` is a count. Excluded — see the module docstring."""
-
-_BACKEND_ERRORS: Final = (
-    OpikAuthError,
-    OpikNotFoundError,
-    OpikValidationError,
-    OpikServerError,
-)
 
 
 def _entry(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -104,12 +89,11 @@ def distil(body: dict[str, Any]) -> dict[str, Any] | None:
 
 async def project_contents(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     """The ``contains`` block for a project read, or ``None`` for a quiet project."""
-    try:
-        body = await client.list_project_activities(project_id, size=FEED_PAGE)
-    except _BACKEND_ERRORS as exc:
-        logger.debug("project %s activity failed: %s", project_id, exc)
-        return {"error": f"Could not load what this project contains: {exc}"}
-    return distil(body)
+
+    async def load() -> dict[str, Any] | None:
+        return distil(await client.list_project_activities(project_id, size=FEED_PAGE))
+
+    return await block("what this project contains", load)
 
 
 __all__ = ["FEED_PAGE", "distil", "project_contents"]

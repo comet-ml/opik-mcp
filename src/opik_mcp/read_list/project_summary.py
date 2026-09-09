@@ -26,19 +26,12 @@ confirmed against www.comet.com rather than read off the Java:
 from __future__ import annotations
 
 import json
-import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
-from opik_mcp.opik_client import (
-    OpikAuthError,
-    OpikNotFoundError,
-    OpikReadClient,
-    OpikServerError,
-    OpikValidationError,
-)
-
-logger = logging.getLogger("opik_mcp.read_list.project_summary")
+from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.read_list.decorations import BLOCK_ERRORS, describe
+from opik_mcp.read_list.window import floor_to_second, format_instant, parse_bound
 
 WINDOW_DAYS: Final = 7
 """Default window: the week the question is about.
@@ -87,30 +80,19 @@ def window(
     window has no day count, and rounding one would be a small lie in a field
     an agent will quote.
     """
-    # Normalise to second precision BEFORE measuring the span: a relative bound
-    # resolves with sub-second parts, and 30 days minus 40 ms is not a whole
-    # number of days, so the span would disagree with the bounds we print.
-    end = _second(_instant(until) if until else (now or datetime.now(UTC)))
-    start = _second(_instant(since)) if since else end - timedelta(days=WINDOW_DAYS)
+    # Floor before measuring the span — see ``window.floor_to_second``.
+    end = floor_to_second(parse_bound(until) if until else (now or datetime.now(UTC)))
+    start = floor_to_second(parse_bound(since)) if since else end - timedelta(days=WINDOW_DAYS)
     span = end - start
 
-    block: dict[str, Any] = {"since": _iso(start), "until": _iso(end)}
+    block: dict[str, Any] = {"since": format_instant(start), "until": format_instant(end)}
     if span and span % timedelta(days=1) == timedelta(0):
         block["days"] = span.days
-    block["compared_to"] = {"since": _iso(start - span), "until": _iso(start)}
+    block["compared_to"] = {
+        "since": format_instant(start - span),
+        "until": format_instant(start),
+    }
     return block
-
-
-def _instant(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _second(moment: datetime) -> datetime:
-    return moment.astimezone(UTC).replace(microsecond=0)
-
-
-def _iso(moment: datetime) -> str:
-    return _second(moment).isoformat().replace("+00:00", "Z")
 
 
 def _figure(stats: dict[str, dict[str, Any]], name: str) -> dict[str, float | None]:
@@ -168,15 +150,12 @@ async def trace_summary(
             interval_end=span["until"],
             filters=SDK_SOURCE_FILTER,
         )
-    except (
-        OpikAuthError,
-        OpikNotFoundError,
-        OpikValidationError,
-        OpikServerError,
-    ) as exc:
-        logger.debug("project %s KPI cards failed: %s", project_id, exc)
+    except BLOCK_ERRORS as exc:
+        # Not `decorations.block`: the summary keeps its window and source
+        # alongside the error, and adds the one thing the other blocks have no
+        # equivalent for — the call that answers the same question by hand.
         block["error"] = (
-            f"Could not load this project's metrics: {exc} "
+            f"{describe("this project's metrics", exc)}. "
             f"Retry, or count directly with list('trace', project_id='{project_id}', "
             f"since='{span['since']}')."
         )

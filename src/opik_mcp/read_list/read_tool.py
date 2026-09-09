@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import re
-from contextlib import AsyncExitStack
 from datetime import UTC, datetime
 from typing import Any
 
@@ -29,7 +28,7 @@ from opik_mcp.opik_client import (
     OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    opik_client_for_call,
+    client_for_call,
 )
 from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -213,14 +212,8 @@ async def run_read(
     resolved_settings = settings or get_settings()
     # A read can be several backend calls (a trace and its spans, a project and
     # its metrics), so the connection is owned for the span of this call and
-    # every leg reuses it. A caller-supplied client keeps its own lifecycle —
-    # the exit stack never closes what it did not open.
-    async with AsyncExitStack() as stack:
-        opik = (
-            client
-            if client is not None
-            else await stack.enter_async_context(opik_client_for_call(resolved_settings))
-        )
+    # every leg reuses it.
+    async with client_for_call(resolved_settings, client) as opik:
         data = await _fetch_with_name_lookup(
             handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
         )

@@ -79,8 +79,6 @@ def test_optional_kwargs_never_overlap_required_ones() -> None:
 _DECLARES_OPTIONAL_KWARGS = {
     # Diagnostics issues: which status to list, and the report-day window.
     "agent_insights_issue": {"status", "from_date", "to_date"},
-    # A metric series: which metric, and how wide the buckets are.
-    "project_metric": {"metric_type", "interval"},
 }
 
 

@@ -31,14 +31,13 @@ import json
 import logging
 import math
 import re
-from contextlib import AsyncExitStack
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.config import Settings, get_settings
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikListClient,
@@ -46,10 +45,11 @@ from opik_mcp.opik_client import (
     OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    opik_client_for_call,
+    client_for_call,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
+    SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
@@ -77,7 +77,7 @@ _TRUNCATE_AT = 60
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
 
-_SDK_SOURCE_CLAUSE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
+
 _DEFAULT_SIZE = 25
 
 
@@ -92,12 +92,7 @@ async def _run_metric_series(
     Same lifecycle as the collection path — the series is one call, but
     resolving a project name is another, and both ride one connection.
     """
-    async with AsyncExitStack() as stack:
-        opik = (
-            client
-            if client is not None
-            else await stack.enter_async_context(opik_client_for_call(settings or get_settings()))
-        )
+    async with client_for_call(settings, client) as opik:
         try:
             return await run_project_metric(cast("OpikReadClient", opik), **kw)
         except EntityArgValidationError as err:
@@ -113,7 +108,6 @@ async def _run_metric_series(
             ) from err
         except httpx.HTTPError as err:
             raise ToolError(f"Could not reach Opik for list('project_metric', …): {err}") from err
-    raise AssertionError("unreachable: the exit stack always returns or raises")
 
 
 async def run_list(
@@ -219,7 +213,7 @@ async def run_list(
         if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
             c["field"] == "source" for c in clauses
         ):
-            clauses.append(dict(_SDK_SOURCE_CLAUSE))
+            clauses.append(dict(SDK_SOURCE_CLAUSE))
             source_defaulted = True
         if clauses:
             kw["filters"] = json.dumps(clauses, separators=(",", ":"))
@@ -284,20 +278,12 @@ async def run_list(
 
     # A list can be several backend calls: resolving a project name, the
     # listing itself, and the did-you-mean / empty-result lookups. The
-    # connection is owned for the span of this call so they share it. A
-    # caller-supplied client keeps its own lifecycle — the exit stack never
-    # closes what it did not open.
-    async with AsyncExitStack() as stack:
-        if client is not None:
-            opik = client
-        else:
-            # Free-text search can take the backend >30 s on a cold cache (seen
-            # live: 32 s); give only those calls a longer leash.
-            timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
-            opik = await stack.enter_async_context(
-                opik_client_for_call(settings or get_settings(), timeout=timeout)
-            )
-
+    # connection is owned for the span of this call so they share it.
+    #
+    # Free-text search can take the backend >30 s on a cold cache (seen live:
+    # 32 s); give only those calls a longer leash.
+    search_timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
+    async with client_for_call(settings, client, timeout=search_timeout) as opik:
         try:
             page_body = await handler.list_fn(opik, **kw)
         except EntityArgValidationError as e:

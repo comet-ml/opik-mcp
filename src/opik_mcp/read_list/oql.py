@@ -170,6 +170,18 @@ SOURCE_DEFAULTED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists that add ``source = "sdk"`` unless the caller names ``source`` — the
 UI's Logs page default, so evaluator / playground / experiment traces don't
 crowd out application traffic."""
+SDK_SOURCE_CLAUSE: Final[dict[str, str]] = {
+    "field": "source",
+    "operator": "=",
+    "key": "",
+    "value": "sdk",
+}
+"""That default in compiled form, in one place.
+
+It had been written out three times — twice as this dict, once as its JSON
+string — and three copies of a default are three chances for the tools to
+disagree about what the default is. Copy it before mutating: the compiled
+clause lists are built by appending to them."""
 WINDOWED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists whose backend endpoint takes ``from_time``/``to_time`` and free-text
 ``search`` (the two capabilities ship together on the backend)."""
@@ -662,6 +674,7 @@ __all__ = [
     "KEYED_TYPES",
     "MILLISECOND_FIELDS",
     "OPERATORS_BY_TYPE",
+    "SDK_SOURCE_CLAUSE",
     "SOURCE_DEFAULTED_ENTITIES",
     "SUPPORTED_ENTITIES",
     "USAGE_FIELDS",

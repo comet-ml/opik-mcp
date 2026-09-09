@@ -20,18 +20,10 @@ an ``error`` instead of names for the same reason the summary does.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Final
 
-from opik_mcp.opik_client import (
-    OpikAuthError,
-    OpikNotFoundError,
-    OpikReadClient,
-    OpikServerError,
-    OpikValidationError,
-)
-
-logger = logging.getLogger("opik_mcp.read_list.project_vocabulary")
+from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.read_list.decorations import block
 
 SCORE_NAMES_CAP: Final = 25
 """Enough to see a project's real vocabulary; a judge rule per metric plus
@@ -43,13 +35,6 @@ instrumentation invents its own."""
 
 RULES_CAP: Final = 10
 """One page of the evaluators endpoint, which is where the cap comes from."""
-
-_BACKEND_ERRORS: Final = (
-    OpikAuthError,
-    OpikNotFoundError,
-    OpikValidationError,
-    OpikServerError,
-)
 
 
 def _part(
@@ -79,57 +64,52 @@ def _part(
     return part
 
 
+def _named(rows: Any) -> list[str]:
+    """The ``name`` of every well-formed row, in order."""
+    if not isinstance(rows, list):
+        return []
+    return [
+        row["name"] for row in rows if isinstance(row, dict) and isinstance(row.get("name"), str)
+    ]
+
+
 async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
-    try:
+    async def load() -> dict[str, Any] | None:
         body = await client.list_project_score_names(project_id)
-    except _BACKEND_ERRORS as exc:
-        logger.debug("project %s score names failed: %s", project_id, exc)
-        return {"error": f"Could not load this project's score names: {exc}"}
-    raw = body.get("scores")
-    names = (
-        [row["name"] for row in raw if isinstance(row, dict) and isinstance(row.get("name"), str)]
-        if isinstance(raw, list)
-        else []
-    )
-    return _part(
-        names,
-        cap=SCORE_NAMES_CAP,
-        all_of_them=f"list('score_name', project_id='{project_id}')",
-    )
+        return _part(
+            _named(body.get("scores")),
+            cap=SCORE_NAMES_CAP,
+            all_of_them=f"list('score_name', project_id='{project_id}')",
+        )
+
+    return await block("this project's score names", load)
 
 
 async def usage_keys(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
-    try:
+    async def load() -> dict[str, Any] | None:
         body = await client.list_project_token_usage_names(project_id)
-    except _BACKEND_ERRORS as exc:
-        logger.debug("project %s usage keys failed: %s", project_id, exc)
-        return {"error": f"Could not load this project's usage keys: {exc}"}
-    raw = body.get("names")
-    names = [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
-    return _part(names, cap=USAGE_KEYS_CAP)
+        raw = body.get("names")
+        names = [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
+        return _part(names, cap=USAGE_KEYS_CAP)
+
+    return await block("this project's usage keys", load)
 
 
 async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     """Rule names only — the kinds and sampling rates are one list call away,
     and the overview's job is to say that rules exist and what they are called."""
-    try:
+
+    async def load() -> dict[str, Any] | None:
         body = await client.list_automation_rules(project_id=project_id, size=RULES_CAP)
-    except _BACKEND_ERRORS as exc:
-        logger.debug("project %s automation rules failed: %s", project_id, exc)
-        return {"error": f"Could not load this project's online rules: {exc}"}
-    raw = body.get("content")
-    names = (
-        [row["name"] for row in raw if isinstance(row, dict) and isinstance(row.get("name"), str)]
-        if isinstance(raw, list)
-        else []
-    )
-    total_raw = body.get("total")
-    return _part(
-        names,
-        cap=RULES_CAP,
-        total=total_raw if isinstance(total_raw, int) and total_raw >= 0 else None,
-        all_of_them=f"list('online_rule', project_id='{project_id}')",
-    )
+        total_raw = body.get("total")
+        return _part(
+            _named(body.get("content")),
+            cap=RULES_CAP,
+            total=total_raw if isinstance(total_raw, int) and total_raw >= 0 else None,
+            all_of_them=f"list('online_rule', project_id='{project_id}')",
+        )
+
+    return await block("this project's online rules", load)
 
 
 def assemble(

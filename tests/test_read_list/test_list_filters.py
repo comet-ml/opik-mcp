@@ -546,13 +546,12 @@ async def test_search_calls_get_a_longer_client_timeout(monkeypatch: pytest.Monk
 
     @asynccontextmanager
     async def fake_factory(
-        settings: Any, *, timeout: float | None = None
+        settings: Any, supplied: Any, *, timeout: float | None = None
     ) -> AsyncIterator[FakeOpikClient]:
         seen.append(timeout)
         yield FakeOpikClient()
 
-    monkeypatch.setattr(list_tool, "opik_client_for_call", fake_factory)
-    monkeypatch.setattr(list_tool, "get_settings", lambda: object())
+    monkeypatch.setattr(list_tool, "client_for_call", fake_factory)
     await run_list("trace", project_id="p-1", search="order-42")
     await run_list("trace", project_id="p-1")
     assert seen == [60.0, None]

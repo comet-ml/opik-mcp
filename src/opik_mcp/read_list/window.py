@@ -101,13 +101,42 @@ def format_instant(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def parse_bound(value: str) -> datetime:
+    """A bound this module produced, back to a datetime.
+
+    The metric and summary windows measure spans between bounds they were
+    handed as strings, and both used to re-parse them with a private helper
+    apiece. Parsing what :func:`format_instant` writes belongs next to it.
+    """
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def floor_to_second(dt: datetime) -> datetime:
+    """UTC, sub-second parts dropped.
+
+    Measure a span *after* flooring, never before: a relative bound resolves
+    with microseconds, and 30 days minus 40 ms is not a whole number of days,
+    so a span taken before flooring disagrees with the bounds that get printed.
+    That cost a 30-day window its day count once already.
+    """
+    return dt.astimezone(UTC).replace(microsecond=0)
+
+
+def second_precision(dt: datetime) -> str:
+    """``format_instant`` on a floored instant — no milliseconds, ever."""
+    return format_instant(floor_to_second(dt))
+
+
 __all__ = [
     "WINDOW_FORMS",
     "WindowError",
+    "floor_to_second",
     "format_instant",
     "is_relative",
+    "parse_bound",
     "parse_instant",
     "resolve_instant",
     "resolve_window",
+    "second_precision",
     "to_minute",
 ]

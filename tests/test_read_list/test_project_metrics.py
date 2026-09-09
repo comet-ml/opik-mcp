@@ -268,6 +268,42 @@ async def test_the_refusal_names_requests_that_would_fit() -> None:
     assert "at interval='hourly'" in message
 
 
+@pytest.mark.anyio
+async def test_every_row_count_in_a_refusal_is_the_real_one() -> None:
+    """Found by review: the narrowed-window suggestion quoted MAX_BUCKETS
+    rather than the count that window actually produces — "200 rows" for a
+    request returning 193. Numbers in a refusal get repeated to a person."""
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            interval="hourly",
+            since="2026-08-09T00:00:00Z",
+            until="2026-09-09T00:00:00Z",
+            client=_fake(),
+        )
+    message = str(exc.value)
+    # The first line also carries a "→" (the window it refused), so match the
+    # indented alternatives by their own shape rather than by the arrow.
+    alternatives = [
+        line.strip()
+        for line in message.splitlines()
+        if line.startswith("  ") and line.strip().startswith(("interval=", "since="))
+    ]
+    assert len(alternatives) == 4
+    for line in alternatives:
+        claim = int(line.split("→")[1].split()[0])
+        if line.startswith("interval="):
+            name = line.split("'")[1]
+            actual = bucket_count(name, "2026-08-09T00:00:00Z", "2026-09-09T00:00:00Z")
+        else:
+            days = int(line.split("'")[1].rstrip("d"))
+            start = f"2026-09-{9 - days:02d}T00:00:00Z"
+            actual = bucket_count("hourly", start, "2026-09-09T00:00:00Z")
+        assert claim == actual, f"{line!r} claims {claim}, really {actual}"
+
+
 # --- the collection arguments do not apply -------------------------------- #
 
 

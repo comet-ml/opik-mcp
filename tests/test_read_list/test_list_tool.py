@@ -701,6 +701,32 @@ async def test_list_score_names_does_not_invent_a_type() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_score_names_pages_even_though_the_backend_cannot() -> None:
+    """Found by review: the whole set came back with `total` set to the whole
+    set, so the table's own footer promised a page 2 that returned the same
+    rows. The endpoint has no LIMIT, so the slice has to be ours."""
+    fake = FakeOpikClient(score_names={"scores": [{"name": f"s-{i:02d}"} for i in range(30)]})
+    first = await run_list("score_name", project_id="p-1", size=25, client=fake)
+    assert "showing 25 of 30" in first
+    assert "Use page=2" in first
+    assert "s-24" in first
+    assert "s-25" not in first
+
+    second = await run_list("score_name", project_id="p-1", page=2, size=25, client=fake)
+    assert "showing 5 of 30" in second
+    assert "s-25" in second
+    assert "s-24" not in second
+    assert "Use page=3" not in second
+
+
+@pytest.mark.anyio
+async def test_list_score_names_offers_no_next_page_when_they_all_fit() -> None:
+    fake = FakeOpikClient(score_names={"scores": [{"name": "only"}]})
+    out = await run_list("score_name", project_id="p-1", client=fake)
+    assert "page=" not in out
+
+
+@pytest.mark.anyio
 async def test_list_score_names_requires_project_scope() -> None:
     with pytest.raises(ToolError, match="project_id"):
         await run_list("score_name", client=FakeOpikClient())

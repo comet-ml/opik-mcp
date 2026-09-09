@@ -32,6 +32,7 @@ from opik_mcp.config import (
     WORKSPACE_ENV_VARS,
     MissingConfigError,
     Settings,
+    get_settings,
     looks_unsubstituted,
     unfilled_workspace_error,
 )
@@ -1286,6 +1287,31 @@ async def opik_client_for_call(
     """
     async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT if timeout is None else timeout) as http:
         yield make_opik_client(settings, timeout=timeout, http_client=http)
+
+
+@asynccontextmanager
+async def client_for_call[C](
+    settings: Settings | None,
+    supplied: C | None,
+    *,
+    timeout: float | None = None,
+) -> AsyncIterator[C | OpikClient]:
+    """The client one tool call should use: the caller's, or one we own.
+
+    Every tool entry point needs the same two-branch lifecycle — use an
+    injected client untouched, or open one and close it on the way out,
+    including on a raised error. Written out at each entry point it was three
+    copies of an ``AsyncExitStack`` and the same comment; as a context manager
+    the stack disappears from all three.
+
+    A supplied client is yielded as-is and never closed: its owner may be
+    reusing it across many calls, and closing it would break the next one.
+    """
+    if supplied is not None:
+        yield supplied
+        return
+    async with opik_client_for_call(settings or get_settings(), timeout=timeout) as owned:
+        yield owned
 
 
 def _score_body(score: FeedbackScore) -> dict[str, Any]:

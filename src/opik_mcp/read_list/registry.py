@@ -128,6 +128,13 @@ class EntityHandler:
     """False for entities the backend addresses by name alone (score_name) —
     the mirror of ``list_has_name``, so the table drops the id column rather
     than printing a column of nothing on every row."""
+    list_paged_locally: bool = False
+    """True when ``list_fn`` slices the page itself because the backend cannot.
+
+    Documentation, not behaviour — the list tool treats the envelope the same
+    either way. It marks the one place where ``page``/``size`` are honoured
+    after the fetch rather than pushed into the query, so the next reader does
+    not mistake the whole-set fetch for a bug (or the paging for free)."""
     list_footer: str | None = None
     """One line appended under a non-empty listing: a caveat the rows cannot
     carry themselves.
@@ -500,9 +507,10 @@ async def _list_score_names(client: OpikListClient, **kw: Any) -> dict[str, Any]
 
     The endpoint answers ``{scores: [{name}]}`` rather than the Spring page
     envelope every other listable endpoint uses, and it takes no paging — the
-    query is a ``distinct name`` with no ``LIMIT``. Adapting here keeps the
-    list tool's contract single-shaped; the whole set is one page because the
-    backend has no way to give us less.
+    query is a ``distinct name`` with no ``LIMIT``. So the slice is ours to
+    make, and it has to be made: returning every name with ``total`` set to
+    every name left the table's own footer promising a "page 2" that returned
+    the same rows again.
     """
     project_id = await require_project_id(
         client,
@@ -517,7 +525,11 @@ async def _list_score_names(client: OpikListClient, **kw: Any) -> dict[str, Any]
         if isinstance(raw, list)
         else []
     )
-    return {"content": names, "page": 1, "size": len(names), "total": len(names)}
+    page = max(1, int(kw.get("page") or 1))
+    size = max(1, int(kw.get("size") or 1))
+    start = (page - 1) * size
+    window = names[start : start + size]
+    return {"content": window, "page": page, "size": len(window), "total": len(names)}
 
 
 async def _list_online_rules(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -884,8 +896,11 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         # about, and page/size/sort are meaningless. Six special cases in the
         # shared path, or one delegation — this is the delegation.
         list_fn=_delegated_elsewhere,
-        list_required_kwargs=("project_id",),
-        list_optional_kwargs=("metric_type", "interval"),
+        # Deliberately declares no kwargs. The list tool returns before its
+        # forwarding gate for this entity, so anything declared here would be
+        # dead — and it was also already wrong (no `breakdown`, and
+        # `project_name` is accepted). The runner validates its own arguments;
+        # a second, unread copy of that contract is worse than none.
         description=(
             "A time series for one project metric — trace/span/thread counts, "
             "durations, error rates, costs, token usage and feedback scores. Rows are "
@@ -897,6 +912,10 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         fetch_fn=_unsupported_fetch,
         list_fn=_list_score_names,
         list_required_kwargs=("project_id",),
+        # Paged by us, not by the backend — the endpoint has no LIMIT, so the
+        # slice happens after the fetch. The rows are strings; a page of them
+        # is cheap either way.
+        list_paged_locally=True,
         # No id: the backend's combined query returns distinct names only, and
         # no type: the service builds each entry from the name alone.
         list_has_id=False,

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -1282,6 +1283,42 @@ async def test_read_project_reports_a_failed_vocabulary_part_without_losing_the_
     assert "names" not in vocab["score_names"], "a failed part must not look like data"
     assert vocab["usage_keys"]["names"] == ["prompt_tokens", "completion_tokens"]
     assert body["summary"]["traces"]["count"]["current"] == 1204.0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "boom",
+    [
+        httpx.ReadTimeout("slow"),
+        httpx.ConnectError("refused"),
+        httpx.RemoteProtocolError("reset"),
+    ],
+    ids=["timeout", "connect", "protocol"],
+)
+async def test_a_decoration_that_times_out_does_not_take_the_read_with_it(
+    boom: Exception,
+) -> None:
+    """Found by review, not by these tests: every block caught only the typed
+    Opik errors, so anything httpx raised — a timeout above all, the likeliest
+    failure of a five-way fan-out — escaped as a raw exception. The whole read
+    died, taking the project record already in hand, and the agent got no tool
+    error to recover from."""
+    fake = _vocab_fake(fail_kpi_with=boom)
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    assert body["project"]["name"] == "demo"
+    assert "traces" not in body["summary"]
+    assert body["summary"]["error"], "the block says what happened"
+    assert body["vocabulary"]["score_names"]["names"] == ["hallucination", "tone"]
+
+
+@pytest.mark.anyio
+async def test_an_error_with_no_message_still_says_something() -> None:
+    """`httpx.ReadTimeout()` stringifies to nothing, which would leave an error
+    field with no error in it."""
+    fake = _vocab_fake(fail_score_names_with=httpx.ReadTimeout(""))
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "ReadTimeout" in body["vocabulary"]["score_names"]["error"]
 
 
 @pytest.mark.anyio
