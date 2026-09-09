@@ -120,7 +120,7 @@ async def run_list(
     until: str | None = None,
     search: str | None = None,
     page: int = 1,
-    size: int = 25,
+    size: int = _DEFAULT_SIZE,
     project_id: str | None = None,
     project_name: str | None = None,
     test_suite_id: str | None = None,

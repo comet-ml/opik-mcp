@@ -31,6 +31,7 @@ from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, describe
+from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.window import floor_to_second, format_instant, parse_bound
 
 WINDOW_DAYS: Final = 7
@@ -43,9 +44,12 @@ reconciled, and ``since``/``until`` select any other.
 
 # The Logs page's own filter, verbatim. Not configurable here: a summary that
 # does not match the screen is worse than no summary.
-SDK_SOURCE_FILTER: Final = json.dumps(
-    [{"field": "source", "operator": "=", "value": "sdk"}], separators=(",", ":")
-)
+#
+# The shared clause, encoded — `kpi-cards` declares `filters` as a String where
+# the list endpoints take an array. The encoding differs between the two
+# endpoints; the fact must not, so this serialises the one clause rather than
+# spelling out a second copy of it.
+SDK_SOURCE_FILTER: Final = json.dumps([SDK_SOURCE_CLAUSE], separators=(",", ":"))
 
 _UNDEFINED_OVER_NO_SAMPLES: Final = ("errors", "avg_duration")
 """A rate and a mean need samples. Over an empty period they are undefined,

@@ -43,6 +43,11 @@ from opik_mcp.read_list.oql import (
     render_filters,
 )
 from opik_mcp.read_list.project_scope import require_project_id
+from opik_mcp.read_list.window import (
+    floor_to_second,
+    parse_bound,
+    second_precision,
+)
 from opik_mcp.read_list.window import resolve_window as window_bounds
 
 # --- what can be asked for ------------------------------------------------ #
@@ -307,7 +312,7 @@ def bucket_count(interval: str, since: str, until: str) -> int:
     width = INTERVALS[interval]
     if width is None:
         return 1
-    span = _instant(until) - _instant(since)
+    span = parse_bound(until) - parse_bound(since)
     return int(span // width) + 1
 
 
@@ -330,7 +335,7 @@ def _fitting_alternatives(interval: str, since: str, until: str) -> list[str]:
         # a number the agent would repeat back to a person.
         days = (width * (MAX_BUCKETS - 1)) // timedelta(days=1)
         if days >= 1:
-            narrowed = _iso(_instant(until) - timedelta(days=days))
+            narrowed = second_precision(parse_bound(until) - timedelta(days=days))
             rows = bucket_count(interval, narrowed, until)
             out.append(f"since='{days}d' at interval='{interval}' → {_rows(rows)}")
     return out
@@ -372,25 +377,13 @@ def resolve_window(
     """
     anchor = now or datetime.now(UTC)
     resolved_since, resolved_until = window_bounds(since, until, now=anchor)
-    end = _second(_instant(resolved_until) if resolved_until else anchor)
+    end = floor_to_second(parse_bound(resolved_until) if resolved_until else anchor)
     start = (
-        _second(_instant(resolved_since))
+        floor_to_second(parse_bound(resolved_since))
         if resolved_since
         else end - timedelta(days=DEFAULT_WINDOW_DAYS)
     )
-    return _iso(start), _iso(end)
-
-
-def _instant(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _second(moment: datetime) -> datetime:
-    return moment.astimezone(UTC).replace(microsecond=0)
-
-
-def _iso(moment: datetime) -> str:
-    return _second(moment).isoformat().replace("+00:00", "Z")
+    return second_precision(start), second_precision(end)
 
 
 # --- the request ---------------------------------------------------------- #

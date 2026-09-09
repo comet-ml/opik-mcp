@@ -1131,8 +1131,12 @@ async def test_read_project_counts_only_sdk_traffic_and_says_so() -> None:
     fake = _project_fake()
     body = _payload(await run_read("project", UUID, client=fake))
 
+    # The same compiled clause the lists send, serialised — `kpi-cards` takes
+    # `filters` as a String where they take an array, but the fact travelling
+    # is one fact. Verified live that the backend answers identically with and
+    # without the empty `key` the compiled form carries.
     assert json.loads(fake.last_kpi_kwargs["filters"]) == [
-        {"field": "source", "operator": "=", "value": "sdk"}
+        {"field": "source", "operator": "=", "key": "", "value": "sdk"}
     ]
     assert fake.last_kpi_kwargs["entity_type"] == "traces"
     assert body["summary"]["source"] == "sdk"
