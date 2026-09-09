@@ -754,13 +754,16 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         read_window=ReadWindow("since", "until"),
         link_fn=_project_links,
         description=(
-            "Project metadata + the week's figures. Returns {project, summary, url}: "
-            f"the record, then trace count, error rate, average duration and total "
-            f"cost over the last {WINDOW_DAYS} days against the {WINDOW_DAYS} before, "
-            "SDK-logged traffic only — the same four cards the Logs page shows. A "
-            "rate or an average over a period with no traces is reported as null, "
-            "not zero. If the metrics call fails, summary carries an error rather "
-            "than zeros."
+            "Project metadata, the week's figures, the project's vocabulary and what "
+            "it contains. Returns {project, summary, vocabulary, contains, url}: the "
+            f"record; trace count, error rate, average duration and total cost over "
+            f"the last {WINDOW_DAYS} days against the {WINDOW_DAYS} before, SDK-logged "
+            "traffic only — the same four cards the Logs page shows; the score names, "
+            "usage keys and online-rule names to filter and group by; and the freshest "
+            "experiment, test suite, prompt version and run. since/until pick another "
+            "window. A rate or an average over a period with no traces is reported as "
+            "null, not zero. Empty parts are omitted; a part that failed to load "
+            "carries an error rather than looking empty."
         ),
     ),
     "trace": EntityHandler(

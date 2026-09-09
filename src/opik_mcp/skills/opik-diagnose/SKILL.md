@@ -32,7 +32,19 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 ### 1. Resolve scope
 Project (from config/repo) + a recent window. Confirm Opik is reachable: if `~/.opik.config` exists or `OPIK_API_KEY` is set, use it. Otherwise → **Blocker** ("run `opik configure`, then rerun").
 
-### 2. Start from Diagnostics issues
+### 2. Read the project once, for the shape of the week
+
+**With the Opik MCP connected**, `read('project', <name or id>)` costs one call
+and answers three things the rest of this skill would otherwise guess: whether
+anything is wrong at all (error rate and latency against the previous 7 days —
+a flat week is worth saying so and stopping), which score names the project
+actually records (the ones worth filtering on later; guessing a name returns an
+empty result that reads like good news), and what the project contains.
+
+A rate reported as `null` means no traces in the window, not a healthy zero.
+If the window is quiet, widen it with `since="30d"` before concluding anything.
+
+### 3. Start from Diagnostics issues
 Opik's Diagnostics already groups a project's recurring failures into ranked issues, each with a severity, occurrence counts, a cause, a suggested fix and example traces. Read that list first — it is the answer to "what is broken" the UI already computed, so do not rebuild it from raw traces.
 
 **With the Opik MCP connected**, the `agent_insights_issue` entity is the primary path:
@@ -56,7 +68,7 @@ client = opik.Opik()
 issues = client.rest_client.agent_insights.find_agent_insights_issues(project_id=project_id)
 ```
 
-### 3. Pull candidate traces to fill the gaps — MCP first, SDK fallback
+### 4. Pull candidate traces to fill the gaps — MCP first, SDK fallback
 Diagnostics reports what its last run grouped. Anything newer, or below its grouping threshold — a single latency outlier, one low online-eval score, a regression versus the prior window — still needs a scan. Skip traces already covered by an issue's `example_trace_ids`; they are on the shortlist under that issue.
 
 - **MCP connected:** one `list` call per signal. The backend does the filtering and ordering, so each call returns a short, already-ranked page — no SDK, no client-side sorting. `since` takes `"1h"`, `"24h"`, `"7d"`; `filters` is an OQL string; `sort` is `"<field> [asc|desc]"` (desc by default). Trace lists hide evaluator/playground/experiment traces (`source = "sdk"`) unless you name `source`.
@@ -81,13 +93,13 @@ Diagnostics reports what its last run grouped. Anything newer, or below its grou
   ```python
   traces = client.search_traces(project_name="<project>", max_results=200)  # recent window
   # Narrow server-side with filter_string='error_info is_not_empty' when the volume is
-  # large; otherwise rank client-side (step 4). Each trace carries the fields you rank
+  # large; otherwise rank client-side (step 5). Each trace carries the fields you rank
   # on: error info, duration, feedback_scores.
   ```
 
 Skip traces already covered by an issue's `example_trace_ids`; they are on the shortlist under that issue.
 
-### 4. Rank the remaining traces by signal
+### 5. Rank the remaining traces by signal
 Score each remaining candidate and keep the top few. Priority order:
 1. **Errored** — the trace or a span captured an exception.
 2. **Tool-call failures** — a `tool` span errored, returned an error-shaped result, or repeated the same call (a retry loop). Agents fail here often, so surface it as its own signal: use `has_tool_spans` to find candidates, then scan their `tool` spans for a non-empty error, an output that reads like an error/refusal, or duplicate consecutive calls.
@@ -97,10 +109,10 @@ Score each remaining candidate and keep the top few. Priority order:
 
 Append these after the Diagnostics items, in the signal order above. Give each shortlisted item the one signal that flagged it and a short why. Prefer a short, ranked list over a long one.
 
-### 5. Stay in scope
+### 6. Stay in scope
 Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/opik-evaluate` and `/opik-compare`, not rediscovered here.
 
-### 6. Report
+### 7. Report
 Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID`), never a bare id, so the user can open it and deep-dive. Each item is ready for `/opik-explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/opik-explain`) and it changes no code.
 
 ## Blockers

@@ -51,7 +51,16 @@ agent_insights_issue. Composite reads (trace, prompt, thread, \
 agent_insights_issue) inline their child collections so one call usually gets \
 the full picture. For a thread, pass the thread link/URI or a project_id — \
 read('thread', …) returns the messages list, and list('thread', project_id=…) \
-enumerates a project's threads. For "what is broken in production", start with \
+enumerates a project's threads. For "how is my project doing", start with \
+read('project', name_or_id): one call returns the last 7 days against the 7 \
+before — traces, error rate, latency, cost, SDK traffic only, the same four \
+cards the Logs page shows — plus the score names and usage keys you can \
+filter and group by, and the freshest experiment, suite, prompt version and \
+run. since/until pick another window (since="30d" is what the UI opens on). \
+To attribute a change rather than just report it, chart it: \
+list('project_metric', project_name=…, metric_type="trace_cost", \
+breakdown="model"); reference schema("list.project_metric"). For "what is \
+broken in production", start with \
 list('agent_insights_issue', project_name=…): the project's Diagnostics (Agent \
 Insights) issues — recurring failures already grouped and ranked, open ones by \
 default, counts all-time unless since/until narrow them — instead of ranking \

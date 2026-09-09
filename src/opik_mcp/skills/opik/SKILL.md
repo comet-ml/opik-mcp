@@ -118,6 +118,37 @@ def run(question: str) -> str:
     return llm(p.format(product="Opik"), model=p.metadata["model"])
 ```
 
+## How a project is doing
+
+With the MCP connected, start at the project, not at its traces:
+
+```
+read("project", "<project name or id>")
+```
+
+One call returns the last 7 days against the 7 before — trace count, error
+rate, average duration, total cost, SDK traffic only, which is what the Logs
+page's four cards show — plus the score names and usage keys the project
+actually records, and the freshest experiment, test suite, prompt version and
+optimization run in it. `since`/`until` pick another window; `since="30d"` is
+what the UI opens on. A rate or an average over a window with no traces comes
+back `null` rather than `0`, because a rate over no samples is undefined and
+"0% errors" is advice someone may act on.
+
+Then attribute the change rather than restating it:
+
+```
+list("project_metric", project_name="<project>", metric_type="trace_cost")
+list("project_metric", project_name="<project>", metric_type="span_count",
+     breakdown="model", since="30d")
+```
+
+Rows are time buckets, not records — `interval` is `hourly`/`daily`/`weekly`/
+`total`, and `page`/`size`/`sort` do not apply. `schema("list.project_metric")`
+is the metric list, what each is about, and which groupings each accepts; seven
+of them accept none. The score names the overview returned are the ones worth
+filtering on, and `list("score_name", project_name=…)` has the rest.
+
 ## Searching traces
 
 One filter grammar, OQL, serves both the hosted MCP's `list` tool and the
