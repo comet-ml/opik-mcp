@@ -41,7 +41,7 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
-from opik_mcp.read_list.diagnostics_state import issue_page_note
+from opik_mcp.read_list.diagnostics import issue_page_note
 from opik_mcp.read_list.project_scope import require_project_id
 from opik_mcp.read_list.ui_links import project_page_url
 
