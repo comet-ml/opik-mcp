@@ -15,6 +15,7 @@
         "experiment_item.create",
         "thread.close",
         "thread.open",
+        "agent_insights_job.enable",
         "list.trace",
         "list.span",
         "list.thread",

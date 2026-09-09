@@ -368,6 +368,7 @@ backend response.
 | `test_suite_item.upsert` | Upsert items into a test suite (always the envelope shape). |
 | `experiment.create` | Create an experiment scoped to a test suite. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
+| `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans). Idempotent. |
 
 ```python
 write(operation="score.create", data={

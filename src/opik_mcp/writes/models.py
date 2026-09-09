@@ -448,6 +448,38 @@ class _ThreadLifecycle(_StrictBase):
         return self
 
 
+class AgentInsightsJobAction(_StrictBase):
+    """Shared shape for the Diagnostics (Agent Insights) job actions.
+
+    The backend keys the job by project and takes the project in the path, so
+    the payload is project scope and nothing else. ``project_name`` is resolved
+    to the UUID by the dispatcher (the jobs endpoints take an id only), which
+    is why exactly one of the two fields is required here rather than letting
+    the backend answer a 400 that names neither.
+    """
+
+    project_id: UUID | None = Field(default=None)
+    project_name: str | None = Field(default=None, max_length=200)
+
+    @model_validator(mode="after")
+    def _require_project(self) -> AgentInsightsJobAction:
+        if self.project_name is None and self.project_id is None:
+            raise ValueError(
+                "project_scope_missing: pass `project_id` or `project_name` to "
+                "identify the project whose Diagnostics job to act on."
+            )
+        return self
+
+
+class AgentInsightsJobEnable(AgentInsightsJobAction):
+    """``POST /v1/private/agent-insights/jobs/{projectId}`` (or a ``PATCH`` to
+    ``status=enabled`` when the job already exists) — turn Diagnostics on."""
+
+
+class AgentInsightsJobTrigger(AgentInsightsJobAction):
+    """``POST /v1/private/agent-insights/jobs/{projectId}/trigger`` — scan now."""
+
+
 class ThreadClose(_ThreadLifecycle):
     """``POST /v1/private/traces/threads/close`` — mark a thread inactive/done."""
 
@@ -539,6 +571,8 @@ EXAMPLES: dict[str, dict[str, Any]] = {
     },
     "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
     "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
+    "agent_insights_job.enable": {"project_name": "demo"},
+    "agent_insights_job.trigger": {"project_name": "demo"},
 }
 
 
@@ -557,6 +591,8 @@ MODELS: dict[str, type[BaseModel]] = {
     "experiment_item.create": ExperimentItemCreate,
     "thread.close": ThreadClose,
     "thread.open": ThreadOpen,
+    "agent_insights_job.enable": AgentInsightsJobEnable,
+    "agent_insights_job.trigger": AgentInsightsJobTrigger,
 }
 
 

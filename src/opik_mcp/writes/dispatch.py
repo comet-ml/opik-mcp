@@ -39,6 +39,10 @@ from opik_mcp.opik_client import (
     make_opik_client,
     note_backend_401,
 )
+from opik_mcp.read_list.deployment import UNAVAILABLE_SENTENCE, diagnostics_available
+from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.project_scope import resolve_project_id
+from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
     BackendError,
@@ -93,11 +97,19 @@ async def run_write(
     # thread's model UUID; the caller passes the thread_id string). dry_run stays
     # pure — no client, no backend calls — so it never depends on config/network.
     http_client: OpikClient | None = None
+    resolved_settings = settings or get_settings()
+    diagnostics_project_id: str | None = None
     if not dry_run:
-        http_client = client if client is not None else make_opik_client(settings or get_settings())
+        http_client = client if client is not None else make_opik_client(resolved_settings)
         await _resolve_thread_comment_target(op, items, http_client)
+        # The Diagnostics job endpoints take the project in the path and only
+        # as a UUID, and they are pointless on a deployment with no Ollie —
+        # both resolved here, before any jobs request goes out.
+        diagnostics_project_id = await _prepare_diagnostics_job(op, items, http_client)
 
-    method, path, body = _build_request_with_method(op, items, is_batch=is_batch)
+    method, path, body = _build_request_with_method(
+        op, items, is_batch=is_batch, project_id=diagnostics_project_id
+    )
 
     if dry_run:
         would_call: dict[str, Any] = {
@@ -123,7 +135,50 @@ async def run_write(
 
     assert http_client is not None  # set above whenever not dry_run
     resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
-    return _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
+    if op.name == "agent_insights_job.enable" and resp.status_code == 409:
+        # The job already exists, which is not a failure of "turn it on": flip
+        # its status instead, so a repeated enable is safe either way.
+        method, path, body = "PATCH", path, {"status": "enabled"}
+        resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
+    out = _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
+    if diagnostics_project_id is not None:
+        page = project_page_url(resolved_settings, diagnostics_project_id, "diagnostics")
+        if page is not None:
+            out["url"] = page
+    return out
+
+
+async def _prepare_diagnostics_job(
+    op: WriteOperation, items: list[BaseModel], client: OpikClient
+) -> str | None:
+    """For a Diagnostics job action: refuse where Diagnostics cannot run, and
+    resolve the project to the UUID the jobs endpoints take in the path.
+
+    Returns the project id, or ``None`` for every other operation.
+    """
+    if not op.name.startswith("agent_insights_job."):
+        return None
+    if not await diagnostics_available(client):
+        raise ValidationFailedError.build(
+            op.name,
+            [ValidationIssue("", UNAVAILABLE_SENTENCE, "diagnostics_unavailable")],
+            expected_schema=op.pydantic_model.model_json_schema(),
+            example=op.example,
+        )
+    item = items[0]
+    project_id = getattr(item, "project_id", None)
+    if project_id is not None:
+        return str(project_id)
+    project_name = getattr(item, "project_name", None)
+    try:
+        return await resolve_project_id(client, str(project_name))
+    except EntityArgValidationError as e:
+        raise ValidationFailedError.build(
+            op.name,
+            [ValidationIssue("project_name", str(e), "project_scope_missing")],
+            expected_schema=op.pydantic_model.model_json_schema(),
+            example=op.example,
+        ) from e
 
 
 async def _resolve_thread_comment_target(
@@ -379,7 +434,11 @@ def _stage3_authorize(op: WriteOperation, scopes: frozenset[str]) -> None:
 
 
 def _build_request_with_method(
-    op: WriteOperation, items: list[BaseModel], *, is_batch: bool
+    op: WriteOperation,
+    items: list[BaseModel],
+    *,
+    is_batch: bool,
+    project_id: str | None = None,
 ) -> tuple[str, str, dict[str, Any] | list[Any]]:
     """Wrap ``_build_request`` and apply per-batch method overrides.
 
@@ -390,7 +449,7 @@ def _build_request_with_method(
     know about the per-route method asymmetry. Score's PUT batch endpoint
     is left alone (PUT is the correct method for the feedback-scores route).
     """
-    path, body = _build_request(op, items, is_batch=is_batch)
+    path, body = _build_request(op, items, is_batch=is_batch, project_id=project_id)
     method = op.method
     if is_batch and method == "PATCH" and op.batch_endpoint is not None:
         method = "POST"
@@ -398,7 +457,11 @@ def _build_request_with_method(
 
 
 def _build_request(
-    op: WriteOperation, items: list[BaseModel], *, is_batch: bool
+    op: WriteOperation,
+    items: list[BaseModel],
+    *,
+    is_batch: bool,
+    project_id: str | None = None,
 ) -> tuple[str, dict[str, Any] | list[Any]]:
     """Translate validated models into ``(path, body)`` for the BE.
 
@@ -408,6 +471,13 @@ def _build_request(
     specific and trying to abstract them produces brittle indirection.
     """
     name = op.name
+
+    if name.startswith("agent_insights_job."):
+        # The project is in the path and the payload was only ever scope, so
+        # the body is empty. ``project_id`` is the resolved UUID (a name was
+        # resolved before the call); dry_run has none, and echoes the template.
+        template_id = project_id if project_id is not None else "{project_id}"
+        return op.endpoint.format(project_id=template_id), {}
 
     if name == "trace.create":
         if is_batch:

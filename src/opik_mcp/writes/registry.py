@@ -25,6 +25,7 @@ from opik_mcp.writes.models import EXAMPLES, MODELS
 from opik_mcp.writes.scopes import (
     SCOPE_DATASET_EDIT,
     SCOPE_EXPERIMENT_CREATE,
+    SCOPE_PROJECT_DATA_VIEW,
     SCOPE_PROMPT_CREATE,
     SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
     SCOPE_TRACE_SPAN_THREAD_LOG,
@@ -219,6 +220,24 @@ _REGISTRY: dict[str, WriteOperation] = {
         ),
         example=EXAMPLES["thread.open"],
         failure_modes=("thread_project_missing",),
+    ),
+    "agent_insights_job.enable": WriteOperation(
+        name="agent_insights_job.enable",
+        pydantic_model=MODELS["agent_insights_job.enable"],
+        endpoint="/v1/private/agent-insights/jobs/{project_id}",
+        method="POST",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Turn Diagnostics (Agent Insights) on for a project: it then scans "
+            "daily and groups recurring failures into issues you can read with "
+            "list('agent_insights_issue', …). Pass project_id or project_name. "
+            "Idempotent — an existing job is switched back on. Pair it with "
+            "agent_insights_job.trigger to scan now instead of waiting for the "
+            "nightly run. Refused when the deployment has no Diagnostics."
+        ),
+        example=EXAMPLES["agent_insights_job.enable"],
+        failure_modes=("project_scope_missing", "diagnostics_unavailable"),
     ),
 }
 

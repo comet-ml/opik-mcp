@@ -14,6 +14,7 @@ import httpx
 import pytest
 import respx
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikClient
 from opik_mcp.writes.dispatch import run_write
 from opik_mcp.writes.errors import (
@@ -24,11 +25,15 @@ from opik_mcp.writes.errors import (
 )
 from opik_mcp.writes.scopes import (
     ALL_WRITE_SCOPES,
+    SCOPE_PROJECT_DATA_VIEW,
     SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
     SCOPE_TRACE_SPAN_THREAD_LOG,
 )
 
 OPIK_BASE = "https://opik.test"
+
+# Settings whose UI base and workspace are known, so a write can carry a link.
+_UI_SETTINGS = Settings(opik_api_key="key-abc", comet_workspace="ws", opik_url=f"{OPIK_BASE}/api")
 
 
 @pytest.fixture
@@ -358,6 +363,162 @@ async def test_thread_close_rejects_batch() -> None:
         await run_write(
             operation="thread.close",
             data=[{"thread_id": "a"}, {"thread_id": "b"}],
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "batch_unsupported" for i in body["issues"])
+
+
+# --- Diagnostics job: enable ------------------------------------------- #
+
+_TOGGLES_ON = {"ollieEnabled": True}
+_TOGGLES_OFF = {"ollieEnabled": False}
+PROJECT = "01a0808c-5b0b-71ca-861a-0556a41c77ec"
+
+
+def _job(status: str = "enabled") -> dict[str, object]:
+    return {"id": "job-1", "project_id": PROJECT, "status": status}
+
+
+@pytest.mark.anyio
+async def test_job_enable_creates_the_job() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert route.called
+    assert out["ok"] is True
+    assert out["status"] == 201
+    assert out["backend_body"]["status"] == "enabled"
+
+
+@pytest.mark.anyio
+async def test_job_enable_flips_an_existing_disabled_job() -> None:
+    """A 409 means the job exists; "turn it on" must still mean on."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(409, json={"errors": ["Job already exists"]}),
+        )
+        patch = mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(200, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert json.loads(patch.calls.last.request.content) == {"status": "enabled"}
+    assert out["ok"] is True
+    assert out["backend_body"]["status"] == "enabled"
+
+
+@pytest.mark.anyio
+async def test_job_enable_is_idempotent_when_already_enabled() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(409, json={"errors": ["Job already exists"]}),
+        )
+        mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(200, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert out["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_job_enable_carries_the_diagnostics_page_url() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["url"] == f"https://opik.test/ws/projects/{PROJECT}/diagnostics"
+
+
+@pytest.mark.anyio
+async def test_job_enable_resolves_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            ),
+        )
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_name": "demo"},
+            client=_client(),
+        )
+    assert route.called
+    assert out["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_job_enable_refused_when_ollie_is_off() -> None:
+    """Nothing would ever scan, so refuse before touching the jobs endpoints."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_OFF))
+        jobs = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}")
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.enable",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    assert not jobs.called
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "diagnostics_unavailable" for i in body["issues"])
+    assert "not available on this deployment" in json.dumps(body)
+
+
+@pytest.mark.anyio
+async def test_job_enable_requires_exactly_one_project_field() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(operation="agent_insights_job.enable", data={}, client=_client())
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "project_scope_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_job_enable_requires_the_project_data_view_scope() -> None:
+    with pytest.raises(AuthorizationDeniedError) as exc_info:
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            scopes=frozenset(),
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert body["required_scope"] == SCOPE_PROJECT_DATA_VIEW
+
+
+@pytest.mark.anyio
+async def test_job_enable_rejects_batch() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="agent_insights_job.enable",
+            data=[{"project_id": PROJECT}, {"project_name": "demo"}],
             client=_client(),
         )
     body = json.loads(exc_info.value.to_json())
