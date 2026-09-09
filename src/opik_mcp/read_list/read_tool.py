@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import re
 from contextlib import AsyncExitStack
+from datetime import UTC, datetime
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -40,7 +41,7 @@ from opik_mcp.read_list.registry import (
 )
 from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
-from opik_mcp.read_list.window import WindowError, resolve_window
+from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
 
@@ -176,23 +177,38 @@ async def run_read(
         if value is not None and key in handler.read_optional_kwargs
     }
     if since is not None or until is not None:
-        # Same since/until vocabulary as ``list``. Only day-windowed reads
-        # (Diagnostics issues) take it; the backend aggregates per report day,
-        # so the instant window is truncated to its UTC days.
-        if "from_date" not in handler.read_optional_kwargs:
+        # Same since/until vocabulary as ``list``. Which entities take a window,
+        # and in which shape, is declared on the registry entry — a Diagnostics
+        # issue wants whole UTC report days, a project's metrics want instants.
+        window = handler.read_window
+        if window is None:
+            takes_window = sorted(
+                name for name, entry in ENTITY_REGISTRY.items() if entry.read_window is not None
+            )
             err = WindowError(
-                f"since/until are not supported for read({entity_type!r}); only "
-                f"agent_insights_issue takes a window on read."
+                f"since/until are not supported for read({entity_type!r}); "
+                f"on read a window is taken by: {', '.join(takes_window)}."
             )
             raise ToolError(str(err)) from err
+        # One clock reading for the whole window. A relative bound resolves
+        # against "now", and if the end were later measured from a second
+        # reading, `since="30d"` would intermittently span 30 days and a
+        # second — seen live, one call in a few crossing a second boundary.
+        now = datetime.now(UTC)
         try:
-            from_time, to_time = resolve_window(since, until)
+            from_time, to_time = resolve_window(since, until, now=now)
         except WindowError as e:
             raise ToolError(str(e)) from e
+        if not window.day_truncated and to_time is None:
+            # An instant window is always closed: an open end means "now", and
+            # it has to be the same "now" the start was measured from. A
+            # day-keyed window is left open on purpose — the Diagnostics page
+            # defaults to all-time, and closing it here would silently bound it.
+            to_time = format_instant(now)
         if from_time is not None:
-            extra["from_date"] = from_time[:10]
+            extra[window.start_kwarg] = from_time[:10] if window.day_truncated else from_time
         if to_time is not None:
-            extra["to_date"] = to_time[:10]
+            extra[window.end_kwarg] = to_time[:10] if window.day_truncated else to_time
 
     resolved_settings = settings or get_settings()
     # A read can be several backend calls (a trace and its spans, a project and

@@ -887,8 +887,9 @@ async def test_read_issue_skeleton_keeps_url() -> None:
 
 @pytest.mark.anyio
 async def test_read_window_rejected_for_entities_that_do_not_declare_it() -> None:
-    """since/until belong to the issue read; a thread fetcher takes neither, so
-    the read says so (as list does) rather than silently ignoring the window."""
+    """A thread fetcher takes no window, so the read says so (as list does)
+    rather than silently ignoring it — and names the entities that do take one,
+    read off the registry so the message cannot go stale."""
     with pytest.raises(ToolError, match="since/until are not supported for read\\('thread'\\)"):
         await run_read(
             "thread",
@@ -897,6 +898,15 @@ async def test_read_window_rejected_for_entities_that_do_not_declare_it() -> Non
             since="7d",
             client=_thread_fake(),
         )
+
+
+@pytest.mark.anyio
+async def test_read_window_refusal_names_every_entity_that_takes_one() -> None:
+    with pytest.raises(ToolError) as exc:
+        await run_read("thread", THREAD, project_id="p-9", since="7d", client=_thread_fake())
+    message = str(exc.value)
+    assert "agent_insights_issue" in message
+    assert "project" in message
 
 
 @pytest.mark.anyio
@@ -1142,6 +1152,111 @@ async def test_read_project_fails_when_the_project_record_fails() -> None:
 async def test_read_project_carries_a_link_to_its_page() -> None:
     body = _payload(await run_read("project", UUID, client=_project_fake(), settings=_UI_SETTINGS))
     assert body["url"] == f"https://opik.test/demo-ws/projects/{UUID}/logs"
+
+
+@pytest.mark.anyio
+async def test_read_project_accepts_a_relative_window() -> None:
+    """`since='30d'` is what reproduces the Logs page cards, which open on 30
+    days. The default answers the weekly question; this answers "and last
+    month?" without a second tool."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, since="30d", client=fake))
+
+    sent = fake.last_kpi_kwargs
+    start = datetime.fromisoformat(sent["interval_start"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(sent["interval_end"].replace("Z", "+00:00"))
+    assert (end - start) == timedelta(days=30)
+    assert body["summary"]["window"]["days"] == 30
+
+
+@pytest.mark.anyio
+async def test_read_project_measures_a_relative_window_from_one_clock_reading() -> None:
+    """Regression, found live rather than here: the start resolved against one
+    "now" and the end was measured from a second one, so `since='30d'` spanned
+    30 days and a second whenever the two readings crossed a second boundary —
+    and the day count silently vanished. The read closes an open-ended instant
+    window itself, from the same reading, so the fetcher does no clock work."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, since="30d", client=fake))
+
+    sent = fake.last_kpi_kwargs
+    assert sent["interval_end"] is not None, "an instant window is always closed"
+    assert sent["interval_start"] == body["summary"]["window"]["since"]
+    assert sent["interval_end"] == body["summary"]["window"]["until"]
+    start = datetime.fromisoformat(sent["interval_start"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(sent["interval_end"].replace("Z", "+00:00"))
+    assert (end - start) == timedelta(days=30), "no drift between the two bounds"
+
+
+@pytest.mark.anyio
+async def test_read_issue_window_stays_open_ended_by_default() -> None:
+    """The mirror of the above: a day-keyed window must NOT be closed for the
+    caller. The Diagnostics page counts all-time, so filling in "until now"
+    would quietly bound what the agent asked to be unbounded."""
+    fake = _issue_fake()
+    await run_read("agent_insights_issue", ISSUE, project_id="p-9", since="7d", client=fake)
+    assert fake.last_issue_kwargs["from_date"] is not None
+    assert fake.last_issue_kwargs["to_date"] is None
+
+
+@pytest.mark.anyio
+async def test_read_project_accepts_absolute_instants() -> None:
+    fake = _project_fake()
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
+            client=fake,
+        )
+    )
+    assert fake.last_kpi_kwargs["interval_start"] == "2026-09-01T00:00:00Z"
+    assert fake.last_kpi_kwargs["interval_end"] == "2026-09-08T00:00:00Z"
+    assert body["summary"]["window"]["since"] == "2026-09-01T00:00:00Z"
+    assert body["summary"]["window"]["until"] == "2026-09-08T00:00:00Z"
+
+
+@pytest.mark.anyio
+async def test_read_project_says_what_previous_means() -> None:
+    """ "Previous" is the backend's `[start - (end - start), start)`. Spelling it
+    out beats making the agent do date arithmetic to describe its own answer —
+    which is where "compared to last month" comes from when it was last week."""
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
+            client=_project_fake(),
+        )
+    )
+    assert body["summary"]["window"]["compared_to"] == {
+        "since": "2026-08-25T00:00:00Z",
+        "until": "2026-09-01T00:00:00Z",
+    }
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_partial_day_window_without_a_day_count() -> None:
+    """A 36-hour window has no whole number of days, so claiming one would be a
+    rounded lie. The bounds are always exact; `days` appears only when it is."""
+    body = _payload(await run_read("project", UUID, since="36h", client=_project_fake()))
+    window = body["summary"]["window"]
+    assert "days" not in window
+    assert window["since"] < window["until"]
+
+
+@pytest.mark.anyio
+async def test_read_project_rejects_an_inverted_window_before_the_backend() -> None:
+    with pytest.raises(ToolError, match="before since"):
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-08T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=_project_fake(),
+        )
 
 
 @pytest.mark.anyio

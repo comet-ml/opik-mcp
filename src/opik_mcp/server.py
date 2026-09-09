@@ -251,11 +251,11 @@ async def read(
         str | None,
         Field(
             description=(
-                "agent_insights_issue only: start of the window for the per-day "
-                "details — a relative span ('7d', '24h') or an ISO-8601 instant with "
-                "timezone, truncated to UTC report days. Omit both bounds for "
-                "all-time, matching the Diagnostics page. Rejected for other entity "
-                "types."
+                "Start of the window, as a relative span ('7d', '24h') or an ISO-8601 "
+                "instant with timezone. Taken by project (the summary's period, "
+                "default 7d against the 7 days before) and agent_insights_issue (the "
+                "per-day details, truncated to UTC report days, all-time by default "
+                "to match the Diagnostics page). Rejected for other entity types."
             ),
             max_length=40,
         ),

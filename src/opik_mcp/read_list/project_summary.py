@@ -66,19 +66,51 @@ _NO_TRAFFIC_NOTE: Final = (
 )
 
 
-def window(*, days: int = WINDOW_DAYS, now: datetime | None = None) -> tuple[str, str]:
-    """``(since, until)`` as ISO-8601 instants, second precision.
+def window(
+    *,
+    since: str | None = None,
+    until: str | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """The window block: ``{since, until, days?, compared_to}``.
 
-    The backend derives the comparison period from the window's own length —
-    ``[start - (end - start), start)`` — so the caller never states it.
+    Both bounds arrive already resolved to instants by the read tool, or not at
+    all — the default is the last :data:`WINDOW_DAYS` days ending now, and a
+    lone ``until`` still gets that span.
+
+    ``compared_to`` is stated rather than left implicit. The backend's previous
+    period is ``[start - (end - start), start)``, which an agent can derive but
+    routinely derives wrong; "compared to last month" when it was last week is
+    exactly the mistake this spends thirty tokens to prevent.
+
+    ``days`` appears only when the span is a whole number of them. A 36-hour
+    window has no day count, and rounding one would be a small lie in a field
+    an agent will quote.
     """
-    end = (now or datetime.now(UTC)).replace(microsecond=0)
-    start = end - timedelta(days=days)
-    return _iso(start), _iso(end)
+    # Normalise to second precision BEFORE measuring the span: a relative bound
+    # resolves with sub-second parts, and 30 days minus 40 ms is not a whole
+    # number of days, so the span would disagree with the bounds we print.
+    end = _second(_instant(until) if until else (now or datetime.now(UTC)))
+    start = _second(_instant(since)) if since else end - timedelta(days=WINDOW_DAYS)
+    span = end - start
+
+    block: dict[str, Any] = {"since": _iso(start), "until": _iso(end)}
+    if span and span % timedelta(days=1) == timedelta(0):
+        block["days"] = span.days
+    block["compared_to"] = {"since": _iso(start - span), "until": _iso(start)}
+    return block
+
+
+def _instant(value: str) -> datetime:
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _second(moment: datetime) -> datetime:
+    return moment.astimezone(UTC).replace(microsecond=0)
 
 
 def _iso(moment: datetime) -> str:
-    return moment.isoformat().replace("+00:00", "Z")
+    return _second(moment).isoformat().replace("+00:00", "Z")
 
 
 def _figure(stats: dict[str, dict[str, Any]], name: str) -> dict[str, float | None]:
@@ -115,7 +147,8 @@ async def trace_summary(
     client: OpikReadClient,
     project_id: str,
     *,
-    days: int = WINDOW_DAYS,
+    since: str | None = None,
+    until: str | None = None,
 ) -> dict[str, Any]:
     """The summary block for a project read: the window, the source, the figures.
 
@@ -125,17 +158,14 @@ async def trace_summary(
     this week" is something a person may act on. Same rule as a thread's
     messages, where an empty list would contradict the metadata.
     """
-    since, until = window(days=days)
-    block: dict[str, Any] = {
-        "window": {"since": since, "until": until, "days": days},
-        "source": "sdk",
-    }
+    span = window(since=since, until=until)
+    block: dict[str, Any] = {"window": span, "source": "sdk"}
     try:
         body = await client.get_project_kpi_cards(
             project_id,
             entity_type="traces",
-            interval_start=since,
-            interval_end=until,
+            interval_start=span["since"],
+            interval_end=span["until"],
             filters=SDK_SOURCE_FILTER,
         )
     except (
@@ -148,7 +178,7 @@ async def trace_summary(
         block["error"] = (
             f"Could not load this project's metrics: {exc} "
             f"Retry, or count directly with list('trace', project_id='{project_id}', "
-            f"since='{days}d')."
+            f"since='{span['since']}')."
         )
         return block
 

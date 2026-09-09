@@ -62,6 +62,20 @@ LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
 
 
 @dataclass(frozen=True)
+class ReadWindow:
+    """The kwargs an entity's ``fetch_fn`` takes a window in, and their shape.
+
+    ``day_truncated`` means the backend aggregates per whole UTC day, so the
+    resolved instants are cut to their date part before being forwarded —
+    passing an instant to a day-keyed endpoint silently drops rows.
+    """
+
+    start_kwarg: str
+    end_kwarg: str
+    day_truncated: bool = False
+
+
+@dataclass(frozen=True)
 class EntityHandler:
     entity_type: str
     fetch_fn: FetchFn
@@ -85,6 +99,14 @@ class EntityHandler:
     read_optional_kwargs: tuple[str, ...] = ()
     """Entity-specific kwargs ``fetch_fn`` accepts beyond the id and project
     scope. Same forwarding rule as ``list_optional_kwargs``, for ``read``."""
+    read_window: ReadWindow | None = None
+    """How ``fetch_fn`` takes a ``since``/``until`` window, or ``None`` for the
+    entities that take none (most of them).
+
+    The two entities that do take one want it in different shapes — the
+    Diagnostics endpoints aggregate per UTC report day and want dates, a
+    project's metrics want instants — so the shape is declared here rather than
+    assumed by the read tool."""
     link_fn: LinkFn | None = None
     """Optional: UI links to attach to the fetched composite before compression.
 
@@ -154,8 +176,14 @@ def _candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
 # --- fetchers ------------------------------------------------------------- #
 
 
-async def _fetch_project(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
-    """Project record + the week's figures.
+async def _fetch_project(
+    client: OpikReadClient,
+    entity_id: str,
+    *,
+    since: str | None = None,
+    until: str | None = None,
+) -> dict[str, Any]:
+    """Project record + the figures for the window.
 
     The record alone carries no numbers — ``GET /projects/{id}`` serves the
     ``View.Public`` projection, and every aggregate lives on ``View.Detailed``
@@ -166,7 +194,7 @@ async def _fetch_project(client: OpikReadClient, entity_id: str) -> dict[str, An
     project = await client.get_project(entity_id)
     return {
         "project": project,
-        "summary": await trace_summary(client, entity_id),
+        "summary": await trace_summary(client, entity_id, since=since, until=until),
         # link_fn needs the project the read was addressed by; underscore keys
         # are stripped by the read tool once links are attached.
         "_project_id": entity_id,
@@ -644,6 +672,8 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         # last_updated_trace_at lets the agent pick the project with live
         # traffic in one call instead of probing each one.
         list_extra_fields=("created_at", "last_updated_trace_at"),
+        # The metrics endpoint takes instants, unlike the day-keyed Diagnostics one.
+        read_window=ReadWindow("since", "until"),
         link_fn=_project_links,
         description=(
             "Project metadata + the week's figures. Returns {project, summary, url}: "
@@ -776,7 +806,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         ),
         list_required_kwargs=("project_id",),
         list_optional_kwargs=("status", "from_date", "to_date"),
-        read_optional_kwargs=("from_date", "to_date"),
+        # The Diagnostics endpoints key on whole UTC report days, so the
+        # window is cut to dates rather than forwarded as instants.
+        read_window=ReadWindow("from_date", "to_date", day_truncated=True),
         link_fn=_issue_links,
         compress_fn=_compress_issue,
         id_only=True,
