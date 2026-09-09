@@ -44,7 +44,7 @@ read('agent_insights_issue', '<issue id>', project_name='<project>')
 #     url: '<the issue's Diagnostics page>', trace_url_template: '<…/logs?trace={trace_id}>'}
 ```
 
-Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` comes from the first `example_trace_ids` entry (read the top few issues to get them) and `trace_url` from `trace_url_template` with that id filled in; mention the issue's `url` so the user can open the Diagnostics page itself. `why` carries the issue name, severity, `latest_count` and the cause. The link fields are absent when the server cannot name the UI base or workspace — fall back to the trace redirect URL then. Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `since` (e.g. `"7d"`) to narrow to the window.
+Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` comes from the first `example_trace_ids` entry (read the top few issues to get them) and `trace_url` from `trace_url_template` with that id filled in; mention the issue's `url` so the user can open the Diagnostics page itself. `why` carries the issue name, severity, `latest_count` and the cause. The link fields are absent when the server cannot name the UI base or workspace — fall back to the trace link template from the session instructions then (step 6). Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `since` (e.g. `"7d"`) to narrow to the window.
 
 **An empty list is not an all-clear.** It says which case it is, and what to do about it. Act on the sentence you get:
 
@@ -112,7 +112,7 @@ Append these after the Diagnostics items, in the signal order above. Give each s
 Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/opik-evaluate` and `/opik-compare`, not rediscovered here.
 
 ### 6. Report
-Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID`), never a bare id, so the user can open it and deep-dive. Each item is ready for `/opik-explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/opik-explain`) and it changes no code.
+Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link**, never a bare id, so the user can open it and deep-dive. Do not invent the URL shape — a guessed link looks right and 404s, which is worse than the id. Take it from what the server gave you: an issue's `trace_url_template`, or the trace link template the MCP names in its session instructions (`<opik>/api/v1/session/redirect/projects/?trace_id={trace_id}&path=…`), which resolves the project and workspace from the id, so filling in the id is all it needs. On the SDK path, `opik.url_helpers.get_project_url_by_trace_id(trace_id, url_override)` builds the same link. Each item is ready for `/opik-explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/opik-explain`) and it changes no code.
 
 ## Blockers
 

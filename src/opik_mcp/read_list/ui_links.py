@@ -9,6 +9,8 @@ the derivation here means neither can drift from where REST calls go.
 
 from __future__ import annotations
 
+import base64
+
 from opik_mcp.auth_context import (
     classify_bearer,
     inbound_authorization,
@@ -65,6 +67,30 @@ def link_workspace(settings: Settings) -> str | None:
     return settings.comet_workspace or DEFAULT_WORKSPACE
 
 
+def trace_link_template(settings: Settings) -> str | None:
+    """A clickable URL for any trace in this session, with ``{trace_id}`` left
+    to fill in — or ``None`` when Opik's location cannot be known.
+
+    Unlike :func:`project_page_url` this goes through opik-backend's redirect,
+    which looks the trace up and derives both the project and the workspace
+    from it. That costs a hop but buys two things the direct URL cannot: the
+    agent needs no ``project_id`` (``list('trace', …)`` never returns one), and
+    the link is still correct when the workspace is unknown, as it is under an
+    OAuth bearer that introspection could not name.
+
+    The ``path`` parameter carries the REST base back to the backend, which
+    cuts it at ``/api`` to find the UI origin and rejects a base without that
+    segment — so we return ``None`` rather than build a link it would refuse.
+    Encoded url-safe and unpadded: the backend decodes with Java's URL decoder,
+    and the value rides in a query string.
+    """
+    base = opik_rest_base(settings)
+    if base is None or "/api" not in base:
+        return None
+    path = base64.urlsafe_b64encode(base.encode()).decode().rstrip("=")
+    return f"{base}/v1/session/redirect/projects/?trace_id={{trace_id}}&path={path}"
+
+
 def project_page_url(settings: Settings, project_id: str, page: str) -> str | None:
     """``<ui>/<workspace>/projects/<project_id>/<page>``, or ``None`` when the
     UI base or the workspace cannot be known for this session."""
@@ -75,4 +101,10 @@ def project_page_url(settings: Settings, project_id: str, page: str) -> str | No
     return f"{base}/{workspace}/projects/{project_id}/{page}"
 
 
-__all__ = ["current_workspace", "link_workspace", "opik_ui_base", "project_page_url"]
+__all__ = [
+    "current_workspace",
+    "link_workspace",
+    "opik_ui_base",
+    "project_page_url",
+    "trace_link_template",
+]

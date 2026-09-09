@@ -261,6 +261,15 @@ read also carries `url` (the issue's Diagnostics page) and `trace_url_template`
 something clickable; under an OAuth session whose workspace could not be
 resolved the links are omitted rather than guessed.
 
+Traces themselves carry no URL — a link for one is not derivable from the
+fields a `read` or `list` returns, and a guessed shape 404s. The session
+instructions name a template for it instead,
+`.../v1/session/redirect/projects/?trace_id={trace_id}&path=...`, so the
+assistant fills in an id and hands you a link. It goes through opik-backend's
+redirect, which resolves the project and the workspace from the trace, so it
+works where a direct project URL cannot, an OAuth session with an unresolved
+workspace included. It is the same link the Python SDK prints for a trace.
+
 ### `list`
 
 Browse or search a collection with pagination. Project-scoped types (`trace`,

@@ -11,6 +11,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from opik_mcp.config import Settings
 from opik_mcp.instructions import render_instructions
+from opik_mcp.read_list.ui_links import trace_link_template
 from opik_mcp.server import mcp
 
 
@@ -46,11 +47,18 @@ def test_render_uses_comet_url_override_when_opik_url_missing() -> None:
 
 def test_render_strips_api_suffix_from_opik_url() -> None:
     """OPIK_URL is the REST API base (…/opik/api); the blob must name the UI
-    base (…/opik) — the verbatim ``/api`` leak is OPIK-7033's defect #2."""
+    base (…/opik) — the verbatim ``/api`` leak is OPIK-7033's defect #2.
+
+    The REST base does appear once more, inside the trace link: that link is a
+    backend route, so ``/api`` belongs in it. The defect was the blob giving
+    the API base as the UI address, which is what this pins.
+    """
     s = _settings(opik_url="https://dev.comet.com/opik/api")
     out = render_instructions(s)
     assert "The Opik UI is at https://dev.comet.com/opik." in out
-    assert "https://dev.comet.com/opik/api" not in out
+    assert out.count("https://dev.comet.com/opik/api") == 1
+    template = trace_link_template(s)
+    assert template is not None and template in out
 
 
 def test_render_prefers_resolved_workspace_over_settings() -> None:
@@ -161,3 +169,20 @@ async def test_server_advertises_instructions_blob() -> None:
     assert result.instructions is not None
     assert "Opik" in result.instructions
     assert "Tool selection" in result.instructions
+
+
+def test_render_names_the_trace_link_template() -> None:
+    """The agent has to hand the user something clickable, and the URL shape is
+    guessable only wrongly: a plausible-looking 404 is worse than a bare id.
+    Naming the template once per session costs nothing per call."""
+    s = _settings(opik_url="https://dev.comet.com/opik/api")
+    out = render_instructions(s)
+    template = trace_link_template(s)
+    assert template is not None
+    assert template in out
+    assert "{trace_id}" in template
+
+
+def test_render_omits_the_trace_link_when_opik_is_unconfigured() -> None:
+    out = render_instructions(_settings(opik_url=None, comet_url_override=""))
+    assert "session/redirect" not in out
