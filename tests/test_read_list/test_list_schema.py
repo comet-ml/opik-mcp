@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.read_list.oql import FILTERABLE_FIELDS, OPERATORS_BY_TYPE
+from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, OPERATORS_BY_TYPE
 from opik_mcp.read_list.sorting import sortable_names
 from opik_mcp.writes.errors import UnknownOperationError
 from opik_mcp.writes.schema_tool import run_schema
@@ -70,3 +70,21 @@ def test_unknown_list_key_recovers_with_the_list_keys_listed() -> None:
     assert isinstance(ei.value.__cause__, UnknownOperationError)
     assert "list.trace" in str(ei.value)
     assert "score.create" in str(ei.value)
+
+
+def test_reference_lists_the_values_a_closed_enum_accepts() -> None:
+    """The compiler refuses an unknown enum value, so the accepted set has to
+    be discoverable here — otherwise the only way to learn it is to be
+    rejected."""
+    fields = run_schema("list.span")["filters"]["fields"]
+    assert fields["type"]["values"] == ["general", "tool", "llm", "guardrail", "unknown"]
+    assert fields["source"]["values"][0] == "sdk"
+    # Open-ended: any deployment names its own environments, so no list.
+    assert "values" not in fields["environment"]
+
+
+@pytest.mark.parametrize("entity_type", sorted(FILTERABLE_FIELDS))
+def test_every_enum_value_table_names_a_field_of_its_entity(entity_type: str) -> None:
+    """A value list for a field the entity does not have would never fire."""
+    for field in ENUM_VALUES.get(entity_type, {}):
+        assert field in FILTERABLE_FIELDS[entity_type]

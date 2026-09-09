@@ -311,8 +311,15 @@ yourself to see them. The first output line echoes the filter that was applied.
 
 A bad filter fails before reaching the backend with what is needed to fix it:
 the position of a syntax error, the closest field name, the valid operators for
-the field's type, or the expected value format. Ask `schema("list.trace")` (or
-`list.span`, `list.thread`, `list.experiment`) for the full field reference.
+the field's type, or the expected value format. Fields with a closed set of
+values (`source`, span `type`, thread `status`, `visibility_mode`) are checked
+against it too, every element of an `in` list included. `source` is the one the
+backend validates itself, and it answers an unknown value with a 500 rather
+than a 400, so `source = "SDK"` would otherwise be an opaque server error for a
+capital letter. The rest are compared as strings and answer with an empty page,
+which reads as "no matches" when it means "no such value". Ask
+`schema("list.trace")` (or `list.span`, `list.thread`, `list.experiment`) for
+the full field reference, accepted values included.
 
 **Sort.** The same four types take `sort="<field> [asc|desc]"`, `desc` by
 default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
