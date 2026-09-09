@@ -525,6 +525,83 @@ async def test_job_enable_rejects_batch() -> None:
     assert any(i.get("code") == "batch_unsupported" for i in body["issues"])
 
 
+# --- Diagnostics job: trigger ------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_job_trigger_starts_a_scan_and_reports_where_to_watch_it() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(202),
+        )
+        out = await run_write(
+            operation="agent_insights_job.trigger",
+            data={"project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert route.called
+    assert out["ok"] is True
+    assert out["status"] == 202
+    assert out["url"] == f"https://opik.test/ws/projects/{PROJECT}/diagnostics"
+    assert "last 24 hours" in out["note"]
+
+
+@pytest.mark.anyio
+async def test_job_trigger_on_a_project_without_a_job_says_enable_first() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(404, json={"errors": ["Job not found"]}),
+        )
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.trigger",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "diagnostics_not_enabled" for i in body["issues"])
+    assert "agent_insights_job.enable" in json.dumps(body)
+
+
+@pytest.mark.anyio
+async def test_job_trigger_refused_when_ollie_is_off() -> None:
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_OFF))
+        jobs = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger")
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.trigger",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    assert not jobs.called
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "diagnostics_unavailable" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_job_trigger_resolves_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            ),
+        )
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(202),
+        )
+        await run_write(
+            operation="agent_insights_job.trigger",
+            data={"project_name": "demo"},
+            client=_client(),
+        )
+    assert route.called
+
+
 # --- OAuth scope rejection ---------------------------------------------- #
 
 

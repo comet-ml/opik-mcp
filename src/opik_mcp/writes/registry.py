@@ -239,6 +239,28 @@ _REGISTRY: dict[str, WriteOperation] = {
         example=EXAMPLES["agent_insights_job.enable"],
         failure_modes=("project_scope_missing", "diagnostics_unavailable"),
     ),
+    "agent_insights_job.trigger": WriteOperation(
+        name="agent_insights_job.trigger",
+        pydantic_model=MODELS["agent_insights_job.trigger"],
+        endpoint="/v1/private/agent-insights/jobs/{project_id}/trigger",
+        method="POST",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Run a Diagnostics (Agent Insights) scan for a project now, over the "
+            "last 24 hours, instead of waiting for the nightly run. Fire and "
+            "forget: the response says where to watch it, and issues appear in "
+            "list('agent_insights_issue', …) once the run finishes (minutes). "
+            "Needs Diagnostics enabled for the project — see "
+            "agent_insights_job.enable."
+        ),
+        example=EXAMPLES["agent_insights_job.trigger"],
+        failure_modes=(
+            "project_scope_missing",
+            "diagnostics_unavailable",
+            "diagnostics_not_enabled",
+        ),
+    ),
 }
 
 

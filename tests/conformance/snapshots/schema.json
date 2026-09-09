@@ -16,6 +16,7 @@
         "thread.close",
         "thread.open",
         "agent_insights_job.enable",
+        "agent_insights_job.trigger",
         "list.trace",
         "list.span",
         "list.thread",

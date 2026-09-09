@@ -140,11 +140,33 @@ async def run_write(
         # its status instead, so a repeated enable is safe either way.
         method, path, body = "PATCH", path, {"status": "enabled"}
         resp = await http_client.write_json(method, path, body, idempotency_key=effective_idem)
+    if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
+        # The backend 404s a trigger when the project has no job. That is a
+        # missing prerequisite, not a lost resource, so name the fix.
+        raise ValidationFailedError.build(
+            op.name,
+            [
+                ValidationIssue(
+                    "",
+                    "Diagnostics is not enabled for this project; enable it first "
+                    "with write('agent_insights_job.enable', …).",
+                    "diagnostics_not_enabled",
+                )
+            ],
+            expected_schema=op.pydantic_model.model_json_schema(),
+            example=op.example,
+        )
     out = _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
     if diagnostics_project_id is not None:
         page = project_page_url(resolved_settings, diagnostics_project_id, "diagnostics")
         if page is not None:
             out["url"] = page
+        if op.name == "agent_insights_job.trigger":
+            out["note"] = (
+                "Scan started over the last 24 hours. It takes a few minutes; "
+                "read the issues afterwards with list('agent_insights_issue', …), "
+                "and watch the run on the Diagnostics page."
+            )
     return out
 
 

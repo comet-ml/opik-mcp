@@ -348,6 +348,18 @@ the rest. Counts are all-time so they match the UI; the same `since` / `until`
 as for traces narrow the window, truncated to UTC report days because
 Diagnostics aggregates per day.
 
+An empty list says why it is empty, because "nothing is broken" and "nobody
+turned Diagnostics on" look identical otherwise. It names one of: Diagnostics
+is unavailable on this deployment; it is not enabled for this project; it was
+turned off; it is enabled but has not scanned recently; or there are no open
+issues, with the time of the last scan. Where an action would help it names it,
+and it links the project's Diagnostics page. `write("agent_insights_job.enable",
+{"project_name": "demo"})` turns Diagnostics on (daily scans from then on, safe
+to repeat) and `write("agent_insights_job.trigger", …)` runs a scan now over the
+last 24 hours rather than waiting for the nightly run. Both need only the
+permission that reading issues needs, and both refuse on a deployment that has
+no Diagnostics.
+
 ### `write`
 
 Universal write dispatcher. Pass `operation` + `data` and the dispatcher
@@ -369,6 +381,7 @@ backend response.
 | `experiment.create` | Create an experiment scoped to a test suite. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
 | `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans). Idempotent. |
+| `agent_insights_job.trigger` | Run a Diagnostics scan now, over the last 24 hours. |
 
 ```python
 write(operation="score.create", data={
