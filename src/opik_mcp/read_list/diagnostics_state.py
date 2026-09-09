@@ -13,6 +13,7 @@ The hint decorates an answer the agent already has: a failed lookup yields
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -65,7 +66,8 @@ async def diagnostics_state_hint(
         return None
 
     now = now or datetime.now(UTC)
-    scope = f"{{project_id={project_id!r}}}"
+    # The snippet is for copying into write(), whose data is JSON.
+    scope = json.dumps({"project_id": project_id})
     enable = f"Enable it with write('{ENABLE_OP}', {scope}); it then scans daily."
     trigger_first = f"write('{TRIGGER_OP}', {scope}) runs the first scan now."
     trigger = f"Trigger a scan with write('{TRIGGER_OP}', {scope})."

@@ -497,6 +497,16 @@ async def test_empty_issues_say_diagnostics_never_enabled_and_how_to_enable() ->
 
 
 @pytest.mark.anyio
+async def test_empty_issues_hint_shows_a_payload_the_write_tool_accepts() -> None:
+    """The snippet is meant to be copied into write(), whose data is JSON —
+    so it must be JSON, not Python kwargs."""
+    fake = FakeOpikClient()
+    out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
+    assert '{"project_id": "p-1"}' in out
+    assert "project_id='p-1'" not in out
+
+
+@pytest.mark.anyio
 async def test_empty_issues_say_diagnostics_turned_off_with_date() -> None:
     fake = FakeOpikClient(
         job=_job("disabled", last_updated_at="2026-09-05T10:00:00.000Z", last_scan_at=_ago(96))
