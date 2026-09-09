@@ -195,3 +195,18 @@ def test_render_says_a_dated_issue_report_is_not_the_whole_window() -> None:
     out = render_instructions(_settings())
     assert "Report covers data through" in out
     assert "list('trace'" in out
+
+
+def test_render_names_every_diagnostics_state() -> None:
+    """The blob is delivered as authoritative context, so an undercount here
+    teaches the agent that a state it will meet does not exist. Five states
+    live in ``diagnostics_state``; all five belong in the sentence."""
+    out = render_instructions(_settings())
+    for state in (
+        "unavailable on this deployment",
+        "never enabled for the project",
+        "turned off",
+        "not scanned recently",
+        "enabled and clean",
+    ):
+        assert state in out

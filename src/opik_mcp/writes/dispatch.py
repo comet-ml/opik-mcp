@@ -105,7 +105,7 @@ async def run_write(
         # The Diagnostics job endpoints take the project in the path and only
         # as a UUID, and they are pointless on a deployment with no Ollie —
         # both resolved here, before any jobs request goes out.
-        diagnostics_project_id = await _prepare_diagnostics_job(op, items, http_client)
+        diagnostics_project_id = await _prepare_diagnostics_scope(op, items, http_client)
 
     if dry_run and (op.name in _DIAGNOSTICS_JOB_OPS or op.name in _DIAGNOSTICS_ISSUE_OPS):
         # A UUID the caller already passed needs no network, so the preview
@@ -174,19 +174,12 @@ async def run_write(
     if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
         # The backend 404s a trigger when the project has no job. That is a
         # missing prerequisite, not a lost resource, so name the fix.
-        raise ValidationFailedError.build(
-            op.name,
-            [
-                ValidationIssue(
-                    "",
-                    "Diagnostics is not enabled for this project (or this backend "
-                    "has no Diagnostics API); enable it first with "
-                    "write('agent_insights_job.enable', …).",
-                    "diagnostics_not_enabled",
-                )
-            ],
-            expected_schema=op.pydantic_model.model_json_schema(),
-            example=op.example,
+        raise _refuse(
+            op,
+            "",
+            "Diagnostics is not enabled for this project (or this backend has no "
+            "Diagnostics API); enable it first with write('agent_insights_job.enable', …).",
+            "diagnostics_not_enabled",
         )
     out = _stage4_finalize(op, resp, items, is_batch=is_batch, method=method, path=path)
     if diagnostics_project_id is not None and op.name in _DIAGNOSTICS_ISSUE_OPS:
@@ -235,7 +228,21 @@ _DIAGNOSTICS_ISSUE_STATUS = {
 _DIAGNOSTICS_ISSUE_OPS = frozenset(_DIAGNOSTICS_ISSUE_STATUS)
 
 
-async def _prepare_diagnostics_job(
+def _refuse(op: WriteOperation, field: str, message: str, code: str) -> ValidationFailedError:
+    """A ``validation_failed`` for a precondition the payload cannot express.
+
+    The same three arguments plus the operation's schema and example, which is
+    what every one of these needs and none of them varies.
+    """
+    return ValidationFailedError.build(
+        op.name,
+        [ValidationIssue(field, message, code)],
+        expected_schema=op.pydantic_model.model_json_schema(),
+        example=op.example,
+    )
+
+
+async def _prepare_diagnostics_scope(
     op: WriteOperation, items: list[BaseModel], client: OpikClient
 ) -> str | None:
     """For a Diagnostics action: refuse where Diagnostics cannot run (job
@@ -246,12 +253,7 @@ async def _prepare_diagnostics_job(
     """
     if op.name in _DIAGNOSTICS_JOB_OPS:
         if not await diagnostics_available(client):
-            raise ValidationFailedError.build(
-                op.name,
-                [ValidationIssue("", UNAVAILABLE_SENTENCE, "diagnostics_unavailable")],
-                expected_schema=op.pydantic_model.model_json_schema(),
-                example=op.example,
-            )
+            raise _refuse(op, "", UNAVAILABLE_SENTENCE, "diagnostics_unavailable")
     elif op.name not in _DIAGNOSTICS_ISSUE_OPS:
         return None
     item = items[0]
@@ -262,12 +264,7 @@ async def _prepare_diagnostics_job(
     try:
         return await resolve_project_id(client, str(project_name))
     except EntityArgValidationError as e:
-        raise ValidationFailedError.build(
-            op.name,
-            [ValidationIssue("project_name", str(e), "project_scope_missing")],
-            expected_schema=op.pydantic_model.model_json_schema(),
-            example=op.example,
-        ) from e
+        raise _refuse(op, "project_name", str(e), "project_scope_missing") from e
 
 
 async def _resolve_thread_comment_target(

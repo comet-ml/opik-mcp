@@ -415,6 +415,9 @@ backend response.
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
 | `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans, safe to repeat). |
 | `agent_insights_job.trigger` | Run a Diagnostics scan now, over the last 24 hours. |
+| `agent_insights_issue.resolve` | Mark a Diagnostics issue dealt with (ask the user first). |
+| `agent_insights_issue.close` | Mark a Diagnostics issue not worth acting on (ask the user first). |
+| `agent_insights_issue.reopen` | Put a resolved or closed Diagnostics issue back on the open list. |
 
 ```python
 write(operation="score.create", data={

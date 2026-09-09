@@ -46,10 +46,6 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     make_opik_client,
 )
-from opik_mcp.read_list.diagnostics_state import (
-    diagnostics_coverage_note,
-    diagnostics_state_hint,
-)
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import (
     SOURCE_DEFAULTED_ENTITIES,
@@ -61,13 +57,13 @@ from opik_mcp.read_list.oql import (
 )
 from opik_mcp.read_list.project_scope import (
     project_rows,
-    resolve_project_id,
     unknown_project_message,
 )
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
     EntityHandler,
+    PageContext,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -279,83 +275,40 @@ async def run_list(
         applied.insert(sort_slot, sort_label)
 
     header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
+    # What the page knows about itself, for an entity whose registry entry has
+    # something to add. ``windowed``: Diagnostics issues take a report-day
+    # window, so a page under one says nothing about the project outside it.
+    page_ctx = PageContext(
+        project_id=kw.get("project_id"),
+        project_name=kw.get("project_name"),
+        empty=not content,
+        status=kw.get("status"),
+        windowed="from_date" in kw or "to_date" in kw,
+        window_end=parse_instant(to_time) if to_time else None,
+    )
+
     if not content:
         # "No agent constraints" = nothing but the default source clause, no
         # window, no search. A sort does not change what matches.
         unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
         empty = await _empty_message(
             opik,
-            entity_type,
+            handler,
             name=name,
-            project_name=kw.get("project_name"),
-            project_id=kw.get("project_id"),
             from_time=kw.get("from_time"),
             unconstrained=unconstrained,
             settings=resolved_settings,
-            issue_status=kw.get("status"),
-            # Diagnostics issues take a report-day window, so an empty page
-            # under one says nothing about the project outside it.
-            windowed="from_date" in kw or "to_date" in kw,
+            page_ctx=page_ctx,
         )
         return f"{header}\n{empty}" if header else empty
 
     extra = _requested_columns(sort_field, clauses)
     table = _format_table(entity_type, handler, content, total, page, size, name, extra)
-    if entity_type == "agent_insights_issue":
-        note = await _issue_coverage_note(
-            opik,
-            resolved_settings,
-            project_name=kw.get("project_name"),
-            project_id=kw.get("project_id"),
-            to_time=to_time,
-        )
+    if handler.page_note_fn is not None:
+        note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
         if note is not None:
             table = f"{table}\n\n{note}"
     return f"{header}\n{table}" if header else table
-
-
-async def _issue_project_id(
-    opik: OpikListClient, project_id: str | None, project_name: str | None
-) -> str | None:
-    """The project id an issue list ran under, or ``None`` when it cannot be
-    recovered. The list_fn resolved the name already and got its own copy of
-    the kwargs, so a name has to be re-resolved here — a cache hit in practice.
-
-    Any failure is ``None``: this runs outside ``run_list``'s error handling
-    and must never turn an answered list into a raw client error."""
-    if project_id is not None:
-        return project_id
-    if project_name is None:
-        return None
-    try:
-        return await resolve_project_id(opik, project_name)
-    except Exception:
-        logger.debug("project re-resolve for a Diagnostics hint failed", exc_info=True)
-        return None
-
-
-async def _issue_coverage_note(
-    opik: OpikListClient,
-    settings: Settings,
-    *,
-    project_name: str | None,
-    project_id: str | None,
-    to_time: str | None,
-) -> str | None:
-    """As-of date for a non-empty Diagnostics page, and the uncovered tail."""
-    scoped_id = await _issue_project_id(opik, project_id, project_name)
-    if scoped_id is None:
-        return None
-    try:
-        return await diagnostics_coverage_note(
-            opik,
-            settings,
-            scoped_id,
-            window_end=parse_instant(to_time) if to_time else None,
-        )
-    except Exception:
-        logger.debug("coverage note for the issue list failed", exc_info=True)
-        return None
 
 
 _SOURCE_HINT = (
@@ -366,16 +319,13 @@ _SOURCE_HINT = (
 
 async def _empty_message(
     opik: OpikListClient,
-    entity_type: str,
+    handler: EntityHandler,
     *,
     name: str | None,
-    project_name: str | None,
-    project_id: str | None,
     from_time: str | None,
     unconstrained: bool,
     settings: Settings,
-    issue_status: str | None = None,
-    windowed: bool = False,
+    page_ctx: PageContext,
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
@@ -384,23 +334,16 @@ async def _empty_message(
     starts after the project's last trace. The first costs nothing to explain;
     the second costs one project read, spent only on an empty windowed page.
 
-    An empty Diagnostics issue list has its own ambiguity — never enabled, off,
-    unscanned, or genuinely clean — so it gets its own hint (see
-    ``diagnostics_state``).
+    An entity whose empty page has its own ambiguity (a Diagnostics issue
+    list: never enabled, off, unscanned, or genuinely clean) explains itself
+    through its registry ``page_note_fn``.
     """
+    entity_type = handler.entity_type
+    project_id, project_name = page_ctx.project_id, page_ctx.project_name
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
-    if entity_type == "agent_insights_issue":
-        scoped_id = await _issue_project_id(opik, project_id, project_name)
-        if scoped_id is None:
-            return empty
-        hint = await diagnostics_state_hint(
-            opik,
-            settings,
-            scoped_id,
-            issue_status=issue_status,
-            windowed=windowed,
-        )
-        return f"{empty} {hint}" if hint else empty
+    if handler.page_note_fn is not None:
+        note = await handler.page_note_fn(opik, settings, page_ctx)
+        return f"{empty} {note}" if note else empty
     if from_time is None:
         return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
 

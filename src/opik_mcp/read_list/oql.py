@@ -196,7 +196,6 @@ ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
         "source": _SOURCE_VALUES,
         "status": ("active", "inactive"),
     },
-    "experiment": {},
 }
 
 SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(FILTERABLE_FIELDS)

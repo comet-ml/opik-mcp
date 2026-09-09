@@ -62,8 +62,9 @@ default, counts all-time unless since/until narrow them — instead of ranking \
 raw traces yourself; read('agent_insights_issue', id, project_name=…) adds the \
 cause, the suggested fix, example_trace_ids to open with read('trace', …), and \
 UI links. An empty issue list says why it is empty — unavailable on this \
-deployment, not enabled for the project, or enabled and clean — and where it \
-can be fixed, write('agent_insights_job.enable', …) turns Diagnostics on for \
+deployment, never enabled for the project, turned off, enabled but not \
+scanned recently, or enabled and clean — and where it can be fixed, \
+write('agent_insights_job.enable', …) turns Diagnostics on for \
 the project (ask the user first: it creates a standing daily scan) and \
 write('agent_insights_job.trigger', …) scans now instead of waiting for the \
 nightly run. A non-empty list dates itself ("Report covers data through …") \

@@ -1041,3 +1041,64 @@ async def test_the_alias_is_not_advertised_as_a_type_of_its_own() -> None:
     assert "issue" not in LISTABLE_TYPES
     assert "issue" not in READABLE_TYPES
     assert "agent_insights_issue" in LISTABLE_TYPES
+
+
+# --- a window that ends in the past ------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_coverage_gap_in_a_past_window_is_named_absolutely() -> None:
+    """The gap is measured from the window's end, but "the last 24h" and a
+    relative ``since`` are both measured from now. With ``until`` in the past
+    those are different stretches, so the note has to name instants."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(240))
+    )
+    out = await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        since="30d",
+        until="9d",
+        client=fake,
+        settings=_UI,
+    )
+    assert "Report covers data through" in out
+    # Not "the last 24h": the uncovered day sits nine days back.
+    assert "The last 24h" not in out
+    assert "until=" in out and "since=" in out
+
+
+@pytest.mark.anyio
+async def test_no_trigger_is_offered_for_a_window_that_already_ended() -> None:
+    """A trigger rescans the last 24 hours from now, so it can never fill a
+    hole in a window that closed nine days ago."""
+    fake = FakeOpikClient(
+        issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(240))
+    )
+    out = await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        since="30d",
+        until="9d",
+        client=fake,
+        settings=_UI,
+    )
+    assert "agent_insights_job.trigger" not in out
+    assert "list('trace'" in out
+
+
+@pytest.mark.anyio
+async def test_empty_list_does_not_prescribe_a_trigger_for_a_past_window() -> None:
+    """Same error on the empty path: a scan older than a day earns "trigger
+    one", which cannot answer a question about last week."""
+    fake = FakeOpikClient(job=_job("enabled", last_scan_at=_ago(240)))
+    out = await run_list(
+        "agent_insights_issue",
+        project_id="p-1",
+        since="30d",
+        until="9d",
+        client=fake,
+        settings=_UI,
+    )
+    assert "Trigger a scan with" not in out
+    assert "last 24 hours" in out

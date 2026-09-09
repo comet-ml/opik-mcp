@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from opik_mcp.config import Settings
@@ -40,6 +41,7 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
+from opik_mcp.read_list.diagnostics_state import issue_page_note
 from opik_mcp.read_list.project_scope import require_project_id
 from opik_mcp.read_list.ui_links import project_page_url
 
@@ -58,6 +60,26 @@ SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]
 ListFn = Callable[..., Awaitable[dict[str, Any]]]
 CompressFn = Callable[[dict[str, Any], int | None], tuple[str, CompressionTier]]
 LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
+
+
+@dataclass(frozen=True)
+class PageContext:
+    """What a ``list`` page knows about itself, for an entity that has
+    something extra to say about it.
+
+    One object rather than six parameters: the fields travel together, and the
+    next entity to grow a note will want the same set.
+    """
+
+    project_id: str | None = None
+    project_name: str | None = None
+    empty: bool = False
+    status: str | None = None
+    windowed: bool = False
+    window_end: datetime | None = None
+
+
+PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
 
 
 @dataclass(frozen=True)
@@ -94,6 +116,20 @@ class EntityHandler:
     facts. A fetcher may stash inputs for the link under underscore-prefixed
     keys; ``read`` strips those before compression. Return ``{}`` when Opik's
     URL or the workspace cannot be known: no link beats a wrong one.
+    """
+    page_note_fn: PageNoteFn | None = None
+    """Optional: a sentence or two to append to a ``list`` page of this entity.
+
+    The counterpart of ``link_fn`` for lists. ``list`` calls it with the
+    client, the session's ``Settings`` and a :class:`PageContext`, for an empty
+    page and a full one alike, and appends whatever comes back. Return ``None``
+    to leave the page as it was: a note decorates an answer the caller already
+    has, so a failed lookup inside the hook must never turn an answered list
+    into an error.
+
+    It lives here so that what an entity says about its own pages is one
+    registry entry rather than a branch on ``entity_type`` inside the list
+    tool.
     """
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
@@ -742,6 +778,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         ),
         list_required_kwargs=("project_id",),
         list_optional_kwargs=("status", "from_date", "to_date"),
+        page_note_fn=issue_page_note,
         read_optional_kwargs=("from_date", "to_date"),
         link_fn=_issue_links,
         compress_fn=_compress_issue,
