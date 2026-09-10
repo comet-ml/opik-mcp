@@ -459,6 +459,16 @@ async def list_entities(
             max_length=200,
         ),
     ] = None,
+    series: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only, with breakdown: which series to group — a "
+                "percentile (p50/p90/p99), a score name, or a usage key."
+            ),
+            max_length=200,
+        ),
+    ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
     """List Opik entities with optional filters and pagination.
@@ -510,6 +520,7 @@ async def list_entities(
         metric_type=metric_type,
         interval=interval,
         breakdown=breakdown,
+        series=series,
     )
 
 

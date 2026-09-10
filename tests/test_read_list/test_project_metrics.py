@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -51,6 +52,12 @@ class FakeOpikClient:
     projects: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     last_body: dict[str, Any] = field(default_factory=dict)
     calls: int = 0
+    # A rate or an average is charted with its entity's count alongside, so a
+    # bucket with nothing in it can be told from a bucket that measured zero.
+    # Both calls land here; these say what the second one answers.
+    by_metric: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    fails: set[str] = field(default_factory=set)
+    bodies: list[dict[str, Any]] = field(default_factory=list)
     _base_url: str | None = None
     _workspace: str | None = None
     _api_key: str | None = None
@@ -58,7 +65,15 @@ class FakeOpikClient:
     async def get_project_metrics(self, project_id: str, /, **body: Any) -> dict[str, Any]:
         self.calls += 1
         self.last_body = {"project_id": project_id, **body}
-        return {"results": self.results}
+        self.bodies.append(self.last_body)
+        kind = str(body.get("metric_type"))
+        if kind in self.fails:
+            raise httpx.ReadTimeout("companion timed out")
+        return {"results": self.by_metric.get(kind, self.results)}
+
+    def body_for(self, metric_type: str) -> dict[str, Any]:
+        """The request sent for one metric — two go out for a rate."""
+        return next(b for b in self.bodies if b.get("metric_type") == metric_type)
 
     async def list_projects(self, **_kw: Any) -> dict[str, Any]:
         return self.projects
@@ -654,3 +669,279 @@ def test_the_schema_reference_carries_the_metric_table() -> None:
     assert reference["metric_types"]["trace_error_rate"]["unit"] == "%"
     assert reference["limits"]["buckets"] == MAX_BUCKETS
     assert "page, size" in reference["not_supported"]
+
+
+# --- picking one of a metric's series ------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_grouping_a_duration_charts_one_percentile() -> None:
+    """The backend cannot fan a metric out per percentile *and* group it, so
+    it demands one — and used to be answerable only with a 422 the agent had
+    no argument to act on."""
+    fake = _fake()
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_duration",
+        breakdown="name",
+        series="p99",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"] == {"field": "NAME", "sub_metric": "p99"}
+    assert "by name (p99)" in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_a_grouped_duration_defaults_to_the_median_and_says_which() -> None:
+    """A default keeps the common case to one call; echoing it keeps the
+    number from being read as some other percentile."""
+    fake = _fake()
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_duration",
+        breakdown="model",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"]["sub_metric"] == "p50"
+    assert "(p50)" in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_a_grouped_token_metric_defaults_to_the_total() -> None:
+    fake = _fake()
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_token_usage",
+        breakdown="model",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"]["sub_metric"] == "total_tokens"
+    assert "(total_tokens)" in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_a_grouped_score_metric_asks_which_score_rather_than_choosing() -> None:
+    """The names are the project's own — no one of them is the obvious
+    subject, so choosing silently would answer a different question."""
+    fake = _fake()
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_feedback_scores",
+            breakdown="model",
+            client=fake,
+        )
+    message = str(exc.value)
+    assert "series=<score name>" in message
+    assert "read('project'" in message
+    assert fake.calls == 0
+
+
+@pytest.mark.anyio
+async def test_a_named_score_is_sent_as_the_sub_metric_verbatim() -> None:
+    """Score names carry their own case and spacing."""
+    fake = _fake()
+    await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_feedback_scores",
+        breakdown="tags",
+        series="Answer Relevance",
+        client=fake,
+    )
+    assert fake.last_body["breakdown"]["sub_metric"] == "Answer Relevance"
+
+
+@pytest.mark.anyio
+async def test_an_unknown_percentile_names_the_three_that_exist() -> None:
+    fake = _fake()
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_duration",
+            breakdown="name",
+            series="p95",
+            client=fake,
+        )
+    assert "p50, p90, p99" in str(exc.value)
+    assert fake.calls == 0
+
+
+@pytest.mark.anyio
+async def test_series_without_a_breakdown_is_refused_not_ignored() -> None:
+    """Ungrouped, every series comes back anyway. Accepting the argument and
+    charting all of them would look like it had been honoured."""
+    fake = _fake()
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_duration",
+            series="p99",
+            client=fake,
+        )
+    assert "already returns every series" in str(exc.value)
+    assert fake.calls == 0
+
+
+@pytest.mark.anyio
+async def test_series_on_a_single_series_metric_is_refused() -> None:
+    fake = _fake()
+    with pytest.raises(ToolError, match="no sub-series"):
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            breakdown="tags",
+            series="p99",
+            client=fake,
+        )
+    assert fake.calls == 0
+
+
+# --- a zero that is not a measurement ------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_bucket_with_no_traces_is_left_out_rather_than_charted_as_zero() -> None:
+    """0% error looks like a perfect day and can mean an empty one. The
+    project overview already refuses to print a rate over a period with no
+    traces; a series is the same claim, one bucket at a time — and a row of
+    empty cells costs as much to print as a real one."""
+    fake = _fake(
+        results=[_series("error_rate", [0, 20, 0])],
+        by_metric={"TRACE_COUNT": [_series("traces", [0, 5, 3])]},
+    )
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_error_rate",
+        client=fake,
+    )
+    rows = _table(out)
+    assert "2026-09-02" not in out, "no traces that day, so no rate to report"
+    assert rows[1] == "2026-09-03 | 20"
+    assert rows[2] == "2026-09-04 | 0", "traces and no errors — a real zero, kept"
+    assert "1 of 3 buckets had no traces" in out
+
+
+@pytest.mark.anyio
+async def test_the_companion_count_is_filtered_like_the_metric() -> None:
+    """A rate over SDK traffic compared against every trace would blank the
+    wrong buckets."""
+    fake = _fake(
+        results=[_series("error_rate", [0])],
+        by_metric={"TRACE_COUNT": [_series("traces", [1])]},
+    )
+    await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_error_rate",
+        filters='tags contains "prod"',
+        client=fake,
+    )
+    counted = fake.body_for("TRACE_COUNT")["trace_filters"]
+    assert counted == fake.body_for("TRACE_ERROR_RATE")["trace_filters"]
+
+
+@pytest.mark.anyio
+async def test_a_window_with_nothing_in_it_says_so_instead_of_a_column_of_zeros() -> None:
+    fake = _fake(
+        results=[_series("error_rate", [0, 0, 0])],
+        by_metric={"TRACE_COUNT": [_series("traces", [0, 0, 0])]},
+    )
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_error_rate",
+        client=fake,
+    )
+    assert "No traces in this window" in out
+    assert "2026-09-02" not in out
+
+
+@pytest.mark.anyio
+async def test_the_chart_survives_the_companion_count_failing() -> None:
+    """An ambiguous zero beats no answer: the note is dropped, not the rows."""
+    fake = _fake(results=[_series("error_rate", [0, 20])], fails={"TRACE_COUNT"})
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_error_rate",
+        client=fake,
+    )
+    assert _table(out)[1] == "2026-09-02 | 0"
+    assert "not listed" not in out
+
+
+@pytest.mark.anyio
+async def test_a_count_metric_is_not_charged_a_second_call() -> None:
+    """Only a rate and an average have an ambiguous zero. A count of 0 means
+    zero, and paying 259 ms to confirm it would be the user's money."""
+    fake = _fake()
+    await run_list("project_metric", project_id=PROJECT, metric_type="trace_count", client=fake)
+    assert fake.calls == 1
+
+
+# --- refusals that end the search ----------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_grouping_no_metric_of_that_kind_supports_says_so() -> None:
+    """Told only that `trace_cost` cannot be grouped by model, the next move
+    is `span_cost` — which is in the backend's omitted set and refuses too.
+    Two round trips to learn one fact, so the first refusal answers the
+    follow-up."""
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_cost",
+            breakdown="model",
+            client=_fake(),
+        )
+    message = str(exc.value)
+    assert "No cost metric can be grouped by model" in message
+    assert "nothing to retry" in message
+    assert "span_count" in message, "and where the field is accepted"
+
+
+@pytest.mark.anyio
+async def test_a_bucket_the_backend_reported_as_null_is_not_listed() -> None:
+    """A null is the backend saying it has nothing for that bucket, and it
+    prints as a row of separators. Seen live: nine days of three percentile
+    columns, one day of numbers, eight rows of " |  | "."""
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_duration",
+        client=_fake(
+            results=[
+                _series("duration.p50", [None, 16.178, None]),
+                _series("duration.p99", [None, 20.0, None]),
+            ]
+        ),
+    )
+    rows = _table(out)
+    assert rows[0] == "time | duration.p50 | duration.p99"
+    assert rows[1] == "2026-09-03 | 16.178 | 20"
+    assert len(rows) == 4, "one header, one row, and the note — not two null rows"
+    assert "2 of 3 buckets recorded no trace_duration" in out
+
+
+@pytest.mark.anyio
+async def test_a_zero_is_kept_where_a_null_is_dropped() -> None:
+    """They are different claims: 0 spans is a measurement, no data is not."""
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        client=_fake(results=[_series("spans", [0, None, 4])]),
+    )
+    assert _table(out)[1:3] == ["2026-09-02 | 0", "2026-09-04 | 4"]
+    assert "1 of 3 buckets recorded no span_count" in out

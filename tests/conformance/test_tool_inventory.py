@@ -40,13 +40,19 @@ from opik_mcp.server import mcp
 #           That change predates this test, so nothing measured it at the time;
 #           this is the guard's first contact with a surface change that was
 #           not its author's.
+#   19,647  OPIK-8284 — `series` on `list`. +243 bytes for one optional string,
+#           weighed against grouping being a dead end for eight of the thirteen
+#           groupable metrics: the backend requires a sub-metric for duration,
+#           feedback-score and token-usage metrics whenever a breakdown is
+#           asked for, and without the argument the agent could read the
+#           refusal and not act on it. Paid for in retries otherwise.
 #
 # The ceiling sits ~400 bytes above the measurement on purpose. A budget with no
 # slack is a budget that gets raised in a hurry inside an unrelated PR the first
 # time someone fixes a typo in a description; this one still catches a real
 # regression while leaving room to reword. The slack costs nothing — a ceiling
 # is not an allocation, and unused headroom is not in anyone's context.
-SURFACE_BUDGET_BYTES = 19_800
+SURFACE_BUDGET_BYTES = 20_050
 
 
 def surface_report(

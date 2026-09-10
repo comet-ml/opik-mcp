@@ -178,6 +178,20 @@
       "description": "Free text for trace, span, thread: matches anywhere in id, name, input, output, metadata, tags, thread_id (spans: model, provider too). Expensive on large projects; narrow with since first.",
       "title": "Search"
     },
+    "series": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "project_metric only, with breakdown: which series to group \u2014 a percentile (p50/p90/p99), a score name, or a usage key.",
+      "title": "Series"
+    },
     "since": {
       "anyOf": [
         {

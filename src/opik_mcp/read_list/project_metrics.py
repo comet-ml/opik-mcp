@@ -30,6 +30,8 @@ the refusal names the narrower requests that would fit.
 
 from __future__ import annotations
 
+from asyncio import gather
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
@@ -195,6 +197,92 @@ def groupable_by(metric_name: str) -> list[str]:
     return [name for name in BREAKDOWNS if _allows(name, metric_name)]
 
 
+# --- picking one of a metric's series ------------------------------------- #
+#
+# Three families answer with several series at once rather than one number per
+# bucket: a duration comes back as p50/p90/p99, a feedback-score metric as one
+# series per score name, a token metric as one per usage key. The backend
+# cannot fan those out *and* group them, so grouping one of them has to say
+# which of its series is being grouped (``BreakdownConfigValidator``). The
+# widget does the same — it hides the grouping control until exactly one is
+# selected.
+#
+# Without a way to say it, grouping was a dead end for eight of the thirteen
+# groupable metrics: the backend answered "sub_metric is required …" and there
+# was no argument to comply with. Hence ``series`` — one argument rather than
+# one per family, because at most one of the three can apply at a time.
+
+SERIES_CHOOSING_FAMILIES: Final = frozenset({"duration", "feedback_scores", "token_usage"})
+
+DURATION_PERCENTILES: Final = ("p50", "p90", "p99")
+
+DEFAULT_SERIES: Final[dict[str, str]] = {
+    "duration": "p50",
+    # The sum over the other keys, so it is the series a "tokens by model"
+    # question means. A project that does not record it charts empty rather
+    # than wrong, and the header names the key that was charted either way.
+    "token_usage": "total_tokens",
+}
+"""What a grouped metric charts when the caller did not choose.
+
+Only where a default is honest. A feedback-score metric has none: the names
+are the project's own, no one of them is the obvious subject, and choosing
+silently would answer a different question than the one asked.
+"""
+
+
+def series_choices(metric: Metric) -> str:
+    """Where the values for ``series`` come from, for this metric."""
+    if metric.family == "duration":
+        return f"one of {', '.join(DURATION_PERCENTILES)}"
+    if metric.family == "token_usage":
+        return "a usage key, as listed in read('project', …) under vocabulary"
+    return "a feedback score name, as listed in read('project', …) under vocabulary"
+
+
+def resolve_series(metric: Metric, series: str | None, *, grouped: bool) -> str | None:
+    """The ``sub_metric`` to send, defaulted where a default is honest.
+
+    Refuses rather than ignores in both directions: a ``series`` the metric has
+    no use for would otherwise silently chart something else, and a grouping
+    that needs one would come back as a backend 422 the agent cannot act on.
+    """
+    chosen = series.strip() if series else None
+    needs = grouped and metric.family in SERIES_CHOOSING_FAMILIES
+
+    if chosen and not needs:
+        why = (
+            f"{metric.name} is a single series — it has no sub-series to choose."
+            if metric.family not in SERIES_CHOOSING_FAMILIES
+            else (
+                f"Ungrouped, {metric.name} already returns every series it has "
+                "(one row per bucket, one column each). series only narrows a "
+                "grouped chart, where the backend can return one series at a time."
+            )
+        )
+        raise EntityArgValidationError(f"series={series!r} does not apply here: {why}")
+
+    if not needs:
+        return None
+
+    if chosen is None:
+        default = DEFAULT_SERIES.get(metric.family)
+        if default is None:
+            raise EntityArgValidationError(
+                f"Grouping {metric.name} charts one score at a time, so it needs "
+                f"series=<score name> — {series_choices(metric)}, or "
+                "list('score_name', project_id=…)."
+            )
+        return default
+
+    if metric.family == "duration" and chosen.lower() not in DURATION_PERCENTILES:
+        raise EntityArgValidationError(
+            f"Unknown series {series!r} for {metric.name}: a duration is grouped one "
+            f"percentile at a time, {series_choices(metric)}."
+        )
+    return chosen.lower() if metric.family == "duration" else chosen
+
+
 def _same_question_elsewhere(breakdown: str, metric_name: str) -> str | None:
     """A metric of the same family that does accept this grouping.
 
@@ -219,6 +307,25 @@ def _same_question_elsewhere(breakdown: str, metric_name: str) -> str | None:
         ):
             return candidate.name
     return None
+
+
+def _where_else(breakdown: str, metric_name: str) -> str:
+    """Where the refused question *can* be asked — or that it cannot be.
+
+    A refusal that only says no costs a second refusal: told `trace_cost`
+    cannot be grouped by model, the obvious next move is `span_cost`, which is
+    in the backend's omitted set and refuses too. Two round trips to learn one
+    fact. So the refusal answers the follow-up as well — either naming the
+    metric that does take this grouping, or saying plainly that no metric of
+    this kind does and pointing at the ones that accept the field.
+    """
+    instead = _same_question_elsewhere(breakdown, metric_name)
+    if instead:
+        return f" For this grouping, use metric_type='{instead}'."
+    kind = METRICS[metric_name].family.replace("_", " ")
+    takers = [name for name in METRICS if _allows(breakdown, name)]
+    where = f" Metrics that do accept {breakdown}: {', '.join(takers)}." if takers else ""
+    return f" No {kind} metric can be grouped by {breakdown}, so there is nothing to retry.{where}"
 
 
 def parse_breakdown(breakdown: str, metric_name: str) -> dict[str, str]:
@@ -261,10 +368,9 @@ def parse_breakdown(breakdown: str, metric_name: str) -> dict[str, str]:
                 f"({', '.join(_ungroupable())}). Chart it plain, or group a "
                 "related metric that does support it."
             )
-        instead = _same_question_elsewhere(asked, metric_name)
-        hint = f" For this grouping, use metric_type='{instead}'." if instead else ""
         raise EntityArgValidationError(
-            f"{metric_name} cannot be grouped by {asked}. It accepts: {', '.join(accepted)}.{hint}"
+            f"{metric_name} cannot be grouped by {asked}. It accepts: "
+            f"{', '.join(accepted)}.{_where_else(asked, metric_name)}"
         )
 
     resolved = {"field": BREAKDOWNS[asked]}
@@ -447,6 +553,53 @@ def _time_label(raw: Any, interval: str, *, until: str | None = None) -> str:
     return raw[:16].replace("T", " ") if interval == "hourly" else raw[:10]
 
 
+AMBIGUOUS_ZERO_FAMILIES: Final = frozenset({"error_rate", "average_duration"})
+"""Families whose ``0`` does not mean zero.
+
+An error rate over a bucket with no traces is not 0% — there was nothing to
+fail. The backend sends 0 for both, so a quiet Tuesday and a perfect Tuesday
+render identically, and "error rate 0" is the more dangerous of the two to
+believe. ``read('project')`` already refuses to print a rate over a period
+with no traces; the series is the same claim, one bucket at a time.
+
+None of these five metrics can be grouped (they are in the backend's omitted
+sets), so the companion count is always a single ungrouped series and lines up
+with the rows bucket for bucket.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class Presence:
+    """How many of the metric's entity fell in each bucket."""
+
+    entity: str
+    counts: list[float]
+
+    def empty(self, row: int) -> bool:
+        return row < len(self.counts) and not self.counts[row]
+
+    def nothing_at_all(self) -> bool:
+        return not any(self.counts)
+
+
+def companion_count(metric: Metric) -> Metric | None:
+    """The count metric that says whether a bucket had anything in it."""
+    if metric.family not in AMBIGUOUS_ZERO_FAMILIES:
+        return None
+    return METRICS.get(f"{metric.entity}_count")
+
+
+def bucket_counts(body: dict[str, Any]) -> list[float]:
+    """The count series' values, in bucket order."""
+    raw = body.get("results")
+    series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+    if not series or not isinstance(series[0].get("data"), list):
+        return []
+    return [
+        float(point.get("value") or 0) for point in series[0]["data"] if isinstance(point, dict)
+    ]
+
+
 def _all_zero(series: list[dict[str, Any]]) -> bool:
     """True when not one point in any series carries a non-zero value.
 
@@ -472,6 +625,11 @@ says where the full list of names lives.
 """
 
 
+def _point(one: dict[str, Any], row: int) -> dict[str, Any]:
+    points = one["data"]
+    return points[row] if row < len(points) and isinstance(points[row], dict) else {}
+
+
 def _series_weight(one: dict[str, Any]) -> float:
     """Total magnitude across the window — the series most likely to matter."""
     return sum(
@@ -488,18 +646,28 @@ def render(
     interval: str,
     names_source: str | None = None,
     until: str | None = None,
+    presence: Presence | None = None,
 ) -> str:
     """The series as ``time | <series> …``, one row per bucket.
 
     Series are columns rather than repeated blocks, which is the whole reason
     this is a table: a bucket's timestamp is printed once per row instead of
     once per point.
+
+    ``presence`` blanks the buckets that had nothing in them, for the metrics
+    whose zero would otherwise read as a measurement.
     """
     raw = body.get("results")
     series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
     series = [s for s in series if isinstance(s.get("data"), list)]
     if not series:
         return f"No {metric_name} data in this window."
+
+    if presence is not None and presence.nothing_at_all():
+        return (
+            f"No {presence.entity}s in this window, so {metric_name} has no value in it. "
+            "(The backend reports 0 for an empty bucket; there was nothing to measure.)"
+        )
 
     if _all_zero(series):
         # The window is already on the header line, so the table would add
@@ -516,13 +684,36 @@ def render(
     columns = [str(s.get("name") or metric_name) for s in series]
 
     lines = [" | ".join(["time", *columns])]
+    quiet_rows = 0
+    empty_rows = 0
     for row, when in enumerate(times):
-        cells = [_time_label(when, interval, until=until)]
-        for one in series:
-            points = one["data"]
-            point = points[row] if row < len(points) and isinstance(points[row], dict) else {}
-            cells.append(_number(point.get("value")))
-        lines.append(" | ".join(cells))
+        if presence is not None and presence.empty(row):
+            # Not blanked in place: a row of empty cells costs as much to print
+            # as a real one and carries less. Seen live — a 14-day error rate
+            # on a project used one day was 13 rows of "| " for 103 tokens.
+            quiet_rows += 1
+            continue
+        values = [_point(one, row).get("value") for one in series]
+        if all(value is None for value in values):
+            # The backend's own "no data here" — a null, not a zero. Seen live:
+            # nine days of `duration.p50 | duration.p90 | duration.p99` with one
+            # day of numbers and eight rows of ` |  | `.
+            empty_rows += 1
+            continue
+        lines.append(
+            " | ".join([_time_label(when, interval, until=until), *(_number(v) for v in values)])
+        )
+
+    for skipped, why in ((quiet_rows, "quiet"), (empty_rows, "empty")):
+        if not skipped:
+            continue
+        reason = (
+            f"had no {presence.entity}s — nothing to measure, which is not the same as zero"
+            if why == "quiet" and presence is not None
+            else f"recorded no {metric_name}"
+        )
+        lines.append("")
+        lines.append(f"{skipped} of {len(times)} buckets {reason}, and are not listed.")
 
     if total_series > MAX_SERIES:
         where = f" All {total_series} names: {names_source}." if names_source else ""
@@ -593,6 +784,22 @@ def reference() -> dict[str, Any]:
                 "is called, naming the narrower requests that fit"
             ),
         },
+        "multi_series": {
+            "which": {
+                "duration": f"one series per percentile ({', '.join(DURATION_PERCENTILES)})",
+                "feedback_scores": "one series per score name",
+                "token_usage": "one series per usage key",
+            },
+            "ungrouped": "every series is returned, one column each",
+            "grouped": (
+                "the backend charts one of them at a time, so series=<name> picks it: "
+                "a percentile, a score name, or a usage key. Defaults where a default "
+                f"is honest ({', '.join(f'{k}={v}' for k, v in DEFAULT_SERIES.items())}), "
+                "and the chosen one is echoed in the header. A feedback-score metric "
+                "has no default — the names are the project's own, and read('project') "
+                "lists them."
+            ),
+        },
         "breakdowns": {
             "syntax": ("breakdown='<field>', or 'metadata.<key>' to group by a metadata key"),
             "by_metric": {name: groupable_by(name) or None for name in METRICS},
@@ -627,6 +834,7 @@ async def run_project_metric(
     until: str | None,
     filters: str | None,
     breakdown: str | None = None,
+    series: str | None = None,
     page: int | None = None,
     size: int | None = None,
     sort: str | None = None,
@@ -658,6 +866,9 @@ async def run_project_metric(
 
     name = metric.name
     grouping = parse_breakdown(breakdown, name) if breakdown else None
+    chosen = resolve_series(metric, series, grouped=grouping is not None)
+    if grouping is not None and chosen is not None:
+        grouping["sub_metric"] = chosen
 
     resolved = await require_project_id(
         client,
@@ -665,23 +876,46 @@ async def run_project_metric(
         project_name=project_name,
         caller="list('project_metric')",
     )
-    body = await client.get_project_metrics(
-        resolved,
-        **request_body(
-            metric,
-            interval=interval_name,
-            since=window_since,
-            until=window_until,
-            clauses=clauses,
-            breakdown=grouping,
-        ),
+
+    def ask(which: Metric, group: dict[str, str] | None) -> Coroutine[Any, Any, dict[str, Any]]:
+        return client.get_project_metrics(
+            resolved,
+            **request_body(
+                which,
+                interval=interval_name,
+                since=window_since,
+                until=window_until,
+                clauses=clauses,
+                breakdown=group,
+            ),
+        )
+
+    # A rate or an average needs to know which buckets were empty, and the
+    # backend will not say — so the count rides along on the same connection,
+    # concurrently. If it fails the series is still rendered: a chart with an
+    # ambiguous zero beats no chart, and the note is simply absent.
+    counting = companion_count(metric)
+    answers = await gather(
+        ask(metric, grouping),
+        *([ask(counting, None)] if counting else []),
+        return_exceptions=True,
     )
+    body = answers[0]
+    if isinstance(body, BaseException):
+        raise body
+    presence = None
+    if counting is not None and not isinstance(answers[1], BaseException):
+        presence = Presence(entity=counting.entity, counts=bucket_counts(answers[1]))
 
     applied = [name, interval_name, f"{window_since} → {window_until}"]
     if clauses:
         applied.append(f"filters: {render_filters(metric.entity, clauses)}")
     if breakdown:
-        applied.append(f"by {breakdown.strip().lower()}")
+        grouped_by = f"by {breakdown.strip().lower()}"
+        # The chosen series is echoed with the grouping because it changes what
+        # the numbers are, and one of the two is a default the caller never
+        # typed.
+        applied.append(f"{grouped_by} ({chosen})" if chosen else grouped_by)
     header = f"[list: project_metric | {' | '.join(applied)}]"
     # A score or usage metric fans out one series per name, so a truncated
     # width points at the list that enumerates them; a grouped one is already
@@ -697,6 +931,7 @@ async def run_project_metric(
         interval=interval_name,
         names_source=names_source,
         until=window_until,
+        presence=presence,
     )
     return f"{header}\n{table}"
 
@@ -726,14 +961,19 @@ __all__ = [
     "BACKEND_SERIES_CAP",
     "BREAKDOWNS",
     "DEFAULT_INTERVAL",
+    "DEFAULT_SERIES",
     "DEFAULT_WINDOW_DAYS",
+    "DURATION_PERCENTILES",
     "INTERVALS",
     "MAX_BUCKETS",
     "MAX_SERIES",
     "METRICS",
     "Metric",
+    "Presence",
     "bucket_count",
+    "bucket_counts",
     "check_size",
+    "companion_count",
     "groupable_by",
     "parse_breakdown",
     "parse_interval",
@@ -741,5 +981,7 @@ __all__ = [
     "reference",
     "render",
     "request_body",
+    "resolve_series",
     "resolve_window",
+    "series_choices",
 ]
