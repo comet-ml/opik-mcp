@@ -97,9 +97,29 @@ def window(
     return block
 
 
+def _readable(value: Any) -> Any:
+    """A figure at the precision it has, not the precision a float prints at.
+
+    The backend answers an error rate over 167 traces as
+    ``18.562874251497007``. Seventeen digits is thirteen characters of noise
+    claiming a precision the measurement does not have, on a number an agent
+    quotes to a person. Four decimals is plenty — except near zero, where
+    rounding to four would turn a real cost of ``1.35e-05`` into ``0`` and say
+    something false. Below that, three significant digits.
+    """
+    if not isinstance(value, float):
+        return value
+    if value and abs(value) < 1e-4:
+        return float(f"{value:.3g}")
+    return round(value, 4)
+
+
 def _figure(stats: dict[str, dict[str, Any]], name: str) -> dict[str, float | None]:
     row = stats.get(name) or {}
-    return {"current": row.get("current_value"), "previous": row.get("previous_value")}
+    return {
+        "current": _readable(row.get("current_value")),
+        "previous": _readable(row.get("previous_value")),
+    }
 
 
 def shape_stats(stats: list[dict[str, Any]]) -> tuple[dict[str, Any], bool]:

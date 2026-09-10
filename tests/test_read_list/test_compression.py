@@ -73,3 +73,21 @@ def test_compress_respects_explicit_max_tokens() -> None:
     text, tier = compress({"id": "p-1", "name": "demo" * 200}, entity_type="project", max_tokens=10)
     assert tier is CompressionTier.MEDIUM
     assert text  # truncation produced something
+
+
+def test_a_truncation_hint_is_a_path_into_the_answer() -> None:
+    """Found by reading a compressed trace: the hint said
+    ``.trace.trace.error_info.traceback`` for the trace's own field and
+    ``.trace.spans[0]…`` for a span's. The payload has no such wrapper — the
+    root was seeded with the entity type — so neither path resolved against
+    the thing the reader is holding. A hint you cannot follow is worse than
+    no hint, because it reads like one you can."""
+    long = "x" * (STRING_TRUNCATE_LENGTH + 200)
+    data = {"trace": {"error_info": {"traceback": long}}, "spans": [{"input": long}]}
+
+    text, tier = compress(data, entity_type="trace", max_tokens=10)
+
+    assert tier is CompressionTier.MEDIUM
+    assert ".trace.error_info.traceback]" in text
+    assert ".spans[0].input]" in text
+    assert ".trace.trace" not in text

@@ -88,5 +88,10 @@ def compress(
     if full_tokens <= budget:
         return full_json, CompressionTier.FULL
 
-    truncated = truncate_strings(data, f".{entity_type}")
+    # The path is relative to the payload the caller is holding, so it starts
+    # empty. Seeding it with the entity type produced hints nobody could use:
+    # a flat record got `.span.input` for a payload whose top level *is* the
+    # span, and a composite got `.trace.trace.error_info` for its own field
+    # and `.trace.spans[0]…` for a child's.
+    truncated = truncate_strings(data, "")
     return compact_json(truncated), CompressionTier.MEDIUM

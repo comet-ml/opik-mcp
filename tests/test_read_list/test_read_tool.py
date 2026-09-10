@@ -1665,3 +1665,115 @@ async def test_read_project_omits_the_link_when_opik_url_is_unconfigured() -> No
     assert "url" not in body
     assert body["summary"]["traces"]["count"]["current"] == 1204.0
     assert "_project_id" not in body
+
+
+# --- what using the tool turned up ---------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_rate_is_reported_at_the_precision_it_has() -> None:
+    """Found by reading an answer, not by a test: the backend returns an
+    error rate over 167 traces as 18.562874251497007, and the read passed all
+    seventeen digits through. It is a number an agent quotes to a person."""
+    fake = _project_fake(
+        kpi_stats=[
+            {"type": "count", "current_value": 167.0, "previous_value": 0.0},
+            {"type": "errors", "current_value": 18.562874251497007, "previous_value": None},
+            {"type": "avg_duration", "current_value": 3.9375029940119766, "previous_value": None},
+            {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+        ]
+    )
+    traces = _payload(await run_read("project", UUID, client=fake))["summary"]["traces"]
+
+    assert traces["errors"]["current"] == 18.5629
+    assert traces["avg_duration"]["current"] == 3.9375
+
+
+@pytest.mark.anyio
+async def test_a_sub_cent_cost_is_not_rounded_away() -> None:
+    """The rounding that tames a rate would turn a real cost into zero, which
+    is the one thing this summary must never say."""
+    fake = _project_fake(
+        kpi_stats=[
+            {"type": "count", "current_value": 1.0, "previous_value": 0.0},
+            {"type": "total_cost", "current_value": 1.35e-05, "previous_value": 0.0},
+        ]
+    )
+    traces = _payload(await run_read("project", UUID, client=fake))["summary"]["traces"]
+
+    assert traces["total_cost"]["current"] == 1.35e-05
+
+
+_OPTIMIZATION_FEED = {
+    "content": [
+        {
+            "type": "optimization",
+            "name": "test-dataset",
+            "id": "019fc8a2-6ec2-7c0f-8330-d983ab1ef3b9",
+            "created_at": "2026-08-03T17:18:37Z",
+        }
+    ],
+    "total": 1,
+}
+
+
+@pytest.mark.anyio
+async def test_an_optimization_run_carries_the_page_that_opens_it() -> None:
+    """``contains`` names what is freshest in a project, and an optimization
+    is the one kind with no entity to read: the answer named a thing and left
+    the reader nowhere to go."""
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            client=_project_fake(activities=_OPTIMIZATION_FEED),
+            settings=_UI_SETTINGS,
+        )
+    )
+
+    run = body["contains"]["optimization"]
+    assert run["url"] == (
+        f"https://opik.test/demo-ws/projects/{UUID}"
+        "/optimizations/019fc8a2-6ec2-7c0f-8330-d983ab1ef3b9"
+    )
+    assert body["url"].endswith("/logs"), "the project's own link is still there"
+
+
+@pytest.mark.anyio
+async def test_an_experiment_entry_gets_no_guessed_link() -> None:
+    """Its UI page is keyed by the dataset, which the feed does not carry,
+    and ``read('experiment', id)`` opens it anyway. No link beats a wrong
+    one — the same rule the project link already follows."""
+    feed = {
+        "content": [
+            {
+                "type": "experiment",
+                "name": "rerank-v3",
+                "id": "019fc8a2-6ec2-7c0f-8330-d983ab1ef3b9",
+                "created_at": "2026-08-03T17:18:37Z",
+            }
+        ],
+        "total": 1,
+    }
+    body = _payload(
+        await run_read(
+            "project", UUID, client=_project_fake(activities=feed), settings=_UI_SETTINGS
+        )
+    )
+
+    assert "url" not in body["contains"]["experiment"]
+
+
+@pytest.mark.anyio
+async def test_no_ui_base_means_no_link_on_the_entry_either() -> None:
+    """The same rule the project's own link follows, one level down."""
+    bare = Settings(
+        opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
+    )
+    body = _payload(
+        await run_read(
+            "project", UUID, client=_project_fake(activities=_OPTIMIZATION_FEED), settings=bare
+        )
+    )
+
+    assert "url" not in body["contains"]["optimization"]

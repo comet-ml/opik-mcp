@@ -165,7 +165,7 @@ def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, Compres
     if estimate_tokens(pruned_json) <= budget:
         return pruned_json, CompressionTier.MEDIUM
 
-    truncated_json = compact_json(truncate_strings(pruned, ".agent_insights_issue"))
+    truncated_json = compact_json(truncate_strings(pruned, ""))
     if estimate_tokens(truncated_json) <= budget:
         return truncated_json, CompressionTier.MEDIUM
 

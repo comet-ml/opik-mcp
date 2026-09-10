@@ -122,7 +122,7 @@ def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, Compres
         return full_json, CompressionTier.FULL
 
     if full_tokens < TOKEN_SKELETON_THRESHOLD:
-        truncated = truncate_strings(data, ".thread")
+        truncated = truncate_strings(data, "")
         return compact_json(truncated), CompressionTier.MEDIUM
 
     thread = data.get("thread") or {}

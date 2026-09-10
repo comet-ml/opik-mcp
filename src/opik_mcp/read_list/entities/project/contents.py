@@ -36,6 +36,17 @@ older kinds a chance to appear."""
 _TRACE_ROLLUP: Final = "trace_daily"
 """The kind whose ``name`` is a count. Excluded — see the module docstring."""
 
+UI_PAGE: Final[dict[str, str]] = {"optimization": "optimizations"}
+"""Kinds this block can hand over to the UI, and the page that opens them.
+
+Of the six kinds the feed reports, one (``experiment``) is readable through
+this tool by the id the entry carries, and the rest are not: naming a thing
+and then offering no way to reach it is the dead end this closes. Only the
+kinds whose UI route takes exactly the id we hold are listed — an experiment's
+page is keyed by its *dataset*, which the feed does not give us, and a guessed
+link is worse than none.
+"""
+
 
 def _entry(row: dict[str, Any]) -> dict[str, Any] | None:
     """One activity row → ``{name, id, at}``, or ``None`` if it says nothing.
@@ -63,6 +74,10 @@ def distil(body: dict[str, Any]) -> dict[str, Any] | None:
 
     The feed arrives newest first, so the first row of a kind is its freshest
     and later ones are dropped.
+
+    Entries carry no links: the UI base and the workspace are session facts,
+    so the read attaches those afterwards, through the seam that exists for
+    exactly that (:func:`read.project_links`).
     """
     raw = body.get("content")
     rows = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
@@ -96,4 +111,4 @@ async def project_contents(client: OpikReadClient, project_id: str) -> dict[str,
     return await block("what this project contains", load)
 
 
-__all__ = ["FEED_PAGE", "distil", "project_contents"]
+__all__ = ["FEED_PAGE", "UI_PAGE", "distil", "project_contents"]

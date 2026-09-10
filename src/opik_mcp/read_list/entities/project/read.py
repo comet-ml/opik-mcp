@@ -22,7 +22,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.entities.project import vocabulary as project_vocabulary
-from opik_mcp.read_list.entities.project.contents import project_contents
+from opik_mcp.read_list.entities.project.contents import UI_PAGE, project_contents
 from opik_mcp.read_list.entities.project.summary import trace_summary
 from opik_mcp.read_list.ui_links import project_page_url
 
@@ -74,13 +74,41 @@ async def fetch_project(
     return data
 
 
-def project_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
-    """The project's Logs page — where the summary's numbers are on screen."""
+def project_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """Where the answer can be opened: the Logs page, and what ``contains``
+    names but this tool cannot fetch.
+
+    An entry in ``contains`` gives a kind, a name and an id. For an experiment
+    that is enough — ``read('experiment', id)`` opens it. For an optimization
+    run there is no such entity, so the read used to name a thing and leave
+    the reader with nowhere to go. It gets its UI address instead.
+    """
     project_id = data.get("_project_id")
     if not isinstance(project_id, str):
         return {}
+    links: dict[str, Any] = {}
     page = project_page_url(settings, project_id, "logs")
-    return {} if page is None else {"url": page}
+    if page is not None:
+        links["url"] = page
+
+    contains = data.get("contains")
+    if not isinstance(contains, dict):
+        return links
+    # A new dict rather than an edit in place: a link_fn decorates the answer
+    # and does not own it.
+    decorated = {
+        name: dict(entry) if isinstance(entry, dict) else entry for name, entry in contains.items()
+    }
+    for kind, ui_page in UI_PAGE.items():
+        entry = decorated.get(kind)
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            continue
+        url = project_page_url(settings, project_id, f"{ui_page}/{entry['id']}")
+        if url is not None:
+            entry["url"] = url
+    if decorated != contains:
+        links["contains"] = decorated
+    return links
 
 
 __all__ = ["fetch_project", "project_links"]
