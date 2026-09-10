@@ -45,6 +45,11 @@ from opik_mcp.read_list.oql import (
     render_filters,
 )
 from opik_mcp.read_list.project_scope import require_project_id
+from opik_mcp.read_list.project_vocabulary import (
+    SCORE_NAMES_CAP,
+    USAGE_KEYS_CAP,
+    recorded,
+)
 from opik_mcp.read_list.window import (
     floor_to_second,
     parse_bound,
@@ -553,6 +558,69 @@ def _time_label(raw: Any, interval: str, *, until: str | None = None) -> str:
     return raw[:16].replace("T", " ") if interval == "hourly" else raw[:10]
 
 
+# --- checking the series against the project ------------------------------ #
+#
+# A percentile can be checked against a fixed set; a score name and a usage
+# key cannot — they are whatever this project recorded. An unknown one is not
+# refused by the backend either: it charts nothing and returns an empty
+# series, which reads as "quiet window" when it means "wrong name". So the
+# name is checked against the project's own — but only when the answer came
+# back empty, because a chart with data has proved its own name. The happy
+# path pays nothing; the ambiguous one pays one cheap GET to say which of the
+# two it was.
+
+CHECKED_SERIES: Final[dict[str, str]] = {"token_usage": "usage", "feedback_scores": "score"}
+
+_KIND_WORDS: Final = {
+    "usage": ("usage key", "usage keys", USAGE_KEYS_CAP),
+    "score": ("feedback score name", "score names", SCORE_NAMES_CAP),
+}
+
+
+def _listed(names: list[str], cap: int) -> str:
+    shown = ", ".join(names[:cap])
+    return f"{shown} (and {len(names) - cap} more)" if len(names) > cap else shown
+
+
+async def check_series(
+    client: OpikReadClient,
+    project_id: str,
+    metric: Metric,
+    chosen: str,
+    *,
+    defaulted: bool,
+) -> str | None:
+    """Refuse an unrecorded series name; confirm a recorded one.
+
+    Returns a note for the empty answer when the name checks out — that the
+    window is empty is worth saying plainly, so the agent stops suspecting the
+    name and moves the window instead.
+    """
+    kind = CHECKED_SERIES.get(metric.family)
+    if kind is None:
+        return None
+    names = await recorded(client, project_id, kind=kind)
+    if names is None:
+        # The lookup failed. Refusing a name we could not check would be worse
+        # than the ambiguity we were trying to remove.
+        return None
+    singular, plural, cap = _KIND_WORDS[kind]
+    if chosen in names:
+        return f"series={chosen!r} is a {singular} this project records, so the window is empty."
+    if not names:
+        raise EntityArgValidationError(
+            f"This project has no {plural} recorded at all, so {metric.name} cannot be "
+            f"grouped by one. series={chosen!r} matches nothing."
+        )
+    how = (
+        f"{metric.name} grouped charts one series at a time and defaults to "
+        f"series={chosen!r}, which this project does not record"
+        if defaulted
+        else f"series={chosen!r} is not a {singular} in this project"
+    )
+    raise EntityArgValidationError(f"{how}. Its {plural}: {_listed(names, cap)}.")
+
+
 AMBIGUOUS_ZERO_FAMILIES: Final = frozenset({"error_rate", "average_duration"})
 """Families whose ``0`` does not mean zero.
 
@@ -598,6 +666,19 @@ def bucket_counts(body: dict[str, Any]) -> list[float]:
     return [
         float(point.get("value") or 0) for point in series[0]["data"] if isinstance(point, dict)
     ]
+
+
+def carries_data(body: dict[str, Any]) -> bool:
+    """True when the answer holds at least one non-zero number.
+
+    The test for "this told me nothing" — no series at all, or every point
+    null or zero. It is the same condition the table collapses on, and the
+    condition under which a supplied series name is worth checking.
+    """
+    raw = body.get("results")
+    series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+    series = [s for s in series if isinstance(s.get("data"), list)]
+    return bool(series) and not _all_zero(series)
 
 
 def _all_zero(series: list[dict[str, Any]]) -> bool:
@@ -708,8 +789,7 @@ def render(
         if not skipped:
             continue
         reason = (
-            f"no {presence.entity}s in them, so nothing to measure — which is not the "
-            "same as zero"
+            f"no {presence.entity}s in them, so nothing to measure — which is not the same as zero"
             if why == "quiet" and presence is not None
             else f"no {metric_name} recorded in them"
         )
@@ -934,6 +1014,12 @@ async def run_project_metric(
         until=window_until,
         presence=presence,
     )
+    if chosen is not None and not carries_data(body):
+        # Nothing came back, and a name the caller (or the default) supplied
+        # could be why. Which of the two it is, is worth one GET.
+        note = await check_series(client, resolved, metric, chosen, defaulted=series is None)
+        if note:
+            table = f"{table}\n{note}"
     return f"{header}\n{table}"
 
 

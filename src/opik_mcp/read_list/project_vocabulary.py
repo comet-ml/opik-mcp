@@ -20,10 +20,11 @@ an ``error`` instead of names for the same reason the summary does.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
-from opik_mcp.read_list.decorations import block
+from opik_mcp.read_list.decorations import BLOCK_ERRORS, DEADLINE_SECONDS, block
 
 SCORE_NAMES_CAP: Final = 25
 """Enough to see a project's real vocabulary; a judge rule per metric plus
@@ -35,6 +36,10 @@ instrumentation invents its own."""
 
 RULES_CAP: Final = 10
 """One page of the evaluators endpoint, which is where the cap comes from."""
+
+_LOOKUP_ERRORS: Final[tuple[type[BaseException], ...]] = (TimeoutError, *BLOCK_ERRORS)
+"""What a name lookup is allowed to fail with — the same set a block survives,
+plus the deadline. Named rather than unpacked inline so the type is stated."""
 
 
 def _part(
@@ -112,6 +117,31 @@ async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any
     return await block("this project's online rules", load)
 
 
+async def recorded(client: OpikReadClient, project_id: str, *, kind: str) -> list[str] | None:
+    """Every name of one kind in a project, uncapped and undecorated.
+
+    The vocabulary block above caps and captions its lists for a reader; a
+    caller checking a name the agent supplied needs the whole list and none of
+    the furniture. ``None`` means the lookup itself failed — which a checker
+    must not confuse with "the name is not there", or a slow endpoint would
+    turn into a refusal of a perfectly good name.
+    """
+
+    async def load() -> list[str]:
+        if kind == "score":
+            body = await client.list_project_score_names(project_id)
+            return _named(body.get("scores"))
+        body = await client.list_project_token_usage_names(project_id)
+        raw = body.get("names")
+        return [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
+
+    try:
+        async with asyncio.timeout(DEADLINE_SECONDS):
+            return await load()
+    except _LOOKUP_ERRORS:
+        return None
+
+
 def assemble(
     scores: dict[str, Any] | None,
     usage: dict[str, Any] | None,
@@ -141,6 +171,7 @@ __all__ = [
     "USAGE_KEYS_CAP",
     "assemble",
     "online_rules",
+    "recorded",
     "score_names",
     "usage_keys",
 ]

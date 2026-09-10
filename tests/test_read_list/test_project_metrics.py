@@ -58,9 +58,26 @@ class FakeOpikClient:
     by_metric: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     fails: set[str] = field(default_factory=set)
     bodies: list[dict[str, Any]] = field(default_factory=list)
+    # The names the project has recorded, for checking a `series` the caller
+    # supplied. None means the endpoint itself fails.
+    usage_names: list[str] | None = None
+    score_names: list[str] | None = None
+    name_lookups: int = 0
     _base_url: str | None = None
     _workspace: str | None = None
     _api_key: str | None = None
+
+    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
+        self.name_lookups += 1
+        if self.usage_names is None:
+            raise httpx.ReadTimeout("usage names timed out")
+        return {"names": self.usage_names}
+
+    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:
+        self.name_lookups += 1
+        if self.score_names is None:
+            raise httpx.ReadTimeout("score names timed out")
+        return {"scores": [{"name": name} for name in self.score_names]}
 
     async def get_project_metrics(self, project_id: str, /, **body: Any) -> dict[str, Any]:
         self.calls += 1
@@ -945,3 +962,118 @@ async def test_a_zero_is_kept_where_a_null_is_dropped() -> None:
     )
     assert _table(out)[1:3] == ["2026-09-02 | 0", "2026-09-04 | 4"]
     assert "1 of 3 buckets are not listed: no span_count recorded" in out
+
+
+# --- checking the series against the project ------------------------------ #
+
+
+def _known(**kw: Any) -> Any:
+    """A fake that also answers the two name endpoints."""
+    fake = _fake(**kw)
+    fake.usage_names = ["total_tokens", "prompt_tokens", "completion_tokens"]
+    fake.score_names = ["Hallucination", "Answer Relevance"]
+    return fake
+
+
+@pytest.mark.anyio
+async def test_an_unrecorded_usage_key_is_named_as_the_problem() -> None:
+    """The backend does not refuse an unknown sub-metric — it charts nothing
+    and returns an empty series, which reads as a quiet window. One GET says
+    which of the two it was."""
+    fake = _known(results=[])
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_token_usage",
+            breakdown="model",
+            series="banana_tokens",
+            client=fake,
+        )
+    message = str(exc.value)
+    assert "'banana_tokens' is not a usage key in this project" in message
+    assert "total_tokens, prompt_tokens, completion_tokens" in message
+
+
+@pytest.mark.anyio
+async def test_a_default_the_project_does_not_record_says_it_was_the_default() -> None:
+    """The caller did not type total_tokens, so being told their argument is
+    wrong would be a lie."""
+    fake = _known(results=[])
+    fake.usage_names = ["original_usage.total_tokens"]
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_token_usage",
+            breakdown="model",
+            client=fake,
+        )
+    message = str(exc.value)
+    assert "defaults to series='total_tokens'" in message
+    assert "original_usage.total_tokens" in message
+
+
+@pytest.mark.anyio
+async def test_an_unrecorded_score_name_lists_the_ones_that_exist() -> None:
+    fake = _known(results=[])
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_feedback_scores",
+            breakdown="model",
+            series="Halluc",
+            client=fake,
+        )
+    assert "Hallucination, Answer Relevance" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_a_recorded_name_with_no_data_says_the_window_is_empty() -> None:
+    """Otherwise the agent doubts the name and retries with another one."""
+    fake = _known(results=[])
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_token_usage",
+        breakdown="model",
+        series="prompt_tokens",
+        client=fake,
+    )
+    assert "series='prompt_tokens' is a usage key this project records" in out
+    assert "the window is empty" in out
+
+
+@pytest.mark.anyio
+async def test_an_answer_with_data_is_not_charged_a_name_lookup() -> None:
+    """A chart with numbers has proved its own name."""
+    fake = _known(results=[_series("gpt-4o", [12.0, 8.0])])
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_token_usage",
+        breakdown="model",
+        series="prompt_tokens",
+        client=fake,
+    )
+    assert fake.name_lookups == 0
+    assert "2026-09-02 | 12" in out
+
+
+@pytest.mark.anyio
+async def test_a_name_lookup_that_fails_does_not_refuse_the_name() -> None:
+    """Refusing a name we could not check would turn a slow endpoint into a
+    wrong answer."""
+    fake = _known(results=[])
+    fake.usage_names = None  # the endpoint fails
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_token_usage",
+        breakdown="model",
+        series="prompt_tokens",
+        client=fake,
+    )
+    assert "No span_token_usage data in this window." in out
+    assert "not a usage key" not in out
