@@ -50,9 +50,9 @@ from opik_mcp.credential_identity import (
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
+from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
+from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.oql import filter_field_names
-from opik_mcp.read_list.project_metrics import INTERVALS as METRIC_INTERVALS
-from opik_mcp.read_list.project_metrics import METRICS as METRIC_TYPES
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_opik_link

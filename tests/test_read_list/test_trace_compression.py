@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from opik_mcp.read_list.compression import CompressionTier
-from opik_mcp.read_list.registry import _compress_trace
+from opik_mcp.read_list.entities.trace import compress as _compress_trace
 
 
 def test_trace_under_budget_returns_full() -> None:

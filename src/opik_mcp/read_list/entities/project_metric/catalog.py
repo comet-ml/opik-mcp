@@ -1,63 +1,32 @@
-"""``list('project_metric', …)`` — one metric over time, as a table.
+"""What can be asked of a project metric, and every refusal that needs no call.
 
-The project overview answers "how is it going" with four numbers. This answers
-"when did it change", which is the question that follows. One backend call
-returns one metric bucketed over a window, and it arrives as a table of time
-buckets because the same data as nested JSON costs four times the tokens
-(measured: a 30-day daily series with ten groups is 3,649 tokens as JSON and
-871 as a table).
+The project overview answers "how is it going" with four numbers. The metric
+series answers "when did it change", which is the question that follows. This
+file is the vocabulary of that question: the twenty metrics, which entity each
+one is about, the groupings the backend accepts for each, the intervals, the
+windows, and the size a given request would come back as.
 
-It rides on ``list`` rather than a tool of its own: the query language, the
-window vocabulary, the project scope and the table renderer already live
-there, and a sixth tool would sit in the context of every request forever —
-including the ones that never touch Opik. That follows ADR 0004's "one schema
-covers N entities, small tools/list footprint".
+Everything here is a decision that can be made without contacting anything,
+which is the point. The backend's own refusals for these are unusable: ask to
+group ``span_cost`` by model and it answers "This field supports Span metrics
+only", about a span metric. So the compatibility rules are transcribed from
+``BreakdownField`` and applied here, and a request that cannot work is refused
+with the reason and the nearest thing that does.
 
-But a time series is not a collection, so the collection machinery does not
-apply to it: rows are buckets rather than records, ``page``/``size``/``sort``
-are meaningless, and the filter fields depend on which entity the *metric* is
-about rather than on the entity type named in the call. Hence this module,
-which ``list`` delegates to whole instead of growing six special cases in the
-path the other ten entities share.
-
-**Size is bounded before the request, not after.** The backend emits every
-bucket in the window including the empty ones, so an hourly month is 721
-buckets per series — enough to swallow a context window in one call, paid for
-by the user. The bucket count follows from the interval and the window alone,
-so an over-large request is refused without contacting the backend at all, and
-the refusal names the narrower requests that would fit.
+The three files next door take it from here: ``runner`` for the order of
+operations, ``table`` for how an answer reads, ``reference`` for what
+``schema()`` says when asked.
 """
 
 from __future__ import annotations
 
-from asyncio import gather
-from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.metric_table import (
-    MAX_SERIES,
-    OTHERS,
-    Presence,
-    Table,
-    bucket_counts,
-    carries_data,
-    render,
-)
 from opik_mcp.read_list.oql import (
-    SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
-    compile_filters,
-    render_filters,
-)
-from opik_mcp.read_list.project_scope import require_project_id
-from opik_mcp.read_list.project_vocabulary import (
-    SCORE_NAMES_CAP,
-    USAGE_KEYS_CAP,
-    recorded,
 )
 from opik_mcp.read_list.window import (
     closed_window,
@@ -541,7 +510,7 @@ SOURCE_FILTERED_METRIC_ENTITIES: Final = tuple(
 _DROPPED_BY_THREAD_METRICS: Final = ("source", "environment")
 
 
-def _refuse_dropped_fields(metric: Metric, clauses: list[dict[str, str]]) -> None:
+def refuse_dropped_fields(metric: Metric, clauses: list[dict[str, str]]) -> None:
     if metric.entity != "thread":
         return
     named = [clause["field"] for clause in clauses if clause["field"] in _DROPPED_BY_THREAD_METRICS]
@@ -595,56 +564,11 @@ def request_body(
 # path pays nothing; the ambiguous one pays one cheap GET to say which of the
 # two it was.
 
-CHECKED_SERIES: Final[dict[str, str]] = {"token_usage": "usage", "feedback_scores": "score"}
-
-_KIND_WORDS: Final = {
-    "usage": ("usage key", "usage keys", USAGE_KEYS_CAP),
-    "score": ("feedback score name", "score names", SCORE_NAMES_CAP),
-}
 
 
-def _listed(names: list[str], cap: int) -> str:
-    shown = ", ".join(names[:cap])
-    return f"{shown} (and {len(names) - cap} more)" if len(names) > cap else shown
 
 
-async def check_series(
-    client: OpikReadClient,
-    project_id: str,
-    metric: Metric,
-    chosen: str,
-    *,
-    defaulted: bool,
-) -> str | None:
-    """Refuse an unrecorded series name; confirm a recorded one.
 
-    Returns a note for the empty answer when the name checks out — that the
-    window is empty is worth saying plainly, so the agent stops suspecting the
-    name and moves the window instead.
-    """
-    kind = CHECKED_SERIES.get(metric.family)
-    if kind is None:
-        return None
-    names = await recorded(client, project_id, kind=kind)
-    if names is None:
-        # The lookup failed. Refusing a name we could not check would be worse
-        # than the ambiguity we were trying to remove.
-        return None
-    singular, plural, cap = _KIND_WORDS[kind]
-    if chosen in names:
-        return f"series={chosen!r} is a {singular} this project records, so the window is empty."
-    if not names:
-        raise EntityArgValidationError(
-            f"This project has no {plural} recorded at all, so {metric.name} cannot be "
-            f"grouped by one. series={chosen!r} matches nothing."
-        )
-    how = (
-        f"{metric.name} grouped charts one series at a time and defaults to "
-        f"series={chosen!r}, which this project does not record"
-        if defaulted
-        else f"series={chosen!r} is not a {singular} in this project"
-    )
-    raise EntityArgValidationError(f"{how}. Its {plural}: {_listed(names, cap)}.")
 
 
 AMBIGUOUS_ZERO_FAMILIES: Final = frozenset({"error_rate", "average_duration"})
@@ -696,241 +620,29 @@ def parse_interval(interval: str | None) -> str:
     return name
 
 
-def reference() -> dict[str, Any]:
-    """What ``schema('list.project_metric')`` answers.
-
-    The metric table and the filter fields live here rather than in the tool
-    description: the description is billed on every request the host makes,
-    this is billed only when asked for.
-    """
-    return {
-        "entity": "project_metric",
-        "shape": "a time series, not a collection — rows are time buckets",
-        "required": ["project_id or project_name", "metric_type"],
-        "metric_types": {
-            name: {"about": metric.entity, "unit": metric.unit} for name, metric in METRICS.items()
-        },
-        "intervals": {
-            "hourly": "one row per hour",
-            "daily": f"one row per day (default; {DEFAULT_WINDOW_DAYS}-day window by default)",
-            "weekly": "one row per week",
-            "total": "one row for the whole window",
-        },
-        "window": "since/until, same forms as every other list; defaults to the last 7 days",
-        "filters": (
-            "OQL, same language as list('trace'). The fields are those of the entity the "
-            "metric is about (see `about` above). Trace and span metrics default to "
-            'source = "sdk" like the other lists; a thread metric takes no source or '
-            "environment filter at all — the endpoint's thread field set has neither, "
-            "and it drops what it cannot apply instead of saying so."
-        ),
-        "limits": {
-            "buckets": MAX_BUCKETS,
-            "why": (
-                "an ungrouped answer returns every bucket in the window including the "
-                "empty ones, so an hourly month is 721 rows; a request over the limit is "
-                "refused before the backend is called, naming the narrower requests that "
-                "fit. A grouped answer is shorter — it carries only the buckets each "
-                "group occurred in — so the limit is an upper bound there"
-            ),
-        },
-        "multi_series": {
-            "which": {
-                "duration": f"one series per percentile ({', '.join(DURATION_PERCENTILES)})",
-                "feedback_scores": "one series per score name",
-                "token_usage": "one series per usage key",
-            },
-            "ungrouped": "every series is returned, one column each",
-            "grouped": (
-                "the backend charts one of them at a time, so series=<name> picks it: "
-                "a percentile, a score name, or a usage key. Defaults where a default "
-                f"is honest ({', '.join(f'{k}={v}' for k, v in DEFAULT_SERIES.items())}), "
-                "and the chosen one is echoed in the header. A feedback-score metric "
-                "has no default — the names are the project's own, and read('project') "
-                "lists them."
-            ),
-        },
-        "breakdowns": {
-            "syntax": ("breakdown='<field>', or 'metadata.<key>' to group by a metadata key"),
-            "by_metric": {name: groupable_by(name) or None for name in METRICS},
-            "series_cap": MAX_SERIES,
-            "backend_group_cap": BACKEND_SERIES_CAP,
-            "note": (
-                "seven metrics accept no grouping at all — they are missing from the "
-                "backend's own compatibility sets (BreakdownField), which is a backend "
-                "bug rather than a rule: asking anyway returns a message claiming the "
-                "field 'supports Span metrics only' about a span metric. Refused "
-                "locally instead. A grouping is capped by the backend at "
-                f"{BACKEND_SERIES_CAP} groups plus '{OTHERS}', which carries every "
-                "group past them (summed per bucket for counts, costs and tokens; "
-                "left blank where a sum would not be that metric). Grouped series "
-                "are not filled, so a group appears only in the buckets it occurred "
-                f"in. A metric that fans out per score name or usage key is capped at "
-                f"{MAX_SERIES} here, widest first, with the true count reported."
-            ),
-        },
-        "not_supported": {
-            "page, size": "rows are time buckets, not records",
-            "sort": "rows are ordered by time",
-        },
-    }
 
 
-async def run_project_metric(
-    client: OpikReadClient,
-    *,
-    project_id: str | None,
-    project_name: str | None,
-    metric_type: str | None,
-    interval: str | None,
-    since: str | None,
-    until: str | None,
-    filters: str | None,
-    breakdown: str | None = None,
-    series: str | None = None,
-    page: int | None = None,
-    size: int | None = None,
-    sort: str | None = None,
-) -> str:
-    """``list('project_metric', …)`` end to end: validate, ask, render.
-
-    Everything that can be rejected is rejected before the backend is called —
-    an unknown metric, an unknown interval, a filter field that does not exist
-    on the metric's entity, an answer too wide to be worth reading. The
-    backend's own refusals for these are unusable (a bad filter comes back as
-    ``Invalid filters query parameter`` with no field named), so local
-    validation is not an optimisation, it is the only readable error.
-    """
-    _refuse_collection_args(page=page, size=size, sort=sort)
-    metric = parse_metric(metric_type)
-    interval_name = parse_interval(interval)
-    window_since, window_until = resolve_window(since, until)
-    check_size(interval_name, window_since, window_until)
-
-    clauses = compile_filters(metric.entity, filters or "")
-    _refuse_dropped_fields(metric, clauses)
-    if metric.entity in SOURCE_FILTERED_METRIC_ENTITIES and not any(
-        clause["field"] == "source" for clause in clauses
-    ):
-        # Same default as the Logs page and the other lists. Echoed as part of
-        # the filter rather than called out separately: the filter line already
-        # reads `source = "sdk"`, and saying it twice is two claims where the
-        # agent has to check they agree.
-        clauses.append(dict(SDK_SOURCE_CLAUSE))
-
-    name = metric.name
-    grouping = parse_breakdown(breakdown, name) if breakdown else None
-    chosen = resolve_series(metric, series, grouped=grouping is not None)
-    if grouping is not None and chosen is not None:
-        grouping["sub_metric"] = chosen
-
-    resolved = await require_project_id(
-        client,
-        project_id=project_id,
-        project_name=project_name,
-        caller="list('project_metric')",
-    )
-
-    def ask(which: Metric, group: dict[str, str] | None) -> Coroutine[Any, Any, dict[str, Any]]:
-        return client.get_project_metrics(
-            resolved,
-            **request_body(
-                which,
-                interval=interval_name,
-                since=window_since,
-                until=window_until,
-                clauses=clauses,
-                breakdown=group,
-            ),
-        )
-
-    # A rate or an average needs to know which buckets were empty, and the
-    # backend will not say — so the count rides along on the same connection,
-    # concurrently. If it fails the series is still rendered: a chart with an
-    # ambiguous zero beats no chart, and the note is simply absent.
-    counting = companion_count(metric)
-    answers = await gather(
-        ask(metric, grouping),
-        *([ask(counting, None)] if counting else []),
-        return_exceptions=True,
-    )
-    body = answers[0]
-    if isinstance(body, BaseException):
-        raise body
-    presence = None
-    if counting is not None and not isinstance(answers[1], BaseException):
-        presence = Presence(entity=counting.entity, counts=bucket_counts(answers[1]))
-
-    applied = [name, interval_name, f"{window_since} → {window_until}"]
-    if clauses:
-        applied.append(f"filters: {render_filters(metric.entity, clauses)}")
-    if breakdown:
-        grouped_by = f"by {breakdown.strip().lower()}"
-        # The chosen series is echoed with the grouping because it changes what
-        # the numbers are, and one of the two is a default the caller never
-        # typed.
-        applied.append(f"{grouped_by} ({chosen})" if chosen else grouped_by)
-    header = f"[list: project_metric | {' | '.join(applied)}]"
-    # A score or usage metric fans out one series per name, so a truncated
-    # width points at the list that enumerates them; a grouped one is already
-    # capped by the backend and has no such list.
-    names_source = (
-        f"list('score_name', project_id='{resolved}')"
-        if grouping is None and name.endswith("feedback_scores")
-        else None
-    )
-    table = render(
-        body,
-        Table(
-            metric_name=name,
-            family=metric.family,
-            interval=interval_name,
-            grouped=grouping is not None,
-            until=window_until,
-            names_source=names_source,
-            presence=presence,
-        ),
-    )
-    if chosen is not None and not carries_data(body):
-        # Nothing came back, and a name the caller (or the default) supplied
-        # could be why. Which of the two it is, is worth one GET.
-        note = await check_series(client, resolved, metric, chosen, defaulted=series is None)
-        if note:
-            table = f"{table}\n{note}"
-    return f"{header}\n{table}"
 
 
-def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | None) -> None:
-    """``page``/``size``/``sort`` mean nothing here, so they are refused.
-
-    Silently ignoring them would let an agent believe it had paged through a
-    series it actually re-read from the start, or ordered rows that are ordered
-    by time by definition.
-    """
-    named = [
-        name
-        for name, value in (("page", page), ("size", size), ("sort", sort))
-        if value is not None
-    ]
-    if not named:
-        return
-    raise EntityArgValidationError(
-        f"list('project_metric') does not take {', '.join(named)}: rows are time "
-        "buckets, not records — they are ordered by time and the window and "
-        "interval decide how many there are. Use since/until and interval instead."
-    )
 
 
 __all__ = [
+    "BREAKDOWNS",
+    "DEFAULT_SERIES",
+    "DURATION_PERCENTILES",
+    "INTERVALS",
     "MAX_BUCKETS",
     "METRICS",
     "Metric",
     "bucket_count",
     "check_size",
+    "companion_count",
     "groupable_by",
     "parse_breakdown",
+    "parse_interval",
     "parse_metric",
-    "reference",
+    "refuse_dropped_fields",
+    "request_body",
     "resolve_series",
-    "run_project_metric",
+    "resolve_window",
 ]

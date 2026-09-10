@@ -221,6 +221,14 @@ clause lists are built by appending to them."""
 WINDOWED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists whose backend endpoint takes ``from_time``/``to_time`` and free-text
 ``search`` (the two capabilities ship together on the backend)."""
+NO_WINDOW_REASON: Final[dict[str, str]] = {
+    "experiment": "experiments have no time window on the backend."
+}
+"""Why one particular entity takes no window, where the general answer would
+mislead. The experiments endpoint has no such parameter at all, so "only
+trace, span and thread take a window" would read as our limitation rather
+than the backend's shape. Kept beside the list of who does take one, so the
+two cannot disagree, and so the list tool needs no branch on an entity name."""
 
 GRAMMAR_LINE: Final = (
     "<field>[.<key>] <op> <value> [AND ...] — strings in double quotes, numbers bare, "

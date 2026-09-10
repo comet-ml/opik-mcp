@@ -19,8 +19,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.opik_client import OpikClient
 from opik_mcp.read_list.list_tool import run_list
-from opik_mcp.read_list.metric_table import MAX_SERIES
-from opik_mcp.read_list.project_metrics import (
+from opik_mcp.read_list.entities.project_metric.table import MAX_SERIES
+from opik_mcp.read_list.entities.project_metric.catalog import (
     MAX_BUCKETS,
     METRICS,
     bucket_count,

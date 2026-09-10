@@ -21,9 +21,9 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikReadClient
-from opik_mcp.read_list import project_vocabulary
-from opik_mcp.read_list.project_contents import project_contents
-from opik_mcp.read_list.project_summary import trace_summary
+from opik_mcp.read_list.entities.project import vocabulary as project_vocabulary
+from opik_mcp.read_list.entities.project.contents import project_contents
+from opik_mcp.read_list.entities.project.summary import trace_summary
 from opik_mcp.read_list.ui_links import project_page_url
 
 

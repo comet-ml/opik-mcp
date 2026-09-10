@@ -36,7 +36,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
 )
 
-logger = logging.getLogger("opik_mcp.read_list.diagnostics.availability")
+logger = logging.getLogger("opik_mcp.read_list.entities.agent_insights_issue.availability")
 
 # The backend declares the field as ``ollieEnabled``; the UI's toggle key is
 # ``ollie_enabled``. Accept both so neither side's spelling is load-bearing.

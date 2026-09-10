@@ -50,7 +50,9 @@ from opik_mcp.opik_client import (
     client_for_call,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
 from opik_mcp.read_list.oql import (
+    NO_WINDOW_REASON,
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
@@ -59,7 +61,6 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
-from opik_mcp.read_list.project_metrics import run_project_metric
 from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
@@ -67,8 +68,6 @@ from opik_mcp.read_list.project_scope import (
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
-    EntityHandler,
-    PageContext,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -121,26 +120,28 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
         raise ToolError(f"Could not reach Opik to {what}: {err}") from err
 
 
-async def _run_metric_series(
+async def _run_whole(
+    run: RunFn,
+    entity_type: str,
     *,
     settings: Settings | None,
     client: OpikListClient | None,
     **kw: Any,
 ) -> str:
-    """Own the connection, then hand off to the metric runner.
+    """Own the connection, then hand the whole call to the entity's runner.
 
-    Same lifecycle as the collection path — the series is one call, but
-    resolving a project name is another, and both ride one connection.
+    Same lifecycle as the collection path: the answer may be one backend call,
+    but resolving a project name is another, and both ride one connection.
     """
     async with client_for_call(settings, client) as opik:
         with _as_tool_error(
-            "chart project_metric",
+            f"chart {entity_type}",
             on_timeout=(
-                "Opik did not answer in time for list('project_metric', …). Narrow the "
+                f"Opik did not answer in time for list({entity_type}, …). Narrow the "
                 "window or widen the interval and retry."
             ),
         ):
-            return await run_project_metric(cast("OpikReadClient", opik), **kw)
+            return await run(cast("OpikReadClient", opik), **kw)
 
 
 async def run_list(
@@ -174,15 +175,16 @@ async def run_list(
         err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
         raise ToolError(str(err)) from err
 
-    if entity_type == "project_metric":
-        # A time series, not a collection: rows are time buckets, the filter
-        # fields belong to whichever entity the metric is about, and
-        # page/size/sort mean nothing. Handled whole by its own runner rather
-        # than as six special cases in the path below. ``page``/``size`` carry
-        # non-None defaults, so only a value the caller actually chose is
-        # refused — the defaults reaching here are indistinguishable from
-        # absence, and harmless.
-        return await _run_metric_series(
+    if handler.run_fn is not None:
+        # The entity answers on its own: a time series is not a collection, so
+        # rows are buckets, the filter fields belong to whichever entity the
+        # metric is about, and page/size/sort mean nothing. ``page``/``size``
+        # carry non-None defaults, so only a value the caller actually chose
+        # is passed on; the defaults reaching here cannot be told from absence
+        # and are harmless.
+        return await _run_whole(
+            handler.run_fn,
+            entity_type,
             project_id=project_id,
             project_name=project_name,
             metric_type=metric_type,
@@ -266,11 +268,7 @@ async def run_list(
         day_windowed = "from_date" in handler.list_optional_kwargs
         if entity_type not in WINDOWED_ENTITIES and not day_windowed:
             windowed = ", ".join((*WINDOWED_ENTITIES, "agent_insights_issue"))
-            why = (
-                "experiments have no time window on the backend."
-                if entity_type == "experiment"
-                else f"only {windowed} take a time window."
-            )
+            why = NO_WINDOW_REASON.get(entity_type, f"only {windowed} take a time window.")
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
         try:

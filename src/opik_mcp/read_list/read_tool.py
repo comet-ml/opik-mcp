@@ -32,10 +32,10 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
-    EntityHandler,
     compress_for,
     resolve_entity_type,
 )
