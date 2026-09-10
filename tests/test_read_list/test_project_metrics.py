@@ -1428,3 +1428,31 @@ async def test_a_project_with_no_scores_at_all_says_that_rather_than_listing_non
             client=fake,
         )
     assert "no score names recorded at all" in str(exc.value)
+
+
+@pytest.mark.anyio
+async def test_a_group_with_no_key_is_not_labelled_with_the_metric_name() -> None:
+    """Seen live: grouping token usage by metadata.environment on spans that
+    carry no such key printed a column called `span_token_usage` under a
+    header saying `by metadata.environment` — which reads as the ungrouped
+    total rather than as the spans with no environment set."""
+    fake = _fake(results=[{"name": "", "data": [{"time": "2026-09-02T00:00:00Z", "value": 30}]}])
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_token_usage",
+        breakdown="metadata.environment",
+        client=fake,
+    )
+    assert _table(out)[0] == "time | (no value)"
+
+
+@pytest.mark.anyio
+async def test_an_ungrouped_series_with_no_name_still_takes_the_metric_s() -> None:
+    """Ungrouped, an unnamed series is the metric itself — that fallback is
+    what most of the plain charts rely on."""
+    fake = _fake(results=[{"name": "", "data": [{"time": "2026-09-02T00:00:00Z", "value": 30}]}])
+    out = await run_list(
+        "project_metric", project_id=PROJECT, metric_type="span_token_usage", client=fake
+    )
+    assert _table(out)[0] == "time | span_token_usage"

@@ -155,6 +155,23 @@ def time_label(raw: Any, interval: str, *, until: str | None = None) -> str:
     return raw[:16].replace("T", " ") if interval == "hourly" else raw[:10]
 
 
+NO_GROUP: Final = "(no value)"
+"""A group whose key was absent on the rows in it.
+
+The backend labels such a group with an empty string. Falling back to the
+metric's own name printed `span_token_usage` as a column under a header that
+said `by metadata.environment`, which reads as the ungrouped total rather
+than as "the spans with no environment set".
+"""
+
+
+def _column(one: dict[str, Any], table: Table) -> str:
+    name = one.get("name")
+    if isinstance(name, str) and name:
+        return name
+    return NO_GROUP if table.grouped else table.metric_name
+
+
 def _weight(one: dict[str, Any]) -> float:
     """Total magnitude across the window — the series most likely to matter."""
     return sum(
@@ -193,6 +210,7 @@ class Table:
     metric_name: str
     family: str
     interval: str
+    grouped: bool = False
     until: str | None = None
     names_source: str | None = None
     presence: Presence | None = None
@@ -227,7 +245,7 @@ def render(body: dict[str, Any], table: Table) -> str:
     if total_series > MAX_SERIES:
         series = sorted(series, key=_weight, reverse=True)[:MAX_SERIES]
 
-    columns = [str(one.get("name") or metric_name) for one in series]
+    columns = [_column(one, table) for one in series]
     charted = [_by_time(one) for one in series]
     # The union, because grouped series are not filled and each group carries
     # only the buckets it appeared in.

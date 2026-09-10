@@ -719,15 +719,19 @@ def reference() -> dict[str, Any]:
         "window": "since/until, same forms as every other list; defaults to the last 7 days",
         "filters": (
             "OQL, same language as list('trace'). The fields are those of the entity the "
-            "metric is about (see `about` above), and trace/span/thread metrics default to "
-            'source = "sdk" like the other lists.'
+            "metric is about (see `about` above). Trace and span metrics default to "
+            'source = "sdk" like the other lists; a thread metric takes no source or '
+            "environment filter at all — the endpoint's thread field set has neither, "
+            "and it drops what it cannot apply instead of saying so."
         ),
         "limits": {
             "buckets": MAX_BUCKETS,
             "why": (
-                "every bucket in the window is returned including empty ones, so an hourly "
-                "month is 721 rows; a request over the limit is refused before the backend "
-                "is called, naming the narrower requests that fit"
+                "an ungrouped answer returns every bucket in the window including the "
+                "empty ones, so an hourly month is 721 rows; a request over the limit is "
+                "refused before the backend is called, naming the narrower requests that "
+                "fit. A grouped answer is shorter — it carries only the buckets each "
+                "group occurred in — so the limit is an upper bound there"
             ),
         },
         "multi_series": {
@@ -881,6 +885,7 @@ async def run_project_metric(
             metric_name=name,
             family=metric.family,
             interval=interval_name,
+            grouped=grouping is not None,
             until=window_until,
             names_source=names_source,
             presence=presence,
