@@ -145,6 +145,20 @@ class EntityHandler:
     registry entry rather than a branch on ``entity_type`` inside the list
     tool.
     """
+
+    @property
+    def lists(self) -> bool:
+        """Can ``list`` answer for this entity, by either route?
+
+        Either the collection path drives ``list_fn``, or ``run_fn`` answers
+        the whole call. Asking this rather than ``list_fn is not None`` is
+        what let the ``delegated_elsewhere`` sentinel go: it existed only to
+        make that test true for the one entity that does not use the
+        collection path, which meant the handler declared a list function it
+        never calls.
+        """
+        return self.list_fn is not None or self.run_fn is not None
+
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
     then starts at ``id`` instead of rendering an always-empty name column."""
@@ -152,6 +166,15 @@ class EntityHandler:
     """False for entities the backend addresses by name alone (score_name) —
     the mirror of ``list_has_name``, so the table drops the id column rather
     than printing a column of nothing on every row."""
+    no_window_reason: str | None = None
+    """Why this entity takes no ``since``/``until``, where the general answer
+    would mislead.
+
+    The default refusal says only trace, span and thread take a window, which
+    reads as our limitation. For an experiment it is the backend's shape: the
+    endpoint has no such parameter. That is a fact about the entity, so the
+    entity says it, the same way it declares the window it *does* take.
+    """
     list_footer: str | None = None
     """One line appended under a non-empty listing: a caveat the rows cannot
     carry themselves.

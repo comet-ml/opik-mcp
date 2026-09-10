@@ -68,9 +68,7 @@ def resolve_entity_type(entity_type: str) -> str:
 READABLE_TYPES: tuple[str, ...] = tuple(
     t for t, h in ENTITY_REGISTRY.items() if h.fetch_fn is not unsupported_fetch
 )
-LISTABLE_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if h.list_fn is not None
-)
+LISTABLE_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.lists)
 
 
 def compress_for(

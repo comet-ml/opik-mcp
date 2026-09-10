@@ -29,5 +29,6 @@ HANDLER = EntityHandler(
     # feedback_scores is the experiment's per-metric averages, rendered as
     # ``name=value`` pairs so a comparison list reads without a read() per row.
     list_extra_fields=("dataset_name", "created_at", "feedback_scores"),
+    no_window_reason="experiments have no time window on the backend.",
     description="Experiment status + summary scores.",
 )

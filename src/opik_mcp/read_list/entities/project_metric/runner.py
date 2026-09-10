@@ -18,11 +18,6 @@ from collections.abc import Coroutine
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
-from opik_mcp.read_list.entities.project.vocabulary import (
-    SCORE_NAMES_CAP,
-    USAGE_KEYS_CAP,
-    recorded,
-)
 from opik_mcp.read_list.entities.project_metric.catalog import (
     SOURCE_FILTERED_METRIC_ENTITIES,
     Metric,
@@ -45,6 +40,11 @@ from opik_mcp.read_list.entities.project_metric.table import (
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE, compile_filters, render_filters
+from opik_mcp.read_list.project_names import (
+    SCORE_NAMES_CAP,
+    USAGE_KEYS_CAP,
+    recorded,
+)
 from opik_mcp.read_list.project_scope import require_project_id
 
 # --- checking the series against the project ------------------------------ #

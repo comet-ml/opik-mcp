@@ -52,7 +52,6 @@ from opik_mcp.opik_client import (
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
 from opik_mcp.read_list.oql import (
-    NO_WINDOW_REASON,
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
@@ -132,13 +131,18 @@ async def _run_whole(
 
     Same lifecycle as the collection path: the answer may be one backend call,
     but resolving a project name is another, and both ride one connection.
+
+    The kwargs below are still the metric's, and the runner is still the only
+    one there is. What the hook bought is that the choice became data the
+    registry owns, which a test can pin; it is not yet a second implementation
+    waiting to happen, and should not be described as one until one exists.
     """
     async with client_for_call(settings, client) as opik:
         with _as_tool_error(
             f"chart {entity_type}",
             on_timeout=(
-                f"Opik did not answer in time for list({entity_type}, …). Narrow the "
-                "window or widen the interval and retry."
+                f"Opik did not answer in time for list({entity_type!r}, …). Narrow "
+                "the window or widen the interval and retry."
             ),
         ):
             return await run(cast("OpikReadClient", opik), **kw)
@@ -170,12 +174,7 @@ async def run_list(
     """List tool entrypoint. See ``server.py`` for the registered tool."""
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
-    if handler is None or handler.list_fn is None:
-        valid = ", ".join(sorted(LISTABLE_TYPES))
-        err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
-        raise ToolError(str(err)) from err
-
-    if handler.run_fn is not None:
+    if handler is not None and handler.run_fn is not None:
         # The entity answers on its own: a time series is not a collection, so
         # rows are buckets, the filter fields belong to whichever entity the
         # metric is about, and page/size/sort mean nothing. ``page``/``size``
@@ -200,6 +199,13 @@ async def run_list(
             settings=settings,
             client=client,
         )
+
+    # Checked after the runner branch rather than before it, so that reaching
+    # the collection path is what proves there is a ``list_fn`` to drive.
+    if handler is None or handler.list_fn is None:
+        valid = ", ".join(sorted(LISTABLE_TYPES))
+        err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
+        raise ToolError(str(err)) from err
 
     size = max(1, min(size, _MAX_SIZE))
     page = max(1, page)
@@ -268,7 +274,7 @@ async def run_list(
         day_windowed = "from_date" in handler.list_optional_kwargs
         if entity_type not in WINDOWED_ENTITIES and not day_windowed:
             windowed = ", ".join((*WINDOWED_ENTITIES, "agent_insights_issue"))
-            why = NO_WINDOW_REASON.get(entity_type, f"only {windowed} take a time window.")
+            why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
         try:
@@ -324,7 +330,7 @@ async def run_list(
         with _as_tool_error(
             f"list {entity_type}s",
             on_timeout=(
-                f"Opik did not answer in time for list({entity_type}, …). Narrow the query — "
+                f"Opik did not answer in time for list({entity_type!r}, …). Narrow the query — "
                 "a shorter since window, fewer filters, a smaller size, or drop search — "
                 "and retry."
             ),

@@ -13,6 +13,10 @@ by count and always states the true total. Where a caller can get the rest,
 the part says which call returns it; where no such call exists, it says so
 rather than implying one.
 
+Those two lists are read through ``project_names`` rather than fetched here:
+a metric series checks its ``series`` against the same names, and a fact two
+entities need belongs to neither.
+
 An empty part is omitted rather than returned empty: "nothing recorded yet"
 and "could not load" have to stay distinguishable, and a failed part carries
 an ``error`` instead of names for the same reason the summary does.
@@ -20,29 +24,20 @@ an ``error`` instead of names for the same reason the summary does.
 
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Awaitable, Callable
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
-from opik_mcp.read_list.decorations import BLOCK_ERRORS, DEADLINE_SECONDS, block
-
-Fetcher = Callable[[OpikReadClient, str], Awaitable[list[str]]]
-
-SCORE_NAMES_CAP: Final = 25
-"""Enough to see a project's real vocabulary; a judge rule per metric plus
-per-author scores can run to hundreds, which would swallow the read."""
-
-USAGE_KEYS_CAP: Final = 15
-"""Standard token keys number about six. The cap is for a project whose
-instrumentation invents its own."""
+from opik_mcp.read_list.decorations import block
+from opik_mcp.read_list.project_names import (
+    SCORE_NAMES_CAP,
+    USAGE_KEYS_CAP,
+    fetch_score_names,
+    fetch_usage_keys,
+    named,
+)
 
 RULES_CAP: Final = 10
 """One page of the evaluators endpoint, which is where the cap comes from."""
-
-_LOOKUP_ERRORS: Final[tuple[type[BaseException], ...]] = (TimeoutError, *BLOCK_ERRORS)
-"""What a name lookup is allowed to fail with — the same set a block survives,
-plus the deadline. Named rather than unpacked inline so the type is stated."""
 
 
 def _part(
@@ -72,45 +67,10 @@ def _part(
     return part
 
 
-def _named(rows: Any) -> list[str]:
-    """The ``name`` of every well-formed row, in order."""
-    if not isinstance(rows, list):
-        return []
-    return [
-        row["name"] for row in rows if isinstance(row, dict) and isinstance(row.get("name"), str)
-    ]
-
-
-async def _fetch_score_names(client: OpikReadClient, project_id: str) -> list[str]:
-    """``{scores: [{name}]}`` — rows, not strings, and no paging."""
-    body = await client.list_project_score_names(project_id)
-    return _named(body.get("scores"))
-
-
-async def _fetch_usage_keys(client: OpikReadClient, project_id: str) -> list[str]:
-    """``{names: [str]}`` — bare strings, unlike every other name endpoint."""
-    body = await client.list_project_token_usage_names(project_id)
-    raw = body.get("names")
-    return [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
-
-
-_FETCH_NAMES: Final[dict[str, Fetcher]] = {
-    "score": _fetch_score_names,
-    "usage": _fetch_usage_keys,
-}
-"""How each kind of name is asked for and unpacked, once.
-
-The two answers have different shapes, and each was being unpacked in three
-places — here, in the checker that validates a `series`, and in the score-name
-list. One entry each, and the shape stops being a fact three files have to
-agree on.
-"""
-
-
 async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     async def load() -> dict[str, Any] | None:
         return _part(
-            await _fetch_score_names(client, project_id),
+            await fetch_score_names(client, project_id),
             cap=SCORE_NAMES_CAP,
             all_of_them=f"list('score_name', project_id='{project_id}')",
         )
@@ -120,7 +80,7 @@ async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any]
 
 async def usage_keys(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     async def load() -> dict[str, Any] | None:
-        return _part(await _fetch_usage_keys(client, project_id), cap=USAGE_KEYS_CAP)
+        return _part(await fetch_usage_keys(client, project_id), cap=USAGE_KEYS_CAP)
 
     return await block("this project's usage keys", load)
 
@@ -133,30 +93,13 @@ async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any
         body = await client.list_automation_rules(project_id=project_id, size=RULES_CAP)
         total_raw = body.get("total")
         return _part(
-            _named(body.get("content")),
+            named(body.get("content")),
             cap=RULES_CAP,
             total=total_raw if isinstance(total_raw, int) and total_raw >= 0 else None,
             all_of_them=f"list('online_rule', project_id='{project_id}')",
         )
 
     return await block("this project's online rules", load)
-
-
-async def recorded(client: OpikReadClient, project_id: str, *, kind: str) -> list[str] | None:
-    """Every name of one kind in a project, uncapped and undecorated.
-
-    The vocabulary block above caps and captions its lists for a reader; a
-    caller checking a name the agent supplied needs the whole list and none of
-    the furniture. ``None`` means the lookup itself failed — which a checker
-    must not confuse with "the name is not there", or a slow endpoint would
-    turn into a refusal of a perfectly good name.
-    """
-
-    try:
-        async with asyncio.timeout(DEADLINE_SECONDS):
-            return await _FETCH_NAMES[kind](client, project_id)
-    except _LOOKUP_ERRORS:
-        return None
 
 
 def assemble(
@@ -184,11 +127,8 @@ def assemble(
 
 __all__ = [
     "RULES_CAP",
-    "SCORE_NAMES_CAP",
-    "USAGE_KEYS_CAP",
     "assemble",
     "online_rules",
-    "recorded",
     "score_names",
     "usage_keys",
 ]

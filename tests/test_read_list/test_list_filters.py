@@ -274,7 +274,7 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
         await run_list("trace", project_id="p-1", search="order-42", client=TimingOut())
     message = str(ei.value)
     assert "did not answer in time" in message
-    assert "list(trace" in message
+    assert "list('trace'" in message, "the call form is quoted as an agent would type it"
     assert "since" in message and "size" in message
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
 

@@ -1,16 +1,20 @@
-"""Stand-ins for the two handler slots an entity can legitimately not fill.
+"""A stand-in for the one handler slot an entity can legitimately not fill.
 
 ``fetch_fn`` is required by the contract, so a list-only entity needs
-something to put there; and one entity is handled whole by its own runner
-before the registry is consulted. Both raise if they are ever reached, since
-reaching them means the dispatcher lost track of which path it was on.
+something to put there. It raises if it is ever reached, since reaching it
+means the read tool lost track of which types it can answer for.
+
+There were two of these. The second existed so that an entity answering
+``list`` through its own runner would still count as listable; asking the
+handler whether it *lists* instead of whether it has a ``list_fn`` retired it,
+along with the list function it declared and never called.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.opik_client import OpikReadClient
 
 
 async def unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
@@ -20,11 +24,4 @@ async def unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[st
     )
 
 
-async def delegated_elsewhere(_client: OpikListClient, **_kw: Any) -> dict[str, Any]:
-    """Sentinel for an entity the list tool hands off before reaching the registry."""
-    raise NotImplementedError(
-        "This entity is handled by its own runner; the list tool delegates before here."
-    )
-
-
-__all__ = ["delegated_elsewhere", "unsupported_fetch"]
+__all__ = ["unsupported_fetch"]
