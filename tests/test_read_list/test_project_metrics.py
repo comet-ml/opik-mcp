@@ -827,7 +827,7 @@ async def test_a_bucket_with_no_traces_is_left_out_rather_than_charted_as_zero()
     assert "2026-09-02" not in out, "no traces that day, so no rate to report"
     assert rows[1] == "2026-09-03 | 20"
     assert rows[2] == "2026-09-04 | 0", "traces and no errors — a real zero, kept"
-    assert "1 of 3 buckets had no traces" in out
+    assert "1 of 3 buckets are not listed: no traces in them" in out
 
 
 @pytest.mark.anyio
@@ -931,7 +931,7 @@ async def test_a_bucket_the_backend_reported_as_null_is_not_listed() -> None:
     assert rows[0] == "time | duration.p50 | duration.p99"
     assert rows[1] == "2026-09-03 | 16.178 | 20"
     assert len(rows) == 4, "one header, one row, and the note — not two null rows"
-    assert "2 of 3 buckets recorded no trace_duration" in out
+    assert "2 of 3 buckets are not listed: no trace_duration recorded" in out
 
 
 @pytest.mark.anyio
@@ -944,4 +944,4 @@ async def test_a_zero_is_kept_where_a_null_is_dropped() -> None:
         client=_fake(results=[_series("spans", [0, None, 4])]),
     )
     assert _table(out)[1:3] == ["2026-09-02 | 0", "2026-09-04 | 4"]
-    assert "1 of 3 buckets recorded no span_count" in out
+    assert "1 of 3 buckets are not listed: no span_count recorded" in out

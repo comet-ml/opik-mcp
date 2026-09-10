@@ -708,12 +708,13 @@ def render(
         if not skipped:
             continue
         reason = (
-            f"had no {presence.entity}s — nothing to measure, which is not the same as zero"
+            f"no {presence.entity}s in them, so nothing to measure — which is not the "
+            "same as zero"
             if why == "quiet" and presence is not None
-            else f"recorded no {metric_name}"
+            else f"no {metric_name} recorded in them"
         )
         lines.append("")
-        lines.append(f"{skipped} of {len(times)} buckets {reason}, and are not listed.")
+        lines.append(f"{skipped} of {len(times)} buckets are not listed: {reason}.")
 
     if total_series > MAX_SERIES:
         where = f" All {total_series} names: {names_source}." if names_source else ""
