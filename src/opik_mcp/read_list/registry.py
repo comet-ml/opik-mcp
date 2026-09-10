@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from opik_mcp.config import Settings
@@ -40,6 +41,7 @@ from opik_mcp.read_list.compression import (
 from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
+from opik_mcp.read_list.diagnostics import issue_page_note
 from opik_mcp.read_list.project_scope import require_project_id
 from opik_mcp.read_list.ui_links import project_page_url
 
@@ -58,6 +60,26 @@ SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]
 ListFn = Callable[..., Awaitable[dict[str, Any]]]
 CompressFn = Callable[[dict[str, Any], int | None], tuple[str, CompressionTier]]
 LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
+
+
+@dataclass(frozen=True)
+class PageContext:
+    """What a ``list`` page knows about itself, for an entity that has
+    something extra to say about it.
+
+    One object rather than six parameters: the fields travel together, and the
+    next entity to grow a note will want the same set.
+    """
+
+    project_id: str | None = None
+    project_name: str | None = None
+    empty: bool = False
+    status: str | None = None
+    windowed: bool = False
+    window_end: datetime | None = None
+
+
+PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
 
 
 @dataclass(frozen=True)
@@ -94,6 +116,20 @@ class EntityHandler:
     facts. A fetcher may stash inputs for the link under underscore-prefixed
     keys; ``read`` strips those before compression. Return ``{}`` when Opik's
     URL or the workspace cannot be known: no link beats a wrong one.
+    """
+    page_note_fn: PageNoteFn | None = None
+    """Optional: a sentence or two to append to a ``list`` page of this entity.
+
+    The counterpart of ``link_fn`` for lists. ``list`` calls it with the
+    client, the session's ``Settings`` and a :class:`PageContext`, for an empty
+    page and a full one alike, and appends whatever comes back. Return ``None``
+    to leave the page as it was: a note decorates an answer the caller already
+    has, so a failed lookup inside the hook must never turn an answered list
+    into an error.
+
+    It lives here so that what an entity says about its own pages is one
+    registry entry rather than a branch on ``entity_type`` inside the list
+    tool.
     """
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
@@ -742,6 +778,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         ),
         list_required_kwargs=("project_id",),
         list_optional_kwargs=("status", "from_date", "to_date"),
+        page_note_fn=issue_page_note,
         read_optional_kwargs=("from_date", "to_date"),
         link_fn=_issue_links,
         compress_fn=_compress_issue,
@@ -766,6 +803,20 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
 }
 
 
+#: Short names accepted for an entity type, resolved before the registry
+#: lookup. Deliberately not advertised in the tools' ``entity_type`` enum: the
+#: enum is the closed set an agent should choose from, and listing a type twice
+#: under two names invites the question of which is real. This is a safety net
+#: for the guess an agent makes anyway — ``agent_insights_issue`` is a mouthful,
+#: and "issue" is what the UI calls it.
+ENTITY_ALIASES: dict[str, str] = {"issue": "agent_insights_issue"}
+
+
+def resolve_entity_type(entity_type: str) -> str:
+    """The registry name for ``entity_type``, mapping any alias."""
+    return ENTITY_ALIASES.get(entity_type, entity_type)
+
+
 READABLE_TYPES: tuple[str, ...] = tuple(
     t for t, h in ENTITY_REGISTRY.items() if h.fetch_fn is not _unsupported_fetch
 )
@@ -785,6 +836,7 @@ def compress_for(
 
 
 __all__ = [
+    "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
     "LISTABLE_TYPES",
     "READABLE_TYPES",

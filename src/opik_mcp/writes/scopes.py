@@ -17,6 +17,10 @@ SCOPE_TRACE_SPAN_THREAD_ANNOTATE: Final = "trace_span_thread_annotate"
 SCOPE_PROMPT_CREATE: Final = "prompt_create"
 SCOPE_DATASET_EDIT: Final = "dataset_edit"
 SCOPE_EXPERIMENT_CREATE: Final = "experiment_create"
+#: The permission opik-backend requires on every agent-insights *job* endpoint
+#: (create, get, update, trigger) — the same one that gates reading issues, so
+#: turning Diagnostics on through the MCP grants nothing the REST API doesn't.
+SCOPE_PROJECT_DATA_VIEW: Final = "project_data_view"
 
 
 ALL_WRITE_SCOPES: Final[frozenset[str]] = frozenset(
@@ -26,6 +30,7 @@ ALL_WRITE_SCOPES: Final[frozenset[str]] = frozenset(
         SCOPE_PROMPT_CREATE,
         SCOPE_DATASET_EDIT,
         SCOPE_EXPERIMENT_CREATE,
+        SCOPE_PROJECT_DATA_VIEW,
     }
 )
 
@@ -34,6 +39,7 @@ __all__ = [
     "ALL_WRITE_SCOPES",
     "SCOPE_DATASET_EDIT",
     "SCOPE_EXPERIMENT_CREATE",
+    "SCOPE_PROJECT_DATA_VIEW",
     "SCOPE_PROMPT_CREATE",
     "SCOPE_TRACE_SPAN_THREAD_ANNOTATE",
     "SCOPE_TRACE_SPAN_THREAD_LOG",

@@ -18,7 +18,7 @@ trip through the MCP tool without losing fidelity.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, ClassVar, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -87,6 +87,32 @@ class _TagsMixin(BaseModel):
                 "combined_tag_modes: pass either `tags` (replace) or "
                 "`tags_to_add`/`tags_to_remove` (patch), not both."
             )
+        return self
+
+
+class _RequiredProjectMixin(BaseModel):
+    """Project scope that must be present, for BE routes that reject a request
+    without it.
+
+    Three operations need this and each one names a different recovery code,
+    because the field the LLM has to add is the same but the reason differs (a
+    thread's project, a Diagnostics job's project, an issue's project). So the
+    fields and the check live here once and the subclass supplies the message.
+    ``_ProjectMixin`` below is the opposite case: optional, xor-checked.
+    """
+
+    project_name: str | None = Field(default=None, max_length=200)
+    project_id: UUID | None = Field(default=None)
+
+    #: ``"<code>: <what to do>"``, raised verbatim when neither field is set.
+    _missing_project_error: ClassVar[str] = (
+        "project_scope_missing: pass `project_id` or `project_name`."
+    )
+
+    @model_validator(mode="after")
+    def _require_project(self) -> _RequiredProjectMixin:
+        if self.project_name is None and self.project_id is None:
+            raise ValueError(self._missing_project_error)
         return self
 
 
@@ -420,32 +446,79 @@ class ExperimentItemCreate(_StrictBase):
 # --- 11/12. thread.close / thread.open ----------------------------------- #
 
 
-class _ThreadLifecycle(_StrictBase):
+class _ThreadLifecycle(_StrictBase, _RequiredProjectMixin):
     """Shared shape for thread status changes (close/open).
 
     A thread is keyed by ``thread_id`` within a project, so the BE's
-    ``TraceThreadIdentifier`` body takes the id plus project scope. Project is
-    optional (the BE resolves within the default project) but passing one
-    disambiguates threads that exist in multiple projects — same contract as the
-    thread score/comment path. The model carries no ``target`` field, so the
-    dispatcher's ``exclude_none`` dump is the wire body verbatim.
+    ``TraceThreadIdentifier`` body takes the id plus project scope, and its
+    validator rejects a request with neither project field (400). Catching it
+    locally with a recovery code gets the LLM to add a project instead of
+    round-tripping a confusing 400. The model carries no ``target`` field, so
+    the dispatcher's ``exclude_none`` dump is the wire body verbatim.
     """
 
     thread_id: str = Field(min_length=1, max_length=200)
-    project_name: str | None = Field(default=None, max_length=200)
-    project_id: UUID | None = Field(default=None)
 
-    @model_validator(mode="after")
-    def _require_project(self) -> _ThreadLifecycle:
-        # The BE's TraceThreadIdentifier validator rejects a request with
-        # neither project field (400). Catch it locally with a recovery code so
-        # the LLM adds a project instead of round-tripping a confusing 400.
-        if self.project_name is None and self.project_id is None:
-            raise ValueError(
-                "thread_project_missing: pass `project_name` or `project_id` "
-                "to identify the thread's project."
-            )
-        return self
+    _missing_project_error: ClassVar[str] = (
+        "thread_project_missing: pass `project_name` or `project_id` "
+        "to identify the thread's project."
+    )
+
+
+class AgentInsightsJobAction(_StrictBase, _RequiredProjectMixin):
+    """Shared shape for the Diagnostics (Agent Insights) job actions.
+
+    The backend keys the job by project and takes the project in the path, so
+    the payload is project scope and nothing else. ``project_name`` is resolved
+    to the UUID by the dispatcher (the jobs endpoints take an id only), which
+    is why one of the two fields is required here rather than letting the
+    backend answer a 400 that names neither.
+    """
+
+    _missing_project_error: ClassVar[str] = (
+        "project_scope_missing: pass `project_id` or `project_name` to "
+        "identify the project whose Diagnostics job to act on."
+    )
+
+
+class AgentInsightsJobEnable(AgentInsightsJobAction):
+    """``POST /v1/private/agent-insights/jobs/{projectId}`` (or a ``PATCH`` to
+    ``status=enabled`` when the job already exists) — turn Diagnostics on."""
+
+
+class AgentInsightsJobTrigger(AgentInsightsJobAction):
+    """``POST /v1/private/agent-insights/jobs/{projectId}/trigger`` — scan now."""
+
+
+class AgentInsightsIssueAction(_StrictBase, _RequiredProjectMixin):
+    """Shared shape for a Diagnostics (Agent Insights) issue's lifecycle moves.
+
+    ``PATCH /v1/private/agent-insights/issues/{issue_id}`` takes the issue in
+    the path and ``{project_id, status}`` in the body, and the backend requires
+    the project even though the issue id is unique — the same scope reading an
+    issue needs. ``project_name`` is resolved to the UUID by the dispatcher.
+    """
+
+    issue_id: UUID = Field(
+        description="The Diagnostics issue to move, as listed by list('agent_insights_issue', …)."
+    )
+
+    _missing_project_error: ClassVar[str] = (
+        "project_scope_missing: pass `project_id` or `project_name` to "
+        "identify the project the issue belongs to."
+    )
+
+
+class AgentInsightsIssueResolve(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=resolved`` — dealt with."""
+
+
+class AgentInsightsIssueClose(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=closed`` — not worth acting on."""
+
+
+class AgentInsightsIssueReopen(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=open`` — back on the list."""
 
 
 class ThreadClose(_ThreadLifecycle):
@@ -539,6 +612,20 @@ EXAMPLES: dict[str, dict[str, Any]] = {
     },
     "thread.close": {"thread_id": "conversation-42", "project_name": "demo"},
     "thread.open": {"thread_id": "conversation-42", "project_name": "demo"},
+    "agent_insights_job.enable": {"project_name": "demo"},
+    "agent_insights_issue.resolve": {
+        "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+        "project_name": "demo",
+    },
+    "agent_insights_issue.close": {
+        "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+        "project_name": "demo",
+    },
+    "agent_insights_issue.reopen": {
+        "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+        "project_name": "demo",
+    },
+    "agent_insights_job.trigger": {"project_name": "demo"},
 }
 
 
@@ -557,6 +644,11 @@ MODELS: dict[str, type[BaseModel]] = {
     "experiment_item.create": ExperimentItemCreate,
     "thread.close": ThreadClose,
     "thread.open": ThreadOpen,
+    "agent_insights_job.enable": AgentInsightsJobEnable,
+    "agent_insights_issue.resolve": AgentInsightsIssueResolve,
+    "agent_insights_issue.close": AgentInsightsIssueClose,
+    "agent_insights_issue.reopen": AgentInsightsIssueReopen,
+    "agent_insights_job.trigger": AgentInsightsJobTrigger,
 }
 
 

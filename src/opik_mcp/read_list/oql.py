@@ -162,6 +162,42 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
         "experiment_scores": "feedback_scores",
     },
 }
+# Closed enum values, per entity, from opik-backend's own enums (Source,
+# SpanType, TraceThreadStatus, VisibilityMode), confirmed against a live
+# backend rather than read off the Java alone.
+#
+# ``source`` is the one the backend itself validates: it deserializes the
+# filter value into the enum and throws on a miss, which reaches the caller as
+# a 500, not a 400, so `source = "SDK"` is an opaque server error for a
+# capital letter. The others are compared as strings in ClickHouse and answer
+# 200 with nothing — a silent empty page that reads like "no matches" when it
+# really means "no such value". Both are worth refusing here, with the set.
+#
+# ``unknown`` is included where the column can actually hold it: Source and
+# SpanType both define it as a stored value that cannot be ingested (rows that
+# predate the field), so filtering for it is a real question. VisibilityMode
+# and TraceThreadStatus define no such sentinel.
+#
+# Only genuinely closed sets appear. ``environment`` is an enum to the operator
+# map but a free string in the data — any deployment names its own — so listing
+# values would reject valid filters.
+_SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
+
+ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
+    "trace": {
+        "source": _SOURCE_VALUES,
+        "visibility_mode": ("default", "hidden"),
+    },
+    "span": {
+        "source": _SOURCE_VALUES,
+        "type": ("general", "tool", "llm", "guardrail", "unknown"),
+    },
+    "thread": {
+        "source": _SOURCE_VALUES,
+        "status": ("active", "inactive"),
+    },
+}
+
 SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(FILTERABLE_FIELDS)
 # The per-entity search surface beyond filters, in one place so the list tool
 # and the schema reference cannot disagree. Experiments have no ``source``
@@ -495,13 +531,15 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
             f"Valid: {', '.join(valid_ops)}.",
         )
 
-    issue = _validate_value(field, ftype, key, raw)
+    issue = _validate_value(entity_type, field, ftype, key, raw)
     if issue is not None:
         return None, issue
     return {"field": field, "operator": raw.operator, "key": key or "", "value": raw.value}, None
 
 
-def _validate_value(field: str, ftype: str, key: str | None, raw: _RawClause) -> OQLIssue | None:
+def _validate_value(
+    entity_type: str, field: str, ftype: str, key: str | None, raw: _RawClause
+) -> OQLIssue | None:
     if ftype in KEYED_TYPES and not key:
         if ftype == "feedback_scores":
             return OQLIssue(
@@ -536,6 +574,19 @@ def _validate_value(field: str, ftype: str, key: str | None, raw: _RawClause) ->
         return OQLIssue(
             "bad_value", f"Empty value for '{field}': the backend rejects blank filter values."
         )
+    allowed = ENUM_VALUES.get(entity_type, {}).get(field)
+    if allowed is not None:
+        # ``in``/``not_in`` values arrive comma-joined; one bad element fails
+        # the whole filter server-side, so every element is checked.
+        given = raw.value.split(",") if raw.operator in LIST_VALUE_OPERATORS else [raw.value]
+        bad = [v for v in given if v not in allowed]
+        if bad:
+            return OQLIssue(
+                "bad_value",
+                f"Invalid value{'s' if len(bad) > 1 else ''} "
+                f"{', '.join(repr(v) for v in bad)} for '{field}': "
+                f"expected one of {', '.join(allowed)}.",
+            )
     return None
 
 

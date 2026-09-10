@@ -246,6 +246,37 @@ async def test_get_agent_insights_issue_maps_404_to_not_found() -> None:
 
 
 @pytest.mark.anyio
+async def test_get_agent_insights_job_hits_project_path() -> None:
+    payload = {"id": "job-1", "project_id": "p-1", "status": "enabled", "last_scan_at": None}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/jobs/p-1").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_agent_insights_job("p-1")
+    assert dict(route.calls.last.request.url.params) == {}
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_service_toggles_hits_the_toggles_path() -> None:
+    payload = {"ollieEnabled": True, "guardrailsEnabled": False}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=payload))
+        body = await _client().get_service_toggles()
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_job_maps_404_to_not_found() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/agent-insights/jobs/p-1").mock(
+            return_value=httpx.Response(404, json={"errors": ["not found"]}),
+        )
+        with pytest.raises(OpikNotFoundError):
+            await _client().get_agent_insights_job("p-1")
+
+
+@pytest.mark.anyio
 async def test_list_agent_insights_issues_maps_400_to_validation_error() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/agent-insights/issues").mock(

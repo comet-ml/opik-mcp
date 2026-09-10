@@ -29,7 +29,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from opik_mcp.config import Settings, get_settings
-from opik_mcp.read_list.ui_links import current_workspace, opik_ui_base
+from opik_mcp.read_list.ui_links import (
+    current_workspace,
+    opik_ui_base,
+    trace_link_template,
+)
 from opik_mcp.skills_catalog import skill_names
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
@@ -57,7 +61,17 @@ Insights) issues — recurring failures already grouped and ranked, open ones by
 default, counts all-time unless since/until narrow them — instead of ranking \
 raw traces yourself; read('agent_insights_issue', id, project_name=…) adds the \
 cause, the suggested fix, example_trace_ids to open with read('trace', …), and \
-UI links.
+UI links. An empty issue list says why it is empty — unavailable on this \
+deployment, never enabled for the project, turned off, enabled but not \
+scanned recently, or enabled and clean — and where it can be fixed, \
+write('agent_insights_job.enable', …) turns Diagnostics on for \
+the project (ask the user first: it creates a standing daily scan) and \
+write('agent_insights_job.trigger', …) scans now instead of waiting for the \
+nightly run. A non-empty list dates itself ("Report covers data through …") \
+because the issues are whatever the last scan grouped; when it names an \
+uncovered tail, the requested window runs past the report, so close the gap \
+with list('trace', …, since=…) instead of answering from the issues \
+alone.{trace_link_clause}
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \
@@ -81,6 +95,24 @@ def _opik_ui_url(s: Settings) -> str:
     """
     base = opik_ui_base(s)
     return base if base is not None else "(Opik URL not configured)"
+
+
+def _render_trace_link_clause(s: Settings) -> str:
+    """Name the trace link shape once per session, or say nothing.
+
+    A trace id is not something a user can act on, and neither ``list`` nor
+    ``read`` returns a URL for one. The shape is not guessable — it goes
+    through the backend redirect with a base64 argument — and a guess yields a
+    link that looks right and 404s, which is worse than the bare id. Naming the
+    template on the handshake costs nothing per call and needs no project_id.
+    """
+    template = trace_link_template(s)
+    if template is None:
+        return ""
+    return (
+        " A trace id is not clickable: hand the user a link instead, "
+        f"{template}, with the id filled in."
+    )
 
 
 def _render_default_project_clause(s: Settings) -> str:
@@ -126,6 +158,7 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
+        trace_link_clause=_render_trace_link_clause(s),
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
         skill_names=", ".join(skill_names()),
     )

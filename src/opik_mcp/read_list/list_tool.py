@@ -55,8 +55,17 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
-from opik_mcp.read_list.project_scope import project_rows, unknown_project_message
-from opik_mcp.read_list.registry import ENTITY_REGISTRY, LISTABLE_TYPES, EntityHandler
+from opik_mcp.read_list.project_scope import (
+    project_rows,
+    unknown_project_message,
+)
+from opik_mcp.read_list.registry import (
+    ENTITY_REGISTRY,
+    LISTABLE_TYPES,
+    EntityHandler,
+    PageContext,
+    resolve_entity_type,
+)
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
     WindowError,
@@ -97,6 +106,7 @@ async def run_list(
     client: OpikListClient | None = None,
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
+    entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
     if handler is None or handler.list_fn is None:
         valid = ", ".join(sorted(LISTABLE_TYPES))
@@ -165,6 +175,7 @@ async def run_list(
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)
 
+    to_time: str | None = None
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
         if entity_type not in WINDOWED_ENTITIES and not day_windowed:
@@ -216,13 +227,14 @@ async def run_list(
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
 
+    resolved_settings = settings or get_settings()
     if client is not None:
         opik = client
     else:
         # Free-text search can take the backend >30 s on a cold cache (seen
         # live: 32 s); give only those calls a longer leash.
         timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
-        opik = make_opik_client(settings or get_settings(), timeout=timeout)
+        opik = make_opik_client(resolved_settings, timeout=timeout)
 
     try:
         page_body = await handler.list_fn(opik, **kw)
@@ -263,23 +275,39 @@ async def run_list(
         applied.insert(sort_slot, sort_label)
 
     header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
+    # What the page knows about itself, for an entity whose registry entry has
+    # something to add. ``windowed``: Diagnostics issues take a report-day
+    # window, so a page under one says nothing about the project outside it.
+    page_ctx = PageContext(
+        project_id=kw.get("project_id"),
+        project_name=kw.get("project_name"),
+        empty=not content,
+        status=kw.get("status"),
+        windowed="from_date" in kw or "to_date" in kw,
+        window_end=parse_instant(to_time) if to_time else None,
+    )
+
     if not content:
         # "No agent constraints" = nothing but the default source clause, no
         # window, no search. A sort does not change what matches.
         unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
         empty = await _empty_message(
             opik,
-            entity_type,
+            handler,
             name=name,
-            project_name=kw.get("project_name"),
-            project_id=kw.get("project_id"),
             from_time=kw.get("from_time"),
             unconstrained=unconstrained,
+            settings=resolved_settings,
+            page_ctx=page_ctx,
         )
         return f"{header}\n{empty}" if header else empty
 
     extra = _requested_columns(sort_field, clauses)
     table = _format_table(entity_type, handler, content, total, page, size, name, extra)
+    if handler.page_note_fn is not None:
+        note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
+        if note is not None:
+            table = f"{table}\n\n{note}"
     return f"{header}\n{table}" if header else table
 
 
@@ -291,13 +319,13 @@ _SOURCE_HINT = (
 
 async def _empty_message(
     opik: OpikListClient,
-    entity_type: str,
+    handler: EntityHandler,
     *,
     name: str | None,
-    project_name: str | None,
-    project_id: str | None,
     from_time: str | None,
     unconstrained: bool,
+    settings: Settings,
+    page_ctx: PageContext,
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
@@ -305,8 +333,17 @@ async def _empty_message(
     experiment traces under the ``source = "sdk"`` default, and a window that
     starts after the project's last trace. The first costs nothing to explain;
     the second costs one project read, spent only on an empty windowed page.
+
+    An entity whose empty page has its own ambiguity (a Diagnostics issue
+    list: never enabled, off, unscanned, or genuinely clean) explains itself
+    through its registry ``page_note_fn``.
     """
+    entity_type = handler.entity_type
+    project_id, project_name = page_ctx.project_id, page_ctx.project_name
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
+    if handler.page_note_fn is not None:
+        note = await handler.page_note_fn(opik, settings, page_ctx)
+        return f"{empty} {note}" if note else empty
     if from_time is None:
         return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
 

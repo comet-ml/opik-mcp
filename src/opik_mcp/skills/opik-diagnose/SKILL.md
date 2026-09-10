@@ -1,6 +1,6 @@
 ---
 name: opik-diagnose
-description: Surface the Opik traces worth a developer's attention, ranked by signal — Diagnostics issues first, then errors, failed tool calls, latency, regressions, and low online-eval scores. With the Opik MCP connected it lists the project's agent_insights_issue entities, then fills the gaps with list (filters, sort, a time window); without the MCP it reads the same via the SDK (agent_insights and search_traces), so it works with no MCP. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "which tool calls are failing", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
+description: Surface the Opik traces worth a developer's attention, ranked by signal — Diagnostics issues first, then errors, failed tool calls, latency, regressions, and low online-eval scores. With the Opik MCP connected it lists the project's agent_insights_issue entities, offers to turn Diagnostics on when the project has it switched off, then fills the gaps with list (filters, sort, a time window); without the MCP it reads the same via the SDK (agent_insights and search_traces), so it works with no MCP. Returns a ranked shortlist, each item ready to hand to the explain skill. Use for "what is broken in production", "which traces need attention", "find failing or slow traces", "which tool calls are failing", "triage my agent". Not for offline experiment results (use evaluate or compare) and not for root-causing one trace (use explain).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and a project that has traces. Install the `opik` skill alongside this one — it holds the shared SDK and observability references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -8,7 +8,7 @@ allowed-tools:
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-09-08"
+  last_updated: "2026-09-09"
   source_commit: "2.0.0"
   argument-hint: "[optional: project name, or what to look for]"
 ---
@@ -44,7 +44,40 @@ read('agent_insights_issue', '<issue id>', project_name='<project>')
 #     url: '<the issue's Diagnostics page>', trace_url_template: '<…/logs?trace={trace_id}>'}
 ```
 
-Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` comes from the first `example_trace_ids` entry (read the top few issues to get them) and `trace_url` from `trace_url_template` with that id filled in; mention the issue's `url` so the user can open the Diagnostics page itself. `why` carries the issue name, severity, `latest_count` and the cause. The link fields are absent when the server cannot name the UI base or workspace — fall back to the trace redirect URL then. Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `since` (e.g. `"7d"`) to narrow to the window.
+Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` comes from the first `example_trace_ids` entry (read the top few issues to get them) and `trace_url` from `trace_url_template` with that id filled in; mention the issue's `url` so the user can open the Diagnostics page itself. `why` carries the issue name, severity, `latest_count` and the cause. The link fields are absent when the server cannot name the UI base or workspace — fall back to the trace link template from the session instructions then (step 6). Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `since` (e.g. `"7d"`) to narrow to the window.
+
+**An empty list is not an all-clear.** It says which case it is, and what to do about it. Act on the sentence you get:
+
+| The list says | Do this |
+| --- | --- |
+| no open issues, last scan `<time>` | Diagnostics is working and found nothing. Continue to step 3. |
+| enabled but has not scanned yet, or last scan older than a day | `write('agent_insights_job.trigger', {"project_name": "<project>"})`, report the Diagnostics page link, continue to step 3. No need to ask: a scan changes no data. |
+| not enabled for this project, or turned off | Ask the user once, in one sentence: "Enable daily Diagnostics for `<project>`? First results take a few minutes." On yes: `enable`, then `trigger`, report the link, continue. On no: continue and say the shortlist was built without Diagnostics. |
+| not available on this deployment | Continue, and say once that this deployment has no Diagnostics. Do not offer to enable it. |
+
+Never wait or poll for a scan. Hand back the page link, finish the triage from traces, and say the grouped report will be there in a few minutes. A shortlist built while a scan you started is still running reports `source=diagnostics_pending`.
+
+**A non-empty list is not the whole answer either.** It ends with what the
+report covers, `Report covers data through <time>`, because the issues are
+whatever the last scan grouped. With a daily scan, today is usually not in
+them. When the line goes on to name an uncovered tail, the window the user
+asked about runs past the report and the gap is missing from the answer:
+
+| The coverage line says | Do this |
+| --- | --- |
+| `Report covers data through <time>` and nothing else | The report is current. Continue to step 3 as usual. |
+| `The last <N> are not in it: write('agent_insights_job.trigger', …)` | Trigger it, then go to step 3 for the gap with the `since` the line names. Do not wait for the rescan, and do not present the issues as covering the window. Report `source=diagnostics_pending`. |
+| `… a trigger rescans the last 24 hours, so it cannot close this gap` | Skip the trigger and go straight to step 3 with the `since` the line names — a rescan would leave the middle of the gap missing while looking like the fix. |
+
+Say the as-of date in the report when it matters: a user who asked for a week
+and got issues through yesterday should learn that from you, not discover it.
+
+Triage never changes an issue's status. `agent_insights_issue.resolve`,
+`.close` and `.reopen` exist, and they are for when the user asks for them:
+whether a failure is dealt with is their call, and an issue marked resolved
+leaves the list everyone else reads. Surfacing an issue is this skill's job;
+retiring one is not.
+
 
 **Without the MCP**, the SDK REST client reads the same issues:
 
@@ -101,7 +134,7 @@ Append these after the Diagnostics items, in the signal order above. Give each s
 Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/opik-evaluate` and `/opik-compare`, not rediscovered here.
 
 ### 6. Report
-Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link** (the trace redirect URL Opik emits, e.g. `.../session/redirect/...?trace_id=THE_ID`), never a bare id, so the user can open it and deep-dive. Each item is ready for `/opik-explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/opik-explain`) and it changes no code.
+Return the ranked shortlist and one next step. Give each item as a **clickable Opik UI link**, never a bare id, so the user can open it and deep-dive. Do not invent the URL shape — a guessed link looks right and 404s, which is worse than the id. Take it from what the server gave you: an issue's `trace_url_template`, or the trace link template the MCP names in its session instructions (`<opik>/api/v1/session/redirect/projects/?trace_id={trace_id}&path=…`), which resolves the project and workspace from the id, so filling in the id is all it needs. On the SDK path, `opik.url_helpers.get_project_url_by_trace_id(trace_id, url_override)` builds the same link. Each item is ready for `/opik-explain`; the natural next step is "explain the top trace" (see **Output**). This skill surfaces and hands off; it does not root-cause (that is `/opik-explain`) and it changes no code.
 
 ## Blockers
 
@@ -118,7 +151,7 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 - `status`: `found` | `empty` | `blocked`
 - `scope`: `project`, `window`
 - `shortlist`: list of `{trace_id, trace_url (the Opik UI link), signal (error|tool_call|latency|low_score|regression|diagnostics), why, rank}`
-- `source`: `sdk` | `mcp`
+- `source`: `sdk` | `mcp` | `diagnostics_pending` (a scan was triggered this run; the shortlist comes from traces)
 - `next_step`: exactly one (typically "explain the top trace")
 
 Invariants: `found` carries a non-empty `shortlist`, each item with a `signal`, a `trace_id`, and a clickable `trace_url`; `empty` = the read succeeded but nothing crossed a threshold; `blocked` carries exactly one `next_step`; the shortlist never contains offline experiment results; every path leaves the codebase unchanged.

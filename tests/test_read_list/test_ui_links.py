@@ -6,6 +6,8 @@ two can never disagree about where the UI lives.
 
 from __future__ import annotations
 
+import base64
+
 from opik_mcp.auth_context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
@@ -13,7 +15,12 @@ from opik_mcp.auth_context import (
     resolved_workspace_name,
 )
 from opik_mcp.config import Settings
-from opik_mcp.read_list.ui_links import current_workspace, link_workspace, opik_ui_base
+from opik_mcp.read_list.ui_links import (
+    current_workspace,
+    link_workspace,
+    opik_ui_base,
+    trace_link_template,
+)
 
 
 def _settings(**overrides: object) -> Settings:
@@ -94,3 +101,35 @@ def test_workspace_prefers_inbound_header_then_resolved_name() -> None:
             inbound_workspace.reset(tok_inbound)
     finally:
         resolved_workspace_name.reset(tok_resolved)
+
+
+def test_trace_link_template_is_the_backend_redirect_with_one_slot() -> None:
+    """The redirect resolves the project and the workspace from the trace id
+    itself, so the agent fills a single slot and needs neither."""
+    template = trace_link_template(_settings())
+    path = base64.urlsafe_b64encode(b"https://opik.test/api").decode().rstrip("=")
+    assert template == (
+        f"https://opik.test/api/v1/session/redirect/projects/?trace_id={{trace_id}}&path={path}"
+    )
+
+
+def test_trace_link_template_survives_an_unknown_workspace() -> None:
+    """The reason for preferring the redirect over a direct project URL: under
+    an OAuth bearer whose workspace was never named, ``project_page_url``
+    cannot build a link, but this one still can."""
+    token = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
+    try:
+        assert link_workspace(_settings()) is None
+        assert trace_link_template(_settings()) is not None
+    finally:
+        inbound_authorization.reset(token)
+
+
+def test_trace_link_template_none_when_opik_is_unconfigured() -> None:
+    assert trace_link_template(_settings(opik_url=None, comet_url_override="")) is None
+
+
+def test_trace_link_template_none_without_an_api_segment() -> None:
+    """opik-backend derives the UI base by cutting the decoded path at ``/api``
+    and throws when there is none, so a base without it cannot be linked."""
+    assert trace_link_template(_settings(opik_url="https://opik.test")) is None
