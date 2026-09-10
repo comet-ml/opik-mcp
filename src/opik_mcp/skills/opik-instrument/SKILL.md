@@ -10,7 +10,7 @@ allowed-tools:
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-08-05"
+  last_updated: "2026-09-10"
   source_commit: "2.0.0"
   argument-hint: "[optional: file or directory path]"
 ---
@@ -88,6 +88,8 @@ Traces are asynchronous — allow a few seconds after the run and make sure the 
 **Verify coverage, not just arrival.** A trace arriving is necessary but not sufficient — batching can silently drop or truncate spans, so a trace can land *incomplete* and still look fine. Before reporting `verified`:
 - **Count vs. expected.** Compare `len(client.search_spans(trace_id=tid))` against the call sites you instrumented on the path you ran (entrypoint + each traced tool/LLM). Fewer spans than expected means spans were dropped — do not report `verified`.
 - **Every span is well-formed.** Each span has a non-empty `name` and `type`; LLM spans carry input/output (and usage where the integration provides it). A span returned with an empty `name`/`type` is the batching-race symptom below, not a real span.
+
+**With the Opik MCP connected, verify there instead.** `read(entity_type="trace", id=tid)` returns `{trace, spans, spansTruncated}` with the span tree inlined (up to 200 spans), so both checks above run over that one call, no script needed: count the spans against the instrumented call sites, and confirm each has a `name`/`type` and the LLM spans carry input/output. If `spansTruncated` is true, count with the SDK instead. The SDK stays the default because it is already installed; the MCP is the shortcut when it is there.
 
 **Common ingestion traps.** If the trace is empty, partial, or has unnamed spans, it is almost always one of these — not a bug in the instrumentation you added:
 - **Batching race on fast spans.** With batching on, a span created and ended within one flush window can be reordered by the backend and dropped (or stripped of its name). Ensure a single `flush()` at the very end and allow a few seconds before verifying.
