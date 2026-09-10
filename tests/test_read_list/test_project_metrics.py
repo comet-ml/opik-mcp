@@ -7,18 +7,21 @@ delegates it whole rather than growing special cases.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
+import respx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.opik_client import OpikClient
 from opik_mcp.read_list.list_tool import run_list
+from opik_mcp.read_list.metric_table import MAX_SERIES
 from opik_mcp.read_list.project_metrics import (
     MAX_BUCKETS,
-    MAX_SERIES,
     METRICS,
     bucket_count,
     groupable_by,
@@ -26,6 +29,7 @@ from opik_mcp.read_list.project_metrics import (
 from opik_mcp.writes.schema_tool import run_schema
 
 PROJECT = "01a08666-e863-76e8-809c-057f4aa151bc"
+OPIK_BASE = "https://opik.example.com/api"
 
 
 @pytest.fixture
@@ -269,16 +273,17 @@ async def test_a_field_the_metric_s_entity_does_not_have_is_refused_locally() ->
     """`model` is a span field. Asked of a trace metric the backend answers
     `Invalid filters query parameter` and names neither the field nor the valid
     ones, so the local check is the only usable error."""
+    fake = _fake()
     with pytest.raises(ToolError) as exc:
         await run_list(
             "project_metric",
             project_id=PROJECT,
             metric_type="trace_count",
             filters='model = "gpt-4o"',
-            client=_fake(),
+            client=fake,
         )
     assert "model" in str(exc.value)
-    assert _fake().calls == 0
+    assert fake.calls == 0, "refused before the backend was asked"
 
 
 @pytest.mark.anyio
@@ -299,12 +304,30 @@ async def test_an_explicit_source_is_not_overridden() -> None:
 
 
 def test_bucket_arithmetic_matches_the_backend() -> None:
-    """Verified live: a daily week is 8 rows, an hourly week 169, TOTAL 1."""
-    week = ("2026-09-02T00:00:00Z", "2026-09-09T00:00:00Z")
-    assert bucket_count("daily", *week) == 8
-    assert bucket_count("hourly", *week) == 169
-    assert bucket_count("weekly", *week) == 2
-    assert bucket_count("total", *week) == 1
+    """The backend fills from the interval the start falls in, up to but not
+    including the end.
+
+    Measured against the real thing: an aligned nine-day window (1 → 10 Aug,
+    daily) came back with nine rows, and `since='14d'` — which lands mid-day —
+    with fifteen. Counting from the raw start returned ten for the first: an
+    off-by-one that only appeared on aligned windows, which is exactly the
+    shape a caller who types instants uses."""
+    aligned = ("2026-09-02T00:00:00Z", "2026-09-09T00:00:00Z")
+    assert bucket_count("daily", *aligned) == 7, "seven whole days, seven buckets"
+    assert bucket_count("hourly", *aligned) == 168
+    # A ClickHouse week starts on Monday, so a Wednesday→Wednesday window
+    # reaches back into the week before and spans two buckets.
+    assert bucket_count("weekly", *aligned) == 2
+    assert bucket_count("total", *aligned) == 1
+
+    monday = ("2026-09-07T00:00:00Z", "2026-09-14T00:00:00Z")
+    assert bucket_count("weekly", *monday) == 1, "Monday to Monday is one week"
+
+    # A relative window is anchored to now, so it almost never aligns; the
+    # part-day at each end shares one bucket, hence one extra row.
+    mid_day = ("2026-09-02T11:16:32Z", "2026-09-09T11:16:32Z")
+    assert bucket_count("daily", *mid_day) == 8
+    assert bucket_count("hourly", *mid_day) == 169
 
 
 @pytest.mark.anyio
@@ -1077,3 +1100,331 @@ async def test_a_name_lookup_that_fails_does_not_refuse_the_name() -> None:
     )
     assert "No span_token_usage data in this window." in out
     assert "not a usage key" not in out
+
+
+# --- grouped series do not line up --------------------------------------- #
+
+
+def _at(name: str, points: dict[str, float | None]) -> dict[str, Any]:
+    """A series with exactly the buckets it names — what a grouped answer is."""
+    return {
+        "name": name,
+        "data": [{"time": f"{day}T00:00:00Z", "value": value} for day, value in points.items()],
+    }
+
+
+@pytest.mark.anyio
+async def test_a_group_that_ran_on_one_day_is_charted_on_that_day() -> None:
+    """The grouped queries have no WITH FILL: each group carries only the
+    buckets it appeared in, so groups come back different lengths. Read by
+    position, a model that ran once lands in row 0 under somebody else's
+    date — a plausible number, wrongly attributed."""
+    fake = _fake(
+        results=[
+            _at("gpt-4o", {"2026-09-01": 10, "2026-09-02": 12, "2026-09-03": 9}),
+            _at("claude-opus-4", {"2026-09-03": 4}),
+        ]
+    )
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=fake,
+    )
+    rows = _table(out)
+    assert rows[0] == "time | gpt-4o | claude-opus-4"
+    assert rows[1] == "2026-09-01 | 10 | ", "claude did not run that day"
+    assert rows[3] == "2026-09-03 | 9 | 4", "and it ran on the third"
+
+
+@pytest.mark.anyio
+async def test_a_bucket_only_the_smaller_group_has_still_gets_a_row() -> None:
+    """The row axis is the union of the times, not the first series' times —
+    otherwise a day only the second group saw disappears entirely."""
+    fake = _fake(
+        results=[
+            _at("gpt-4o", {"2026-09-01": 10}),
+            _at("claude-opus-4", {"2026-09-05": 3}),
+        ]
+    )
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=fake,
+    )
+    assert _table(out)[1:3] == ["2026-09-01 | 10 | ", "2026-09-05 |  | 3"]
+
+
+@pytest.mark.anyio
+async def test_others_is_summed_per_bucket_for_a_count() -> None:
+    """The backend's __others__ is a concatenation of every group past its
+    tenth, relabelled — several points can share one timestamp. For a count
+    the sum is the answer to "everything else"."""
+    fake = _fake(
+        results=[
+            _at("gpt-4o", {"2026-09-01": 10}),
+            {
+                "name": "__others__",
+                "data": [
+                    {"time": "2026-09-01T00:00:00Z", "value": 2},
+                    {"time": "2026-09-01T00:00:00Z", "value": 3},
+                ],
+            },
+        ]
+    )
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=fake,
+    )
+    assert _table(out)[1] == "2026-09-01 | 10 | 5"
+    assert "__others__ is the backend's own bucket" in out
+    assert "summed per bucket" in out
+
+
+@pytest.mark.anyio
+async def test_others_is_left_blank_where_a_sum_would_be_nonsense() -> None:
+    """Adding two models' p50 latencies together is not a latency."""
+    fake = _fake(
+        results=[
+            _at("gpt-4o", {"2026-09-01": 120.0}),
+            {
+                "name": "__others__",
+                "data": [
+                    {"time": "2026-09-01T00:00:00Z", "value": 90.0},
+                    {"time": "2026-09-01T00:00:00Z", "value": 300.0},
+                ],
+            },
+        ]
+    )
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_duration",
+        breakdown="model",
+        series="p50",
+        client=fake,
+    )
+    assert _table(out)[1] == "2026-09-01 | 120 | "
+    assert "390" not in out, "the sum of two percentiles is not a percentile"
+    assert "cannot be summed for this metric" in out
+
+
+@pytest.mark.anyio
+async def test_eleven_groups_are_all_charted() -> None:
+    """The backend caps a grouping at ten and then adds __others__, so eleven
+    is the widest honest answer; capping at ten dropped the one series the
+    backend added on purpose."""
+    groups = [_at(f"model-{i:02d}", {"2026-09-01": float(i + 1)}) for i in range(10)]
+    groups.append(_at("__others__", {"2026-09-01": 1.0}))
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=_fake(results=groups),
+    )
+    assert "__others__" in _table(out)[0]
+    assert "largest of" not in out, "eleven is not a truncation"
+
+
+@pytest.mark.anyio
+async def test_the_companion_count_is_matched_by_time_not_by_row() -> None:
+    """The count is a second query. If it ever returns a different set of
+    buckets, lining the two up by index would blank the wrong days."""
+    fake = _fake(
+        results=[_at("error_rate", {"2026-09-01": 0, "2026-09-02": 25})],
+        by_metric={"TRACE_COUNT": [_at("traces", {"2026-09-02": 4, "2026-09-01": 0})]},
+    )
+    out = await run_list(
+        "project_metric", project_id=PROJECT, metric_type="trace_error_rate", client=fake
+    )
+    assert _table(out)[1] == "2026-09-02 | 25"
+    assert "1 of 2 buckets are not listed: no traces in them" in out
+
+
+# --- numbers small enough to disappear ----------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_sub_cent_cost_is_not_rounded_to_zero() -> None:
+    """Rounding to four places turned $0.000032 into `0` — a cost table of
+    zeros that the agent reports as "no cost", contradicting the summary,
+    which prints the same figure as 1.35e-05."""
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_cost",
+        client=_fake(results=[_series("cost", [0.000032, 0.0000135])]),
+    )
+    assert _table(out)[1] == "2026-09-02 | 3.2e-05"
+    assert _table(out)[2] == "2026-09-03 | 1.35e-05"
+
+
+# --- a thread metric cannot be filtered by source ------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_thread_metric_does_not_claim_an_sdk_filter_it_cannot_apply() -> None:
+    """The metrics endpoint filters threads with a field set that has no
+    source, and drops what it does not support without a word. Sending it
+    anyway would print `filters: source = "sdk"` over an unfiltered number."""
+    fake = _fake()
+    out = await run_list(
+        "project_metric", project_id=PROJECT, metric_type="thread_count", client=fake
+    )
+    assert "thread_filters" not in fake.last_body
+    assert 'source = "sdk"' not in out
+
+
+@pytest.mark.anyio
+async def test_asking_a_thread_metric_for_source_is_refused_not_ignored() -> None:
+    fake = _fake()
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="thread_count",
+            filters='source = "sdk"',
+            client=fake,
+        )
+    assert "cannot be filtered by source" in str(exc.value)
+    assert fake.calls == 0
+
+
+@pytest.mark.anyio
+async def test_a_thread_filter_travels_in_the_thread_array() -> None:
+    """A filter in the wrong array silently filters nothing."""
+    fake = _fake()
+    await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="thread_count",
+        filters='status = "inactive"',
+        client=fake,
+    )
+    assert fake.last_body["thread_filters"] == [
+        {"field": "status", "operator": "=", "key": "", "value": "inactive"}
+    ]
+    assert "trace_filters" not in fake.last_body
+
+
+# --- the size guard's boundary -------------------------------------------- #
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("since", "buckets", "refused"),
+    [("8d", 193, False), ("9d", 217, True)],
+)
+async def test_the_bucket_cap_is_where_it_says_it_is(
+    since: str, buckets: int, refused: bool
+) -> None:
+    """Every refusal test used the same 721-bucket month, so the cap could
+    have been anything up to 700 and nothing would have gone red."""
+    fake = _fake()
+    call = run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_count",
+        interval="hourly",
+        since=since,
+        client=fake,
+    )
+    if refused:
+        with pytest.raises(ToolError) as exc:
+            await call
+        assert f"{buckets} time buckets" in str(exc.value)
+        assert fake.calls == 0
+    else:
+        await call
+        assert fake.calls == 1
+
+
+# --- the metric path over the wire ---------------------------------------- #
+#
+# Everything above drives `run_list` against a fake whose `get_project_metrics`
+# takes `**body` and swallows whatever it is given. That is the right shape for
+# testing what the table says, and useless for testing what we *send*: adding a
+# keyword the real client has no parameter for passed every one of those tests
+# while the real call would raise TypeError, and a renamed field went unnoticed.
+# These two run the same entry point through the real `OpikClient` with the
+# transport mocked, so the request body is the one the backend would receive.
+
+
+def _metric_client() -> OpikClient:
+    return OpikClient(base_url=OPIK_BASE, api_key="key-abc", workspace="ws")
+
+
+@pytest.mark.anyio
+async def test_a_grouped_token_series_posts_the_body_the_backend_expects() -> None:
+    answer = {
+        "results": [{"name": "gpt-4o", "data": [{"time": "2026-09-08T00:00:00Z", "value": 120}]}]
+    }
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post(f"/v1/private/projects/{PROJECT}/metrics").mock(
+            return_value=httpx.Response(200, json=answer),
+        )
+        out = await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_token_usage",
+            breakdown="model",
+            interval="daily",
+            since="2026-09-08T00:00:00Z",
+            until="2026-09-09T00:00:00Z",
+            client=_metric_client(),
+        )
+
+    sent = json.loads(route.calls[0].request.content)
+    assert sent == {
+        "metric_type": "SPAN_TOKEN_USAGE",
+        "interval": "DAILY",
+        "interval_start": "2026-09-08T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "span_filters": [{"field": "source", "operator": "=", "key": "", "value": "sdk"}],
+        "breakdown": {"field": "MODEL", "sub_metric": "total_tokens"},
+    }
+    assert "2026-09-08 | 120" in out
+
+
+@pytest.mark.anyio
+async def test_a_metadata_grouping_posts_its_key_alongside_the_field() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post(f"/v1/private/projects/{PROJECT}/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_count",
+            breakdown="metadata.environment",
+            client=_metric_client(),
+        )
+
+    sent = json.loads(route.calls[0].request.content)
+    assert sent["breakdown"] == {"field": "METADATA", "metadata_key": "environment"}
+
+
+@pytest.mark.anyio
+async def test_a_project_with_no_scores_at_all_says_that_rather_than_listing_none() -> None:
+    """ "'Halluc' is not a score name in this project. Its names: ." would be
+    the answer a bare list produces on a project that has never been scored.
+    The reason it cannot be grouped is not the name."""
+    fake = _known(results=[])
+    fake.score_names = []
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="span_feedback_scores",
+            breakdown="model",
+            series="Halluc",
+            client=fake,
+        )
+    assert "no score names recorded at all" in str(exc.value)

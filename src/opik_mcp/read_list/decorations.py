@@ -72,12 +72,7 @@ missing one block beats a complete one the user gave up waiting for.
 """
 
 
-async def block[T](
-    what: str,
-    load: Callable[[], Awaitable[T]],
-    *,
-    deadline: float | None = None,
-) -> T | dict[str, Any]:
+async def block[T](what: str, load: Callable[[], Awaitable[T]]) -> T | dict[str, Any]:
     """Run one decoration, or return ``{"error": …}`` describing why not.
 
     Wrapping each leg means a gathered fan-out cannot be brought down by one
@@ -85,12 +80,12 @@ async def block[T](
     first failure and discards every sibling's result, so the guard has to sit
     inside each leg rather than around the gather.
 
-    ``deadline`` defaults to :data:`DEADLINE_SECONDS`, read here rather than
-    bound as a default argument — a module constant used as a default is fixed
-    at import and cannot be adjusted afterwards, including by a test that
-    means to.
+    The deadline is read from :data:`DEADLINE_SECONDS` at call time, not bound
+    as a default argument — a module constant used as a default is fixed at
+    import and cannot be adjusted afterwards, including by a test that means
+    to. It was also a parameter for a while; nothing ever passed it.
     """
-    limit = DEADLINE_SECONDS if deadline is None else deadline
+    limit = DEADLINE_SECONDS
     try:
         async with asyncio.timeout(limit):
             return await load()

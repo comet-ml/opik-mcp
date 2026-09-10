@@ -18,7 +18,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
-from opik_mcp.read_list import decorations
+from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.read_tool import run_read
 
@@ -1236,6 +1236,20 @@ async def test_read_project_carries_the_scores_usage_keys_and_rules() -> None:
 
 
 @pytest.mark.anyio
+async def test_read_project_reports_the_rule_total_the_backend_gave() -> None:
+    """The rules list is one page of the evaluators endpoint, so its length is
+    the page's, not the project's. The count has to come from the envelope —
+    counting the rows we happen to hold would under-report every project with
+    more than ten rules, and the number is the reason the block exists."""
+    page = {"content": [{"id": f"r-{i}", "name": f"judge-{i}"} for i in range(10)], "total": 42}
+    body = _payload(await run_read("project", UUID, client=_vocab_fake(automation_rules=page)))
+    rules = body["vocabulary"]["online_rules"]
+    assert len(rules["names"]) == 10
+    assert rules["total"] == 42, "the project's rules, not this page's"
+    assert "list('online_rule'" in rules["all"]
+
+
+@pytest.mark.anyio
 async def test_read_project_caps_a_long_score_list_and_says_how_many_there_are() -> None:
     """The backend's score-name query has no LIMIT, so a project with several
     judge rules can carry enough names to dominate the payload. The cap keeps
@@ -1517,23 +1531,41 @@ async def test_read_project_accepts_a_relative_window() -> None:
     assert body["summary"]["window"]["days"] == 30
 
 
+class _FrozenClock:
+    """Stands in for ``datetime`` where only ``now`` is called."""
+
+    def __init__(self, when: datetime) -> None:
+        self._when = when
+
+    def now(self, tz: object = None) -> datetime:
+        return self._when
+
+
 @pytest.mark.anyio
-async def test_read_project_measures_a_relative_window_from_one_clock_reading() -> None:
+async def test_read_project_measures_a_relative_window_from_one_clock_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Regression, found live rather than here: the start resolved against one
     "now" and the end was measured from a second one, so `since='30d'` spanned
     30 days and a second whenever the two readings crossed a second boundary —
-    and the day count silently vanished. The read closes an open-ended instant
-    window itself, from the same reading, so the fetcher does no clock work."""
+    and the day count silently vanished.
+
+    Freezing only the read's clock is what makes this fail when the fix is
+    removed. Both bounds then have to come from that one reading; a second
+    reading anywhere downstream lands in the real present, years away, and
+    nothing about the assertion is a coin flip."""
+    frozen = datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC)
+    monkeypatch.setattr(read_tool, "datetime", _FrozenClock(frozen))
+
     fake = _project_fake()
     body = _payload(await run_read("project", UUID, since="30d", client=fake))
 
     sent = fake.last_kpi_kwargs
-    assert sent["interval_end"] is not None, "an instant window is always closed"
-    assert sent["interval_start"] == body["summary"]["window"]["since"]
-    assert sent["interval_end"] == body["summary"]["window"]["until"]
-    start = datetime.fromisoformat(sent["interval_start"].replace("Z", "+00:00"))
-    end = datetime.fromisoformat(sent["interval_end"].replace("Z", "+00:00"))
-    assert (end - start) == timedelta(days=30), "no drift between the two bounds"
+    assert sent["interval_end"] == "2026-03-04T05:06:07Z", "closed from the read's own reading"
+    assert sent["interval_start"] == "2026-02-02T05:06:07Z"
+    window = body["summary"]["window"]
+    assert (window["since"], window["until"]) == (sent["interval_start"], sent["interval_end"])
+    assert window["days"] == 30, "a whole number of days, not 30 days and a second"
 
 
 @pytest.mark.anyio

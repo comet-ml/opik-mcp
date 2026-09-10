@@ -205,10 +205,27 @@ async def require_project_id(
     return await resolve_project_id(client, project_name)
 
 
+async def scope_of(client: OpikListClient, kw: dict[str, Any], *, caller: str) -> str:
+    """The project a ``list_fn`` is scoped to, from whichever spelling arrived.
+
+    Every project-scoped list takes ``project_id`` or ``project_name`` and
+    forwards them in its ``**kw``; three of them had written the same
+    six-line unpacking of that pair. The read path keeps
+    :func:`require_project_id` directly — it has the two as real parameters.
+    """
+    return await require_project_id(
+        client,
+        project_id=kw.get("project_id"),
+        project_name=kw.get("project_name"),
+        caller=caller,
+    )
+
+
 __all__ = [
     "project_rows",
     "require_project_id",
     "reset_project_cache_for_tests",
     "resolve_project_id",
+    "scope_of",
     "unknown_project_message",
 ]

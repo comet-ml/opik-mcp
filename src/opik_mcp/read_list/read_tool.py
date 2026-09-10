@@ -169,14 +169,11 @@ async def run_read(
         )
         raise ToolError(str(err)) from err
 
-    # Entity-specific kwargs reach the fetcher only when its registry entry
-    # declares them — same gate as ``list``, so a kwarg meant for one entity is
-    # dropped rather than crashing another's fetcher.
-    extra = {
-        key: value
-        for key, value in entity_kwargs.items()
-        if value is not None and key in handler.read_optional_kwargs
-    }
+    # No entity takes a kwarg beyond its id, its project scope and its
+    # window: what used to arrive as free-form extras is now the declared
+    # ``read_window``. Anything else the caller passed is dropped here rather
+    # than reaching a fetcher that has no parameter for it.
+    extra: dict[str, Any] = {}
     if since is not None or until is not None:
         # Same since/until vocabulary as ``list``. Which entities take a window,
         # and in which shape, is declared on the registry entry — a Diagnostics

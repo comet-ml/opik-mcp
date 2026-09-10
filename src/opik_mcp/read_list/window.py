@@ -131,9 +131,32 @@ def second_precision(dt: datetime) -> str:
     return format_instant(floor_to_second(dt))
 
 
+def closed_window(
+    since: str | None,
+    until: str | None,
+    *,
+    days: int,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    """Both ends of a window as floored instants, from whatever was supplied.
+
+    Every read that reports over a period does this same little dance —
+    default the end to now, default the start to ``days`` before the end,
+    floor both — and the two that did it separately had already drifted apart
+    once: measuring the span against an unfloored bound cost a 30-day window
+    its ``days: 30``. One clock reading serves both ends, so a relative start
+    and an implied end cannot land a second apart.
+    """
+    anchor = now or datetime.now(UTC)
+    end = floor_to_second(parse_bound(until) if until else anchor)
+    start = floor_to_second(parse_bound(since)) if since else end - timedelta(days=days)
+    return start, end
+
+
 __all__ = [
     "WINDOW_FORMS",
     "WindowError",
+    "closed_window",
     "floor_to_second",
     "format_instant",
     "is_relative",

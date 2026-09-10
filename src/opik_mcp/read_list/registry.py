@@ -22,7 +22,6 @@ plug into the existing dispatchers without further code changes.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -31,7 +30,6 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list import project_vocabulary
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
     TOKEN_SKELETON_THRESHOLD,
@@ -44,9 +42,9 @@ from opik_mcp.read_list.compression import (
     compress as generic_compress,
 )
 from opik_mcp.read_list.diagnostics import issue_page_note
-from opik_mcp.read_list.project_contents import project_contents
-from opik_mcp.read_list.project_scope import require_project_id
-from opik_mcp.read_list.project_summary import WINDOW_DAYS, trace_summary
+from opik_mcp.read_list.project_read import fetch_project, project_links
+from opik_mcp.read_list.project_scope import require_project_id, scope_of
+from opik_mcp.read_list.project_summary import WINDOW_DAYS
 from opik_mcp.read_list.ui_links import project_page_url
 
 # Inline caps for composite reads — match the previous resources.py
@@ -105,6 +103,15 @@ class EntityHandler:
     entity_type: str
     fetch_fn: FetchFn
     description: str
+    """What this entity is, for whoever reads the registry.
+
+    Nothing advertises it: the tool descriptions in ``server.py`` and the
+    payloads of ``schema()`` are written by hand, and no consumer reads this
+    field. So it is a comment with a colon in it — keep it to a line or two,
+    and never let it be the only place a rule is written down. Two of these
+    contradicted the code before anyone noticed, precisely because no output
+    ever showed them.
+    """
     search_by_name_fn: SearchByNameFn | None = None
     list_fn: ListFn | None = None
     list_extra_fields: tuple[str, ...] = ()
@@ -121,9 +128,6 @@ class EntityHandler:
     or in ``list_required_kwargs``; anything else the caller passed is dropped
     so a confused call degrades to a plain list instead of a client TypeError.
     """
-    read_optional_kwargs: tuple[str, ...] = ()
-    """Entity-specific kwargs ``fetch_fn`` accepts beyond the id and project
-    scope. Same forwarding rule as ``list_optional_kwargs``, for ``read``."""
     read_window: ReadWindow | None = None
     """How ``fetch_fn`` takes a ``since``/``until`` window, or ``None`` for the
     entities that take none (most of them).
@@ -164,13 +168,6 @@ class EntityHandler:
     """False for entities the backend addresses by name alone (score_name) —
     the mirror of ``list_has_name``, so the table drops the id column rather
     than printing a column of nothing on every row."""
-    list_paged_locally: bool = False
-    """True when ``list_fn`` slices the page itself because the backend cannot.
-
-    Documentation, not behaviour — the list tool treats the envelope the same
-    either way. It marks the one place where ``page``/``size`` are honoured
-    after the fetch rather than pushed into the query, so the next reader does
-    not mistake the whole-set fetch for a bug (or the paging for free)."""
     list_footer: str | None = None
     """One line appended under a non-empty listing: a caveat the rows cannot
     carry themselves.
@@ -233,58 +230,6 @@ def _candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 # --- fetchers ------------------------------------------------------------- #
-
-
-async def _fetch_project(
-    client: OpikReadClient,
-    entity_id: str,
-    *,
-    since: str | None = None,
-    until: str | None = None,
-) -> dict[str, Any]:
-    """Project record + the figures for the window.
-
-    The record alone carries no numbers — ``GET /projects/{id}`` serves the
-    ``View.Public`` projection, and every aggregate lives on ``View.Detailed``
-    — so "how is my project doing" needed a second call anyway. Making it part
-    of the read means the agent has an answer on the first call instead of a
-    name and a creation date.
-    """
-    # The record first, on its own: it is the primary payload, and a bad id or
-    # a project in another workspace should cost one call rather than fanning
-    # out four against something we cannot read. Everything after it is
-    # decoration, so it goes out together — on the one connection this call
-    # owns, that is a single round trip instead of four.
-    project = await client.get_project(entity_id)
-    summary, scores, usage, rules, contents = await asyncio.gather(
-        trace_summary(client, entity_id, since=since, until=until),
-        project_vocabulary.score_names(client, entity_id),
-        project_vocabulary.usage_keys(client, entity_id),
-        project_vocabulary.online_rules(client, entity_id),
-        project_contents(client, entity_id),
-    )
-    data: dict[str, Any] = {
-        "project": project,
-        "summary": summary,
-        # link_fn needs the project the read was addressed by; underscore keys
-        # are stripped by the read tool once links are attached.
-        "_project_id": entity_id,
-    }
-    vocabulary = project_vocabulary.assemble(scores, usage, rules)
-    if vocabulary is not None:
-        data["vocabulary"] = vocabulary
-    if contents is not None:
-        data["contains"] = contents
-    return data
-
-
-def _project_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
-    """The project's Logs page — where the summary's numbers are on screen."""
-    project_id = data.get("_project_id")
-    if not isinstance(project_id, str):
-        return {}
-    page = project_page_url(settings, project_id, "logs")
-    return {} if page is None else {"url": page}
 
 
 async def _fetch_trace(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -548,12 +493,9 @@ async def _list_score_names(client: OpikListClient, **kw: Any) -> dict[str, Any]
     every name left the table's own footer promising a "page 2" that returned
     the same rows again.
     """
-    project_id = await require_project_id(
-        client,
-        project_id=kw.get("project_id"),
-        project_name=kw.get("project_name"),
-        caller="list('score_name')",
-    )
+    project_id = await scope_of(client, kw, caller="list('score_name')")
+    # Not `project_vocabulary`'s fetcher: that one returns names, and the
+    # table renders rows. Same endpoint, two honest shapes.
     body = await client.list_project_score_names(project_id)
     raw = body.get("scores")
     names = (
@@ -569,12 +511,7 @@ async def _list_score_names(client: OpikListClient, **kw: Any) -> dict[str, Any]
 
 
 async def _list_online_rules(client: OpikListClient, **kw: Any) -> dict[str, Any]:
-    project_id = await require_project_id(
-        client,
-        project_id=kw.get("project_id"),
-        project_name=kw.get("project_name"),
-        caller="list('online_rule')",
-    )
+    project_id = await scope_of(client, kw, caller="list('online_rule')")
     return await client.list_automation_rules(
         project_id=project_id, page=kw.get("page", 1), size=kw.get("size", 10)
     )
@@ -643,7 +580,9 @@ async def _list_agent_insights_issues(client: OpikListClient, **kw: Any) -> dict
     kw.setdefault("status", "open")
     # The backend takes project_id only. The list tool lets project_name
     # satisfy the project requirement (as for trace/thread), so resolve it
-    # here; an explicit project_id wins and skips the lookup.
+    # here; an explicit project_id wins and skips the lookup. Not `scope_of`
+    # like its two neighbours: the name has to leave ``kw`` as well, since
+    # what remains is forwarded to a client method that has no such parameter.
     kw["project_id"] = await require_project_id(
         client,
         project_id=kw.get("project_id"),
@@ -792,7 +731,7 @@ def _compress_issue(data: dict[str, Any], max_tokens: int | None) -> tuple[str, 
 ENTITY_REGISTRY: dict[str, EntityHandler] = {
     "project": EntityHandler(
         entity_type="project",
-        fetch_fn=_fetch_project,
+        fetch_fn=fetch_project,
         search_by_name_fn=_search_project,
         list_fn=_list_projects,
         # last_updated_trace_at lets the agent pick the project with live
@@ -800,18 +739,11 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         list_extra_fields=("created_at", "last_updated_trace_at"),
         # The metrics endpoint takes instants, unlike the day-keyed Diagnostics one.
         read_window=ReadWindow("since", "until"),
-        link_fn=_project_links,
+        link_fn=project_links,
         description=(
-            "Project metadata, the week's figures, the project's vocabulary and what "
-            "it contains. Returns {project, summary, vocabulary, contains, url}: the "
-            f"record; trace count, error rate, average duration and total cost over "
-            f"the last {WINDOW_DAYS} days against the {WINDOW_DAYS} before, SDK-logged "
-            "traffic only — the same four cards the Logs page shows; the score names, "
-            "usage keys and online-rule names to filter and group by; and the freshest "
-            "experiment, test suite, prompt version and run. since/until pick another "
-            "window. A rate or an average over a period with no traces is reported as "
-            "null, not zero. Empty parts are omitted; a part that failed to load "
-            "carries an error rather than looking empty."
+            "A project's overview: the record, the last "
+            f"{WINDOW_DAYS} days of SDK traffic against the {WINDOW_DAYS} before, "
+            "the names it records, and what is freshest in it."
         ),
     ),
     "trace": EntityHandler(
@@ -938,9 +870,8 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         # `project_name` is accepted). The runner validates its own arguments;
         # a second, unread copy of that contract is worse than none.
         description=(
-            "A time series for one project metric — trace/span/thread counts, "
-            "durations, error rates, costs, token usage and feedback scores. Rows are "
-            "time buckets, not records. Reference: schema('list.project_metric')."
+            "One project metric over time, as a table of buckets. "
+            "Reference: schema('list.project_metric')."
         ),
     ),
     "score_name": EntityHandler(
@@ -951,7 +882,6 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         # Paged by us, not by the backend — the endpoint has no LIMIT, so the
         # slice happens after the fetch. The rows are strings; a page of them
         # is cheap either way.
-        list_paged_locally=True,
         # No id: the backend's combined query returns distinct names only, and
         # no type: the service builds each entry from the name alone.
         list_has_id=False,
@@ -962,12 +892,10 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
             "error."
         ),
         description=(
-            "A feedback score name recorded in a project — the axis names for "
-            "filters and breakdowns. list('score_name', project_id=… | project_name=…) "
-            "returns all of them in one page; the endpoint has no paging and no "
-            "entity_type predicate, so trace, span and thread score names come back "
-            "together and a name alone does not say which kind it was attached to. "
-            "No score type is reported: the combined endpoint does not carry it."
+            "A feedback score name recorded in a project — what a score filter or a "
+            "grouped score chart is named with. Trace, span and thread names come "
+            "back together; the endpoint has no paging of its own, so pages are cut "
+            "here."
         ),
     ),
     "online_rule": EntityHandler(
@@ -977,11 +905,8 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         list_extra_fields=("type", "enabled", "sampling_rate"),
         list_required_kwargs=("project_id",),
         description=(
-            "An automation rule evaluator configured on a project — what scores the "
-            "traces as they arrive, and therefore where most of a project's score "
-            "names come from. list('online_rule', project_id=… | project_name=…) "
-            "enumerates them with kind, whether they are enabled, and their sampling "
-            "rate."
+            "An automation rule evaluator on a project — what scores the traces as "
+            "they arrive, and so where most of its score names come from."
         ),
     ),
     "agent_insights_issue": EntityHandler(

@@ -24,6 +24,7 @@ from opik_mcp.read_list.oql import (
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
 )
+from opik_mcp.read_list.project_metrics import reference as metric_reference
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 
 LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
@@ -59,9 +60,10 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     if entity_type == "project_metric":
         # Its own tables (metrics, intervals, limits) rather than OQL fields;
         # the filter fields are those of whichever entity the metric is about.
-        from opik_mcp.read_list.project_metrics import reference
-
-        return reference()
+        # The reference lives beside the catalog it describes — it is that
+        # data's own documentation, and moving it here would only move the
+        # import with it.
+        return metric_reference()
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
         spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}

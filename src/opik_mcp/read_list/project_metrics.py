@@ -38,6 +38,15 @@ from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.metric_table import (
+    MAX_SERIES,
+    OTHERS,
+    Presence,
+    Table,
+    bucket_counts,
+    carries_data,
+    render,
+)
 from opik_mcp.read_list.oql import (
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
@@ -51,7 +60,7 @@ from opik_mcp.read_list.project_vocabulary import (
     recorded,
 )
 from opik_mcp.read_list.window import (
-    floor_to_second,
+    closed_window,
     parse_bound,
     second_precision,
 )
@@ -371,7 +380,7 @@ def parse_breakdown(breakdown: str, metric_name: str) -> dict[str, str]:
                 f"{metric_name} cannot be grouped at all — it is one of the seven "
                 "metrics missing from the backend's grouping sets "
                 f"({', '.join(_ungroupable())}). Chart it plain, or group a "
-                "related metric that does support it."
+                f"related metric.{_where_else(asked, metric_name)}"
             )
         raise EntityArgValidationError(
             f"{metric_name} cannot be grouped by {asked}. It accepts: "
@@ -414,17 +423,38 @@ a request refused before the call costs nothing at all.
 
 
 def bucket_count(interval: str, since: str, until: str) -> int:
-    """Rows the backend will emit for this interval and window.
+    """Rows an ungrouped answer will have for this interval and window.
 
-    Every bucket in the window is returned, empty ones included, so this is
-    exact rather than an estimate. Verified live: a daily week is 8 rows and an
-    hourly week is 169 — the window's spans plus the bucket the end falls in.
+    The backend fills from ``toStartOfInterval(interval_start)`` in steps of
+    the interval while below ``interval_end``, which is exclusive — so the
+    count is the *aligned* span over the width, rounded up. Counting from the
+    raw start instead added a row whenever the window happened to be aligned:
+    a daily 1st→8th is 7 buckets, not 8. An unaligned window keeps its extra
+    row, which is where the 15 buckets of a 14-day `since='14d'` come from.
+
+    Grouped answers are shorter than this — the grouped queries do not fill —
+    so as a size guard this is an upper bound, which is the safe direction.
     """
     width = INTERVALS[interval]
     if width is None:
         return 1
-    span = parse_bound(until) - parse_bound(since)
-    return int(span // width) + 1
+    span = parse_bound(until) - _bucket_start(parse_bound(since), interval)
+    if span <= timedelta(0):
+        return 1
+    return -(-int(span.total_seconds()) // int(width.total_seconds()))
+
+
+def _bucket_start(when: datetime, interval: str) -> datetime:
+    """The start of the bucket an instant falls in, as ClickHouse cuts it.
+
+    ``toStartOfInterval`` is not a modulo of the epoch: a week starts on
+    Monday, not on the Thursday the epoch happens to be. Spelt out per
+    interval so the weekly case cannot drift by up to three days.
+    """
+    if interval == "hourly":
+        return when.replace(minute=0, second=0, microsecond=0)
+    midnight = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight - timedelta(days=midnight.weekday()) if interval == "weekly" else midnight
 
 
 def _fitting_alternatives(interval: str, since: str, until: str) -> list[str]:
@@ -488,16 +518,42 @@ def resolve_window(
     """
     anchor = now or datetime.now(UTC)
     resolved_since, resolved_until = window_bounds(since, until, now=anchor)
-    end = floor_to_second(parse_bound(resolved_until) if resolved_until else anchor)
-    start = (
-        floor_to_second(parse_bound(resolved_since))
-        if resolved_since
-        else end - timedelta(days=DEFAULT_WINDOW_DAYS)
-    )
+    start, end = closed_window(resolved_since, resolved_until, days=DEFAULT_WINDOW_DAYS, now=anchor)
     return second_precision(start), second_precision(end)
 
 
 # --- the request ---------------------------------------------------------- #
+#
+# The metrics endpoint filters a thread metric with ClickHouse's thread
+# strategy, whose field set (``FilterQueryBuilder``) has neither ``source``
+# nor ``environment`` — and an unsupported field is dropped from the query
+# without a word. So the SDK default cannot be applied to a thread metric
+# (the header would claim a filter that never reached the database, and the
+# number would not reconcile with ``read('project')``, which really is
+# SDK-filtered), and a caller who names one of the two fields is told rather
+# than quietly given the unfiltered answer. Trace and span metrics use
+# strategies that do carry both.
+
+SOURCE_FILTERED_METRIC_ENTITIES: Final = tuple(
+    entity for entity in SOURCE_DEFAULTED_ENTITIES if entity != "thread"
+)
+
+_DROPPED_BY_THREAD_METRICS: Final = ("source", "environment")
+
+
+def _refuse_dropped_fields(metric: Metric, clauses: list[dict[str, str]]) -> None:
+    if metric.entity != "thread":
+        return
+    named = [clause["field"] for clause in clauses if clause["field"] in _DROPPED_BY_THREAD_METRICS]
+    if not named:
+        return
+    raise EntityArgValidationError(
+        f"{metric.name} cannot be filtered by {', '.join(named)}: the metrics endpoint "
+        "applies thread filters with a field set that has neither, and it drops what it "
+        "does not support instead of failing — so the answer would be unfiltered while "
+        "the header claimed otherwise. Filter a trace metric by "
+        f"{named[0]}, or filter this one by status, duration or tags."
+    )
 
 
 def request_body(
@@ -526,36 +582,6 @@ def request_body(
     if breakdown is not None:
         body["breakdown"] = breakdown
     return body
-
-
-# --- the answer ----------------------------------------------------------- #
-
-
-def _number(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return str(value)
-    if float(value).is_integer():
-        return str(int(value))
-    return f"{round(float(value), 4):g}"
-
-
-def _time_label(raw: Any, interval: str, *, until: str | None = None) -> str:
-    """Buckets are labelled at the precision they mean.
-
-    A daily bucket labelled with a time implies a precision it does not have,
-    and it costs eleven characters a row to imply it.
-
-    ``total`` is the case worth care: the backend labels its single bucket with
-    the window's *start*, so passing that through reads as "on the 3rd there
-    were 5" when the number is the whole week's. It gets the span instead.
-    """
-    if not isinstance(raw, str) or not raw:
-        return ""
-    if interval == "total":
-        return f"{raw[:10]} → {until[:10]}" if until else f"since {raw[:10]}"
-    return raw[:16].replace("T", " ") if interval == "hourly" else raw[:10]
 
 
 # --- checking the series against the project ------------------------------ #
@@ -631,23 +657,10 @@ believe. ``read('project')`` already refuses to print a rate over a period
 with no traces; the series is the same claim, one bucket at a time.
 
 None of these five metrics can be grouped (they are in the backend's omitted
-sets), so the companion count is always a single ungrouped series and lines up
-with the rows bucket for bucket.
+sets), so the companion count is always a single, filled, ungrouped series —
+but it is still matched to the metric's rows by timestamp rather than by
+position, because it is a separate query and nothing promises the two agree.
 """
-
-
-@dataclass(frozen=True, slots=True)
-class Presence:
-    """How many of the metric's entity fell in each bucket."""
-
-    entity: str
-    counts: list[float]
-
-    def empty(self, row: int) -> bool:
-        return row < len(self.counts) and not self.counts[row]
-
-    def nothing_at_all(self) -> bool:
-        return not any(self.counts)
 
 
 def companion_count(metric: Metric) -> Metric | None:
@@ -655,154 +668,6 @@ def companion_count(metric: Metric) -> Metric | None:
     if metric.family not in AMBIGUOUS_ZERO_FAMILIES:
         return None
     return METRICS.get(f"{metric.entity}_count")
-
-
-def bucket_counts(body: dict[str, Any]) -> list[float]:
-    """The count series' values, in bucket order."""
-    raw = body.get("results")
-    series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
-    if not series or not isinstance(series[0].get("data"), list):
-        return []
-    return [
-        float(point.get("value") or 0) for point in series[0]["data"] if isinstance(point, dict)
-    ]
-
-
-def carries_data(body: dict[str, Any]) -> bool:
-    """True when the answer holds at least one non-zero number.
-
-    The test for "this told me nothing" — no series at all, or every point
-    null or zero. It is the same condition the table collapses on, and the
-    condition under which a supplied series name is worth checking.
-    """
-    raw = body.get("results")
-    series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
-    series = [s for s in series if isinstance(s.get("data"), list)]
-    return bool(series) and not _all_zero(series)
-
-
-def _all_zero(series: list[dict[str, Any]]) -> bool:
-    """True when not one point in any series carries a non-zero value.
-
-    Thirty-one rows of ``| 0`` cost 148 tokens to say nothing happened, and a
-    cost or error-rate question on a quiet project produces exactly that. The
-    answer is the same either way; only one of the two is worth paying for.
-    """
-    return all(
-        not point.get("value") for one in series for point in one["data"] if isinstance(point, dict)
-    )
-
-
-MAX_SERIES: Final = 10
-"""Columns kept, matching the backend's own cap on breakdown groups.
-
-Grouping is capped server-side, but the feedback-score and token-usage metrics
-fan out into one series per score name or usage key with no grouping asked for
-at all, and nothing bounds *that* — a project with sixty score names would
-otherwise return sixty columns. Unlike the bucket count, this width cannot be
-known before the call, so it is capped on the way out: the widest series are
-kept (a change hides in the big ones), the true count is stated, and the read
-says where the full list of names lives.
-"""
-
-
-def _point(one: dict[str, Any], row: int) -> dict[str, Any]:
-    points = one["data"]
-    return points[row] if row < len(points) and isinstance(points[row], dict) else {}
-
-
-def _series_weight(one: dict[str, Any]) -> float:
-    """Total magnitude across the window — the series most likely to matter."""
-    return sum(
-        abs(float(point["value"]))
-        for point in one["data"]
-        if isinstance(point, dict) and isinstance(point.get("value"), (int, float))
-    )
-
-
-def render(
-    body: dict[str, Any],
-    *,
-    metric_name: str,
-    interval: str,
-    names_source: str | None = None,
-    until: str | None = None,
-    presence: Presence | None = None,
-) -> str:
-    """The series as ``time | <series> …``, one row per bucket.
-
-    Series are columns rather than repeated blocks, which is the whole reason
-    this is a table: a bucket's timestamp is printed once per row instead of
-    once per point.
-
-    ``presence`` blanks the buckets that had nothing in them, for the metrics
-    whose zero would otherwise read as a measurement.
-    """
-    raw = body.get("results")
-    series = [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
-    series = [s for s in series if isinstance(s.get("data"), list)]
-    if not series:
-        return f"No {metric_name} data in this window."
-
-    if presence is not None and presence.nothing_at_all():
-        return (
-            f"No {presence.entity}s in this window, so {metric_name} has no value in it. "
-            "(The backend reports 0 for an empty bucket; there was nothing to measure.)"
-        )
-
-    if _all_zero(series):
-        # The window is already on the header line, so the table would add
-        # nothing but its own length. Seen live: 31 rows of "| 0" for a cost
-        # question on a project with no cost.
-        return f"No {metric_name} recorded in this window — every bucket is zero."
-
-    total_series = len(series)
-    if total_series > MAX_SERIES:
-        series = sorted(series, key=_series_weight, reverse=True)[:MAX_SERIES]
-
-    # Buckets come back identical across series, so the first defines the rows.
-    times = [point.get("time") for point in series[0]["data"] if isinstance(point, dict)]
-    columns = [str(s.get("name") or metric_name) for s in series]
-
-    lines = [" | ".join(["time", *columns])]
-    quiet_rows = 0
-    empty_rows = 0
-    for row, when in enumerate(times):
-        if presence is not None and presence.empty(row):
-            # Not blanked in place: a row of empty cells costs as much to print
-            # as a real one and carries less. Seen live — a 14-day error rate
-            # on a project used one day was 13 rows of "| " for 103 tokens.
-            quiet_rows += 1
-            continue
-        values = [_point(one, row).get("value") for one in series]
-        if all(value is None for value in values):
-            # The backend's own "no data here" — a null, not a zero. Seen live:
-            # nine days of `duration.p50 | duration.p90 | duration.p99` with one
-            # day of numbers and eight rows of ` |  | `.
-            empty_rows += 1
-            continue
-        lines.append(
-            " | ".join([_time_label(when, interval, until=until), *(_number(v) for v in values)])
-        )
-
-    for skipped, why in ((quiet_rows, "quiet"), (empty_rows, "empty")):
-        if not skipped:
-            continue
-        reason = (
-            f"no {presence.entity}s in them, so nothing to measure — which is not the same as zero"
-            if why == "quiet" and presence is not None
-            else f"no {metric_name} recorded in them"
-        )
-        lines.append("")
-        lines.append(f"{skipped} of {len(times)} buckets are not listed: {reason}.")
-
-    if total_series > MAX_SERIES:
-        where = f" All {total_series} names: {names_source}." if names_source else ""
-        lines.append("")
-        lines.append(
-            f"The {MAX_SERIES} largest of {total_series} series, by total over the window.{where}"
-        )
-    return "\n".join(lines)
 
 
 def parse_metric(metric_type: str | None) -> Metric:
@@ -891,10 +756,13 @@ def reference() -> dict[str, Any]:
                 "backend's own compatibility sets (BreakdownField), which is a backend "
                 "bug rather than a rule: asking anyway returns a message claiming the "
                 "field 'supports Span metrics only' about a span metric. Refused "
-                "locally instead. Grouped series are capped by the backend at "
-                f"{BACKEND_SERIES_CAP}; a metric that fans out per score name or usage "
-                f"key is capped here at {MAX_SERIES}, widest first, with the true count "
-                "reported."
+                "locally instead. A grouping is capped by the backend at "
+                f"{BACKEND_SERIES_CAP} groups plus '{OTHERS}', which carries every "
+                "group past them (summed per bucket for counts, costs and tokens; "
+                "left blank where a sum would not be that metric). Grouped series "
+                "are not filled, so a group appears only in the buckets it occurred "
+                f"in. A metric that fans out per score name or usage key is capped at "
+                f"{MAX_SERIES} here, widest first, with the true count reported."
             ),
         },
         "not_supported": {
@@ -936,7 +804,8 @@ async def run_project_metric(
     check_size(interval_name, window_since, window_until)
 
     clauses = compile_filters(metric.entity, filters or "")
-    if metric.entity in SOURCE_DEFAULTED_ENTITIES and not any(
+    _refuse_dropped_fields(metric, clauses)
+    if metric.entity in SOURCE_FILTERED_METRIC_ENTITIES and not any(
         clause["field"] == "source" for clause in clauses
     ):
         # Same default as the Logs page and the other lists. Echoed as part of
@@ -1008,11 +877,14 @@ async def run_project_metric(
     )
     table = render(
         body,
-        metric_name=name,
-        interval=interval_name,
-        names_source=names_source,
-        until=window_until,
-        presence=presence,
+        Table(
+            metric_name=name,
+            family=metric.family,
+            interval=interval_name,
+            until=window_until,
+            names_source=names_source,
+            presence=presence,
+        ),
     )
     if chosen is not None and not carries_data(body):
         # Nothing came back, and a name the caller (or the default) supplied
@@ -1045,30 +917,15 @@ def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | N
 
 
 __all__ = [
-    "BACKEND_SERIES_CAP",
-    "BREAKDOWNS",
-    "DEFAULT_INTERVAL",
-    "DEFAULT_SERIES",
-    "DEFAULT_WINDOW_DAYS",
-    "DURATION_PERCENTILES",
-    "INTERVALS",
     "MAX_BUCKETS",
-    "MAX_SERIES",
     "METRICS",
     "Metric",
-    "Presence",
     "bucket_count",
-    "bucket_counts",
     "check_size",
-    "companion_count",
     "groupable_by",
     "parse_breakdown",
-    "parse_interval",
     "parse_metric",
     "reference",
-    "render",
-    "request_body",
     "resolve_series",
-    "resolve_window",
-    "series_choices",
+    "run_project_metric",
 ]

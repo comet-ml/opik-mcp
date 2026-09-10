@@ -31,6 +31,8 @@ import json
 import logging
 import math
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
@@ -90,6 +92,35 @@ _SEARCH_TIMEOUT_S = 60.0
 _DEFAULT_SIZE = 25
 
 
+@contextmanager
+def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
+    """Turn a failed call into the one sentence the agent will read.
+
+    The two paths through this tool — a collection page and a metric series —
+    map the same six failures, and had drifted into two copies of the mapping
+    that differed only in their nouns. A third path would have made three.
+
+    A ``ToolError`` raised inside passes through untouched, which is what lets
+    a caller handle one case its own way (the 404 that names a misspelled
+    project) and leave the rest here.
+    """
+    try:
+        yield
+    except ToolError:
+        raise
+    except (EntityArgValidationError, OQLError) as err:
+        # Already written for the agent, with the valid values in it.
+        raise ToolError(str(err)) from err
+    except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
+        raise ToolError(f"Failed to {what}: {err}") from err
+    except httpx.TimeoutException as err:
+        # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
+        # sees an error with no text at all.
+        raise ToolError(on_timeout) from err
+    except httpx.HTTPError as err:
+        raise ToolError(f"Could not reach Opik to {what}: {err}") from err
+
+
 async def _run_metric_series(
     *,
     settings: Settings | None,
@@ -102,21 +133,14 @@ async def _run_metric_series(
     resolving a project name is another, and both ride one connection.
     """
     async with client_for_call(settings, client) as opik:
-        try:
-            return await run_project_metric(cast("OpikReadClient", opik), **kw)
-        except EntityArgValidationError as err:
-            raise ToolError(str(err)) from err
-        except OQLError as err:
-            raise ToolError(str(err)) from err
-        except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
-            raise ToolError(f"Failed to chart project_metric: {err}") from err
-        except httpx.TimeoutException as err:
-            raise ToolError(
+        with _as_tool_error(
+            "chart project_metric",
+            on_timeout=(
                 "Opik did not answer in time for list('project_metric', …). Narrow the "
                 "window or widen the interval and retry."
-            ) from err
-        except httpx.HTTPError as err:
-            raise ToolError(f"Could not reach Opik for list('project_metric', …): {err}") from err
+            ),
+        ):
+            return await run_project_metric(cast("OpikReadClient", opik), **kw)
 
 
 async def run_list(
@@ -299,32 +323,23 @@ async def run_list(
     resolved_settings = settings or get_settings()
     search_timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
     async with client_for_call(settings, client, timeout=search_timeout) as opik:
-        try:
-            page_body = await handler.list_fn(opik, **kw)
-        except EntityArgValidationError as e:
-            # A list_fn may reject its own arguments (e.g. a project_name that
-            # resolves to no or several projects). Surface it as the same typed
-            # validation error the tool raises for a missing parent id.
-            raise ToolError(str(e)) from e
-        except OpikNotFoundError as e:
-            # The backend's 404 for a misspelled project names it ("Project
-            # name: X not found"); only that case gets the did-you-mean recovery.
-            if kw.get("project_name") and kw["project_name"] in str(e):
-                raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
-            raise ToolError(f"Failed to list {entity_type}s: {e}") from e
-        except (OpikAuthError, OpikValidationError, OpikServerError) as e:
-            raise ToolError(f"Failed to list {entity_type}s: {e}") from e
-        except httpx.TimeoutException as e:
-            # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
-            # sees an error with no text. Seen live: a free-text search that the
-            # backend took >30s to answer on a cold cache.
-            raise ToolError(
+        with _as_tool_error(
+            f"list {entity_type}s",
+            on_timeout=(
                 f"Opik did not answer in time for list({entity_type}, …). Narrow the query — "
                 "a shorter since window, fewer filters, a smaller size, or drop search — "
                 "and retry."
-            ) from e
-        except httpx.HTTPError as e:
-            raise ToolError(f"Could not reach Opik for list({entity_type}, …): {e}") from e
+            ),
+        ):
+            try:
+                page_body = await handler.list_fn(opik, **kw)
+            except OpikNotFoundError as e:
+                # The backend's 404 for a misspelled project names it ("Project
+                # name: X not found"); only that case gets the did-you-mean
+                # recovery, and the rest fall through to the mapping above.
+                if kw.get("project_name") and kw["project_name"] in str(e):
+                    raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
+                raise
 
         content_raw = page_body.get("content") or []
         content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]

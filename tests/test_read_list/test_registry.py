@@ -89,7 +89,6 @@ def test_only_the_declared_entities_take_optional_kwargs() -> None:
     for entity_type, handler in ENTITY_REGISTRY.items():
         expected = _DECLARES_OPTIONAL_KWARGS.get(entity_type, set())
         assert set(handler.list_optional_kwargs) == expected, entity_type
-        assert handler.read_optional_kwargs == (), entity_type
 
 
 def test_agent_insights_issue_is_project_scoped_and_listable() -> None:

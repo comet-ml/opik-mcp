@@ -1276,7 +1276,7 @@ def make_opik_client(
     over 30 s to answer on a cold cache.
 
     ``http_client`` is the connection every request on this client will ride.
-    Prefer :func:`opik_client_for_call`, which owns one for the span of a tool
+    Prefer :func:`client_for_call`, which owns one for the span of a tool
     call; pass it here directly only when the caller already has one whose
     lifetime it manages (a long-lived hosted process, a test).
     """
@@ -1288,32 +1288,6 @@ def make_opik_client(
         client=http_client,
         timeout=_DEFAULT_TIMEOUT if timeout is None else timeout,
     )
-
-
-@asynccontextmanager
-async def opik_client_for_call(
-    settings: Settings, *, timeout: float | None = None
-) -> AsyncIterator[OpikClient]:
-    """An ``OpikClient`` whose requests all share one connection, for one tool call.
-
-    Without this, ``_http`` opens a fresh ``httpx.AsyncClient`` — and therefore
-    a fresh connection pool — per request, so a composite read pays a TCP + TLS
-    handshake per backend call and a fan-out pays one per leg. Measured against
-    www.comet.com, that is 259 ms per extra request (six sequential GETs: 2648 ms
-    with a client per request, 1355 ms with one shared). Binding a single client
-    for the span of the call makes later calls reuse the connection the first one
-    opened, and makes concurrent legs cost one handshake between them.
-
-    The connection is closed when the block exits, so nothing survives into the
-    next tool call. The MCP Python SDK's documented home for a shared client is
-    the server lifespan (one per process, as the official ``sentry`` server
-    does), which would also spare the handshake *between* tool calls; the
-    ``http_client`` argument on :func:`make_opik_client` is the seam for that if
-    we go there. Per-call is the conservative half of it: no process-wide state,
-    no client outliving the request that made it.
-    """
-    async with httpx.AsyncClient(timeout=_DEFAULT_TIMEOUT if timeout is None else timeout) as http:
-        yield make_opik_client(settings, timeout=timeout, http_client=http)
 
 
 @asynccontextmanager
@@ -1333,12 +1307,27 @@ async def client_for_call[C](
 
     A supplied client is yielded as-is and never closed: its owner may be
     reusing it across many calls, and closing it would break the next one.
+
+    The one we own binds a single ``httpx.AsyncClient`` for the span of the
+    call, so every request in it shares a connection. Without that, ``_http``
+    opens a fresh client — and a fresh pool — per request, and a composite
+    read pays a TCP + TLS handshake per backend call. Measured against
+    www.comet.com: 259 ms per extra request (six sequential GETs, 2648 ms with
+    a client each, 1355 ms with one shared). It is closed when the block
+    exits, so nothing survives into the next tool call.
+
+    The SDK's documented home for a shared client is the server lifespan (one
+    per process), which would also spare the handshake *between* calls;
+    ``make_opik_client(http_client=…)`` is the seam for that. Per-call is the
+    conservative half: no process-wide state, no client outliving the request
+    that made it.
     """
     if supplied is not None:
         yield supplied
         return
-    async with opik_client_for_call(settings or get_settings(), timeout=timeout) as owned:
-        yield owned
+    limit = _DEFAULT_TIMEOUT if timeout is None else timeout
+    async with httpx.AsyncClient(timeout=limit) as http:
+        yield make_opik_client(settings or get_settings(), timeout=timeout, http_client=http)
 
 
 def _score_body(score: FeedbackScore) -> dict[str, Any]:

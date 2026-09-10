@@ -21,10 +21,13 @@ an ``error`` instead of names for the same reason the summary does.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, DEADLINE_SECONDS, block
+
+Fetcher = Callable[[OpikReadClient, str], Awaitable[list[str]]]
 
 SCORE_NAMES_CAP: Final = 25
 """Enough to see a project's real vocabulary; a judge rule per metric plus
@@ -78,11 +81,36 @@ def _named(rows: Any) -> list[str]:
     ]
 
 
+async def _fetch_score_names(client: OpikReadClient, project_id: str) -> list[str]:
+    """``{scores: [{name}]}`` — rows, not strings, and no paging."""
+    body = await client.list_project_score_names(project_id)
+    return _named(body.get("scores"))
+
+
+async def _fetch_usage_keys(client: OpikReadClient, project_id: str) -> list[str]:
+    """``{names: [str]}`` — bare strings, unlike every other name endpoint."""
+    body = await client.list_project_token_usage_names(project_id)
+    raw = body.get("names")
+    return [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
+
+
+_FETCH_NAMES: Final[dict[str, Fetcher]] = {
+    "score": _fetch_score_names,
+    "usage": _fetch_usage_keys,
+}
+"""How each kind of name is asked for and unpacked, once.
+
+The two answers have different shapes, and each was being unpacked in three
+places — here, in the checker that validates a `series`, and in the score-name
+list. One entry each, and the shape stops being a fact three files have to
+agree on.
+"""
+
+
 async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     async def load() -> dict[str, Any] | None:
-        body = await client.list_project_score_names(project_id)
         return _part(
-            _named(body.get("scores")),
+            await _fetch_score_names(client, project_id),
             cap=SCORE_NAMES_CAP,
             all_of_them=f"list('score_name', project_id='{project_id}')",
         )
@@ -92,10 +120,7 @@ async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any]
 
 async def usage_keys(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     async def load() -> dict[str, Any] | None:
-        body = await client.list_project_token_usage_names(project_id)
-        raw = body.get("names")
-        names = [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
-        return _part(names, cap=USAGE_KEYS_CAP)
+        return _part(await _fetch_usage_keys(client, project_id), cap=USAGE_KEYS_CAP)
 
     return await block("this project's usage keys", load)
 
@@ -127,17 +152,9 @@ async def recorded(client: OpikReadClient, project_id: str, *, kind: str) -> lis
     turn into a refusal of a perfectly good name.
     """
 
-    async def load() -> list[str]:
-        if kind == "score":
-            body = await client.list_project_score_names(project_id)
-            return _named(body.get("scores"))
-        body = await client.list_project_token_usage_names(project_id)
-        raw = body.get("names")
-        return [key for key in raw if isinstance(key, str)] if isinstance(raw, list) else []
-
     try:
         async with asyncio.timeout(DEADLINE_SECONDS):
-            return await load()
+            return await _FETCH_NAMES[kind](client, project_id)
     except _LOOKUP_ERRORS:
         return None
 

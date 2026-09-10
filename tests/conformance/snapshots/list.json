@@ -45,7 +45,7 @@
         }
       ],
       "default": null,
-      "description": "OQL filter for trace, span, thread, experiment: <field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in; strings quoted, numbers bare (duration in ms). E.g. 'error_info is_not_empty AND duration > 5000', 'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. trace/span/thread default to source = \"sdk\". Reference: schema(\"list.trace\").",
+      "description": "OQL filter for trace, span, thread, experiment, project_metric: <field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in; strings quoted, numbers bare (duration in ms). E.g. 'error_info is_not_empty AND duration > 5000', 'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. trace/span/thread default to source = \"sdk\"; a metric is filtered by the fields of the entity it is about. Reference: schema(\"list.trace\").",
       "title": "Filters"
     },
     "interval": {
@@ -203,7 +203,7 @@
         }
       ],
       "default": null,
-      "description": "Start of the time window for trace, span, thread, agent_insights_issue: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Trace/span/thread windows are by record creation time (for an exact start_time bound use filters); Diagnostics issues aggregate per report day, so their window is the UTC days it spans and defaults to all-time, matching the Diagnostics page.",
+      "description": "Start of the time window for trace, span, thread, project_metric, agent_insights_issue: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Trace/span/thread windows are by record creation time (for an exact start_time bound use filters); Diagnostics issues aggregate per report day, so their window is the UTC days it spans and defaults to all-time, matching the Diagnostics page.",
       "title": "Since"
     },
     "size": {

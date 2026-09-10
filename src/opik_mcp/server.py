@@ -278,10 +278,9 @@ async def read(
     Special shapes:
     - project: returns {project, summary, vocabulary, contains, url} — the
       week's figures against the 7 days before (SDK traffic only, as the Logs
-      cards show; a rate over a period with no traces is null, not zero), the
-      names you can filter and group by, and the freshest experiment / suite /
-      prompt version / run. `since`/`until` pick another window. Empty parts
-      are omitted; a part that failed to load says so instead of looking empty.
+      cards show, though the UI opens on 30 days), the score names and usage
+      keys to filter on, and the freshest experiment / suite / prompt version
+      / run. `since`/`until` move the summary's window; the rest is current.
     - trace: returns {trace, spans, spansTruncated} with up to 200 spans inlined.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
     - thread: returns {thread, messages, messagesTruncated} — each message is one
@@ -335,13 +334,14 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "OQL filter for trace, span, thread, experiment: "
+                "OQL filter for trace, span, thread, experiment, project_metric: "
                 "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
                 "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
                 "strings quoted, numbers bare (duration in ms). E.g. "
                 "'error_info is_not_empty AND duration > 5000', "
                 "'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. "
-                'trace/span/thread default to source = "sdk". Reference: schema("list.trace").'
+                'trace/span/thread default to source = "sdk"; a metric is filtered by '
+                'the fields of the entity it is about. Reference: schema("list.trace").'
             ),
             max_length=2000,
         ),
@@ -361,7 +361,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Start of the time window for trace, span, thread, agent_insights_issue: "
+                "Start of the time window for trace, span, thread, project_metric, "
+                "agent_insights_issue: "
                 "a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with "
                 "timezone. Trace/span/thread windows are by record creation time (for an "
                 "exact start_time bound use filters); Diagnostics issues aggregate per "
@@ -486,12 +487,12 @@ async def list_entities(
       open ones by default; columns: severity, status, total_occurrences,
       latest_count, last_seen)
     - score_name: project_id or project_name (the project's feedback score
-      names — trace, span and thread scores together, one page, no id)
+      names — trace, span and thread scores together, paged, no id)
     - online_rule: project_id or project_name (the automation rules scoring
       this project's traces)
     - project_metric: project_id or project_name, plus metric_type — one
-      metric over time. Rows are time buckets, not records, so page/size/sort
-      do not apply; since/until and interval decide the shape.
+      metric over time. Rows are time buckets, so page/size/sort are refused;
+      since/until and interval decide the shape.
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 

@@ -26,13 +26,13 @@ confirmed against www.comet.com rather than read off the Java:
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, describe
 from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE
-from opik_mcp.read_list.window import floor_to_second, format_instant, parse_bound
+from opik_mcp.read_list.window import closed_window, format_instant
 
 WINDOW_DAYS: Final = 7
 """Default window: the week the question is about.
@@ -84,9 +84,7 @@ def window(
     window has no day count, and rounding one would be a small lie in a field
     an agent will quote.
     """
-    # Floor before measuring the span — see ``window.floor_to_second``.
-    end = floor_to_second(parse_bound(until) if until else (now or datetime.now(UTC)))
-    start = floor_to_second(parse_bound(since)) if since else end - timedelta(days=WINDOW_DAYS)
+    start, end = closed_window(since, until, days=WINDOW_DAYS, now=now)
     span = end - start
 
     block: dict[str, Any] = {"since": format_instant(start), "until": format_instant(end)}
