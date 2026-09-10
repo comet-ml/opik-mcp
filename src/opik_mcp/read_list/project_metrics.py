@@ -430,15 +430,33 @@ def _number(value: Any) -> str:
     return f"{round(float(value), 4):g}"
 
 
-def _time_label(raw: Any, interval: str) -> str:
+def _time_label(raw: Any, interval: str, *, until: str | None = None) -> str:
     """Buckets are labelled at the precision they mean.
 
     A daily bucket labelled with a time implies a precision it does not have,
     and it costs eleven characters a row to imply it.
+
+    ``total`` is the case worth care: the backend labels its single bucket with
+    the window's *start*, so passing that through reads as "on the 3rd there
+    were 5" when the number is the whole week's. It gets the span instead.
     """
     if not isinstance(raw, str) or not raw:
         return ""
+    if interval == "total":
+        return f"{raw[:10]} → {until[:10]}" if until else f"since {raw[:10]}"
     return raw[:16].replace("T", " ") if interval == "hourly" else raw[:10]
+
+
+def _all_zero(series: list[dict[str, Any]]) -> bool:
+    """True when not one point in any series carries a non-zero value.
+
+    Thirty-one rows of ``| 0`` cost 148 tokens to say nothing happened, and a
+    cost or error-rate question on a quiet project produces exactly that. The
+    answer is the same either way; only one of the two is worth paying for.
+    """
+    return all(
+        not point.get("value") for one in series for point in one["data"] if isinstance(point, dict)
+    )
 
 
 MAX_SERIES: Final = 10
@@ -469,6 +487,7 @@ def render(
     metric_name: str,
     interval: str,
     names_source: str | None = None,
+    until: str | None = None,
 ) -> str:
     """The series as ``time | <series> …``, one row per bucket.
 
@@ -482,6 +501,12 @@ def render(
     if not series:
         return f"No {metric_name} data in this window."
 
+    if _all_zero(series):
+        # The window is already on the header line, so the table would add
+        # nothing but its own length. Seen live: 31 rows of "| 0" for a cost
+        # question on a project with no cost.
+        return f"No {metric_name} recorded in this window — every bucket is zero."
+
     total_series = len(series)
     if total_series > MAX_SERIES:
         series = sorted(series, key=_series_weight, reverse=True)[:MAX_SERIES]
@@ -492,7 +517,7 @@ def render(
 
     lines = [" | ".join(["time", *columns])]
     for row, when in enumerate(times):
-        cells = [_time_label(when, interval)]
+        cells = [_time_label(when, interval, until=until)]
         for one in series:
             points = one["data"]
             point = points[row] if row < len(points) and isinstance(points[row], dict) else {}
@@ -666,7 +691,13 @@ async def run_project_metric(
         if grouping is None and name.endswith("feedback_scores")
         else None
     )
-    table = render(body, metric_name=name, interval=interval_name, names_source=names_source)
+    table = render(
+        body,
+        metric_name=name,
+        interval=interval_name,
+        names_source=names_source,
+        until=window_until,
+    )
     return f"{header}\n{table}"
 
 

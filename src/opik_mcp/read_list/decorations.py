@@ -16,6 +16,7 @@ five-way fan-out, not an exotic one.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, Final
@@ -54,9 +55,28 @@ def describe(what: str, exc: BaseException) -> str:
     return f"Could not load {what}: {detail}"
 
 
+DEADLINE_SECONDS: Final = 2.5
+"""How long a decoration may hold up the answer it decorates.
+
+Generous against the healthy case — the project read's legs measure 130-500 ms
+against production — and it exists because one of them does not stay healthy:
+``/activities`` answers in ~250 ms for most projects and 5-11 s for some (the
+same projects each time, and with a single row, so it is the shape of the data
+rather than its volume). A gathered read finishes with its slowest leg, so
+without a deadline one backend query turns a half-second answer into an
+eight-second one.
+
+The client's own 30 s timeout still governs the primary fetch. This bounds only
+what is optional, which is the whole point: an overview that arrives promptly
+missing one block beats a complete one the user gave up waiting for.
+"""
+
+
 async def block[T](
     what: str,
     load: Callable[[], Awaitable[T]],
+    *,
+    deadline: float | None = None,
 ) -> T | dict[str, Any]:
     """Run one decoration, or return ``{"error": …}`` describing why not.
 
@@ -64,12 +84,28 @@ async def block[T](
     of them: ``asyncio.gather`` without ``return_exceptions`` propagates the
     first failure and discards every sibling's result, so the guard has to sit
     inside each leg rather than around the gather.
+
+    ``deadline`` defaults to :data:`DEADLINE_SECONDS`, read here rather than
+    bound as a default argument — a module constant used as a default is fixed
+    at import and cannot be adjusted afterwards, including by a test that
+    means to.
     """
+    limit = DEADLINE_SECONDS if deadline is None else deadline
     try:
-        return await load()
+        async with asyncio.timeout(limit):
+            return await load()
+    except TimeoutError:
+        logger.debug("%s exceeded its %.1fs deadline", what, limit)
+        return {
+            "error": (
+                f"Could not load {what}: the backend took longer than "
+                f"{limit:g}s, so it was left out rather than holding up the "
+                "rest of the answer. Retry, or ask for it on its own."
+            )
+        }
     except BLOCK_ERRORS as exc:
         logger.debug("%s failed: %s", what, exc, exc_info=True)
         return {"error": describe(what, exc)}
 
 
-__all__ = ["BLOCK_ERRORS", "block", "describe"]
+__all__ = ["BLOCK_ERRORS", "DEADLINE_SECONDS", "block", "describe"]

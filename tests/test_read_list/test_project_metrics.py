@@ -107,6 +107,53 @@ async def test_integers_are_not_printed_as_floats() -> None:
 
 
 @pytest.mark.anyio
+async def test_an_all_zero_series_collapses_to_one_line() -> None:
+    """Found by running the packaged server: a cost question on a project with
+    no cost printed 31 rows of "| 0" for 148 tokens. The window is already on
+    the header line, so the table adds nothing but its own length."""
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_cost",
+        since="30d",
+        client=_fake(results=[_series("cost", [0.0] * 31)]),
+    )
+    assert "every bucket is zero" in out
+    assert "| 0" not in out
+    assert len(out.splitlines()) == 2, "the header and one line"
+
+
+@pytest.mark.anyio
+async def test_one_non_zero_bucket_still_gets_the_table() -> None:
+    """The collapse must not eat a real answer that happens to be mostly quiet
+    — the one day something happened is the whole point of asking."""
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_cost",
+        client=_fake(results=[_series("cost", [0.0, 0.0, 4.12, 0.0])]),
+    )
+    assert "2026-09-04 | 4.12" in out
+
+
+@pytest.mark.anyio
+async def test_a_total_row_is_labelled_with_the_window_not_its_first_day() -> None:
+    """The backend labels its single TOTAL bucket with the window's start, so
+    passing it through read as "on the 3rd there were 5" when the number is
+    the whole week's."""
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_count",
+        interval="total",
+        since="2026-09-03T00:00:00Z",
+        until="2026-09-10T00:00:00Z",
+        client=_fake(results=[_series("traces", [5], start="2026-09-03")]),
+    )
+    assert "2026-09-03 → 2026-09-10 | 5" in out
+
+
+@pytest.mark.anyio
 async def test_an_empty_series_says_so_rather_than_printing_a_bare_header() -> None:
     out = await run_list(
         "project_metric", project_id=PROJECT, metric_type="trace_count", client=_fake(results=[])

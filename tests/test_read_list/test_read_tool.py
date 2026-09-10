@@ -18,6 +18,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.read_list import decorations
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.read_tool import run_read
 
@@ -1329,6 +1330,53 @@ async def test_an_error_with_no_message_still_says_something() -> None:
     fake = _vocab_fake(fail_score_names_with=httpx.ReadTimeout(""))
     body = _payload(await run_read("project", UUID, client=fake))
     assert "ReadTimeout" in body["vocabulary"]["score_names"]["error"]
+
+
+@pytest.mark.anyio
+async def test_a_slow_decoration_does_not_hold_up_the_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found by running the packaged server against production: `/activities`
+    answers in ~250 ms for most projects and 5-11 s for some — the same ones
+    each time, with a single row, so it is the shape of the data rather than
+    its volume. A gathered read finishes with its slowest leg, so one backend
+    query turned the headline call from half a second into eight."""
+    monkeypatch.setattr(decorations, "DEADLINE_SECONDS", 0.05)
+
+    async def crawl(_project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        await asyncio.sleep(5)
+        return {"content": [], "total": 0}
+
+    fake = _vocab_fake()
+    monkeypatch.setattr(fake, "list_project_activities", crawl)
+
+    started = asyncio.get_running_loop().time()
+    body = _payload(await run_read("project", UUID, client=fake))
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert elapsed < 1, f"the read waited {elapsed:.1f}s on a decoration"
+    assert "longer than" in body["contains"]["error"]
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+    assert body["vocabulary"]["score_names"]["names"] == ["hallucination", "tone"]
+
+
+@pytest.mark.anyio
+async def test_the_summary_is_not_on_a_decoration_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The figures are the answer, not a decoration of it. Cutting them off at
+    2.5s to report "timed out" would be worse than the extra second."""
+    monkeypatch.setattr(decorations, "DEADLINE_SECONDS", 0.02)
+
+    async def slowish(_project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        await asyncio.sleep(0.1)
+        return {"stats": _STATS}
+
+    fake = _vocab_fake()
+    monkeypatch.setattr(fake, "get_project_kpi_cards", slowish)
+
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
 
 
 @pytest.mark.anyio
