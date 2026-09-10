@@ -27,20 +27,26 @@ from opik_mcp.server import mcp
 # whether they use us that turn or not. Prefer trimming a description or moving
 # reference material behind `schema()`, which is fetched only when wanted.
 #
-# History:
+# History, with who spent what — the point of keeping it is that the next
+# raise can see whether the surface is growing for one reason or for many:
 #   15,444  2026-09-09, when this test was added.
-#   17,498  OPIK-8284 complete — the project overview and the metric series.
-#           2,054 bytes (~513 tokens) for: `project_metric` on `list` with its
+#   17,498  OPIK-8284 — the project overview and the metric series. +2,054
+#           bytes (~513 tokens): `project_metric` on `list` with its
 #           metric/interval/breakdown params (~1.5k), two drill-down entity
-#           names, and the read tool's project shape. Came in one token under
-#           the 514 the first ceiling allowed.
+#           names, and the read tool's project shape.
+#   19,404  merging OPIK-8310 (Diagnostics disabled fallback). +1,906 bytes,
+#           almost all of it `write`, which grew 3,644 → 5,403 for the
+#           `agent_insights_job.trigger` operation, plus `schema` 910 → 1,057.
+#           That change predates this test, so nothing measured it at the time;
+#           this is the guard's first contact with a surface change that was
+#           not its author's.
 #
-# The ceiling sits ~300 bytes above the measurement on purpose. A budget with no
+# The ceiling sits ~400 bytes above the measurement on purpose. A budget with no
 # slack is a budget that gets raised in a hurry inside an unrelated PR the first
 # time someone fixes a typo in a description; this one still catches a real
 # regression while leaving room to reword. The slack costs nothing — a ceiling
 # is not an allocation, and unused headroom is not in anyone's context.
-SURFACE_BUDGET_BYTES = 17_800
+SURFACE_BUDGET_BYTES = 19_800
 
 
 def surface_report(

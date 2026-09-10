@@ -190,7 +190,12 @@ def trigger_grade() -> int:
     if not f.exists():
         print(f"  ! no {f}: run trigger-prepare + a judge first")
         return 2
-    verdicts = json.loads(f.read_text())
+    loaded = json.loads(f.read_text())
+    # judge_input.md asks for {"verdicts": {phrase: skill}}, so unwrap that
+    # key; a judge that returns the flat map instead is also accepted, since
+    # both readings of "STRICT JSON" show up in practice and neither is wrong
+    # enough to score a skill at 0.36 for.
+    verdicts = loaded.get("verdicts", loaded) if isinstance(loaded, dict) else {}
     trig = load_cases().get("triggering", {})
     st = {p: (verdicts.get(p) == "opik-diagnose") for p in trig.get("should_trigger", [])}
     sn = {p: (verdicts.get(p) == "opik-diagnose") for p in trig.get("should_not_trigger", [])}

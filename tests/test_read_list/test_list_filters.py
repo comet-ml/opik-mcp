@@ -96,6 +96,12 @@ class FakeOpikClient:
     async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
         return {"results": []}
 
+    async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
+        raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
+
+    async def get_service_toggles(self) -> dict[str, Any]:
+        return {"ollieEnabled": True}
+
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:
     raw = fake.last_kwargs.get("filters")

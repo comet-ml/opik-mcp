@@ -14,6 +14,7 @@ import httpx
 import pytest
 import respx
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikClient
 from opik_mcp.writes.dispatch import run_write
 from opik_mcp.writes.errors import (
@@ -24,11 +25,15 @@ from opik_mcp.writes.errors import (
 )
 from opik_mcp.writes.scopes import (
     ALL_WRITE_SCOPES,
+    SCOPE_PROJECT_DATA_VIEW,
     SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
     SCOPE_TRACE_SPAN_THREAD_LOG,
 )
 
 OPIK_BASE = "https://opik.test"
+
+# Settings whose UI base and workspace are known, so a write can carry a link.
+_UI_SETTINGS = Settings(opik_api_key="key-abc", comet_workspace="ws", opik_url=f"{OPIK_BASE}/api")
 
 
 @pytest.fixture
@@ -364,6 +369,367 @@ async def test_thread_close_rejects_batch() -> None:
     assert any(i.get("code") == "batch_unsupported" for i in body["issues"])
 
 
+# --- Diagnostics job: enable ------------------------------------------- #
+
+_TOGGLES_ON = {"ollieEnabled": True}
+_TOGGLES_OFF = {"ollieEnabled": False}
+PROJECT = "01a0808c-5b0b-71ca-861a-0556a41c77ec"
+
+
+def _job(status: str = "enabled") -> dict[str, object]:
+    return {"id": "job-1", "project_id": PROJECT, "status": status}
+
+
+@pytest.mark.anyio
+async def test_job_enable_creates_the_job() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert route.called
+    assert out["ok"] is True
+    assert out["status"] == 201
+    assert out["backend_body"]["status"] == "enabled"
+
+
+@pytest.mark.anyio
+async def test_job_enable_flips_an_existing_disabled_job() -> None:
+    """A 409 means the job exists; "turn it on" must still mean on."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(409, json={"errors": ["Job already exists"]}),
+        )
+        patch = mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(200, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert json.loads(patch.calls.last.request.content) == {"status": "enabled"}
+    assert out["ok"] is True
+    assert out["backend_body"]["status"] == "enabled"
+
+
+@pytest.mark.anyio
+async def test_job_enable_does_not_replay_the_create_key_on_the_patch() -> None:
+    """The follow-up is a different method and body, so it must not carry the
+    create's idempotency key — a backend that replays stored responses would
+    hand back the 409 and the envelope would report it as the PATCH result."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        post = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(409, json={"errors": ["Job already exists"]}),
+        )
+        patch = mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(200, json=_job()),
+        )
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            idempotency_key="caller-key-1",
+            client=_client(),
+        )
+    assert post.calls.last.request.headers.get("Idempotency-Key") == "caller-key-1"
+    assert patch.calls.last.request.headers.get("Idempotency-Key") != "caller-key-1"
+
+
+@pytest.mark.anyio
+async def test_job_enable_reports_the_conflict_when_the_follow_up_also_fails() -> None:
+    """A 409 that was not "job exists" must not vanish behind a PATCH error."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(409, json={"errors": ["Workspace conflict"]}),
+        )
+        mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(404, json={"errors": ["Job not found"]}),
+        )
+        with pytest.raises(BackendError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.enable",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert "Workspace conflict" in json.dumps(body)
+
+
+@pytest.mark.anyio
+async def test_job_enable_dry_run_previews_the_real_path_for_an_id() -> None:
+    """With the UUID in hand nothing needs resolving, so the preview must be
+    the path that would actually be called."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/")
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            dry_run=True,
+            client=_client(),
+        )
+    assert out["would_call"]["path"] == f"/v1/private/agent-insights/jobs/{PROJECT}"
+
+
+@pytest.mark.anyio
+async def test_job_enable_dry_run_says_a_name_is_resolved_at_execution() -> None:
+    out = await run_write(
+        operation="agent_insights_job.enable",
+        data={"project_name": "demo"},
+        dry_run=True,
+        client=_client(),
+    )
+    assert "{project_id}" in out["would_call"]["path"]
+    assert "resolve" in out["would_call"]["note"]
+
+
+@pytest.mark.anyio
+async def test_job_enable_twice_in_a_row_is_safe() -> None:
+    """Whatever the job's state, the second call ends enabled and reports ok —
+    the agent never has to branch on whether it already ran this."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        create = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}")
+        create.side_effect = [
+            httpx.Response(201, json=_job()),
+            httpx.Response(409, json={"errors": ["Job already exists"]}),
+        ]
+        mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(200, json=_job()),
+        )
+        first = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+        second = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert first["ok"] is True and first["method"] == "POST"
+    assert second["ok"] is True and second["method"] == "PATCH"
+    assert second["backend_body"]["status"] == "enabled"
+
+
+@pytest.mark.anyio
+async def test_job_enable_carries_the_diagnostics_page_url() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["url"] == f"https://opik.test/ws/projects/{PROJECT}/diagnostics"
+
+
+@pytest.mark.anyio
+async def test_job_enable_resolves_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            ),
+        )
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        out = await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_name": "demo"},
+            client=_client(),
+        )
+    assert route.called
+    assert out["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_job_enable_refused_when_ollie_is_off() -> None:
+    """Nothing would ever scan, so refuse before touching the jobs endpoints."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_OFF))
+        jobs = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}")
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.enable",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    assert not jobs.called
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "diagnostics_unavailable" for i in body["issues"])
+    assert "not available on this deployment" in json.dumps(body)
+
+
+@pytest.mark.anyio
+async def test_job_enable_requires_some_project_scope() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(operation="agent_insights_job.enable", data={}, client=_client())
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "project_scope_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_job_enable_prefers_project_id_when_both_are_given() -> None:
+    """Same precedence read and list use, so one argument pair behaves the
+    same way everywhere: the id wins and the name is not looked up."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        projects = mock.get("/v1/private/projects")
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT, "project_name": "ignored"},
+            client=_client(),
+        )
+    assert route.called
+    assert not projects.called
+
+
+@pytest.mark.anyio
+async def test_job_enable_requires_the_project_data_view_scope() -> None:
+    with pytest.raises(AuthorizationDeniedError) as exc_info:
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            scopes=frozenset(),
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert body["required_scope"] == SCOPE_PROJECT_DATA_VIEW
+
+
+@pytest.mark.anyio
+async def test_job_enable_rejects_batch() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="agent_insights_job.enable",
+            data=[{"project_id": PROJECT}, {"project_name": "demo"}],
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "batch_unsupported" for i in body["issues"])
+
+
+# --- Diagnostics job: trigger ------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_job_trigger_starts_a_scan_and_reports_where_to_watch_it() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(202),
+        )
+        out = await run_write(
+            operation="agent_insights_job.trigger",
+            data={"project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert route.called
+    assert out["ok"] is True
+    assert out["status"] == 202
+    assert out["url"] == f"https://opik.test/ws/projects/{PROJECT}/diagnostics"
+    assert "last 24 hours" in out["note"]
+
+
+@pytest.mark.anyio
+async def test_job_trigger_on_a_project_without_a_job_says_enable_first() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(404, json={"errors": ["Job not found"]}),
+        )
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.trigger",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "diagnostics_not_enabled" for i in body["issues"])
+    assert "agent_insights_job.enable" in json.dumps(body)
+
+
+@pytest.mark.anyio
+async def test_job_trigger_refused_when_ollie_is_off() -> None:
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_OFF))
+        jobs = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger")
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="agent_insights_job.trigger",
+                data={"project_id": PROJECT},
+                client=_client(),
+            )
+    assert not jobs.called
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "diagnostics_unavailable" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_diagnostics_gate_is_read_per_write() -> None:
+    """Not cached: only Diagnostics work consults the gate, so each operation
+    pays one cheap GET and sees a toggle flipped since the last one."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        toggles = mock.get("/v1/private/toggles/").mock(
+            return_value=httpx.Response(200, json=_TOGGLES_ON)
+        )
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+            return_value=httpx.Response(201, json=_job()),
+        )
+        mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(202),
+        )
+        await run_write(
+            operation="agent_insights_job.enable",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+        await run_write(
+            operation="agent_insights_job.trigger",
+            data={"project_id": PROJECT},
+            client=_client(),
+        )
+    assert len(toggles.calls) == 2
+
+
+@pytest.mark.anyio
+async def test_job_trigger_resolves_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=_TOGGLES_ON))
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            ),
+        )
+        route = mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}/trigger").mock(
+            return_value=httpx.Response(202),
+        )
+        await run_write(
+            operation="agent_insights_job.trigger",
+            data={"project_name": "demo"},
+            client=_client(),
+        )
+    assert route.called
+
+
 # --- OAuth scope rejection ---------------------------------------------- #
 
 
@@ -652,3 +1018,130 @@ async def test_all_scopes_grants_every_operation() -> None:
 
     for op in WRITE_REGISTRY.values():
         assert op.oauth_scope in ALL_WRITE_SCOPES, op.name
+
+
+# --- Diagnostics issue lifecycle ---------------------------------------- #
+
+ISSUE = "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("operation", "status"),
+    [
+        ("agent_insights_issue.resolve", "resolved"),
+        ("agent_insights_issue.close", "closed"),
+        ("agent_insights_issue.reopen", "open"),
+    ],
+)
+async def test_issue_lifecycle_patches_the_status(operation: str, status: str) -> None:
+    """The issue goes in the path, the project and the new status in the body —
+    the backend requires the project even though the issue id is unique."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        out = await run_write(
+            operation=operation,
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert route.called
+    assert json.loads(route.calls.last.request.content) == {
+        "project_id": PROJECT,
+        "status": status,
+    }
+    assert out["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_does_not_consult_the_deployment_gate() -> None:
+    """An issue exists, so Diagnostics demonstrably runs here. Asking the
+    toggles endpoint would spend a request to learn what the issue proves."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        toggles = mock.get("/v1/private/toggles/").mock(
+            return_value=httpx.Response(200, json=_TOGGLES_ON)
+        )
+        mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+        )
+    assert not toggles.called
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_resolves_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            )
+        )
+        route = mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE, "project_name": "demo"},
+            client=_client(),
+        )
+    assert json.loads(route.calls.last.request.content)["project_id"] == PROJECT
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_needs_a_project() -> None:
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE},
+            client=_client(),
+        )
+    body = json.loads(exc_info.value.to_json())
+    assert any(i.get("code") == "project_scope_missing" for i in body["issues"])
+
+
+@pytest.mark.anyio
+async def test_resolving_an_issue_links_the_view_it_moved_to() -> None:
+    """A resolved issue leaves the default page, so the link has to point at
+    the resolved view or it lands on a page the issue is no longer on."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        out = await run_write(
+            operation="agent_insights_issue.resolve",
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["url"].endswith(f"/diagnostics/resolved?issue={ISSUE}")
+
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/agent-insights/issues/{ISSUE}").mock(
+            return_value=httpx.Response(204),
+        )
+        out = await run_write(
+            operation="agent_insights_issue.reopen",
+            data={"issue_id": ISSUE, "project_id": PROJECT},
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["url"].endswith(f"/diagnostics?issue={ISSUE}")
+
+
+@pytest.mark.anyio
+async def test_issue_lifecycle_dry_run_shows_the_real_path_and_body() -> None:
+    out = await run_write(
+        operation="agent_insights_issue.close",
+        data={"issue_id": ISSUE, "project_id": PROJECT},
+        dry_run=True,
+    )
+    call = out["would_call"]
+    assert call["method"] == "PATCH"
+    assert call["path"] == f"/v1/private/agent-insights/issues/{ISSUE}"
+    assert call["body"] == {"project_id": PROJECT, "status": "closed"}

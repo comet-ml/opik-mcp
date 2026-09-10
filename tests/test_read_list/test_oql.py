@@ -283,3 +283,77 @@ def test_unknown_entity_type_is_rejected() -> None:
     with pytest.raises(OQLError) as ei:
         compile_filters("project", 'name = "x"')
     assert "trace, span, thread, experiment" in str(ei.value)
+
+
+# --- closed enum values (the backend 500s on an unknown one) -------------- #
+
+
+def test_unknown_source_value_is_rejected_locally_with_the_accepted_set() -> None:
+    """opik-backend deserializes the filter value into its Source enum and
+    throws on a miss, which surfaces as a 500, not a 400 — so the caller gets
+    an opaque server error for a typo. Catch it here and name the values."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("trace", 'source = "SDK"')
+    msg = str(exc.value)
+    assert exc.value.kinds == ("bad_value",)
+    assert "sdk" in msg and "evaluator" in msg
+
+
+def test_known_source_values_pass() -> None:
+    for value in ("sdk", "experiment", "playground", "optimization", "evaluator"):
+        assert compile_filters("trace", f'source = "{value}"') == [_clause("source", "=", value)]
+
+
+def test_unknown_span_type_is_rejected() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("span", 'type = "function"')
+    assert "tool" in str(exc.value)
+
+
+def test_every_item_of_an_in_list_is_checked() -> None:
+    """``in`` values arrive comma-joined, and one bad element 500s the same as
+    a bad single value."""
+    assert compile_filters("span", 'type in ("tool", "llm")') == [_clause("type", "in", "tool,llm")]
+    with pytest.raises(OQLError) as exc:
+        compile_filters("span", 'type in ("tool", "nope")')
+    assert "nope" in str(exc.value)
+
+
+def test_emptiness_operators_skip_the_value_check() -> None:
+    assert compile_filters("trace", "environment is_not_empty") == [
+        _clause("environment", "is_not_empty")
+    ]
+
+
+def test_open_ended_enums_are_not_restricted() -> None:
+    """``environment`` is an enum to the operator map but a free string in the
+    data: any deployment can name one, so a value list would reject valid
+    filters."""
+    assert compile_filters("trace", 'environment = "staging-eu"') == [
+        _clause("environment", "=", "staging-eu")
+    ]
+
+
+def test_thread_status_and_visibility_mode_are_checked() -> None:
+    assert compile_filters("thread", 'status = "active"') == [_clause("status", "=", "active")]
+    with pytest.raises(OQLError):
+        compile_filters("thread", 'status = "closed"')
+    with pytest.raises(OQLError):
+        compile_filters("trace", 'visibility_mode = "public"')
+
+
+def test_the_stored_unknown_sentinel_is_filterable() -> None:
+    """Source and SpanType both keep ``unknown`` as a value rows can carry but
+    nobody can ingest, and the backend answers 200 for it, so asking which
+    rows predate the field is a legitimate filter."""
+    assert compile_filters("trace", 'source = "unknown"') == [_clause("source", "=", "unknown")]
+    assert compile_filters("span", 'type = "unknown"') == [_clause("type", "=", "unknown")]
+
+
+def test_a_value_the_backend_answers_with_nothing_is_still_refused() -> None:
+    """Only ``source`` 500s server-side; span ``type`` compares as a string and
+    returns an empty page. That reads as "no matches" when it means "no such
+    value", so it is refused here with the set."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("span", 'type = "retrieval"')
+    assert "general, tool, llm, guardrail" in str(exc.value)

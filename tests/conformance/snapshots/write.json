@@ -48,7 +48,12 @@
         "experiment.create",
         "experiment_item.create",
         "thread.close",
-        "thread.open"
+        "thread.open",
+        "agent_insights_issue.resolve",
+        "agent_insights_issue.close",
+        "agent_insights_issue.reopen",
+        "agent_insights_job.enable",
+        "agent_insights_job.trigger"
       ],
       "title": "Operation",
       "type": "string"

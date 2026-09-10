@@ -261,6 +261,15 @@ read also carries `url` (the issue's Diagnostics page) and `trace_url_template`
 something clickable; under an OAuth session whose workspace could not be
 resolved the links are omitted rather than guessed.
 
+Traces themselves carry no URL — a link for one is not derivable from the
+fields a `read` or `list` returns, and a guessed shape 404s. The session
+instructions name a template for it instead,
+`.../v1/session/redirect/projects/?trace_id={trace_id}&path=...`, so the
+assistant fills in an id and hands you a link. It goes through opik-backend's
+redirect, which resolves the project and the workspace from the trace, so it
+works where a direct project URL cannot, an OAuth session with an unresolved
+workspace included. It is the same link the Python SDK prints for a trace.
+
 ### `list`
 
 Browse or search a collection with pagination. Project-scoped types (`trace`,
@@ -302,8 +311,15 @@ yourself to see them. The first output line echoes the filter that was applied.
 
 A bad filter fails before reaching the backend with what is needed to fix it:
 the position of a syntax error, the closest field name, the valid operators for
-the field's type, or the expected value format. Ask `schema("list.trace")` (or
-`list.span`, `list.thread`, `list.experiment`) for the full field reference.
+the field's type, or the expected value format. Fields with a closed set of
+values (`source`, span `type`, thread `status`, `visibility_mode`) are checked
+against it too, every element of an `in` list included. `source` is the one the
+backend validates itself, and it answers an unknown value with a 500 rather
+than a 400, so `source = "SDK"` would otherwise be an opaque server error for a
+capital letter. The rest are compared as strings and answer with an empty page,
+which reads as "no matches" when it means "no such value". Ask
+`schema("list.trace")` (or `list.span`, `list.thread`, `list.experiment`) for
+the full field reference, accepted values included.
 
 **Sort.** The same four types take `sort="<field> [asc|desc]"`, `desc` by
 default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
@@ -344,9 +360,40 @@ ranked as the UI ranks them (most recently seen first). Columns are `severity`,
 `status`, `total_occurrences` (all-time sum), `latest_count` (the most recent
 report day, the number the issue's own description refers to) and `last_seen`.
 Open issues are listed by default; pass `status="resolved"` or `"closed"` for
-the rest. Counts are all-time so they match the UI; the same `since` / `until`
+the rest. `read` and `list` also answer to `issue`, which is what the UI calls
+these; the long name is the one in the `entity_type` enum, so that one entity
+does not appear there twice. Counts are all-time so they match the UI; the same `since` / `until`
 as for traces narrow the window, truncated to UTC report days because
 Diagnostics aggregates per day.
+
+An empty list says why it is empty, because "nothing is broken" and "nobody
+turned Diagnostics on" read the same otherwise. There are five states:
+Diagnostics is unavailable on this deployment, not enabled for this project,
+turned off, enabled but not scanned recently, or enabled and clean with the
+time of the last scan. The ones you can act on name the call to make, and every
+state links the project's Diagnostics page.
+
+A non-empty list dates itself. The issues are whatever the last scan grouped,
+so the reply ends with `Report covers data through <time>`, and when the window
+you asked about runs past that, it names the uncovered tail and how to close
+it: a trigger when a rescan reaches back far enough, otherwise raw traces with
+the `since` it gives you. Ask for a week on a project scanned nightly and the
+last day is missing from the grouped answer; this is what says so.
+
+`write("agent_insights_job.enable", {"project_name": "demo"})` turns Diagnostics
+on. It scans daily from then on, and calling it again is safe.
+`write("agent_insights_job.trigger", …)` scans the last 24 hours now, without
+waiting for the nightly run. Both take the permission that reading issues takes,
+and both refuse where the deployment has no Diagnostics.
+
+An issue moves through its lifecycle with
+`write("agent_insights_issue.resolve", {"issue_id": "<uuid>", "project_name": "demo"})`
+— dealt with — or `…close` for one not worth acting on, and `…reopen` to put
+either back on the open list. All three take the same permission and answer
+with a link to the view the issue moved to, since a resolved issue is no longer
+on the default page. Whether a failure is fixed is a judgment call, so these
+are for when you ask: the assistant has no business tidying the list while
+triaging it.
 
 ### `write`
 
@@ -368,6 +415,11 @@ backend response.
 | `test_suite_item.upsert` | Upsert items into a test suite (always the envelope shape). |
 | `experiment.create` | Create an experiment scoped to a test suite. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
+| `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans, safe to repeat). |
+| `agent_insights_job.trigger` | Run a Diagnostics scan now, over the last 24 hours. |
+| `agent_insights_issue.resolve` | Mark a Diagnostics issue dealt with (ask the user first). |
+| `agent_insights_issue.close` | Mark a Diagnostics issue not worth acting on (ask the user first). |
+| `agent_insights_issue.reopen` | Put a resolved or closed Diagnostics issue back on the open list. |
 
 ```python
 write(operation="score.create", data={

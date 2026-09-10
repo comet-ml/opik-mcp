@@ -22,12 +22,22 @@ from typing import Any, Final
 from pydantic import BaseModel
 
 from opik_mcp.writes.models import EXAMPLES, MODELS
+from opik_mcp.writes.operations import diagnostics, evaluation, observability, threads
 from opik_mcp.writes.scopes import (
     SCOPE_DATASET_EDIT,
     SCOPE_EXPERIMENT_CREATE,
+    SCOPE_PROJECT_DATA_VIEW,
     SCOPE_PROMPT_CREATE,
     SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
     SCOPE_TRACE_SPAN_THREAD_LOG,
+)
+from opik_mcp.writes.wire import (
+    BuildFn,
+    DecorateFn,
+    DryRunNoteFn,
+    PrepareFn,
+    RetryFn,
+    ValidateFn,
 )
 
 BATCH_LIMIT: Final = 1000
@@ -52,6 +62,29 @@ class WriteOperation:
     # ``batch_unsupported``) are always possible and not duplicated here.
     failure_modes: tuple[str, ...] = ()
 
+    # --- what this operation does that no other one does ----------------- #
+    # The dispatcher runs the same five stages for every write; these are the
+    # points where an operation differs. Each lives in the operation's own
+    # module (``writes/operations/``) so its wire translation, its pre-flight
+    # resolves and what it says about its result sit together instead of as
+    # branches in the dispatcher. See ``writes/wire.py`` for the signatures.
+    validate_fn: ValidateFn | None = None
+    """A rule the payload's model cannot express on its own, checked after
+    Pydantic and before anything is sent. Raises; returns nothing."""
+    build_fn: BuildFn | None = None
+    """Turn validated models into the request. Defaults to the endpoint plus
+    an ``exclude_none`` dump of the single item, which is right for the plain
+    creates and wrong for anything with a batch envelope or a path id."""
+    prepare_fn: PrepareFn | None = None
+    """Resolve an identifier the wire needs but the caller does not carry, or
+    refuse the call. Live path only: a dry run touches no network."""
+    retry_fn: RetryFn | None = None
+    """Reinterpret a backend answer that means something else."""
+    decorate_fn: DecorateFn | None = None
+    """Add to the success envelope: a link to open, what to expect next."""
+    dry_run_note_fn: DryRunNoteFn | None = None
+    """What a preview cannot show, when it cannot show it."""
+
 
 # Internal mutable map, frozen via ``MappingProxyType`` before export so
 # callers cannot accidentally insert at runtime (defends against tests that
@@ -59,6 +92,7 @@ class WriteOperation:
 _REGISTRY: dict[str, WriteOperation] = {
     "trace.create": WriteOperation(
         name="trace.create",
+        build_fn=observability.build_trace_create,
         pydantic_model=MODELS["trace.create"],
         endpoint="/v1/private/traces",
         method="POST",
@@ -72,6 +106,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "trace.update": WriteOperation(
         name="trace.update",
+        build_fn=observability.build_trace_update,
         pydantic_model=MODELS["trace.update"],
         endpoint="/v1/private/traces/{id}",
         method="PATCH",
@@ -83,6 +118,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "span.create": WriteOperation(
         name="span.create",
+        build_fn=observability.build_span_create,
         pydantic_model=MODELS["span.create"],
         endpoint="/v1/private/spans",
         method="POST",
@@ -95,6 +131,8 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "score.create": WriteOperation(
         name="score.create",
+        build_fn=observability.build_score_create,
+        validate_fn=observability.validate_scores,
         pydantic_model=MODELS["score.create"],
         # Path is rewritten by the dispatcher from ``target`` / ``target_id``
         # — the template here documents the shape but is not used verbatim.
@@ -110,6 +148,9 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "comment.create": WriteOperation(
         name="comment.create",
+        build_fn=observability.build_comment_create,
+        prepare_fn=threads.resolve_comment_thread_id,
+        dry_run_note_fn=threads.comment_dry_run_note,
         pydantic_model=MODELS["comment.create"],
         endpoint="/v1/private/{target_path}/{target_id}/comments",
         method="POST",
@@ -121,6 +162,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "prompt_version.save": WriteOperation(
         name="prompt_version.save",
+        build_fn=evaluation.build_prompt_version_save,
         pydantic_model=MODELS["prompt_version.save"],
         endpoint="/v1/private/prompts/versions",
         method="POST",
@@ -134,6 +176,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "test_suite.create": WriteOperation(
         name="test_suite.create",
+        build_fn=evaluation.build_test_suite_create,
         pydantic_model=MODELS["test_suite.create"],
         endpoint="/v1/private/datasets",
         method="POST",
@@ -148,6 +191,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "test_suite_item.upsert": WriteOperation(
         name="test_suite_item.upsert",
+        build_fn=evaluation.build_test_suite_item_upsert,
         pydantic_model=MODELS["test_suite_item.upsert"],
         endpoint="/v1/private/datasets/items",
         method="PUT",
@@ -170,6 +214,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "experiment.create": WriteOperation(
         name="experiment.create",
+        build_fn=evaluation.build_experiment_create,
         pydantic_model=MODELS["experiment.create"],
         endpoint="/v1/private/experiments",
         method="POST",
@@ -182,6 +227,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "experiment_item.create": WriteOperation(
         name="experiment_item.create",
+        build_fn=evaluation.build_experiment_item_create,
         pydantic_model=MODELS["experiment_item.create"],
         endpoint="/v1/private/experiments/items",
         method="POST",
@@ -194,6 +240,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "thread.close": WriteOperation(
         name="thread.close",
+        build_fn=threads.build_thread_lifecycle,
         pydantic_model=MODELS["thread.close"],
         endpoint="/v1/private/traces/threads/close",
         method="PUT",
@@ -208,6 +255,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "thread.open": WriteOperation(
         name="thread.open",
+        build_fn=threads.build_thread_lifecycle,
         pydantic_model=MODELS["thread.open"],
         endpoint="/v1/private/traces/threads/open",
         method="PUT",
@@ -219,6 +267,114 @@ _REGISTRY: dict[str, WriteOperation] = {
         ),
         example=EXAMPLES["thread.open"],
         failure_modes=("thread_project_missing",),
+    ),
+    "agent_insights_issue.resolve": WriteOperation(
+        name="agent_insights_issue.resolve",
+        build_fn=diagnostics.build_issue_action,
+        prepare_fn=diagnostics.prepare_scope,
+        decorate_fn=diagnostics.decorate,
+        dry_run_note_fn=diagnostics.dry_run_note,
+        pydantic_model=MODELS["agent_insights_issue.resolve"],
+        endpoint="/v1/private/agent-insights/issues/{issue_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Mark a Diagnostics (Agent Insights) issue resolved — the failure it groups has been "
+            "dealt with. It leaves the default issue list and shows under status='resolved'. Pass "
+            "issue_id + project_id or project_name. Do this only when the user asks: whether a "
+            "failure is fixed is their call, not an inference from the traces."
+        ),
+        example=EXAMPLES["agent_insights_issue.resolve"],
+        failure_modes=("project_scope_missing",),
+    ),
+    "agent_insights_issue.close": WriteOperation(
+        name="agent_insights_issue.close",
+        build_fn=diagnostics.build_issue_action,
+        prepare_fn=diagnostics.prepare_scope,
+        decorate_fn=diagnostics.decorate,
+        dry_run_note_fn=diagnostics.dry_run_note,
+        pydantic_model=MODELS["agent_insights_issue.close"],
+        endpoint="/v1/private/agent-insights/issues/{issue_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Mark a Diagnostics (Agent Insights) issue closed — not worth acting on, as opposed "
+            "to fixed. It leaves the default issue list and shows under status='closed'. Pass "
+            "issue_id + project_id or project_name. Do this only when the user asks."
+        ),
+        example=EXAMPLES["agent_insights_issue.close"],
+        failure_modes=("project_scope_missing",),
+    ),
+    "agent_insights_issue.reopen": WriteOperation(
+        name="agent_insights_issue.reopen",
+        build_fn=diagnostics.build_issue_action,
+        prepare_fn=diagnostics.prepare_scope,
+        decorate_fn=diagnostics.decorate,
+        dry_run_note_fn=diagnostics.dry_run_note,
+        pydantic_model=MODELS["agent_insights_issue.reopen"],
+        endpoint="/v1/private/agent-insights/issues/{issue_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Put a resolved or closed Diagnostics (Agent Insights) issue back on the open list, "
+            "for a failure that came back or was closed too early. Pass issue_id + project_id or "
+            "project_name."
+        ),
+        example=EXAMPLES["agent_insights_issue.reopen"],
+        failure_modes=("project_scope_missing",),
+    ),
+    "agent_insights_job.enable": WriteOperation(
+        name="agent_insights_job.enable",
+        build_fn=diagnostics.build_job_action,
+        prepare_fn=diagnostics.prepare_scope,
+        retry_fn=diagnostics.retry,
+        decorate_fn=diagnostics.decorate,
+        dry_run_note_fn=diagnostics.dry_run_note,
+        pydantic_model=MODELS["agent_insights_job.enable"],
+        endpoint="/v1/private/agent-insights/jobs/{project_id}",
+        method="POST",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Turn Diagnostics (Agent Insights) on for a project: it then scans "
+            "daily and groups recurring failures into issues you can read with "
+            "list('agent_insights_issue', …). Pass project_id or project_name. "
+            "Idempotent — an existing job is switched back on. Pair it with "
+            "agent_insights_job.trigger to scan now instead of waiting for the "
+            "nightly run. Refused when the deployment has no Diagnostics."
+        ),
+        example=EXAMPLES["agent_insights_job.enable"],
+        failure_modes=("project_scope_missing", "diagnostics_unavailable"),
+    ),
+    "agent_insights_job.trigger": WriteOperation(
+        name="agent_insights_job.trigger",
+        build_fn=diagnostics.build_job_action,
+        prepare_fn=diagnostics.prepare_scope,
+        retry_fn=diagnostics.retry,
+        decorate_fn=diagnostics.decorate,
+        dry_run_note_fn=diagnostics.dry_run_note,
+        pydantic_model=MODELS["agent_insights_job.trigger"],
+        endpoint="/v1/private/agent-insights/jobs/{project_id}/trigger",
+        method="POST",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        description=(
+            "Run a Diagnostics (Agent Insights) scan for a project now, over the "
+            "last 24 hours, instead of waiting for the nightly run. Fire and "
+            "forget: the response says where to watch it, and issues appear in "
+            "list('agent_insights_issue', …) once the run finishes (minutes). "
+            "Needs Diagnostics enabled for the project — see "
+            "agent_insights_job.enable."
+        ),
+        example=EXAMPLES["agent_insights_job.trigger"],
+        failure_modes=(
+            "project_scope_missing",
+            "diagnostics_unavailable",
+            "diagnostics_not_enabled",
+        ),
     ),
 }
 

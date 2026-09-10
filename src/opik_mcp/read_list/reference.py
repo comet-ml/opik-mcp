@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Final
 
 from opik_mcp.read_list.oql import (
+    ENUM_VALUES,
     FILTERABLE_FIELDS,
     GRAMMAR_LINE,
     KEYED_TYPES,
@@ -70,6 +71,11 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             spec["unit"] = "milliseconds"
         if ftype == "date_time":
             spec["format"] = 'ISO-8601 instant with timezone, e.g. "2026-09-08T10:00:00Z"'
+        values = ENUM_VALUES.get(entity_type, {}).get(name)
+        if values is not None:
+            # The compiler refuses anything else, so the accepted set has to be
+            # discoverable here rather than by being rejected.
+            spec["values"] = list(values)
         fields[name] = spec
 
     filters: dict[str, Any] = {
