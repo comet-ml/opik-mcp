@@ -108,4 +108,3 @@ def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
     assert handler.needs_project is True
     assert handler.id_only is True
     assert handler.search_by_name_fn is None
-    assert handler.compress_fn is not None

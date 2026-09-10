@@ -2,9 +2,16 @@
 
 A thread has no body of its own on the backend: it is metadata plus the
 traces carrying its ``thread_id``, so the read projects each trace to one
-turn and sorts them into conversation order. Compression drops the turns'
-payloads before the metadata, since a long conversation is long because of
-what was said, and the metadata is what says which conversation this is.
+turn and sorts them into conversation order.
+
+Both halves are asked for slim, and this entity is the reason the rule is
+"slim the children" rather than "slim everything but the parent". A thread
+record has no body of its own: ``first_message`` is ``argMin(t.input,
+t.start_time)``, the very bytes ``messages[0].input`` already carries. Leaving
+the record whole while cutting the turns would ship one payload twice, once
+short and once long, with nothing saying which is authoritative — worse than
+either choice made consistently. ``read('trace', trace_id)`` returns any turn
+in full. See ``read_list/slim.py``.
 """
 
 from __future__ import annotations
@@ -13,19 +20,15 @@ import json
 from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.compression import (
-    TOKEN_FULL_THRESHOLD,
-    CompressionTier,
-    compact_json,
-    estimate_tokens,
-    fit_by_truncating,
-    kept_error,
-    over_budget_note,
-)
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import collection_truncated, page_items
+from opik_mcp.read_list.slim import count_cut, slim_notice
 
 MESSAGES_INLINE_LIMIT = 200
+
+#: ``as_messages`` projects a trace down to input and output, so those are
+#: the only cut fields a caller can see on a turn.
+SLIM_TURN_FIELDS = ("input", "output")
 
 
 def as_messages(traces: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -71,7 +74,9 @@ async def fetch(
     return the metadata with an empty messages list rather than failing the
     whole read.
     """
-    thread = await client.get_thread(entity_id, project_id=project_id, project_name=project_name)
+    thread = await client.get_thread(
+        entity_id, project_id=project_id, project_name=project_name, truncate=True
+    )
     filters = json.dumps([{"field": "thread_id", "operator": "=", "value": entity_id}])
     try:
         traces_page = await client.list_traces(
@@ -80,6 +85,7 @@ async def fetch(
             filters=filters,
             page=1,
             size=MESSAGES_INLINE_LIMIT,
+            truncate=True,
         )
     except Exception:
         # Unlike a trace's spans (secondary), messages ARE a thread's primary
@@ -93,11 +99,20 @@ async def fetch(
         }
     traces = page_items(traces_page)
     truncated = collection_truncated(traces_page, inlined=len(traces), limit=MESSAGES_INLINE_LIMIT)
-    return {
+    messages = as_messages(traces)
+    result: dict[str, Any] = {
         "thread": thread,
-        "messages": as_messages(traces),
+        "messages": messages,
         "messagesTruncated": truncated,
     }
+    if messages:
+        result["messageBodies"] = slim_notice(
+            cut=count_cut(messages, SLIM_TURN_FIELDS),
+            total=len(messages),
+            noun="turn",
+            whole="read('trace', trace_id)",
+        )
+    return result
 
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -106,59 +121,6 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     # supported by opik-backend; drop it if passed.
     kw.pop("name", None)
     return await client.list_threads(**kw)
-
-
-def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
-    """Thread+messages: FULL → MEDIUM (truncated strings) → SKELETON (turn list only).
-
-    Mirrors ``_compress_trace``: SKELETON drops the message payloads but keeps
-    the turn list so the LLM can drill into a specific turn via
-    ``read('trace', trace_id)``.
-    """
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-
-    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
-    if full_tokens <= budget:
-        return full_json, CompressionTier.FULL
-
-    truncated, fitted = fit_by_truncating(data, budget=budget)
-    if fitted:
-        return truncated, CompressionTier.MEDIUM
-
-    thread = data.get("thread") or {}
-    messages = data.get("messages") or []
-    skeleton = {
-        "thread": {"id": thread.get("id"), "status": thread.get("status")},
-        "messages": [
-            {
-                "trace_id": m.get("trace_id"),
-                "name": m.get("name"),
-                "start_time": m.get("start_time"),
-                "feedback_scores": m.get("feedback_scores"),
-                # Which turn broke, on a conversation too long to render.
-                **kept_error(m),
-            }
-            for m in messages
-            if isinstance(m, dict)
-        ],
-        "messagesTruncated": data.get("messagesTruncated", False),
-        "note": (
-            "SKELETON compression: message payloads omitted. "
-            "Use read('trace', trace_id) for details."
-        ),
-    }
-    text = compact_json(skeleton)
-    overspend = over_budget_note(
-        text,
-        budget=budget,
-        asked=max_tokens,
-        drill="Narrow with read('trace', trace_id) on the turns that matter.",
-    )
-    if overspend is not None:
-        skeleton["note"] = f"{skeleton['note']} {overspend}"
-        text = compact_json(skeleton)
-    return text, CompressionTier.SKELETON
 
 
 HANDLER = EntityHandler(
@@ -176,14 +138,14 @@ HANDLER = EntityHandler(
     ),
     list_required_kwargs=("project_id",),
     list_has_name=False,
-    compress_fn=compress,
     id_only=True,
     needs_project=True,
     description=(
         "Conversation thread: metadata + messages list (each turn's trace "
-        "input/output, up to 200 inlined). Returns {thread, messages, "
-        "messagesTruncated}. Requires project scope — pass a thread link/URI "
-        "or project_id. list('thread', project_id=…) enumerates a project's "
-        "threads."
+        "input/output, up to 200 inlined, bodies slim). Returns {thread, "
+        "messages, messagesTruncated}, plus messageBodies saying what the cut "
+        "took when any turn was inlined. Requires project scope — pass a "
+        "thread link/URI or project_id. list('thread', project_id=…) "
+        "enumerates a project's threads."
     ),
 )

@@ -230,6 +230,14 @@ One tool for any "show me X" question. Takes an `entity_type` plus an `id`
 (`trace`, `prompt`, `thread`, `agent_insights_issue`) inline their children so
 a single call returns the full picture.
 
+The record you name comes back whole. Inlined children do not: their bodies
+are fetched with the backend's `truncate=true`, so a field over ~10 KB is cut
+in ClickHouse and base64 images are replaced with `"[image]"` — one attachment
+echoed across 200 spans would otherwise cost more than everything else in the
+read. The answer says so in `spanBodies` / `messageBodies`, and any child is
+whole again through its own `read("span", id)` or `read("trace", trace_id)`,
+which hit endpoints that have no `truncate` parameter at all.
+
 **Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
 `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
 `project`, `experiment`, `prompt`, `test_suite` (slower — two API calls — and

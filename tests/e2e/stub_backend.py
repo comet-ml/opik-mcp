@@ -33,6 +33,7 @@ API_PREFIX = "/api"
 PROJECT_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000001"
 PROJECT_NAME = "checkout-agent"
 TRACE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000002"
+SPAN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000003"
 
 
 @dataclass
@@ -189,7 +190,7 @@ class StubBackend:
         if path == f"/v1/private/traces/{TRACE_ID}":
             return 200, _trace()
         if path == "/v1/private/spans":
-            return 200, _page([])
+            return 200, _page([_span()])
         return 404, {"message": f"stub has no route for {method} {path}"}
 
 
@@ -265,6 +266,25 @@ def _trace() -> dict[str, Any]:
         "input": {"cart": 3},
         "output": {"ok": True},
         "source": "sdk",
+    }
+
+
+#: What opik-backend hands back for a field it cut: a string, because the
+#: substring broke the JSON, of exactly the threshold length.
+CUT_SPAN_OUTPUT = "y" * 10_001
+
+
+def _span() -> dict[str, Any]:
+    return {
+        "id": SPAN_ID,
+        "trace_id": TRACE_ID,
+        "project_id": PROJECT_ID,
+        "name": "charge",
+        "type": "llm",
+        "start_time": "2026-09-02T10:00:00Z",
+        "end_time": "2026-09-02T10:00:01Z",
+        "input": {"amount": 12},
+        "output": CUT_SPAN_OUTPUT,
     }
 
 

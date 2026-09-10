@@ -742,8 +742,10 @@ class OpikClient:
         A thread is keyed by ``thread_id`` within a single project, so the
         backend has no ``GET /{id}`` route — it takes a ``TraceThreadIdentifier``
         body and requires ``project_id`` or ``project_name`` (raise ``ValueError``
-        if neither is given, mirroring ``list_traces``). ``truncate=False`` keeps
-        full first/last-message payloads; compression manages the token budget.
+        if neither is given, mirroring ``list_traces``). ``truncate`` cuts
+        ``first_message``/``last_message``, which are ``argMin``/``argMax`` over
+        the thread's trace bodies — the same bytes the turns carry, so the read
+        asks for them slim rather than shipping one payload at two lengths.
         """
         if project_id is None and project_name is None:
             raise ValueError("get_thread requires project_id or project_name")

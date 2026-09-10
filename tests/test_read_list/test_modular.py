@@ -31,7 +31,8 @@ ENTITIES = READ_LIST / "entities"
 SHARED: frozenset[str] = frozenset(
     {
         "__init__",
-        "compression",
+        "size",
+        "slim",
         "decorations",
         "errors",
         "handler",
@@ -119,16 +120,15 @@ def test_every_entity_module_is_registered() -> None:
 
 
 def test_the_registry_is_a_table_and_not_an_implementation() -> None:
-    """It may import handlers and hold the two table-level behaviours; a
-    fetcher, a list function or a compressor in here means the split has
-    started to leak back."""
+    """It may import handlers and hold the one table-level behaviour; a
+    fetcher or a list function in here means the split has started to leak
+    back."""
     tree = ast.parse(pathlib.Path(registry.__file__).read_text())
     defined = {
         node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
-    assert defined == {"resolve_entity_type", "compress_for"}, (
-        f"registry.py defines {sorted(defined)}; it should only resolve an "
-        "alias and pick a compressor."
+    assert defined == {"resolve_entity_type"}, (
+        f"registry.py defines {sorted(defined)}; it should only resolve an alias."
     )
 
 

@@ -16,7 +16,6 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.compression import CompressionTier
 
 # ``FetchFn`` is widened to ``...`` so project-scoped fetchers (only ``thread``
 # today) can accept ``project_id`` / ``project_name`` kwargs. Every other
@@ -25,7 +24,6 @@ from opik_mcp.read_list.compression import CompressionTier
 FetchFn = Callable[..., Awaitable[dict[str, Any]]]
 SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]]
 ListFn = Callable[..., Awaitable[dict[str, Any]]]
-CompressFn = Callable[[dict[str, Any], int | None], tuple[str, CompressionTier]]
 LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
 
 
@@ -104,14 +102,14 @@ class EntityHandler:
     project's metrics want instants — so the shape is declared here rather than
     assumed by the read tool."""
     link_fn: LinkFn | None = None
-    """Optional: UI links to attach to the fetched composite before compression.
+    """Optional: UI links to attach to the fetched composite before it is rendered.
 
     Called by ``read`` with the session's ``Settings`` and the fetched data;
     returns extra top-level fields (e.g. ``url``) and must not mutate the
     data. Fetchers cannot do this themselves — they see a client, not
     settings — and the UI base/workspace are session facts, not entity
     facts. A fetcher may stash inputs for the link under underscore-prefixed
-    keys; ``read`` strips those before compression. Return ``{}`` when Opik's
+    keys; ``read`` strips those before rendering. Return ``{}`` when Opik's
     URL or the workspace cannot be known: no link beats a wrong one.
     """
     run_fn: RunFn | None = None
@@ -184,7 +182,6 @@ class EntityHandler:
     a thread, and filtering traces by a thread's score returns nothing that
     looks like good news. The entity description is the wrong home for it:
     nothing surfaces those to the agent."""
-    compress_fn: CompressFn | None = None
     id_only: bool = False
     """True if the entity is addressed only by UUID (no name lookup).
 
@@ -204,7 +201,6 @@ class EntityHandler:
 
 
 __all__ = [
-    "CompressFn",
     "EntityHandler",
     "FetchFn",
     "LinkFn",

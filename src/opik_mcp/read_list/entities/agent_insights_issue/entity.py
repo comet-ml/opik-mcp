@@ -12,13 +12,6 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.compression import (
-    TOKEN_FULL_THRESHOLD,
-    CompressionTier,
-    compact_json,
-    estimate_tokens,
-    truncate_strings,
-)
 from opik_mcp.read_list.entities.agent_insights_issue.state import issue_page_note
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow
 from opik_mcp.read_list.project_scope import require_project_id
@@ -63,8 +56,11 @@ async def fetch(
     private ``_project_id`` (see below): the issue record without its
     ``details`` array, the trace ids the agent can open with
     ``read('trace', id)``, and the per-day rows unchanged. Trace bodies are
-    deliberately not inlined — that would turn one read into N+1 calls and
-    blow the default budget on any issue with several examples.
+    deliberately not inlined — that would turn one read into N+1 calls on any
+    issue with several examples. Nothing here is slimmed either: the
+    agent-insights endpoints take no ``truncate`` parameter, and inventing a
+    Python-side cut is the thing :mod:`opik_mcp.read_list.size` exists to say
+    we do not do.
     """
     # The agent-insights endpoints take project_id only; resolve the name here
     # so the read contract stays "project_id or project_name" for every
@@ -134,62 +130,6 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_agent_insights_issues(**kw)
 
 
-def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
-    """Issue+details: FULL → MEDIUM (rows without metadata, then truncated
-    strings) → SKELETON (ids only).
-
-    Unlike trace/thread, MEDIUM here is budget-aware. An issue read is mostly
-    per-day rows whose ``metadata`` repeats the example ids (already lifted
-    into ``example_trace_ids``) and carries a confidence justification; that
-    is the bulk of the tokens and none of the reason for the read. So MEDIUM
-    first drops row metadata, then truncates long strings, and returns as
-    soon as the body fits. If it still does not fit, SKELETON — the agent
-    asked for a small answer, so the global 50k threshold is not the bar.
-    """
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-
-    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
-    if full_tokens <= budget:
-        return full_json, CompressionTier.FULL
-
-    pruned = {
-        **data,
-        "details": [
-            {key: value for key, value in row.items() if key != "metadata"}
-            for row in data.get("details") or []
-            if isinstance(row, dict)
-        ],
-    }
-    pruned_json = compact_json(pruned)
-    if estimate_tokens(pruned_json) <= budget:
-        return pruned_json, CompressionTier.MEDIUM
-
-    truncated_json = compact_json(truncate_strings(pruned, ""))
-    if estimate_tokens(truncated_json) <= budget:
-        return truncated_json, CompressionTier.MEDIUM
-
-    issue = data.get("issue") or {}
-    skeleton: dict[str, Any] = {
-        "issue": {
-            "id": issue.get("id"),
-            "name": issue.get("name"),
-            "severity": issue.get("severity"),
-            "status": issue.get("status"),
-        },
-        "example_trace_ids": data.get("example_trace_ids") or [],
-    }
-    for link_key in ("url", "trace_url_template"):
-        if link_key in data:
-            skeleton[link_key] = data[link_key]
-    skeleton["note"] = (
-        "SKELETON compression: cause, suggested fix and per-day details "
-        "omitted. Use read('trace', trace_id) on an example, or re-read with "
-        "since/until to narrow the window."
-    )
-    return compact_json(skeleton), CompressionTier.SKELETON
-
-
 HANDLER = EntityHandler(
     entity_type="agent_insights_issue",
     fetch_fn=fetch,
@@ -210,7 +150,6 @@ HANDLER = EntityHandler(
     # declared the same window before the shape became per-entity.
     read_window=ReadWindow("from_date", "to_date", day_truncated=True),
     link_fn=issue_links,
-    compress_fn=compress,
     id_only=True,
     needs_project=True,
     description=(

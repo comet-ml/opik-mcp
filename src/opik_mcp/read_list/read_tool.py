@@ -1,14 +1,18 @@
-"""``read`` tool — fetches any Opik entity by id (or name) with compression.
+"""``read`` tool — fetches any Opik entity by id (or name).
 
 Ported from ollie-assist's ``tools/read/tool.py``, adapted to opik-mcp's
 ``OpikClient`` instead of the Opik SDK. The agent-facing contract is:
 
-    read(entity_type, id, max_tokens=None) -> str
+    read(entity_type, id) -> str
 
-The returned string is a one-line ``[read: …]`` header followed by JSON
-(compressed per the entity's compression tier). Errors come back as
-``ToolError`` with status-specific guidance — same shape as ollie so the
-LLM's error-recovery prompting is portable.
+The returned string is a one-line ``[read: …]`` header followed by the
+record as JSON, whole — ollie's compression tiers came over with this file
+and have been removed, since ollie can hand a truncated field back through
+its jq tool and we cannot (see ``size``). Where a composite read inlines
+children, those children are cut by the backend instead, which can hand them
+back (see ``slim``). Errors come back as ``ToolError`` with status-specific
+guidance, the same shape as ollie so the LLM's error-recovery prompting is
+portable.
 """
 
 from __future__ import annotations
@@ -30,15 +34,14 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     client_for_call,
 )
-from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
-    compress_for,
     resolve_entity_type,
 )
+from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
 from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
@@ -112,7 +115,6 @@ async def run_read(
     entity_type: str,
     id: str,
     *,
-    max_tokens: int | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
     since: str | None = None,
@@ -124,7 +126,7 @@ async def run_read(
     """Read tool entrypoint. See ``server.py`` for the registered tool.
 
     Dispatch order: URI parse → registry lookup → project gate → UUID-vs-name
-    branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
+    branch → fetch → serialise. Each branch surfaces errors as ``ToolError`` so
     the host LLM gets the structured guidance.
     """
     # Accept ``opik://…`` URIs and pasted web links (thread panel, Diagnostics
@@ -217,21 +219,17 @@ async def run_read(
             handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
         )
         if handler.link_fn is not None:
-            # UI links are session facts (UI base, workspace), so they are attached
-            # here rather than inside the fetcher, and before compression so every
-            # tier can decide what to keep.
+            # UI links are session facts (UI base, workspace), so they are
+            # attached here rather than inside the fetcher.
             data.update(handler.link_fn(resolved_settings, data))
         # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
         # (e.g. the project an issue was read under); they are never the agent's.
         for private_key in [key for key in data if key.startswith("_")]:
             del data[private_key]
 
-        compressed_text, tier = compress_for(handler, data, max_tokens)
-        full_json = compact_json(data)
-        full_tokens = estimate_tokens(full_json)
-        returned_tokens = estimate_tokens(compressed_text)
-        header = size_header(entity_type, id, tier, returned_tokens, full_tokens)
-        return f"{header}\n{compressed_text}"
+        payload = compact_json(data)
+        header = size_header(entity_type, id, estimate_tokens(payload))
+        return f"{header}\n{payload}"
 
 
 async def _fetch_with_name_lookup(

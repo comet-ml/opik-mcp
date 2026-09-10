@@ -6,15 +6,11 @@ module (or a package, when it needs more than one file) plus an import here.
 
 What a row can declare is in ``handler.py``. The two behaviours that read the
 table rather than a row live here: the aliases an ``entity_type`` is resolved
-through, and the compression an entity did not override.
+through.
 """
 
 from __future__ import annotations
 
-from typing import Any
-
-from opik_mcp.read_list.compression import CompressionTier
-from opik_mcp.read_list.compression import compress as generic_compress
 from opik_mcp.read_list.entities import (
     agent_insights_issue,
     experiment,
@@ -70,22 +66,10 @@ READABLE_TYPES: tuple[str, ...] = tuple(
 )
 LISTABLE_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.lists)
 
-
-def compress_for(
-    handler: EntityHandler,
-    data: dict[str, Any],
-    max_tokens: int | None,
-) -> tuple[str, CompressionTier]:
-    if handler.compress_fn is not None:
-        return handler.compress_fn(data, max_tokens)
-    return generic_compress(data, entity_type=handler.entity_type, max_tokens=max_tokens)
-
-
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
     "LISTABLE_TYPES",
     "READABLE_TYPES",
-    "compress_for",
     "resolve_entity_type",
 ]

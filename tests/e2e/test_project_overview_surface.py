@@ -516,3 +516,21 @@ async def test_the_entities_the_split_moved_still_answer(backend: StubBackend) -
     assert TRACE_ID in traces
     assert '"name": "checkout"' in trace
     assert PROJECT_NAME in projects
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_a_trace_read_asks_for_slim_spans_and_a_whole_trace(
+    backend: StubBackend,
+) -> None:
+    """``truncate`` is a query parameter, so it is only real once it is on the
+    wire — and the backend parses it as a literal, which a Python ``True``
+    would not survive. The other half of the assertion is the one that keeps
+    the design honest: the record the caller named carries no such parameter,
+    which is what makes a cut span recoverable."""
+    async with _session(backend) as session:
+        answer = await _call(session, "read", entity_type="trace", id=TRACE_ID)
+
+    assert backend.one("/v1/private/spans").query["truncate"] == ["true"]
+    assert "truncate" not in backend.one(f"/v1/private/traces/{TRACE_ID}").query
+    assert "1 of 1 spans had a field cut" in answer, "counted from what arrived"

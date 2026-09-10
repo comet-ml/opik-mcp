@@ -1,10 +1,14 @@
 """``trace`` — one request through an instrumented app, with its spans.
 
 The read inlines the span tree, because a trace on its own says a call
-happened and the spans say what it did. Its compression is the one place a
-generic truncation is not enough: a trace that busts the budget is usually
-one huge input or output, and the skeleton keeps the shape of every span
-while dropping the payloads, so the agent can still see where to look.
+happened and the spans say what it did.
+
+The trace itself arrives whole: this entity used to carry its own three-tier
+compressor, and a trace is exactly where cutting hurt most — the payload that
+made it large is usually the payload the read was opened for. The spans do
+not: they are asked for slim, since two hundred of them is where a single
+base64 image turns one read into the whole context window, and each one
+carries the id that fetches it back in full. See ``read_list/slim.py``.
 """
 
 from __future__ import annotations
@@ -12,21 +16,17 @@ from __future__ import annotations
 from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.compression import (
-    TOKEN_FULL_THRESHOLD,
-    CompressionTier,
-    compact_json,
-    estimate_tokens,
-    fit_by_truncating,
-    kept_error,
-    over_budget_note,
-)
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import collection_truncated, page_items
+from opik_mcp.read_list.slim import count_cut, slim_notice
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
 SPANS_INLINE_LIMIT = 200
+
+#: The span fields ``truncate=true`` acts on, in the order the backend cuts
+#: them. Used to count what actually lost bytes, not to cut anything here.
+SLIM_SPAN_FIELDS = ("input", "output", "metadata")
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -35,6 +35,11 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     The spans index in opik-backend is sharded by project, so the second
     call needs the trace's ``project_id``. A trace without project_id is
     anomalous — return an empty spans list rather than failing the read.
+
+    ``spanBodies`` says how many spans lost bytes to the backend's cut. It is
+    absent when no spans arrived — from an empty tree or a failed call — since
+    a notice about a payload the caller never received is only noise they have
+    to reason about.
     """
     trace = await client.get_trace(entity_id)
     project_id = trace.get("project_id")
@@ -46,12 +51,21 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             project_id=project_id,
             page=1,
             size=SPANS_INLINE_LIMIT,
+            truncate=True,
         )
     except Exception:
         return {"trace": trace, "spans": [], "spansTruncated": False}
     spans = page_items(spans_page)
     truncated = collection_truncated(spans_page, inlined=len(spans), limit=SPANS_INLINE_LIMIT)
-    return {"trace": trace, "spans": spans, "spansTruncated": truncated}
+    result: dict[str, Any] = {"trace": trace, "spans": spans, "spansTruncated": truncated}
+    if spans:
+        result["spanBodies"] = slim_notice(
+            cut=count_cut(spans, SLIM_SPAN_FIELDS),
+            total=len(spans),
+            noun="span",
+            whole="read('span', id)",
+        )
+    return result
 
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -62,54 +76,6 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_traces(**kw)
 
 
-def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, CompressionTier]:
-    """Trace+spans: FULL → MEDIUM (truncated strings) → SKELETON (span tree only).
-
-    Mirrors ollie's bias toward keeping *structure* even when *content* is
-    sacrificed. SKELETON drops payloads but preserves the navigation tree
-    so the LLM can drill into a specific span via ``read('span', id)``.
-    """
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-
-    budget = max_tokens if max_tokens is not None else TOKEN_FULL_THRESHOLD
-    if full_tokens <= budget:
-        return full_json, CompressionTier.FULL
-
-    # Measured, not predicted from the full size. The tier used to be chosen
-    # by comparing the *uncompressed* trace against a fixed 50,000, so a
-    # caller who asked for 700 tokens of a 3,785-token trace was handed 891
-    # with the skeleton sitting unused. Now each tier has to fit the number
-    # the caller named.
-    truncated, fitted = fit_by_truncating(data, budget=budget)
-    if fitted:
-        return truncated, CompressionTier.MEDIUM
-
-    trace = data.get("trace") or {}
-    spans = data.get("spans") or []
-    skeleton = {
-        "trace": {"id": trace.get("id"), "name": trace.get("name"), **kept_error(trace)},
-        "spans": [
-            {"id": s.get("id"), "name": s.get("name"), "type": s.get("type"), **kept_error(s)}
-            for s in spans
-            if isinstance(s, dict)
-        ],
-        "spansTruncated": data.get("spansTruncated", False),
-        "note": "SKELETON compression: payloads omitted. Use read('span', id) for details.",
-    }
-    text = compact_json(skeleton)
-    overspend = over_budget_note(
-        text,
-        budget=budget,
-        asked=max_tokens,
-        drill="Narrow with read('span', id) on the spans that matter.",
-    )
-    if overspend is not None:
-        skeleton["note"] = f"{skeleton['note']} {overspend}"
-        text = compact_json(skeleton)
-    return text, CompressionTier.SKELETON
-
-
 HANDLER = EntityHandler(
     entity_type="trace",
     fetch_fn=fetch,
@@ -118,10 +84,10 @@ HANDLER = EntityHandler(
     # without a read() per row. error_type is derived from error_info.
     list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
     list_required_kwargs=("project_id",),
-    compress_fn=compress,
     id_only=True,
     description=(
-        "Single trace + child spans tree (up to 200 spans inlined). "
-        "Returns {trace, spans, spansTruncated}."
+        "Single trace + child spans tree (up to 200 spans inlined, bodies "
+        "slim). Returns {trace, spans, spansTruncated}, plus spanBodies "
+        "saying what the cut took when any span was inlined."
     ),
 )

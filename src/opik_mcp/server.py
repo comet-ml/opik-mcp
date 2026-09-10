@@ -215,19 +215,6 @@ async def read(
             max_length=2048,
         ),
     ],
-    max_tokens: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Optional token budget. If the entity is under the budget, it's "
-                "returned in full; otherwise compressed to MEDIUM (long strings "
-                "truncated with path hints) or SKELETON (structure only). "
-                "Default ~8k tokens."
-            ),
-            ge=100,
-            le=200_000,
-        ),
-    ] = None,
     project_id: Annotated[
         str | None,
         Field(
@@ -267,7 +254,7 @@ async def read(
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
-    """Read any Opik entity by ID, name, or opik:// URI, with adaptive compression.
+    """Read any Opik entity by ID, name, or opik:// URI.
 
     Prefer a UUID for `id` — it's faster (single API call) and unambiguous.
     Name lookup is available for: project, experiment, prompt, test_suite —
@@ -281,11 +268,14 @@ async def read(
       cards show, though the UI opens on 30 days), the score names and usage
       keys to filter on, and the freshest experiment / suite / prompt version
       / run. `since`/`until` move the summary's window; the rest is current.
-    - trace: returns {trace, spans, spansTruncated} with up to 200 spans inlined.
+    - trace: returns {trace, spans, spansTruncated} with up to 200 spans
+      inlined, their bodies slim, and spanBodies saying what the cut took.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
-    - thread: returns {thread, messages, messagesTruncated} — each message is one
-      turn's trace input/output + a trace_id to read('trace', id). Needs project
-      scope: pass a thread link/URI, or project_id/project_name.
+    - thread: returns {thread, messages, messagesTruncated, messageBodies} —
+      each message is one turn's trace input/output + a trace_id to
+      read('trace', id). Bodies are slim, the thread's own first/last message
+      included, since those are copies of the first and last turn. Needs
+      project scope: pass a thread link/URI, or project_id/project_name.
     - agent_insights_issue: returns {issue, example_trace_ids, details, url,
       trace_url_template} — the Diagnostics issue with cause and suggested fix,
       the deduped ids of traces that exhibit it (open one with read('trace', id)),
@@ -294,15 +284,24 @@ async def read(
       the session's workspace is unknown). Needs project scope like thread.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
-    Output is a one-line `[read: …]` header (entity_type, id, compression
-    tier, returned tokens, full tokens) followed by compact JSON.
+    Output is a one-line `[read: …]` header (entity_type, id, size in
+    tokens) followed by the record as compact JSON. The record you asked for
+    is never truncated: a large answer is large, and narrowing is done by
+    asking a narrower question — a span rather than its trace, a filtered
+    `list` rather than a composite read.
+
+    The children a composite read inlines are the exception. Their bodies come
+    back slim: a field over ~10 KB is cut and base64 images are replaced with
+    "[image]", which is what keeps one attachment from costing more than the
+    other 199 spans together. The read says so in `spanBodies` /
+    `messageBodies`, and the named child is whole again through its own
+    read('span', id) or read('trace', trace_id).
     """
     if ctx is not None:
         await ctx.info(f"read.called entity_type={entity_type} id={id}")
     return await run_read(
         entity_type=entity_type,
         id=id,
-        max_tokens=max_tokens,
         project_id=project_id,
         project_name=project_name,
         since=since,

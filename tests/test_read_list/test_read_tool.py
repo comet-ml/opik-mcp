@@ -49,6 +49,7 @@ class FakeOpikClient:
     fail_issue_with: Exception | None = None
     project_lookups: int = 0
     fail_list_traces: bool = False
+    fail_list_spans: bool = False
     kpi_stats: list[dict[str, Any]] = field(default_factory=list)
     last_kpi_kwargs: dict[str, Any] = field(default_factory=dict)
     fail_kpi_with: Exception | None = None
@@ -64,6 +65,9 @@ class FakeOpikClient:
     fail_activities_with: Exception | None = None
     in_flight: int = 0
     max_in_flight: int = 0
+    last_list_spans_kwargs: dict[str, Any] = field(default_factory=dict)
+    last_get_thread_truncate: bool | None = None
+    last_list_traces_kwargs: dict[str, Any] = field(default_factory=dict)
 
     async def _concurrently(self, result: dict[str, Any]) -> dict[str, Any]:
         """Yield once so overlapping callers are observable.
@@ -133,6 +137,11 @@ class FakeOpikClient:
         size: int = 100,
         **_search: Any,
     ) -> dict[str, Any]:
+        self.last_list_spans_kwargs = dict(
+            trace_id=trace_id, project_id=project_id, page=page, size=size, **_search
+        )
+        if self.fail_list_spans:
+            raise OpikServerError("boom")
         content = self.trace_spans.get(trace_id or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
 
@@ -183,6 +192,7 @@ class FakeOpikClient:
         project_name: str | None = None,
         truncate: bool = False,
     ) -> dict[str, Any]:
+        self.last_get_thread_truncate = truncate
         if thread_id not in self.threads_by_id:
             raise OpikNotFoundError(f"thread {thread_id!r} not found (404).")
         return self.threads_by_id[thread_id]
@@ -197,6 +207,9 @@ class FakeOpikClient:
         size: int = 10,
         **_search: Any,
     ) -> dict[str, Any]:
+        self.last_list_traces_kwargs = dict(
+            project_id=project_id, project_name=project_name, filters=filters, **_search
+        )
         if self.fail_list_traces:
             raise OpikServerError("boom")
         # Honor a thread_id filter so the thread fetcher's messages call works.
@@ -280,7 +293,7 @@ async def test_read_project_by_uuid_returns_header_and_json() -> None:
     out = await run_read("project", UUID, client=fake)
 
     assert out.startswith(f"[read: project {UUID}")
-    assert "compression=FULL" in out
+    assert "tok]" in out, "the size is stated so a large answer is visible as one"
     assert UUID in out
     assert "demo" in out
 
@@ -641,37 +654,6 @@ async def test_read_issue_not_found_names_entity_and_id() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_issue_skeleton_keeps_every_example_trace_id() -> None:
-    """An all-time read can carry hundreds of per-day rows. When it blows the
-    budget, the trace ids — the reason for the read — must survive; the
-    per-day rows are what gets dropped."""
-    rows = [
-        {
-            "report_day": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}",
-            "count": i,
-            "metadata": {
-                "example_trace_ids": [f"tr-{i}"],
-                "confidence_justification": "x" * 2_000,
-            },
-        }
-        for i in range(120)
-    ]
-    detail = {**_ISSUE_DETAIL, "details": rows}
-    out = await run_read(
-        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=500, client=_issue_fake(detail)
-    )
-    assert "compression=SKELETON" in out
-    body = _payload(out)
-    assert body["issue"]["id"] == ISSUE
-    assert body["issue"]["name"] == "Tool call loop on weather lookup"
-    assert body["issue"]["severity"] == "high"
-    assert body["issue"]["status"] == "open"
-    assert body["example_trace_ids"] == [f"tr-{i}" for i in range(120)]
-    assert "details" not in body
-    assert "read('trace'" in body["note"]
-
-
-@pytest.mark.anyio
 async def test_read_issue_resolves_exact_project_name() -> None:
     fake = _issue_fake()
     fake.projects_by_name = {
@@ -792,61 +774,6 @@ async def test_read_issue_via_canonical_uri() -> None:
     assert fake.last_issue_kwargs["project_id"] == "p-uri"
 
 
-@pytest.mark.anyio
-async def test_read_issue_medium_drops_row_metadata_to_meet_budget() -> None:
-    """The per-row metadata (ids already lifted into example_trace_ids, plus
-    prose) is the bulk of an issue read. When the FULL body is over budget,
-    MEDIUM drops it first — and that alone should bring the seven-row fixture
-    under a 1,000-token budget while keeping every row's counts."""
-    rows = [
-        {
-            "report_day": f"2026-09-0{d}",
-            "count": d,
-            "total_count": 10 * d,
-            "users_impacted": 1,
-            "total_users": 40,
-            "metadata": {
-                "example_trace_ids": [f"tr-{d}-{i}" for i in range(5)],
-                "confidence_justification": "why " * 150,
-            },
-        }
-        for d in range(1, 8)
-    ]
-    detail = {**_ISSUE_DETAIL, "details": rows}
-    out = await run_read(
-        "agent_insights_issue",
-        ISSUE,
-        project_id="p-9",
-        max_tokens=1_000,
-        client=_issue_fake(detail),
-    )
-    header, payload = out.split("\n", 1)
-    assert "compression=MEDIUM" in header
-    assert len(payload) // 4 <= 1_000
-    body = json.loads(payload)
-    assert len(body["example_trace_ids"]) == 35
-    assert len(body["details"]) == 7
-    assert body["details"][0]["count"] == 1
-    assert "metadata" not in body["details"][0]
-    # The prose the agent came for is intact at this tier.
-    assert body["issue"]["suggested_fix"] == _ISSUE_DETAIL["suggested_fix"]
-
-
-@pytest.mark.anyio
-async def test_read_issue_falls_to_skeleton_when_still_over_budget() -> None:
-    """A budget too small for even the pruned rows gets SKELETON regardless of
-    the global 50k threshold — the agent asked for a small answer."""
-    out = await run_read(
-        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=150, client=_issue_fake()
-    )
-    header, payload = out.split("\n", 1)
-    assert "compression=SKELETON" in header
-    body = json.loads(payload)
-    assert body["example_trace_ids"] == ["tr-a", "tr-b", "tr-c"]
-    assert body["issue"]["name"] == _ISSUE_DETAIL["name"]
-    assert "details" not in body
-
-
 # --- UI links on the issue read ------------------------------------------ #
 
 _UI_SETTINGS = Settings(
@@ -923,25 +850,6 @@ async def test_read_issue_omits_links_when_opik_url_unconfigured() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_issue_skeleton_keeps_url() -> None:
-    out = await run_read(
-        "agent_insights_issue",
-        ISSUE,
-        project_id="p-9",
-        max_tokens=150,
-        client=_issue_fake(),
-        settings=_UI_SETTINGS,
-    )
-    header, payload = out.split("\n", 1)
-    assert "compression=SKELETON" in header
-    body = json.loads(payload)
-    assert body["url"].endswith(f"diagnostics?issue={ISSUE}")
-    # The skeleton keeps the example ids; the template is what makes them
-    # clickable, so it stays too.
-    assert body["trace_url_template"].endswith("/logs?trace={trace_id}")
-
-
-@pytest.mark.anyio
 async def test_read_window_rejected_for_entities_that_do_not_declare_it() -> None:
     """A thread fetcher takes no window, so the read says so (as list does)
     rather than silently ignoring it — and names the entities that do take one,
@@ -981,40 +889,6 @@ async def test_read_thread_has_no_link_fields() -> None:
         "thread", THREAD, project_id="p-9", client=_thread_fake(), settings=_UI_SETTINGS
     )
     assert "url" not in _payload(out)
-
-
-@pytest.mark.anyio
-async def test_read_issue_medium_compression_keeps_trace_ids_too() -> None:
-    """Between FULL and SKELETON the generic string truncation runs; short ids
-    are untouched, so the list stays intact."""
-    rows = [
-        {
-            "report_day": f"2026-01-{1 + i:02d}",
-            "count": i,
-            "metadata": {"example_trace_ids": [f"tr-{i}"], "confidence_justification": "y" * 800},
-        }
-        for i in range(20)
-    ]
-    detail = {**_ISSUE_DETAIL, "details": rows}
-    out = await run_read(
-        "agent_insights_issue",
-        ISSUE,
-        project_id="p-9",
-        max_tokens=1_000,
-        client=_issue_fake(detail),
-    )
-    assert "compression=MEDIUM" in out
-    assert _payload(out)["example_trace_ids"] == [f"tr-{i}" for i in range(20)]
-
-
-# --- compression budget --------------------------------------------------- #
-
-
-@pytest.mark.anyio
-async def test_read_respects_max_tokens() -> None:
-    fake = FakeOpikClient(projects_by_id={UUID: {"id": UUID, "blob": "x" * 50_000}})
-    out = await run_read("project", UUID, max_tokens=100, client=fake)
-    assert "compression=MEDIUM" in out
 
 
 # --- exception chain assertions ------------------------------------------- #
@@ -1778,3 +1652,161 @@ async def test_no_ui_base_means_no_link_on_the_entry_either() -> None:
     )
 
     assert "url" not in body["contains"]["optimization"]
+
+
+@pytest.mark.anyio
+async def test_a_huge_record_comes_back_whole() -> None:
+    """Truncation was removed rather than tuned. It came from ollie, where a
+    cut field can be fetched back through the jq tool over a session cache;
+    here there was neither, so the pointer named nothing and the data was
+    gone. A read that quietly returns less than it fetched is a wrong answer
+    the caller cannot see — a large one is a cost they can."""
+    payload = "x" * 400_000
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1", "input": payload}},
+        trace_spans={UUID: [{"id": "sp-1", "output": payload}]},
+    )
+
+    out = await run_read("trace", UUID, client=fake)
+
+    assert "TRUNCATED" not in out
+    assert out.count(payload) == 2, "both the trace's field and the span's survive"
+    assert "tok]" in out.splitlines()[0], "and the header says what it cost"
+
+
+# --- slim child bodies ----------------------------------------------------- #
+#
+# The children a composite read inlines are fetched with the backend's
+# ``truncate=true``; the read then counts what that actually took and says so,
+# because the backend keeps its own truncation flags server-side. See
+# ``read_list/slim.py``.
+
+#: Long enough to be cut by ``BACKEND_SLIM_THRESHOLD_CHARS``, and arriving as
+#: a string, which is the only sign of a cut the backend leaves.
+CUT_BODY = "x" * 10_001
+UNCUT_BODY = "x" * 9_999
+
+
+@pytest.mark.anyio
+async def test_a_traces_spans_are_asked_for_slim() -> None:
+    """A base64 image in a span's output is the one payload that can cost more
+    than the whole rest of the read. ClickHouse can cut it before it comes off
+    disk, which is cheaper than anything we can do once it has arrived."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1"}]},
+    )
+
+    await run_read("trace", UUID, client=fake)
+
+    assert fake.last_list_spans_kwargs["truncate"] is True
+
+
+@pytest.mark.anyio
+async def test_a_traces_own_body_survives_a_payload_that_would_be_cut() -> None:
+    """``GET /traces/{id}`` has no ``truncate`` parameter, and that is the
+    point: the record the caller named comes back whole, and is where a span
+    field cut in the list can be fetched back from. The trace body here is
+    over the threshold, so a cut applied to the wrong half would show."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1", "input": CUT_BODY}},
+        trace_spans={UUID: [{"id": "sp-1"}]},
+    )
+
+    out = await run_read("trace", UUID, client=fake)
+
+    assert CUT_BODY in out
+
+
+@pytest.mark.anyio
+async def test_a_trace_counts_the_spans_that_lost_bytes() -> None:
+    """The notice is a claim about the payload beside it, so it has to be
+    derived from that payload rather than stamped on every read."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={
+            UUID: [
+                {"id": "sp-1", "input": CUT_BODY},
+                {"id": "sp-2", "output": CUT_BODY},
+                {"id": "sp-3", "input": UNCUT_BODY},
+            ]
+        },
+    )
+
+    out = _payload(await run_read("trace", UUID, client=fake))
+
+    assert "2 of 3 spans had a field cut" in out["spanBodies"]
+    assert "read('span', id)" in out["spanBodies"], "and how to get one back whole"
+
+
+@pytest.mark.anyio
+async def test_a_trace_whose_spans_were_all_small_says_so() -> None:
+    """Saying "nothing was cut" is worth the line: the alternative is a caller
+    who cannot tell a complete answer from one they should not trust."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1", "input": UNCUT_BODY}]},
+    )
+
+    out = _payload(await run_read("trace", UUID, client=fake))
+
+    assert "no span reached" in out["spanBodies"]
+    assert "[image]" in out["spanBodies"], "which the count cannot speak for"
+
+
+@pytest.mark.anyio
+async def test_a_trace_with_no_spans_carries_no_notice() -> None:
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: []},
+    )
+
+    assert "spanBodies" not in _payload(await run_read("trace", UUID, client=fake))
+
+
+@pytest.mark.anyio
+async def test_a_trace_whose_spans_failed_to_load_carries_no_notice() -> None:
+    """Nothing arrived, so there is nothing to describe — and a notice about a
+    payload the caller never received reads as if one had."""
+    fake = FakeOpikClient(traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}})
+    fake.fail_list_spans = True
+
+    assert "spanBodies" not in _payload(await run_read("trace", UUID, client=fake))
+
+
+@pytest.mark.anyio
+async def test_a_threads_turns_are_asked_for_slim_and_counted() -> None:
+    fake = _thread_fake()
+    fake.thread_messages["conv-1"] = [
+        {"id": "tr-1", "start_time": "2026-01-01", "input": CUT_BODY},
+        {"id": "tr-2", "start_time": "2026-01-02", "output": UNCUT_BODY},
+    ]
+
+    out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+
+    assert fake.last_list_traces_kwargs["truncate"] is True
+    assert "1 of 2 turns had a field cut" in out["messageBodies"]
+    assert "read('trace', trace_id)" in out["messageBodies"]
+
+
+@pytest.mark.anyio
+async def test_a_threads_own_record_is_slim_too() -> None:
+    """The exception to "the parent comes back whole". A thread record has no
+    body of its own: ``first_message`` is ``argMin(t.input, t.start_time)``,
+    the same bytes ``messages[0].input`` carries. Cutting one copy and not the
+    other would ship the payload twice at two lengths."""
+    fake = _thread_fake()
+
+    await run_read("thread", THREAD, project_id="p-9", client=fake)
+
+    assert fake.last_get_thread_truncate is True
+
+
+@pytest.mark.anyio
+async def test_a_thread_with_no_turns_carries_no_notice() -> None:
+    fake = _thread_fake()
+    fake.thread_messages["conv-1"] = []
+
+    out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+
+    assert "messageBodies" not in out
