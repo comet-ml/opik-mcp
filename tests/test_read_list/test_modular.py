@@ -74,9 +74,7 @@ def test_the_registry_is_a_table_and_not_an_implementation() -> None:
     started to leak back."""
     tree = ast.parse(pathlib.Path(registry.__file__).read_text())
     defined = {
-        node.name
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+        node.name for node in tree.body if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
     }
     assert defined == {"resolve_entity_type", "compress_for"}, (
         f"registry.py defines {sorted(defined)}; it should only resolve an "

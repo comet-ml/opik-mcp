@@ -18,14 +18,14 @@ import respx
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.opik_client import OpikClient
-from opik_mcp.read_list.list_tool import run_list
-from opik_mcp.read_list.entities.project_metric.table import MAX_SERIES
 from opik_mcp.read_list.entities.project_metric.catalog import (
     MAX_BUCKETS,
     METRICS,
     bucket_count,
     groupable_by,
 )
+from opik_mcp.read_list.entities.project_metric.table import MAX_SERIES
+from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.writes.schema_tool import run_schema
 
 PROJECT = "01a08666-e863-76e8-809c-057f4aa151bc"

@@ -553,24 +553,6 @@ def request_body(
     return body
 
 
-# --- checking the series against the project ------------------------------ #
-#
-# A percentile can be checked against a fixed set; a score name and a usage
-# key cannot — they are whatever this project recorded. An unknown one is not
-# refused by the backend either: it charts nothing and returns an empty
-# series, which reads as "quiet window" when it means "wrong name". So the
-# name is checked against the project's own — but only when the answer came
-# back empty, because a chart with data has proved its own name. The happy
-# path pays nothing; the ambiguous one pays one cheap GET to say which of the
-# two it was.
-
-
-
-
-
-
-
-
 AMBIGUOUS_ZERO_FAMILIES: Final = frozenset({"error_rate", "average_duration"})
 """Families whose ``0`` does not mean zero.
 
@@ -618,12 +600,6 @@ def parse_interval(interval: str | None) -> str:
             f"Unknown interval {interval!r}. One of: {', '.join(INTERVALS)}."
         )
     return name
-
-
-
-
-
-
 
 
 __all__ = [

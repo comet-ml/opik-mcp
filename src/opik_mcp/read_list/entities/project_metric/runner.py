@@ -47,14 +47,30 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE, compile_filters, render_filters
 from opik_mcp.read_list.project_scope import require_project_id
 
+# --- checking the series against the project ------------------------------ #
+#
+# A percentile can be checked against a fixed set; a score name and a usage
+# key cannot — they are whatever this project recorded. An unknown one is not
+# refused by the backend either: it charts nothing and returns an empty
+# series, which reads as "quiet window" when it means "wrong name". So the
+# name is checked against the project's own — but only when the answer came
+# back empty, because a chart with data has proved its own name. The happy
+# path pays nothing; the ambiguous one pays one cheap GET to say which of the
+# two it was.
+
+
 CHECKED_SERIES: Final[dict[str, str]] = {"token_usage": "usage", "feedback_scores": "score"}
 _KIND_WORDS: Final = {
     "usage": ("usage key", "usage keys", USAGE_KEYS_CAP),
     "score": ("feedback score name", "score names", SCORE_NAMES_CAP),
 }
+
+
 def _listed(names: list[str], cap: int) -> str:
     shown = ", ".join(names[:cap])
     return f"{shown} (and {len(names) - cap} more)" if len(names) > cap else shown
+
+
 async def check_series(
     client: OpikReadClient,
     project_id: str,
@@ -92,6 +108,8 @@ async def check_series(
         else f"series={chosen!r} is not a {singular} in this project"
     )
     raise EntityArgValidationError(f"{how}. Its {plural}: {_listed(names, cap)}.")
+
+
 async def run_project_metric(
     client: OpikReadClient,
     *,
@@ -214,6 +232,8 @@ async def run_project_metric(
         if note:
             table = f"{table}\n{note}"
     return f"{header}\n{table}"
+
+
 def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | None) -> None:
     """``page``/``size``/``sort`` mean nothing here, so they are refused.
 
