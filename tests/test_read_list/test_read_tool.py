@@ -112,6 +112,7 @@ class FakeOpikClient:
         name: str | None = None,
         page: int = 1,
         size: int = 10,
+        sorting: str | None = None,
     ) -> dict[str, Any]:
         self.project_lookups += 1
         content = self.projects_by_name.get(name or "", [])

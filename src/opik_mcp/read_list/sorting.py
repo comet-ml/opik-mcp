@@ -100,7 +100,23 @@ _EXPERIMENT_SORTABLE: Final = (
     "pass_rate",
 )
 
+_PROJECT_SORTABLE: Final = (
+    "id",
+    "name",
+    "created_at",
+    "last_updated_at",
+    "last_updated_trace_at",
+)
+"""Transcribed from ``SortingFactoryProjects``.
+
+``last_updated_trace_at`` is the one that answers a real question: a
+workspace accumulates throwaway projects, and the list arrives ordered by
+creation, so "which project is actually live" meant reading fifteen rows and
+comparing two date columns by eye.
+"""
+
 SORTABLE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
+    "project": _PROJECT_SORTABLE,
     "trace": _TRACE_SORTABLE,
     "span": _SPAN_SORTABLE,
     "thread": _THREAD_SORTABLE,

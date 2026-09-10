@@ -14,11 +14,12 @@ from typing import Any
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
-    TOKEN_SKELETON_THRESHOLD,
     CompressionTier,
     compact_json,
     estimate_tokens,
-    truncate_strings,
+    fit_by_truncating,
+    kept_error,
+    over_budget_note,
 )
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import collection_truncated, page_items
@@ -75,23 +76,38 @@ def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, Compres
     if full_tokens <= budget:
         return full_json, CompressionTier.FULL
 
-    if full_tokens < TOKEN_SKELETON_THRESHOLD:
-        truncated = truncate_strings(data, "")
-        return compact_json(truncated), CompressionTier.MEDIUM
+    # Measured, not predicted from the full size. The tier used to be chosen
+    # by comparing the *uncompressed* trace against a fixed 50,000, so a
+    # caller who asked for 700 tokens of a 3,785-token trace was handed 891
+    # with the skeleton sitting unused. Now each tier has to fit the number
+    # the caller named.
+    truncated, fitted = fit_by_truncating(data, budget=budget)
+    if fitted:
+        return truncated, CompressionTier.MEDIUM
 
     trace = data.get("trace") or {}
     spans = data.get("spans") or []
     skeleton = {
-        "trace": {"id": trace.get("id"), "name": trace.get("name")},
+        "trace": {"id": trace.get("id"), "name": trace.get("name"), **kept_error(trace)},
         "spans": [
-            {"id": s.get("id"), "name": s.get("name"), "type": s.get("type")}
+            {"id": s.get("id"), "name": s.get("name"), "type": s.get("type"), **kept_error(s)}
             for s in spans
             if isinstance(s, dict)
         ],
         "spansTruncated": data.get("spansTruncated", False),
         "note": "SKELETON compression: payloads omitted. Use read('span', id) for details.",
     }
-    return compact_json(skeleton), CompressionTier.SKELETON
+    text = compact_json(skeleton)
+    overspend = over_budget_note(
+        text,
+        budget=budget,
+        asked=max_tokens,
+        drill="Narrow with read('span', id) on the spans that matter.",
+    )
+    if overspend is not None:
+        skeleton["note"] = f"{skeleton['note']} {overspend}"
+        text = compact_json(skeleton)
+    return text, CompressionTier.SKELETON
 
 
 HANDLER = EntityHandler(

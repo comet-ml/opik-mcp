@@ -119,7 +119,12 @@ class OpikListClient(Protocol):
     """
 
     async def list_projects(
-        self, *, name: str | None = None, page: int = 1, size: int = 10
+        self,
+        *,
+        name: str | None = None,
+        page: int = 1,
+        size: int = 10,
+        sorting: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def list_traces(
@@ -437,15 +442,19 @@ class OpikClient:
         name: str | None = None,
         page: int = 1,
         size: int = 10,
+        sorting: str | None = None,
     ) -> dict[str, Any]:
         """``GET /v1/private/projects`` — Spring Page envelope ``{content,page,size,total}``.
 
         ``name`` is a substring filter (case-insensitive on opik-backend) used
-        for the read tool's name-lookup path.
+        for the read tool's name-lookup path. ``sorting`` is the same JSON
+        array every other listable endpoint takes.
         """
         params: dict[str, Any] = {"page": page, "size": size}
         if name is not None:
             params["name"] = name
+        if sorting is not None:
+            params["sorting"] = sorting
         return await self._get_json(
             "/v1/private/projects",
             params=params,

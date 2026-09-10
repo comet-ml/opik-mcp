@@ -702,8 +702,29 @@ async def test_sort_with_a_bad_direction_names_the_accepted_forms() -> None:
 
 @pytest.mark.anyio
 async def test_sort_on_an_unsupported_type_names_the_supported_ones() -> None:
-    with pytest.raises(ToolError, match="Sortable types: trace, span, thread, experiment"):
-        await run_list("project", sort="name", client=FakeOpikClient())
+    with pytest.raises(ToolError, match="Sortable types: project, trace, span, thread"):
+        await run_list("prompt", sort="name", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_projects_sort_by_the_column_that_says_which_one_is_live() -> None:
+    """A workspace fills with throwaway projects and the list arrives ordered
+    by creation, so "which one is actually live" meant comparing two date
+    columns down fifteen rows by eye. The backend sorts by it
+    (``SortingFactoryProjects``); this never passed it on."""
+    fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
+    out = await run_list("project", sort="last_updated_trace_at", client=fake)
+
+    assert out.splitlines()[0] == "[list: project | sort: last_updated_trace_at desc]"
+    assert fake.project_kwargs["sorting"] == (
+        '[{"field":"last_updated_trace_at","direction":"DESC"}]'
+    )
+
+
+@pytest.mark.anyio
+async def test_a_project_field_the_backend_cannot_sort_by_is_refused() -> None:
+    with pytest.raises(ToolError, match="last_updated_trace_at"):
+        await run_list("project", sort="trace_count", client=FakeOpikClient())
 
 
 @pytest.mark.anyio

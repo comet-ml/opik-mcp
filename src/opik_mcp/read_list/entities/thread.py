@@ -15,11 +15,12 @@ from typing import Any
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.compression import (
     TOKEN_FULL_THRESHOLD,
-    TOKEN_SKELETON_THRESHOLD,
     CompressionTier,
     compact_json,
     estimate_tokens,
-    truncate_strings,
+    fit_by_truncating,
+    kept_error,
+    over_budget_note,
 )
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import collection_truncated, page_items
@@ -121,9 +122,9 @@ def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, Compres
     if full_tokens <= budget:
         return full_json, CompressionTier.FULL
 
-    if full_tokens < TOKEN_SKELETON_THRESHOLD:
-        truncated = truncate_strings(data, "")
-        return compact_json(truncated), CompressionTier.MEDIUM
+    truncated, fitted = fit_by_truncating(data, budget=budget)
+    if fitted:
+        return truncated, CompressionTier.MEDIUM
 
     thread = data.get("thread") or {}
     messages = data.get("messages") or []
@@ -135,6 +136,8 @@ def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, Compres
                 "name": m.get("name"),
                 "start_time": m.get("start_time"),
                 "feedback_scores": m.get("feedback_scores"),
+                # Which turn broke, on a conversation too long to render.
+                **kept_error(m),
             }
             for m in messages
             if isinstance(m, dict)
@@ -145,7 +148,17 @@ def compress(data: dict[str, Any], max_tokens: int | None) -> tuple[str, Compres
             "Use read('trace', trace_id) for details."
         ),
     }
-    return compact_json(skeleton), CompressionTier.SKELETON
+    text = compact_json(skeleton)
+    overspend = over_budget_note(
+        text,
+        budget=budget,
+        asked=max_tokens,
+        drill="Narrow with read('trace', trace_id) on the turns that matter.",
+    )
+    if overspend is not None:
+        skeleton["note"] = f"{skeleton['note']} {overspend}"
+        text = compact_json(skeleton)
+    return text, CompressionTier.SKELETON
 
 
 HANDLER = EntityHandler(
