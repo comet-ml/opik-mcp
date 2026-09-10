@@ -249,6 +249,24 @@ A link copied from the Opik UI works as the `id`: a thread link or a
 Diagnostics page link carries the project, so no `project_id` is needed and
 the entity type is taken from the link.
 
+A `project` read answers "how is my project doing" in one call. It returns
+`{project, summary, vocabulary, contains, url}`: the record, then the four
+figures the Logs page shows as cards (trace count, error rate, average
+duration, total cost) for the last 7 days against the 7 before, SDK traffic
+only, as on screen. `since` / `until` move that window; `since="30d"` is what
+the UI opens on. A rate or an average over a period with no traces comes back
+as `null`, because 0% errors on a week with no traffic reads as a healthy week.
+
+`vocabulary` is the map you need before you can ask anything else: the
+project's feedback score names, its token usage keys, and the automation rules
+scoring its traces. These are the names that go into a filter or into
+`series=` below, and guessing them returns an empty page that reads like good
+news. Long lists are capped and always report the true total with the call that
+returns the rest. `contains` names the freshest experiment, test suite, prompt
+version and optimization run, so "what has been happening here" does not need
+four more calls. A part that failed to load says so instead of looking empty,
+and an empty one is omitted.
+
 An `agent_insights_issue` read returns `{issue, example_trace_ids, details}`:
 the Diagnostics issue record (name, description, cause, suggested fix,
 severity, status), the deduplicated ids of the traces that exhibit it (the
@@ -394,6 +412,58 @@ with a link to the view the issue moved to, since a resolved issue is no longer
 on the default page. Whether a failure is fixed is a judgment call, so these
 are for when you ask: the assistant has no business tidying the list while
 triaging it.
+
+**Metrics over time.** `project_metric` charts one metric for a project as a
+table of time buckets: trace, span and thread counts, durations, error rates,
+costs, token usage and feedback scores. It answers the question that follows
+the overview, which is when something changed.
+
+```python
+list(entity_type="project_metric", project_name="demo", metric_type="trace_count")
+list(entity_type="project_metric", project_name="demo", metric_type="trace_error_rate",
+     since="14d", interval="daily")
+list(entity_type="project_metric", project_name="demo", metric_type="span_count",
+     breakdown="model")                      # one column per model
+list(entity_type="project_metric", project_name="demo", metric_type="span_duration",
+     breakdown="model", series="p99")        # the p99 of each model
+```
+
+Rows are time buckets, not records, so `page`, `size` and `sort` are refused
+rather than ignored. `interval` is `hourly`, `daily` (the default), `weekly` or
+`total`; `since` / `until` take the same forms as everywhere else and default
+to the last 7 days. `filters` uses the fields of whichever entity the metric is
+about, so a span metric is filtered by span fields.
+
+`breakdown` splits each bucket by `tags`, `name`, `error_info`, `error_type`,
+`model`, `provider`, `span_type`, `guardrail_name` or `metadata.<key>`. Not
+every metric accepts every one of those, and seven accept none at all; the tool
+knows which and says so before calling the backend, naming a metric that does
+answer the same question where one exists. Three families come back as several
+series at once (a duration as p50/p90/p99, a feedback score per name, token
+usage per key), and the backend charts one of them at a time when grouping, so
+`series=` picks it: a percentile, a score name, or a usage key. Duration
+defaults to `p50` and token usage to `total_tokens`, and whichever was used is
+echoed on the first line.
+
+A request whose answer would be too large to read is refused before the backend
+is called, with the narrower requests that would fit and the row count each
+would produce. Empty buckets are left out and counted underneath, so a quiet
+month is a few rows instead of a column of zeros, and a rate over a bucket with
+no traces is absent rather than reported as zero.
+
+Ask `schema("list.project_metric")` for the metric table, the intervals, the
+per-metric grouping matrix and the limits.
+
+**A project's names.** `score_name` lists the feedback score names recorded in
+a project and `online_rule` the automation rule evaluators configured on it,
+which is where most of those names come from. Both are the same lists
+`read("project", …)` carries, in full and paginated, for when the capped
+version in the overview is not enough.
+
+```python
+list(entity_type="score_name", project_name="demo")
+list(entity_type="online_rule", project_name="demo")
+```
 
 ### `write`
 
