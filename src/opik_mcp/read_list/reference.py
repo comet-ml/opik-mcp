@@ -24,9 +24,16 @@ from opik_mcp.read_list.oql import (
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
 )
+from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 
-LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = tuple(f"list.{e}" for e in SUPPORTED_ENTITIES)
+LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
+    *(f"list.{e}" for e in SUPPORTED_ENTITIES),
+    # Not an OQL entity of its own — a time series over one of them — but it
+    # has a reference of its own to answer, and it is the reference that keeps
+    # the metric table out of the tool description.
+    "list.project_metric",
+)
 
 FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
     "trace": (
@@ -50,6 +57,12 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
 
 def list_reference(entity_type: str) -> dict[str, Any]:
     """The ``schema("list.<entity>")`` payload. ``entity_type`` must be supported."""
+    handler = ENTITY_REGISTRY.get(entity_type)
+    if handler is not None and handler.reference_fn is not None:
+        # The entity documents itself: a metric's reference is its catalog of
+        # metrics, intervals and limits, not a table of OQL fields. It lives
+        # beside the data it describes.
+        return handler.reference_fn()
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
         spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}

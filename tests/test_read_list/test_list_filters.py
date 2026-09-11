@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -78,6 +80,21 @@ class FakeOpikClient:
 
     async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
         return _page([])
+
+    async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
+        return {"scores": []}
+
+    async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
+        return {"names": []}
+
+    async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
+        return _page([])
+
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return _page([])
+
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"results": []}
 
     async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
         raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
@@ -257,7 +274,7 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
         await run_list("trace", project_id="p-1", search="order-42", client=TimingOut())
     message = str(ei.value)
     assert "did not answer in time" in message
-    assert "list(trace" in message
+    assert "list('trace'" in message, "the call form is quoted as an agent would type it"
     assert "since" in message and "size" in message
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
 
@@ -533,12 +550,14 @@ async def test_search_calls_get_a_longer_client_timeout(monkeypatch: pytest.Monk
 
     seen: list[float | None] = []
 
-    def fake_factory(settings: Any, *, timeout: float | None = None) -> FakeOpikClient:
+    @asynccontextmanager
+    async def fake_factory(
+        settings: Any, supplied: Any, *, timeout: float | None = None
+    ) -> AsyncIterator[FakeOpikClient]:
         seen.append(timeout)
-        return FakeOpikClient()
+        yield FakeOpikClient()
 
-    monkeypatch.setattr(list_tool, "make_opik_client", fake_factory)
-    monkeypatch.setattr(list_tool, "get_settings", lambda: object())
+    monkeypatch.setattr(list_tool, "client_for_call", fake_factory)
     await run_list("trace", project_id="p-1", search="order-42")
     await run_list("trace", project_id="p-1")
     assert seen == [60.0, None]
@@ -683,8 +702,29 @@ async def test_sort_with_a_bad_direction_names_the_accepted_forms() -> None:
 
 @pytest.mark.anyio
 async def test_sort_on_an_unsupported_type_names_the_supported_ones() -> None:
-    with pytest.raises(ToolError, match="Sortable types: trace, span, thread, experiment"):
-        await run_list("project", sort="name", client=FakeOpikClient())
+    with pytest.raises(ToolError, match="Sortable types: project, trace, span, thread"):
+        await run_list("prompt", sort="name", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_projects_sort_by_the_column_that_says_which_one_is_live() -> None:
+    """A workspace fills with throwaway projects and the list arrives ordered
+    by creation, so "which one is actually live" meant comparing two date
+    columns down fifteen rows by eye. The backend sorts by it
+    (``SortingFactoryProjects``); this never passed it on."""
+    fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
+    out = await run_list("project", sort="last_updated_trace_at", client=fake)
+
+    assert out.splitlines()[0] == "[list: project | sort: last_updated_trace_at desc]"
+    assert fake.project_kwargs["sorting"] == (
+        '[{"field":"last_updated_trace_at","direction":"DESC"}]'
+    )
+
+
+@pytest.mark.anyio
+async def test_a_project_field_the_backend_cannot_sort_by_is_refused() -> None:
+    with pytest.raises(ToolError, match="last_updated_trace_at"):
+        await run_list("project", sort="trace_count", client=FakeOpikClient())
 
 
 @pytest.mark.anyio

@@ -31,8 +31,10 @@ import json
 import logging
 import math
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
@@ -42,12 +44,15 @@ from opik_mcp.opik_client import (
     OpikAuthError,
     OpikListClient,
     OpikNotFoundError,
+    OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    make_opik_client,
+    client_for_call,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
 from opik_mcp.read_list.oql import (
+    SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
@@ -62,8 +67,6 @@ from opik_mcp.read_list.project_scope import (
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
-    EntityHandler,
-    PageContext,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -77,13 +80,76 @@ from opik_mcp.read_list.window import (
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
+#: A filter on one of these names a parent record, and turns a list into the
+#: rest of that record rather than a triage of the project.
+PARENT_ID_FIELDS = ("trace_id", "thread_id")
+
 _MAX_SIZE = 100
 _TRUNCATE_AT = 60
 # Free-text search is an ilike across several columns; on a cold cache the
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
 
-_SDK_SOURCE_CLAUSE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
+
+_DEFAULT_SIZE = 25
+
+
+@contextmanager
+def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
+    """Turn a failed call into the one sentence the agent will read.
+
+    The two paths through this tool — a collection page and a metric series —
+    map the same six failures, and had drifted into two copies of the mapping
+    that differed only in their nouns. A third path would have made three.
+
+    A ``ToolError`` raised inside passes through untouched, which is what lets
+    a caller handle one case its own way (the 404 that names a misspelled
+    project) and leave the rest here.
+    """
+    try:
+        yield
+    except ToolError:
+        raise
+    except (EntityArgValidationError, OQLError) as err:
+        # Already written for the agent, with the valid values in it.
+        raise ToolError(str(err)) from err
+    except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
+        raise ToolError(f"Failed to {what}: {err}") from err
+    except httpx.TimeoutException as err:
+        # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
+        # sees an error with no text at all.
+        raise ToolError(on_timeout) from err
+    except httpx.HTTPError as err:
+        raise ToolError(f"Could not reach Opik to {what}: {err}") from err
+
+
+async def _run_whole(
+    run: RunFn,
+    entity_type: str,
+    *,
+    settings: Settings | None,
+    client: OpikListClient | None,
+    **kw: Any,
+) -> str:
+    """Own the connection, then hand the whole call to the entity's runner.
+
+    Same lifecycle as the collection path: the answer may be one backend call,
+    but resolving a project name is another, and both ride one connection.
+
+    The kwargs below are still the metric's, and the runner is still the only
+    one there is. What the hook bought is that the choice became data the
+    registry owns, which a test can pin; it is not yet a second implementation
+    waiting to happen, and should not be described as one until one exists.
+    """
+    async with client_for_call(settings, client) as opik:
+        with _as_tool_error(
+            f"chart {entity_type}",
+            on_timeout=(
+                f"Opik did not answer in time for list({entity_type!r}, …). Narrow "
+                "the window or widen the interval and retry."
+            ),
+        ):
+            return await run(cast("OpikReadClient", opik), **kw)
 
 
 async def run_list(
@@ -96,18 +162,50 @@ async def run_list(
     until: str | None = None,
     search: str | None = None,
     page: int = 1,
-    size: int = 25,
+    size: int = _DEFAULT_SIZE,
     project_id: str | None = None,
     project_name: str | None = None,
     test_suite_id: str | None = None,
     prompt_id: str | None = None,
     status: str | None = None,
+    metric_type: str | None = None,
+    interval: str | None = None,
+    breakdown: str | None = None,
+    series: str | None = None,
     settings: Settings | None = None,
     client: OpikListClient | None = None,
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
+    if handler is not None and handler.run_fn is not None:
+        # The entity answers on its own: a time series is not a collection, so
+        # rows are buckets, the filter fields belong to whichever entity the
+        # metric is about, and page/size/sort mean nothing. ``page``/``size``
+        # carry non-None defaults, so only a value the caller actually chose
+        # is passed on; the defaults reaching here cannot be told from absence
+        # and are harmless.
+        return await _run_whole(
+            handler.run_fn,
+            entity_type,
+            project_id=project_id,
+            project_name=project_name,
+            metric_type=metric_type,
+            interval=interval,
+            breakdown=breakdown,
+            series=series,
+            since=since,
+            until=until,
+            filters=filters,
+            page=page if page != 1 else None,
+            size=size if size != _DEFAULT_SIZE else None,
+            sort=sort,
+            settings=settings,
+            client=client,
+        )
+
+    # Checked after the runner branch rather than before it, so that reaching
+    # the collection path is what proves there is a ``list_fn`` to drive.
     if handler is None or handler.list_fn is None:
         valid = ", ".join(sorted(LISTABLE_TYPES))
         err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
@@ -161,9 +259,15 @@ async def run_list(
         except OQLError as err:
             raise ToolError(str(err)) from err
         if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
-            c["field"] == "source" for c in clauses
+            c["field"] in ("source", *PARENT_ID_FIELDS) for c in clauses
         ):
-            clauses.append(dict(_SDK_SOURCE_CLAUSE))
+            # The SDK default is for triage — "which traces need attention" —
+            # where the Logs page filters the same way. A filter on a parent's
+            # id is a drill-in: the caller named the trace or thread and wants
+            # all of it, the way read() inlines all of it. Adding the default
+            # there would make the continuation a composite read hands out
+            # (`moreSpans`) return a different set than the part it continues.
+            clauses.append(dict(SDK_SOURCE_CLAUSE))
             source_defaulted = True
         if clauses:
             kw["filters"] = json.dumps(clauses, separators=(",", ":"))
@@ -180,11 +284,7 @@ async def run_list(
         day_windowed = "from_date" in handler.list_optional_kwargs
         if entity_type not in WINDOWED_ENTITIES and not day_windowed:
             windowed = ", ".join((*WINDOWED_ENTITIES, "agent_insights_issue"))
-            why = (
-                "experiments have no time window on the backend."
-                if entity_type == "experiment"
-                else f"only {windowed} take a time window."
-            )
+            why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
         try:
@@ -227,88 +327,82 @@ async def run_list(
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
 
+    # A list can be several backend calls: resolving a project name, the
+    # listing itself, and the did-you-mean / empty-result lookups, plus an
+    # entity's own page note. The connection is owned for the span of this
+    # call so they share it.
+    #
+    # Free-text search can take the backend >30 s on a cold cache (seen live:
+    # 32 s); give only those calls a longer leash.
     resolved_settings = settings or get_settings()
-    if client is not None:
-        opik = client
-    else:
-        # Free-text search can take the backend >30 s on a cold cache (seen
-        # live: 32 s); give only those calls a longer leash.
-        timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
-        opik = make_opik_client(resolved_settings, timeout=timeout)
+    search_timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
+    async with client_for_call(settings, client, timeout=search_timeout) as opik:
+        with _as_tool_error(
+            f"list {entity_type}s",
+            on_timeout=(
+                f"Opik did not answer in time for list({entity_type!r}, …). Narrow the query — "
+                "a shorter since window, fewer filters, a smaller size, or drop search — "
+                "and retry."
+            ),
+        ):
+            try:
+                page_body = await handler.list_fn(opik, **kw)
+            except OpikNotFoundError as e:
+                # The backend's 404 for a misspelled project names it ("Project
+                # name: X not found"); only that case gets the did-you-mean
+                # recovery, and the rest fall through to the mapping above.
+                if kw.get("project_name") and kw["project_name"] in str(e):
+                    raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
+                raise
 
-    try:
-        page_body = await handler.list_fn(opik, **kw)
-    except EntityArgValidationError as e:
-        # A list_fn may reject its own arguments (e.g. a project_name that
-        # resolves to no or several projects). Surface it as the same typed
-        # validation error the tool raises for a missing parent id.
-        raise ToolError(str(e)) from e
-    except OpikNotFoundError as e:
-        # The backend's 404 for a misspelled project names it ("Project name: X
-        # not found"); only that case gets the did-you-mean recovery.
-        if kw.get("project_name") and kw["project_name"] in str(e):
-            raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
-        raise ToolError(f"Failed to list {entity_type}s: {e}") from e
-    except (OpikAuthError, OpikValidationError, OpikServerError) as e:
-        raise ToolError(f"Failed to list {entity_type}s: {e}") from e
-    except httpx.TimeoutException as e:
-        # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
-        # sees an error with no text. Seen live: a free-text search that the
-        # backend took >30s to answer on a cold cache.
-        raise ToolError(
-            f"Opik did not answer in time for list({entity_type}, …). Narrow the query — "
-            "a shorter since window, fewer filters, a smaller size, or drop search — and retry."
-        ) from e
-    except httpx.HTTPError as e:
-        raise ToolError(f"Could not reach Opik for list({entity_type}, …): {e}") from e
+        content_raw = page_body.get("content") or []
+        content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
+        total_raw = page_body.get("total")
+        total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
 
-    content_raw = page_body.get("content") or []
-    content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
-    total_raw = page_body.get("total")
-    total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
+        if sort_label is not None:
+            # The backend blanks ``sortable_by`` when it dropped sorting for a large
+            # workspace — the only signal that the page is not actually ordered.
+            if page_body.get("sortable_by") == []:
+                sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
+            applied.insert(sort_slot, sort_label)
 
-    if sort_label is not None:
-        # The backend blanks ``sortable_by`` when it dropped sorting for a large
-        # workspace — the only signal that the page is not actually ordered.
-        if page_body.get("sortable_by") == []:
-            sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
-        applied.insert(sort_slot, sort_label)
-
-    header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
-    # What the page knows about itself, for an entity whose registry entry has
-    # something to add. ``windowed``: Diagnostics issues take a report-day
-    # window, so a page under one says nothing about the project outside it.
-    page_ctx = PageContext(
-        project_id=kw.get("project_id"),
-        project_name=kw.get("project_name"),
-        empty=not content,
-        status=kw.get("status"),
-        windowed="from_date" in kw or "to_date" in kw,
-        window_end=parse_instant(to_time) if to_time else None,
-    )
-
-    if not content:
-        # "No agent constraints" = nothing but the default source clause, no
-        # window, no search. A sort does not change what matches.
-        unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
-        empty = await _empty_message(
-            opik,
-            handler,
-            name=name,
-            from_time=kw.get("from_time"),
-            unconstrained=unconstrained,
-            settings=resolved_settings,
-            page_ctx=page_ctx,
+        header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
+        # What the page knows about itself, for an entity whose registry entry
+        # has something to add. ``windowed``: Diagnostics issues take a
+        # report-day window, so a page under one says nothing about the
+        # project outside it.
+        page_ctx = PageContext(
+            project_id=kw.get("project_id"),
+            project_name=kw.get("project_name"),
+            empty=not content,
+            status=kw.get("status"),
+            windowed="from_date" in kw or "to_date" in kw,
+            window_end=parse_instant(to_time) if to_time else None,
         )
-        return f"{header}\n{empty}" if header else empty
 
-    extra = _requested_columns(sort_field, clauses)
-    table = _format_table(entity_type, handler, content, total, page, size, name, extra)
-    if handler.page_note_fn is not None:
-        note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
-        if note is not None:
-            table = f"{table}\n\n{note}"
-    return f"{header}\n{table}" if header else table
+        if not content:
+            # "No agent constraints" = nothing but the default source clause,
+            # no window, no search. A sort does not change what matches.
+            unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
+            empty = await _empty_message(
+                opik,
+                handler,
+                name=name,
+                from_time=kw.get("from_time"),
+                unconstrained=unconstrained,
+                settings=resolved_settings,
+                page_ctx=page_ctx,
+            )
+            return f"{header}\n{empty}" if header else empty
+
+        extra = _requested_columns(sort_field, clauses)
+        table = _format_table(entity_type, handler, content, total, page, size, name, extra)
+        if handler.page_note_fn is not None:
+            note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
+            if note is not None:
+                table = f"{table}\n\n{note}"
+        return f"{header}\n{table}" if header else table
 
 
 _SOURCE_HINT = (
@@ -411,7 +505,11 @@ def _format_table(
     are appended after the entity's default columns (deduplicated) so the
     table shows why each row is present and in what order.
     """
-    base = ("id", "name") if handler.list_has_name else ("id",)
+    base = tuple(
+        column
+        for column, present in (("id", handler.list_has_id), ("name", handler.list_has_name))
+        if present
+    )
     columns: tuple[str, ...] = (*base, *handler.list_extra_fields)
     for col in extra_columns or ():
         if col not in columns:
@@ -440,6 +538,9 @@ def _format_table(
     if page * size < total:
         lines.append("")
         lines.append(f"Use page={page + 1} for next {size} results.")
+    if handler.list_footer is not None:
+        lines.append("")
+        lines.append(handler.list_footer)
     return "\n".join(lines)
 
 

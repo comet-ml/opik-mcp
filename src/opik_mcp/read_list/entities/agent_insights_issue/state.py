@@ -35,7 +35,7 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
-from opik_mcp.read_list.diagnostics.availability import (
+from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,
 )
@@ -44,9 +44,9 @@ from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.read_list.window import parse_instant, to_minute
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: registry imports this module
-    from opik_mcp.read_list.registry import PageContext
+    from opik_mcp.read_list.handler import PageContext
 
-logger = logging.getLogger("opik_mcp.read_list.diagnostics.state")
+logger = logging.getLogger("opik_mcp.read_list.entities.agent_insights_issue.state")
 
 # The nightly job runs once a day; a scan older than its own period is stale.
 STALE_AFTER = timedelta(hours=24)

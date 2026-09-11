@@ -6,16 +6,22 @@ fetcher functions without spinning up httpx mocks.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.paging import continuation, short_list
 from opik_mcp.read_list.read_tool import run_read
 
 
@@ -45,11 +51,66 @@ class FakeOpikClient:
     fail_issue_with: Exception | None = None
     project_lookups: int = 0
     fail_list_traces: bool = False
+    fail_list_spans: bool = False
+    kpi_stats: list[dict[str, Any]] = field(default_factory=list)
+    last_kpi_kwargs: dict[str, Any] = field(default_factory=dict)
+    fail_kpi_with: Exception | None = None
+    score_names: dict[str, Any] = field(default_factory=lambda: {"scores": []})
+    usage_keys: dict[str, Any] = field(default_factory=lambda: {"names": []})
+    automation_rules: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
+    )
+    activities: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
+    )
+    fail_score_names_with: Exception | None = None
+    fail_activities_with: Exception | None = None
+    in_flight: int = 0
+    max_in_flight: int = 0
+    last_list_spans_kwargs: dict[str, Any] = field(default_factory=dict)
+    last_get_thread_truncate: bool | None = None
+    last_list_traces_kwargs: dict[str, Any] = field(default_factory=dict)
+
+    async def _concurrently(self, result: dict[str, Any]) -> dict[str, Any]:
+        """Yield once so overlapping callers are observable.
+
+        A serial fan-out never gets two of these in flight at the same time;
+        a gathered one gets all of them. That difference is the only way to
+        tell the two apart from outside.
+        """
+        self.in_flight += 1
+        try:
+            await asyncio.sleep(0)
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+            return result
+        finally:
+            self.in_flight -= 1
 
     async def get_project(self, project_id: str) -> dict[str, Any]:
         if project_id not in self.projects_by_id:
             raise OpikNotFoundError(f"project {project_id!r} not found (404).")
         return self.projects_by_id[project_id]
+
+    async def get_project_kpi_cards(
+        self,
+        project_id: str,
+        /,
+        *,
+        entity_type: str,
+        interval_start: str,
+        interval_end: str | None = None,
+        filters: str | None = None,
+    ) -> dict[str, Any]:
+        self.last_kpi_kwargs = {
+            "project_id": project_id,
+            "entity_type": entity_type,
+            "interval_start": interval_start,
+            "interval_end": interval_end,
+            "filters": filters,
+        }
+        if self.fail_kpi_with is not None:
+            raise self.fail_kpi_with
+        return await self._concurrently({"stats": self.kpi_stats})
 
     async def list_projects(
         self,
@@ -57,6 +118,7 @@ class FakeOpikClient:
         name: str | None = None,
         page: int = 1,
         size: int = 10,
+        sorting: str | None = None,
     ) -> dict[str, Any]:
         self.project_lookups += 1
         content = self.projects_by_name.get(name or "", [])
@@ -77,8 +139,19 @@ class FakeOpikClient:
         size: int = 100,
         **_search: Any,
     ) -> dict[str, Any]:
-        content = self.trace_spans.get(trace_id or "", [])
-        return {"content": content, "page": page, "size": len(content), "total": len(content)}
+        self.last_list_spans_kwargs = dict(
+            trace_id=trace_id, project_id=project_id, page=page, size=size, **_search
+        )
+        if self.fail_list_spans:
+            raise OpikServerError("boom")
+        # ``list`` names the trace through a filter clause, ``read`` through
+        # the argument; honour both so a continuation can be run as written.
+        for clause in json.loads(_search.get("filters") or "[]"):
+            if clause.get("field") == "trace_id":
+                trace_id = clause.get("value")
+        every = self.trace_spans.get(trace_id or "", [])
+        content = every[(page - 1) * size : page * size]
+        return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def get_span(self, span_id: str) -> dict[str, Any]:
         return self.spans_by_id[span_id]
@@ -113,8 +186,9 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
-        content = self.prompt_versions.get(prompt_id, [])
-        return {"content": content, "page": page, "size": len(content), "total": len(content)}
+        every = self.prompt_versions.get(prompt_id, [])
+        content = every[(page - 1) * size : page * size]
+        return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def list_prompts(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
@@ -127,6 +201,7 @@ class FakeOpikClient:
         project_name: str | None = None,
         truncate: bool = False,
     ) -> dict[str, Any]:
+        self.last_get_thread_truncate = truncate
         if thread_id not in self.threads_by_id:
             raise OpikNotFoundError(f"thread {thread_id!r} not found (404).")
         return self.threads_by_id[thread_id]
@@ -141,18 +216,22 @@ class FakeOpikClient:
         size: int = 10,
         **_search: Any,
     ) -> dict[str, Any]:
+        self.last_list_traces_kwargs = dict(
+            project_id=project_id, project_name=project_name, filters=filters, **_search
+        )
         if self.fail_list_traces:
             raise OpikServerError("boom")
         # Honor a thread_id filter so the thread fetcher's messages call works.
         if filters:
             for f in json.loads(filters):
                 if f.get("field") == "thread_id":
-                    content = self.thread_messages.get(f.get("value"), [])
+                    every = self.thread_messages.get(f.get("value"), [])
+                    content = every[(page - 1) * size : page * size]
                     return {
                         "content": content,
                         "page": page,
                         "size": len(content),
-                        "total": len(content),
+                        "total": len(every),
                     }
         return {"content": [], "page": page, "size": 0, "total": 0}
 
@@ -166,6 +245,25 @@ class FakeOpikClient:
 
     async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
+
+    async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
+        if self.fail_score_names_with is not None:
+            raise self.fail_score_names_with
+        return await self._concurrently(self.score_names)
+
+    async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
+        return await self._concurrently(self.usage_keys)
+
+    async def list_automation_rules(self, **_: Any) -> dict[str, Any]:
+        return await self._concurrently(self.automation_rules)
+
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        if self.fail_activities_with is not None:
+            raise self.fail_activities_with
+        return await self._concurrently(self.activities)
+
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"results": []}
 
     async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
         raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
@@ -205,7 +303,7 @@ async def test_read_project_by_uuid_returns_header_and_json() -> None:
     out = await run_read("project", UUID, client=fake)
 
     assert out.startswith(f"[read: project {UUID}")
-    assert "compression=FULL" in out
+    assert "tok]" in out, "the size is stated so a large answer is visible as one"
     assert UUID in out
     assert "demo" in out
 
@@ -566,37 +664,6 @@ async def test_read_issue_not_found_names_entity_and_id() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_issue_skeleton_keeps_every_example_trace_id() -> None:
-    """An all-time read can carry hundreds of per-day rows. When it blows the
-    budget, the trace ids — the reason for the read — must survive; the
-    per-day rows are what gets dropped."""
-    rows = [
-        {
-            "report_day": f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}",
-            "count": i,
-            "metadata": {
-                "example_trace_ids": [f"tr-{i}"],
-                "confidence_justification": "x" * 2_000,
-            },
-        }
-        for i in range(120)
-    ]
-    detail = {**_ISSUE_DETAIL, "details": rows}
-    out = await run_read(
-        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=500, client=_issue_fake(detail)
-    )
-    assert "compression=SKELETON" in out
-    body = _payload(out)
-    assert body["issue"]["id"] == ISSUE
-    assert body["issue"]["name"] == "Tool call loop on weather lookup"
-    assert body["issue"]["severity"] == "high"
-    assert body["issue"]["status"] == "open"
-    assert body["example_trace_ids"] == [f"tr-{i}" for i in range(120)]
-    assert "details" not in body
-    assert "read('trace'" in body["note"]
-
-
-@pytest.mark.anyio
 async def test_read_issue_resolves_exact_project_name() -> None:
     fake = _issue_fake()
     fake.projects_by_name = {
@@ -717,61 +784,6 @@ async def test_read_issue_via_canonical_uri() -> None:
     assert fake.last_issue_kwargs["project_id"] == "p-uri"
 
 
-@pytest.mark.anyio
-async def test_read_issue_medium_drops_row_metadata_to_meet_budget() -> None:
-    """The per-row metadata (ids already lifted into example_trace_ids, plus
-    prose) is the bulk of an issue read. When the FULL body is over budget,
-    MEDIUM drops it first — and that alone should bring the seven-row fixture
-    under a 1,000-token budget while keeping every row's counts."""
-    rows = [
-        {
-            "report_day": f"2026-09-0{d}",
-            "count": d,
-            "total_count": 10 * d,
-            "users_impacted": 1,
-            "total_users": 40,
-            "metadata": {
-                "example_trace_ids": [f"tr-{d}-{i}" for i in range(5)],
-                "confidence_justification": "why " * 150,
-            },
-        }
-        for d in range(1, 8)
-    ]
-    detail = {**_ISSUE_DETAIL, "details": rows}
-    out = await run_read(
-        "agent_insights_issue",
-        ISSUE,
-        project_id="p-9",
-        max_tokens=1_000,
-        client=_issue_fake(detail),
-    )
-    header, payload = out.split("\n", 1)
-    assert "compression=MEDIUM" in header
-    assert len(payload) // 4 <= 1_000
-    body = json.loads(payload)
-    assert len(body["example_trace_ids"]) == 35
-    assert len(body["details"]) == 7
-    assert body["details"][0]["count"] == 1
-    assert "metadata" not in body["details"][0]
-    # The prose the agent came for is intact at this tier.
-    assert body["issue"]["suggested_fix"] == _ISSUE_DETAIL["suggested_fix"]
-
-
-@pytest.mark.anyio
-async def test_read_issue_falls_to_skeleton_when_still_over_budget() -> None:
-    """A budget too small for even the pruned rows gets SKELETON regardless of
-    the global 50k threshold — the agent asked for a small answer."""
-    out = await run_read(
-        "agent_insights_issue", ISSUE, project_id="p-9", max_tokens=150, client=_issue_fake()
-    )
-    header, payload = out.split("\n", 1)
-    assert "compression=SKELETON" in header
-    body = json.loads(payload)
-    assert body["example_trace_ids"] == ["tr-a", "tr-b", "tr-c"]
-    assert body["issue"]["name"] == _ISSUE_DETAIL["name"]
-    assert "details" not in body
-
-
 # --- UI links on the issue read ------------------------------------------ #
 
 _UI_SETTINGS = Settings(
@@ -848,28 +860,10 @@ async def test_read_issue_omits_links_when_opik_url_unconfigured() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_issue_skeleton_keeps_url() -> None:
-    out = await run_read(
-        "agent_insights_issue",
-        ISSUE,
-        project_id="p-9",
-        max_tokens=150,
-        client=_issue_fake(),
-        settings=_UI_SETTINGS,
-    )
-    header, payload = out.split("\n", 1)
-    assert "compression=SKELETON" in header
-    body = json.loads(payload)
-    assert body["url"].endswith(f"diagnostics?issue={ISSUE}")
-    # The skeleton keeps the example ids; the template is what makes them
-    # clickable, so it stays too.
-    assert body["trace_url_template"].endswith("/logs?trace={trace_id}")
-
-
-@pytest.mark.anyio
 async def test_read_window_rejected_for_entities_that_do_not_declare_it() -> None:
-    """since/until belong to the issue read; a thread fetcher takes neither, so
-    the read says so (as list does) rather than silently ignoring the window."""
+    """A thread fetcher takes no window, so the read says so (as list does)
+    rather than silently ignoring it — and names the entities that do take one,
+    read off the registry so the message cannot go stale."""
     with pytest.raises(ToolError, match="since/until are not supported for read\\('thread'\\)"):
         await run_read(
             "thread",
@@ -878,6 +872,15 @@ async def test_read_window_rejected_for_entities_that_do_not_declare_it() -> Non
             since="7d",
             client=_thread_fake(),
         )
+
+
+@pytest.mark.anyio
+async def test_read_window_refusal_names_every_entity_that_takes_one() -> None:
+    with pytest.raises(ToolError) as exc:
+        await run_read("thread", THREAD, project_id="p-9", since="7d", client=_thread_fake())
+    message = str(exc.value)
+    assert "agent_insights_issue" in message
+    assert "project" in message
 
 
 @pytest.mark.anyio
@@ -896,40 +899,6 @@ async def test_read_thread_has_no_link_fields() -> None:
         "thread", THREAD, project_id="p-9", client=_thread_fake(), settings=_UI_SETTINGS
     )
     assert "url" not in _payload(out)
-
-
-@pytest.mark.anyio
-async def test_read_issue_medium_compression_keeps_trace_ids_too() -> None:
-    """Between FULL and SKELETON the generic string truncation runs; short ids
-    are untouched, so the list stays intact."""
-    rows = [
-        {
-            "report_day": f"2026-01-{1 + i:02d}",
-            "count": i,
-            "metadata": {"example_trace_ids": [f"tr-{i}"], "confidence_justification": "y" * 800},
-        }
-        for i in range(20)
-    ]
-    detail = {**_ISSUE_DETAIL, "details": rows}
-    out = await run_read(
-        "agent_insights_issue",
-        ISSUE,
-        project_id="p-9",
-        max_tokens=1_000,
-        client=_issue_fake(detail),
-    )
-    assert "compression=MEDIUM" in out
-    assert _payload(out)["example_trace_ids"] == [f"tr-{i}" for i in range(20)]
-
-
-# --- compression budget --------------------------------------------------- #
-
-
-@pytest.mark.anyio
-async def test_read_respects_max_tokens() -> None:
-    fake = FakeOpikClient(projects_by_id={UUID: {"id": UUID, "blob": "x" * 50_000}})
-    out = await run_read("project", UUID, max_tokens=100, client=fake)
-    assert "compression=MEDIUM" in out
 
 
 # --- exception chain assertions ------------------------------------------- #
@@ -968,3 +937,1062 @@ async def test_read_missing_project_scope_error_is_entity_neutral() -> None:
     assert "project_id" in msg
     assert "project_name" in msg
     assert "link" in msg
+
+
+# --- project overview: the week's numbers -------------------------------- #
+#
+# `read('project')` used to return eight metadata fields and not one number,
+# so "how is my project doing" was answered by counting raw traces. These pin
+# the summary block: the four figures the Logs page cards show, the window
+# they cover, and the two ways the backend's answer can mislead if passed
+# through as-is (metric order, and zero-vs-no-data).
+
+_PROJECT = {
+    "id": UUID,
+    "name": "demo",
+    "visibility": "private",
+    "last_updated_trace_at": "2026-09-09T13:41:26.910Z",
+}
+
+# The backend's own order — count, avg_duration, total_cost, errors — which is
+# NOT the order the UI renders the cards in.
+_STATS = [
+    {"type": "count", "current_value": 1204.0, "previous_value": 980.0},
+    {"type": "avg_duration", "current_value": 1830.4, "previous_value": 2100.9},
+    {"type": "total_cost", "current_value": 4.12, "previous_value": 3.05},
+    {"type": "errors", "current_value": 2.1, "previous_value": 4.7},
+]
+
+
+def _project_fake(**kw: Any) -> FakeOpikClient:
+    kw.setdefault("projects_by_id", {UUID: _PROJECT})
+    kw.setdefault("kpi_stats", _STATS)
+    return FakeOpikClient(**kw)
+
+
+@pytest.mark.anyio
+async def test_read_project_returns_the_four_figures_with_current_and_previous() -> None:
+    """The headline: traces, error rate, latency and cost, each against the
+    period before, so the agent can say what changed without a second call."""
+    body = _payload(await run_read("project", UUID, client=_project_fake()))
+    traces = body["summary"]["traces"]
+    assert traces["count"] == {"current": 1204.0, "previous": 980.0}
+    assert traces["errors"] == {"current": 2.1, "previous": 4.7}
+    assert traces["avg_duration"] == {"current": 1830.4, "previous": 2100.9}
+    assert traces["total_cost"] == {"current": 4.12, "previous": 3.05}
+    assert body["project"]["name"] == "demo"
+
+
+@pytest.mark.anyio
+async def test_read_project_maps_figures_by_type_not_by_position() -> None:
+    """The backend returns the stats in its own order, and it is not the UI's.
+    Reading them positionally would label cost as duration — silently, and
+    plausibly, which is the worst kind of wrong."""
+    shuffled = [_STATS[3], _STATS[2], _STATS[0], _STATS[1]]
+    body = _payload(await run_read("project", UUID, client=_project_fake(kpi_stats=shuffled)))
+    traces = body["summary"]["traces"]
+    assert traces["count"]["current"] == 1204.0
+    assert traces["total_cost"]["current"] == 4.12
+
+
+@pytest.mark.anyio
+async def test_read_project_covers_the_last_seven_days_against_the_previous_seven() -> None:
+    """The default window is the one the question asks about. The backend
+    derives the comparison period from the window's own length, so a 7-day
+    window compares against the 7 days before it."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    sent = fake.last_kpi_kwargs
+    start = datetime.fromisoformat(sent["interval_start"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(sent["interval_end"].replace("Z", "+00:00"))
+    assert (end - start) == timedelta(days=7)
+    assert end <= datetime.now(UTC) + timedelta(seconds=5)
+
+    window = body["summary"]["window"]
+    assert window["days"] == 7
+    assert window["since"] == sent["interval_start"]
+    assert window["until"] == sent["interval_end"]
+
+
+@pytest.mark.anyio
+async def test_read_project_counts_only_sdk_traffic_and_says_so() -> None:
+    """The Logs page cards hardcode source = "sdk", and so does list('trace').
+    A project read that quietly counted experiment and playground traffic too
+    would never reconcile with the number on the user's screen."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    # The same compiled clause the lists send, serialised — `kpi-cards` takes
+    # `filters` as a String where they take an array, but the fact travelling
+    # is one fact. Verified live that the backend answers identically with and
+    # without the empty `key` the compiled form carries.
+    assert json.loads(fake.last_kpi_kwargs["filters"]) == [
+        {"field": "source", "operator": "=", "key": "", "value": "sdk"}
+    ]
+    assert fake.last_kpi_kwargs["entity_type"] == "traces"
+    assert body["summary"]["source"] == "sdk"
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_rate_over_no_traces_as_undefined() -> None:
+    """For an empty period the backend returns a zero count AND a zero error
+    rate. Passed through, that reads as "0% errors — healthy", which is advice
+    someone may act on. A rate and an average over no samples are undefined;
+    a count and a sum are honestly zero."""
+    empty = [
+        {"type": "count", "current_value": 0.0, "previous_value": 0.0},
+        {"type": "avg_duration", "current_value": None, "previous_value": None},
+        {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+        {"type": "errors", "current_value": 0.0, "previous_value": 0.0},
+    ]
+    body = _payload(await run_read("project", UUID, client=_project_fake(kpi_stats=empty)))
+    traces = body["summary"]["traces"]
+    assert traces["count"] == {"current": 0.0, "previous": 0.0}
+    assert traces["total_cost"] == {"current": 0.0, "previous": 0.0}
+    assert traces["errors"]["current"] is None
+    assert traces["avg_duration"]["current"] is None
+    assert "no" in body["summary"]["note"].lower()
+
+
+@pytest.mark.anyio
+async def test_read_project_keeps_a_real_zero_error_rate() -> None:
+    """The mirror case: traces ran and none failed. That zero is a fact and
+    must survive — blanking it would be as misleading as inventing it."""
+    clean = [
+        {"type": "count", "current_value": 300.0, "previous_value": 0.0},
+        {"type": "avg_duration", "current_value": 12.0, "previous_value": None},
+        {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+        {"type": "errors", "current_value": 0.0, "previous_value": 0.0},
+    ]
+    body = _payload(await run_read("project", UUID, client=_project_fake(kpi_stats=clean)))
+    assert body["summary"]["traces"]["errors"]["current"] == 0.0
+    assert "note" not in body["summary"]
+
+
+@pytest.mark.anyio
+async def test_read_project_says_the_metrics_failed_rather_than_reporting_zeros() -> None:
+    """A block that could not be loaded must never look like data. Same rule as
+    a thread's messages: an empty answer where the metadata says otherwise is
+    worse than an error."""
+    fake = _project_fake(fail_kpi_with=OpikServerError("kpi-cards 503"))
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    assert body["project"]["name"] == "demo", "the project record still arrives"
+    assert "traces" not in body["summary"]
+    assert "503" in body["summary"]["error"]
+    assert "list('trace'" in body["summary"]["error"], "the error names a way forward"
+
+
+@pytest.mark.anyio
+async def test_read_project_fails_when_the_project_record_fails() -> None:
+    """The project is the primary payload — unlike the summary, there is no
+    useful answer without it."""
+    with pytest.raises(ToolError, match="Not found"):
+        await run_read("project", UUID, client=FakeOpikClient())
+
+
+# --- project overview: the vocabulary ------------------------------------ #
+#
+# The map, not the content: which scores exist, which usage keys are recorded,
+# what is scoring the traces. Each was a separate discovery call, and an agent
+# that did not know to make them wrote filters against guessed names. Two of
+# the three lists are unbounded on the backend, so each is capped by count and
+# says how many there really are.
+
+
+def _vocab_fake(**kw: Any) -> FakeOpikClient:
+    kw.setdefault("score_names", {"scores": [{"name": "hallucination"}, {"name": "tone"}]})
+    kw.setdefault("usage_keys", {"names": ["prompt_tokens", "completion_tokens"]})
+    kw.setdefault(
+        "automation_rules",
+        {"content": [{"id": "r-1", "name": "judge"}], "total": 1},
+    )
+    return _project_fake(**kw)
+
+
+@pytest.mark.anyio
+async def test_read_project_carries_the_scores_usage_keys_and_rules() -> None:
+    body = _payload(await run_read("project", UUID, client=_vocab_fake()))
+    vocab = body["vocabulary"]
+    assert vocab["score_names"]["names"] == ["hallucination", "tone"]
+    assert vocab["usage_keys"]["names"] == ["prompt_tokens", "completion_tokens"]
+    assert vocab["online_rules"]["names"] == ["judge"]
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_the_rule_total_the_backend_gave() -> None:
+    """The rules list is one page of the evaluators endpoint, so its length is
+    the page's, not the project's. The count has to come from the envelope —
+    counting the rows we happen to hold would under-report every project with
+    more than ten rules, and the number is the reason the block exists."""
+    page = {"content": [{"id": f"r-{i}", "name": f"judge-{i}"} for i in range(10)], "total": 42}
+    body = _payload(await run_read("project", UUID, client=_vocab_fake(automation_rules=page)))
+    rules = body["vocabulary"]["online_rules"]
+    assert len(rules["names"]) == 10
+    assert rules["total"] == 42, "the project's rules, not this page's"
+    assert "list('online_rule'" in rules["all"]
+
+
+@pytest.mark.anyio
+async def test_read_project_caps_a_long_score_list_and_says_how_many_there_are() -> None:
+    """The backend's score-name query has no LIMIT, so a project with several
+    judge rules can carry enough names to dominate the payload. The cap keeps
+    the read predictable; the total keeps it honest."""
+    many = {"scores": [{"name": f"score-{i:03d}"} for i in range(60)]}
+    body = _payload(await run_read("project", UUID, client=_vocab_fake(score_names=many)))
+    scores = body["vocabulary"]["score_names"]
+    assert len(scores["names"]) == 25
+    assert scores["total"] == 60
+    assert "list('score_name'" in scores["all"]
+    assert UUID in scores["all"], "the pointer is callable as written"
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_total_even_when_nothing_was_cut() -> None:
+    """A total that appeared only on truncation would make its presence mean
+    "truncated", and the agent would read the short lists as complete only by
+    inference. It is always there; the pointer is what signals truncation."""
+    body = _payload(await run_read("project", UUID, client=_vocab_fake()))
+    scores = body["vocabulary"]["score_names"]
+    assert scores["total"] == 2
+    assert "all" not in scores
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_a_vocabulary_part_that_is_genuinely_empty() -> None:
+    """ "Nothing recorded yet" and "could not load" have to stay
+    distinguishable, so an empty part is absent rather than an empty list."""
+    body = _payload(await run_read("project", UUID, client=_vocab_fake(usage_keys={"names": []})))
+    assert "usage_keys" not in body["vocabulary"]
+    assert "score_names" in body["vocabulary"]
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_the_vocabulary_when_the_project_has_none() -> None:
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            client=_vocab_fake(
+                score_names={"scores": []},
+                usage_keys={"names": []},
+                automation_rules={"content": [], "total": 0},
+            ),
+        )
+    )
+    assert "vocabulary" not in body
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_failed_vocabulary_part_without_losing_the_rest() -> None:
+    fake = _vocab_fake(fail_score_names_with=OpikServerError("names 500"))
+    body = _payload(await run_read("project", UUID, client=fake))
+    vocab = body["vocabulary"]
+    assert "500" in vocab["score_names"]["error"]
+    assert "names" not in vocab["score_names"], "a failed part must not look like data"
+    assert vocab["usage_keys"]["names"] == ["prompt_tokens", "completion_tokens"]
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "boom",
+    [
+        httpx.ReadTimeout("slow"),
+        httpx.ConnectError("refused"),
+        httpx.RemoteProtocolError("reset"),
+    ],
+    ids=["timeout", "connect", "protocol"],
+)
+async def test_a_decoration_that_times_out_does_not_take_the_read_with_it(
+    boom: Exception,
+) -> None:
+    """Found by review, not by these tests: every block caught only the typed
+    Opik errors, so anything httpx raised — a timeout above all, the likeliest
+    failure of a five-way fan-out — escaped as a raw exception. The whole read
+    died, taking the project record already in hand, and the agent got no tool
+    error to recover from."""
+    fake = _vocab_fake(fail_kpi_with=boom)
+    body = _payload(await run_read("project", UUID, client=fake))
+
+    assert body["project"]["name"] == "demo"
+    assert "traces" not in body["summary"]
+    assert body["summary"]["error"], "the block says what happened"
+    assert body["vocabulary"]["score_names"]["names"] == ["hallucination", "tone"]
+
+
+@pytest.mark.anyio
+async def test_an_error_with_no_message_still_says_something() -> None:
+    """`httpx.ReadTimeout()` stringifies to nothing, which would leave an error
+    field with no error in it."""
+    fake = _vocab_fake(fail_score_names_with=httpx.ReadTimeout(""))
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "ReadTimeout" in body["vocabulary"]["score_names"]["error"]
+
+
+@pytest.mark.anyio
+async def test_a_slow_decoration_does_not_hold_up_the_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found by running the packaged server against production: `/activities`
+    answers in ~250 ms for most projects and 5-11 s for some — the same ones
+    each time, with a single row, so it is the shape of the data rather than
+    its volume. A gathered read finishes with its slowest leg, so one backend
+    query turned the headline call from half a second into eight."""
+    monkeypatch.setattr(decorations, "DEADLINE_SECONDS", 0.05)
+
+    async def crawl(_project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        await asyncio.sleep(5)
+        return {"content": [], "total": 0}
+
+    fake = _vocab_fake()
+    monkeypatch.setattr(fake, "list_project_activities", crawl)
+
+    started = asyncio.get_running_loop().time()
+    body = _payload(await run_read("project", UUID, client=fake))
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert elapsed < 1, f"the read waited {elapsed:.1f}s on a decoration"
+    assert "longer than" in body["contains"]["error"]
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+    assert body["vocabulary"]["score_names"]["names"] == ["hallucination", "tone"]
+
+
+@pytest.mark.anyio
+async def test_the_summary_is_not_on_a_decoration_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The figures are the answer, not a decoration of it. Cutting them off at
+    2.5s to report "timed out" would be worse than the extra second."""
+    monkeypatch.setattr(decorations, "DEADLINE_SECONDS", 0.02)
+
+    async def slowish(_project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        await asyncio.sleep(0.1)
+        return {"stats": _STATS}
+
+    fake = _vocab_fake()
+    monkeypatch.setattr(fake, "get_project_kpi_cards", slowish)
+
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+
+
+@pytest.mark.anyio
+async def test_read_project_gathers_its_calls_concurrently() -> None:
+    """Five backend calls on one connection. Run in series they would cost
+    five round trips; the whole point of owning the connection was to make
+    them cost one."""
+    fake = _vocab_fake()
+    await run_read("project", UUID, client=fake)
+    assert fake.max_in_flight > 1, (
+        f"calls peaked at {fake.max_in_flight} in flight — the fan-out is serial"
+    )
+
+
+# --- project overview: what the project contains ------------------------- #
+
+
+def _activity(kind: str, name: str, day: str, ident: str = "a-1") -> dict[str, Any]:
+    return {"type": kind, "id": ident, "name": name, "created_at": f"{day}T10:00:00.000Z"}
+
+
+@pytest.mark.anyio
+async def test_read_project_names_the_freshest_thing_of_each_kind() -> None:
+    """ "What is in here" is better answered by "the last experiment was
+    baseline-v4, two days ago" than by "there are 17 experiments"."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 4,
+            "total": 4,
+            "content": [
+                _activity("experiment", "baseline-v4", "2026-09-07", "e-4"),
+                _activity("prompt_version", "router", "2026-09-05", "p-1"),
+                _activity("experiment", "baseline-v3", "2026-09-01", "e-3"),
+                _activity("test_suite_version", "qa-set", "2026-08-28", "t-1"),
+            ],
+        }
+    )
+    contains = _payload(await run_read("project", UUID, client=fake))["contains"]
+    assert contains["experiment"] == {"name": "baseline-v4", "id": "e-4", "at": "2026-09-07"}
+    assert contains["prompt_version"]["name"] == "router"
+    assert contains["test_suite_version"]["name"] == "qa-set"
+    assert len(contains) == 3, "one entry per kind, not a feed of every event"
+
+
+@pytest.mark.anyio
+async def test_read_project_never_renders_the_daily_trace_count_as_a_name() -> None:
+    """The per-day trace entry carries the day's trace COUNT in the field every
+    other kind uses for a name. Passed through, an agent reads it as an object
+    called "5". The summary already reports traces properly, so the entry is
+    left out rather than reinterpreted."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 2,
+            "total": 2,
+            "content": [
+                _activity("trace_daily", "5", "2026-09-09"),
+                _activity("experiment", "baseline-v4", "2026-09-07", "e-4"),
+            ],
+        }
+    )
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "trace_daily" not in body["contains"]
+    assert body["contains"]["experiment"]["name"] == "baseline-v4"
+
+
+@pytest.mark.anyio
+async def test_read_project_does_not_invent_the_fields_the_backend_omits() -> None:
+    """The owning resource and the author come back absent, not null. Rendering
+    them as null would put two empty fields on every entry."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 1,
+            "total": 1,
+            "content": [_activity("experiment", "baseline", "2026-09-07", "e-1")],
+        }
+    )
+    entry = _payload(await run_read("project", UUID, client=fake))["contains"]["experiment"]
+    assert set(entry) == {"name", "id", "at"}
+
+
+@pytest.mark.anyio
+async def test_read_project_says_when_older_kinds_may_be_off_the_page() -> None:
+    """The feed is one stream ordered by date, and the per-day trace roll-up
+    grows by a row a day, so a project's only experiment can sit behind a year
+    of trace rows. When the feed is longer than the page, the block says the
+    absences are not proof of absence."""
+    fake = _vocab_fake(
+        activities={
+            "page": 1,
+            "size": 2,
+            "total": 400,
+            "content": [
+                _activity("trace_daily", "5", "2026-09-09"),
+                _activity("experiment", "baseline", "2026-09-07", "e-1"),
+            ],
+        }
+    )
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "note" in body["contains"]
+    assert "400" in body["contains"]["note"]
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_contains_for_a_project_with_no_activity() -> None:
+    body = _payload(await run_read("project", UUID, client=_vocab_fake()))
+    assert "contains" not in body
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_failed_activity_call_explicitly() -> None:
+    fake = _vocab_fake(fail_activities_with=OpikServerError("activities 500"))
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "500" in body["contains"]["error"]
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+
+
+@pytest.mark.anyio
+async def test_read_project_carries_a_link_to_its_page() -> None:
+    body = _payload(await run_read("project", UUID, client=_project_fake(), settings=_UI_SETTINGS))
+    assert body["url"] == f"https://opik.test/demo-ws/projects/{UUID}/logs"
+
+
+@pytest.mark.anyio
+async def test_read_project_accepts_a_relative_window() -> None:
+    """`since='30d'` is what reproduces the Logs page cards, which open on 30
+    days. The default answers the weekly question; this answers "and last
+    month?" without a second tool."""
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, since="30d", client=fake))
+
+    sent = fake.last_kpi_kwargs
+    start = datetime.fromisoformat(sent["interval_start"].replace("Z", "+00:00"))
+    end = datetime.fromisoformat(sent["interval_end"].replace("Z", "+00:00"))
+    assert (end - start) == timedelta(days=30)
+    assert body["summary"]["window"]["days"] == 30
+
+
+class _FrozenClock:
+    """Stands in for ``datetime`` where only ``now`` is called."""
+
+    def __init__(self, when: datetime) -> None:
+        self._when = when
+
+    def now(self, tz: object = None) -> datetime:
+        return self._when
+
+
+@pytest.mark.anyio
+async def test_read_project_measures_a_relative_window_from_one_clock_reading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression, found live rather than here: the start resolved against one
+    "now" and the end was measured from a second one, so `since='30d'` spanned
+    30 days and a second whenever the two readings crossed a second boundary —
+    and the day count silently vanished.
+
+    Freezing only the read's clock is what makes this fail when the fix is
+    removed. Both bounds then have to come from that one reading; a second
+    reading anywhere downstream lands in the real present, years away, and
+    nothing about the assertion is a coin flip."""
+    frozen = datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC)
+    monkeypatch.setattr(read_tool, "datetime", _FrozenClock(frozen))
+
+    fake = _project_fake()
+    body = _payload(await run_read("project", UUID, since="30d", client=fake))
+
+    sent = fake.last_kpi_kwargs
+    assert sent["interval_end"] == "2026-03-04T05:06:07Z", "closed from the read's own reading"
+    assert sent["interval_start"] == "2026-02-02T05:06:07Z"
+    window = body["summary"]["window"]
+    assert (window["since"], window["until"]) == (sent["interval_start"], sent["interval_end"])
+    assert window["days"] == 30, "a whole number of days, not 30 days and a second"
+
+
+@pytest.mark.anyio
+async def test_read_issue_window_stays_open_ended_by_default() -> None:
+    """The mirror of the above: a day-keyed window must NOT be closed for the
+    caller. The Diagnostics page counts all-time, so filling in "until now"
+    would quietly bound what the agent asked to be unbounded."""
+    fake = _issue_fake()
+    await run_read("agent_insights_issue", ISSUE, project_id="p-9", since="7d", client=fake)
+    assert fake.last_issue_kwargs["from_date"] is not None
+    assert fake.last_issue_kwargs["to_date"] is None
+
+
+@pytest.mark.anyio
+async def test_read_project_accepts_absolute_instants() -> None:
+    fake = _project_fake()
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
+            client=fake,
+        )
+    )
+    assert fake.last_kpi_kwargs["interval_start"] == "2026-09-01T00:00:00Z"
+    assert fake.last_kpi_kwargs["interval_end"] == "2026-09-08T00:00:00Z"
+    assert body["summary"]["window"]["since"] == "2026-09-01T00:00:00Z"
+    assert body["summary"]["window"]["until"] == "2026-09-08T00:00:00Z"
+
+
+@pytest.mark.anyio
+async def test_read_project_says_what_previous_means() -> None:
+    """ "Previous" is the backend's `[start - (end - start), start)`. Spelling it
+    out beats making the agent do date arithmetic to describe its own answer —
+    which is where "compared to last month" comes from when it was last week."""
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-08T00:00:00Z",
+            client=_project_fake(),
+        )
+    )
+    assert body["summary"]["window"]["compared_to"] == {
+        "since": "2026-08-25T00:00:00Z",
+        "until": "2026-09-01T00:00:00Z",
+    }
+
+
+@pytest.mark.anyio
+async def test_read_project_reports_a_partial_day_window_without_a_day_count() -> None:
+    """A 36-hour window has no whole number of days, so claiming one would be a
+    rounded lie. The bounds are always exact; `days` appears only when it is."""
+    body = _payload(await run_read("project", UUID, since="36h", client=_project_fake()))
+    window = body["summary"]["window"]
+    assert "days" not in window
+    assert window["since"] < window["until"]
+
+
+@pytest.mark.anyio
+async def test_read_project_rejects_an_inverted_window_before_the_backend() -> None:
+    with pytest.raises(ToolError, match="before since"):
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-08T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=_project_fake(),
+        )
+
+
+@pytest.mark.anyio
+async def test_read_project_rejects_a_window_of_no_length() -> None:
+    """Equal bounds used to pass, asking the backend for a window that cannot
+    contain anything. An empty answer would not have told the caller they had
+    asked for one."""
+    with pytest.raises(ToolError, match="the same instant as"):
+        await run_read(
+            "project",
+            UUID,
+            since="2026-09-01T00:00:00Z",
+            until="2026-09-01T00:00:00Z",
+            client=_project_fake(),
+        )
+
+
+@pytest.mark.anyio
+async def test_read_project_omits_the_link_when_opik_url_is_unconfigured() -> None:
+    """No link beats a wrong one. The summary still arrives — the link is a
+    convenience, the numbers are the answer."""
+    bare = Settings(
+        opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
+    )
+    body = _payload(await run_read("project", UUID, client=_project_fake(), settings=bare))
+    assert "url" not in body
+    assert body["summary"]["traces"]["count"]["current"] == 1204.0
+    assert "_project_id" not in body
+
+
+# --- what using the tool turned up ---------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_rate_is_reported_at_the_precision_it_has() -> None:
+    """Found by reading an answer, not by a test: the backend returns an
+    error rate over 167 traces as 18.562874251497007, and the read passed all
+    seventeen digits through. It is a number an agent quotes to a person."""
+    fake = _project_fake(
+        kpi_stats=[
+            {"type": "count", "current_value": 167.0, "previous_value": 0.0},
+            {"type": "errors", "current_value": 18.562874251497007, "previous_value": None},
+            {"type": "avg_duration", "current_value": 3.9375029940119766, "previous_value": None},
+            {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+        ]
+    )
+    traces = _payload(await run_read("project", UUID, client=fake))["summary"]["traces"]
+
+    assert traces["errors"]["current"] == 18.5629
+    assert traces["avg_duration"]["current"] == 3.9375
+
+
+@pytest.mark.anyio
+async def test_a_sub_cent_cost_is_not_rounded_away() -> None:
+    """The rounding that tames a rate would turn a real cost into zero, which
+    is the one thing this summary must never say."""
+    fake = _project_fake(
+        kpi_stats=[
+            {"type": "count", "current_value": 1.0, "previous_value": 0.0},
+            {"type": "total_cost", "current_value": 1.35e-05, "previous_value": 0.0},
+        ]
+    )
+    traces = _payload(await run_read("project", UUID, client=fake))["summary"]["traces"]
+
+    assert traces["total_cost"]["current"] == 1.35e-05
+
+
+_OPTIMIZATION_FEED = {
+    "content": [
+        {
+            "type": "optimization",
+            "name": "test-dataset",
+            "id": "019fc8a2-6ec2-7c0f-8330-d983ab1ef3b9",
+            "created_at": "2026-08-03T17:18:37Z",
+        }
+    ],
+    "total": 1,
+}
+
+
+@pytest.mark.anyio
+async def test_an_optimization_run_carries_the_page_that_opens_it() -> None:
+    """``contains`` names what is freshest in a project, and an optimization
+    is the one kind with no entity to read: the answer named a thing and left
+    the reader nowhere to go."""
+    body = _payload(
+        await run_read(
+            "project",
+            UUID,
+            client=_project_fake(activities=_OPTIMIZATION_FEED),
+            settings=_UI_SETTINGS,
+        )
+    )
+
+    run = body["contains"]["optimization"]
+    assert run["url"] == (
+        f"https://opik.test/demo-ws/projects/{UUID}"
+        "/optimizations/019fc8a2-6ec2-7c0f-8330-d983ab1ef3b9"
+    )
+    assert body["url"].endswith("/logs"), "the project's own link is still there"
+
+
+@pytest.mark.anyio
+async def test_an_experiment_entry_gets_no_guessed_link() -> None:
+    """Its UI page is keyed by the dataset, which the feed does not carry,
+    and ``read('experiment', id)`` opens it anyway. No link beats a wrong
+    one — the same rule the project link already follows."""
+    feed = {
+        "content": [
+            {
+                "type": "experiment",
+                "name": "rerank-v3",
+                "id": "019fc8a2-6ec2-7c0f-8330-d983ab1ef3b9",
+                "created_at": "2026-08-03T17:18:37Z",
+            }
+        ],
+        "total": 1,
+    }
+    body = _payload(
+        await run_read(
+            "project", UUID, client=_project_fake(activities=feed), settings=_UI_SETTINGS
+        )
+    )
+
+    assert "url" not in body["contains"]["experiment"]
+
+
+@pytest.mark.anyio
+async def test_no_ui_base_means_no_link_on_the_entry_either() -> None:
+    """The same rule the project's own link follows, one level down."""
+    bare = Settings(
+        opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
+    )
+    body = _payload(
+        await run_read(
+            "project", UUID, client=_project_fake(activities=_OPTIMIZATION_FEED), settings=bare
+        )
+    )
+
+    assert "url" not in body["contains"]["optimization"]
+
+
+@pytest.mark.anyio
+async def test_a_huge_record_comes_back_whole() -> None:
+    """Truncation was removed rather than tuned. It came from ollie, where a
+    cut field can be fetched back through the jq tool over a session cache;
+    here there was neither, so the pointer named nothing and the data was
+    gone. A read that quietly returns less than it fetched is a wrong answer
+    the caller cannot see — a large one is a cost they can."""
+    payload = "x" * 400_000
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1", "input": payload}},
+        trace_spans={UUID: [{"id": "sp-1", "output": payload}]},
+    )
+
+    out = await run_read("trace", UUID, client=fake)
+
+    assert "TRUNCATED" not in out
+    assert out.count(payload) == 2, "both the trace's field and the span's survive"
+    assert "tok]" in out.splitlines()[0], "and the header says what it cost"
+
+
+# --- slim child bodies ----------------------------------------------------- #
+#
+# The children a composite read inlines are fetched with the backend's
+# ``truncate=true``; the read then counts what that actually took and says so,
+# because the backend keeps its own truncation flags server-side. See
+# ``read_list/slim.py``.
+
+#: Long enough to be cut by ``BACKEND_SLIM_THRESHOLD_CHARS``, and arriving as
+#: a string, which is the only sign of a cut the backend leaves.
+CUT_BODY = "x" * 10_001
+UNCUT_BODY = "x" * 9_999
+
+
+@pytest.mark.anyio
+async def test_a_traces_spans_are_asked_for_slim() -> None:
+    """A base64 image in a span's output is the one payload that can cost more
+    than the whole rest of the read. ClickHouse can cut it before it comes off
+    disk, which is cheaper than anything we can do once it has arrived."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1"}]},
+    )
+
+    await run_read("trace", UUID, client=fake)
+
+    assert fake.last_list_spans_kwargs["truncate"] is True
+
+
+@pytest.mark.anyio
+async def test_a_traces_own_body_survives_a_payload_that_would_be_cut() -> None:
+    """``GET /traces/{id}`` has no ``truncate`` parameter, and that is the
+    point: the record the caller named comes back whole, and is where a span
+    field cut in the list can be fetched back from. The trace body here is
+    over the threshold, so a cut applied to the wrong half would show."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1", "input": CUT_BODY}},
+        trace_spans={UUID: [{"id": "sp-1"}]},
+    )
+
+    out = await run_read("trace", UUID, client=fake)
+
+    assert CUT_BODY in out
+
+
+@pytest.mark.anyio
+async def test_a_trace_counts_the_spans_that_lost_bytes() -> None:
+    """The notice is a claim about the payload beside it, so it has to be
+    derived from that payload rather than stamped on every read."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={
+            UUID: [
+                {"id": "sp-1", "input": CUT_BODY},
+                {"id": "sp-2", "output": CUT_BODY},
+                {"id": "sp-3", "input": UNCUT_BODY},
+            ]
+        },
+    )
+
+    out = _payload(await run_read("trace", UUID, client=fake))
+
+    assert "2 of 3 spans had a field cut" in out["spanBodies"]
+    assert "read('span', id)" in out["spanBodies"], "and how to get one back whole"
+
+
+@pytest.mark.anyio
+async def test_a_trace_whose_spans_were_all_small_says_so() -> None:
+    """Saying "nothing was cut" is worth the line: the alternative is a caller
+    who cannot tell a complete answer from one they should not trust."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1", "input": UNCUT_BODY}]},
+    )
+
+    out = _payload(await run_read("trace", UUID, client=fake))
+
+    assert "no span reached" in out["spanBodies"]
+    assert "[image]" in out["spanBodies"], "which the count cannot speak for"
+
+
+@pytest.mark.anyio
+async def test_a_trace_with_no_spans_carries_no_notice() -> None:
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: []},
+    )
+
+    assert "spanBodies" not in _payload(await run_read("trace", UUID, client=fake))
+
+
+@pytest.mark.anyio
+async def test_a_trace_whose_spans_failed_to_load_carries_no_notice() -> None:
+    """Nothing arrived, so there is nothing to describe — and a notice about a
+    payload the caller never received reads as if one had."""
+    fake = FakeOpikClient(traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}})
+    fake.fail_list_spans = True
+
+    assert "spanBodies" not in _payload(await run_read("trace", UUID, client=fake))
+
+
+@pytest.mark.anyio
+async def test_a_threads_turns_are_asked_for_slim_and_counted() -> None:
+    fake = _thread_fake()
+    fake.thread_messages["conv-1"] = [
+        {"id": "tr-1", "start_time": "2026-01-01", "input": CUT_BODY},
+        {"id": "tr-2", "start_time": "2026-01-02", "output": UNCUT_BODY},
+    ]
+
+    out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+
+    assert fake.last_list_traces_kwargs["truncate"] is True
+    assert "1 of 2 turns had a field cut" in out["messageBodies"]
+    assert "read('trace', trace_id)" in out["messageBodies"]
+
+
+@pytest.mark.anyio
+async def test_a_threads_own_record_is_slim_too() -> None:
+    """The exception to "the parent comes back whole". A thread record has no
+    body of its own: ``first_message`` is ``argMin(t.input, t.start_time)``,
+    the same bytes ``messages[0].input`` carries. Cutting one copy and not the
+    other would ship the payload twice at two lengths."""
+    fake = _thread_fake()
+
+    await run_read("thread", THREAD, project_id="p-9", client=fake)
+
+    assert fake.last_get_thread_truncate is True
+
+
+@pytest.mark.anyio
+async def test_a_thread_with_no_turns_carries_no_notice() -> None:
+    fake = _thread_fake()
+    fake.thread_messages["conv-1"] = []
+
+    out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+
+    assert "messageBodies" not in out
+
+
+# --- the rest of an inlined collection ------------------------------------- #
+#
+# ``spansTruncated: true`` used to be the whole message. The flag stays for
+# the contract; beside it now sits the count and the call that continues the
+# collection, so a long trace, thread or prompt history is never a dead end.
+
+
+@pytest.mark.anyio
+async def test_a_long_span_tree_says_how_many_and_how_to_get_the_rest() -> None:
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": f"sp-{i}"} for i in range(250)]},
+    )
+
+    body = _payload(await run_read("trace", UUID, client=fake))
+
+    assert body["spansTruncated"] is True
+    assert body["moreSpans"].startswith("200 of 250 spans inlined; the rest: ")
+    assert (
+        f"list('span', project_id='p-1', filters='trace_id = \"{UUID}\"', page=3, size=100)"
+        in body["moreSpans"]
+    ), "pasteable as written, and it starts where the inlined 200 stop"
+
+
+@pytest.mark.anyio
+async def test_a_short_span_tree_carries_no_pointer() -> None:
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1"}]},
+    )
+
+    body = _payload(await run_read("trace", UUID, client=fake))
+
+    assert body["spansTruncated"] is False
+    assert "moreSpans" not in body
+
+
+@pytest.mark.anyio
+async def test_a_long_thread_points_at_the_turns_past_200() -> None:
+    fake = _thread_fake()
+    fake.thread_messages[THREAD] = [
+        {"id": f"tr-{i}", "start_time": f"2026-01-{1 + i // 100:02d}"} for i in range(250)
+    ]
+
+    body = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+
+    assert body["messagesTruncated"] is True
+    assert body["moreMessages"].startswith("200 of 250 turns inlined; the rest: ")
+    assert (
+        f"list('trace', project_id='p-9', filters='thread_id = \"{THREAD}\"', page=3, size=100)"
+        in (body["moreMessages"])
+    )
+
+
+@pytest.mark.anyio
+async def test_a_long_prompt_history_points_at_the_versions_past_100() -> None:
+    fake = FakeOpikClient(
+        prompts_by_id={UUID: {"id": UUID, "name": "p"}},
+        prompt_versions={UUID: [{"id": f"v-{i}"} for i in range(150)]},
+    )
+
+    body = _payload(await run_read("prompt", UUID, client=fake))
+
+    assert body["versionsTruncated"] is True
+    assert body["moreVersions"] == (
+        "100 of 150 versions inlined; the rest: "
+        f"list('prompt_version', prompt_id='{UUID}', page=2, size=100)"
+    )
+
+
+# --- usage keys are not cut ------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_every_usage_key_is_listed() -> None:
+    """A project passing ``original_usage.*`` through from a provider clears
+    the old cap of fifteen easily, and nothing else enumerates usage keys: the
+    cut part said so itself. The backend sent them all; so does the read."""
+    keys = [f"original_usage.k{i:02d}" for i in range(40)]
+    fake = _vocab_fake()
+    fake.usage_keys = {"names": keys}
+
+    vocab = _payload(await run_read("project", UUID, client=fake))["vocabulary"]
+
+    assert vocab["usage_keys"]["names"] == keys
+    assert vocab["usage_keys"]["total"] == 40
+    assert "all" not in vocab["usage_keys"], "nothing was held back, so nothing points elsewhere"
+
+
+# --- an ambiguous name says when its candidate list is short -------------- #
+
+
+@pytest.mark.anyio
+async def test_more_than_ten_matches_say_how_many_more() -> None:
+    fake = FakeOpikClient(
+        projects_by_name={"demo": [{"id": f"p-{i}", "name": f"demo-{i}"} for i in range(14)]},
+    )
+
+    with pytest.raises(ToolError) as exc:
+        await run_read("project", "demo", client=fake)
+
+    message = str(exc.value)
+    assert "p-9" in message and "p-10" not in message, "ten are listed"
+    assert "… and 4 more" in message
+
+
+def test_the_continuation_starts_where_the_inlined_part_stopped() -> None:
+    """Three reads wrote this arithmetic by hand, and one had the page number
+    typed in. The page after 200 inlined rows at 100 a page is 3, not 2."""
+    assert continuation(200) == "page=3, size=100"
+    assert continuation(100) == "page=2, size=100"
+    with pytest.raises(AssertionError):
+        continuation(150)
+
+
+def test_a_short_list_says_how_many_it_left_out() -> None:
+    lines = [f"  - {i}" for i in range(12)]
+    assert short_list(lines[:10]) == lines[:10]
+    shown = short_list(lines)
+    assert shown[:10] == lines[:10]
+    assert shown[10] == "  … and 2 more; narrow the name to see them"
+
+
+@pytest.mark.anyio
+async def test_the_continuation_a_trace_hands_out_returns_the_same_set() -> None:
+    """Found by review: ``list('span', …)`` adds ``source = "sdk"`` by default
+    and the inline fetch does not, so for a trace from an evaluation or the
+    playground the call ``moreSpans`` named returned a different set — often
+    none — and a total that disagreed with the one printed beside it. A filter
+    on the parent's id is a drill-in, not a triage, and takes no default."""
+    from opik_mcp.read_list.list_tool import run_list
+
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": f"sp-{i}", "name": "step"} for i in range(250)]},
+    )
+    body = _payload(await run_read("trace", UUID, client=fake))
+    call = body["moreSpans"].split("the rest: ", 1)[1]
+
+    def arg(pattern: str) -> str:
+        found = re.search(pattern, call)
+        assert found is not None, f"{pattern!r} not in {call!r}"
+        return found.group(1)
+
+    project_id = arg(r"project_id='([^']+)'")
+    filters = arg(r"filters='([^']+)'")
+    page = int(arg(r"page=(\d+)"))
+    size = int(arg(r"size=(\d+)"))
+
+    out = await run_list(
+        "span", project_id=project_id, filters=filters, page=page, size=size, client=fake
+    )
+
+    sent = json.loads(fake.last_list_spans_kwargs["filters"])
+    assert [c["field"] for c in sent] == ["trace_id"], "no source default on a drill-in"
+    assert fake.last_list_spans_kwargs["page"] == 3
+    assert "sp-200" in out and "sp-249" in out, "exactly the spans the read left out"
+    assert "sp-199" not in out
+    assert 'source = "sdk"' not in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_a_rules_page_without_a_total_keeps_its_pointer() -> None:
+    """The rules part asks for one page of ten. When the backend omits the
+    total, ten names may be all of them or the first ten of forty; the pointer
+    stays on, because a cut with no pointer is the one thing this block
+    promises not to produce."""
+    fake = _vocab_fake()
+    fake.automation_rules = {"content": [{"id": f"r-{i}", "name": f"rule-{i}"} for i in range(10)]}
+
+    rules = _payload(await run_read("project", UUID, client=fake))["vocabulary"]["online_rules"]
+
+    assert len(rules["names"]) == 10
+    assert "list('online_rule'" in rules["all"]

@@ -1,7 +1,7 @@
 """Universal read / list tool surface.
 
 Replaces the ``opik://`` resource family (ADR 0004 D1). The agent calls
-``read(entity_type, id, max_tokens=None)`` and ``list(entity_type, name=None,
+``read(entity_type, id)`` and ``list(entity_type, name=None,
 page=1, size=25)`` against the same entity registry instead of
 ``resources/read`` against URI templates — resources are invisible to
 Claude Code and only partially visible to Cursor, so reads must live on

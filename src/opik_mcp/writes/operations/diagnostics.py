@@ -24,7 +24,10 @@ from pydantic import BaseModel
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikClient
-from opik_mcp.read_list.diagnostics import UNAVAILABLE_SENTENCE, diagnostics_available
+from opik_mcp.read_list.entities.agent_insights_issue import (
+    UNAVAILABLE_SENTENCE,
+    diagnostics_available,
+)
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
 from opik_mcp.read_list.ui_links import project_page_url

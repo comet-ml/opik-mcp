@@ -1,13 +1,14 @@
-"""``read`` tool — fetches any Opik entity by id (or name) with compression.
+"""``read`` tool — fetches any Opik entity by id (or name).
 
 Ported from ollie-assist's ``tools/read/tool.py``, adapted to opik-mcp's
 ``OpikClient`` instead of the Opik SDK. The agent-facing contract is:
 
-    read(entity_type, id, max_tokens=None) -> str
+    read(entity_type, id) -> str
 
-The returned string is a one-line ``[read: …]`` header followed by JSON
-(compressed per the entity's compression tier). Errors come back as
-``ToolError`` with status-specific guidance — same shape as ollie so the
+The returned string is a one-line ``[read: …]`` header followed by the
+record as JSON, whole (see ``size`` for why nothing is cut here, and ``slim``
+for the one cut the backend applies to inlined children). Errors come back as
+``ToolError`` with status-specific guidance, the same shape as ollie so the
 LLM's error-recovery prompting is portable.
 """
 
@@ -15,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
@@ -27,20 +29,20 @@ from opik_mcp.opik_client import (
     OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    make_opik_client,
+    client_for_call,
 )
-from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.paging import short_list
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
-    EntityHandler,
-    compress_for,
     resolve_entity_type,
 )
+from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
-from opik_mcp.read_list.window import WindowError, resolve_window
+from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
 
@@ -58,8 +60,9 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
         f"Multiple {entity_type}s match name {name!r}. "
         "Use read() with one of these UUIDs (or ask the user which they mean):",
     ]
-    for c in candidates[:10]:
-        lines.append(f"  - id={c.get('id')}, name={c.get('name', '')!r}")
+    lines.extend(
+        short_list([f"  - id={c.get('id')}, name={c.get('name', '')!r}" for c in candidates])
+    )
     return "\n".join(lines)
 
 
@@ -111,7 +114,6 @@ async def run_read(
     entity_type: str,
     id: str,
     *,
-    max_tokens: int | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
     since: str | None = None,
@@ -123,7 +125,7 @@ async def run_read(
     """Read tool entrypoint. See ``server.py`` for the registered tool.
 
     Dispatch order: URI parse → registry lookup → project gate → UUID-vs-name
-    branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
+    branch → fetch → serialise. Each branch surfaces errors as ``ToolError`` so
     the host LLM gets the structured guidance.
     """
     # Accept ``opik://…`` URIs and pasted web links (thread panel, Diagnostics
@@ -168,54 +170,65 @@ async def run_read(
         )
         raise ToolError(str(err)) from err
 
-    # Entity-specific kwargs reach the fetcher only when its registry entry
-    # declares them — same gate as ``list``, so a kwarg meant for one entity is
-    # dropped rather than crashing another's fetcher.
-    extra = {
-        key: value
-        for key, value in entity_kwargs.items()
-        if value is not None and key in handler.read_optional_kwargs
-    }
+    # No entity takes a kwarg beyond its id, its project scope and its
+    # window: what used to arrive as free-form extras is now the declared
+    # ``read_window``. Anything else the caller passed is dropped here rather
+    # than reaching a fetcher that has no parameter for it.
+    extra: dict[str, Any] = {}
     if since is not None or until is not None:
-        # Same since/until vocabulary as ``list``. Only day-windowed reads
-        # (Diagnostics issues) take it; the backend aggregates per report day,
-        # so the instant window is truncated to its UTC days.
-        if "from_date" not in handler.read_optional_kwargs:
+        # Same since/until vocabulary as ``list``. Which entities take a window,
+        # and in which shape, is declared on the registry entry — a Diagnostics
+        # issue wants whole UTC report days, a project's metrics want instants.
+        window = handler.read_window
+        if window is None:
+            takes_window = sorted(
+                name for name, entry in ENTITY_REGISTRY.items() if entry.read_window is not None
+            )
             err = WindowError(
-                f"since/until are not supported for read({entity_type!r}); only "
-                f"agent_insights_issue takes a window on read."
+                f"since/until are not supported for read({entity_type!r}); "
+                f"on read a window is taken by: {', '.join(takes_window)}."
             )
             raise ToolError(str(err)) from err
+        # One clock reading for the whole window. A relative bound resolves
+        # against "now", and if the end were later measured from a second
+        # reading, `since="30d"` would intermittently span 30 days and a
+        # second — seen live, one call in a few crossing a second boundary.
+        now = datetime.now(UTC)
         try:
-            from_time, to_time = resolve_window(since, until)
+            from_time, to_time = resolve_window(since, until, now=now)
         except WindowError as e:
             raise ToolError(str(e)) from e
+        if not window.day_truncated and to_time is None:
+            # An instant window is always closed: an open end means "now", and
+            # it has to be the same "now" the start was measured from. A
+            # day-keyed window is left open on purpose — the Diagnostics page
+            # defaults to all-time, and closing it here would silently bound it.
+            to_time = format_instant(now)
         if from_time is not None:
-            extra["from_date"] = from_time[:10]
+            extra[window.start_kwarg] = from_time[:10] if window.day_truncated else from_time
         if to_time is not None:
-            extra["to_date"] = to_time[:10]
+            extra[window.end_kwarg] = to_time[:10] if window.day_truncated else to_time
 
     resolved_settings = settings or get_settings()
-    opik = client if client is not None else make_opik_client(resolved_settings)
-    data = await _fetch_with_name_lookup(
-        handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
-    )
-    if handler.link_fn is not None:
-        # UI links are session facts (UI base, workspace), so they are attached
-        # here rather than inside the fetcher, and before compression so every
-        # tier can decide what to keep.
-        data.update(handler.link_fn(resolved_settings, data))
-    # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
-    # (e.g. the project an issue was read under); they are never the agent's.
-    for private_key in [key for key in data if key.startswith("_")]:
-        del data[private_key]
+    # A read can be several backend calls (a trace and its spans, a project and
+    # its metrics), so the connection is owned for the span of this call and
+    # every leg reuses it.
+    async with client_for_call(resolved_settings, client) as opik:
+        data = await _fetch_with_name_lookup(
+            handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
+        )
+        if handler.link_fn is not None:
+            # UI links are session facts (UI base, workspace), so they are
+            # attached here rather than inside the fetcher.
+            data.update(handler.link_fn(resolved_settings, data))
+        # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
+        # (e.g. the project an issue was read under); they are never the agent's.
+        for private_key in [key for key in data if key.startswith("_")]:
+            del data[private_key]
 
-    compressed_text, tier = compress_for(handler, data, max_tokens)
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-    returned_tokens = estimate_tokens(compressed_text)
-    header = size_header(entity_type, id, tier, returned_tokens, full_tokens)
-    return f"{header}\n{compressed_text}"
+        payload = compact_json(data)
+        header = size_header(entity_type, id, estimate_tokens(payload))
+        return f"{header}\n{payload}"
 
 
 async def _fetch_with_name_lookup(

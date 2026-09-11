@@ -76,14 +76,19 @@ def test_optional_kwargs_never_overlap_required_ones() -> None:
         assert not set(handler.list_required_kwargs) & set(handler.list_optional_kwargs)
 
 
-def test_only_agent_insights_issue_declares_optional_kwargs() -> None:
+_DECLARES_OPTIONAL_KWARGS = {
+    # Diagnostics issues: which status to list, and the report-day window.
+    "agent_insights_issue": {"status", "from_date", "to_date"},
+}
+
+
+def test_only_the_declared_entities_take_optional_kwargs() -> None:
     """Every other entity takes nothing beyond its parent id, so the gate
-    must drop whatever else the caller passes."""
+    must drop whatever else the caller passes. Pinned as a set rather than a
+    single name so a third entity has to be added here deliberately."""
     for entity_type, handler in ENTITY_REGISTRY.items():
-        if entity_type == "agent_insights_issue":
-            continue
-        assert handler.list_optional_kwargs == ()
-        assert handler.read_optional_kwargs == ()
+        expected = _DECLARES_OPTIONAL_KWARGS.get(entity_type, set())
+        assert set(handler.list_optional_kwargs) == expected, entity_type
 
 
 def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
@@ -92,8 +97,14 @@ def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
     assert "agent_insights_issue" in READABLE_TYPES
     assert handler.list_required_kwargs == ("project_id",)
     assert set(handler.list_optional_kwargs) == {"status", "from_date", "to_date"}
-    assert set(handler.read_optional_kwargs) == {"from_date", "to_date"}
+    # The read window is declared as a window, not as loose kwargs, so its
+    # shape travels with it: the Diagnostics endpoints key on whole UTC days.
+    assert handler.read_window is not None
+    assert (handler.read_window.start_kwarg, handler.read_window.end_kwarg) == (
+        "from_date",
+        "to_date",
+    )
+    assert handler.read_window.day_truncated is True
     assert handler.needs_project is True
     assert handler.id_only is True
     assert handler.search_by_name_fn is None
-    assert handler.compress_fn is not None

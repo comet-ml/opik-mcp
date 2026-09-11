@@ -23,7 +23,8 @@
         "list.trace",
         "list.span",
         "list.thread",
-        "list.experiment"
+        "list.experiment",
+        "list.project_metric"
       ],
       "title": "Operation",
       "type": "string"

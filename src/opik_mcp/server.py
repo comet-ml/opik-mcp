@@ -50,6 +50,8 @@ from opik_mcp.credential_identity import (
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
+from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
+from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.sorting import sort_field_label
@@ -213,19 +215,6 @@ async def read(
             max_length=2048,
         ),
     ],
-    max_tokens: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Optional token budget. If the entity is under the budget, it's "
-                "returned in full; otherwise compressed to MEDIUM (long strings "
-                "truncated with path hints) or SKELETON (structure only). "
-                "Default ~8k tokens."
-            ),
-            ge=100,
-            le=200_000,
-        ),
-    ] = None,
     project_id: Annotated[
         str | None,
         Field(
@@ -251,11 +240,10 @@ async def read(
         str | None,
         Field(
             description=(
-                "agent_insights_issue only: start of the window for the per-day "
-                "details — a relative span ('7d', '24h') or an ISO-8601 instant with "
-                "timezone, truncated to UTC report days. Omit both bounds for "
-                "all-time, matching the Diagnostics page. Rejected for other entity "
-                "types."
+                "Start of the window, as a relative span ('7d', '24h') or an ISO-8601 "
+                "instant with timezone. On read: project (the summary's period, 7d by "
+                "default) and agent_insights_issue (per-day details, truncated to UTC "
+                "report days, all-time by default). Rejected for other types."
             ),
             max_length=40,
         ),
@@ -266,7 +254,7 @@ async def read(
     ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
-    """Read any Opik entity by ID, name, or opik:// URI, with adaptive compression.
+    """Read any Opik entity by ID, name, or opik:// URI.
 
     Prefer a UUID for `id` — it's faster (single API call) and unambiguous.
     Name lookup is available for: project, experiment, prompt, test_suite —
@@ -275,11 +263,22 @@ async def read(
     correct ID.
 
     Special shapes:
-    - trace: returns {trace, spans, spansTruncated} with up to 200 spans inlined.
+    - project: returns {project, summary, vocabulary, contains, url} — the
+      week's figures against the 7 days before (SDK traffic only, as the Logs
+      cards show, though the UI opens on 30 days), the score names and usage
+      keys to filter on, and the freshest experiment / suite / prompt version
+      / run. `since`/`until` move the summary's window; the rest is current.
+    - trace: returns {trace, spans, spansTruncated} with up to 200 spans
+      inlined, their bodies slim, and spanBodies saying what the cut took.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
-    - thread: returns {thread, messages, messagesTruncated} — each message is one
-      turn's trace input/output + a trace_id to read('trace', id). Needs project
-      scope: pass a thread link/URI, or project_id/project_name.
+    - thread: returns {thread, messages, messagesTruncated, messageBodies} —
+      each message is one turn's trace input/output + a trace_id to
+      read('trace', id). Bodies are slim, the thread's own first/last message
+      included, since those are copies of the first and last turn. Needs
+      project scope: pass a thread link/URI, or project_id/project_name.
+    - An inlined collection longer than what fits sets its …Truncated flag and
+      adds moreSpans / moreMessages / moreVersions: the count, and the exact
+      list(...) call that continues from where the inlined part stopped.
     - agent_insights_issue: returns {issue, example_trace_ids, details, url,
       trace_url_template} — the Diagnostics issue with cause and suggested fix,
       the deduped ids of traces that exhibit it (open one with read('trace', id)),
@@ -288,15 +287,24 @@ async def read(
       the session's workspace is unknown). Needs project scope like thread.
     - All others: the flat record from /v1/private/{entity}/{id}.
 
-    Output is a one-line `[read: …]` header (entity_type, id, compression
-    tier, returned tokens, full tokens) followed by compact JSON.
+    Output is a one-line `[read: …]` header (entity_type, id, size in
+    tokens) followed by the record as compact JSON. The record you asked for
+    is never truncated: a large answer is large, and narrowing is done by
+    asking a narrower question — a span rather than its trace, a filtered
+    `list` rather than a composite read.
+
+    The children a composite read inlines are the exception. Their bodies come
+    back slim: a field over ~10 KB is cut and base64 images are replaced with
+    "[image]", which is what keeps one attachment from costing more than the
+    other 199 spans together. The read says so in `spanBodies` /
+    `messageBodies`, and the named child is whole again through its own
+    read('span', id) or read('trace', trace_id).
     """
     if ctx is not None:
         await ctx.info(f"read.called entity_type={entity_type} id={id}")
     return await run_read(
         entity_type=entity_type,
         id=id,
-        max_tokens=max_tokens,
         project_id=project_id,
         project_name=project_name,
         since=since,
@@ -328,13 +336,14 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "OQL filter for trace, span, thread, experiment: "
+                "OQL filter for trace, span, thread, experiment, project_metric: "
                 "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
                 "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
                 "strings quoted, numbers bare (duration in ms). E.g. "
                 "'error_info is_not_empty AND duration > 5000', "
                 "'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. "
-                'trace/span/thread default to source = "sdk". Reference: schema("list.trace").'
+                'trace/span/thread default to source = "sdk"; a metric is filtered by '
+                'the fields of the entity it is about. Reference: schema("list.trace").'
             ),
             max_length=2000,
         ),
@@ -354,7 +363,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "Start of the time window for trace, span, thread, agent_insights_issue: "
+                "Start of the time window for trace, span, thread, project_metric, "
+                "agent_insights_issue: "
                 "a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with "
                 "timezone. Trace/span/thread windows are by record creation time (for an "
                 "exact start_time bound use filters); Diagnostics issues aggregate per "
@@ -424,6 +434,48 @@ async def list_entities(
             ),
         ),
     ] = None,
+    metric_type: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only: which metric to chart. "
+                "Reference: schema('list.project_metric')."
+            ),
+            json_schema_extra={"enum": sorted(METRIC_TYPES)},
+        ),
+    ] = None,
+    interval: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only: bucket width. Omitted, it follows the window "
+                "the way the Metrics tab does: hourly up to 3 days, daily up to 30, "
+                "weekly beyond."
+            ),
+            json_schema_extra={"enum": sorted(METRIC_INTERVALS)},
+        ),
+    ] = None,
+    breakdown: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only: group each bucket by this field, or "
+                "'metadata.<key>'. Not valid for every metric — "
+                "schema('list.project_metric') says which."
+            ),
+            max_length=200,
+        ),
+    ] = None,
+    series: Annotated[
+        str | None,
+        Field(
+            description=(
+                "project_metric only, with breakdown: which series to group — a "
+                "percentile (p50/p90/p99), a score name, or a usage key."
+            ),
+            max_length=200,
+        ),
+    ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
     """List Opik entities with optional filters and pagination.
@@ -440,6 +492,12 @@ async def list_entities(
     - agent_insights_issue: project_id or project_name (Diagnostics issues,
       open ones by default; columns: severity, status, total_occurrences,
       latest_count, last_seen)
+    - score_name: project_id or project_name (the project's feedback score
+      names — trace, span and thread scores together, paged, no id)
+    - online_rule: project_id or project_name (the automation rules scoring
+      this project's traces)
+    - project_metric: project_id or project_name, plus metric_type — one
+      metric over time. Rows are time buckets, so page/size/sort are refused.
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 
@@ -465,6 +523,10 @@ async def list_entities(
         test_suite_id=test_suite_id,
         prompt_id=prompt_id,
         status=status,
+        metric_type=metric_type,
+        interval=interval,
+        breakdown=breakdown,
+        series=series,
     )
 
 

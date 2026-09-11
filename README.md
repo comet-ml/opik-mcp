@@ -230,6 +230,20 @@ One tool for any "show me X" question. Takes an `entity_type` plus an `id`
 (`trace`, `prompt`, `thread`, `agent_insights_issue`) inline their children so
 a single call returns the full picture.
 
+The record you name comes back whole. Inlined children do not: their bodies
+are fetched with the backend's `truncate=true`, so a field over ~10 KB is cut
+in ClickHouse and base64 images are replaced with `"[image]"` — one attachment
+echoed across 200 spans would otherwise cost more than everything else in the
+read. The answer says so in `spanBodies` / `messageBodies`, and any child is
+whole again through its own `read("span", id)` or `read("trace", trace_id)`,
+which hit endpoints that have no `truncate` parameter at all.
+
+An inlined collection is also bounded in length: 200 spans, 200 turns, 100
+prompt versions. Past that, `spansTruncated` / `messagesTruncated` /
+`versionsTruncated` is `true` and a `moreSpans` / `moreMessages` /
+`moreVersions` line beside it carries the count and the exact `list(...)` call
+that continues from where the inlined part stopped.
+
 **Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
 `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
 `project`, `experiment`, `prompt`, `test_suite` (slower — two API calls — and
@@ -248,6 +262,25 @@ read(entity_type="agent_insights_issue", id="https://www.comet.com/opik/<ws>/pro
 A link copied from the Opik UI works as the `id`: a thread link or a
 Diagnostics page link carries the project, so no `project_id` is needed and
 the entity type is taken from the link.
+
+A `project` read answers "how is my project doing" in one call. It returns
+`{project, summary, vocabulary, contains, url}`: the record, then the four
+figures the Logs page shows as cards (trace count, error rate, average
+duration, total cost) for the last 7 days against the 7 before, SDK traffic
+only, as on screen. `since` / `until` move that window; `since="30d"` is what
+the UI opens on. A rate or an average over a period with no traces comes back
+as `null`, because 0% errors on a week with no traffic reads as a healthy week.
+
+`vocabulary` is the map you need before you can ask anything else: the
+project's feedback score names, its token usage keys, and the automation rules
+scoring its traces. These are the names that go into a filter or into
+`series=` below, and guessing them returns an empty page that reads like good
+news. Score names and rules are capped, always report the true total, and name
+the call that returns the rest; usage keys are listed in full, since nothing
+else enumerates them. `contains` names the freshest experiment, test suite, prompt
+version and optimization run, so "what has been happening here" does not need
+four more calls. A part that failed to load says so instead of looking empty,
+and an empty one is omitted.
 
 An `agent_insights_issue` read returns `{issue, example_trace_ids, details}`:
 the Diagnostics issue record (name, description, cause, suggested fix,
@@ -394,6 +427,59 @@ with a link to the view the issue moved to, since a resolved issue is no longer
 on the default page. Whether a failure is fixed is a judgment call, so these
 are for when you ask: the assistant has no business tidying the list while
 triaging it.
+
+**Metrics over time.** `project_metric` charts one metric for a project as a
+table of time buckets: trace, span and thread counts, durations, error rates,
+costs, token usage and feedback scores. It answers the question that follows
+the overview, which is when something changed.
+
+```python
+list(entity_type="project_metric", project_name="demo", metric_type="trace_count")
+list(entity_type="project_metric", project_name="demo", metric_type="trace_error_rate",
+     since="14d", interval="daily")
+list(entity_type="project_metric", project_name="demo", metric_type="span_count",
+     breakdown="model")                      # one column per model
+list(entity_type="project_metric", project_name="demo", metric_type="span_duration",
+     breakdown="model", series="p99")        # the p99 of each model
+```
+
+Rows are time buckets, not records, so `page`, `size` and `sort` are refused
+rather than ignored. `interval` is `hourly`, `daily`, `weekly` or `total`;
+left out, it follows the window the way the Metrics tab does — hourly up to 3
+days, daily up to 30, weekly beyond — so a default chart is a few dozen rows
+whatever the range, and an hourly month (721 rows) is something you ask for.
+`since` / `until` take the same forms as everywhere else and default to the
+last 7 days. `filters` uses the fields of whichever entity the metric is
+about, so a span metric is filtered by span fields.
+
+`breakdown` splits each bucket by `tags`, `name`, `error_info`, `error_type`,
+`model`, `provider`, `span_type`, `guardrail_name` or `metadata.<key>`. Not
+every metric accepts every one of those, and seven accept none at all; the tool
+knows which and says so before calling the backend, naming a metric that does
+answer the same question where one exists. Three families come back as several
+series at once (a duration as p50/p90/p99, a feedback score per name, token
+usage per key), and the backend charts one of them at a time when grouping, so
+`series=` picks it: a percentile, a score name, or a usage key. Duration
+defaults to `p50` and token usage to `total_tokens`, and whichever was used is
+echoed on the first line.
+
+Empty buckets are left out and counted underneath, so a quiet month is a few
+rows instead of a column of zeros, and a rate over a bucket with no traces is
+absent rather than reported as zero.
+
+Ask `schema("list.project_metric")` for the metric table, the intervals and the
+per-metric grouping matrix.
+
+**A project's names.** `score_name` lists the feedback score names recorded in
+a project and `online_rule` the automation rule evaluators configured on it,
+which is where most of those names come from. Both are the same lists
+`read("project", …)` carries, in full and paginated, for when the capped
+version in the overview is not enough.
+
+```python
+list(entity_type="score_name", project_name="demo")
+list(entity_type="online_rule", project_name="demo")
+```
 
 ### `write`
 

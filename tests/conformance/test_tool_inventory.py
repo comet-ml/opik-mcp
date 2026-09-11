@@ -9,10 +9,81 @@ update, or fails CI.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterable
+from typing import Any
+
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from opik_mcp.server import mcp
+
+# Ceiling on everything `tools/list` advertises: names + descriptions + input
+# schemas, as sent on the wire.
+#
+# Raising this is a real decision, not a formality. The tool surface is resident
+# in the context of EVERY request the host makes, including the ones that never
+# touch Opik, so a bigger surface is the user's context spent on our behalf
+# whether they use us that turn or not. Prefer trimming a description or moving
+# reference material behind `schema()`, which is fetched only when wanted.
+#
+# History, with who spent what — the point of keeping it is that the next
+# raise can see whether the surface is growing for one reason or for many:
+#   15,444  2026-09-09, when this test was added.
+#   17,498  OPIK-8284 — the project overview and the metric series. +2,054
+#           bytes (~513 tokens): `project_metric` on `list` with its
+#           metric/interval/breakdown params (~1.5k), two drill-down entity
+#           names, and the read tool's project shape.
+#   19,404  merging OPIK-8310 (Diagnostics disabled fallback). +1,906 bytes,
+#           almost all of it `write`, which grew 3,644 → 5,403 for the
+#           `agent_insights_job.trigger` operation, plus `schema` 910 → 1,057.
+#           That change predates this test, so nothing measured it at the time;
+#           this is the guard's first contact with a surface change that was
+#           not its author's.
+#   19,647  OPIK-8284 — `series` on `list`. +243 bytes for one optional string,
+#           weighed against grouping being a dead end for eight of the thirteen
+#           groupable metrics: the backend requires a sub-metric for duration,
+#           feedback-score and token-usage metrics whenever a breakdown is
+#           asked for, and without the argument the agent could read the
+#           refusal and not act on it. Paid for in retries otherwise.
+#   20,314  OPIK-8284 — the interval rule on `list.interval`, the examples on
+#           `since` put back, and a line on `read` saying that a long inlined
+#           collection carries the call for its remainder. +667 bytes, all of
+#           it wording rather than arguments.
+#
+# The ceiling used to sit ~400 bytes above the measurement. That proved to be
+# the wrong slack: it was hit three times inside one ticket, and each time the
+# trade was a sentence the agent needed for a handful of bytes — the examples
+# on `since` went from four to two, the interval rule lost its comparison to
+# the UI, and the pointer that turns a truncated span tree into its next page
+# went unmentioned. A guard that taxes every improvement gets routed around;
+# a guard against the multi-kilobyte surprise (the `write` entry in the table
+# above landed 1.9 KB in a PR nobody measured) still earns its keep. So the
+# ceiling now sits ~3.5 KB above the measurement: room for a ticket's worth of
+# wording, not for a new tool or an operation nobody meant to advertise.
+# Unused headroom is not in anyone's context; only what is written is.
+SURFACE_BUDGET_BYTES = 24_000
+
+
+def surface_report(
+    advertised: Iterable[tuple[str, str, dict[str, Any]]],
+) -> tuple[int, str]:
+    """Total advertised bytes, plus a per-tool breakdown biggest-first.
+
+    Counts what the host actually caches for each tool — its name, its
+    description and its input schema. The frozen snapshot files cover only
+    the schemas, so they would miss growth in the descriptions, which is
+    where an added entity type mostly lands.
+    """
+    rows = [
+        (name, len(name) + len(description) + len(json.dumps(schema, separators=(",", ":"))))
+        for name, description, schema in advertised
+    ]
+    rows.sort(key=lambda row: row[1], reverse=True)
+    total = sum(size for _, size in rows)
+    report = "\n".join(f"  {name:<12} {size:>6} bytes" for name, size in rows)
+    return total, report
+
 
 EXPECTED_TOOLS: frozenset[str] = frozenset(
     {
@@ -56,3 +127,54 @@ async def test_every_tool_has_nonempty_description() -> None:
         tools = await session.list_tools()
     missing = [t.name for t in tools.tools if not (t.description or "").strip()]
     assert not missing, f"tools missing descriptions: {missing}"
+
+
+@pytest.mark.anyio
+async def test_advertised_tool_surface_stays_within_budget() -> None:
+    """Every byte here rides in the context window of every request the host
+    makes — including requests that have nothing to do with Opik. Growth is
+    spending the user's context without their consent, so it is capped and
+    the cap is a visible review decision."""
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+    total, report = surface_report(
+        (t.name, t.description or "", t.inputSchema) for t in tools.tools
+    )
+    assert total <= SURFACE_BUDGET_BYTES, (
+        f"advertised tool surface is {total} bytes, over the "
+        f"{SURFACE_BUDGET_BYTES}-byte budget by {total - SURFACE_BUDGET_BYTES}.\n"
+        f"{report}\n"
+        "Trim a description, move reference material into schema(), or raise "
+        "SURFACE_BUDGET_BYTES deliberately with a note saying why."
+    )
+
+
+def test_budget_report_counts_name_description_and_schema() -> None:
+    """The budget is only meaningful if it measures what actually ships. A
+    tool costs its name, its description AND its input schema; measuring the
+    schema alone (what the snapshot files hold) would miss the descriptions,
+    which are the half that grows when an entity is added."""
+    total, report = surface_report(
+        [
+            ("aa", "desc", {"type": "object"}),
+            ("bbbb", "", {}),
+        ]
+    )
+    # names 2 + 4, descriptions 4 + 0, schemas '{"type":"object"}' + '{}'
+    assert total == 2 + 4 + 4 + 0 + 17 + 2
+    assert "aa" in report
+    assert "bbbb" in report
+
+
+def test_budget_report_names_the_biggest_tool_first() -> None:
+    """On a failure the reviewer needs to see which tool to trim, not an
+    alphabetical list they have to scan."""
+    _, report = surface_report(
+        [
+            ("small", "x", {}),
+            ("huge", "x" * 500, {}),
+        ]
+    )
+    lines = [line for line in report.splitlines() if line.strip()]
+    assert "huge" in lines[0], report

@@ -84,9 +84,13 @@ def resolve_window(
     now = now or datetime.now(UTC)
     start = resolve_instant("since", since, now=now) if since is not None else None
     end = resolve_instant("until", until, now=now) if until is not None else None
-    if start is not None and end is not None and end < start:
+    if start is not None and end is not None and end <= start:
+        # Equal bounds used to pass, which asks the backend for a window that
+        # cannot contain anything. Whatever the caller meant, an empty answer
+        # would not have told them they had asked for one.
+        relation = "before" if end < start else "the same instant as"
         raise WindowError(
-            f"until ({format_instant(end)}) is before since ({format_instant(start)})."
+            f"until ({format_instant(end)}) is {relation} since ({format_instant(start)})."
         )
     return (
         format_instant(start) if start is not None else None,
@@ -101,13 +105,65 @@ def format_instant(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def parse_bound(value: str) -> datetime:
+    """A bound this module produced, back to a datetime.
+
+    The metric and summary windows measure spans between bounds they were
+    handed as strings, and both used to re-parse them with a private helper
+    apiece. Parsing what :func:`format_instant` writes belongs next to it.
+    """
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def floor_to_second(dt: datetime) -> datetime:
+    """UTC, sub-second parts dropped.
+
+    Measure a span *after* flooring, never before: a relative bound resolves
+    with microseconds, and 30 days minus 40 ms is not a whole number of days,
+    so a span taken before flooring disagrees with the bounds that get printed.
+    That cost a 30-day window its day count once already.
+    """
+    return dt.astimezone(UTC).replace(microsecond=0)
+
+
+def second_precision(dt: datetime) -> str:
+    """``format_instant`` on a floored instant — no milliseconds, ever."""
+    return format_instant(floor_to_second(dt))
+
+
+def closed_window(
+    since: str | None,
+    until: str | None,
+    *,
+    days: int,
+    now: datetime | None = None,
+) -> tuple[datetime, datetime]:
+    """Both ends of a window as floored instants, from whatever was supplied.
+
+    Every read that reports over a period does this same little dance —
+    default the end to now, default the start to ``days`` before the end,
+    floor both — and the two that did it separately had already drifted apart
+    once: measuring the span against an unfloored bound cost a 30-day window
+    its ``days: 30``. One clock reading serves both ends, so a relative start
+    and an implied end cannot land a second apart.
+    """
+    anchor = now or datetime.now(UTC)
+    end = floor_to_second(parse_bound(until) if until else anchor)
+    start = floor_to_second(parse_bound(since)) if since else end - timedelta(days=days)
+    return start, end
+
+
 __all__ = [
     "WINDOW_FORMS",
     "WindowError",
+    "closed_window",
+    "floor_to_second",
     "format_instant",
     "is_relative",
+    "parse_bound",
     "parse_instant",
     "resolve_instant",
     "resolve_window",
+    "second_precision",
     "to_minute",
 ]

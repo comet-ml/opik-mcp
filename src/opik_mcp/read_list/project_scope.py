@@ -32,6 +32,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.paging import short_list
 
 logger = logging.getLogger("opik_mcp.read_list.project_scope")
 
@@ -180,8 +181,9 @@ async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
         f"Multiple projects match the name {project_name!r}. Retry with project_id "
         f"set to one of these (or ask the user which they mean):",
     ]
-    for item in matches[:10]:
-        lines.append(f"  - project_id={item['id']}, name={item['name']!r}")
+    lines.extend(
+        short_list([f"  - project_id={item['id']}, name={item['name']!r}" for item in matches])
+    )
     raise EntityArgValidationError("\n".join(lines))
 
 
@@ -205,10 +207,27 @@ async def require_project_id(
     return await resolve_project_id(client, project_name)
 
 
+async def scope_of(client: OpikListClient, kw: dict[str, Any], *, caller: str) -> str:
+    """The project a ``list_fn`` is scoped to, from whichever spelling arrived.
+
+    Every project-scoped list takes ``project_id`` or ``project_name`` and
+    forwards them in its ``**kw``; three of them had written the same
+    six-line unpacking of that pair. The read path keeps
+    :func:`require_project_id` directly — it has the two as real parameters.
+    """
+    return await require_project_id(
+        client,
+        project_id=kw.get("project_id"),
+        project_name=kw.get("project_name"),
+        caller=caller,
+    )
+
+
 __all__ = [
     "project_rows",
     "require_project_id",
     "reset_project_cache_for_tests",
     "resolve_project_id",
+    "scope_of",
     "unknown_project_message",
 ]

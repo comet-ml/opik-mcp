@@ -498,3 +498,229 @@ async def test_non_object_json_surfaces_as_server_error() -> None:
         )
         with pytest.raises(OpikServerError, match="non-object"):
             await _client().get_project("p-1")
+
+
+# --- project KPI cards ---------------------------------------------------- #
+#
+# The wire shape here is easy to get wrong from the Java alone, and two of
+# these were: `filters` is a JSON-encoded STRING (KpiCardRequest declares
+# `String filters`, not a list), and the window travels as explicit instants
+# rather than a relative span. Verified live against www.comet.com.
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_posts_entity_type_window_and_filters_as_a_json_string() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json={"stats": []}),
+        )
+        await _client().get_project_kpi_cards(
+            "p-1",
+            entity_type="traces",
+            interval_start="2026-09-02T00:00:00Z",
+            interval_end="2026-09-09T00:00:00Z",
+            filters='[{"field":"source","operator":"=","value":"sdk"}]',
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "entity_type": "traces",
+        "interval_start": "2026-09-02T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "filters": '[{"field":"source","operator":"=","value":"sdk"}]',
+    }
+    assert isinstance(sent["filters"], str), "the backend declares filters as a String"
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_omits_unset_fields() -> None:
+    """An empty ``filters`` is malformed JSON to the backend, so it is omitted
+    rather than sent blank — same rule as the list endpoints' query params."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json={"stats": []}),
+        )
+        await _client().get_project_kpi_cards(
+            "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"entity_type": "traces", "interval_start": "2026-09-02T00:00:00Z"}
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_returns_the_stats_list_verbatim() -> None:
+    """Order is the backend's (count, avg_duration, total_cost, errors) — not
+    the UI's card order — and `avg_duration` is null while the counters are
+    zero for an empty period. The client passes both through untouched; the
+    registry is what interprets them."""
+    payload = {
+        "stats": [
+            {"type": "count", "current_value": 5.0, "previous_value": 0.0},
+            {"type": "avg_duration", "current_value": 602.24, "previous_value": None},
+            {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+            {"type": "errors", "current_value": 20.0, "previous_value": 0.0},
+        ]
+    }
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_project_kpi_cards(
+            "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+        )
+    assert body == payload
+
+
+# --- project vocabulary: score names, usage keys, automation rules -------- #
+
+
+@pytest.mark.anyio
+async def test_score_names_sends_the_project_id_as_a_json_array() -> None:
+    """``project_ids`` is a list-shaped query param, not a bare id — the
+    endpoint is the multi-project one narrowed to one project."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/feedback-scores/names").mock(
+            return_value=httpx.Response(200, json={"scores": [{"name": "Hallucination"}]}),
+        )
+        body = await _client().list_project_score_names("p-1")
+    assert route.calls.last.request.url.params["project_ids"] == '["p-1"]'
+    assert body["scores"] == [{"name": "Hallucination"}]
+
+
+@pytest.mark.anyio
+async def test_token_usage_names_is_project_scoped_on_the_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/p-1/token-usage/names").mock(
+            return_value=httpx.Response(200, json={"names": ["prompt_tokens"]}),
+        )
+        body = await _client().list_project_token_usage_names("p-1")
+    assert route.called
+    assert body["names"] == ["prompt_tokens"]
+
+
+@pytest.mark.anyio
+async def test_project_metrics_posts_the_metric_interval_window_and_filters() -> None:
+    """Unlike kpi-cards, this endpoint takes the filters as a real array — and
+    a *separate* array per entity kind. Only the one the metric belongs to is
+    sent; the backend applies each to its own entity."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await _client().get_project_metrics(
+            "p-1",
+            metric_type="TRACE_COUNT",
+            interval="DAILY",
+            interval_start="2026-09-02T00:00:00Z",
+            interval_end="2026-09-09T00:00:00Z",
+            trace_filters=[{"field": "source", "operator": "=", "value": "sdk"}],
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "metric_type": "TRACE_COUNT",
+        "interval": "DAILY",
+        "interval_start": "2026-09-02T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "trace_filters": [{"field": "source", "operator": "=", "value": "sdk"}],
+    }
+
+
+@pytest.mark.anyio
+async def test_project_metrics_sends_breakdown_only_when_asked() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await _client().get_project_metrics(
+            "p-1",
+            metric_type="SPAN_COUNT",
+            interval="DAILY",
+            interval_start="2026-09-02T00:00:00Z",
+            breakdown={"field": "MODEL"},
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["breakdown"] == {"field": "MODEL"}
+    assert "trace_filters" not in sent
+
+
+@pytest.mark.anyio
+async def test_project_metrics_maps_an_incompatible_breakdown_to_validation() -> None:
+    """The backend answers 422 with a message that contradicts itself for span
+    metrics missing from its compatibility sets. Typed here; the readable
+    refusal is produced locally before the call."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(
+                422,
+                json={
+                    "errors": [
+                        "breakdown Group by field 'model' is not compatible with "
+                        "metric type 'SPAN_COST'. This field supports Span metrics only."
+                    ]
+                },
+            ),
+        )
+        with pytest.raises(OpikValidationError):
+            await _client().get_project_metrics(
+                "p-1",
+                metric_type="SPAN_COST",
+                interval="DAILY",
+                interval_start="2026-09-02T00:00:00Z",
+                breakdown={"field": "MODEL"},
+            )
+
+
+@pytest.mark.anyio
+async def test_activities_is_project_scoped_and_paged() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/p-1/activities").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "page": 1,
+                    "size": 1,
+                    "total": 1,
+                    "content": [
+                        {
+                            "type": "experiment",
+                            "id": "e-1",
+                            "name": "baseline",
+                            "created_at": "2026-09-07T10:35:35.746Z",
+                        }
+                    ],
+                },
+            ),
+        )
+        body = await _client().list_project_activities("p-1", size=100)
+    assert dict(route.calls.last.request.url.params) == {"page": "1", "size": "100"}
+    assert body["content"][0]["type"] == "experiment"
+
+
+@pytest.mark.anyio
+async def test_automation_rules_keeps_the_trailing_slash() -> None:
+    """The resource is mapped at ``/automations/evaluators/`` — with the
+    trailing segment. Dropping it 404s, which is easy to do and easy to miss."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/automations/evaluators/").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "r-1", "name": "judge"}])),
+        )
+        await _client().list_automation_rules(project_id="p-1", page=2, size=5)
+    req = route.calls.last.request
+    assert req.url.path.endswith("/automations/evaluators/")
+    assert dict(req.url.params) == {"project_id": "p-1", "page": "2", "size": "5"}
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_maps_a_rejected_filter_to_validation() -> None:
+    """The backend's 400 for a bad filter names neither the offending field nor
+    the valid ones, so it is only useful as a typed error — local validation is
+    what produces a usable message."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(
+                400, json={"code": 400, "message": "Invalid filters query parameter '[…]'"}
+            ),
+        )
+        with pytest.raises(OpikValidationError):
+            await _client().get_project_kpi_cards(
+                "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+            )

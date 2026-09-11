@@ -32,6 +32,8 @@ class FakeOpikClient:
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     issues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    score_names: dict[str, Any] = field(default_factory=lambda: {"scores": []})
+    automation_rules: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -82,6 +84,24 @@ class FakeOpikClient:
         if self.projects_error is not None:
             raise self.projects_error
         return self.projects
+
+    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:
+        self.last_kwargs = {"project_id": project_id}
+        return self.score_names
+
+    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
+        self.last_kwargs = {"project_id": project_id}
+        return {"names": []}
+
+    async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        return self.automation_rules
+
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"results": []}
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -1017,6 +1037,121 @@ async def test_list_forwards_declared_parent_id_to_sub_collection() -> None:
     await run_list("prompt_version", prompt_id="pr-1", test_suite_id="ts-1", client=fake)
     assert fake.last_kwargs.get("prompt_id") == "pr-1"
     assert "test_suite_id" not in fake.last_kwargs
+
+
+# --- project vocabulary: score names and online rules -------------------- #
+#
+# Where "the first 25 of 213" leads. Neither was reachable before, in any tool,
+# so a truncated project overview had nowhere to point.
+
+
+@pytest.mark.anyio
+async def test_list_score_names_returns_a_project_s_score_names() -> None:
+    fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}, {"name": "tone"}]})
+    out = await run_list("score_name", project_id="p-1", client=fake)
+    assert "Hallucination" in out
+    assert "tone" in out
+    assert "Found 2 score_names" in out
+
+
+@pytest.mark.anyio
+async def test_list_score_names_has_no_id_column() -> None:
+    """A score name has no id — the name is the identity. An always-empty id
+    column would be a column of nothing on every row."""
+    fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}]})
+    out = await run_list("score_name", project_id="p-1", client=fake)
+    columns = out.splitlines()[2]
+    assert columns.strip() == "name"
+
+
+@pytest.mark.anyio
+async def test_list_score_names_says_the_names_span_every_entity_kind() -> None:
+    """The endpoint has no entity_type predicate, so trace, span and thread
+    names arrive together and a caller cannot tell which is which from a name.
+    Saying so beats letting the agent assume they are all trace scores."""
+    fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}]})
+    out = await run_list("score_name", project_id="p-1", client=fake)
+    assert "trace" in out and "span" in out and "thread" in out
+
+
+@pytest.mark.anyio
+async def test_list_score_names_does_not_invent_a_type() -> None:
+    """The combined endpoint returns names only. A `type` column would be
+    empty on every row, and filling it would be a guess."""
+    fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}]})
+    out = await run_list("score_name", project_id="p-1", client=fake)
+    assert "type" not in out.splitlines()[2]
+
+
+@pytest.mark.anyio
+async def test_list_score_names_pages_even_though_the_backend_cannot() -> None:
+    """Found by review: the whole set came back with `total` set to the whole
+    set, so the table's own footer promised a page 2 that returned the same
+    rows. The endpoint has no LIMIT, so the slice has to be ours."""
+    fake = FakeOpikClient(score_names={"scores": [{"name": f"s-{i:02d}"} for i in range(30)]})
+    first = await run_list("score_name", project_id="p-1", size=25, client=fake)
+    assert "showing 25 of 30" in first
+    assert "Use page=2" in first
+    assert "s-24" in first
+    assert "s-25" not in first
+
+    second = await run_list("score_name", project_id="p-1", page=2, size=25, client=fake)
+    assert "showing 5 of 30" in second
+    assert "s-25" in second
+    assert "s-24" not in second
+    assert "Use page=3" not in second
+
+
+@pytest.mark.anyio
+async def test_list_score_names_offers_no_next_page_when_they_all_fit() -> None:
+    fake = FakeOpikClient(score_names={"scores": [{"name": "only"}]})
+    out = await run_list("score_name", project_id="p-1", client=fake)
+    assert "page=" not in out
+
+
+@pytest.mark.anyio
+async def test_list_score_names_requires_project_scope() -> None:
+    with pytest.raises(ToolError, match="project_id"):
+        await run_list("score_name", client=FakeOpikClient())
+
+
+@pytest.mark.anyio
+async def test_list_score_names_empty_project_is_not_an_error() -> None:
+    out = await run_list("score_name", project_id="p-1", client=FakeOpikClient())
+    assert "No score_names found." in out
+
+
+@pytest.mark.anyio
+async def test_list_online_rules_shows_name_and_kind() -> None:
+    fake = FakeOpikClient(
+        automation_rules={
+            "content": [{"id": "r-1", "name": "judge", "type": "llm_as_judge", "enabled": True}],
+            "total": 1,
+        }
+    )
+    out = await run_list("online_rule", project_id="p-1", client=fake)
+    assert "judge" in out
+    assert "llm_as_judge" in out
+    assert fake.last_kwargs.get("project_id") == "p-1"
+
+
+@pytest.mark.anyio
+async def test_list_online_rules_paginates_like_every_other_list() -> None:
+    fake = FakeOpikClient(
+        automation_rules={
+            "content": [{"id": f"r-{i}", "name": f"rule-{i}"} for i in range(2)],
+            "total": 7,
+        }
+    )
+    out = await run_list("online_rule", project_id="p-1", size=2, client=fake)
+    assert "Use page=2" in out
+    assert fake.last_kwargs.get("size") == 2
+
+
+@pytest.mark.anyio
+async def test_list_online_rules_requires_project_scope() -> None:
+    with pytest.raises(ToolError, match="project_id"):
+        await run_list("online_rule", client=FakeOpikClient())
 
 
 # --- the "issue" alias ---------------------------------------------------- #

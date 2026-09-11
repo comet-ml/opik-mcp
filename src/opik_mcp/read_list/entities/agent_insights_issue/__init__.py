@@ -10,11 +10,12 @@ The rest of ``read_list`` reaches them through this name, so the entity's own
 concerns stay in one place as they grow.
 """
 
-from opik_mcp.read_list.diagnostics.availability import (
+from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,
 )
-from opik_mcp.read_list.diagnostics.state import (
+from opik_mcp.read_list.entities.agent_insights_issue.entity import HANDLER
+from opik_mcp.read_list.entities.agent_insights_issue.state import (
     COVERAGE_GRACE,
     ENABLE_OP,
     STALE_AFTER,
@@ -27,6 +28,7 @@ from opik_mcp.read_list.diagnostics.state import (
 __all__ = [
     "COVERAGE_GRACE",
     "ENABLE_OP",
+    "HANDLER",
     "STALE_AFTER",
     "TRIGGER_OP",
     "UNAVAILABLE_SENTENCE",
