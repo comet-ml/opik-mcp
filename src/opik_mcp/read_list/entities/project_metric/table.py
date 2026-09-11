@@ -38,11 +38,10 @@ An average, a percentile, a rate and a score cannot: the parts do not carry
 the weights the whole would need.
 """
 
-# No width cap. ``MAX_SERIES = 11`` used to keep the eleven widest columns of
-# an ungrouped score or usage metric and drop the rest with a note. The note
-# pointed at ``list('score_name')``, which enumerates the names — and no call
-# charts the twelfth one: ``series`` is refused ungrouped, on the grounds that
-# the ungrouped answer already carries every series, which the cap made false.
+# No width cap: an ungrouped score or usage metric is one column per name,
+# however many the project has. ``series`` is refused ungrouped on the grounds
+# that the ungrouped answer already carries every series, so a cap here would
+# make that refusal a lie and leave the dropped names with no way to be charted.
 # The Metrics tab draws one line per score with no cap; so does this.
 
 

@@ -24,6 +24,7 @@ from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
+    continuation,
     page_items,
     rest_of,
 )
@@ -118,7 +119,7 @@ async def fetch(
             total=collection_total(traces_page),
             call=(
                 f"list('trace', {scope}, filters='thread_id = \"{entity_id}\"', "
-                f"page={MESSAGES_INLINE_LIMIT // 100 + 1}, size=100)"
+                f"{continuation(MESSAGES_INLINE_LIMIT)})"
             ),
         )
     if messages:

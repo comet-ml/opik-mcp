@@ -38,6 +38,28 @@ def collection_total(page_body: dict[str, Any]) -> int | None:
     return total_raw if isinstance(total_raw, int) and total_raw >= 0 else None
 
 
+#: What ``list`` will hand out per page at most. The continuation below is
+#: written against it, so an inline limit has to be a whole number of pages.
+LIST_PAGE = 100
+
+
+def continuation(inline_limit: int) -> str:
+    """``page=N, size=100`` for the first page past an inlined collection.
+
+    Written once because it was written three times, and one of the three had
+    the page number typed in by hand — correct until the inline limit changed.
+    """
+    assert inline_limit % LIST_PAGE == 0, "an inline limit is whole list pages"
+    return f"page={inline_limit // LIST_PAGE + 1}, size={LIST_PAGE}"
+
+
+def short_list(lines: list[str], *, cap: int = 10) -> list[str]:
+    """The first ``cap`` of ``lines``, and a line saying how many were not shown."""
+    if len(lines) <= cap:
+        return lines
+    return [*lines[:cap], f"  … and {len(lines) - cap} more; narrow the name to see them"]
+
+
 def rest_of(noun: str, *, inlined: int, total: int | None, call: str) -> str:
     """The line beside a ``…Truncated: true`` that says what to do about it.
 
@@ -59,4 +81,12 @@ def name_candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["collection_total", "collection_truncated", "name_candidates", "page_items", "rest_of"]
+__all__ = [
+    "collection_total",
+    "collection_truncated",
+    "continuation",
+    "name_candidates",
+    "page_items",
+    "rest_of",
+    "short_list",
+]

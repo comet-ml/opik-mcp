@@ -25,16 +25,12 @@ Fetcher = Callable[[OpikReadClient, str], Awaitable[list[str]]]
 
 SCORE_NAMES_CAP: Final = 25
 """Enough to see a project's real vocabulary; a judge rule per metric plus
-per-author scores can run to hundreds, which would swallow the read. A cap is
-honest here only because ``list('score_name')`` pages through all of them.
+per-author scores can run to hundreds, which would swallow the read. The cap
+is honest only because ``list('score_name')`` pages through all of them.
 
-Usage keys have no such cap. A ``USAGE_KEYS_CAP = 15`` sat beside this one,
-and the part it cut said "the rest are not enumerable on their own" — which
-was true, and was the problem: a project passing through ``original_usage.*``
-from OpenAI or Anthropic clears fifteen keys easily, the backend had already
-sent every one, and the read threw the rest away with nowhere to fetch them
-from. Forty short strings cost less than one sentence explaining their
-absence."""
+Usage keys have no cap: nothing enumerates them on their own, a project that
+passes ``original_usage.*`` through from a provider clears fifteen easily, and
+forty short strings cost less than a sentence explaining their absence."""
 
 _LOOKUP_ERRORS: Final[tuple[type[BaseException], ...]] = (TimeoutError, *BLOCK_ERRORS)
 """What a name lookup is allowed to fail with — the same set a decoration

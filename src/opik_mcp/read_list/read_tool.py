@@ -6,13 +6,10 @@ Ported from ollie-assist's ``tools/read/tool.py``, adapted to opik-mcp's
     read(entity_type, id) -> str
 
 The returned string is a one-line ``[read: …]`` header followed by the
-record as JSON, whole — ollie's compression tiers came over with this file
-and have been removed, since ollie can hand a truncated field back through
-its jq tool and we cannot (see ``size``). Where a composite read inlines
-children, those children are cut by the backend instead, which can hand them
-back (see ``slim``). Errors come back as ``ToolError`` with status-specific
-guidance, the same shape as ollie so the LLM's error-recovery prompting is
-portable.
+record as JSON, whole (see ``size`` for why nothing is cut here, and ``slim``
+for the one cut the backend applies to inlined children). Errors come back as
+``ToolError`` with status-specific guidance, the same shape as ollie so the
+LLM's error-recovery prompting is portable.
 """
 
 from __future__ import annotations
@@ -36,6 +33,7 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.paging import short_list
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
@@ -62,10 +60,9 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
         f"Multiple {entity_type}s match name {name!r}. "
         "Use read() with one of these UUIDs (or ask the user which they mean):",
     ]
-    for c in candidates[:10]:
-        lines.append(f"  - id={c.get('id')}, name={c.get('name', '')!r}")
-    if len(candidates) > 10:
-        lines.append(f"  … and {len(candidates) - 10} more; narrow the name to see them")
+    lines.extend(
+        short_list([f"  - id={c.get('id')}, name={c.get('name', '')!r}" for c in candidates])
+    )
     return "\n".join(lines)
 
 

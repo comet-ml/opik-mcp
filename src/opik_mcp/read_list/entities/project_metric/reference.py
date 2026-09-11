@@ -22,12 +22,7 @@ from opik_mcp.read_list.entities.project_metric.table import OTHERS
 
 
 def reference() -> dict[str, Any]:
-    """What ``schema('list.project_metric')`` answers.
-
-    The metric table and the filter fields live here rather than in the tool
-    description: the description is billed on every request the host makes,
-    this is billed only when asked for.
-    """
+    """What ``schema('list.project_metric')`` answers."""
     return {
         "entity": "project_metric",
         "shape": "a time series, not a collection — rows are time buckets",

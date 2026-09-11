@@ -34,39 +34,44 @@ from opik_mcp.read_list.project_names import (
 )
 
 RULES_CAP: Final = 10
-"""One page of the evaluators endpoint, which is where the cap comes from."""
+"""The page size asked of the evaluators endpoint — ours, not a backend limit.
+The endpoint has no maximum; ten is enough to say what is scoring the project,
+and ``list('online_rule')`` pages through the rest."""
 
 
-def _part(
-    names: list[str],
-    *,
-    cap: int | None = None,
-    total: int | None = None,
-    all_of_them: str | None = None,
+def _part(names: list[str]) -> dict[str, Any] | None:
+    """One whole vocabulary part, or ``None`` when there is nothing to say.
+
+    ``total`` is reported here too, not only on a capped part: a total that
+    appeared only when something was cut would make its mere presence mean
+    "truncated", and the agent would have to infer completeness.
+    """
+    return {"names": names, "total": len(names)} if names else None
+
+
+def _capped_part(
+    names: list[str], *, cap: int, all_of_them: str, total: int | None = None
 ) -> dict[str, Any] | None:
-    """One vocabulary part, or ``None`` when there is nothing to say.
+    """A part cut to ``cap`` names, with the call that returns all of them.
 
-    ``total`` is always reported, not only on truncation: a total that appeared
-    only when something was cut would make its mere presence mean "truncated",
-    and the agent would have to infer completeness. The pointer is what signals
-    truncation, so a part with a ``cap`` also has ``all_of_them`` — a cap with
-    nowhere to send the caller is a cut with no way back.
+    The pointer is not optional: a cap with nowhere to send the caller is a cut
+    with no way back, which is why usage keys go through :func:`_part` instead.
     """
     if not names:
         return None
     counted = total if total is not None else len(names)
-    if cap is None:
-        return {"names": names, "total": counted}
-    assert all_of_them is not None, "a capped part names where the rest is"
     part: dict[str, Any] = {"names": names[:cap], "total": counted}
-    if counted > cap:
+    # With no total to compare against, a list that fills the cap may or may
+    # not be all of them; the pointer goes on rather than risk a cut that
+    # says nothing. A list under the cap is complete either way.
+    if counted > cap or (total is None and len(names) >= cap):
         part["all"] = all_of_them
     return part
 
 
 async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     async def load() -> dict[str, Any] | None:
-        return _part(
+        return _capped_part(
             await fetch_score_names(client, project_id),
             cap=SCORE_NAMES_CAP,
             all_of_them=f"list('score_name', project_id='{project_id}')",
@@ -89,7 +94,7 @@ async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any
     async def load() -> dict[str, Any] | None:
         body = await client.list_automation_rules(project_id=project_id, size=RULES_CAP)
         total_raw = body.get("total")
-        return _part(
+        return _capped_part(
             named(body.get("content")),
             cap=RULES_CAP,
             total=total_raw if isinstance(total_raw, int) and total_raw >= 0 else None,

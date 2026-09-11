@@ -463,14 +463,12 @@ usage per key), and the backend charts one of them at a time when grouping, so
 defaults to `p50` and token usage to `total_tokens`, and whichever was used is
 echoed on the first line.
 
-A request whose answer would be too large to read is refused before the backend
-is called, with the narrower requests that would fit and the row count each
-would produce. Empty buckets are left out and counted underneath, so a quiet
-month is a few rows instead of a column of zeros, and a rate over a bucket with
-no traces is absent rather than reported as zero.
+Empty buckets are left out and counted underneath, so a quiet month is a few
+rows instead of a column of zeros, and a rate over a bucket with no traces is
+absent rather than reported as zero.
 
-Ask `schema("list.project_metric")` for the metric table, the intervals, the
-per-metric grouping matrix and the limits.
+Ask `schema("list.project_metric")` for the metric table, the intervals and the
+per-metric grouping matrix.
 
 **A project's names.** `score_name` lists the feedback score names recorded in
 a project and `online_rule` the automation rule evaluators configured on it,

@@ -32,6 +32,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.paging import short_list
 
 logger = logging.getLogger("opik_mcp.read_list.project_scope")
 
@@ -180,10 +181,9 @@ async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
         f"Multiple projects match the name {project_name!r}. Retry with project_id "
         f"set to one of these (or ask the user which they mean):",
     ]
-    for item in matches[:10]:
-        lines.append(f"  - project_id={item['id']}, name={item['name']!r}")
-    if len(matches) > 10:
-        lines.append(f"  … and {len(matches) - 10} more; narrow the name to see them")
+    lines.extend(
+        short_list([f"  - project_id={item['id']}, name={item['name']!r}" for item in matches])
+    )
     raise EntityArgValidationError("\n".join(lines))
 
 

@@ -21,7 +21,7 @@ operations, ``table`` for how an answer reads, ``reference`` for what
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -366,28 +366,20 @@ def _ungroupable() -> list[str]:
     return [name for name in METRICS if not groupable_by(name)]
 
 
-INTERVALS: Final[dict[str, timedelta | None]] = {
-    "hourly": timedelta(hours=1),
-    "daily": timedelta(days=1),
-    "weekly": timedelta(weeks=1),
-    # TOTAL collapses the window to one bucket, so it has no width.
-    "total": None,
-}
+INTERVALS: Final = ("hourly", "daily", "weekly", "total")
+"""The backend's ``TimeInterval`` values, lowercased. ``total`` collapses the
+window to one bucket."""
 
 DEFAULT_WINDOW_DAYS: Final = 7
 
 
 # --- which interval, when the caller names none --------------------------- #
 #
-# A 200-bucket cap used to sit here and refuse the request before the call.
-# The figure was ours — no layer of Opik has one — and a refusal turns "this
-# answer is large", which the caller can see and narrow, into "the MCP would
-# not answer", which they report as the MCP being broken. The UI never needed
-# a cap because it never lets the interval and the window disagree: it picks
-# the interval from the window, so a default chart is a few dozen points
-# whatever the range. Done the same way here, the default is safe by
-# construction, and an explicit ``interval`` stays what it is — the caller's
-# decision, sent as given.
+# There is no cap on how many buckets an answer may have: the caller can see a
+# large answer and narrow it, and a refusal they cannot see past reads as the
+# server being broken. What keeps the default small is the UI's rule — the
+# interval follows the window, so a default chart is a few dozen points at any
+# range — and an explicit ``interval`` is the caller's decision, sent as given.
 
 
 def interval_for_window(since: str, until: str) -> str:

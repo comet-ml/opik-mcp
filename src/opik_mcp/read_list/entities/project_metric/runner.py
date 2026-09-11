@@ -65,10 +65,10 @@ _KIND_WORDS: Final[dict[str, tuple[str, str, int | None]]] = {
 }
 
 
-def _listed(names: list[str], cap: int | None) -> str:
+def _listed(names: list[str], cap: int | None, *, rest: str) -> str:
     if cap is None or len(names) <= cap:
         return ", ".join(names)
-    return f"{', '.join(names[:cap])} (and {len(names) - cap} more)"
+    return f"{', '.join(names[:cap])} (and {len(names) - cap} more: {rest})"
 
 
 async def check_series(
@@ -107,7 +107,8 @@ async def check_series(
         if defaulted
         else f"series={chosen!r} is not a {singular} in this project"
     )
-    raise EntityArgValidationError(f"{how}. Its {plural}: {_listed(names, cap)}.")
+    listed = _listed(names, cap, rest=f"list('score_name', project_id='{project_id}')")
+    raise EntityArgValidationError(f"{how}. Its {plural}: {listed}.")
 
 
 async def run_project_metric(

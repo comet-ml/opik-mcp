@@ -3,12 +3,11 @@
 The read inlines the span tree, because a trace on its own says a call
 happened and the spans say what it did.
 
-The trace itself arrives whole: this entity used to carry its own three-tier
-compressor, and a trace is exactly where cutting hurt most — the payload that
-made it large is usually the payload the read was opened for. The spans do
-not: they are asked for slim, since two hundred of them is where a single
-base64 image turns one read into the whole context window, and each one
-carries the id that fetches it back in full. See ``read_list/slim.py``.
+The trace itself arrives whole — the payload that makes a trace large is
+usually the payload the read was opened for. The spans are asked for slim:
+two hundred of them is where a single base64 image turns one read into the
+whole context window, and each carries the id that fetches it back in full.
+See ``read_list/slim.py``.
 """
 
 from __future__ import annotations
@@ -20,6 +19,7 @@ from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
+    continuation,
     page_items,
     rest_of,
 )
@@ -72,8 +72,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             total=collection_total(spans_page),
             call=(
                 f"list('span', project_id='{project_id}', "
-                f"filters='trace_id = \"{entity_id}\"', "
-                f"page={SPANS_INLINE_LIMIT // 100 + 1}, size=100)"
+                f"filters='trace_id = \"{entity_id}\"', {continuation(SPANS_INLINE_LIMIT)})"
             ),
         )
     if spans:

@@ -14,6 +14,7 @@ from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
+    continuation,
     name_candidates,
     page_items,
     rest_of,
@@ -46,7 +47,10 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             "versions",
             inlined=len(versions),
             total=collection_total(versions_page),
-            call=f"list('prompt_version', prompt_id='{entity_id}', page=2, size=100)",
+            call=(
+                f"list('prompt_version', prompt_id='{entity_id}', "
+                f"{continuation(VERSIONS_INLINE_LIMIT)})"
+            ),
         )
     return result
 
@@ -74,7 +78,9 @@ HANDLER = EntityHandler(
     list_fn=list_page,
     list_extra_fields=("version_count", "created_at"),
     description=(
-        "Prompt metadata + full version list. Returns {prompt, versions, versionsTruncated}."
+        "Prompt metadata + full version list (up to 100 inlined). Returns {prompt, "
+        "versions, versionsTruncated}, plus moreVersions with the call for the rest "
+        "past 100."
     ),
 )
 

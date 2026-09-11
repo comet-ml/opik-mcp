@@ -1,10 +1,7 @@
 """Asking opik-backend for slim bodies on the children a read inlines.
 
-Python-side compression was removed (see :mod:`opik_mcp.read_list.size`): it
-cut fields after the whole payload had already been read, sent and parsed, and
-the hint it left pointed at a jq tool this server does not have.
-
-The backend's own cut is the opposite trade. ``?truncate=true`` on the trace,
+The backend's cut is the one this server relies on (for why it has none of
+its own, see :mod:`opik_mcp.read_list.size`). ``?truncate=true`` on the trace,
 span and thread *list* endpoints reads ClickHouse's materialised
 ``truncated_input`` / ``truncated_output`` columns instead of the raw ones, so
 an oversized field never leaves the disk, and replaces base64 images with the
@@ -66,4 +63,4 @@ def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
     )
 
 
-__all__ = ["BACKEND_SLIM_THRESHOLD_CHARS", "count_cut", "slim_notice", "was_cut"]
+__all__ = ["count_cut", "slim_notice"]

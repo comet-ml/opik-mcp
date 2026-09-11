@@ -1,29 +1,18 @@
 """How large an answer is, said in the answer.
 
-This replaces ``compression.py``, and the deletion is the substance.
+A read returns the record whole, and this module's whole job is to put its
+size on the first line. The server does no truncation of its own, because a
+cut it cannot undo is a wrong answer the caller has no way to suspect: a large
+answer costs context, which they can see and narrow — a span instead of its
+trace, a filter instead of a page, a window instead of all time — while a
+silently short one costs a conclusion, and the report that follows says "the
+MCP is wrong", not "the MCP truncated my trace". Ollie-assist, where the
+read/list shape comes from, can afford to cut because it caches the whole
+entity and ships a jq tool to fetch the rest; this server has neither.
 
-A read used to shrink what it returned: every string over 200 characters cut
-and stamped with a jq path, and a composite too wide for that reduced to a
-skeleton of ids and names. It came over from ollie-assist, where it is safe:
-ollie caches the whole entity for the session and ships a ``scan`` tool, so
-``[TRUNCATED … use jq('.spans[0].input')]`` is an instruction the agent can
-carry out. We took the truncation and left the cache and the tool behind. The
-pointer named a place that does not exist, and the cut data was gone — the
-only way back was a second read with a larger budget, which nothing said.
-
-That is a bad trade for the caller. A big answer costs context, which they
-can see and can narrow; a silently short one costs a wrong conclusion, which
-they cannot see at all. The reports that follow do not say "the MCP truncated
-my trace", they say "the MCP is wrong", and nobody connects the two.
-
-So nothing here cuts anything. A read returns the record whole, with its
-size on the first line, and narrowing stays where it belongs: ask for a span
-instead of a trace, a filter instead of a page, a window instead of all time.
-
-The one exception is the children a composite read inlines, and it is an
-exception because it has the half this code lacked: the backend cuts them
-(see :mod:`opik_mcp.read_list.slim`) on endpoints whose single-entity
-counterparts cannot cut, so the whole value is always one call away.
+The one cut a read does carry is the backend's, on the children a composite
+inlines (see :mod:`opik_mcp.read_list.slim`), and it is allowed because the
+whole child is always one call away.
 """
 
 from __future__ import annotations
@@ -38,11 +27,7 @@ def compact_json(obj: Any) -> str:
 
 
 def estimate_tokens(text: str) -> int:
-    """Rough estimate: ~4 characters per token.
-
-    Crude, and only used to tell the caller what an answer cost. Nothing
-    branches on it any more.
-    """
+    """Rough estimate: ~4 characters per token, for the header only."""
     return len(text) // 4
 
 

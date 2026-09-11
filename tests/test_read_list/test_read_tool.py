@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -20,6 +21,7 @@ from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.paging import continuation, short_list
 from opik_mcp.read_list.read_tool import run_read
 
 
@@ -142,8 +144,13 @@ class FakeOpikClient:
         )
         if self.fail_list_spans:
             raise OpikServerError("boom")
+        # ``list`` names the trace through a filter clause, ``read`` through
+        # the argument; honour both so a continuation can be run as written.
+        for clause in json.loads(_search.get("filters") or "[]"):
+            if clause.get("field") == "trace_id":
+                trace_id = clause.get("value")
         every = self.trace_spans.get(trace_id or "", [])
-        content = every[:size]
+        content = every[(page - 1) * size : page * size]
         return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def get_span(self, span_id: str) -> dict[str, Any]:
@@ -180,7 +187,7 @@ class FakeOpikClient:
         size: int = 10,
     ) -> dict[str, Any]:
         every = self.prompt_versions.get(prompt_id, [])
-        content = every[:size]
+        content = every[(page - 1) * size : page * size]
         return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def list_prompts(self, **_: Any) -> dict[str, Any]:
@@ -219,7 +226,7 @@ class FakeOpikClient:
             for f in json.loads(filters):
                 if f.get("field") == "thread_id":
                     every = self.thread_messages.get(f.get("value"), [])
-                    content = every[:size]
+                    content = every[(page - 1) * size : page * size]
                     return {
                         "content": content,
                         "page": page,
@@ -1919,3 +1926,73 @@ async def test_more_than_ten_matches_say_how_many_more() -> None:
     message = str(exc.value)
     assert "p-9" in message and "p-10" not in message, "ten are listed"
     assert "… and 4 more" in message
+
+
+def test_the_continuation_starts_where_the_inlined_part_stopped() -> None:
+    """Three reads wrote this arithmetic by hand, and one had the page number
+    typed in. The page after 200 inlined rows at 100 a page is 3, not 2."""
+    assert continuation(200) == "page=3, size=100"
+    assert continuation(100) == "page=2, size=100"
+    with pytest.raises(AssertionError):
+        continuation(150)
+
+
+def test_a_short_list_says_how_many_it_left_out() -> None:
+    lines = [f"  - {i}" for i in range(12)]
+    assert short_list(lines[:10]) == lines[:10]
+    shown = short_list(lines)
+    assert shown[:10] == lines[:10]
+    assert shown[10] == "  … and 2 more; narrow the name to see them"
+
+
+@pytest.mark.anyio
+async def test_the_continuation_a_trace_hands_out_returns_the_same_set() -> None:
+    """Found by review: ``list('span', …)`` adds ``source = "sdk"`` by default
+    and the inline fetch does not, so for a trace from an evaluation or the
+    playground the call ``moreSpans`` named returned a different set — often
+    none — and a total that disagreed with the one printed beside it. A filter
+    on the parent's id is a drill-in, not a triage, and takes no default."""
+    from opik_mcp.read_list.list_tool import run_list
+
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": f"sp-{i}", "name": "step"} for i in range(250)]},
+    )
+    body = _payload(await run_read("trace", UUID, client=fake))
+    call = body["moreSpans"].split("the rest: ", 1)[1]
+
+    def arg(pattern: str) -> str:
+        found = re.search(pattern, call)
+        assert found is not None, f"{pattern!r} not in {call!r}"
+        return found.group(1)
+
+    project_id = arg(r"project_id='([^']+)'")
+    filters = arg(r"filters='([^']+)'")
+    page = int(arg(r"page=(\d+)"))
+    size = int(arg(r"size=(\d+)"))
+
+    out = await run_list(
+        "span", project_id=project_id, filters=filters, page=page, size=size, client=fake
+    )
+
+    sent = json.loads(fake.last_list_spans_kwargs["filters"])
+    assert [c["field"] for c in sent] == ["trace_id"], "no source default on a drill-in"
+    assert fake.last_list_spans_kwargs["page"] == 3
+    assert "sp-200" in out and "sp-249" in out, "exactly the spans the read left out"
+    assert "sp-199" not in out
+    assert 'source = "sdk"' not in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_a_rules_page_without_a_total_keeps_its_pointer() -> None:
+    """The rules part asks for one page of ten. When the backend omits the
+    total, ten names may be all of them or the first ten of forty; the pointer
+    stays on, because a cut with no pointer is the one thing this block
+    promises not to produce."""
+    fake = _vocab_fake()
+    fake.automation_rules = {"content": [{"id": f"r-{i}", "name": f"rule-{i}"} for i in range(10)]}
+
+    rules = _payload(await run_read("project", UUID, client=fake))["vocabulary"]["online_rules"]
+
+    assert len(rules["names"]) == 10
+    assert "list('online_rule'" in rules["all"]

@@ -300,15 +300,10 @@ async def test_an_explicit_source_is_not_overridden() -> None:
 
 # --- the interval follows the window, as it does in the UI ---------------- #
 #
-# ``MAX_BUCKETS`` and ``check_size`` used to live here: a request whose answer
-# would exceed 200 rows was refused before the call. The number was ours, no
-# layer of Opik has one, and a refusal turns "the answer is large" — which the
-# caller can see and narrow — into "the MCP would not answer". The UI never
-# needed the guard because it never lets the interval and the window disagree:
-# ``calculateIntervalType`` picks hourly up to 3 days, daily up to 30, weekly
-# beyond, so a default chart is never more than a few dozen points. Doing the
-# same here makes the default safe by construction and leaves an explicit
-# ``interval`` as what it is — the caller's decision.
+# No request is refused for size. The UI never needed such a guard because it
+# never lets the interval and the window disagree — ``calculateIntervalType``
+# picks hourly up to 3 days, daily up to 30, weekly beyond — so the default is
+# a few dozen points at any range, and an explicit ``interval`` is the caller's.
 
 
 def test_the_interval_is_the_one_the_ui_would_pick() -> None:
@@ -1387,3 +1382,25 @@ async def test_an_ungrouped_series_with_no_name_still_takes_the_metric_s() -> No
         "project_metric", project_id=PROJECT, metric_type="span_token_usage", client=fake
     )
     assert _table(out)[0] == "time | span_token_usage"
+
+
+@pytest.mark.anyio
+async def test_a_long_list_of_score_names_in_a_refusal_names_the_call() -> None:
+    """Twenty-five names and "(and 30 more)" left the caller counting; the
+    sibling refusal in ``resolve_series`` names ``list('score_name', …)``,
+    and this one now does too."""
+    names = [f"score-{i:02d}" for i in range(55)]
+    fake = _fake(results=[], score_names=names)
+
+    with pytest.raises(ToolError) as exc:
+        await run_list(
+            "project_metric",
+            project_id=PROJECT,
+            metric_type="trace_feedback_scores",
+            breakdown="tags",
+            series="not-a-score",
+            client=fake,
+        )
+
+    message = str(exc.value)
+    assert "(and 30 more: list('score_name', project_id=" in message

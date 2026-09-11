@@ -80,6 +80,10 @@ from opik_mcp.read_list.window import (
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
+#: A filter on one of these names a parent record, and turns a list into the
+#: rest of that record rather than a triage of the project.
+PARENT_ID_FIELDS = ("trace_id", "thread_id")
+
 _MAX_SIZE = 100
 _TRUNCATE_AT = 60
 # Free-text search is an ilike across several columns; on a cold cache the
@@ -255,8 +259,14 @@ async def run_list(
         except OQLError as err:
             raise ToolError(str(err)) from err
         if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
-            c["field"] == "source" for c in clauses
+            c["field"] in ("source", *PARENT_ID_FIELDS) for c in clauses
         ):
+            # The SDK default is for triage — "which traces need attention" —
+            # where the Logs page filters the same way. A filter on a parent's
+            # id is a drill-in: the caller named the trace or thread and wants
+            # all of it, the way read() inlines all of it. Adding the default
+            # there would make the continuation a composite read hands out
+            # (`moreSpans`) return a different set than the part it continues.
             clauses.append(dict(SDK_SOURCE_CLAUSE))
             source_defaulted = True
         if clauses:
