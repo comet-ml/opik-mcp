@@ -276,6 +276,9 @@ async def read(
       read('trace', id). Bodies are slim, the thread's own first/last message
       included, since those are copies of the first and last turn. Needs
       project scope: pass a thread link/URI, or project_id/project_name.
+    - An inlined collection longer than what fits sets its …Truncated flag and
+      adds moreSpans / moreMessages / moreVersions: the count, and the exact
+      list(...) call that continues from where the inlined part stopped.
     - agent_insights_issue: returns {issue, example_trace_ids, details, url,
       trace_url_template} — the Diagnostics issue with cause and suggested fix,
       the deduped ids of traces that exhibit it (open one with read('trace', id)),
@@ -362,7 +365,7 @@ async def list_entities(
             description=(
                 "Start of the time window for trace, span, thread, project_metric, "
                 "agent_insights_issue: "
-                "a relative span ('1h', '7d') or an ISO-8601 instant with "
+                "a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with "
                 "timezone. Trace/span/thread windows are by record creation time (for an "
                 "exact start_time bound use filters); Diagnostics issues aggregate per "
                 "report day, so their window is the UTC days it spans and defaults to "
@@ -445,8 +448,9 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "project_metric only: bucket width. Omitted, it follows the window: "
-                "up to 3d hourly, 30d daily, else weekly."
+                "project_metric only: bucket width. Omitted, it follows the window "
+                "the way the Metrics tab does: hourly up to 3 days, daily up to 30, "
+                "weekly beyond."
             ),
             json_schema_extra={"enum": sorted(METRIC_INTERVALS)},
         ),
