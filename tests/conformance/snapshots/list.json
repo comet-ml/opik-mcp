@@ -58,7 +58,7 @@
         }
       ],
       "default": null,
-      "description": "project_metric only: bucket width. 'daily' by default.",
+      "description": "project_metric only: bucket width. Omitted, it follows the window: up to 3d hourly, 30d daily, else weekly.",
       "enum": [
         "daily",
         "hourly",
@@ -203,7 +203,7 @@
         }
       ],
       "default": null,
-      "description": "Start of the time window for trace, span, thread, project_metric, agent_insights_issue: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Trace/span/thread windows are by record creation time (for an exact start_time bound use filters); Diagnostics issues aggregate per report day, so their window is the UTC days it spans and defaults to all-time, matching the Diagnostics page.",
+      "description": "Start of the time window for trace, span, thread, project_metric, agent_insights_issue: a relative span ('1h', '7d') or an ISO-8601 instant with timezone. Trace/span/thread windows are by record creation time (for an exact start_time bound use filters); Diagnostics issues aggregate per report day, so their window is the UTC days it spans and defaults to all-time, matching the Diagnostics page.",
       "title": "Since"
     },
     "size": {

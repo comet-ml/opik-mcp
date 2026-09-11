@@ -205,12 +205,13 @@ async def test_a_metric_series_renders_as_a_table_and_echoes_what_applied(
             entity_type="project_metric",
             project_id=PROJECT_ID,
             metric_type="trace_count",
+            interval="daily",
             since="2026-09-01T00:00:00Z",
             until="2026-09-03T00:00:00Z",
         )
 
     header, *rows = answer.splitlines()
-    assert "project_metric | trace_count | daily" in header
+    assert "project_metric | trace_count | daily |" in header
     assert 'filters: source = "sdk"' in header
     assert rows[0] == "time | traces"
     assert rows[1:3] == ["2026-09-01 | 0", "2026-09-02 | 4"]
@@ -239,6 +240,7 @@ async def test_a_grouped_series_is_keyed_by_time_and_says_what_others_is(
             project_id=PROJECT_ID,
             metric_type="span_count",
             breakdown="model",
+            interval="daily",
             since="2026-09-01T00:00:00Z",
             until="2026-09-04T00:00:00Z",
         )
@@ -308,6 +310,7 @@ async def test_a_rate_is_charted_against_the_count_of_what_it_measures(
             entity_type="project_metric",
             project_id=PROJECT_ID,
             metric_type="trace_error_rate",
+            interval="daily",
             since="2026-09-01T00:00:00Z",
             until="2026-09-03T00:00:00Z",
         )
@@ -337,6 +340,7 @@ async def test_a_sub_cent_cost_survives_the_table(backend: StubBackend) -> None:
             entity_type="project_metric",
             project_id=PROJECT_ID,
             metric_type="trace_cost",
+            interval="daily",
             since="2026-09-01T00:00:00Z",
             until="2026-09-03T00:00:00Z",
         )
@@ -354,6 +358,7 @@ async def test_null_buckets_are_left_out_and_counted(backend: StubBackend) -> No
             entity_type="project_metric",
             project_id=PROJECT_ID,
             metric_type="trace_duration",
+            interval="daily",
             since="2026-09-01T00:00:00Z",
             until="2026-09-03T00:00:00Z",
         )
@@ -397,15 +402,6 @@ async def test_the_refusals_never_reach_the_backend(backend: StubBackend) -> Non
             metric_type="thread_count",
             filters='source = "sdk"',
         )
-        too_wide = await _refuse(
-            session,
-            "list",
-            entity_type="project_metric",
-            project_id=PROJECT_ID,
-            metric_type="trace_count",
-            interval="hourly",
-            since="30d",
-        )
         paged = await _refuse(
             session,
             "list",
@@ -422,7 +418,6 @@ async def test_the_refusals_never_reach_the_backend(backend: StubBackend) -> Non
     assert "span_count" in cost, "and where the field is accepted"
     assert "cannot be grouped at all" in ungroupable
     assert "cannot be filtered by source" in thread_filter
-    assert "721 time buckets" in too_wide and "interval='daily'" in too_wide
     assert "does not take page" in paged
     assert "requires project_id or project_name" in no_scope
 
@@ -534,3 +529,27 @@ async def test_a_trace_read_asks_for_slim_spans_and_a_whole_trace(
     assert backend.one("/v1/private/spans").query["truncate"] == ["true"]
     assert "truncate" not in backend.one(f"/v1/private/traces/{TRACE_ID}").query
     assert "1 of 1 spans had a field cut" in answer, "counted from what arrived"
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_a_wide_hourly_request_reaches_the_backend(backend: StubBackend) -> None:
+    """The one refusal that was ours alone is gone. An hourly month is 721
+    rows, and whether that is worth the context is the caller's decision; the
+    server's job is to send exactly what was asked and say what it sent."""
+    async with _session(backend) as session:
+        answer = await _call(
+            session,
+            "list",
+            entity_type="project_metric",
+            project_id=PROJECT_ID,
+            metric_type="trace_count",
+            interval="hourly",
+            since="30d",
+        )
+
+    assert backend.one("/metrics").payload["interval"] == "HOURLY"
+    assert "| hourly |" in answer.splitlines()[0]
+    assert "from the window" not in answer, (
+        "the caller chose it; the header does not claim otherwise"
+    )

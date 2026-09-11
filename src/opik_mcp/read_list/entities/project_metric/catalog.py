@@ -374,101 +374,37 @@ INTERVALS: Final[dict[str, timedelta | None]] = {
     "total": None,
 }
 
-DEFAULT_INTERVAL: Final = "daily"
 DEFAULT_WINDOW_DAYS: Final = 7
 
-MAX_BUCKETS: Final = 200
-"""Refusal threshold, in buckets.
 
-200 buckets of one series is roughly 1,500 tokens — a large answer but a
-usable one. Above that the caller is asking for a picture they cannot read
-and did not mean to pay for: an hourly month is 721 buckets. The cap is on
-buckets rather than tokens because buckets are knowable before the call, and
-a request refused before the call costs nothing at all.
-"""
+# --- which interval, when the caller names none --------------------------- #
+#
+# A 200-bucket cap used to sit here and refuse the request before the call.
+# The figure was ours — no layer of Opik has one — and a refusal turns "this
+# answer is large", which the caller can see and narrow, into "the MCP would
+# not answer", which they report as the MCP being broken. The UI never needed
+# a cap because it never lets the interval and the window disagree: it picks
+# the interval from the window, so a default chart is a few dozen points
+# whatever the range. Done the same way here, the default is safe by
+# construction, and an explicit ``interval`` stays what it is — the caller's
+# decision, sent as given.
 
 
-# --- how big would the answer be ------------------------------------------ #
+def interval_for_window(since: str, until: str) -> str:
+    """The interval the Metrics tab would chart this window at.
 
-
-def bucket_count(interval: str, since: str, until: str) -> int:
-    """Rows an ungrouped answer will have for this interval and window.
-
-    The backend fills from ``toStartOfInterval(interval_start)`` in steps of
-    the interval while below ``interval_end``, which is exclusive — so the
-    count is the *aligned* span over the width, rounded up. Counting from the
-    raw start instead added a row whenever the window happened to be aligned:
-    a daily 1st→8th is 7 buckets, not 8. An unaligned window keeps its extra
-    row, which is where the 15 buckets of a 14-day `since='14d'` come from.
-
-    Grouped answers are shorter than this — the grouped queries do not fill —
-    so as a size guard this is an upper bound, which is the safe direction.
+    ``calculateIntervalType`` in the frontend: the difference in whole days —
+    truncated, as dayjs's ``diff(…, 'days')`` truncates — is hourly up to 3,
+    daily up to 30, weekly beyond. So ``since='1h'`` charts by the hour rather
+    than as a single daily bucket, the 7-day default stays daily, and a year
+    is 52 rows instead of 365.
     """
-    width = INTERVALS[interval]
-    if width is None:
-        return 1
-    span = parse_bound(until) - _bucket_start(parse_bound(since), interval)
-    if span <= timedelta(0):
-        return 1
-    return -(-int(span.total_seconds()) // int(width.total_seconds()))
-
-
-def _bucket_start(when: datetime, interval: str) -> datetime:
-    """The start of the bucket an instant falls in, as ClickHouse cuts it.
-
-    ``toStartOfInterval`` is not a modulo of the epoch: a week starts on
-    Monday, not on the Thursday the epoch happens to be. Spelt out per
-    interval so the weekly case cannot drift by up to three days.
-    """
-    if interval == "hourly":
-        return when.replace(minute=0, second=0, microsecond=0)
-    midnight = when.replace(hour=0, minute=0, second=0, microsecond=0)
-    return midnight - timedelta(days=midnight.weekday()) if interval == "weekly" else midnight
-
-
-def _fitting_alternatives(interval: str, since: str, until: str) -> list[str]:
-    """Concrete narrower requests, each with the row count it would produce.
-
-    A refusal that only says "too big" leaves the agent guessing which of three
-    knobs to turn and by how much; these are the turns that actually fit.
-    """
-    out: list[str] = []
-    for name in INTERVALS:
-        rows = bucket_count(name, since, until)
-        if name != interval and rows <= MAX_BUCKETS:
-            out.append(f"interval='{name}' → {_rows(rows)}")
-    width = INTERVALS[interval]
-    if width is not None:
-        # Round the span DOWN to whole days so the suggestion is expressible as
-        # `since='<n>d'`, then quote the row count that span really produces —
-        # not MAX_BUCKETS. Saying "200 rows" for a request that returns 193 is
-        # a number the agent would repeat back to a person.
-        days = (width * (MAX_BUCKETS - 1)) // timedelta(days=1)
-        if days >= 1:
-            narrowed = second_precision(parse_bound(until) - timedelta(days=days))
-            rows = bucket_count(interval, narrowed, until)
-            out.append(f"since='{days}d' at interval='{interval}' → {_rows(rows)}")
-    return out
-
-
-def _rows(count: int) -> str:
-    return "1 row" if count == 1 else f"{count} rows"
-
-
-def check_size(interval: str, since: str, until: str) -> None:
-    """Raise before the request when the answer would be too large to be useful."""
-    rows = bucket_count(interval, since, until)
-    if rows <= MAX_BUCKETS:
-        return
-    alternatives = _fitting_alternatives(interval, since, until) or [
-        "narrow the window with since/until"
-    ]
-    raise EntityArgValidationError(
-        f"interval='{interval}' over {since} → {until} is {rows} time buckets, "
-        f"over the {MAX_BUCKETS}-bucket limit — that answer would cost more "
-        f"context than it can inform. Narrow one of:\n"
-        + "\n".join(f"  {line}" for line in alternatives)
-    )
+    days = (parse_bound(until) - parse_bound(since)).days
+    if days <= 3:
+        return "hourly"
+    if days <= 30:
+        return "daily"
+    return "weekly"
 
 
 # --- window --------------------------------------------------------------- #
@@ -591,9 +527,10 @@ def parse_metric(metric_type: str | None) -> Metric:
     return metric
 
 
-def parse_interval(interval: str | None) -> str:
+def parse_interval(interval: str | None, *, since: str, until: str) -> str:
+    """The caller's interval, or the window's when they named none."""
     if interval is None:
-        return DEFAULT_INTERVAL
+        return interval_for_window(since, until)
     name = interval.strip().lower()
     if name not in INTERVALS:
         raise EntityArgValidationError(
@@ -607,13 +544,11 @@ __all__ = [
     "DEFAULT_SERIES",
     "DURATION_PERCENTILES",
     "INTERVALS",
-    "MAX_BUCKETS",
     "METRICS",
     "Metric",
-    "bucket_count",
-    "check_size",
     "companion_count",
     "groupable_by",
+    "interval_for_window",
     "parse_breakdown",
     "parse_interval",
     "parse_metric",

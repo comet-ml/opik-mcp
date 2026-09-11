@@ -21,7 +21,6 @@ from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.entities.project_metric.catalog import (
     SOURCE_FILTERED_METRIC_ENTITIES,
     Metric,
-    check_size,
     companion_count,
     parse_breakdown,
     parse_interval,
@@ -130,16 +129,17 @@ async def run_project_metric(
 
     Everything that can be rejected is rejected before the backend is called —
     an unknown metric, an unknown interval, a filter field that does not exist
-    on the metric's entity, an answer too wide to be worth reading. The
-    backend's own refusals for these are unusable (a bad filter comes back as
-    ``Invalid filters query parameter`` with no field named), so local
-    validation is not an optimisation, it is the only readable error.
+    on the metric's entity. The backend's own refusals for these are unusable
+    (a bad filter comes back as ``Invalid filters query parameter`` with no
+    field named), so local validation is not an optimisation, it is the only
+    readable error. Size is not on the list: a wide answer is the caller's to
+    ask for, and the interval a caller does not name follows the window so the
+    default is never wide (see ``interval_for_window``).
     """
     _refuse_collection_args(page=page, size=size, sort=sort)
     metric = parse_metric(metric_type)
-    interval_name = parse_interval(interval)
     window_since, window_until = resolve_window(since, until)
-    check_size(interval_name, window_since, window_until)
+    interval_name = parse_interval(interval, since=window_since, until=window_until)
 
     clauses = compile_filters(metric.entity, filters or "")
     refuse_dropped_fields(metric, clauses)
@@ -195,7 +195,10 @@ async def run_project_metric(
     if counting is not None and not isinstance(answers[1], BaseException):
         presence = Presence(entity=counting.entity, counts=bucket_counts(answers[1]))
 
-    applied = [name, interval_name, f"{window_since} → {window_until}"]
+    # A derived interval is echoed as a choice, like the defaulted series
+    # below: the caller never typed it and the numbers depend on it.
+    interval_shown = interval_name if interval else f"{interval_name} (from the window)"
+    applied = [name, interval_shown, f"{window_since} → {window_until}"]
     if clauses:
         applied.append(f"filters: {render_filters(metric.entity, clauses)}")
     if breakdown:

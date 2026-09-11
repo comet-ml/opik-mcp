@@ -19,10 +19,9 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.opik_client import OpikClient
 from opik_mcp.read_list.entities.project_metric.catalog import (
-    MAX_BUCKETS,
     METRICS,
-    bucket_count,
     groupable_by,
+    interval_for_window,
 )
 from opik_mcp.read_list.entities.project_metric.table import MAX_SERIES
 from opik_mcp.read_list.list_tool import run_list
@@ -227,7 +226,7 @@ async def test_the_first_line_echoes_metric_interval_window_and_source() -> None
         "project_metric", project_id=PROJECT, metric_type="trace_count", client=_fake()
     )
     header = out.splitlines()[0]
-    assert header.startswith("[list: project_metric | trace_count | daily | ")
+    assert header.startswith("[list: project_metric | trace_count | daily (from the window) | ")
     # The defaulted source shows up as part of the filter, once — not also as
     # a separate "source defaulted" clause the agent has to reconcile with it.
     assert header.count("sdk") == 1
@@ -300,110 +299,95 @@ async def test_an_explicit_source_is_not_overridden() -> None:
     assert sources == ["experiment"]
 
 
-# --- size is bounded before the call -------------------------------------- #
+# --- the interval follows the window, as it does in the UI ---------------- #
+#
+# ``MAX_BUCKETS`` and ``check_size`` used to live here: a request whose answer
+# would exceed 200 rows was refused before the call. The number was ours, no
+# layer of Opik has one, and a refusal turns "the answer is large" — which the
+# caller can see and narrow — into "the MCP would not answer". The UI never
+# needed the guard because it never lets the interval and the window disagree:
+# ``calculateIntervalType`` picks hourly up to 3 days, daily up to 30, weekly
+# beyond, so a default chart is never more than a few dozen points. Doing the
+# same here makes the default safe by construction and leaves an explicit
+# ``interval`` as what it is — the caller's decision.
 
 
-def test_bucket_arithmetic_matches_the_backend() -> None:
-    """The backend fills from the interval the start falls in, up to but not
-    including the end.
-
-    Measured against the real thing: an aligned nine-day window (1 → 10 Aug,
-    daily) came back with nine rows, and `since='14d'` — which lands mid-day —
-    with fifteen. Counting from the raw start returned ten for the first: an
-    off-by-one that only appeared on aligned windows, which is exactly the
-    shape a caller who types instants uses."""
-    aligned = ("2026-09-02T00:00:00Z", "2026-09-09T00:00:00Z")
-    assert bucket_count("daily", *aligned) == 7, "seven whole days, seven buckets"
-    assert bucket_count("hourly", *aligned) == 168
-    # A ClickHouse week starts on Monday, so a Wednesday→Wednesday window
-    # reaches back into the week before and spans two buckets.
-    assert bucket_count("weekly", *aligned) == 2
-    assert bucket_count("total", *aligned) == 1
-
-    monday = ("2026-09-07T00:00:00Z", "2026-09-14T00:00:00Z")
-    assert bucket_count("weekly", *monday) == 1, "Monday to Monday is one week"
-
-    # A relative window is anchored to now, so it almost never aligns; the
-    # part-day at each end shares one bucket, hence one extra row.
-    mid_day = ("2026-09-02T11:16:32Z", "2026-09-09T11:16:32Z")
-    assert bucket_count("daily", *mid_day) == 8
-    assert bucket_count("hourly", *mid_day) == 169
+def test_the_interval_is_the_one_the_ui_would_pick() -> None:
+    """``calculateIntervalType``: the difference in whole days, ≤3 hourly, ≤30
+    daily, else weekly. The boundaries are inclusive, and the day count is
+    truncated the way dayjs's ``diff(…, 'days')`` truncates it."""
+    day = "2026-09-09T00:00:00Z"
+    assert interval_for_window("2026-09-08T23:00:00Z", day) == "hourly", "an hour"
+    assert interval_for_window("2026-09-06T00:00:00Z", day) == "hourly", "three days"
+    assert interval_for_window("2026-09-05T23:00:00Z", day) == "hourly", "3 days 1 h → 3"
+    assert interval_for_window("2026-09-05T00:00:00Z", day) == "daily", "four days"
+    assert interval_for_window("2026-08-10T00:00:00Z", day) == "daily", "thirty days"
+    assert interval_for_window("2026-08-09T00:00:00Z", day) == "weekly", "thirty-one"
+    assert interval_for_window("2025-09-09T00:00:00Z", day) == "weekly", "a year"
 
 
 @pytest.mark.anyio
-async def test_an_oversized_request_is_refused_without_calling_the_backend() -> None:
-    """An hourly month is 721 buckets — an answer that costs more context than
-    it can inform, and the user pays for it. Refused before the call, so it
-    costs nothing at all."""
+async def test_a_short_window_is_charted_hourly_and_says_the_interval_was_chosen() -> None:
+    """``since='1h'`` used to come back as one daily bucket, which is not a
+    chart. The header names the derived interval as a choice, the way the
+    grouping line names a defaulted series: it is a default the caller never
+    typed, and the numbers depend on it."""
     fake = _fake()
-    with pytest.raises(ToolError) as exc:
-        await run_list(
-            "project_metric",
-            project_id=PROJECT,
-            metric_type="trace_count",
-            interval="hourly",
-            since="30d",
-            client=fake,
-        )
-    message = str(exc.value)
-    assert "721 time buckets" in message
-    assert str(MAX_BUCKETS) in message
-    assert fake.calls == 0, "nothing was asked of the backend"
+
+    out = await run_list(
+        "project_metric", project_id=PROJECT, metric_type="trace_count", since="1h", client=fake
+    )
+
+    assert fake.last_body["interval"] == "HOURLY"
+    assert "| hourly (from the window) |" in out.splitlines()[0]
 
 
 @pytest.mark.anyio
-async def test_the_refusal_names_requests_that_would_fit() -> None:
-    """ "Too big" leaves the agent guessing which of three knobs to turn. These
-    are the turns that actually fit, with the row count each produces."""
-    with pytest.raises(ToolError) as exc:
-        await run_list(
-            "project_metric",
-            project_id=PROJECT,
-            metric_type="trace_count",
-            interval="hourly",
-            since="30d",
-            client=_fake(),
-        )
-    message = str(exc.value)
-    assert "interval='daily' → 31 rows" in message
-    assert "interval='total' → 1 row" in message
-    assert "at interval='hourly'" in message
+async def test_the_default_window_is_still_daily() -> None:
+    """Seven days sits in the daily band, so the answer a caller who names
+    nothing gets is the one they got before — and the header says it was
+    chosen."""
+    fake = _fake()
+
+    out = await run_list(
+        "project_metric", project_id=PROJECT, metric_type="trace_count", client=fake
+    )
+
+    assert fake.last_body["interval"] == "DAILY"
+    assert "| daily (from the window) |" in out.splitlines()[0]
 
 
 @pytest.mark.anyio
-async def test_every_row_count_in_a_refusal_is_the_real_one() -> None:
-    """Found by review: the narrowed-window suggestion quoted MAX_BUCKETS
-    rather than the count that window actually produces — "200 rows" for a
-    request returning 193. Numbers in a refusal get repeated to a person."""
-    with pytest.raises(ToolError) as exc:
-        await run_list(
-            "project_metric",
-            project_id=PROJECT,
-            metric_type="trace_count",
-            interval="hourly",
-            since="2026-08-09T00:00:00Z",
-            until="2026-09-09T00:00:00Z",
-            client=_fake(),
-        )
-    message = str(exc.value)
-    # The first line also carries a "→" (the window it refused), so match the
-    # indented alternatives by their own shape rather than by the arrow.
-    alternatives = [
-        line.strip()
-        for line in message.splitlines()
-        if line.startswith("  ") and line.strip().startswith(("interval=", "since="))
-    ]
-    assert len(alternatives) == 4
-    for line in alternatives:
-        claim = int(line.split("→")[1].split()[0])
-        if line.startswith("interval="):
-            name = line.split("'")[1]
-            actual = bucket_count(name, "2026-08-09T00:00:00Z", "2026-09-09T00:00:00Z")
-        else:
-            days = int(line.split("'")[1].rstrip("d"))
-            start = f"2026-09-{9 - days:02d}T00:00:00Z"
-            actual = bucket_count("hourly", start, "2026-09-09T00:00:00Z")
-        assert claim == actual, f"{line!r} claims {claim}, really {actual}"
+async def test_a_long_window_is_charted_weekly() -> None:
+    fake = _fake()
+
+    await run_list(
+        "project_metric", project_id=PROJECT, metric_type="trace_count", since="90d", client=fake
+    )
+
+    assert fake.last_body["interval"] == "WEEKLY"
+
+
+@pytest.mark.anyio
+async def test_an_explicit_interval_is_taken_as_given_whatever_the_window() -> None:
+    """An hourly month is 721 rows. It used to be refused; now it is the
+    caller's call, echoed without the "(from the window)" tag because they
+    made it, and the backend is asked."""
+    fake = _fake()
+
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_count",
+        interval="hourly",
+        since="30d",
+        client=fake,
+    )
+
+    assert fake.calls == 1, "nothing stands between the caller and the backend"
+    assert fake.last_body["interval"] == "HOURLY"
+    assert "| hourly |" in out.splitlines()[0]
+    assert "from the window" not in out
 
 
 # --- the collection arguments do not apply -------------------------------- #
@@ -707,7 +691,8 @@ def test_the_schema_reference_carries_the_metric_table() -> None:
     assert set(reference["metric_types"]) == set(METRICS)
     assert reference["metric_types"]["span_cost"]["about"] == "span"
     assert reference["metric_types"]["trace_error_rate"]["unit"] == "%"
-    assert reference["limits"]["buckets"] == MAX_BUCKETS
+    assert "limits" not in reference, "no bucket cap: the interval follows the window"
+    assert "3 days" in reference["intervals"]["default"]
     assert "page, size" in reference["not_supported"]
 
 
@@ -1315,35 +1300,6 @@ async def test_a_thread_filter_travels_in_the_thread_array() -> None:
 
 
 # --- the size guard's boundary -------------------------------------------- #
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize(
-    ("since", "buckets", "refused"),
-    [("8d", 193, False), ("9d", 217, True)],
-)
-async def test_the_bucket_cap_is_where_it_says_it_is(
-    since: str, buckets: int, refused: bool
-) -> None:
-    """Every refusal test used the same 721-bucket month, so the cap could
-    have been anything up to 700 and nothing would have gone red."""
-    fake = _fake()
-    call = run_list(
-        "project_metric",
-        project_id=PROJECT,
-        metric_type="trace_count",
-        interval="hourly",
-        since=since,
-        client=fake,
-    )
-    if refused:
-        with pytest.raises(ToolError) as exc:
-            await call
-        assert f"{buckets} time buckets" in str(exc.value)
-        assert fake.calls == 0
-    else:
-        await call
-        assert fake.calls == 1
 
 
 # --- the metric path over the wire ---------------------------------------- #

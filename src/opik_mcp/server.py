@@ -362,7 +362,7 @@ async def list_entities(
             description=(
                 "Start of the time window for trace, span, thread, project_metric, "
                 "agent_insights_issue: "
-                "a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with "
+                "a relative span ('1h', '7d') or an ISO-8601 instant with "
                 "timezone. Trace/span/thread windows are by record creation time (for an "
                 "exact start_time bound use filters); Diagnostics issues aggregate per "
                 "report day, so their window is the UTC days it spans and defaults to "
@@ -444,7 +444,10 @@ async def list_entities(
     interval: Annotated[
         str | None,
         Field(
-            description="project_metric only: bucket width. 'daily' by default.",
+            description=(
+                "project_metric only: bucket width. Omitted, it follows the window: "
+                "up to 3d hourly, 30d daily, else weekly."
+            ),
             json_schema_extra={"enum": sorted(METRIC_INTERVALS)},
         ),
     ] = None,
@@ -490,8 +493,7 @@ async def list_entities(
     - online_rule: project_id or project_name (the automation rules scoring
       this project's traces)
     - project_metric: project_id or project_name, plus metric_type — one
-      metric over time. Rows are time buckets, so page/size/sort are refused;
-      since/until and interval decide the shape.
+      metric over time. Rows are time buckets, so page/size/sort are refused.
     - test_suite_item: test_suite_id
     - prompt_version: prompt_id
 

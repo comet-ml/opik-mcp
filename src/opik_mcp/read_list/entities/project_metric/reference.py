@@ -2,8 +2,8 @@
 
 Its own file because it is paid for separately. The tool descriptions ride in
 every request a host makes; this is fetched only by a caller who is about to
-chart something, so the metric table, the grouping matrix and the limits live
-here at no cost to anyone else.
+chart something, so the metric table, the grouping matrix and the interval
+rule live here at no cost to anyone else.
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ from opik_mcp.read_list.entities.project_metric.catalog import (
     DEFAULT_SERIES,
     DEFAULT_WINDOW_DAYS,
     DURATION_PERCENTILES,
-    MAX_BUCKETS,
     METRICS,
     groupable_by,
 )
@@ -38,11 +37,20 @@ def reference() -> dict[str, Any]:
         },
         "intervals": {
             "hourly": "one row per hour",
-            "daily": f"one row per day (default; {DEFAULT_WINDOW_DAYS}-day window by default)",
+            "daily": "one row per day",
             "weekly": "one row per week",
             "total": "one row for the whole window",
+            "default": (
+                "chosen from the window, as the Metrics tab chooses it: hourly up to "
+                "3 days, daily up to 30, weekly beyond. Name one to override; a wide "
+                "answer (an hourly month is 721 rows) is sent as asked and the header "
+                "says which interval applied"
+            ),
         },
-        "window": "since/until, same forms as every other list; defaults to the last 7 days",
+        "window": (
+            "since/until, same forms as every other list; defaults to the last "
+            f"{DEFAULT_WINDOW_DAYS} days"
+        ),
         "filters": (
             "OQL, same language as list('trace'). The fields are those of the entity the "
             "metric is about (see `about` above). Trace and span metrics default to "
@@ -50,16 +58,6 @@ def reference() -> dict[str, Any]:
             "environment filter at all — the endpoint's thread field set has neither, "
             "and it drops what it cannot apply instead of saying so."
         ),
-        "limits": {
-            "buckets": MAX_BUCKETS,
-            "why": (
-                "an ungrouped answer returns every bucket in the window including the "
-                "empty ones, so an hourly month is 721 rows; a request over the limit is "
-                "refused before the backend is called, naming the narrower requests that "
-                "fit. A grouped answer is shorter — it carries only the buckets each "
-                "group occurred in — so the limit is an upper bound there"
-            ),
-        },
         "multi_series": {
             "which": {
                 "duration": f"one series per percentile ({', '.join(DURATION_PERCENTILES)})",

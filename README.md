@@ -437,9 +437,12 @@ list(entity_type="project_metric", project_name="demo", metric_type="span_durati
 ```
 
 Rows are time buckets, not records, so `page`, `size` and `sort` are refused
-rather than ignored. `interval` is `hourly`, `daily` (the default), `weekly` or
-`total`; `since` / `until` take the same forms as everywhere else and default
-to the last 7 days. `filters` uses the fields of whichever entity the metric is
+rather than ignored. `interval` is `hourly`, `daily`, `weekly` or `total`;
+left out, it follows the window the way the Metrics tab does — hourly up to 3
+days, daily up to 30, weekly beyond — so a default chart is a few dozen rows
+whatever the range, and an hourly month (721 rows) is something you ask for.
+`since` / `until` take the same forms as everywhere else and default to the
+last 7 days. `filters` uses the fields of whichever entity the metric is
 about, so a span metric is filtered by span fields.
 
 `breakdown` splits each bucket by `tags`, `name`, `error_info`, `error_type`,
