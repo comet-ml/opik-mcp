@@ -11,7 +11,13 @@ from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler
-from opik_mcp.read_list.paging import collection_truncated, name_candidates, page_items
+from opik_mcp.read_list.paging import (
+    collection_total,
+    collection_truncated,
+    name_candidates,
+    page_items,
+    rest_of,
+)
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 VERSIONS_INLINE_LIMIT = 100
@@ -30,7 +36,19 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     truncated = collection_truncated(
         versions_page, inlined=len(versions), limit=VERSIONS_INLINE_LIMIT
     )
-    return {"prompt": prompt, "versions": versions, "versionsTruncated": truncated}
+    result: dict[str, Any] = {
+        "prompt": prompt,
+        "versions": versions,
+        "versionsTruncated": truncated,
+    }
+    if truncated:
+        result["moreVersions"] = rest_of(
+            "versions",
+            inlined=len(versions),
+            total=collection_total(versions_page),
+            call=f"list('prompt_version', prompt_id='{entity_id}', page=2, size=100)",
+        )
+    return result
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:

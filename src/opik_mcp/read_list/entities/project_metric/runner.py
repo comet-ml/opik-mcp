@@ -41,7 +41,6 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE, compile_filters, render_filters
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,
-    USAGE_KEYS_CAP,
     recorded,
 )
 from opik_mcp.read_list.project_scope import require_project_id
@@ -59,15 +58,17 @@ from opik_mcp.read_list.project_scope import require_project_id
 
 
 CHECKED_SERIES: Final[dict[str, str]] = {"token_usage": "usage", "feedback_scores": "score"}
-_KIND_WORDS: Final = {
-    "usage": ("usage key", "usage keys", USAGE_KEYS_CAP),
+_KIND_WORDS: Final[dict[str, tuple[str, str, int | None]]] = {
+    # Usage keys are listed whole: nothing else enumerates them.
+    "usage": ("usage key", "usage keys", None),
     "score": ("feedback score name", "score names", SCORE_NAMES_CAP),
 }
 
 
-def _listed(names: list[str], cap: int) -> str:
-    shown = ", ".join(names[:cap])
-    return f"{shown} (and {len(names) - cap} more)" if len(names) > cap else shown
+def _listed(names: list[str], cap: int | None) -> str:
+    if cap is None or len(names) <= cap:
+        return ", ".join(names)
+    return f"{', '.join(names[:cap])} (and {len(names) - cap} more)"
 
 
 async def check_series(
@@ -208,14 +209,6 @@ async def run_project_metric(
         # typed.
         applied.append(f"{grouped_by} ({chosen})" if chosen else grouped_by)
     header = f"[list: project_metric | {' | '.join(applied)}]"
-    # A score or usage metric fans out one series per name, so a truncated
-    # width points at the list that enumerates them; a grouped one is already
-    # capped by the backend and has no such list.
-    names_source = (
-        f"list('score_name', project_id='{resolved}')"
-        if grouping is None and name.endswith("feedback_scores")
-        else None
-    )
     table = render(
         body,
         Table(
@@ -224,7 +217,6 @@ async def run_project_metric(
             interval=interval_name,
             grouped=grouping is not None,
             until=window_until,
-            names_source=names_source,
             presence=presence,
         ),
     )

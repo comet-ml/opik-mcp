@@ -21,7 +21,12 @@ from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler
-from opik_mcp.read_list.paging import collection_truncated, page_items
+from opik_mcp.read_list.paging import (
+    collection_total,
+    collection_truncated,
+    page_items,
+    rest_of,
+)
 from opik_mcp.read_list.slim import count_cut, slim_notice
 
 MESSAGES_INLINE_LIMIT = 200
@@ -105,6 +110,17 @@ async def fetch(
         "messages": messages,
         "messagesTruncated": truncated,
     }
+    if truncated:
+        scope = f"project_id='{project_id}'" if project_id else f"project_name='{project_name}'"
+        result["moreMessages"] = rest_of(
+            "turns",
+            inlined=len(messages),
+            total=collection_total(traces_page),
+            call=(
+                f"list('trace', {scope}, filters='thread_id = \"{entity_id}\"', "
+                f"page={MESSAGES_INLINE_LIMIT // 100 + 1}, size=100)"
+            ),
+        )
     if messages:
         result["messageBodies"] = slim_notice(
             cut=count_cut(messages, SLIM_TURN_FIELDS),
@@ -144,7 +160,8 @@ HANDLER = EntityHandler(
         "Conversation thread: metadata + messages list (each turn's trace "
         "input/output, up to 200 inlined, bodies slim). Returns {thread, "
         "messages, messagesTruncated}, plus messageBodies saying what the cut "
-        "took when any turn was inlined. Requires project scope — pass a "
+        "took when any turn was inlined, and moreMessages with the call for "
+        "the rest past 200. Requires project scope — pass a "
         "thread link/URI or project_id. list('thread', project_id=…) "
         "enumerates a project's threads."
     ),

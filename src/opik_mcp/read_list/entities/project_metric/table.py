@@ -38,19 +38,12 @@ An average, a percentile, a rate and a score cannot: the parts do not carry
 the weights the whole would need.
 """
 
-MAX_SERIES: Final = 11
-"""Columns kept.
-
-The backend caps a grouping at ten groups and then adds ``__others__``, so
-eleven is the widest honest answer to a grouped question — capping at ten
-would silently drop a series the backend deliberately included. The cap is
-really for the *ungrouped* feedback-score and token-usage metrics, which fan
-out into one series per score name or usage key with nothing bounding them: a
-project with sixty score names would otherwise return sixty columns. That
-width is not knowable before the call, so it is capped on the way out — widest
-first, since a change hides in the big ones — with the true count stated and a
-pointer to where the full list of names lives.
-"""
+# No width cap. ``MAX_SERIES = 11`` used to keep the eleven widest columns of
+# an ungrouped score or usage metric and drop the rest with a note. The note
+# pointed at ``list('score_name')``, which enumerates the names — and no call
+# charts the twelfth one: ``series`` is refused ungrouped, on the grounds that
+# the ungrouped answer already carries every series, which the cap made false.
+# The Metrics tab draws one line per score with no cap; so does this.
 
 
 @dataclass(frozen=True)
@@ -172,15 +165,6 @@ def _column(one: dict[str, Any], table: Table) -> str:
     return NO_GROUP if table.grouped else table.metric_name
 
 
-def _weight(one: dict[str, Any]) -> float:
-    """Total magnitude across the window — the series most likely to matter."""
-    return sum(
-        abs(float(point["value"]))
-        for point in points_of(one)
-        if isinstance(point.get("value"), (int, float))
-    )
-
-
 def _by_time(one: dict[str, Any]) -> dict[str, list[Any]]:
     """A series as ``{time: [value, …]}`` — a list because ``__others__`` repeats."""
     found: dict[str, list[Any]] = {}
@@ -212,7 +196,6 @@ class Table:
     interval: str
     grouped: bool = False
     until: str | None = None
-    names_source: str | None = None
     presence: Presence | None = None
 
 
@@ -240,10 +223,6 @@ def render(body: dict[str, Any], table: Table) -> str:
         # nothing but its own length. Seen live: 31 rows of "| 0" for a cost
         # question on a project with no cost.
         return f"No {metric_name} recorded in this window — {_nothing_there(table.family)}."
-
-    total_series = len(series)
-    if total_series > MAX_SERIES:
-        series = sorted(series, key=_weight, reverse=True)[:MAX_SERIES]
 
     columns = [_column(one, table) for one in series]
     charted = [_by_time(one) for one in series]
@@ -280,7 +259,7 @@ def render(body: dict[str, Any], table: Table) -> str:
             )
         )
 
-    lines.extend(_notes(table, axis, quiet_rows, empty_rows, total_series, columns, uncombinable))
+    lines.extend(_notes(table, axis, quiet_rows, empty_rows, columns, uncombinable))
     return "\n".join(lines)
 
 
@@ -301,7 +280,6 @@ def _notes(
     axis: list[str],
     quiet_rows: int,
     empty_rows: int,
-    total_series: int,
     columns: list[str],
     uncombinable: bool,
 ) -> list[str]:
@@ -333,18 +311,11 @@ def _notes(
             )
         )
 
-    if total_series > MAX_SERIES:
-        where = f" All {total_series} names: {table.names_source}." if table.names_source else ""
-        lines.append("")
-        lines.append(
-            f"The {MAX_SERIES} largest of {total_series} series, by total over the window.{where}"
-        )
     return lines
 
 
 __all__ = [
     "ADDITIVE_FAMILIES",
-    "MAX_SERIES",
     "OTHERS",
     "Presence",
     "Table",

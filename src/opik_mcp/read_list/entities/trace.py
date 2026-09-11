@@ -17,7 +17,12 @@ from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler
-from opik_mcp.read_list.paging import collection_truncated, page_items
+from opik_mcp.read_list.paging import (
+    collection_total,
+    collection_truncated,
+    page_items,
+    rest_of,
+)
 from opik_mcp.read_list.slim import count_cut, slim_notice
 
 # Inline caps for composite reads — match the previous resources.py
@@ -58,6 +63,19 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     spans = page_items(spans_page)
     truncated = collection_truncated(spans_page, inlined=len(spans), limit=SPANS_INLINE_LIMIT)
     result: dict[str, Any] = {"trace": trace, "spans": spans, "spansTruncated": truncated}
+    if truncated:
+        # An agent loop can run to hundreds of spans; the flag alone left the
+        # caller knowing the tree was short and not how to see the rest.
+        result["moreSpans"] = rest_of(
+            "spans",
+            inlined=len(spans),
+            total=collection_total(spans_page),
+            call=(
+                f"list('span', project_id='{project_id}', "
+                f"filters='trace_id = \"{entity_id}\"', "
+                f"page={SPANS_INLINE_LIMIT // 100 + 1}, size=100)"
+            ),
+        )
     if spans:
         result["spanBodies"] = slim_notice(
             cut=count_cut(spans, SLIM_SPAN_FIELDS),
@@ -88,6 +106,7 @@ HANDLER = EntityHandler(
     description=(
         "Single trace + child spans tree (up to 200 spans inlined, bodies "
         "slim). Returns {trace, spans, spansTruncated}, plus spanBodies "
-        "saying what the cut took when any span was inlined."
+        "saying what the cut took when any span was inlined, and moreSpans "
+        "with the call for the rest when the tree is longer than 200."
     ),
 )

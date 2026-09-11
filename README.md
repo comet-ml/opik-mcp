@@ -238,6 +238,12 @@ read. The answer says so in `spanBodies` / `messageBodies`, and any child is
 whole again through its own `read("span", id)` or `read("trace", trace_id)`,
 which hit endpoints that have no `truncate` parameter at all.
 
+An inlined collection is also bounded in length: 200 spans, 200 turns, 100
+prompt versions. Past that, `spansTruncated` / `messagesTruncated` /
+`versionsTruncated` is `true` and a `moreSpans` / `moreMessages` /
+`moreVersions` line beside it carries the count and the exact `list(...)` call
+that continues from where the inlined part stopped.
+
 **Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
 `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
 `project`, `experiment`, `prompt`, `test_suite` (slower — two API calls — and
@@ -269,8 +275,9 @@ as `null`, because 0% errors on a week with no traffic reads as a healthy week.
 project's feedback score names, its token usage keys, and the automation rules
 scoring its traces. These are the names that go into a filter or into
 `series=` below, and guessing them returns an empty page that reads like good
-news. Long lists are capped and always report the true total with the call that
-returns the rest. `contains` names the freshest experiment, test suite, prompt
+news. Score names and rules are capped, always report the true total, and name
+the call that returns the rest; usage keys are listed in full, since nothing
+else enumerates them. `contains` names the freshest experiment, test suite, prompt
 version and optimization run, so "what has been happening here" does not need
 four more calls. A part that failed to load says so instead of looking empty,
 and an empty one is omitted.

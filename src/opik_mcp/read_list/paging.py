@@ -32,6 +32,23 @@ def collection_truncated(page_body: dict[str, Any], *, inlined: int, limit: int)
     return inlined >= limit
 
 
+def collection_total(page_body: dict[str, Any]) -> int | None:
+    """The backend's ``total`` for the collection, when it stated one."""
+    total_raw = page_body.get("total")
+    return total_raw if isinstance(total_raw, int) and total_raw >= 0 else None
+
+
+def rest_of(noun: str, *, inlined: int, total: int | None, call: str) -> str:
+    """The line beside a ``…Truncated: true`` that says what to do about it.
+
+    A bare flag tells the caller the answer is short and nothing else; this
+    puts the count and the call that continues it in the same place, so the
+    flag is never the end of the road. ``call`` is written to be pasted.
+    """
+    have = f"{inlined} of {total} {noun}" if total is not None else f"{inlined} {noun}"
+    return f"{have} inlined; the rest: {call}"
+
+
 def name_candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for item in page_items(page_body):
@@ -42,4 +59,4 @@ def name_candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
-__all__ = ["collection_truncated", "name_candidates", "page_items"]
+__all__ = ["collection_total", "collection_truncated", "name_candidates", "page_items", "rest_of"]

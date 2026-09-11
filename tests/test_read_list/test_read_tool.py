@@ -142,8 +142,9 @@ class FakeOpikClient:
         )
         if self.fail_list_spans:
             raise OpikServerError("boom")
-        content = self.trace_spans.get(trace_id or "", [])
-        return {"content": content, "page": page, "size": len(content), "total": len(content)}
+        every = self.trace_spans.get(trace_id or "", [])
+        content = every[:size]
+        return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def get_span(self, span_id: str) -> dict[str, Any]:
         return self.spans_by_id[span_id]
@@ -178,8 +179,9 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
-        content = self.prompt_versions.get(prompt_id, [])
-        return {"content": content, "page": page, "size": len(content), "total": len(content)}
+        every = self.prompt_versions.get(prompt_id, [])
+        content = every[:size]
+        return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def list_prompts(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
@@ -216,12 +218,13 @@ class FakeOpikClient:
         if filters:
             for f in json.loads(filters):
                 if f.get("field") == "thread_id":
-                    content = self.thread_messages.get(f.get("value"), [])
+                    every = self.thread_messages.get(f.get("value"), [])
+                    content = every[:size]
                     return {
                         "content": content,
                         "page": page,
                         "size": len(content),
-                        "total": len(content),
+                        "total": len(every),
                     }
         return {"content": [], "page": page, "size": 0, "total": 0}
 
@@ -1810,3 +1813,109 @@ async def test_a_thread_with_no_turns_carries_no_notice() -> None:
     out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
 
     assert "messageBodies" not in out
+
+
+# --- the rest of an inlined collection ------------------------------------- #
+#
+# ``spansTruncated: true`` used to be the whole message. The flag stays for
+# the contract; beside it now sits the count and the call that continues the
+# collection, so a long trace, thread or prompt history is never a dead end.
+
+
+@pytest.mark.anyio
+async def test_a_long_span_tree_says_how_many_and_how_to_get_the_rest() -> None:
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": f"sp-{i}"} for i in range(250)]},
+    )
+
+    body = _payload(await run_read("trace", UUID, client=fake))
+
+    assert body["spansTruncated"] is True
+    assert body["moreSpans"].startswith("200 of 250 spans inlined; the rest: ")
+    assert (
+        f"list('span', project_id='p-1', filters='trace_id = \"{UUID}\"', page=3, size=100)"
+        in body["moreSpans"]
+    ), "pasteable as written, and it starts where the inlined 200 stop"
+
+
+@pytest.mark.anyio
+async def test_a_short_span_tree_carries_no_pointer() -> None:
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1"}]},
+    )
+
+    body = _payload(await run_read("trace", UUID, client=fake))
+
+    assert body["spansTruncated"] is False
+    assert "moreSpans" not in body
+
+
+@pytest.mark.anyio
+async def test_a_long_thread_points_at_the_turns_past_200() -> None:
+    fake = _thread_fake()
+    fake.thread_messages[THREAD] = [
+        {"id": f"tr-{i}", "start_time": f"2026-01-{1 + i // 100:02d}"} for i in range(250)
+    ]
+
+    body = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+
+    assert body["messagesTruncated"] is True
+    assert body["moreMessages"].startswith("200 of 250 turns inlined; the rest: ")
+    assert (
+        f"list('trace', project_id='p-9', filters='thread_id = \"{THREAD}\"', page=3, size=100)"
+        in (body["moreMessages"])
+    )
+
+
+@pytest.mark.anyio
+async def test_a_long_prompt_history_points_at_the_versions_past_100() -> None:
+    fake = FakeOpikClient(
+        prompts_by_id={UUID: {"id": UUID, "name": "p"}},
+        prompt_versions={UUID: [{"id": f"v-{i}"} for i in range(150)]},
+    )
+
+    body = _payload(await run_read("prompt", UUID, client=fake))
+
+    assert body["versionsTruncated"] is True
+    assert body["moreVersions"] == (
+        "100 of 150 versions inlined; the rest: "
+        f"list('prompt_version', prompt_id='{UUID}', page=2, size=100)"
+    )
+
+
+# --- usage keys are not cut ------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_every_usage_key_is_listed() -> None:
+    """A project passing ``original_usage.*`` through from a provider clears
+    the old cap of fifteen easily, and nothing else enumerates usage keys: the
+    cut part said so itself. The backend sent them all; so does the read."""
+    keys = [f"original_usage.k{i:02d}" for i in range(40)]
+    fake = _vocab_fake()
+    fake.usage_keys = {"names": keys}
+
+    vocab = _payload(await run_read("project", UUID, client=fake))["vocabulary"]
+
+    assert vocab["usage_keys"]["names"] == keys
+    assert vocab["usage_keys"]["total"] == 40
+    assert "all" not in vocab["usage_keys"], "nothing was held back, so nothing points elsewhere"
+
+
+# --- an ambiguous name says when its candidate list is short -------------- #
+
+
+@pytest.mark.anyio
+async def test_more_than_ten_matches_say_how_many_more() -> None:
+    fake = FakeOpikClient(
+        projects_by_name={"demo": [{"id": f"p-{i}", "name": f"demo-{i}"} for i in range(14)]},
+    )
+
+    with pytest.raises(ToolError) as exc:
+        await run_read("project", "demo", client=fake)
+
+    message = str(exc.value)
+    assert "p-9" in message and "p-10" not in message, "ten are listed"
+    assert "… and 4 more" in message

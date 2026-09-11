@@ -23,7 +23,6 @@ from opik_mcp.read_list.entities.project_metric.catalog import (
     groupable_by,
     interval_for_window,
 )
-from opik_mcp.read_list.entities.project_metric.table import MAX_SERIES
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.writes.schema_tool import run_schema
 
@@ -616,53 +615,29 @@ def test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits() -> Non
     }
 
 
-# --- width is capped on the way out --------------------------------------- #
+# --- width is whatever the project has ------------------------------------ #
 
 
 @pytest.mark.anyio
-async def test_a_metric_that_fans_out_per_score_name_is_capped() -> None:
-    """Feedback-score and token-usage metrics return one series per name with
-    no grouping asked for, and nothing bounds that — sixty score names would
-    be sixty columns. Unlike the bucket count this width is unknowable before
-    the call, so it is capped on the way out."""
+async def test_a_metric_that_fans_out_per_score_name_returns_every_series() -> None:
+    """Thirty score names are thirty columns. An eleven-column cap used to
+    keep the widest and point at ``list('score_name')`` for the names — but
+    no call charted the twelfth: ``series`` is refused ungrouped because the
+    ungrouped answer "already returns every series it has", which the cap
+    made false. The Metrics tab draws every score; so does this."""
     many = [_series(f"score-{i:02d}", [float(i), float(i)]) for i in range(30)]
+
     out = await run_list(
         "project_metric",
         project_id=PROJECT,
         metric_type="trace_feedback_scores",
         client=_fake(results=many),
     )
+
     columns = _table(out)[0].split(" | ")
-    assert len(columns) == MAX_SERIES + 1, "time plus the capped series"
-    assert f"of {len(many)} series" in out
-
-
-@pytest.mark.anyio
-async def test_the_widest_series_are_the_ones_kept() -> None:
-    """A change hides in the big series; keeping an arbitrary ten would as
-    often as not drop the one the question was about."""
-    results = [_series("tiny", [0.0, 0.1])] + [
-        _series(f"big-{i}", [100.0 + i, 100.0]) for i in range(MAX_SERIES)
-    ]
-    out = await run_list(
-        "project_metric",
-        project_id=PROJECT,
-        metric_type="trace_feedback_scores",
-        client=_fake(results=results),
-    )
-    assert "tiny" not in _table(out)[0]
-
-
-@pytest.mark.anyio
-async def test_a_capped_score_metric_says_where_all_the_names_are() -> None:
-    many = [_series(f"score-{i:02d}", [1.0]) for i in range(30)]
-    out = await run_list(
-        "project_metric",
-        project_id=PROJECT,
-        metric_type="trace_feedback_scores",
-        client=_fake(results=many),
-    )
-    assert f"list('score_name', project_id='{PROJECT}')" in out
+    assert len(columns) == 31, "time plus every series"
+    assert "score-00" in columns and "score-29" in columns, "the narrow ones too"
+    assert "largest of" not in out
 
 
 @pytest.mark.anyio

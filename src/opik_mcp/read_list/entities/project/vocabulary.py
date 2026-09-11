@@ -6,12 +6,10 @@ the traces. Each was its own discovery call, and an agent that did not know to
 make them wrote filters against guessed names and read the empty result as
 good news.
 
-This is a map, not content. Two of the three lists are unbounded on the
-backend — the score-name query is a ``distinct name`` with no ``LIMIT``, and
-usage keys are whatever the instrumentation reported — so each part is capped
-by count and always states the true total. Where a caller can get the rest,
-the part says which call returns it; where no such call exists, it says so
-rather than implying one.
+This is a map, not content. Score names and rules are capped by count, state
+the true total, and name the call that pages through all of them. Usage keys
+are not capped: no call enumerates them on their own, so a cut there had no
+way back — and they are short strings the backend sends in full anyway.
 
 Those two lists are read through ``project_names`` rather than fetched here:
 a metric series checks its ``series`` against the same names, and a fact two
@@ -30,7 +28,6 @@ from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.decorations import block
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,
-    USAGE_KEYS_CAP,
     fetch_score_names,
     fetch_usage_keys,
     named,
@@ -43,27 +40,27 @@ RULES_CAP: Final = 10
 def _part(
     names: list[str],
     *,
-    cap: int,
+    cap: int | None = None,
     total: int | None = None,
     all_of_them: str | None = None,
 ) -> dict[str, Any] | None:
-    """One vocabulary part, capped, or ``None`` when there is nothing to say.
+    """One vocabulary part, or ``None`` when there is nothing to say.
 
     ``total`` is always reported, not only on truncation: a total that appeared
     only when something was cut would make its mere presence mean "truncated",
     and the agent would have to infer completeness. The pointer is what signals
-    truncation.
+    truncation, so a part with a ``cap`` also has ``all_of_them`` — a cap with
+    nowhere to send the caller is a cut with no way back.
     """
     if not names:
         return None
     counted = total if total is not None else len(names)
+    if cap is None:
+        return {"names": names, "total": counted}
+    assert all_of_them is not None, "a capped part names where the rest is"
     part: dict[str, Any] = {"names": names[:cap], "total": counted}
     if counted > cap:
-        part["all"] = (
-            all_of_them
-            if all_of_them is not None
-            else f"the first {cap} of {counted}; the rest are not enumerable on their own"
-        )
+        part["all"] = all_of_them
     return part
 
 
@@ -80,7 +77,7 @@ async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any]
 
 async def usage_keys(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
     async def load() -> dict[str, Any] | None:
-        return _part(await fetch_usage_keys(client, project_id), cap=USAGE_KEYS_CAP)
+        return _part(await fetch_usage_keys(client, project_id))
 
     return await block("this project's usage keys", load)
 

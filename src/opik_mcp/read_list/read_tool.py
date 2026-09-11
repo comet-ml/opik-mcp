@@ -64,6 +64,8 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
     ]
     for c in candidates[:10]:
         lines.append(f"  - id={c.get('id')}, name={c.get('name', '')!r}")
+    if len(candidates) > 10:
+        lines.append(f"  … and {len(candidates) - 10} more; narrow the name to see them")
     return "\n".join(lines)
 
 

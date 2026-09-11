@@ -182,6 +182,8 @@ async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
     ]
     for item in matches[:10]:
         lines.append(f"  - project_id={item['id']}, name={item['name']!r}")
+    if len(matches) > 10:
+        lines.append(f"  … and {len(matches) - 10} more; narrow the name to see them")
     raise EntityArgValidationError("\n".join(lines))
 
 

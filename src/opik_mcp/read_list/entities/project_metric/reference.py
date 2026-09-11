@@ -18,7 +18,7 @@ from opik_mcp.read_list.entities.project_metric.catalog import (
     METRICS,
     groupable_by,
 )
-from opik_mcp.read_list.entities.project_metric.table import MAX_SERIES, OTHERS
+from opik_mcp.read_list.entities.project_metric.table import OTHERS
 
 
 def reference() -> dict[str, Any]:
@@ -77,7 +77,6 @@ def reference() -> dict[str, Any]:
         "breakdowns": {
             "syntax": ("breakdown='<field>', or 'metadata.<key>' to group by a metadata key"),
             "by_metric": {name: groupable_by(name) or None for name in METRICS},
-            "series_cap": MAX_SERIES,
             "backend_group_cap": BACKEND_SERIES_CAP,
             "note": (
                 "seven metrics accept no grouping at all — they are missing from the "
@@ -89,8 +88,8 @@ def reference() -> dict[str, Any]:
                 "group past them (summed per bucket for counts, costs and tokens; "
                 "left blank where a sum would not be that metric). Grouped series "
                 "are not filled, so a group appears only in the buckets it occurred "
-                f"in. A metric that fans out per score name or usage key is capped at "
-                f"{MAX_SERIES} here, widest first, with the true count reported."
+                "in. A metric that fans out per score name or usage key returns every "
+                "series it has, one column each; nothing is dropped here."
             ),
         },
         "not_supported": {
