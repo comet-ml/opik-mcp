@@ -64,6 +64,36 @@ ReferenceFn = Callable[[], dict[str, Any]]
 
 
 @dataclass(frozen=True)
+class ListProjection:
+    """The columns one ``list`` page shows, decided from the page itself.
+
+    Most entities declare their columns once, in ``list_extra_fields``: a
+    trace always has a ``start_time``. A test suite item does not have fixed
+    fields — its payload is a ``data`` map whose keys the user chose when they
+    built the dataset — so the columns can only be known once the page is in
+    hand. This is what an entity's ``list_projection_fn`` returns for it.
+    """
+
+    columns: tuple[str, ...]
+    """Column names after the entity's base columns (id, name), in order. A
+    dotted name resolves into a nested container the way a filter field does
+    (``data.question`` is ``item["data"]["question"]``)."""
+    cell_limit: int
+    """Characters a value may take before it is cut. The table states every
+    cut it makes under the rows, so a short value is never mistaken for the
+    whole one."""
+    note: str | None = None
+    """A line under the table saying where the columns came from and which
+    were left out. Required whenever ``columns`` is not everything the page
+    had: a silent cut is a wrong answer the caller cannot suspect."""
+    cut_hint: str | None = None
+    """How the caller lifts the cut, appended to the cut line."""
+
+
+ProjectionFn = Callable[[list[dict[str, Any]]], ListProjection]
+
+
+@dataclass(frozen=True)
 class EntityHandler:
     entity_type: str
     fetch_fn: FetchFn
@@ -80,6 +110,14 @@ class EntityHandler:
     search_by_name_fn: SearchByNameFn | None = None
     list_fn: ListFn | None = None
     list_extra_fields: tuple[str, ...] = ()
+    list_projection_fn: ProjectionFn | None = None
+    """Optional: choose the page's columns from the page, instead of from
+    ``list_extra_fields``.
+
+    For an entity whose record has no fixed fields to name up front. Called
+    with the page's rows, never with an empty page; returns a
+    :class:`ListProjection`. When set, ``list_extra_fields`` is not read.
+    """
     list_required_kwargs: tuple[str, ...] = ()
     """Entity-specific kwargs ``list_fn`` cannot run without (a parent id).
 
@@ -205,8 +243,10 @@ __all__ = [
     "FetchFn",
     "LinkFn",
     "ListFn",
+    "ListProjection",
     "PageContext",
     "PageNoteFn",
+    "ProjectionFn",
     "ReadWindow",
     "ReferenceFn",
     "RunFn",

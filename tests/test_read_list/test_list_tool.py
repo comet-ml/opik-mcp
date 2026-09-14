@@ -189,6 +189,16 @@ async def test_list_truncates_long_values_at_sixty_chars() -> None:
     out = await run_list("project", client=fake)
     assert "..." in out
     assert "x" * 60 not in out  # truncated form is 57 chars + "..."
+    # The cut is stated under the table: a short value must never read as
+    # the whole one (the invariant in ``size.py``).
+    assert "1 value cut at 60 chars." in out
+
+
+@pytest.mark.anyio
+async def test_list_says_nothing_about_cuts_when_nothing_was_cut() -> None:
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "short"}], "total": 1})
+    out = await run_list("project", client=fake)
+    assert "cut at" not in out
 
 
 # --- required kwargs ----------------------------------------------------- #

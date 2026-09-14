@@ -3,7 +3,11 @@
 Ported from ollie-assist's ``tools/list.py``. Output is a pipe-delimited
 table (mirrors ollie's format) — easier for the LLM to scan than nested
 JSON and lossless for the columns we care about (id, name, plus a few
-entity-specific fields like ``created_at`` / ``dataset_name``).
+entity-specific fields like ``created_at`` / ``dataset_name``). An entity
+whose records have no fixed fields (``test_suite_item``, whose payload is a
+user-shaped ``data`` map) chooses its columns from the page instead, through
+the registry's ``list_projection_fn``. Whatever the table cuts — a long value,
+a column it had no room for — it says so under the rows.
 
 Project-scoped lists (``trace``, ``span``, ``thread``, ``agent_insights_issue``,
 ``test_suite_item``, ``prompt_version``) require their parent id via
@@ -510,7 +514,12 @@ def _format_table(
         for column, present in (("id", handler.list_has_id), ("name", handler.list_has_name))
         if present
     )
-    columns: tuple[str, ...] = (*base, *handler.list_extra_fields)
+    projection = (
+        handler.list_projection_fn(content) if handler.list_projection_fn is not None else None
+    )
+    chosen = projection.columns if projection is not None else handler.list_extra_fields
+    cell_limit = projection.cell_limit if projection is not None else _TRUNCATE_AT
+    columns: tuple[str, ...] = (*base, *chosen)
     for col in extra_columns or ():
         if col not in columns:
             columns = (*columns, col)
@@ -525,16 +534,32 @@ def _format_table(
 
     col_header = " | ".join(_COLUMN_LABELS.get(c, c) for c in columns)
     rows: list[str] = []
+    cut = 0
     for item in content:
         values: list[str] = []
         for col in columns:
             s = _render(col, _cell(item, col))
-            if len(s) > _TRUNCATE_AT:
-                s = s[: _TRUNCATE_AT - 3] + "..."
+            if len(s) > cell_limit:
+                s = s[: cell_limit - 3] + "..."
+                cut += 1
             values.append(s)
         rows.append(" | ".join(values))
 
     lines = [header, "", col_header, *rows]
+    # What the table did to the data, said under the data. A value cut to fit
+    # the row would otherwise read as the whole value, and a column the page
+    # had no room for would read as a key the items never had.
+    notes: list[str] = []
+    if projection is not None and projection.note:
+        notes.append(projection.note)
+    if cut:
+        cut_line = f"{cut} value{'s' if cut != 1 else ''} cut at {cell_limit} chars"
+        if projection is not None and projection.cut_hint:
+            cut_line += f"; {projection.cut_hint}"
+        notes.append(f"{cut_line}.")
+    if notes:
+        lines.append("")
+        lines.extend(notes)
     if page * size < total:
         lines.append("")
         lines.append(f"Use page={page + 1} for next {size} results.")
@@ -606,6 +631,10 @@ def _render(col: str, val: Any) -> str:
         if m:
             tz = "Z" if m.group(2) in ("Z", "+00:00") else m.group(2)
             return m.group(1) + tz
+    if isinstance(val, dict | list):
+        # Compact JSON, not Python's repr: a nested value is still the value,
+        # readable and pasteable, rather than a hint that one was there.
+        return json.dumps(val, separators=(",", ":"), default=str)
     return str(val)
 
 
