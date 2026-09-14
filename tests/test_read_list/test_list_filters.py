@@ -818,7 +818,8 @@ async def test_filter_fields_become_columns_deduplicated_and_in_order() -> None:
         "id | name | start_time | duration_ms | error_type | total_estimated_cost"
         " | feedback_scores.accuracy | tags | metadata.environment"
     )
-    assert "t-1 | chat |  | 9000 |  |  | 0.42 | ['prod', 'beta'] | staging" in out
+    # A list value is compact JSON, the same form a nested data value takes.
+    assert 't-1 | chat |  | 9000 |  |  | 0.42 | ["prod","beta"] | staging' in out
 
 
 @pytest.mark.anyio
