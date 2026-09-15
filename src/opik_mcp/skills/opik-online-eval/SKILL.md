@@ -38,7 +38,7 @@ Confirm Opik is reachable (`~/.opik.config` or `OPIK_API_KEY`; otherwise → **B
 Scope: `trace` by default; `span` when the check is about one LLM/tool call; `thread` when the check needs the whole conversation (thread rules wait for the thread to go inactive — 15 min by default).
 
 ### 2. Look at the traces before mapping variables
-Read three recent traces (`client.search_traces(project_name=…, max_results=3)`) and note the real shape of `input` and `output`. Variables are **plain field paths**, dot-notation for nested keys (`output.answer`, `input.messages`) — never `{{ }}` templates. A wrong path is the most common reason a rule silently scores nothing.
+Read three recent **production** traces and note the real shape of `input` and `output`. Experiment runs land in the same project with a different input shape (their metadata carries `test_suite_experiment_id`), so skip those — filtering on the app's entrypoint is the reliable way: `client.search_traces(project_name=…, max_results=3, filter_string='name = "<entrypoint>"')`. (OQL has no `is_empty` for `metadata.*` keys.) Variables are **plain field paths**, dot-notation for nested keys (`output.answer`, `input.messages`) — never `{{ }}` templates. A wrong path is the most common reason a rule silently scores nothing.
 
 ### 3. Check what already runs
 ```python
@@ -57,7 +57,8 @@ from opik.rest_api.types import (
 )
 
 rule = AutomationRuleEvaluatorWrite_LlmAsJudge(
-    name="refund-window-correct",           # becomes the feedback-score name on every scored trace
+    action="evaluator",                     # required literal; the model rejects the payload without it
+    name="refund_window_correct",           # becomes the feedback-score name on every scored trace — use underscores, not hyphens: OQL parses `feedback_scores.a-b` as an operator
     project_ids=["<project_id>"],
     sampling_rate=0.2,                      # fraction of SDK-logged traces scored
     enabled=True,
@@ -66,14 +67,14 @@ rule = AutomationRuleEvaluatorWrite_LlmAsJudge(
         model=LlmAsJudgeModelParametersWrite(name="<judge model>", temperature=0.0),
         messages=[LlmAsJudgeMessageWrite(role="USER", content="<the validated judge prompt using {{input}} and {{output}}>")],
         variables={"input": "input", "output": "output"},          # field paths from step 2
-        schema_=[LlmAsJudgeOutputSchemaWrite(name="refund-window-correct", type="BOOLEAN",
+        schema_=[LlmAsJudgeOutputSchemaWrite(name="refund_window_correct", type="BOOLEAN",
                                              description="True if the response states 5-7 business days")],
         max_cost_usd=5.0,                   # per-rule spend cap — set it
     ),
 )
 created = client.rest_client.automation_rule_evaluators.create_automation_rule_evaluator(request=rule)
 ```
-Notes: the Python attribute is `schema_` (wire name `schema`); `sampling_rate` applies to production traces only (experiment traces are always scored in full); `trigger_scope` defaults to `production`. Span and thread variants: `AutomationRuleEvaluatorWrite_SpanLlmAsJudge`, `AutomationRuleEvaluatorWrite_TraceThreadLlmAsJudge`. Python metric: `AutomationRuleEvaluatorWrite_UserDefinedMetricPython` with `code={"metric": "<python source defining a BaseMetric>", "arguments": {"output": "output"}}`.
+Notes: on Opik Cloud without your own provider key, `model.name="opik-free-model"` uses the workspace's built-in free provider; the Python attribute is `schema_` (wire name `schema`); `sampling_rate` applies to production traces only (experiment traces are always scored in full); `trigger_scope` defaults to `production`. Span and thread variants: `AutomationRuleEvaluatorWrite_SpanLlmAsJudge`, `AutomationRuleEvaluatorWrite_TraceThreadLlmAsJudge`. Python metric: `AutomationRuleEvaluatorWrite_UserDefinedMetricPython` with `code={"metric": "<python source defining a BaseMetric>", "arguments": {"output": "output"}}`.
 
 Endpoint, if scripting outside Python: `POST /v1/private/automations/evaluators/` with the same body.
 
@@ -82,10 +83,11 @@ Endpoint, if scripting outside Python: `POST /v1/private/automations/evaluators/
 import time
 for _ in range(12):                                          # ~2 min
     scored = client.search_traces(project_name="<project>", max_results=1,
-                                  filter_string='feedback_scores.refund-window-correct is_not_empty')
+                                  filter_string='feedback_scores.refund_window_correct is_not_empty')
     if scored: break
     time.sleep(10)
 ```
+If the score name already contains a hyphen (an existing rule), double-quote the key or the OQL parser reads the hyphen as an operator: `filter_string='feedback_scores."refund-window-correct" is_not_empty'`.
 A scored trace → **`live`**. None, and the project had no new traces in the window → **`live_unverified`** with the filter to watch. None, but traces did arrive → read the rule's logs (`get_evaluator_logs_by_id(id)`) — a variable-path error or model failure shows there; fix and re-verify.
 
 ### 6. Report

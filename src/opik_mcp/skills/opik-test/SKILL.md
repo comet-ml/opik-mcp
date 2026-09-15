@@ -41,8 +41,9 @@ client = opik.Opik()
 
 tid = "<trace_id>"
 trace = client.get_trace_content(tid)       # TracePublic: .input, .output, .project_id — NOT .project_name (accessing it raises)
-spans = client.search_spans(trace_id=tid)   # root span (no parent_span_id) names the entrypoint the compare skill will call
 project = client.rest_client.projects.get_project_by_id(trace.project_id).name
+spans = client.search_spans(project_name=project, trace_id=tid)   # root span (no parent_span_id) names the entrypoint the compare skill will call
+# Pass project_name: without it search_spans looks in the configured default project and returns nothing.
 ```
 Take the **input** exactly as the trace recorded it (the root span / trace `input`), the **actual output** (what went wrong), and the **root span name** (the entrypoint). When the MCP is connected, `read('trace', id)` is an equivalent path — a convenience, not a requirement.
 

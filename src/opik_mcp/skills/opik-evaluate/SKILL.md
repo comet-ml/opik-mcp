@@ -77,9 +77,12 @@ results = opik.run_tests(test_suite=suite, task=lambda item: {"input": item["inp
                          experiment_name="baseline-<sha>", model="<judge model>")
 # Dataset
 from opik.evaluation import evaluate
-res = evaluate(dataset=dataset, task=task, scoring_metrics=[...], experiment_name="baseline-<sha>", project_name="<project>")
+res = evaluate(dataset=dataset, task=task, scoring_metrics=[...], experiment_name="baseline-<sha>",
+               scoring_key_mapping={"reference": "expected_output"})   # map dataset keys onto metric args
 ```
-`project_name` matters: datasets, suites, prompts, and experiments are project-scoped, and it must match the tracing project if the app uses `@track`.
+`project_name` matters: datasets, suites, prompts, and experiments are project-scoped, and it must match the tracing project if the app uses `@track`. Set it when **creating** the dataset or suite — `evaluate()` inherits the dataset's project, and its own `project_name` kwarg is deprecated (the SDK warns and ignores it).
+
+**Judge credential guard:** if the LLM judge (suite assertions, or an LLM metric) has no provider key, `run_tests`/`evaluate` do **not** raise — every item scores 0 with `scoring_failed=True` and a "Missing credentials" reason, and the experiment is still created. Check for that before reporting; it is a **Blocker** ("set the judge's provider key and rerun"), not a result.
 
 ### 7. Read the scores back
 ```python
@@ -131,7 +134,7 @@ Invariants: `evaluated` carries an `experiment.url` and non-empty `scores`; each
 - **Code checks before LLM judges.** Heuristic metrics wherever the check is mechanical.
 - **Binary pass/fail, one failure mode per judge.** Holistic judges give unactionable verdicts.
 - **Validate judges against human labels** before they gate anything (TPR/TNR).
-- **Always pass `project_name`.** To `get_or_create_dataset`, `get_or_create_test_suite`, `create_prompt`, `evaluate`.
+- **Always pass `project_name` where the object is created.** To `get_or_create_dataset`, `get_or_create_test_suite`, `create_prompt`. `evaluate()` and `run_tests()` inherit it from the dataset/suite (the `evaluate(project_name=…)` kwarg is deprecated).
 - **Read results from Opik, not from stdout** — so `/opik-compare` reads the same numbers later.
 
 ## Anti-patterns

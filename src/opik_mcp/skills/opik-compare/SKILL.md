@@ -71,6 +71,14 @@ result = opik.run_tests(
     model="<same judge model as baseline>",
 )
 candidate_id = result.experiment_id          # result.experiment_url is the single-run link
+
+# GUARD: a missing judge credential does NOT raise — every item comes back failed with
+# scoring_failed=True and a "Missing credentials" reason, and the experiment is still created.
+# Treat that as a Blocker, not as a regression; do not compare against that run.
+judge_failed = [
+    r for ir in result.item_results.values() for t in ir.test_results
+    for r in t.score_results if getattr(r, "scoring_failed", False)
+]
 ```
 Do not read scores off `result` and stop — step 4 reads both runs from Opik so baseline and candidate go through the same path.
 
@@ -122,6 +130,7 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 - "No test suite named `<suite>` in project `<name>` — run `/opik-test <trace-id>` to create one, or name the suite."
 - "The suite's items don't say which function to call — pass the entrypoint (`/opik-compare <suite> --entrypoint answer`) and I'll build the runner."
 - "The runner needs a provider credential — set `OPENAI_API_KEY` (or the relevant key) and rerun."
+- "The assertion judge has no credential (every item reports `scoring_failed`, 'Missing credentials') — set the judge's provider key and rerun; the run `<name>` is not a comparable candidate."
 - "Experiment `<id>` has no items yet (server-side run still processing) — rerun in a minute."
 
 ## Output

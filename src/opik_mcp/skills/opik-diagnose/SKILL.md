@@ -140,7 +140,7 @@ Score each remaining candidate and keep the top few. Priority order:
 4. **Low online-eval score** — a feedback score below its threshold (Answer Relevance, Hallucination, etc.).
 5. **Regressions** — a signal that worsened versus the prior window.
 
-Append these after the Diagnostics items, in the signal order above. Give each shortlisted item the one signal that flagged it and a short why. Prefer a short, ranked list over a long one.
+Append these after the Diagnostics items, in the signal order above. Give each shortlisted item the one signal that flagged it and a short why — one entry per trace: when a trace matches several signals (an errored `tool` span also errors the trace), keep the highest-priority signal and mention the rest in the why. Prefer a short, ranked list over a long one.
 
 ### 6. Stay in scope
 Online/production **trace** signal only. Do **not** surface offline experiment results — those are the output of `/opik-evaluate` and `/opik-compare`, not rediscovered here.

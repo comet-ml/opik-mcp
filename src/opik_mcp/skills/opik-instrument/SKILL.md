@@ -77,7 +77,8 @@ client = opik.Opik()
 
 tid = "<trace_id>"                          # the tracer logs a trace URL/id when the run flushes — use that
 detail = client.get_trace_content(tid)      # TracePublic: exposes project_id, NOT project_name (accessing .project_name raises)
-spans = client.search_spans(trace_id=tid)   # spans come from a SEPARATE call, not from the trace object
+project = client.rest_client.projects.get_project_by_id(detail.project_id).name
+spans = client.search_spans(project_name=project, trace_id=tid)   # SEPARATE call; without project_name it searches the default project and returns nothing
 # Reconstruct the tree via each span's parent_span_id (the root span has none); check the expected types (general -> tool/llm).
 ```
 
