@@ -1,0 +1,42 @@
+# Test cases for the `/opik-optimize` skill.
+#
+#   triggering  -> does the skill load at the right times (change the prompt vs measure it)?
+#   functional  -> given a library prompt + dataset with expected outputs, does it report a
+#                  VALIDATION gain, the run link, the cost, and save a new version — without
+#                  touching the repo? (contract below; fixture pending)
+#
+# Only the triggering suite is automated today. The functional contract is pinned
+# here so the fixture (a seeded prompt + dataset with a deliberately weak prompt)
+# can be added without changing the grader's target.
+
+triggering:
+  should_trigger:
+    - "optimize this prompt"
+    - "improve my system prompt"
+    - "tune the prompt against my dataset"
+    - "run the prompt optimizer"
+    - "make the agent answer better using my eval data"
+    - "can the optimizer find a better few-shot prompt"
+  should_not_trigger:
+    - "evaluate my agent"                          # evaluate
+    - "how good is my agent right now"             # evaluate
+    - "did my fix work"                            # compare
+    - "turn this trace into a test"                # test
+    - "why did this trace fail"                    # explain
+    - "score production traces"                    # online-eval
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: library_prompt
+    fixture: TODO            # seeder: dataset (>=40 items, expected_output) + a weak library prompt
+    prompt: "Optimize the prompt <PROMPT> against dataset <DATASET>."
+    expect_status: improved
+    assert:
+      status_in: [improved, no_improvement]   # honest either way; never a training-only gain
+      validation_score_reported: true
+      run_url_present: true
+      cost_reported: true
+      budget_bounded: true                    # optimizer.n_samples and max_trials set
+      new_version_saved_when_improved: true
+      one_next_step: true
+      no_modifications: true                  # prompt in the repo untouched

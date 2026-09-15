@@ -1,0 +1,59 @@
+# Test cases for the `/opik-compare` skill.
+#
+#   triggering  -> does the skill load at the right times?
+#   functional  -> given a seeded suite + baseline, does it name what broke and what got fixed?
+#   edge        -> no baseline yet -> this run becomes the baseline.
+#
+# The functional fixture is a seeder (fixtures/regress/seed.py) that creates a
+# unique suite with four items and runs a BASELINE whose pass/fail per item is
+# known. The workdir's agent.py is the CANDIDATE: it fixes one item and breaks
+# another. The grader scores result.json against planted.json: the regressed
+# item id MUST be under `regressions`, the fixed one under `fixes`, the stable
+# ones under neither, both experiment ids in `compare_url`, no `verdict`, and
+# agent.py unchanged.
+
+triggering:
+  should_trigger:
+    - "did my fix work"
+    - "compare against the baseline"
+    - "run the regression suite"
+    - "why did quality drop"
+    - "which cases regressed"
+    - "compare these two experiments"
+  should_not_trigger:
+    - "turn this trace into a test"                # test
+    - "what is broken in production"               # diagnose
+    - "build an evaluation for my agent"           # evaluate
+    - "why did this trace fail"                    # explain
+    - "optimize my system prompt"                  # optimize
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: regress
+    fixture: regress
+    seed_env: {SEED_BASELINE: "1"}
+    prompt: "Run test suite <SUITE> against the agent in this directory and compare with the baseline — did my fix work?"
+    expect_status: compared
+    assert:
+      status: compared
+      baseline_matches_planted: true          # baseline.experiment_id == planted baseline
+      regressions_include_roles: [regressed]
+      fixes_include_roles: [fixed]
+      neither_list_includes_roles: [stable_pass, stable_fail]
+      deltas_nonempty: true
+      compare_url_has_both_ids: true
+      no_verdict: true
+      one_next_step: true
+      no_modifications: true
+
+edge:
+  - id: first_run
+    fixture: regress
+    seed_env: {SEED_BASELINE: "0"}
+    prompt: "Run test suite <SUITE> against the agent in this directory and compare with the baseline."
+    expect_status: baseline_created
+    assert:
+      status: baseline_created
+      no_verdict: true
+      one_next_step: true
+      no_modifications: true

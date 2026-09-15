@@ -85,8 +85,8 @@ SKILL_SUMMARIES: dict[str, str] = {
         '"instrument my code", "add opik tracing", "add observability", "trace my agent".'
     ),
     "opik-evaluate": (
-        "the user wants to measure or improve AI product quality, or asks about evals, "
-        "judges, or evaluation metrics."
+        '"evaluate my agent", "measure quality", "build an eval", "write an LLM judge", '
+        '"how good is my RAG" — a first experiment with scores.'
     ),
     "opik-diagnose": (
         '"what is broken in production", "which traces need attention", "find failing '
@@ -95,6 +95,22 @@ SKILL_SUMMARIES: dict[str, str] = {
     "opik-explain": (
         '"why did this trace fail", "explain this trace", "debug this trace", "why is '
         'my agent slow or wrong".'
+    ),
+    "opik-test": (
+        '"turn this into a test", "add a regression case for this trace", "make sure '
+        'this doesn\'t happen again", "capture this failure".'
+    ),
+    "opik-compare": (
+        '"did my fix work", "compare against the baseline", "run the regression suite", '
+        '"why did quality drop", "which cases regressed".'
+    ),
+    "opik-online-eval": (
+        '"score production traces", "monitor hallucinations in prod", "take this judge '
+        'live", "set up an online evaluation rule".'
+    ),
+    "opik-optimize": (
+        '"optimize this prompt", "improve my system prompt", "tune the prompt against '
+        'my dataset", "run the prompt optimizer".'
     ),
 }
 
