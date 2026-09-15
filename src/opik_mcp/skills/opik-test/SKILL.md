@@ -52,7 +52,7 @@ Assertions are plain-English statements an LLM judge answers **pass/fail** from 
 1. **One failure mode per assertion.** State what a correct output does, not a list of qualities.
 2. **Would have failed on the bad trace.** Check it against the actual output you just read; if it would pass, it's the wrong assertion.
 3. **Decidable from the output alone** (plus `expected_output` when present). No "is helpful", no Likert scales.
-4. **At most two**: the positive expectation, and — only if the bad output did something specific and wrong — one negative ("does not claim …").
+4. **At most two**: the positive expectation, and — only if the bad output did something specific and wrong — one negative ("does not claim …"). Prefer the positive form: small judge models misread negatives (observed: "does not promise a refund within 24 hours" judged *true* on an output that promised exactly that). If the negative matters, fold it into the positive ("states 5-7 business days, not 24 hours").
 
 Prefer a deterministic check over a judge when the correct answer is exact: put it in `data.expected_output` as well, so `/opik-compare` can score it with a heuristic metric.
 
