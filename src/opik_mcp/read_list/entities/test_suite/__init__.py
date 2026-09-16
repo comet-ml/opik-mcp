@@ -59,6 +59,11 @@ ITEM_HANDLER = EntityHandler(
     list_has_name=False,
     id_only=True,
     run_fn=run_compare,
+    run_verb="compare",
+    run_timeout_hint=(
+        "Opik did not answer in time for list('test_suite_item', experiment_ids=…). "
+        "Retry with a smaller page (size=…), or fewer experiments."
+    ),
     # Comparison is a different question with a different answer shape, so it
     # takes the whole call. ``filters`` and ``sort`` are in the list because
     # they are only meaningful with runs attached: the runner is where that

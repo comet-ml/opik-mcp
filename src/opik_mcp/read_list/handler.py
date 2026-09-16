@@ -182,6 +182,22 @@ class EntityHandler:
     tool.
     """
 
+    run_verb: str = "list"
+    """What the runner was doing, for the error an upstream failure becomes.
+
+    "Failed to chart test_suite_item" is what a comparison used to say when
+    opik-backend refused it: the metric runner arrived first and its verb was
+    written into the shared path. The word belongs to whoever owns the call.
+    """
+
+    run_timeout_hint: str | None = None
+    """What to try when the runner's call times out; ``None`` for the default.
+
+    The metric's advice (narrow the window, widen the interval) is nonsense
+    for a comparison, which has neither, so the hint travels with the runner
+    rather than with the tool.
+    """
+
     run_when_kwargs: tuple[str, ...] = ()
     """Tool arguments that hand the call to ``run_fn``; empty means always.
 

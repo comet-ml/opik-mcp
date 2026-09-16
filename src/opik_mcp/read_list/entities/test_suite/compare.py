@@ -143,7 +143,14 @@ async def run_compare(
     if not rows:
         # An empty page still says what could be asked next: the keys, the
         # search semantics and the legend are what turn it into a second call.
-        return "\n".join([header, _empty(bool(clauses), bool(search)), "", *notes])
+        reason = _empty(
+            stripping=stripping,
+            filtered=bool(clauses),
+            searched=bool(search),
+            page=page,
+            total=total,
+        )
+        return "\n".join([header, reason, "", *notes])
 
     return render(
         rows,
@@ -423,12 +430,25 @@ def _how_to_read(experiments: list[Experiment], *, suite_columns: bool) -> str:
     )
 
 
-def _empty(filtered: bool, searched: bool) -> str:
-    if filtered:
+def _empty(*, stripping: bool, filtered: bool, searched: bool, page: int, total: int) -> str:
+    """Why this page is empty — which is four different things.
+
+    Answering "no items in common" to a page past the end, or explaining
+    any-run semantics to someone who filtered on the case, sends the caller
+    looking for a problem that is not there.
+    """
+    if page > 1 and total:
+        return (
+            f"Page {page} is past the end: the comparison has {total} "
+            f"case{'s' if total != 1 else ''}. Ask for an earlier page."
+        )
+    if stripping:
         return (
             "No case matched. A filter on the runs matches a case when any of its "
             "experiments matches, so nothing here scored or ran the way you asked."
         )
+    if filtered:
+        return "No case matched the filter."
     if searched:
         return "No case matched the search. Search matches the case data, not the runs' output."
     return "No cases found: these experiments have no items in common."

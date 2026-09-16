@@ -239,7 +239,7 @@ class StubBackend:
         what ``strip_to_experiment`` stands for. Everything else about the
         filter language is the backend's business, not the stub's.
         """
-        experiment_ids = [e for e in _one(query, "experiment_ids", "").split(",") if e]
+        experiment_ids = _ids(query)
         page = int(_one(query, "page", "1"))
         size = int(_one(query, "size", "10"))
         clauses = json.loads(_one(query, "filters", "") or "[]")
@@ -314,10 +314,14 @@ class StubBackend:
         if any(fragment in path for fragment in self.failing):
             return 500, {"message": "stub failure"}
 
-        if path.endswith("/items/experiments/items/output/columns"):
-            return 200, self._output_columns()
-        if path.endswith("/items/experiments/items"):
-            return 200, self._compare_page(query or {})
+        try:
+            if path.endswith("/items/experiments/items/output/columns"):
+                _ids(query or {})
+                return 200, self._output_columns()
+            if path.endswith("/items/experiments/items"):
+                return 200, self._compare_page(query or {})
+        except _BadRequest as refusal:
+            return 400, {"message": str(refusal)}
         experiment = self.experiments.get(path.removeprefix("/v1/private/experiments/"))
         if experiment is not None:
             return 200, _experiment(path.rsplit("/", 1)[-1], experiment)
@@ -384,6 +388,31 @@ def _page(content: list[dict[str, Any]], *, total: int | None = None) -> dict[st
 def _one(query: dict[str, list[str]], key: str, default: str) -> str:
     values = query.get(key) or []
     return values[0] if values else default
+
+
+def _ids(query: dict[str, list[str]]) -> list[str]:
+    """``experiment_ids`` as opik-backend's ``ParamsValidator.getIds`` reads it.
+
+    It deserializes the whole param as JSON into a ``List<UUID>`` and answers
+    400 for anything else — a comma-separated list included, which is what
+    every other multi-value param in this API takes. The stub is strict about
+    it for one reason: it accepted comma-joined once, and the feature shipped
+    to a real backend that did not.
+    """
+    raw = _one(query, "experiment_ids", "")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise _BadRequest(f"Invalid query param ids '{raw}'") from None
+    if not isinstance(parsed, list) or not all(isinstance(one, str) for one in parsed):
+        raise _BadRequest(f"Invalid query param ids '{raw}'")
+    return parsed
+
+
+class _BadRequest(Exception):
+    """A 400 the stub answers with, the way the backend's validators do."""
 
 
 #: The comparison ids are built from the case index so a row can be found from

@@ -4,7 +4,7 @@ WHAT THIS COVERS THAT NOTHING ELSE DOES. The in-process suites drive
 ``run_list`` against a fake client: they prove the wording and the refusals,
 and they cannot see whether the request we send is the one opik-backend
 answers. The joined endpoint is picky — the experiment ids ride in a query
-param as one comma-joined string, a filter on the runs comes back with the
+param as one JSON array, a filter on the runs comes back with the
 other runs stripped off the row — so the request shape is most of what can
 break here.
 
@@ -16,6 +16,7 @@ what a page of a 20-case suite costs.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 from collections.abc import AsyncIterator, Iterator
@@ -105,7 +106,8 @@ def _get(stub: StubBackend, path: str, **params: Any) -> dict[str, Any]:
 
 
 _JOINED = f"/v1/private/datasets/{SUITE_ID}/items/experiments/items"
-_BOTH = f"{EXPERIMENT_A},{EXPERIMENT_B}"
+#: The ids as the backend reads them: one JSON array, not comma-joined.
+_BOTH = json.dumps([EXPERIMENT_A, EXPERIMENT_B], separators=(",", ":"))
 
 
 # --- the stub's own contract ----------------------------------------------- #
@@ -184,6 +186,28 @@ def test_the_output_columns_route_names_the_runs_output_keys(backend: StubBacken
 
 
 @pytest.mark.e2e
+@pytest.mark.parametrize("route", ["", "/output/columns"])
+def test_comma_joined_ids_are_a_400_the_way_the_backend_answers_them(
+    backend: StubBackend, route: str
+) -> None:
+    """The bug this stub could not see once.
+
+    ``ParamsValidator.getIds`` deserializes the param as JSON, so the
+    comma-separated list every other multi-value param takes is a 400 here.
+    The stub used to accept it, the suite went green, and the call failed
+    against the real backend with ``Invalid query param ids``.
+    """
+    response = httpx.get(
+        f"http://127.0.0.1:{backend.port}/api{_JOINED}{route}",
+        params={"experiment_ids": f"{EXPERIMENT_A},{EXPERIMENT_B}"},
+        timeout=30,
+    )
+
+    assert response.status_code == 400
+    assert "Invalid query param ids" in response.json()["message"]
+
+
+@pytest.mark.e2e
 def test_an_unknown_route_is_still_a_404(backend: StubBackend) -> None:
     response = httpx.get(f"http://127.0.0.1:{backend.port}/api/v1/private/nope", timeout=30)
 
@@ -219,7 +243,7 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
         ]
     )
     joined = next(r for r in backend.sent(_JOINED) if not r.path.endswith("columns"))
-    assert joined.query["experiment_ids"] == [f"{EXPERIMENT_A},{EXPERIMENT_B}"]
+    assert joined.query["experiment_ids"] == [_BOTH]
     assert joined.query["truncate"] == ["true"]
 
     assert answer.startswith(

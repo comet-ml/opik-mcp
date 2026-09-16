@@ -125,7 +125,7 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
 
 
 async def _run_whole(
-    run: RunFn,
+    handler: EntityHandler,
     entity_type: str,
     *,
     settings: Settings | None,
@@ -137,18 +137,19 @@ async def _run_whole(
     Same lifecycle as the collection path: the answer may be one backend call,
     but resolving a project name is another, and both ride one connection.
 
-    The kwargs below are still the metric's, and the runner is still the only
-    one there is. What the hook bought is that the choice became data the
-    registry owns, which a test can pin; it is not yet a second implementation
-    waiting to happen, and should not be described as one until one exists.
+    The words an upstream failure becomes come from the handler, because there
+    is more than one runner now and they are not doing the same thing: a
+    comparison that opik-backend refuses used to report that it had failed to
+    *chart* a test_suite_item, and to suggest widening an interval it has not
+    got.
     """
+    run = cast("RunFn", handler.run_fn)
     async with client_for_call(settings, client) as opik:
         with _as_tool_error(
-            f"chart {entity_type}",
-            on_timeout=(
-                f"Opik did not answer in time for list({entity_type!r}, …). Narrow "
-                "the window or widen the interval and retry."
-            ),
+            f"{handler.run_verb} {entity_type}",
+            on_timeout=handler.run_timeout_hint
+            or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
+            "page (size=…).",
         ):
             return await run(cast("OpikReadClient", opik), **kw)
 
@@ -218,7 +219,7 @@ async def run_list(
         # a value the caller actually chose is passed on; the defaults reaching
         # a runner cannot be told from absence and are harmless.
         return await _run_whole(
-            handler.run_fn,
+            handler,
             entity_type,
             settings=settings,
             client=client,

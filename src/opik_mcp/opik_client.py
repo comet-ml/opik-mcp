@@ -323,6 +323,18 @@ def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
 
 
+def _ids_param(ids: list[str]) -> str:
+    """A list of ids as opik-backend's ``experiment_ids`` query param.
+
+    ``ParamsValidator.getIds`` deserializes the whole param as JSON into a
+    ``List<UUID>``, so it is a JSON array and not the comma-separated list
+    every other multi-value param in this API uses. Comma-joined reaches the
+    caller as ``Invalid query param ids`` (400), which says nothing about the
+    format it wanted — so it is written once, here.
+    """
+    return _json.dumps(list(ids), separators=(",", ":"))
+
+
 def _search_params(
     *,
     filters: str | None,
@@ -889,15 +901,13 @@ class OpikClient:
     ) -> dict[str, Any]:
         """``GET /v1/private/datasets/{id}/items/experiments/items``.
 
-        One row per case with every named experiment's run attached. The ids
-        ride as one comma-joined string, which is how the backend's
-        ``ParamsValidator.getIds`` reads them; filters, sorting and search are
-        evaluated on the joined row.
+        One row per case with every named experiment's run attached. Filters,
+        sorting and search are evaluated on the joined row.
         """
         params: dict[str, Any] = {
             "page": page,
             "size": size,
-            "experiment_ids": ",".join(experiment_ids),
+            "experiment_ids": _ids_param(experiment_ids),
         }
         params.update(
             _search_params(
@@ -930,7 +940,7 @@ class OpikClient:
         """
         return await self._get_json(
             f"/v1/private/datasets/{test_suite_id}/items/experiments/items/output/columns",
-            params={"experiment_ids": ",".join(experiment_ids)},
+            params={"experiment_ids": _ids_param(experiment_ids)},
             entity_hint=f"test_suite {test_suite_id!r} output columns",
         )
 

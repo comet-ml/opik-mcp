@@ -365,6 +365,34 @@ async def test_an_empty_comparison_says_why_it_could_be_empty() -> None:
     assert "matched the cases' data, not the runs' output" in out
 
 
+@pytest.mark.anyio
+async def test_an_empty_page_past_the_end_says_so_rather_than_blaming_the_runs() -> None:
+    """Live, page 2 of a 3-case suite claimed the experiments had no cases in
+    common — which would have been a real problem, and was not one."""
+    fake = _fake(total=3)
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], page=2, size=25, client=fake)
+
+    assert "Page 2 is past the end: the comparison has 3 cases." in out
+    assert "no items in common" not in out
+
+
+@pytest.mark.anyio
+async def test_a_case_filter_that_matches_nothing_does_not_explain_the_runs() -> None:
+    """The any-run sentence answers a question this caller did not ask."""
+    fake = _fake()
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        filters='data.question contains "nothing"',
+        client=fake,
+    )
+
+    assert "No case matched the filter." in out
+    assert "any of its experiments" not in out
+
+
 # --- the plain listing is untouched ----------------------------------------- #
 
 
