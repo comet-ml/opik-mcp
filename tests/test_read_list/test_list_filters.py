@@ -658,6 +658,55 @@ async def test_window_refusal_on_experiment_names_the_way_through() -> None:
 
 
 @pytest.mark.anyio
+async def test_experiment_type_reaches_the_backend_as_a_query_parameter() -> None:
+    """The backend takes types as a query parameter, not as a clause in the
+    filter array. A clause left in both places would be applied twice, and
+    left only in the array it 400s as an unknown field."""
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "nightly"}]))
+    await run_list("experiment", filters='type = "trial"', client=fake)
+    assert fake.last_kwargs["types"] == '["trial"]'
+    assert "filters" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_a_diverted_clause_still_shows_in_the_applied_filters_header() -> None:
+    """The header is the caller's only confirmation that the answer matches
+    the question. A clause that narrowed the page and went unmentioned makes
+    the header under-report what was applied."""
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "nightly"}]))
+    out = await run_list(
+        "experiment", filters='type = "trial" AND tags contains "baseline"', client=fake
+    )
+    assert out.splitlines()[0] == (
+        '[list: experiment | filters: type = "trial" AND tags contains "baseline"]'
+    )
+
+
+@pytest.mark.anyio
+async def test_clauses_beside_a_diverted_one_still_travel_in_the_filter_array() -> None:
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "nightly"}]))
+    await run_list("experiment", filters='type = "trial" AND tags contains "baseline"', client=fake)
+    assert fake.last_kwargs["types"] == '["trial"]'
+    assert json.loads(fake.last_kwargs["filters"]) == [
+        {"field": "tags", "operator": "contains", "key": "", "value": "baseline"}
+    ]
+
+
+@pytest.mark.anyio
+async def test_the_types_parameter_is_absent_when_nobody_asked_for_it() -> None:
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "nightly"}]))
+    await run_list("experiment", filters='tags contains "baseline"', client=fake)
+    assert "types" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_negating_a_type_is_refused_through_the_tool_with_the_rewrite() -> None:
+    with pytest.raises(ToolError) as err:
+        await run_list("experiment", filters='type != "trial"', client=FakeOpikClient())
+    assert 'type in ("regular", "mini-batch", "mutation")' in str(err.value)
+
+
+@pytest.mark.anyio
 async def test_window_on_thread_is_forwarded() -> None:
     fake = FakeOpikClient()
     await run_list("thread", project_id="p-1", since="2026-09-08T00:00:00Z", client=fake)

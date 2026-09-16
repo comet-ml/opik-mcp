@@ -186,6 +186,7 @@ class OpikListClient(Protocol):
         *,
         name: str | None = None,
         filters: str | None = None,
+        types: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
         from_time: str | None = None,
@@ -950,6 +951,7 @@ class OpikClient:
         *,
         name: str | None = None,
         filters: str | None = None,
+        types: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
         from_time: str | None = None,
@@ -960,14 +962,20 @@ class OpikClient:
     ) -> dict[str, Any]:
         """``GET /v1/private/experiments`` — Spring Page envelope.
 
-        ``name`` is the backend's case-insensitive partial match. The search
-        params are accepted for signature parity with the other searchable
-        lists and forwarded only when set; the ``list`` tool never sends a time
-        window or free-text search for experiments (the backend has neither).
+        ``name`` is the backend's case-insensitive partial match. ``types`` is
+        a JSON array of ``ExperimentType`` values, already encoded: the
+        resource parses it with its own reader and 400s on anything else, so
+        it travels as one string rather than as a repeated parameter. The
+        search params are accepted for signature parity with the other
+        searchable lists and forwarded only when set; the ``list`` tool never
+        sends a time window or free-text search for experiments (the backend
+        has neither).
         """
         params: dict[str, Any] = {"page": page, "size": size}
         if name is not None:
             params["name"] = name
+        if types is not None:
+            params["types"] = types
         params.update(
             _search_params(
                 filters=filters,

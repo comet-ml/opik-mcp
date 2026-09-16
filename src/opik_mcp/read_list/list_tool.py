@@ -63,6 +63,7 @@ from opik_mcp.read_list.oql import (
     OQLError,
     compile_filters,
     render_filters,
+    split_param_clauses,
 )
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
@@ -294,7 +295,17 @@ async def run_list(
             clauses.append(dict(SDK_SOURCE_CLAUSE))
             source_defaulted = True
         if clauses:
-            kw["filters"] = json.dumps(clauses, separators=(",", ":"))
+            # A few fields are query parameters to the backend rather than
+            # entries in the filter array. They are lifted out here, and the
+            # header still echoes the whole list: a clause that narrowed the
+            # page and went unmentioned would under-report what was applied.
+            try:
+                sent, params = split_param_clauses(entity_type, clauses)
+            except OQLError as err:
+                raise ToolError(str(err)) from err
+            kw.update(params)
+            if sent:
+                kw["filters"] = json.dumps(sent, separators=(",", ":"))
             applied.append(f"filters: {render_filters(entity_type, clauses)}")
     if entity_type in WINDOWED_ENTITIES:
         # Bodies never reach the table, so let the backend trim them.

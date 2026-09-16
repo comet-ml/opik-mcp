@@ -78,6 +78,23 @@ async def test_list_forwards_search_params_only_when_set(
 
 
 @pytest.mark.anyio
+async def test_list_experiments_forwards_the_types_query_parameter() -> None:
+    """``types`` is not a filter-array entry: the resource parses it as JSON
+    into the backend's own enum and 400s on anything else, so what leaves
+    here has to be the array and not a repeated or comma-joined value."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/experiments").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_experiments()
+        assert "types" not in dict(route.calls.last.request.url.params)
+
+        await _client().list_experiments(types='["trial","mutation"]')
+    params = dict(route.calls.last.request.url.params)
+    assert params["types"] == '["trial","mutation"]'
+
+
+@pytest.mark.anyio
 async def test_list_spans_across_a_project_without_trace_id() -> None:
     """Project-wide span search: ``trace_id`` is optional on ``GET /spans``."""
     with respx.mock(base_url=OPIK_BASE) as mock:
