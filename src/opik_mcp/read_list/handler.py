@@ -91,6 +91,7 @@ class ListProjection:
 
 
 ProjectionFn = Callable[[list[dict[str, Any]]], ListProjection]
+RowFn = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,21 @@ class EntityHandler:
     For an entity whose record has no fixed fields to name up front. Called
     with the page's rows, never with an empty page; returns a
     :class:`ListProjection`. When set, ``list_extra_fields`` is not read.
+    """
+    list_row_fn: RowFn | None = None
+    """Optional: derive the columns a record does not carry from the ones it
+    does, before the page is projected and rendered.
+
+    Some facts arrive split across fields and read as one cell: an experiment
+    reports ``passed_count`` and ``total_count`` separately, and what the
+    caller wants to see is how many assertion runs passed. Others arrive
+    nested in a shape the generic dotted lookup cannot name well. Deriving
+    them here keeps the list tool free of any entity's field names — the one
+    derivation it does know about, ``error_type`` out of the error container,
+    is the exception this exists to stop multiplying.
+
+    Returns a new mapping; the page the backend sent is left alone for
+    everything else that reads it.
     """
     list_required_kwargs: tuple[str, ...] = ()
     """Entity-specific kwargs ``list_fn`` cannot run without (a parent id).
@@ -275,6 +291,7 @@ __all__ = [
     "ProjectionFn",
     "ReadWindow",
     "ReferenceFn",
+    "RowFn",
     "RunFn",
     "SearchByNameFn",
 ]

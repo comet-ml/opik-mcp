@@ -545,6 +545,11 @@ def _format_table(
         for column, present in (("id", handler.list_has_id), ("name", handler.list_has_name))
         if present
     )
+    # Columns the record does not carry, computed before anything looks at
+    # the page: the projection decides on them like any other column, and the
+    # renderer resolves them like any other key.
+    if handler.list_row_fn is not None:
+        content = [handler.list_row_fn(item) for item in content]
     projection = (
         handler.list_projection_fn(content) if handler.list_projection_fn is not None else None
     )
@@ -638,7 +643,16 @@ def _score_summary(scores: list[dict[str, Any]]) -> str:
 # Header labels that carry the unit the backend leaves implicit. The field
 # keeps its backend name in filters/sort (``duration > 5000``); only the
 # column heading says ``_ms`` so the agent never mistakes 82.461 for seconds.
-_COLUMN_LABELS = {"duration": "duration_ms", "ttft": "ttft_ms"}
+_COLUMN_LABELS = {
+    "duration": "duration_ms",
+    "ttft": "ttft_ms",
+    # An experiment's duration is a set of percentiles rather than one number.
+    # Same reasoning, one level down: the unit is not guessable from 1260.107,
+    # and the label is what rounds the cell to whole milliseconds.
+    "duration.p50": "duration.p50_ms",
+    "duration.p90": "duration.p90_ms",
+    "duration.p99": "duration.p99_ms",
+}
 _ISO_WITH_FRACTION = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$")
 
 

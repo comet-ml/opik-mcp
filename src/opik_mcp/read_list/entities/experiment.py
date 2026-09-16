@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, ListProjection
 from opik_mcp.read_list.paging import name_candidates
 
 
@@ -44,14 +44,120 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_experiments(**kw)
 
 
+#: Always printed, so two pages can be read beside each other. ``id`` and
+#: ``name`` come first from the table itself.
+_SPINE: Final = ("type", "status", "dataset_name", "created_at", "feedback_scores")
+
+#: Printed when some row on the page has one, in this order whichever subset
+#: shows. Each is null for a whole class of experiment rather than
+#: occasionally missing: assertion counts exist only for a suite run with
+#: assertions, a prompt version only for a run that linked one, an
+#: optimization id only for a trial. Measured on a live optimizer workspace,
+#: 32 of 32 rows had neither assertion counts nor a prompt version.
+_CONDITIONAL: Final = (
+    "assertion_runs",
+    "total_estimated_cost",
+    "duration.p50",
+    "duration.p90",
+    "prompt_version",
+    "dataset_version",
+    "optimization_id",
+)
+
+#: Filter fields that are not columns on an ordinary page, so the table
+#: cannot advertise them the way it advertises the rest.
+_FILTER_HINT: Final = "filter: type, optimization_id."
+
+
+def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
+    """The three cells an experiment record does not carry as fields.
+
+    Each is one fact the backend splits or nests: how many assertion runs
+    passed, which prompt version ran, which dataset version it ran against.
+    """
+    derived: dict[str, Any] = {}
+    passed, total = record.get("passed_count"), record.get("total_count")
+    if passed is not None and total is not None:
+        # "assertion runs", not "passed": these are null for any run without
+        # assertions, and a zero in a column called passed reads as a failure
+        # rather than as a question that does not apply.
+        derived["assertion_runs"] = f"{passed}/{total}"
+    versions = record.get("prompt_versions")
+    if isinstance(versions, list) and versions:
+        derived["prompt_version"] = ",".join(_version_label(v) for v in versions)
+    summary = record.get("dataset_version_summary")
+    if isinstance(summary, dict) and summary.get("version_name"):
+        derived["dataset_version"] = summary["version_name"]
+    cost = record.get("total_estimated_cost")
+    if isinstance(cost, int | float) and not isinstance(cost, bool):
+        # Seen live: 5.099999e-06 rendered as 0.000005099999 — eleven digits
+        # of float noise in a column someone is scanning to compare spend.
+        # Rounded here rather than in the renderer so it stays a number and
+        # the table's own expansion of exponents still applies.
+        derived["total_estimated_cost"] = float(f"{cost:.6g}")
+    return {**record, **derived}
+
+
+def _version_label(version: Any) -> str:
+    """``v3``, or the short commit for a mask, which has no sequential number.
+
+    An empty cell there would read as "no prompt" rather than as "a prompt
+    this listing cannot number".
+    """
+    if not isinstance(version, dict):
+        return ""
+    number = version.get("version_number")
+    if number:
+        return str(number)
+    commit = version.get("commit") or ""
+    return str(commit)[:8]
+
+
+def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
+    """Columns for one page: the spine, plus the conditionals it can fill.
+
+    A fixed table would print two columns of nothing on every row of an
+    optimizer workspace, and a table that printed only what every row has
+    would drop a suite run's pass counts the moment one trial shared the page.
+    The rule is "some row has it", and what that leaves out is named under the
+    table — an absent column must never read as a field the records lack.
+    """
+    present = tuple(column for column in _CONDITIONAL if any(_has(i, column) for i in items))
+    omitted = [column for column in _CONDITIONAL if column not in present]
+    note = "Columns are those some row on this page has"
+    if omitted:
+        note += f"; omitted: {', '.join(omitted)} (no row has them)"
+    return ListProjection(
+        columns=(*_SPINE, *present),
+        cell_limit=_CELL_LIMIT,
+        note=f"{note}. {_FILTER_HINT}",
+    )
+
+
+def _has(item: dict[str, Any], column: str) -> bool:
+    top, _, key = column.partition(".")
+    value = item.get(top)
+    if key:
+        value = value.get(key) if isinstance(value, dict) else None
+    return value is not None and value != ""
+
+
+#: Wider than the table's default: an experiment's scores are ``name=value``
+#: pairs and a run scored on three metrics fills a cell the default would cut.
+_CELL_LIMIT: Final = 80
+
+
 HANDLER = EntityHandler(
     entity_type="experiment",
     fetch_fn=fetch,
     search_by_name_fn=search_by_name,
     list_fn=list_page,
-    # feedback_scores is the experiment's per-metric averages, rendered as
-    # ``name=value`` pairs so a comparison list reads without a read() per row.
-    list_extra_fields=("dataset_name", "created_at", "feedback_scores"),
+    # The listing used to show the dataset, the date and the scores, and drop
+    # everything that says whether a comparison between two runs is even
+    # valid. All of it arrives in the same response, so dropping it bought
+    # nothing and cost a read per row.
+    list_row_fn=derive_columns,
+    list_projection_fn=project_experiments,
     # The refusal has to end the caller's problem, not restate it. The
     # backend orders experiments by id descending and the ids are time
     # ordered, so the page is newest-first whether or not anyone asked for

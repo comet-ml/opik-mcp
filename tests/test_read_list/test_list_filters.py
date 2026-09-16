@@ -1048,8 +1048,8 @@ async def test_experiment_rows_summarise_feedback_scores() -> None:
         )
     )
     out = await run_list("experiment", client=fake)
-    assert "id | name | dataset_name | created_at | feedback_scores" in out
+    assert "id | name | type | status | dataset_name | created_at | feedback_scores" in out
     assert (
-        "e-1 | rerank-v2 | golden | 2026-09-01T00:00:00Z | accuracy=0.8125, hallucination=0.1"
-        in out
+        "e-1 | rerank-v2 |  |  | golden | 2026-09-01T00:00:00Z"
+        " | accuracy=0.8125, hallucination=0.1" in out
     )
