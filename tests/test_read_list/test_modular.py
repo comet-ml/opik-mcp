@@ -34,6 +34,10 @@ SHARED: frozenset[str] = frozenset(
         "__init__",
         "size",
         "slim",
+        # How a column name finds its value: the table renders it, an
+        # entity's projection asks whether the page has one. Two callers, and
+        # when they disagreed the failure was silent.
+        "columns",
         "decorations",
         "errors",
         "handler",

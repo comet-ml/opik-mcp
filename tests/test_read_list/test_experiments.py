@@ -63,9 +63,31 @@ def _page(*items: dict[str, Any]) -> dict[str, Any]:
     return {"content": list(items), "total": len(items)}
 
 
+def _header_index(out: str) -> int:
+    """Where the column header sits.
+
+    Not a fixed offset: a call with filters or a sort prints an applied line
+    above the count, which moved every row down by one and cost a test its
+    meaning until it was noticed.
+    """
+    for index, line in enumerate(out.splitlines()):
+        if line.startswith("id | name"):
+            return index
+    raise AssertionError(f"no column header in:\n{out}")
+
+
 def _columns(out: str) -> list[str]:
     """The header row of the rendered table."""
-    return [c.strip() for c in out.splitlines()[2].split("|")]
+    return [c.strip() for c in out.splitlines()[_header_index(out)].split("|")]
+
+
+def _row(out: str, n: int = 0) -> str:
+    """One data row, counting from the first under the header."""
+    return out.splitlines()[_header_index(out) + 1 + n]
+
+
+def _cells(out: str, n: int = 0) -> list[str]:
+    return [c.strip() for c in _row(out, n).split("|")]
 
 
 # --- the projection ------------------------------------------------------- #
@@ -147,7 +169,7 @@ def test_the_note_carries_the_filter_vocabulary_even_with_nothing_omitted() -> N
 async def test_the_row_carries_what_a_comparison_needs() -> None:
     fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
     out = await run_list("experiment", client=fake)
-    row = out.splitlines()[3]
+    row = _row(out)
     assert "regular" in row
     assert "completed" in row
     assert "support-qa" in row
@@ -161,7 +183,7 @@ async def test_assertion_runs_read_as_passed_over_total() -> None:
         experiments=_page(_experiment("suite-run", passed_count=7, total_count=10))
     )
     out = await run_list("experiment", client=fake)
-    assert "7/10" in out.splitlines()[3]
+    assert "7/10" in _row(out)
 
 
 @pytest.mark.anyio
@@ -175,10 +197,9 @@ async def test_an_experiment_without_assertions_shows_nothing_not_zero() -> None
         )
     )
     out = await run_list("experiment", client=fake)
-    plain = out.splitlines()[4]
+    plain = _row(out, 1)
     assert "0/0" not in plain
-    cells = [c.strip() for c in plain.split("|")]
-    assert "" in cells
+    assert "" in [c.strip() for c in plain.split("|")]
 
 
 @pytest.mark.anyio
@@ -189,9 +210,23 @@ async def test_duration_shows_the_typical_case_and_the_tail_in_milliseconds() ->
     assert "duration.p50_ms" in columns
     assert "duration.p90_ms" in columns
     assert not any("p99" in c for c in columns)
-    row = [c.strip() for c in out.splitlines()[3].split("|")]
+    row = _cells(out)
     assert row[columns.index("duration.p50_ms")] == "1260"
     assert row[columns.index("duration.p90_ms")] == "1447"
+
+
+@pytest.mark.anyio
+async def test_sorting_by_the_tail_percentile_brings_its_column_with_it() -> None:
+    """p99 is not a column of its own — p50 and p90 answer "typical" and
+    "tail" and a third costs width for a question nobody asked. But
+    ``duration.*`` is sortable, so a caller can ask for it, and the column
+    the sort adds must carry its unit like the other two."""
+    fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
+    out = await run_list("experiment", sort="duration.p99 desc", client=fake)
+    columns = _columns(out)
+    assert "duration.p99_ms" in columns
+    row = _cells(out)
+    assert row[columns.index("duration.p99_ms")] == "1489"
 
 
 @pytest.mark.anyio
@@ -204,7 +239,7 @@ async def test_cost_is_rounded_to_the_digits_that_mean_anything() -> None:
         experiments=_page(_experiment("cheap", total_estimated_cost=5.099999e-06))
     )
     out = await run_list("experiment", client=fake)
-    assert "0.0000051" in out.splitlines()[3]
+    assert "0.0000051" in _row(out)
     assert "0.000005099999" not in out
 
 
@@ -219,7 +254,7 @@ async def test_a_multi_prompt_experiment_lists_every_version_it_ran() -> None:
         )
     )
     out = await run_list("experiment", client=fake)
-    assert "v3,v1" in out.splitlines()[3]
+    assert "v3,v1" in _row(out)
 
 
 @pytest.mark.anyio
@@ -232,7 +267,7 @@ async def test_a_version_with_no_number_falls_back_to_its_commit() -> None:
         )
     )
     out = await run_list("experiment", client=fake)
-    assert "a1b2c3d4" in out.splitlines()[3]
+    assert "a1b2c3d4" in _row(out)
 
 
 @pytest.mark.anyio
@@ -244,7 +279,7 @@ async def test_the_optimization_run_is_on_the_row_so_trials_group_without_a_read
     )
     out = await run_list("experiment", client=fake)
     assert "optimization_id" in _columns(out)
-    assert RUN in out.splitlines()[3]
+    assert RUN in _row(out)
 
 
 @pytest.mark.anyio

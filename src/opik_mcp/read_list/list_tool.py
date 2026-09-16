@@ -53,6 +53,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     client_for_call,
 )
+from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
 from opik_mcp.read_list.oql import (
@@ -624,16 +625,7 @@ def _cell(item: dict[str, Any], col: str) -> Any:
         info = item.get("error_info")
         if isinstance(info, dict):
             return info.get("exception_type")
-    if "." in col:
-        top, _, key = col.partition(".")
-        container = item.get(top)
-        if isinstance(container, dict):
-            return container.get(key)
-        if isinstance(container, list):
-            for entry in container:
-                if isinstance(entry, dict) and entry.get("name") == key:
-                    return entry.get("value")
-    return None
+    return resolve_column(item, col)
 
 
 def _score_summary(scores: list[dict[str, Any]]) -> str:

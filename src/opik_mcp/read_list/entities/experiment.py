@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.columns import has_value
 from opik_mcp.read_list.handler import EntityHandler, ListProjection
+from opik_mcp.read_list.oql import PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 
 
@@ -64,16 +66,26 @@ _CONDITIONAL: Final = (
     "optimization_id",
 )
 
-#: Filter fields that are not columns on an ordinary page, so the table
-#: cannot advertise them the way it advertises the rest.
-_FILTER_HINT: Final = "filter: type, optimization_id."
+#: The table advertises a filter field by rendering it as a column. These
+#: two are not columns on an ordinary page — an experiment nobody optimized
+#: has no optimization id — so they are named instead. Read off the
+#: compiler's own table, so the hint cannot come to name a field that no
+#: longer compiles.
+_FILTER_HINT: Final = f"filter: {', '.join(PARAM_FIELDS['experiment'])}."
+
+#: The table's own default. Named rather than widened: an experiment's
+#: scores are no longer than a trace's, and the table states every cut it
+#: makes, so a wider cell here would be a difference with nothing behind it.
+_CELL_LIMIT: Final = 60
 
 
 def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
-    """The three cells an experiment record does not carry as fields.
+    """The cells an experiment row needs and the record does not hand over.
 
-    Each is one fact the backend splits or nests: how many assertion runs
+    Three are facts the backend splits or nests: how many assertion runs
     passed, which prompt version ran, which dataset version it ran against.
+    The fourth is a field the record does carry, rounded — see below for why
+    that happens here rather than in the renderer.
     """
     derived: dict[str, Any] = {}
     passed, total = record.get("passed_count"), record.get("total_count")
@@ -122,7 +134,7 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
     The rule is "some row has it", and what that leaves out is named under the
     table — an absent column must never read as a field the records lack.
     """
-    present = tuple(column for column in _CONDITIONAL if any(_has(i, column) for i in items))
+    present = tuple(column for column in _CONDITIONAL if any(has_value(i, column) for i in items))
     omitted = [column for column in _CONDITIONAL if column not in present]
     note = "Columns are those some row on this page has"
     if omitted:
@@ -132,19 +144,6 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
         cell_limit=_CELL_LIMIT,
         note=f"{note}. {_FILTER_HINT}",
     )
-
-
-def _has(item: dict[str, Any], column: str) -> bool:
-    top, _, key = column.partition(".")
-    value = item.get(top)
-    if key:
-        value = value.get(key) if isinstance(value, dict) else None
-    return value is not None and value != ""
-
-
-#: Wider than the table's default: an experiment's scores are ``name=value``
-#: pairs and a run scored on three metrics fills a cell the default would cut.
-_CELL_LIMIT: Final = 80
 
 
 HANDLER = EntityHandler(

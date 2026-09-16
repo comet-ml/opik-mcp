@@ -787,8 +787,7 @@ def _validate_value(
     if allowed is not None:
         # ``in``/``not_in`` values arrive comma-joined; one bad element fails
         # the whole filter server-side, so every element is checked.
-        given = raw.value.split(",") if raw.operator in LIST_VALUE_OPERATORS else [raw.value]
-        bad = [v for v in given if v not in allowed]
+        bad = [v for v in _operand_values(raw.operator, raw.value) if v not in allowed]
         if bad:
             return OQLIssue(
                 "bad_value",
@@ -947,7 +946,7 @@ def render_filters(entity_type: str, clauses: list[dict[str, str]]) -> str:
         if op in NO_VALUE_OPERATORS:
             parts.append(f"{name} {op}")
         elif op in LIST_VALUE_OPERATORS:
-            items = ", ".join(_quote(v) for v in value.split(","))
+            items = ", ".join(_quote(v) for v in _operand_values(op, value))
             parts.append(f"{name} {op} ({items})")
         elif fields.get(field) in ("number", "feedback_scores"):
             parts.append(f"{name} {op} {value}")

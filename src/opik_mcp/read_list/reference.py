@@ -21,6 +21,7 @@ from opik_mcp.read_list.oql import (
     KEY_REQUIRED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
+    PARAM_FIELDS,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
@@ -93,7 +94,16 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         return handler.reference_fn()
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
-        spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}
+        # A field the backend takes as a query parameter accepts less than its
+        # type does — one value cannot carry a negation, one id cannot carry a
+        # set. The reference has to state the accepted set for the same reason
+        # it states a closed enum's values: what the compiler refuses must be
+        # discoverable here rather than by being rejected.
+        param = PARAM_FIELDS.get(entity_type, {}).get(name)
+        operators = list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[ftype])
+        spec: dict[str, Any] = {"type": ftype, "operators": operators}
+        if param is not None and param.value_form == "uuid":
+            spec["format"] = "UUID"
         if ftype in KEY_REQUIRED_TYPES:
             spec["key"] = "required"
         elif ftype in KEY_ALLOWED_TYPES:
