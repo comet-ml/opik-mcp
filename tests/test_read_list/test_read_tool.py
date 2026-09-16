@@ -2008,3 +2008,30 @@ async def test_a_rules_page_without_a_total_keeps_its_pointer() -> None:
 
     assert len(rules["names"]) == 10
     assert "list('online_rule'" in rules["all"]
+
+
+@pytest.mark.anyio
+async def test_an_experiment_read_points_at_the_per_case_comparison() -> None:
+    """The averages are where "which cases regressed" gets asked, and the call
+    that answers it is not guessable: it takes experiment ids, not the suite."""
+    fake = FakeOpikClient(
+        experiments_by_id={
+            UUID: {"id": UUID, "name": "rerank-v3", "dataset_id": "suite-1", "status": "completed"}
+        }
+    )
+
+    body = _payload(await run_read("experiment", UUID, client=fake))
+
+    assert body["comparePerCase"] == (
+        "Which cases differ, rather than these averages: "
+        f"list('test_suite_item', experiment_ids=['{UUID}', '<other experiment id>'])"
+    )
+
+
+@pytest.mark.anyio
+async def test_an_experiment_with_no_suite_gets_no_comparison_hint() -> None:
+    fake = FakeOpikClient(experiments_by_id={UUID: {"id": UUID, "name": "rerank-v3"}})
+
+    body = _payload(await run_read("experiment", UUID, client=fake))
+
+    assert "comparePerCase" not in body

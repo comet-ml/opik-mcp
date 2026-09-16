@@ -343,3 +343,15 @@ async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
     assert calls[20] == calls[100_000]
     ratio = len(answers[100_000]) / len(answers[20])
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_reading_an_experiment_names_the_call_that_compares_it(
+    backend: StubBackend,
+) -> None:
+    async with _session(backend) as session:
+        answer = await _call(session, "read", entity_type="experiment", id=EXPERIMENT_A)
+
+    assert "list('test_suite_item', experiment_ids=" in answer
+    assert EXPERIMENT_A in answer

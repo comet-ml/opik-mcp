@@ -10,7 +10,27 @@ from opik_mcp.read_list.paging import name_candidates
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
-    return await client.get_experiment(entity_id)
+    record = await client.get_experiment(entity_id)
+    return _with_next_step(record, entity_id)
+
+
+def _with_next_step(record: dict[str, Any], entity_id: str) -> dict[str, Any]:
+    """Point at the per-case view from the averages.
+
+    A read of an experiment answers "how did this run do" with means. The next
+    question is always "on which cases", and the call that answers it needs
+    nothing but this id and another run's — not the suite, which it resolves
+    itself. An agent that does not know the call falls back to reading every
+    trace of both runs, which is what this feature exists to stop.
+    """
+    if not record.get("dataset_id"):
+        return record
+    experiment_id = record.get("id") or entity_id
+    record["comparePerCase"] = (
+        "Which cases differ, rather than these averages: "
+        f"list('test_suite_item', experiment_ids=['{experiment_id}', '<other experiment id>'])"
+    )
+    return record
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
