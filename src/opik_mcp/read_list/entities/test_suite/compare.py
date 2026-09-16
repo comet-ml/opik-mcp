@@ -42,6 +42,9 @@ RUN_LEVEL_FIELDS = ("feedback_scores", "output", "duration")
 #: How many rows a run-level filter may put back together in one call. Each
 #: costs a request, and one tool call turning into a hundred is not a page.
 REFETCH_ROW_CAP = 25
+#: A test suite's runs echo the case input back under ``input``, so it shows
+#: up as an output key that is not one. The UI hides it on the same page.
+ECHOED_OUTPUT_KEY = "input"
 #: The list tool's own page defaults, which a runner is handed as ``None``
 #: when the caller did not choose them (see ``list_tool._run_whole``).
 DEFAULT_SIZE = 25
@@ -84,15 +87,25 @@ async def run_compare(
         )
     sorting, sort_label = _sorting(sort)
 
-    body = await client.list_compared_test_suite_items(
-        suite_id,
-        experiment_ids=ids,
-        filters=json.dumps(clauses, separators=(",", ":")) if clauses else None,
-        sorting=sorting,
-        search=search or None,
-        page=page,
-        size=size,
+    suite_columns = any(experiment.is_suite for experiment in experiments)
+    # The output keys are the first page's business only, and they do not
+    # depend on it, so the two go out together rather than one after the other.
+    page_result, *column_results = await asyncio.gather(
+        client.list_compared_test_suite_items(
+            suite_id,
+            experiment_ids=ids,
+            filters=json.dumps(clauses, separators=(",", ":")) if clauses else None,
+            sorting=sorting,
+            search=search or None,
+            page=page,
+            size=size,
+        ),
+        *([client.list_compared_output_columns(suite_id, experiment_ids=ids)] if page == 1 else []),
+        return_exceptions=True,
     )
+    if isinstance(page_result, BaseException):
+        raise page_result
+    body = page_result
     rows = [row for row in body.get("content") or [] if isinstance(row, dict)]
     total_raw = body.get("total")
     total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(rows)
@@ -110,13 +123,22 @@ async def run_compare(
         applied.append(f'search: "{search}"')
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
-    suite_columns = any(experiment.is_suite for experiment in experiments)
     notes = [_legend(experiments, suite_columns=suite_columns)]
     if stripping:
         notes.append(
             "A filter on the runs matches a case when any of its experiments matches; the "
             "experiments that did not match were fetched back onto the row, so what you see "
             "is the whole case."
+        )
+    keys_line = _keys_note(
+        column_results[0] if column_results else None, rows, hide_echo=suite_columns
+    )
+    if keys_line is not None:
+        notes.append(keys_line)
+    if search:
+        notes.append(
+            "search matched the cases' data, not the runs' output; to search the output, "
+            'filter on it (output contains "…").'
         )
     if unrestored:
         notes.append(
@@ -136,6 +158,35 @@ async def run_compare(
         notes=notes,
         suite_columns=suite_columns,
     )
+
+
+def _keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> str | None:
+    """What this suite and its runs can be filtered and sorted on, once.
+
+    The case keys are read off the page; the runs' output keys need a call,
+    which only the first page makes. A failed columns call costs the line, not
+    the page.
+    """
+    case_keys = sorted({key for row in rows for key in (row.get("data") or {})})
+    output_keys: list[str] = []
+    if isinstance(columns, dict):
+        output_keys = [
+            str(column["name"])
+            for column in columns.get("columns") or []
+            if isinstance(column, dict) and column.get("name")
+        ]
+        if hide_echo:
+            # A suite's runs echo the case back under ``input``; it is the case,
+            # not an output.
+            output_keys = [key for key in output_keys if key != ECHOED_OUTPUT_KEY]
+    if not case_keys and not output_keys:
+        return None
+    parts = []
+    if output_keys:
+        parts.append(f"runs' output keys: {', '.join(output_keys)}")
+    if case_keys:
+        parts.append(f"case data keys: {', '.join(case_keys)}")
+    return f"{'; '.join(parts)}. Filter or sort on them as output.<key> and data.<key>."
 
 
 def _strips_runs(clauses: list[dict[str, str]], *, experiment_count: int) -> bool:

@@ -208,12 +208,17 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
         )
 
     # The suite was resolved from the experiments, not asked for.
-    assert [request.path for request in backend.requests] == [
-        f"/v1/private/experiments/{EXPERIMENT_A}",
-        f"/v1/private/experiments/{EXPERIMENT_B}",
-        _JOINED,
-    ]
-    joined = backend.sent(_JOINED)[0]
+    # The page and the output keys go out together, so their order is a race;
+    # what matters is that the suite was resolved from the experiments first.
+    assert sorted(request.path for request in backend.requests) == sorted(
+        [
+            f"/v1/private/experiments/{EXPERIMENT_A}",
+            f"/v1/private/experiments/{EXPERIMENT_B}",
+            _JOINED,
+            f"{_JOINED}/output/columns",
+        ]
+    )
+    joined = [r for r in backend.sent(_JOINED) if not r.path.endswith("columns")][0]
     assert joined.query["experiment_ids"] == [f"{EXPERIMENT_A},{EXPERIMENT_B}"]
     assert joined.query["truncate"] == ["true"]
 
@@ -226,6 +231,9 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     assert "1/1·0/1" in regressed
     assert "(E2)" in regressed and "names Lyon, not Paris." in regressed
     assert "Use page=2 for next 4 results." in answer
+    # ``input`` is the suite's own case, echoed back by the run.
+    assert "runs' output keys: answer, reasoning" in answer
+    assert "case data keys: expected_answer, question" in answer
 
 
 @pytest.mark.e2e
@@ -296,7 +304,7 @@ async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
             size=4,
         )
 
-    joined = backend.sent(_JOINED)
+    joined = [r for r in backend.sent(_JOINED) if not r.path.endswith("columns")]
     assert len(joined) == 5, "one filtered page, then one refetch per row on it"
     assert joined[0].query["filters"] == [
         '[{"field":"feedback_scores","operator":"<","key":"correctness","value":"0.5"}]'

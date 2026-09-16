@@ -692,3 +692,66 @@ async def test_sorting_by_a_case_key_or_an_output_key_is_allowed() -> None:
         "output.answer",
         "duration",
     ]
+
+
+# --- what the first page says about what can be asked next ------------------ #
+
+
+def _columns(*names: str) -> dict[str, Any]:
+    return {"columns": [{"name": name, "types": ["string"]} for name in names]}
+
+
+@pytest.mark.anyio
+async def test_the_first_page_names_the_output_keys_and_the_case_keys() -> None:
+    fake = _fake(_DEFAULT_CASE, compared_columns=_columns("input", "answer", "reasoning"))
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    # ``input`` is the case echoed back by a suite run, not an output of it.
+    assert "runs' output keys: answer, reasoning" in out
+    assert "case data keys: expected_answer, question" in out
+    assert "output.<key> and data.<key>" in out
+    assert len(fake.column_calls) == 1
+
+
+@pytest.mark.anyio
+async def test_a_plain_dataset_keeps_its_input_output_key() -> None:
+    fake = _fake(_DEFAULT_CASE, compared_columns=_columns("input", "answer"))
+    fake.experiment_records[A] = _experiment(A, "baseline-v1", method="dataset")
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", method="dataset")
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "runs' output keys: input, answer" in out
+
+
+@pytest.mark.anyio
+async def test_the_second_page_does_not_ask_for_the_output_keys_again() -> None:
+    fake = _fake(_DEFAULT_CASE, total=60, compared_columns=_columns("answer"))
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], page=2, client=fake)
+
+    assert fake.column_calls == []
+    assert "output keys" not in out
+
+
+@pytest.mark.anyio
+async def test_a_failed_output_columns_call_costs_the_line_not_the_page() -> None:
+    fake = _fake(_DEFAULT_CASE, columns_error=OpikServerError("columns exploded (500)."))
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "case-1" in out
+    assert "output keys" not in out
+    assert "case data keys: expected_answer, question" in out
+
+
+@pytest.mark.anyio
+async def test_a_search_says_which_half_of_the_row_it_matched() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], search="Capital", client=fake)
+
+    assert fake.compare_calls[0]["search"] == "Capital"
+    assert 'search: "Capital"' in out.splitlines()[0]
+    assert "matched the cases' data, not the runs' output" in out
