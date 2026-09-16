@@ -218,7 +218,7 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
             f"{_JOINED}/output/columns",
         ]
     )
-    joined = [r for r in backend.sent(_JOINED) if not r.path.endswith("columns")][0]
+    joined = next(r for r in backend.sent(_JOINED) if not r.path.endswith("columns"))
     assert joined.query["experiment_ids"] == [f"{EXPERIMENT_A},{EXPERIMENT_B}"]
     assert joined.query["truncate"] == ["true"]
 
