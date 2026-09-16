@@ -223,6 +223,8 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     # The fourth case is the one rerank-v3 regressed on.
     regressed = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
     assert "0.9 / 0.4 Δ0.5" in regressed
+    assert "1/1·0/1" in regressed
+    assert "(E2)" in regressed and "names Lyon, not Paris." in regressed
     assert "Use page=2 for next 4 results." in answer
 
 

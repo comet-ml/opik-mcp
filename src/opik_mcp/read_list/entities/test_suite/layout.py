@@ -26,6 +26,11 @@ MAX_DATA_COLUMNS = 2
 #: note, so a cut score is never mistaken for a score nothing recorded.
 MAX_SCORE_COLUMNS = 4
 _MISSING = "-"
+#: Experiments are separated by a slash in a score cell and by a middle dot in
+#: the pass cell, whose values already carry a slash: "1/1 / 0/2" is not
+#: something anyone should have to parse.
+RUN_SEPARATOR = " / "
+PASS_SEPARATOR = "·"
 
 
 @dataclass(frozen=True)
@@ -110,7 +115,7 @@ def score_cell(row: dict[str, Any], name: str, experiments: list[Experiment]) ->
     """
     grouped = runs_by_experiment(row)
     values = [score_value(grouped.get(experiment.id, []), name) for experiment in experiments]
-    cell = " / ".join(_MISSING if value is None else number(value) for value in values)
+    cell = RUN_SEPARATOR.join(_MISSING if value is None else number(value) for value in values)
     if len(values) == 2 and values[0] is not None and values[1] is not None:
         cell += f" Δ{number(abs(values[0] - values[1]))}"
     return cell
@@ -124,6 +129,10 @@ def worst_run(
     The worst experiment is the one with the lowest total across the scores it
     recorded; within it, the first run that failed, because an experiment that
     ran the case three times and failed once has two traces that show nothing.
+
+    Ties go to the last experiment named, which is the newer run in the
+    comparison a caller actually makes: the baseline's trace is the one they
+    already know.
     """
     worst: tuple[float, Experiment, dict[str, Any]] | None = None
     grouped = runs_by_experiment(row)
@@ -132,7 +141,7 @@ def worst_run(
         if not runs:
             continue
         total = sum(sum(scores_of(run).values()) for run in runs) / len(runs)
-        if worst is None or total < worst[0]:
+        if worst is None or total <= worst[0]:
             failed = [run for run in runs if run.get("status") == "failed"]
             worst = (total, experiment, (failed or runs)[0])
     if worst is None:
@@ -243,7 +252,7 @@ def passed_cell(row: dict[str, Any], experiments: list[Experiment]) -> str:
             parts.append(_MISSING)
             continue
         parts.append(f"{summary.get('passed_runs', 0)}/{summary.get('total_runs', 0)}")
-    return " / ".join(parts)
+    return PASS_SEPARATOR.join(parts)
 
 
 def failure_reason(run: dict[str, Any]) -> str:

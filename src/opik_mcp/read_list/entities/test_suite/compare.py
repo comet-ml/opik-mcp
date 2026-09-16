@@ -19,7 +19,12 @@ import json
 from typing import Any
 
 from opik_mcp.opik_client import OpikReadClient
-from opik_mcp.read_list.entities.test_suite.layout import Experiment, render
+from opik_mcp.read_list.entities.test_suite.layout import (
+    PASS_SEPARATOR,
+    RUN_SEPARATOR,
+    Experiment,
+    render,
+)
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
 from opik_mcp.read_list.sorting import compile_sort
@@ -86,7 +91,8 @@ async def run_compare(
         applied.append(f'search: "{search}"')
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
-    notes = [_legend(experiments)]
+    suite_columns = any(experiment.is_suite for experiment in experiments)
+    notes = [_legend(experiments, suite_columns=suite_columns)]
     if not rows:
         return f"{header}\n{_empty(bool(clauses), bool(search))}\n\n{notes[0]}"
 
@@ -98,7 +104,7 @@ async def run_compare(
         size=size,
         header=header,
         notes=notes,
-        suite_columns=any(experiment.is_suite for experiment in experiments),
+        suite_columns=suite_columns,
     )
 
 
@@ -227,19 +233,20 @@ def _suite_of(experiments: list[Experiment], test_suite_id: str | None) -> str:
 # --- the lines under the table --------------------------------------------- #
 
 
-def _legend(experiments: list[Experiment]) -> str:
-    """Which experiment each slash-separated value belongs to."""
+def _legend(experiments: list[Experiment], *, suite_columns: bool) -> str:
+    """Which experiment each value in a cell belongs to."""
     named = "; ".join(f"{e.label} = {e.name} ({e.id})" for e in experiments)
+    passed = (
+        f" passed is passed/total runs, {PASS_SEPARATOR.join(e.label for e in experiments)}."
+        if suite_columns
+        else ""
+    )
     if len(experiments) == 1:
-        return f"{named}. Score cells carry {experiments[0].label}'s value."
-    order = " / ".join(e.label for e in experiments)
+        return f"{named}. Score cells carry {experiments[0].label}'s value.{passed}"
+    order = RUN_SEPARATOR.join(e.label for e in experiments)
     baseline = f"{experiments[0].label} is the baseline"
-    if len(experiments) == 2:
-        return (
-            f"{named}. {baseline}; score cells read {order} in that order, "
-            "and Δ is the unsigned gap between them."
-        )
-    return f"{named}. {baseline}; score cells read {order} in that order."
+    gap = ", and Δ is the unsigned gap between them" if len(experiments) == 2 else ""
+    return f"{named}. {baseline}; score cells read {order} in that order{gap}.{passed}"
 
 
 def _empty(filtered: bool, searched: bool) -> str:

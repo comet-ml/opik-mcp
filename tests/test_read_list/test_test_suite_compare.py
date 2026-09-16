@@ -379,3 +379,119 @@ async def test_without_experiment_ids_the_list_is_still_the_suites_cases() -> No
 def test_the_comparisons_page_defaults_are_the_list_tools() -> None:
     """Two modules cannot disagree about what ``size`` means by default."""
     assert (compare.DEFAULT_SIZE, compare.MAX_SIZE) == (_DEFAULT_SIZE, _MAX_SIZE)
+
+
+# --- the columns only a test suite has -------------------------------------- #
+
+
+def _summaries(**per_experiment: tuple[int, int]) -> dict[str, Any]:
+    return {
+        experiment_id: {
+            "passed_runs": passed,
+            "total_runs": total,
+            "status": "passed" if passed == total else "failed",
+        }
+        for experiment_id, (passed, total) in per_experiment.items()
+    }
+
+
+_REGRESSED = _case(
+    "case-1",
+    {"question": "Capital?"},
+    [
+        _run(A, trace="tr-a", scores={"correctness": 0.9}),
+        _run(B, trace="tr-b", scores={"correctness": 0.4}, passed=False, reason="Names Lyon."),
+    ],
+    summaries={**_summaries(**{A: (1, 1)}), **_summaries(**{B: (0, 1)})},
+)
+
+
+@pytest.mark.anyio
+async def test_a_suite_row_carries_pass_state_the_worst_trace_and_the_reason() -> None:
+    fake = _fake(_REGRESSED)
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "passed | worst_trace | reason" in out
+    assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
+    assert "passed is passed/total runs, E1·E2." in out
+
+
+@pytest.mark.anyio
+async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
+    """``evaluate()`` runs have no assertions, so a pass column could only ever
+    be empty — and an empty column reads like a failure to record, not like a
+    column that does not apply."""
+    fake = _fake(_REGRESSED)
+    fake.experiment_records[A] = _experiment(A, "baseline-v1", method="dataset")
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", method="dataset")
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "passed" not in out
+    assert "worst_trace" not in out
+    assert "reason" not in out
+    assert "0.9 / 0.4" in out
+
+
+@pytest.mark.anyio
+async def test_the_worst_trace_is_a_run_that_actually_failed() -> None:
+    """An experiment whose policy ran the case twice has a trace that shows
+    the failure and one that shows nothing."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b-pass", scores={"correctness": 0.9}),
+                _run(
+                    B,
+                    trace="tr-b-fail",
+                    scores={"correctness": 0.1},
+                    passed=False,
+                    reason="Names Lyon.",
+                ),
+            ],
+            summaries={**_summaries(**{A: (1, 1)}), **_summaries(**{B: (1, 2)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "1/1·1/2 | tr-b-fail (E2) | Names Lyon." in out
+
+
+@pytest.mark.anyio
+async def test_a_case_every_run_passed_names_a_trace_and_no_reason() -> None:
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.9}),
+            ],
+            summaries={**_summaries(**{A: (1, 1)}), **_summaries(**{B: (1, 1)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    # Ties go to the newer run: the baseline's trace is the one already known.
+    assert out.splitlines()[4].endswith("1/1·1/1 | tr-b (E2) | ")
+
+
+@pytest.mark.anyio
+async def test_a_row_without_run_summaries_or_assertions_still_renders() -> None:
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [{"experiment_id": A, "trace_id": "tr-a"}, {"experiment_id": B, "trace_id": "tr-b"}],
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "case-1 | Capital? | -·- | tr-b (E2) | " in out
