@@ -222,7 +222,7 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     assert joined.query["experiment_ids"] == [f"{EXPERIMENT_A},{EXPERIMENT_B}"]
     assert joined.query["truncate"] == ["true"]
 
-    assert answer.startswith("[list: test_suite_item | compare: 2 experiments]")
+    assert answer.startswith("[list: test_suite_item | compare: E1 baseline-v1 vs E2 rerank-v3]")
     assert "Found 8 test_suite_items (page 1, showing 4 of 8):" in answer
     assert f"E1 = baseline-v1 ({EXPERIMENT_A}); E2 = rerank-v3 ({EXPERIMENT_B})" in answer
     # The fourth case is the one rerank-v3 regressed on.

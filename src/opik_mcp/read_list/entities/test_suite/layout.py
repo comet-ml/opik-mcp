@@ -106,23 +106,77 @@ def number(value: float) -> str:
     return f"{round(value, 4):g}"
 
 
-def score_cell(row: dict[str, Any], name: str, experiments: list[Experiment]) -> str:
-    """One score, every experiment's value, in the order the caller named them.
+@dataclass(frozen=True)
+class ComparedRow:
+    """One case, with its runs grouped and its worst run already found.
 
-    With exactly two experiments the cell carries the gap between them. It is
-    unsigned here: which direction counts as better depends on the metric, and
-    saying so is OPIK-8394's job, not this one's.
+    Every cell of a row asks one of two questions — what did each experiment
+    score, and which run should the caller open — and both were being
+    re-derived per cell, the second one twice. The row answers them once.
     """
-    grouped = runs_by_experiment(row)
-    values = [score_value(grouped.get(experiment.id, []), name) for experiment in experiments]
-    cell = RUN_SEPARATOR.join(_MISSING if value is None else number(value) for value in values)
-    if len(values) == 2 and values[0] is not None and values[1] is not None:
-        cell += f" Δ{number(abs(values[0] - values[1]))}"
-    return cell
+
+    case: dict[str, Any]
+    experiments: list[Experiment]
+    runs: dict[str, list[dict[str, Any]]]
+    worst: tuple[Experiment, dict[str, Any]] | None
+
+    @classmethod
+    def of(cls, case: dict[str, Any], experiments: list[Experiment]) -> ComparedRow:
+        runs = runs_by_experiment(case)
+        return cls(case=case, experiments=experiments, runs=runs, worst=_worst(runs, experiments))
+
+    @property
+    def id(self) -> str:
+        return str(self.case.get("id") or "")
+
+    def data(self, key: str) -> str:
+        value = (self.case.get("data") or {}).get(key)
+        return "" if value is None else str(value)
+
+    def score(self, name: str) -> str:
+        """One score, every experiment's value, in the order the caller named them.
+
+        With exactly two experiments the cell carries the gap between them. It
+        is unsigned here: which direction counts as better depends on the
+        metric, and saying so is OPIK-8394's job, not this one's.
+        """
+        values = [score_value(self.runs.get(e.id, []), name) for e in self.experiments]
+        cell = RUN_SEPARATOR.join(_MISSING if v is None else number(v) for v in values)
+        if len(values) == 2 and values[0] is not None and values[1] is not None:
+            cell += f" Δ{number(abs(values[0] - values[1]))}"
+        return cell
+
+    def passed(self) -> str:
+        """Passed runs out of total, per experiment, in the caller's order."""
+        summaries = self.case.get("run_summaries_by_experiment")
+        summaries = summaries if isinstance(summaries, dict) else {}
+        parts = []
+        for experiment in self.experiments:
+            summary = summaries.get(experiment.id)
+            if not isinstance(summary, dict):
+                parts.append(_MISSING)
+                continue
+            parts.append(f"{summary.get('passed_runs', 0)}/{summary.get('total_runs', 0)}")
+        return PASS_SEPARATOR.join(parts)
+
+    def worst_trace(self) -> str:
+        if self.worst is None:
+            return _MISSING
+        experiment, run = self.worst
+        return f"{run.get('trace_id') or _MISSING} ({experiment.label})"
+
+    def reason(self) -> str:
+        """What the judge said about the first assertion the worst run failed."""
+        if self.worst is None:
+            return _MISSING
+        for assertion in self.worst[1].get("assertion_results") or []:
+            if isinstance(assertion, dict) and assertion.get("passed") is False:
+                return str(assertion.get("reason") or "")
+        return ""
 
 
-def worst_run(
-    row: dict[str, Any], experiments: list[Experiment]
+def _worst(
+    runs: dict[str, list[dict[str, Any]]], experiments: list[Experiment]
 ) -> tuple[Experiment, dict[str, Any]] | None:
     """The run a caller should open first, and whose experiment it was.
 
@@ -135,18 +189,15 @@ def worst_run(
     already know.
     """
     worst: tuple[float, Experiment, dict[str, Any]] | None = None
-    grouped = runs_by_experiment(row)
     for experiment in experiments:
-        runs = grouped.get(experiment.id, [])
-        if not runs:
+        own = runs.get(experiment.id, [])
+        if not own:
             continue
-        total = sum(sum(scores_of(run).values()) for run in runs) / len(runs)
+        total = sum(sum(scores_of(run).values()) for run in own) / len(own)
         if worst is None or total <= worst[0]:
-            failed = [run for run in runs if run.get("status") == "failed"]
-            worst = (total, experiment, (failed or runs)[0])
-    if worst is None:
-        return None
-    return worst[1], worst[2]
+            failed = [run for run in own if run.get("status") == "failed"]
+            worst = (total, experiment, (failed or own)[0])
+    return None if worst is None else (worst[1], worst[2])
 
 
 def render(
@@ -168,8 +219,9 @@ def render(
     data_keys, omitted_keys = data_columns(rows, MAX_DATA_COLUMNS)
     scores, omitted_scores = score_columns(rows)
     columns = ["id", *(f"data.{key}" for key in data_keys), *scores]
-    if suite_columns:
-        columns += ["passed", "worst_trace", "reason"]
+    # Every comparison names the run worth opening next. Only a test suite has
+    # a pass count and a judge's sentence to show beside it.
+    columns += ["passed", "worst_trace", "reason"] if suite_columns else ["worst_trace"]
     limit = cell_limit(len(rows), len(columns))
 
     lines = [
@@ -179,10 +231,11 @@ def render(
         " | ".join(columns),
     ]
     cut = 0
-    for row in rows:
+    for case in rows:
+        row = ComparedRow.of(case, experiments)
         values = []
         for column in columns:
-            text = _cell(row, column, experiments, scores)
+            text = _cell(row, column, scores)
             if len(text) > limit:
                 text = text[: limit - 3] + "..."
                 cut += 1
@@ -213,51 +266,15 @@ def render(
     return "\n".join(lines)
 
 
-def _cell(
-    row: dict[str, Any],
-    column: str,
-    experiments: list[Experiment],
-    scores: list[str],
-) -> str:
+def _cell(row: ComparedRow, column: str, scores: list[str]) -> str:
     if column == "id":
-        return str(row.get("id") or "")
+        return row.id
     if column.startswith("data."):
-        value = (row.get("data") or {}).get(column.removeprefix("data."))
-        return "" if value is None else str(value)
+        return row.data(column.removeprefix("data."))
     if column in scores:
-        return score_cell(row, column, experiments)
-    return _suite_cell(row, column, experiments)
-
-
-def _suite_cell(row: dict[str, Any], column: str, experiments: list[Experiment]) -> str:
+        return row.score(column)
     if column == "passed":
-        return passed_cell(row, experiments)
-    worst = worst_run(row, experiments)
-    if worst is None:
-        return _MISSING
-    experiment, run = worst
+        return row.passed()
     if column == "worst_trace":
-        return f"{run.get('trace_id') or _MISSING} ({experiment.label})"
-    return failure_reason(run)
-
-
-def passed_cell(row: dict[str, Any], experiments: list[Experiment]) -> str:
-    """Passed runs out of total, per experiment, in the caller's order."""
-    summaries = row.get("run_summaries_by_experiment")
-    summaries = summaries if isinstance(summaries, dict) else {}
-    parts = []
-    for experiment in experiments:
-        summary = summaries.get(experiment.id)
-        if not isinstance(summary, dict):
-            parts.append(_MISSING)
-            continue
-        parts.append(f"{summary.get('passed_runs', 0)}/{summary.get('total_runs', 0)}")
-    return PASS_SEPARATOR.join(parts)
-
-
-def failure_reason(run: dict[str, Any]) -> str:
-    """What the judge said about the first assertion this run failed."""
-    for assertion in run.get("assertion_results") or []:
-        if isinstance(assertion, dict) and assertion.get("passed") is False:
-            return str(assertion.get("reason") or "")
-    return ""
+        return row.worst_trace()
+    return row.reason()

@@ -60,6 +60,14 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
 }
 
 
+#: What an entity's filters cannot be used without. Only the compared items
+#: have such a condition: every one of their filter fields reads the runs,
+#: which exist only when the call names the experiments to compare.
+FILTER_REQUIREMENTS: Final[dict[str, str]] = {
+    "test_suite_item": "experiment_ids: filters, sort and search apply to the runs",
+}
+
+
 def list_reference(entity_type: str) -> dict[str, Any]:
     """The ``schema("list.<entity>")`` payload. ``entity_type`` must be supported."""
     handler = ENTITY_REGISTRY.get(entity_type)
@@ -93,11 +101,9 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
     if entity_type in SOURCE_DEFAULTED_ENTITIES:
         filters["default"] = 'source = "sdk" unless you name source'
-    if entity_type == "test_suite_item":
-        # Every one of these reads the compared runs, which only exist when
-        # the call names them. Without experiment_ids the list is the suite's
-        # cases and takes none of the three.
-        filters["requires"] = "experiment_ids: filters, sort and search apply to the runs"
+    requires = FILTER_REQUIREMENTS.get(entity_type)
+    if requires is not None:
+        filters["requires"] = requires
 
     return {
         "operation": f"list.{entity_type}",
@@ -109,4 +115,4 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
 
 
-__all__ = ["FILTER_EXAMPLES", "LIST_SCHEMA_KEYS", "list_reference"]
+__all__ = ["FILTER_EXAMPLES", "FILTER_REQUIREMENTS", "LIST_SCHEMA_KEYS", "list_reference"]

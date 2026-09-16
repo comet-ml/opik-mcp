@@ -11,6 +11,18 @@ from __future__ import annotations
 
 from typing import Any
 
+#: How many rows a page carries when the caller does not choose, and the most
+#: it will carry when they do. Here rather than in ``list_tool`` because an
+#: entity that answers ``list`` whole has to size its own page and must not
+#: drift from the tool that hands it the call.
+DEFAULT_PAGE_SIZE = 25
+MAX_PAGE_SIZE = 100
+
+
+def clamp_size(size: int | None) -> int:
+    """The page size actually used, from what the caller asked for."""
+    return max(1, min(size or DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE))
+
 
 def page_items(page_body: dict[str, Any]) -> list[dict[str, Any]]:
     raw = page_body.get("content") or []
@@ -82,6 +94,9 @@ def name_candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 __all__ = [
+    "DEFAULT_PAGE_SIZE",
+    "MAX_PAGE_SIZE",
+    "clamp_size",
     "collection_total",
     "collection_truncated",
     "continuation",

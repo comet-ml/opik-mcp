@@ -27,6 +27,7 @@ from opik_mcp.read_list.entities.test_suite.layout import (
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
+from opik_mcp.read_list.paging import clamp_size
 from opik_mcp.read_list.sorting import compile_sort
 
 #: What opik-backend stores on an experiment that ran a test suite. Not
@@ -45,11 +46,6 @@ REFETCH_ROW_CAP = 25
 #: A test suite's runs echo the case input back under ``input``, so it shows
 #: up as an output key that is not one. The UI hides it on the same page.
 ECHOED_OUTPUT_KEY = "input"
-#: The list tool's own page defaults, which a runner is handed as ``None``
-#: when the caller did not choose them (see ``list_tool._run_whole``).
-DEFAULT_SIZE = 25
-MAX_SIZE = 100
-
 _ENTITY = "test_suite_item"
 
 
@@ -70,8 +66,10 @@ async def run_compare(
     """The comparison, end to end: validate, resolve, ask, render."""
     ids = _validated_ids(experiment_ids, filters=filters, sort=sort)
     _refuse_window(since, until)
+    # A runner is handed ``None`` for a page argument the caller did not
+    # choose (see ``list_tool._run_whole``), so the defaults are applied here.
     page = max(1, page or 1)
-    size = max(1, min(size or DEFAULT_SIZE, MAX_SIZE))
+    size = clamp_size(size)
 
     experiments = await _resolve(client, ids)
     suite_id = _suite_of(experiments, test_suite_id)
@@ -114,7 +112,9 @@ async def run_compare(
     if stripping and rows:
         rows, unrestored = await _with_every_run(client, suite_id, ids, rows)
 
-    applied = [f"compare: {len(ids)} experiments"]
+    applied = [
+        "compare: " + " vs ".join(f"{e.label} {e.name}" for e in experiments),
+    ]
     if clauses:
         applied.append(f"filters: {render_filters(_ENTITY, clauses)}")
     if sort_label is not None:
@@ -124,7 +124,7 @@ async def run_compare(
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
     notes = [_legend(experiments, suite_columns=suite_columns)]
-    if stripping:
+    if stripping and rows:
         notes.append(
             "A filter on the runs matches a case when any of its experiments matches; the "
             "experiments that did not match were fetched back onto the row, so what you see "
@@ -146,7 +146,9 @@ async def run_compare(
             "shows only the runs that matched the filter."
         )
     if not rows:
-        return f"{header}\n{_empty(bool(clauses), bool(search))}\n\n{notes[0]}"
+        # An empty page still says what could be asked next: the keys, the
+        # search semantics and the legend are what turn it into a second call.
+        return "\n".join([header, _empty(bool(clauses), bool(search)), "", *notes])
 
     return render(
         rows,
@@ -215,7 +217,7 @@ async def _with_every_run(
     parallel, which is why the page is capped before we get here.
 
     A row whose refetch fails keeps what the filter returned: half a row is
-    still an answer, and the note says which half.
+    still an answer, and the note counts the rows it could not complete.
     """
     fetched = await asyncio.gather(
         *(

@@ -64,6 +64,7 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
+from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
@@ -88,14 +89,10 @@ logger = logging.getLogger("opik_mcp.read_list.list")
 #: rest of that record rather than a triage of the project.
 PARENT_ID_FIELDS = ("trace_id", "thread_id")
 
-_MAX_SIZE = 100
 _TRUNCATE_AT = 60
 # Free-text search is an ilike across several columns; on a cold cache the
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
-
-
-_DEFAULT_SIZE = 25
 
 
 @contextmanager
@@ -178,7 +175,7 @@ async def run_list(
     until: str | None = None,
     search: str | None = None,
     page: int = 1,
-    size: int = _DEFAULT_SIZE,
+    size: int = DEFAULT_PAGE_SIZE,
     project_id: str | None = None,
     project_name: str | None = None,
     test_suite_id: str | None = None,
@@ -226,7 +223,7 @@ async def run_list(
             settings=settings,
             client=client,
             page=page if page != 1 else None,
-            size=size if size != _DEFAULT_SIZE else None,
+            size=size if size != DEFAULT_PAGE_SIZE else None,
             **tool_args,
         )
 
@@ -237,7 +234,7 @@ async def run_list(
         err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
         raise ToolError(str(err)) from err
 
-    size = max(1, min(size, _MAX_SIZE))
+    size = clamp_size(size)
     page = max(1, page)
 
     kw: dict[str, Any] = {"page": page, "size": size}

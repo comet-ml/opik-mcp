@@ -26,11 +26,14 @@ def _with_next_step(record: dict[str, Any], entity_id: str) -> dict[str, Any]:
     if not record.get("dataset_id"):
         return record
     experiment_id = record.get("id") or entity_id
-    record["comparePerCase"] = (
-        "Which cases differ, rather than these averages: "
-        f"list('test_suite_item', experiment_ids=['{experiment_id}', '<other experiment id>'])"
-    )
-    return record
+    return {
+        **record,
+        "comparePerCase": (
+            "Which cases differ, rather than these averages: "
+            f"list('test_suite_item', experiment_ids=['{experiment_id}', "
+            "'<other experiment id>'])"
+        ),
+    }
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:

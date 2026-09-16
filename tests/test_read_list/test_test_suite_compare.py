@@ -16,8 +16,8 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.opik_client import OpikServerError
-from opik_mcp.read_list.entities.test_suite import compare
-from opik_mcp.read_list.list_tool import _DEFAULT_SIZE, _MAX_SIZE, run_list
+from opik_mcp.read_list.list_tool import run_list
+from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.reference import list_reference
 
 from .test_list_tool import FakeOpikClient
@@ -133,7 +133,7 @@ async def test_the_legend_names_the_baseline_and_the_order_of_the_values() -> No
     assert f"E1 = baseline-v1 ({A}); E2 = rerank-v3 ({B})" in out
     assert "E1 is the baseline" in out
     assert "Δ is the unsigned gap between them" in out
-    assert out.startswith("[list: test_suite_item | compare: 2 experiments]")
+    assert out.startswith("[list: test_suite_item | compare: E1 baseline-v1 vs E2 rerank-v3]")
 
 
 @pytest.mark.anyio
@@ -250,7 +250,7 @@ async def test_the_suite_comes_from_the_experiments_not_from_the_caller() -> Non
             "sorting": None,
             "search": None,
             "page": 1,
-            "size": _DEFAULT_SIZE,
+            "size": DEFAULT_PAGE_SIZE,
         }
     ]
 
@@ -354,10 +354,12 @@ async def test_a_time_window_is_refused_because_a_case_has_none() -> None:
 async def test_an_empty_comparison_says_why_it_could_be_empty() -> None:
     fake = _fake()
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("test_suite_item", experiment_ids=[A, B], search="nothing", client=fake)
 
-    assert "No cases found" in out
+    assert "No case matched the search" in out
     assert "E1 = baseline-v1" in out
+    # An empty page is a page to ask a second question from.
+    assert "matched the cases' data, not the runs' output" in out
 
 
 # --- the plain listing is untouched ----------------------------------------- #
@@ -374,14 +376,9 @@ async def test_without_experiment_ids_the_list_is_still_the_suites_cases() -> No
 
     out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
 
-    assert fake.last_kwargs == {"test_suite_id": SUITE, "page": 1, "size": _DEFAULT_SIZE}
+    assert fake.last_kwargs == {"test_suite_id": SUITE, "page": 1, "size": DEFAULT_PAGE_SIZE}
     assert "i-1 | Paris | Capital?" in out
     assert fake.compare_calls == []
-
-
-def test_the_comparisons_page_defaults_are_the_list_tools() -> None:
-    """Two modules cannot disagree about what ``size`` means by default."""
-    assert (compare.DEFAULT_SIZE, compare.MAX_SIZE) == (_DEFAULT_SIZE, _MAX_SIZE)
 
 
 # --- the columns only a test suite has -------------------------------------- #
@@ -432,9 +429,10 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
 
     assert "passed" not in out
-    assert "worst_trace" not in out
     assert "reason" not in out
-    assert "0.9 / 0.4" in out
+    # The run worth opening next is not a test suite's privilege.
+    assert "correctness | worst_trace" in out
+    assert "0.9 / 0.4 Δ0.5 | tr-b (E2)" in out
 
 
 @pytest.mark.anyio
