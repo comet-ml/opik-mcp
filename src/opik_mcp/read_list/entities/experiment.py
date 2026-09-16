@@ -52,6 +52,15 @@ HANDLER = EntityHandler(
     # feedback_scores is the experiment's per-metric averages, rendered as
     # ``name=value`` pairs so a comparison list reads without a read() per row.
     list_extra_fields=("dataset_name", "created_at", "feedback_scores"),
-    no_window_reason="experiments have no time window on the backend.",
+    # The refusal has to end the caller's problem, not restate it. The
+    # backend orders experiments by id descending and the ids are time
+    # ordered, so the page is newest-first whether or not anyone asked for
+    # it — which is what a window was reaching for. Naming the sort field
+    # makes the alternative copyable into the next call.
+    no_window_reason=(
+        "experiments have no time window on the backend. The list is already newest-first "
+        '(sort="created_at desc" to say so explicitly), so page through it until you pass '
+        "the date you care about."
+    ),
     description="Experiment status + summary scores.",
 )

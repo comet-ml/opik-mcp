@@ -642,6 +642,22 @@ async def test_window_on_experiment_is_rejected_with_a_clear_message() -> None:
 
 
 @pytest.mark.anyio
+async def test_window_refusal_on_experiment_names_the_way_through() -> None:
+    """A refusal that only says no leaves the caller where it found them.
+
+    The backend orders experiments by id descending and the ids are time
+    ordered, so the page is newest-first whether or not anyone asked. That
+    is the answer the window was reaching for, and naming the sort field
+    makes it copyable into the next call.
+    """
+    with pytest.raises(ToolError) as err:
+        await run_list("experiment", since="7d", client=FakeOpikClient())
+    message = str(err.value)
+    assert "newest-first" in message
+    assert 'sort="created_at desc"' in message
+
+
+@pytest.mark.anyio
 async def test_window_on_thread_is_forwarded() -> None:
     fake = FakeOpikClient()
     await run_list("thread", project_id="p-1", since="2026-09-08T00:00:00Z", client=fake)

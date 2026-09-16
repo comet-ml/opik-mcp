@@ -68,6 +68,21 @@ FILTER_REQUIREMENTS: Final[dict[str, str]] = {
 }
 
 
+#: Per-field caveats, keyed by entity then field. For a field whose name
+#: promises more than it matches: the reference is where a caller looks
+#: before writing the filter, so it is where the gap has to be stated. A
+#: refusal cannot carry it — the filter is accepted and answers 200.
+FIELD_NOTES: Final[dict[str, dict[str, str]]] = {
+    "experiment": {
+        "prompt_ids": (
+            "matches prompt ids, not prompt version ids: the backend compares against the "
+            "experiment's prompt ids, so this narrows to a prompt and not to one version of "
+            "it. No prompt-version filter exists on the backend."
+        ),
+    },
+}
+
+
 def list_reference(entity_type: str) -> dict[str, Any]:
     """The ``schema("list.<entity>")`` payload. ``entity_type`` must be supported."""
     handler = ENTITY_REGISTRY.get(entity_type)
@@ -87,6 +102,9 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             spec["unit"] = "milliseconds"
         if ftype == "date_time":
             spec["format"] = 'ISO-8601 instant with timezone, e.g. "2026-09-08T10:00:00Z"'
+        note = FIELD_NOTES.get(entity_type, {}).get(name)
+        if note is not None:
+            spec["note"] = note
         values = ENUM_VALUES.get(entity_type, {}).get(name)
         if values is not None:
             # The compiler refuses anything else, so the accepted set has to be
@@ -115,4 +133,10 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
 
 
-__all__ = ["FILTER_EXAMPLES", "FILTER_REQUIREMENTS", "LIST_SCHEMA_KEYS", "list_reference"]
+__all__ = [
+    "FIELD_NOTES",
+    "FILTER_EXAMPLES",
+    "FILTER_REQUIREMENTS",
+    "LIST_SCHEMA_KEYS",
+    "list_reference",
+]

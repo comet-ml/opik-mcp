@@ -52,6 +52,18 @@ def test_list_experiment_reference_has_no_window_search_or_source_default() -> N
     assert set(ref["filters"]["fields"]) == set(FILTERABLE_FIELDS["experiment"])
 
 
+def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None:
+    """The field is named for ids and matches prompts, which is the kind of
+    gap a caller cannot see from the name. The backend concatenates the
+    legacy prompt id with the keys of the prompt-versions map, and those
+    keys are prompt ids — nothing filters by prompt version id at all. A
+    caller who assumes otherwise gets a broader page that looks exact."""
+    ref = run_schema("list.experiment")
+    note = ref["filters"]["fields"]["prompt_ids"]["note"]
+    assert "prompt ids" in note
+    assert "version" in note
+
+
 @pytest.mark.parametrize("entity_type", ["trace", "span", "thread", "experiment"])
 def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> None:
     ref = run_schema(f"list.{entity_type}")
