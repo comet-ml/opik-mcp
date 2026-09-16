@@ -9,13 +9,16 @@ it then ignores.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.opik_client import OpikServerError
 from opik_mcp.read_list.entities.test_suite import compare
 from opik_mcp.read_list.list_tool import _DEFAULT_SIZE, _MAX_SIZE, run_list
+from opik_mcp.read_list.reference import list_reference
 
 from .test_list_tool import FakeOpikClient
 
@@ -495,3 +498,148 @@ async def test_a_row_without_run_summaries_or_assertions_still_renders() -> None
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
 
     assert "case-1 | Capital? | -·- | tr-b (E2) | " in out
+
+
+# --- filters ---------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_filter_on_the_runs_puts_the_hidden_experiments_back() -> None:
+    """The backend strips the runs that did not match. A row showing only the
+    failing run cannot tell a regression from a case that was always bad."""
+    stripped = _case(
+        "case-1",
+        {"question": "Capital?"},
+        [_run(B, trace="tr-b", scores={"correctness": 0.4}, passed=False, reason="Names Lyon.")],
+    )
+    fake = _fake(stripped)
+    fake.compared_items = {"content": [stripped], "total": 1}
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        filters="feedback_scores.correctness < 0.5",
+        client=fake,
+    )
+
+    assert len(fake.compare_calls) == 2
+    first, refetch = fake.compare_calls
+    assert json.loads(first["filters"]) == [
+        {"field": "feedback_scores", "operator": "<", "key": "correctness", "value": "0.5"}
+    ]
+    assert json.loads(refetch["filters"]) == [
+        {"field": "id", "operator": "=", "key": "", "value": "case-1"}
+    ]
+    assert refetch["size"] == 1
+    assert "matches a case when any of its experiments matches" in out
+
+
+@pytest.mark.anyio
+async def test_a_filter_on_the_case_needs_no_second_call() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        filters='data.question contains "Capital"',
+        client=fake,
+    )
+
+    assert len(fake.compare_calls) == 1
+    assert json.loads(fake.compare_calls[0]["filters"]) == [
+        {
+            "field": "data.question",
+            "type": "string",
+            "operator": "contains",
+            "key": "",
+            "value": "Capital",
+        }
+    ]
+    assert "matches a case when any" not in out
+
+
+@pytest.mark.anyio
+async def test_a_refetch_that_fails_keeps_the_row_it_could_not_complete() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    calls: list[dict[str, Any]] = []
+
+    async def one_good_then_broken(test_suite_id: str, /, **kw: Any) -> dict[str, Any]:
+        calls.append(kw)
+        if len(calls) == 1:
+            return fake.compared_items
+        raise OpikServerError("refetch exploded (500).")
+
+    fake.list_compared_test_suite_items = one_good_then_broken  # type: ignore[method-assign]
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        filters="feedback_scores.correctness < 0.5",
+        client=fake,
+    )
+
+    assert "case-1" in out
+    assert "1 row could not be fetched again" in out
+
+
+@pytest.mark.anyio
+async def test_a_run_filter_over_a_wide_page_is_refused_before_it_fans_out() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list(
+            "test_suite_item",
+            experiment_ids=[A, B],
+            filters="feedback_scores.correctness < 0.5",
+            size=26,
+            client=fake,
+        )
+
+    assert "use size=25 or less" in str(refusal.value)
+    assert fake.compare_calls == []
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        filters="feedback_scores.correctness < 0.5",
+        size=25,
+        client=fake,
+    )
+    assert "case-1" in out
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "unapplied",
+    ["total_estimated_cost > 0.01", "usage.total_tokens > 100"],
+)
+async def test_filters_the_backend_accepts_and_ignores_are_refused(unapplied: str) -> None:
+    """Both pass the joined endpoint's validation and never reach its query, so
+    the page comes back unfiltered and reads as filtered."""
+    fake = _fake(_DEFAULT_CASE)
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list("test_suite_item", experiment_ids=[A, B], filters=unapplied, client=fake)
+
+    message = str(refusal.value)
+    assert "Unknown field" in message
+    assert "answers 200 and never applies it" in message
+    assert "comments, data, duration, feedback_scores, id, output" in message
+    assert fake.compare_calls == []
+
+
+def test_the_schema_publishes_the_fields_a_comparison_can_filter_and_sort_on() -> None:
+    reference = list_reference("test_suite_item")
+
+    assert sorted(reference["filters"]["fields"]) == [
+        "comments",
+        "data",
+        "duration",
+        "feedback_scores",
+        "id",
+        "output",
+    ]
+    assert reference["filters"]["fields"]["data"]["key"] == "required"
+    assert reference["filters"]["fields"]["output"]["key"] == "optional"
+    assert "status" not in reference["sort"]["fields"]
+    assert "experiment_ids" in reference["filters"]["requires"]

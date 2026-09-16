@@ -35,6 +35,13 @@ from opik_mcp.read_list.sorting import compile_sort
 TEST_SUITE_METHOD = "evaluation_suite"
 
 MAX_EXPERIMENTS = 10
+#: Filter fields that live on the runs rather than on the case. opik-backend
+#: applies these inside the join, so a row comes back carrying only the runs
+#: that matched — the others are not absent, they are hidden.
+RUN_LEVEL_FIELDS = ("feedback_scores", "output", "duration")
+#: How many rows a run-level filter may put back together in one call. Each
+#: costs a request, and one tool call turning into a hundred is not a page.
+REFETCH_ROW_CAP = 25
 #: The list tool's own page defaults, which a runner is handed as ``None``
 #: when the caller did not choose them (see ``list_tool._run_whole``).
 DEFAULT_SIZE = 25
@@ -67,6 +74,14 @@ async def run_compare(
     suite_id = _suite_of(experiments, test_suite_id)
 
     clauses = compile_filters(_ENTITY, filters) if filters else []
+    stripping = _strips_runs(clauses, experiment_count=len(ids))
+    if stripping and size > REFETCH_ROW_CAP:
+        raise EntityArgValidationError(
+            f"A filter on the runs ({', '.join(RUN_LEVEL_FIELDS)}) hides the experiments that "
+            f"did not match, so each matched case is fetched again to put them back. "
+            f"size={size} would be {size} extra requests; use size={REFETCH_ROW_CAP} or less, "
+            "or filter on the case (data.<key>, id, comments) instead."
+        )
     sorting, sort_label = _sorting(sort)
 
     body = await client.list_compared_test_suite_items(
@@ -82,6 +97,10 @@ async def run_compare(
     total_raw = body.get("total")
     total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(rows)
 
+    unrestored = 0
+    if stripping and rows:
+        rows, unrestored = await _with_every_run(client, suite_id, ids, rows)
+
     applied = [f"compare: {len(ids)} experiments"]
     if clauses:
         applied.append(f"filters: {render_filters(_ENTITY, clauses)}")
@@ -93,6 +112,17 @@ async def run_compare(
 
     suite_columns = any(experiment.is_suite for experiment in experiments)
     notes = [_legend(experiments, suite_columns=suite_columns)]
+    if stripping:
+        notes.append(
+            "A filter on the runs matches a case when any of its experiments matches; the "
+            "experiments that did not match were fetched back onto the row, so what you see "
+            "is the whole case."
+        )
+    if unrestored:
+        notes.append(
+            f"{unrestored} row{'s' if unrestored != 1 else ''} could not be fetched again and "
+            "shows only the runs that matched the filter."
+        )
     if not rows:
         return f"{header}\n{_empty(bool(clauses), bool(search))}\n\n{notes[0]}"
 
@@ -106,6 +136,64 @@ async def run_compare(
         notes=notes,
         suite_columns=suite_columns,
     )
+
+
+def _strips_runs(clauses: list[dict[str, str]], *, experiment_count: int) -> bool:
+    """Will this filter hide runs the caller needs to see?
+
+    Only a filter on the runs does, and only when there is more than one run
+    to hide: comparing a single experiment, the row carries what matched and
+    nothing was lost.
+    """
+    if experiment_count < 2:
+        return False
+    return any(clause["field"].split(".")[0] in RUN_LEVEL_FIELDS for clause in clauses)
+
+
+async def _with_every_run(
+    client: OpikReadClient,
+    suite_id: str,
+    ids: list[str],
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """Put the stripped experiments back, one request per matched case.
+
+    The backend has no list operator for ``id`` on this endpoint — it is an
+    exact-match string field, and clauses are ANDed — so the page cannot be
+    asked for again in one call. It is asked for a row at a time instead, in
+    parallel, which is why the page is capped before we get here.
+
+    A row whose refetch fails keeps what the filter returned: half a row is
+    still an answer, and the note says which half.
+    """
+    fetched = await asyncio.gather(
+        *(
+            client.list_compared_test_suite_items(
+                suite_id,
+                experiment_ids=ids,
+                filters=json.dumps(
+                    [{"field": "id", "operator": "=", "key": "", "value": str(row.get("id"))}],
+                    separators=(",", ":"),
+                ),
+                page=1,
+                size=1,
+            )
+            for row in rows
+        ),
+        return_exceptions=True,
+    )
+    whole: list[dict[str, Any]] = []
+    unrestored = 0
+    for row, result in zip(rows, fetched, strict=True):
+        content = (
+            result.get("content") if isinstance(result, dict) and result.get("content") else None
+        )
+        if not content or not isinstance(content[0], dict):
+            unrestored += 1
+            whole.append(row)
+            continue
+        whole.append(content[0])
+    return whole, unrestored
 
 
 # --- what the call has to get right before anything is fetched ------------- #

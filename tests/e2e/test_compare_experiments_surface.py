@@ -274,3 +274,64 @@ async def test_experiments_from_two_suites_are_refused_before_anything_is_joined
 
     assert "support-qa" in refusal and "billing-qa" in refusal
     assert not backend.called("items/experiments/items")
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
+    backend: StubBackend,
+) -> None:
+    """The backend answers a run-level filter with the other runs stripped off.
+    Reading that page as it arrives cannot tell a regression from a case that
+    was always bad, so each matched case is fetched again without the clause."""
+    backend.suite = CompareSuite(case_count=8, strip_to_experiment=EXPERIMENT_B)
+
+    async with _session(backend) as session:
+        answer = await _call(
+            session,
+            "list",
+            entity_type="test_suite_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+            filters="feedback_scores.correctness < 0.5",
+            size=4,
+        )
+
+    joined = backend.sent(_JOINED)
+    assert len(joined) == 5, "one filtered page, then one refetch per row on it"
+    assert joined[0].query["filters"] == [
+        '[{"field":"feedback_scores","operator":"<","key":"correctness","value":"0.5"}]'
+    ]
+    for request in joined[1:]:
+        assert '"field":"id"' in request.query["filters"][0]
+        assert request.query["size"] == ["1"]
+
+    rows = [line for line in answer.splitlines() if line.startswith("0199c6a4")]
+    assert all(" / " in row for row in rows), "both runs are on every row again"
+    assert "0.9 / 0.4 Δ0.5" in rows[3]
+    assert "matches a case when any of its experiments matches" in answer
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
+    backend: StubBackend,
+) -> None:
+    answers: dict[int, str] = {}
+    calls: dict[int, list[str]] = {}
+    for case_count in (20, 100_000):
+        backend.suite = CompareSuite(case_count=case_count, strip_to_experiment=EXPERIMENT_B)
+        backend.requests.clear()
+        async with _session(backend) as session:
+            answers[case_count] = await _call(
+                session,
+                "list",
+                entity_type="test_suite_item",
+                experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+                filters="feedback_scores.correctness < 0.5",
+                size=5,
+            )
+        calls[case_count] = [request.path for request in backend.requests]
+
+    assert calls[20] == calls[100_000]
+    ratio = len(answers[100_000]) / len(answers[20])
+    assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"

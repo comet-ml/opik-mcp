@@ -237,6 +237,17 @@ ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     },
 }
 
+#: Fields an agent will reasonably try that an entity does not offer, and why.
+#: Appended to the unknown-field message so the answer is "the backend ignores
+#: it" rather than "you misspelled something".
+IGNORED_BY_BACKEND: Final[dict[str, tuple[frozenset[str], str]]] = {
+    "test_suite_item": (
+        frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+        "The compare endpoint accepts it, answers 200 and never applies it, so a page "
+        "filtered on it would be an unfiltered page.",
+    ),
+}
+
 SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(FILTERABLE_FIELDS)
 # The per-entity search surface beyond filters, in one place so the list tool
 # and the schema reference cannot disagree. Experiments have no ``source``
@@ -552,19 +563,17 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
     if field == "usage":
         composite = f"usage.{key}" if key is not None else "usage"
         if composite not in fields:
-            return None, OQLIssue(
-                "unknown_field",
-                f"Unknown field '{composite}'. Usage fields: {', '.join(USAGE_FIELDS)}.",
-            )
+            known = [one for one in USAGE_FIELDS if one in fields]
+            if known:
+                return None, OQLIssue(
+                    "unknown_field",
+                    f"Unknown field '{composite}'. Usage fields: {', '.join(known)}.",
+                )
+            return None, _unknown_field(entity_type, composite, fields)
         field, key = composite, None
 
     if field not in fields:
-        names = sorted(fields)
-        close = difflib.get_close_matches(field, names, n=1, cutoff=0.6)
-        hint = f" Did you mean '{close[0]}'?" if close else ""
-        return None, OQLIssue(
-            "unknown_field", f"Unknown field '{field}'.{hint} Fields: {', '.join(names)}."
-        )
+        return None, _unknown_field(entity_type, field, fields)
 
     ftype = fields[field]
     if key is not None and ftype not in KEY_ALLOWED_TYPES:
@@ -605,6 +614,16 @@ def _dynamic_clause(field: str, key: str | None, raw: _RawClause) -> dict[str, s
         "key": "",
         "value": raw.value,
     }
+
+
+def _unknown_field(entity_type: str, field: str, fields: dict[str, FieldType]) -> OQLIssue:
+    names = sorted(fields)
+    close = difflib.get_close_matches(field, names, n=1, cutoff=0.6)
+    hint = f" Did you mean '{close[0]}'?" if close else ""
+    ignored, why = IGNORED_BY_BACKEND.get(entity_type, (frozenset(), ""))
+    if field in ignored:
+        hint = f" {why}"
+    return OQLIssue("unknown_field", f"Unknown field '{field}'.{hint} Fields: {', '.join(names)}.")
 
 
 def _validate_value(
