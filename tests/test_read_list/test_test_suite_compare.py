@@ -643,3 +643,52 @@ def test_the_schema_publishes_the_fields_a_comparison_can_filter_and_sort_on() -
     assert reference["filters"]["fields"]["output"]["key"] == "optional"
     assert "status" not in reference["sort"]["fields"]
     assert "experiment_ids" in reference["filters"]["requires"]
+
+
+# --- sort ------------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_sort_the_backend_orders_by_is_sent_and_echoed() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        sort="feedback_scores.correctness asc",
+        client=fake,
+    )
+
+    assert json.loads(fake.compare_calls[0]["sorting"]) == [
+        {"field": "feedback_scores.correctness", "direction": "ASC"}
+    ]
+    assert "sort: feedback_scores.correctness asc" in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("dropped", ["status desc", "passed asc", "reason asc"])
+async def test_a_sort_the_backend_would_drop_is_refused_before_the_call(dropped: str) -> None:
+    """opik-backend logs an unsupported sort field and answers 200 with an
+    unsorted page, which reads exactly like a sorted one."""
+    fake = _fake(_DEFAULT_CASE)
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list("test_suite_item", experiment_ids=[A, B], sort=dropped, client=fake)
+
+    message = str(refusal.value)
+    assert "feedback_scores.<name>" in message
+    assert fake.compare_calls == []
+
+
+@pytest.mark.anyio
+async def test_sorting_by_a_case_key_or_an_output_key_is_allowed() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    for sort in ("data.question desc", "output.answer asc", "duration desc"):
+        await run_list("test_suite_item", experiment_ids=[A, B], sort=sort, client=fake)
+
+    assert [json.loads(call["sorting"])[0]["field"] for call in fake.compare_calls] == [
+        "data.question",
+        "output.answer",
+        "duration",
+    ]
