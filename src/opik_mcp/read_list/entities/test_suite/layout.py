@@ -180,24 +180,38 @@ def _worst(
 ) -> tuple[Experiment, dict[str, Any]] | None:
     """The run a caller should open first, and whose experiment it was.
 
-    The worst experiment is the one with the lowest total across the scores it
-    recorded; within it, the first run that failed, because an experiment that
-    ran the case three times and failed once has two traces that show nothing.
+    The worst run is the single experiment item with the lowest sum of the
+    scores it recorded — not the experiment with the lowest average, which an
+    experiment that ran the case three times can win while every one of its
+    runs passed. Its experiment owns the row's trace.
+
+    Within that experiment it is the first run that *failed*, because one that
+    ran the case three times and failed once has two traces that show nothing;
+    with no failed run it is the lowest-scoring one, which is the same item
+    that picked the experiment.
 
     Ties go to the last experiment named, which is the newer run in the
     comparison a caller actually makes: the baseline's trace is the one they
     already know.
     """
-    worst: tuple[float, Experiment, dict[str, Any]] | None = None
+    worst: tuple[float, Experiment, list[dict[str, Any]]] | None = None
     for experiment in experiments:
         own = runs.get(experiment.id, [])
         if not own:
             continue
-        total = sum(sum(scores_of(run).values()) for run in own) / len(own)
-        if worst is None or total <= worst[0]:
-            failed = [run for run in own if run.get("status") == "failed"]
-            worst = (total, experiment, (failed or own)[0])
-    return None if worst is None else (worst[1], worst[2])
+        lowest = min(_total(run) for run in own)
+        if worst is None or lowest <= worst[0]:
+            worst = (lowest, experiment, own)
+    if worst is None:
+        return None
+    _, experiment, own = worst
+    failed = next((run for run in own if run.get("status") == "failed"), None)
+    return experiment, failed or min(own, key=_total)
+
+
+def _total(run: dict[str, Any]) -> float:
+    """One experiment item's standing: the sum of the scores it recorded."""
+    return sum(scores_of(run).values())
 
 
 def render(

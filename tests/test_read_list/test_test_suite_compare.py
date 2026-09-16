@@ -87,7 +87,7 @@ def _case(
 def _fake(*cases: dict[str, Any], total: int | None = None, **kw: Any) -> FakeOpikClient:
     return FakeOpikClient(
         experiment_records={
-            A: _experiment(A, "baseline-v1"),
+            A: _experiment(A, "rerank-v1"),
             B: _experiment(B, "rerank-v3"),
             C: _experiment(C, "rerank-v4"),
         },
@@ -130,10 +130,13 @@ async def test_the_legend_names_the_baseline_and_the_order_of_the_values() -> No
 
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
 
-    assert f"E1 = baseline-v1 ({A}); E2 = rerank-v3 ({B})" in out
+    # The labels are the key to every cell, so they are above the table, with
+    # the ids the caller's next call is written with — not in a note below it.
+    assert out.startswith(
+        f"[list: test_suite_item | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
+    )
     assert "E1 is the baseline" in out
     assert "Δ is the unsigned gap between them" in out
-    assert out.startswith("[list: test_suite_item | compare: E1 baseline-v1 vs E2 rerank-v3]")
 
 
 @pytest.mark.anyio
@@ -357,7 +360,7 @@ async def test_an_empty_comparison_says_why_it_could_be_empty() -> None:
     out = await run_list("test_suite_item", experiment_ids=[A, B], search="nothing", client=fake)
 
     assert "No case matched the search" in out
-    assert "E1 = baseline-v1" in out
+    assert f"E1 = baseline rerank-v1 ({A})" in out
     # An empty page is a page to ask a second question from.
     assert "matched the cases' data, not the runs' output" in out
 
@@ -423,7 +426,7 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     be empty — and an empty column reads like a failure to record, not like a
     column that does not apply."""
     fake = _fake(_REGRESSED)
-    fake.experiment_records[A] = _experiment(A, "baseline-v1", method="dataset")
+    fake.experiment_records[A] = _experiment(A, "rerank-v1", method="dataset")
     fake.experiment_records[B] = _experiment(B, "rerank-v3", method="dataset")
 
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
@@ -461,6 +464,57 @@ async def test_the_worst_trace_is_a_run_that_actually_failed() -> None:
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
 
     assert "1/1·1/2 | tr-b-fail (E2) | Names Lyon." in out
+
+
+@pytest.mark.anyio
+async def test_the_worst_run_is_the_worst_run_not_the_worst_average() -> None:
+    """An experiment that ran the case three times and blew one of them is
+    where the failure is, even though its average beats the other run's."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a1", scores={"correctness": 1.0}),
+                _run(A, trace="tr-a2", scores={"correctness": 1.0}),
+                _run(
+                    A,
+                    trace="tr-a3",
+                    scores={"correctness": 0.5},
+                    passed=False,
+                    reason="Names Lyon.",
+                ),
+                _run(B, trace="tr-b", scores={"correctness": 0.7}),
+            ],
+            summaries={**_summaries(**{A: (2, 3)}), **_summaries(**{B: (1, 1)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    # A averages 0.83 against B's 0.7, so an average would open B's trace and
+    # show nothing. The lowest experiment item is A's third run.
+    assert "2/3·1/1 | tr-a3 (E1) | Names Lyon." in out
+
+
+@pytest.mark.anyio
+async def test_with_no_failed_run_the_worst_trace_is_the_lowest_scoring_one() -> None:
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a-high", scores={"correctness": 0.9}),
+                _run(A, trace="tr-a-low", scores={"correctness": 0.2}),
+                _run(B, trace="tr-b", scores={"correctness": 0.95}),
+            ],
+            summaries={**_summaries(**{A: (2, 2)}), **_summaries(**{B: (1, 1)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "tr-a-low (E1)" in out
 
 
 @pytest.mark.anyio
@@ -577,7 +631,39 @@ async def test_a_refetch_that_fails_keeps_the_row_it_could_not_complete() -> Non
     )
 
     assert "case-1" in out
-    assert "1 row could not be fetched again" in out
+    # Naming the row makes that row suspect; a bare count makes the page suspect.
+    assert (
+        "1 row could not be fetched again and shows only the runs that matched "
+        "the filter: case-1." in out
+    )
+
+
+@pytest.mark.anyio
+async def test_a_backend_having_a_bad_minute_does_not_fill_the_note_with_ids() -> None:
+    """A capped page is 25 rows; 25 uuids of apology is not a note."""
+    cases = [
+        _case(f"case-{n}", {"question": "Capital?"}, [_run(B, scores={"correctness": 0.4})])
+        for n in range(1, 6)
+    ]
+    fake = _fake(*cases)
+    calls: list[dict[str, Any]] = []
+
+    async def one_good_then_broken(test_suite_id: str, /, **kw: Any) -> dict[str, Any]:
+        calls.append(kw)
+        if len(calls) == 1:
+            return fake.compared_items
+        raise OpikServerError("refetch exploded (500).")
+
+    fake.list_compared_test_suite_items = one_good_then_broken  # type: ignore[method-assign]
+
+    out = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        filters="feedback_scores.correctness < 0.5",
+        client=fake,
+    )
+
+    assert "the filter: case-1, case-2, case-3, and 2 more." in out
 
 
 @pytest.mark.anyio
@@ -715,7 +801,7 @@ async def test_the_first_page_names_the_output_keys_and_the_case_keys() -> None:
 @pytest.mark.anyio
 async def test_a_plain_dataset_keeps_its_input_output_key() -> None:
     fake = _fake(_DEFAULT_CASE, compared_columns=_columns("input", "answer"))
-    fake.experiment_records[A] = _experiment(A, "baseline-v1", method="dataset")
+    fake.experiment_records[A] = _experiment(A, "rerank-v1", method="dataset")
     fake.experiment_records[B] = _experiment(B, "rerank-v3", method="dataset")
 
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)

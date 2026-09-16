@@ -124,7 +124,7 @@ class CompareSuite:
 def _default_experiments() -> dict[str, ExperimentSpec]:
     """Two runs of one suite, the second regressing on every fourth case."""
     return {
-        EXPERIMENT_A: ExperimentSpec(name="baseline-v1"),
+        EXPERIMENT_A: ExperimentSpec(name="rerank-v1"),
         EXPERIMENT_B: ExperimentSpec(name="rerank-v3", fails_every=4),
         EXPERIMENT_OTHER_SUITE: ExperimentSpec(
             name="billing-v1",

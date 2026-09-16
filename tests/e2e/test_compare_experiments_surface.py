@@ -142,14 +142,14 @@ def test_a_hundred_thousand_case_suite_builds_only_the_page_asked_for(
 
 @pytest.mark.e2e
 def test_an_experiment_carries_its_suite_and_how_it_was_evaluated(backend: StubBackend) -> None:
-    backend.experiments[EXPERIMENT_A] = ExperimentSpec(name="baseline-v1")
+    backend.experiments[EXPERIMENT_A] = ExperimentSpec(name="rerank-v1")
     backend.experiments["plain"] = ExperimentSpec(name="evaluate-run", evaluation_method="dataset")
 
     suite_run = _get(backend, f"/v1/private/experiments/{EXPERIMENT_A}")
     other = _get(backend, f"/v1/private/experiments/{EXPERIMENT_OTHER_SUITE}")
     plain = _get(backend, "/v1/private/experiments/plain")
 
-    assert (suite_run["dataset_id"], suite_run["name"]) == (SUITE_ID, "baseline-v1")
+    assert (suite_run["dataset_id"], suite_run["name"]) == (SUITE_ID, "rerank-v1")
     assert suite_run["evaluation_method"] == "evaluation_suite"
     assert other["dataset_id"] == OTHER_SUITE_ID
     assert plain["evaluation_method"] == "dataset"
@@ -222,9 +222,12 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     assert joined.query["experiment_ids"] == [f"{EXPERIMENT_A},{EXPERIMENT_B}"]
     assert joined.query["truncate"] == ["true"]
 
-    assert answer.startswith("[list: test_suite_item | compare: E1 baseline-v1 vs E2 rerank-v3]")
+    assert answer.startswith(
+        "[list: test_suite_item | compare: "
+        f"E1 = baseline rerank-v1 ({EXPERIMENT_A}), E2 = rerank-v3 ({EXPERIMENT_B})]"
+    )
     assert "Found 8 test_suite_items (page 1, showing 4 of 8):" in answer
-    assert f"E1 = baseline-v1 ({EXPERIMENT_A}); E2 = rerank-v3 ({EXPERIMENT_B})" in answer
+    assert "E1 is the baseline" in answer
     # The fourth case is the one rerank-v3 regressed on.
     regressed = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
     assert "0.9 / 0.4 Δ0.5" in regressed

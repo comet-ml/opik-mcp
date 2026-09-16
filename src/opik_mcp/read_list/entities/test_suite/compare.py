@@ -108,13 +108,11 @@ async def run_compare(
     total_raw = body.get("total")
     total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(rows)
 
-    unrestored = 0
+    unrestored: list[str] = []
     if stripping and rows:
         rows, unrestored = await _with_every_run(client, suite_id, ids, rows)
 
-    applied = [
-        "compare: " + " vs ".join(f"{e.label} {e.name}" for e in experiments),
-    ]
+    applied = [f"compare: {_legend(experiments)}"]
     if clauses:
         applied.append(f"filters: {render_filters(_ENTITY, clauses)}")
     if sort_label is not None:
@@ -123,7 +121,7 @@ async def run_compare(
         applied.append(f'search: "{search}"')
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
-    notes = [_legend(experiments, suite_columns=suite_columns)]
+    notes = [_how_to_read(experiments, suite_columns=suite_columns)]
     if stripping and rows:
         notes.append(
             "A filter on the runs matches a case when any of its experiments matches; the "
@@ -141,10 +139,7 @@ async def run_compare(
             'filter on it (output contains "…").'
         )
     if unrestored:
-        notes.append(
-            f"{unrestored} row{'s' if unrestored != 1 else ''} could not be fetched again and "
-            "shows only the runs that matched the filter."
-        )
+        notes.append(_unrestored_note(unrestored))
     if not rows:
         # An empty page still says what could be asked next: the keys, the
         # search semantics and the legend are what turn it into a second call.
@@ -191,6 +186,27 @@ def _keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> 
     return f"{'; '.join(parts)}. Filter or sort on them as output.<key> and data.<key>."
 
 
+#: How many failed refetches a note names before it starts counting. Naming
+#: all of a capped page is 25 uuids of note for a backend having a bad minute.
+_NAMED_UNRESTORED = 3
+
+
+def _unrestored_note(case_ids: list[str]) -> str:
+    """Which rows on the page show only the runs that matched the filter.
+
+    A count alone makes the whole page suspect; the ids make exactly those
+    rows suspect, and each one is a ``filters='id = "…"'`` away from a retry.
+    """
+    named = ", ".join(case_ids[:_NAMED_UNRESTORED])
+    if len(case_ids) > _NAMED_UNRESTORED:
+        named += f", and {len(case_ids) - _NAMED_UNRESTORED} more"
+    plural = "s" if len(case_ids) != 1 else ""
+    return (
+        f"{len(case_ids)} row{plural} could not be fetched again and show{'' if plural else 's'} "
+        f"only the runs that matched the filter: {named}."
+    )
+
+
 def _strips_runs(clauses: list[dict[str, str]], *, experiment_count: int) -> bool:
     """Will this filter hide runs the caller needs to see?
 
@@ -208,7 +224,7 @@ async def _with_every_run(
     suite_id: str,
     ids: list[str],
     rows: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Put the stripped experiments back, one request per matched case.
 
     The backend has no list operator for ``id`` on this endpoint — it is an
@@ -217,7 +233,8 @@ async def _with_every_run(
     parallel, which is why the page is capped before we get here.
 
     A row whose refetch fails keeps what the filter returned: half a row is
-    still an answer, and the note counts the rows it could not complete.
+    still an answer, and the note names the rows it could not complete, so a
+    caller reads the partial ones as partial rather than distrusting the page.
     """
     fetched = await asyncio.gather(
         *(
@@ -236,13 +253,13 @@ async def _with_every_run(
         return_exceptions=True,
     )
     whole: list[dict[str, Any]] = []
-    unrestored = 0
+    unrestored: list[str] = []
     for row, result in zip(rows, fetched, strict=True):
         content = (
             result.get("content") if isinstance(result, dict) and result.get("content") else None
         )
         if not content or not isinstance(content[0], dict):
-            unrestored += 1
+            unrestored.append(str(row.get("id") or "?"))
             whole.append(row)
             continue
         whole.append(content[0])
@@ -374,20 +391,36 @@ def _suite_of(experiments: list[Experiment], test_suite_id: str | None) -> str:
 # --- the lines under the table --------------------------------------------- #
 
 
-def _legend(experiments: list[Experiment], *, suite_columns: bool) -> str:
-    """Which experiment each value in a cell belongs to."""
-    named = "; ".join(f"{e.label} = {e.name} ({e.id})" for e in experiments)
+def _legend(experiments: list[Experiment]) -> str:
+    """Which experiment each ``E<n>`` is, in the header, above the table.
+
+    The labels are the key to every cell on the page, so they go where they
+    are read before the rows rather than in a note under them — and they carry
+    the ids, because the caller's next call (another comparison, a read of the
+    losing run) is written with an id and not with a name.
+    """
+    return ", ".join(
+        f"{e.label} = {'baseline ' if position == 0 and len(experiments) > 1 else ''}"
+        f"{e.name} ({e.id})"
+        for position, e in enumerate(experiments)
+    )
+
+
+def _how_to_read(experiments: list[Experiment], *, suite_columns: bool) -> str:
+    """What the separators in a cell mean. The header already said who is who."""
     passed = (
         f" passed is passed/total runs, {PASS_SEPARATOR.join(e.label for e in experiments)}."
         if suite_columns
         else ""
     )
     if len(experiments) == 1:
-        return f"{named}. Score cells carry {experiments[0].label}'s value.{passed}"
+        return f"Score cells carry {experiments[0].label}'s value.{passed}"
     order = RUN_SEPARATOR.join(e.label for e in experiments)
-    baseline = f"{experiments[0].label} is the baseline"
     gap = ", and Δ is the unsigned gap between them" if len(experiments) == 2 else ""
-    return f"{named}. {baseline}; score cells read {order} in that order{gap}.{passed}"
+    return (
+        f"{experiments[0].label} is the baseline; score cells read {order} "
+        f"in that order{gap}.{passed}"
+    )
 
 
 def _empty(filtered: bool, searched: bool) -> str:
