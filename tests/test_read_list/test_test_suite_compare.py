@@ -867,3 +867,31 @@ async def test_a_search_says_which_half_of_the_row_it_matched() -> None:
     assert fake.compare_calls[0]["search"] == "Capital"
     assert 'search: "Capital"' in out.splitlines()[0]
     assert "matched the cases' data, not the runs' output" in out
+
+
+@pytest.mark.anyio
+async def test_a_sort_says_which_of_the_runs_it_actually_ordered_by() -> None:
+    """A joined row has one value per column and several runs behind it, so
+    the backend averages the numbers and takes the bodies from the newest run.
+    A caller ranking regressions would otherwise read the order as the
+    baseline's."""
+    fake = _fake(_DEFAULT_CASE)
+
+    averaged = await run_list(
+        "test_suite_item",
+        experiment_ids=[A, B],
+        sort="feedback_scores.correctness asc",
+        client=fake,
+    )
+    newest = await run_list(
+        "test_suite_item", experiment_ids=[A, B], sort="output.answer asc", client=fake
+    )
+    case_level = await run_list(
+        "test_suite_item", experiment_ids=[A, B], sort="created_at desc", client=fake
+    )
+
+    assert "averaged across the compared runs" in averaged
+    assert "not by the baseline's own value" in averaged
+    assert "the most recent run's value on each case" in newest
+    # One value per row: nothing to warn about.
+    assert "ordered the page by" not in case_level

@@ -83,7 +83,7 @@ async def run_compare(
             f"size={size} would be {size} extra requests; use size={REFETCH_ROW_CAP} or less, "
             "or filter on the case (data.<key>, id, comments) instead."
         )
-    sorting, sort_label = _sorting(sort)
+    sorting, sort_label, sort_field = _sorting(sort)
 
     suite_columns = any(experiment.is_suite for experiment in experiments)
     # The output keys are the first page's business only, and they do not
@@ -138,6 +138,9 @@ async def run_compare(
             "search matched the cases' data, not the runs' output; to search the output, "
             'filter on it (output contains "…").'
         )
+    caveat = _sort_caveat(sort_field)
+    if caveat is not None:
+        notes.append(caveat)
     if unrestored:
         notes.append(_unrestored_note(unrestored))
     if not rows:
@@ -320,7 +323,7 @@ def _refuse_window(since: str | None, until: str | None) -> None:
         )
 
 
-def _sorting(sort: str | None) -> tuple[str | None, str | None]:
+def _sorting(sort: str | None) -> tuple[str | None, str | None, str | None]:
     """The backend's ``sorting`` parameter, and what to echo in the header.
 
     A field the backend does not order by is refused by ``compile_sort``
@@ -328,12 +331,46 @@ def _sorting(sort: str | None) -> tuple[str | None, str | None]:
     unsorted page — the caller would read it as ordered.
     """
     if sort is None:
-        return None, None
+        return None, None, None
     field, direction = compile_sort(_ENTITY, sort)
     return (
         json.dumps([{"field": field, "direction": direction}], separators=(",", ":")),
         f"sort: {field} {direction.lower()}",
+        field,
     )
+
+
+#: Row fields the joined query averages across the compared runs
+#: (``avgMap``/``avg`` in opik-backend's compare SELECT).
+_AVERAGED_SORTS = ("feedback_scores.", "usage.")
+_AVERAGED_SORT_FIELDS = ("duration", "total_estimated_cost")
+#: Row fields it takes from the newest run instead (``argMax`` by created_at).
+_NEWEST_RUN_SORTS = ("output.", "input.", "metadata.")
+
+
+def _sort_caveat(field: str | None) -> str | None:
+    """What a sort on a compared row actually ordered by.
+
+    A joined row has one value per column and several runs behind it, so the
+    backend has to pick one: it averages the numbers across the compared runs
+    and takes the bodies from the newest run. Neither is the baseline, and a
+    caller ranking regressions by score would otherwise read the order as the
+    baseline's. Case-level fields (id, created_at, data.<key>, comments) have
+    one value per row and need no warning.
+    """
+    if field is None:
+        return None
+    if field.startswith(_AVERAGED_SORTS) or field in _AVERAGED_SORT_FIELDS:
+        return (
+            f"The sort on {field} ordered the page by that value averaged across the compared "
+            "runs, which is what the joined row carries — not by the baseline's own value."
+        )
+    if field.startswith(_NEWEST_RUN_SORTS):
+        return (
+            f"The sort on {field} ordered the page by the most recent run's value on each case, "
+            "which is what the joined row carries — not by the baseline's."
+        )
+    return None
 
 
 # --- the experiments, and the suite they agree on -------------------------- #
