@@ -35,6 +35,19 @@ PROJECT_NAME = "checkout-agent"
 TRACE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000002"
 SPAN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000003"
 
+SUITE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000010"
+SUITE_NAME = "support-qa"
+OTHER_SUITE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000011"
+OTHER_SUITE_NAME = "billing-qa"
+EXPERIMENT_A = "0199c6a4-3a4c-7f1e-9d2b-000000000020"
+EXPERIMENT_B = "0199c6a4-3a4c-7f1e-9d2b-000000000021"
+EXPERIMENT_OTHER_SUITE = "0199c6a4-3a4c-7f1e-9d2b-000000000022"
+
+#: What the backend stores for a test suite, on the dataset's ``type`` and on
+#: the experiment's ``evaluation_method``. Not ``test_suite``: opik-backend's
+#: OPIK-5795 plans that rename and has not done it.
+TEST_SUITE_METHOD = "evaluation_suite"
+
 
 @dataclass
 class Request:
@@ -63,6 +76,65 @@ class Request:
 
 
 @dataclass
+class ExperimentSpec:
+    """One experiment the comparison routes know about.
+
+    Scores are declared per outcome rather than per case so a test can say
+    "B is the one that regresses" and read the numbers straight back out of
+    the rendered table.
+    """
+
+    name: str
+    dataset_id: str = SUITE_ID
+    dataset_name: str = SUITE_NAME
+    evaluation_method: str = TEST_SUITE_METHOD
+    passing_scores: dict[str, float] = field(
+        default_factory=lambda: {"correctness": 0.9, "hallucination": 1.0}
+    )
+    failing_scores: dict[str, float] = field(
+        default_factory=lambda: {"correctness": 0.4, "hallucination": 1.0}
+    )
+    #: Every Nth case fails for this experiment; 0 means it never fails.
+    fails_every: int = 0
+    #: How many times this experiment ran each case (``execution_policy``).
+    runs_per_item: int = 1
+
+    def fails(self, index: int) -> bool:
+        return self.fails_every > 0 and (index + 1) % self.fails_every == 0
+
+
+@dataclass
+class CompareSuite:
+    """The suite the comparison routes serve, described rather than stored.
+
+    ``case_count`` is the whole suite; rows are built on demand for the page
+    asked for, so a 100,000-case suite costs the same to stand up as a
+    20-case one. That is the point: the scaling scenario compares the two.
+    """
+
+    case_count: int = 20
+    output_keys: tuple[str, ...] = ("input", "answer", "reasoning")
+    #: Whether a filtered page comes back with only one experiment per row.
+    #: The real backend strips the experiments that did not match a run-level
+    #: filter; this is that behaviour, declared instead of re-derived from the
+    #: filter language, which a stub has no business implementing.
+    strip_to_experiment: str | None = None
+
+
+def _default_experiments() -> dict[str, ExperimentSpec]:
+    """Two runs of one suite, the second regressing on every fourth case."""
+    return {
+        EXPERIMENT_A: ExperimentSpec(name="baseline-v1"),
+        EXPERIMENT_B: ExperimentSpec(name="rerank-v3", fails_every=4),
+        EXPERIMENT_OTHER_SUITE: ExperimentSpec(
+            name="billing-v1",
+            dataset_id=OTHER_SUITE_ID,
+            dataset_name=OTHER_SUITE_NAME,
+        ),
+    }
+
+
+@dataclass
 class StubBackend:
     """The recorded conversation, plus the knobs a test needs to bend."""
 
@@ -76,6 +148,10 @@ class StubBackend:
     usage_keys: list[str] = field(
         default_factory=lambda: ["total_tokens", "prompt_tokens", "completion_tokens"]
     )
+    #: The suite the comparison routes serve.
+    suite: CompareSuite = field(default_factory=CompareSuite)
+    #: Experiments addressable by id, whatever suite they ran.
+    experiments: dict[str, ExperimentSpec] = field(default_factory=_default_experiments)
 
     port: int = 0
     _httpd: ThreadingHTTPServer | None = None
@@ -143,11 +219,110 @@ class StubBackend:
             ]
         return _ungrouped_results(str(body.get("metric_type")))
 
+    # --- the comparison payloads ------------------------------------------- #
+
+    def _output_columns(self) -> dict[str, Any]:
+        return {
+            "columns": [
+                {"name": key, "types": ["string"], "filterField": f"output.{key}"}
+                for key in self.suite.output_keys
+            ]
+        }
+
+    def _compare_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """One page of cases with their runs attached.
+
+        Two behaviours of the real endpoint are reproduced because the feature
+        exists to deal with them, and one is deliberately not. A filter on
+        ``id`` is a case-level filter: it selects one row and leaves its runs
+        alone. A run-level filter strips the runs that did not match, which is
+        what ``strip_to_experiment`` stands for. Everything else about the
+        filter language is the backend's business, not the stub's.
+        """
+        experiment_ids = [e for e in _one(query, "experiment_ids", "").split(",") if e]
+        page = int(_one(query, "page", "1"))
+        size = int(_one(query, "size", "10"))
+        clauses = json.loads(_one(query, "filters", "") or "[]")
+
+        pinned = next((c.get("value") for c in clauses if c.get("field") == "id"), None)
+        if pinned is not None:
+            index = _case_index(str(pinned))
+            rows = [] if index is None else [self._case_row(index, experiment_ids)]
+            return _compare_envelope(rows, page=1, total=len(rows))
+
+        strip = self.suite.strip_to_experiment if _is_run_level(clauses) else None
+        start = (page - 1) * size
+        rows = [
+            self._case_row(index, experiment_ids, strip_to=strip)
+            for index in range(start, min(start + size, self.suite.case_count))
+        ]
+        return _compare_envelope(rows, page=page, total=self.suite.case_count)
+
+    def _case_row(
+        self,
+        index: int,
+        experiment_ids: list[str],
+        *,
+        strip_to: str | None = None,
+    ) -> dict[str, Any]:
+        items: list[dict[str, Any]] = []
+        summaries: dict[str, Any] = {}
+        for position, experiment_id in enumerate(experiment_ids):
+            spec = self.experiments.get(experiment_id)
+            if spec is None or (strip_to is not None and experiment_id != strip_to):
+                continue
+            failing = spec.fails(index)
+            passed_runs = 0
+            for run in range(spec.runs_per_item):
+                # With several runs the first one passes and the rest carry the
+                # failure, so the worst run is a different trace from the
+                # experiment's first.
+                run_failed = failing and (run > 0 or spec.runs_per_item == 1)
+                passed_runs += 0 if run_failed else 1
+                items.append(
+                    _experiment_item(index, position, run, experiment_id, spec, run_failed)
+                )
+            summaries[experiment_id] = {
+                "passed_runs": passed_runs,
+                "total_runs": spec.runs_per_item,
+                # The stub does not model ``pass_threshold``: a case passes
+                # here only when every one of its runs did.
+                "status": "passed" if passed_runs == spec.runs_per_item else "failed",
+            }
+        return {
+            "id": _case_id(index),
+            "dataset_item_id": _case_id(index),
+            "source": "manual",
+            "data": {
+                "question": f"Case {index}: what is the capital of France?",
+                "expected_answer": "Paris",
+            },
+            "experiment_items": items,
+            "run_summaries_by_experiment": summaries,
+            "created_at": "2026-09-08T10:00:00Z",
+        }
+
     # --- the payloads ------------------------------------------------------ #
 
-    def answer(self, method: str, path: str, body: dict[str, Any] | None) -> tuple[int, Any]:
+    def answer(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None,
+        query: dict[str, list[str]] | None = None,
+    ) -> tuple[int, Any]:
         if any(fragment in path for fragment in self.failing):
             return 500, {"message": "stub failure"}
+
+        if path.endswith("/items/experiments/items/output/columns"):
+            return 200, self._output_columns()
+        if path.endswith("/items/experiments/items"):
+            return 200, self._compare_page(query or {})
+        experiment = self.experiments.get(path.removeprefix("/v1/private/experiments/"))
+        if experiment is not None:
+            return 200, _experiment(path.rsplit("/", 1)[-1], experiment)
+        if path.startswith("/v1/private/datasets/") and path.count("/") == 4:
+            return 200, _dataset(path.rsplit("/", 1)[-1])
 
         if path == "/v1/private/projects":
             return 200, _page([_project()])
@@ -203,6 +378,122 @@ def _page(content: list[dict[str, Any]], *, total: int | None = None) -> dict[st
         "page": 1,
         "size": len(content),
         "total": len(content) if total is None else total,
+    }
+
+
+def _one(query: dict[str, list[str]], key: str, default: str) -> str:
+    values = query.get(key) or []
+    return values[0] if values else default
+
+
+#: The comparison ids are built from the case index so a row can be found from
+#: the id the server sends back in a refetch, without the stub keeping state.
+def _case_id(index: int) -> str:
+    return f"0199c6a4-3a4c-7f1e-9d2b-1{index:07d}0000"
+
+
+def _case_index(case_id: str) -> int | None:
+    tail = case_id.rsplit("-", 1)[-1]
+    if len(tail) != 12 or not tail.startswith("1") or not tail.isdigit():
+        return None
+    return int(tail[1:8])
+
+
+def _trace_id(index: int, position: int, run: int) -> str:
+    return f"0199c6a4-3a4c-7f1e-9d2b-2{index:07d}{position}{run:03d}"
+
+
+#: The filter fields that make the real backend drop the runs that did not
+#: match, taken from its EXPERIMENT_ITEM filter strategy.
+_RUN_LEVEL_FIELDS = ("feedback_scores", "output", "duration")
+
+
+def _is_run_level(clauses: list[dict[str, Any]]) -> bool:
+    return any(
+        str(c.get("field", "")).split(".")[0] in _RUN_LEVEL_FIELDS
+        for c in clauses
+        if isinstance(c, dict)
+    )
+
+
+def _compare_envelope(rows: list[dict[str, Any]], *, page: int, total: int) -> dict[str, Any]:
+    return {
+        "content": rows,
+        "page": page,
+        "size": len(rows),
+        "total": total,
+        "columns": [
+            {"name": key, "types": ["string"], "filterField": f"data.{key}"}
+            for key in ("question", "expected_answer")
+        ],
+        "sortable_by": ["id", "created_at", "duration", "feedback_scores"],
+    }
+
+
+def _experiment_item(
+    index: int,
+    position: int,
+    run: int,
+    experiment_id: str,
+    spec: ExperimentSpec,
+    failed: bool,
+) -> dict[str, Any]:
+    scores = spec.failing_scores if failed else spec.passing_scores
+    answer = "Lyon" if failed else "Paris"
+    return {
+        "id": f"{_trace_id(index, position, run)}",
+        "experiment_id": experiment_id,
+        "dataset_item_id": _case_id(index),
+        "trace_id": _trace_id(index, position, run),
+        "output": {
+            "input": f"Case {index}: what is the capital of France?",
+            "answer": answer,
+            "reasoning": f"{spec.name} reasoning for case {index}",
+        },
+        "feedback_scores": [{"name": name, "value": value} for name, value in scores.items()],
+        "assertion_results": [
+            {
+                "value": "Names the capital",
+                "passed": not failed,
+                "reason": (
+                    f"Case {index}: the answer names {answer}, not Paris." if failed else None
+                ),
+            }
+        ],
+        "status": "failed" if failed else "passed",
+        "duration": 1200.0 + index,
+        "usage": {"total_tokens": 120},
+        "total_estimated_cost": 0.0001,
+        "created_at": "2026-09-08T10:00:00Z",
+    }
+
+
+def _experiment(experiment_id: str, spec: ExperimentSpec) -> dict[str, Any]:
+    return {
+        "id": experiment_id,
+        "name": spec.name,
+        "dataset_id": spec.dataset_id,
+        "dataset_name": spec.dataset_name,
+        "evaluation_method": spec.evaluation_method,
+        "type": "regular",
+        "status": "completed",
+        "created_at": "2026-09-08T09:00:00Z",
+        "last_updated_at": "2026-09-08T09:30:00Z",
+        "trace_count": 20,
+        "feedback_scores": [
+            {"name": name, "value": value} for name, value in spec.passing_scores.items()
+        ],
+    }
+
+
+def _dataset(dataset_id: str) -> dict[str, Any]:
+    name = SUITE_NAME if dataset_id == SUITE_ID else OTHER_SUITE_NAME
+    return {
+        "id": dataset_id,
+        "name": name,
+        "type": TEST_SUITE_METHOD,
+        "created_at": "2026-09-01T09:00:00Z",
+        "last_updated_at": "2026-09-08T09:00:00Z",
     }
 
 
@@ -315,7 +606,7 @@ def _handler_for(stub: StubBackend) -> type[BaseHTTPRequestHandler]:
                     body=body if isinstance(body, dict) else None,
                 )
             )
-            status, payload = stub.answer(method, path, body)
+            status, payload = stub.answer(method, path, body, parse_qs(parsed.query))
             encoded = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
