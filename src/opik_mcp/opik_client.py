@@ -187,6 +187,7 @@ class OpikListClient(Protocol):
         name: str | None = None,
         filters: str | None = None,
         types: str | None = None,
+        optimization_id: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
         from_time: str | None = None,
@@ -952,6 +953,7 @@ class OpikClient:
         name: str | None = None,
         filters: str | None = None,
         types: str | None = None,
+        optimization_id: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
         from_time: str | None = None,
@@ -976,6 +978,8 @@ class OpikClient:
             params["name"] = name
         if types is not None:
             params["types"] = types
+        if optimization_id is not None:
+            params["optimization_id"] = optimization_id
         params.update(
             _search_params(
                 filters=filters,

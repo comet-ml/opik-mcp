@@ -419,6 +419,47 @@ def test_an_entity_with_no_parameter_fields_is_left_alone() -> None:
     assert params == {}
 
 
+OPTIMIZATION = "019fb348-cf24-78a5-bd6f-9b22527c02b6"
+
+
+def test_an_optimization_id_becomes_its_own_bare_query_parameter() -> None:
+    """One identifier, not a set: the resource declares the parameter as a
+    UUID, so it travels bare rather than as a JSON array."""
+    clauses = compile_filters("experiment", f'optimization_id = "{OPTIMIZATION}"')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"optimization_id": OPTIMIZATION}
+    assert remaining == []
+
+
+def test_an_optimization_id_and_a_type_travel_as_two_parameters() -> None:
+    clauses = compile_filters(
+        "experiment", f'optimization_id = "{OPTIMIZATION}" AND type = "trial"'
+    )
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"optimization_id": OPTIMIZATION, "types": '["trial"]'}
+    assert remaining == []
+
+
+def test_any_operator_but_equality_on_an_optimization_id_is_refused() -> None:
+    """``optimization_id`` is a string field, so the type's operator set would
+    let ``contains`` through. The parameter carries one exact id, which is the
+    tighter rule and the one worth saying out loud."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'optimization_id contains "019f"')
+    message = str(exc.value)
+    assert "one exact id" in message
+    assert "Valid: =." in message
+
+
+def test_a_malformed_optimization_id_is_refused_before_the_backend_sees_it() -> None:
+    """The resource declares the parameter as a UUID and answers its own
+    error for anything else — a response the agent has to interpret rather
+    than act on."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'optimization_id = "not-a-uuid"')
+    assert "not-a-uuid" in str(exc.value)
+
+
 def test_two_clauses_on_one_parameter_field_are_refused() -> None:
     """The backend takes one value for the parameter, so two AND-ed clauses
     would have to be merged — and merging them into a set turns an AND into

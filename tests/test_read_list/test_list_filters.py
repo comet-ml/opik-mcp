@@ -700,6 +700,30 @@ async def test_the_types_parameter_is_absent_when_nobody_asked_for_it() -> None:
 
 
 @pytest.mark.anyio
+async def test_an_optimization_run_narrows_to_its_own_trials() -> None:
+    """The question this answers is "which trial won" — which needs one run's
+    trials, not every trial in the workspace."""
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "trial-7"}]))
+    run = "019fb348-cf24-78a5-bd6f-9b22527c02b6"
+    out = await run_list(
+        "experiment", filters=f'optimization_id = "{run}" AND type = "trial"', client=fake
+    )
+    assert fake.last_kwargs["optimization_id"] == run
+    assert fake.last_kwargs["types"] == '["trial"]'
+    assert "filters" not in fake.last_kwargs
+    assert out.splitlines()[0] == (
+        f'[list: experiment | filters: optimization_id = "{run}" AND type = "trial"]'
+    )
+
+
+@pytest.mark.anyio
+async def test_the_optimization_id_parameter_is_absent_when_nobody_asked() -> None:
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "nightly"}]))
+    await run_list("experiment", filters='type = "regular"', client=fake)
+    assert "optimization_id" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
 async def test_negating_a_type_is_refused_through_the_tool_with_the_rewrite() -> None:
     with pytest.raises(ToolError) as err:
         await run_list("experiment", filters='type != "trial"', client=FakeOpikClient())

@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.uri import is_uuid
 from opik_mcp.read_list.window import parse_instant
 
 FieldType = Literal[
@@ -187,12 +188,13 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
         "tags": "list",
         "feedback_scores": "feedback_scores",
         "experiment_scores": "feedback_scores",
-        # Not in ``ExperimentField``: the backend takes this as a query
-        # parameter of its own, and ``split_param_clauses`` lifts it out of
-        # the compiled array before the call is made. It is declared here
-        # because it is the caller's vocabulary either way — how it travels
-        # is our problem, not theirs.
+        # Not in ``ExperimentField``: the backend takes these two as query
+        # parameters of their own, and ``split_param_clauses`` lifts them out
+        # of the compiled array before the call is made. They are declared
+        # here because they are the caller's vocabulary either way — how a
+        # filter travels is our problem, not theirs.
         "type": "enum",
+        "optimization_id": "string",
     },
     # What the UI's compare page offers, which is also what the backend
     # actually applies. ``total_estimated_cost`` and ``usage.total_tokens``
@@ -288,6 +290,11 @@ class ParamField:
     value, so only one clause with one value can be expressed."""
     why: str
     """Why the other operators cannot translate, in the refusal's voice."""
+    value_form: Literal["uuid"] | None = None
+    """A shape the parameter requires beyond the field's type. The resource
+    declares ``optimization_id`` as a UUID and answers its own error for
+    anything else, which is a response the agent has to interpret rather than
+    act on — so the check happens here instead."""
 
 
 PARAM_FIELDS: Final[dict[str, dict[str, ParamField]]] = {
@@ -297,6 +304,13 @@ PARAM_FIELDS: Final[dict[str, dict[str, ParamField]]] = {
             operators=("=", "in"),
             encoding="json_list",
             why="the backend filters types as a set",
+        ),
+        "optimization_id": ParamField(
+            param="optimization_id",
+            operators=("=",),
+            encoding="single",
+            why="the backend takes one exact id",
+            value_form="uuid",
         ),
     },
 }
@@ -759,6 +773,16 @@ def _validate_value(
         return OQLIssue(
             "bad_value", f"Empty value for '{field}': the backend rejects blank filter values."
         )
+    spec = PARAM_FIELDS.get(entity_type, {}).get(field)
+    if spec is not None and spec.value_form == "uuid":
+        bad = [v for v in _operand_values(raw.operator, raw.value) if not is_uuid(v)]
+        if bad:
+            return OQLIssue(
+                "bad_value",
+                f"Invalid value{'s' if len(bad) > 1 else ''} "
+                f"{', '.join(repr(v) for v in bad)} for '{field}': expected a UUID, which is "
+                f"what the backend's '{spec.param}' parameter takes.",
+            )
     allowed = ENUM_VALUES.get(entity_type, {}).get(field)
     if allowed is not None:
         # ``in``/``not_in`` values arrive comma-joined; one bad element fails

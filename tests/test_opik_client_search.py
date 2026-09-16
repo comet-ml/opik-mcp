@@ -95,6 +95,20 @@ async def test_list_experiments_forwards_the_types_query_parameter() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_experiments_forwards_the_optimization_id_query_parameter() -> None:
+    run = "019fb348-cf24-78a5-bd6f-9b22527c02b6"
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/experiments").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_experiments()
+        assert "optimization_id" not in dict(route.calls.last.request.url.params)
+
+        await _client().list_experiments(optimization_id=run)
+    assert dict(route.calls.last.request.url.params)["optimization_id"] == run
+
+
+@pytest.mark.anyio
 async def test_list_spans_across_a_project_without_trace_id() -> None:
     """Project-wide span search: ``trace_id`` is optional on ``GET /spans``."""
     with respx.mock(base_url=OPIK_BASE) as mock:

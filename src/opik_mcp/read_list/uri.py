@@ -34,6 +34,22 @@ from urllib.parse import unquote
 
 from opik_mcp.error_kinds import ErrorKind
 
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
+
+def is_uuid(s: str) -> bool:
+    """Is this string an id rather than a name?
+
+    Lives here, beside the URI parser, because both callers are asking the
+    same question about the same kind of token: ``read`` to decide whether an
+    id needs a name lookup, and the filter compiler to refuse a value the
+    backend would only reject with an error of its own. One regex, so the two
+    cannot come to disagree about what an id looks like.
+    """
+    return bool(_UUID_RE.match(s))
+
 
 class InvalidURI(ValueError):
     """The string was prefixed ``opik://`` but didn't match any known shape."""
