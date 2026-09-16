@@ -46,6 +46,7 @@ class FakeOpikClient:
     columns_error: Exception | None = None
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
+    experiment_calls: list[dict[str, Any]] = field(default_factory=list)
 
     project_lookups: int = 0
     fail_issues_with: Exception | None = None
@@ -115,6 +116,10 @@ class FakeOpikClient:
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        # Every call, in order: an empty experiment page asks the backend how
+        # many exist at all, so ``last_kwargs`` alone can no longer be trusted
+        # to hold the listing a test meant to observe.
+        self.experiment_calls.append(kw)
         return self.experiments
 
     async def list_prompts(self, **kw: Any) -> dict[str, Any]:
@@ -198,7 +203,7 @@ async def test_list_with_name_filter_in_header_and_empty_message() -> None:
     fake = FakeOpikClient(experiments={"content": [], "total": 0})
     out = await run_list("experiment", name="zzz", client=fake)
     assert "No experiments matching 'zzz' found" in out
-    assert fake.last_kwargs.get("name") == "zzz"
+    assert fake.experiment_calls[0].get("name") == "zzz"
 
 
 @pytest.mark.anyio

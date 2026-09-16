@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
+import httpx
+
+from opik_mcp.config import Settings
+from opik_mcp.opik_client import (
+    OpikAuthError,
+    OpikListClient,
+    OpikNotFoundError,
+    OpikReadClient,
+    OpikServerError,
+    OpikValidationError,
+)
 from opik_mcp.read_list.columns import has_value
-from opik_mcp.read_list.handler import EntityHandler, ListProjection
-from opik_mcp.read_list.oql import PARAM_FIELDS
+from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
+from opik_mcp.read_list.oql import ENUM_VALUES, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
+
+logger = logging.getLogger("opik_mcp.read_list.entities.experiment")
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -48,7 +61,20 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 #: Always printed, so two pages can be read beside each other. ``id`` and
 #: ``name`` come first from the table itself.
-_SPINE: Final = ("type", "status", "dataset_name", "created_at", "feedback_scores")
+#:
+#: ``trace_count`` sits immediately left of the scores because it is what
+#: makes them safe to act on. Driving the tool, a trial ranked first at 0.634
+#: turned out to be a mean over three cases — and it lost one of them. The
+#: count is on every record the backend sends; leaving it off was inviting a
+#: decision the page could not support.
+_SPINE: Final = (
+    "type",
+    "status",
+    "dataset_name",
+    "created_at",
+    "trace_count",
+    "feedback_scores",
+)
 
 #: Printed when some row on the page has one, in this order whichever subset
 #: shows. Each is null for a whole class of experiment rather than
@@ -77,6 +103,49 @@ _FILTER_HINT: Final = f"filter: {', '.join(PARAM_FIELDS['experiment'])}."
 #: scores are no longer than a trace's, and the table states every cut it
 #: makes, so a wider cell here would be a difference with nothing behind it.
 _CELL_LIMIT: Final = 60
+
+#: What the two parameter fields accept, read off the compiler's own tables so
+#: the sentence cannot come to describe a filter that no longer compiles.
+_FILTER_VALUES: Final = (
+    f"type accepts {', '.join(ENUM_VALUES['experiment']['type'])}; "
+    "optimization_id takes one run id."
+)
+
+
+async def page_note(client: OpikListClient, _settings: Settings, page: PageContext) -> str | None:
+    """Why an empty experiment page is empty — the one place that can say so.
+
+    Two holes, both found by driving the built server rather than reading it.
+    A page filtered to a type nobody has answers "No experiments found." in a
+    workspace holding thirty-two, and an agent relays that as "you have no
+    experiments": a false answer, from a true sentence. And the filter
+    vocabulary is advertised by the projection note, which only a page with
+    rows under it prints — so the moment the caller most needs the accepted
+    values is the one moment nothing names them.
+
+    Returns ``None`` for a page that has rows: the projection note carries the
+    hint there, and saying it twice is worse than saying it once.
+    """
+    if not page.empty:
+        return None
+    try:
+        whole = await client.list_experiments(size=1)
+    except (
+        OpikAuthError,
+        OpikNotFoundError,
+        OpikValidationError,
+        OpikServerError,
+        httpx.HTTPError,
+    ):
+        # A note decorates an answer the caller already has. A failed lookup
+        # here must leave the page as it was, never turn it into an error.
+        logger.debug("experiment page note: workspace count lookup failed", exc_info=True)
+        return None
+    total = whole.get("total")
+    if not isinstance(total, int) or total <= 0:
+        return "This workspace has no experiments yet."
+    plural = "s" if total != 1 else ""
+    return f"The workspace has {total} experiment{plural}; none match this query. {_FILTER_VALUES}"
 
 
 def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
@@ -157,6 +226,7 @@ HANDLER = EntityHandler(
     # nothing and cost a read per row.
     list_row_fn=derive_columns,
     list_projection_fn=project_experiments,
+    page_note_fn=page_note,
     # The refusal has to end the caller's problem, not restate it. The
     # backend orders experiments by id descending and the ids are time
     # ordered, so the page is newest-first whether or not anyone asked for

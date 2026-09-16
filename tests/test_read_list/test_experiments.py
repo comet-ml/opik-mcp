@@ -15,10 +15,12 @@ that names every omission.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
 
+from opik_mcp.opik_client import OpikServerError
 from opik_mcp.read_list.entities.experiment import (
     HANDLER,
     derive_columns,
@@ -97,13 +99,26 @@ def test_the_spine_is_there_even_when_its_values_are_not() -> None:
     """Two pages that disagree about their first columns cannot be read side
     by side, so the spine does not depend on the page."""
     projection = _project({"id": "e-1", "name": "bare"})
-    assert projection.columns[:5] == (
+    assert projection.columns[:6] == (
         "type",
         "status",
         "dataset_name",
         "created_at",
+        "trace_count",
         "feedback_scores",
     )
+
+
+def test_the_sample_size_sits_beside_the_score_it_qualifies() -> None:
+    """A mean with no count invites a decision the data cannot support.
+
+    Driving the tool: a trial ranked first at 0.634 turned out to be a mean
+    over three cases, and it lost one of them. The page gave nothing to doubt
+    it with. trace_count is on the record, so the count reads immediately to
+    the left of the score it qualifies.
+    """
+    columns = _project(_experiment("nightly")).columns
+    assert columns.index("trace_count") == columns.index("feedback_scores") - 1
 
 
 def test_a_column_no_row_can_fill_is_left_out() -> None:
@@ -287,6 +302,91 @@ async def test_an_ordinary_page_carries_no_optimization_column() -> None:
     fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
     out = await run_list("experiment", client=fake)
     assert "optimization_id" not in _columns(out)
+
+
+# --- the empty page --------------------------------------------------------- #
+#
+# Both holes here were found by driving the built server, not by reading it.
+# A page filtered to a type nobody has answered "No experiments found." in a
+# workspace holding 32 — which an agent relays as "you have no experiments".
+# And the filter vocabulary is advertised in the projection note, which only a
+# non-empty page prints, so the one moment the caller needs the valid values
+# is the one moment nothing names them.
+
+
+@dataclass
+class PickyClient(FakeOpikClient):
+    """A backend where the filter matches nothing but the workspace is full."""
+
+    stock: int = 32
+    side_calls: int = 0
+    side_error: Exception | None = None
+
+    async def list_experiments(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        narrowed = any(k in kw for k in ("filters", "types", "optimization_id", "name"))
+        if narrowed:
+            return {"content": [], "total": 0}
+        self.side_calls += 1
+        if self.side_error is not None:
+            raise self.side_error
+        return {"content": [_experiment("nightly")], "total": self.stock}
+
+
+@pytest.mark.anyio
+async def test_an_empty_page_says_the_workspace_is_not_empty() -> None:
+    out = await run_list("experiment", filters='type = "regular"', client=PickyClient())
+    assert "32 experiments" in out
+    assert "none match" in out
+
+
+@pytest.mark.anyio
+async def test_an_empty_page_names_the_values_the_filter_accepts() -> None:
+    """The projection note cannot carry this — there are no rows to hang it
+    under — so the recovery path has to live here or nowhere."""
+    out = await run_list("experiment", filters='type = "regular"', client=PickyClient())
+    assert "regular, trial, mini-batch, mutation" in out
+    assert "optimization_id" in out
+
+
+@pytest.mark.anyio
+async def test_a_genuinely_empty_workspace_does_not_blame_the_filter() -> None:
+    out = await run_list("experiment", filters='type = "regular"', client=PickyClient(stock=0))
+    assert "no experiments yet" in out
+    assert "none match" not in out
+
+
+@pytest.mark.anyio
+async def test_a_failed_side_lookup_still_answers_the_list() -> None:
+    """The note decorates an answer the caller already has. A hook that
+    cannot run must leave the page alone, never turn it into an error."""
+    client = PickyClient(side_error=OpikServerError("boom"))
+    out = await run_list("experiment", filters='type = "regular"', client=client)
+    assert "No experiments found." in out
+    assert "boom" not in out
+
+
+@pytest.mark.anyio
+async def test_a_full_page_pays_for_no_second_note() -> None:
+    """The hint is in the projection note there; a page note as well would
+    print the same advice twice."""
+    fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
+    out = await run_list("experiment", client=fake)
+    assert "filter: type, optimization_id." in out, "the projection note still carries the hint"
+    assert "type accepts" not in out, "and the page note stayed silent"
+    assert "none match" not in out
+
+
+@pytest.mark.anyio
+async def test_the_workspace_count_costs_one_call_and_only_when_empty() -> None:
+    client = PickyClient()
+    await run_list("experiment", filters='type = "regular"', client=client)
+    assert client.side_calls == 1
+
+    quiet = PickyClient()
+    quiet.experiments = _page(_experiment("nightly"))
+    await run_list("experiment", client=quiet)
+    assert quiet.side_calls == 1, "the listing itself, with no extra lookup"
 
 
 # --- what the headers promise ---------------------------------------------- #

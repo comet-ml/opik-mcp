@@ -970,7 +970,10 @@ async def test_thread_filters_reach_the_backend_with_the_sdk_default() -> None:
 
 @pytest.mark.anyio
 async def test_experiment_filters_reach_the_backend_without_a_source_default() -> None:
-    fake = FakeOpikClient()
+    # A row, so the page is not empty: an empty experiment page asks the
+    # backend how many exist at all, and that side call would be the last one
+    # this fake recorded.
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "rerank-v2"}]))
     await run_list(
         "experiment",
         name="rerank",
@@ -1048,8 +1051,11 @@ async def test_experiment_rows_summarise_feedback_scores() -> None:
         )
     )
     out = await run_list("experiment", client=fake)
-    assert "id | name | type | status | dataset_name | created_at | feedback_scores" in out
     assert (
-        "e-1 | rerank-v2 |  |  | golden | 2026-09-01T00:00:00Z"
-        " | accuracy=0.8125, hallucination=0.1" in out
+        "id | name | type | status | dataset_name | created_at | trace_count | feedback_scores"
+        in out
+    )
+    assert (
+        "e-1 | rerank-v2 |  |  | golden | 2026-09-01T00:00:00Z |  "
+        "| accuracy=0.8125, hallucination=0.1" in out
     )
