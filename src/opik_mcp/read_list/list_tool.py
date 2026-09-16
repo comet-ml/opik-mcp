@@ -415,6 +415,9 @@ async def run_list(
             status=kw.get("status"),
             windowed="from_date" in kw or "to_date" in kw,
             window_end=parse_instant(to_time) if to_time else None,
+            page=page,
+            total=total,
+            filtered=bool(filters and filters.strip()),
         )
 
         if not content:

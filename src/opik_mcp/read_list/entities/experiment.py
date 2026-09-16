@@ -5,16 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Final
 
-import httpx
-
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import (
-    OpikAuthError,
     OpikListClient,
-    OpikNotFoundError,
     OpikReadClient,
-    OpikServerError,
-    OpikValidationError,
 )
 from opik_mcp.read_list.columns import has_value
 from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
@@ -104,48 +98,70 @@ _FILTER_HINT: Final = f"filter: {', '.join(PARAM_FIELDS['experiment'])}."
 #: makes, so a wider cell here would be a difference with nothing behind it.
 _CELL_LIMIT: Final = 60
 
-#: What the two parameter fields accept, read off the compiler's own tables so
-#: the sentence cannot come to describe a filter that no longer compiles.
-_FILTER_VALUES: Final = (
-    f"type accepts {', '.join(ENUM_VALUES['experiment']['type'])}; "
-    "optimization_id takes one run id."
-)
+
+def _accepted_values() -> str:
+    """What each parameter field takes, read off the compiler's own tables.
+
+    Names the fields from ``PARAM_FIELDS`` rather than spelling them again:
+    a third parameter field would otherwise update the hint above and leave
+    this sentence quietly describing the wrong two.
+    """
+    parts: list[str] = []
+    for field, spec in PARAM_FIELDS["experiment"].items():
+        values = ENUM_VALUES.get("experiment", {}).get(field)
+        if values:
+            parts.append(f"{field} accepts {', '.join(values)}")
+        elif spec.value_form == "uuid":
+            parts.append(f"{field} takes one id")
+        else:
+            parts.append(field)
+    return "; ".join(parts) + "."
 
 
 async def page_note(client: OpikListClient, _settings: Settings, page: PageContext) -> str | None:
     """Why an empty experiment page is empty — the one place that can say so.
 
-    Two holes, both found by driving the built server rather than reading it.
     A page filtered to a type nobody has answers "No experiments found." in a
     workspace holding thirty-two, and an agent relays that as "you have no
-    experiments": a false answer, from a true sentence. And the filter
-    vocabulary is advertised by the projection note, which only a page with
-    rows under it prints — so the moment the caller most needs the accepted
-    values is the one moment nothing names them.
+    experiments": a false answer, from a true sentence. The filter vocabulary
+    has the mirror problem — it is advertised by the projection note, which
+    only prints under rows, so the moment the caller most needs the accepted
+    values is the one moment nothing names them. Both were found by driving
+    the built server rather than by reading it.
+
+    So was the third case, which the first version of this note got wrong in
+    the same way it was written to fix: an empty page is not always an empty
+    result. Paging past the last page returns no rows and a total, and
+    "none match" is false there — they do match, on page one. The page's own
+    total settles it without asking the backend anything.
 
     Returns ``None`` for a page that has rows: the projection note carries the
     hint there, and saying it twice is worse than saying it once.
     """
     if not page.empty:
         return None
+    if page.total > 0:
+        # Rows exist and this slice is past them. Nothing was filtered out,
+        # so there is no count to look up and nothing to explain but the page.
+        return f"Page {page.page} is past the end; the listing has {page.total}."
     try:
         whole = await client.list_experiments(size=1)
-    except (
-        OpikAuthError,
-        OpikNotFoundError,
-        OpikValidationError,
-        OpikServerError,
-        httpx.HTTPError,
-    ):
-        # A note decorates an answer the caller already has. A failed lookup
-        # here must leave the page as it was, never turn it into an error.
+    except Exception:
+        # A note decorates an answer the caller already has, so nothing here
+        # may turn an answered page into an error — and "the lookup failed" is
+        # not a set of exception types anyone can enumerate correctly: a body
+        # of the wrong shape fails as surely as a 500 does.
         logger.debug("experiment page note: workspace count lookup failed", exc_info=True)
         return None
-    total = whole.get("total")
-    if not isinstance(total, int) or total <= 0:
-        return "This workspace has no experiments yet."
-    plural = "s" if total != 1 else ""
-    return f"The workspace has {total} experiment{plural}; none match this query. {_FILTER_VALUES}"
+    stock = whole.get("total") if isinstance(whole, dict) else None
+    if not isinstance(stock, int) or stock <= 0:
+        # "No experiments found." already says this, and says it once.
+        return None
+    plural = "s" if stock != 1 else ""
+    matched = f"The workspace has {stock} experiment{plural}; none match this query."
+    # The vocabulary answers "what may I filter by", which only a caller who
+    # wrote a filter was asking. A name search gets the count and no lecture.
+    return f"{matched} {_accepted_values()}" if page.filtered else matched
 
 
 def derive_columns(record: dict[str, Any]) -> dict[str, Any]:

@@ -319,18 +319,27 @@ class PickyClient(FakeOpikClient):
     """A backend where the filter matches nothing but the workspace is full."""
 
     stock: int = 32
-    side_calls: int = 0
     side_error: Exception | None = None
+    past_the_end: bool = False
+    """Serve an empty slice of a listing that does match — what the backend
+    returns for a page beyond the last one: no rows, but a total."""
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        self.experiment_calls.append(kw)
         narrowed = any(k in kw for k in ("filters", "types", "optimization_id", "name"))
         if narrowed:
             return {"content": [], "total": 0}
-        self.side_calls += 1
+        if self.past_the_end and kw.get("page", 1) > 1:
+            return {"content": [], "total": self.stock}
         if self.side_error is not None:
             raise self.side_error
         return {"content": [_experiment("nightly")], "total": self.stock}
+
+    @property
+    def side_calls(self) -> int:
+        """Lookups the note made on its own, beyond the listing itself."""
+        return len(self.experiment_calls) - 1
 
 
 @pytest.mark.anyio
@@ -352,15 +361,49 @@ async def test_an_empty_page_names_the_values_the_filter_accepts() -> None:
 @pytest.mark.anyio
 async def test_a_genuinely_empty_workspace_does_not_blame_the_filter() -> None:
     out = await run_list("experiment", filters='type = "regular"', client=PickyClient(stock=0))
-    assert "no experiments yet" in out
+    assert out.endswith("No experiments found."), (
+        "the plain message already says the workspace is empty; a note repeating it "
+        f"in other words is one sentence too many. Got: {out!r}"
+    )
     assert "none match" not in out
 
 
 @pytest.mark.anyio
-async def test_a_failed_side_lookup_still_answers_the_list() -> None:
+async def test_a_page_past_the_end_is_not_a_query_that_matched_nothing() -> None:
+    """The first version of this note re-created the bug it was written to
+    fix, one case over. An empty page is not always an empty result: paging
+    past the last page returns no rows and a total, and claiming "none match"
+    there is the same false answer in a different costume — they do match,
+    they are on page one.
+    """
+    client = PickyClient(past_the_end=True)
+    out = await run_list("experiment", page=3, client=client)
+    assert "none match" not in out
+    assert "past the end" in out
+    assert client.side_calls == 0, "the page's own total already settles it"
+
+
+@pytest.mark.anyio
+async def test_a_name_search_is_not_advised_about_filter_fields_it_did_not_use() -> None:
+    """The vocabulary sentence answers "what may I filter by". A caller who
+    searched by name did not ask that, and does not need a filter lecture."""
+    out = await run_list("experiment", name="zzz-nothing", client=PickyClient())
+    assert "32 experiments" in out, "the count is useful either way"
+    assert "type accepts" not in out
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "boom",
+    [OpikServerError("boom"), TypeError("boom"), RuntimeError("boom")],
+    ids=["backend", "shape", "anything"],
+)
+async def test_a_failed_side_lookup_still_answers_the_list(boom: Exception) -> None:
     """The note decorates an answer the caller already has. A hook that
-    cannot run must leave the page alone, never turn it into an error."""
-    client = PickyClient(side_error=OpikServerError("boom"))
+    cannot run must leave the page alone, never turn it into an error — and
+    "cannot run" is not a list of exception types anyone can enumerate: a
+    body that is not the shape we expect fails just as hard as a 500."""
+    client = PickyClient(side_error=boom)
     out = await run_list("experiment", filters='type = "regular"', client=client)
     assert "No experiments found." in out
     assert "boom" not in out
@@ -384,9 +427,8 @@ async def test_the_workspace_count_costs_one_call_and_only_when_empty() -> None:
     assert client.side_calls == 1
 
     quiet = PickyClient()
-    quiet.experiments = _page(_experiment("nightly"))
     await run_list("experiment", client=quiet)
-    assert quiet.side_calls == 1, "the listing itself, with no extra lookup"
+    assert quiet.side_calls == 0, "a page with rows asks nothing extra"
 
 
 # --- what the headers promise ---------------------------------------------- #

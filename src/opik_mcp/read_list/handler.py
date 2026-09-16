@@ -56,6 +56,19 @@ class PageContext:
     status: str | None = None
     windowed: bool = False
     window_end: datetime | None = None
+    page: int = 1
+    total: int = 0
+    """What the backend said matched, and which slice of it was asked for.
+
+    ``empty`` alone cannot tell "nothing matched" from "you paged past the
+    last page": both arrive with no rows. A note that reads the first as the
+    second states a falsehood — the rows do match, they are on page one — and
+    that is the exact failure these notes exist to prevent.
+    """
+    filtered: bool = False
+    """Did the caller write a ``filters`` clause, as opposed to narrowing by
+    name or not at all? Advice about filter fields is an answer to a question
+    only a filtering caller asked."""
 
 
 PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
