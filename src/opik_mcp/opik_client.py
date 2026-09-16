@@ -195,6 +195,23 @@ class OpikListClient(Protocol):
         size: int = 10,
     ) -> dict[str, Any]: ...
 
+    async def list_compared_test_suite_items(
+        self,
+        test_suite_id: str,
+        /,
+        *,
+        experiment_ids: list[str],
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def list_compared_output_columns(
+        self, test_suite_id: str, /, *, experiment_ids: list[str]
+    ) -> dict[str, Any]: ...
+
     async def list_prompts(
         self, *, name: str | None = None, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
@@ -856,6 +873,65 @@ class OpikClient:
             f"/v1/private/datasets/{test_suite_id}/items",
             params={"page": page, "size": size},
             entity_hint=f"test_suite {test_suite_id!r} items",
+        )
+
+    async def list_compared_test_suite_items(
+        self,
+        test_suite_id: str,
+        /,
+        *,
+        experiment_ids: list[str],
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}/items/experiments/items``.
+
+        One row per case with every named experiment's run attached. The ids
+        ride as one comma-joined string, which is how the backend's
+        ``ParamsValidator.getIds`` reads them; filters, sorting and search are
+        evaluated on the joined row.
+        """
+        params: dict[str, Any] = {
+            "page": page,
+            "size": size,
+            "experiment_ids": ",".join(experiment_ids),
+        }
+        params.update(
+            _search_params(
+                filters=filters,
+                sorting=sorting,
+                search=search,
+                from_time=None,
+                to_time=None,
+                # Bodies never reach the table; let the backend trim them.
+                truncate=True,
+            )
+        )
+        return await self._get_json(
+            f"/v1/private/datasets/{test_suite_id}/items/experiments/items",
+            params=params,
+            entity_hint=f"test_suite {test_suite_id!r} items compared",
+        )
+
+    async def list_compared_output_columns(
+        self,
+        test_suite_id: str,
+        /,
+        *,
+        experiment_ids: list[str],
+    ) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}/items/experiments/items/output/columns``.
+
+        The keys the runs' outputs carry, which is what ``output.<key>``
+        filters can name. The suite's own ``data`` keys come off the page.
+        """
+        return await self._get_json(
+            f"/v1/private/datasets/{test_suite_id}/items/experiments/items/output/columns",
+            params={"experiment_ids": ",".join(experiment_ids)},
+            entity_hint=f"test_suite {test_suite_id!r} output columns",
         )
 
     # -- reads: experiments --

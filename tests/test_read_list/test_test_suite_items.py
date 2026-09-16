@@ -13,13 +13,12 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.read_list.entities.test_suite import (
+from opik_mcp.read_list.entities.test_suite import ITEM_HANDLER, project_items
+from opik_mcp.read_list.entities.test_suite.items import (
     _CELL_CEILING,
     _CELL_FLOOR,
     _MAX_DATA_COLUMNS,
     _PAGE_DATA_BUDGET,
-    ITEM_HANDLER,
-    project_items,
 )
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.registry import ENTITY_REGISTRY

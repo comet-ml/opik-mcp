@@ -144,15 +144,28 @@ def test_the_dispatchers_name_no_entity() -> None:
             assert branch not in source, f"{name} branches on {entity_type!r}"
 
 
-def test_an_entity_that_answers_list_whole_declares_no_list_function() -> None:
+def test_an_entity_declares_a_list_function_for_every_path_it_answers_on() -> None:
     """``project_metric`` used to carry a sentinel ``list_fn`` that existed
     only to make it count as listable. Asking the handler whether it lists is
-    what retired it, and this is what stops the sentinel coming back."""
+    what retired it, and this is what stops the sentinel coming back.
+
+    An entity that answers every call through its runner has no use for a
+    collection function; one that answers only some calls there (a suite's
+    items, which compare runs when the call names them) needs both, and the
+    arguments in ``run_when_kwargs`` are what choose between them."""
     for entity_type, handler in ENTITY_REGISTRY.items():
-        if handler.run_fn is not None:
+        if handler.run_fn is not None and not handler.run_when_kwargs:
             assert handler.list_fn is None, (
-                f"{entity_type} answers list through run_fn, so a list_fn here "
+                f"{entity_type} answers every list through run_fn, so a list_fn here "
                 "would never be called"
+            )
+        if handler.run_when_kwargs:
+            assert handler.run_fn is not None, (
+                f"{entity_type} names arguments that hand the call to a runner it does not have"
+            )
+            assert handler.list_fn is not None, (
+                f"{entity_type} answers only some calls through run_fn; the rest reach the "
+                "collection path and need a list_fn"
             )
         assert handler.lists == (handler.list_fn is not None or handler.run_fn is not None)
 

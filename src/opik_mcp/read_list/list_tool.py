@@ -156,6 +156,18 @@ async def _run_whole(
             return await run(cast("OpikReadClient", opik), **kw)
 
 
+def _whole_call(handler: EntityHandler, tool_args: dict[str, Any]) -> bool:
+    """Does this call belong to the entity's runner, or to the collection path?
+
+    An entity with no ``run_when_kwargs`` answers every call through its
+    runner. One that declares them answers two different questions, and the
+    arguments say which was asked.
+    """
+    if not handler.run_when_kwargs:
+        return True
+    return any(tool_args.get(arg) is not None for arg in handler.run_when_kwargs)
+
+
 async def run_list(
     entity_type: str,
     *,
@@ -171,6 +183,7 @@ async def run_list(
     project_name: str | None = None,
     test_suite_id: str | None = None,
     prompt_id: str | None = None,
+    experiment_ids: list[str] | None = None,
     status: str | None = None,
     metric_type: str | None = None,
     interval: str | None = None,
@@ -182,30 +195,39 @@ async def run_list(
     """List tool entrypoint. See ``server.py`` for the registered tool."""
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
-    if handler is not None and handler.run_fn is not None:
-        # The entity answers on its own: a time series is not a collection, so
-        # rows are buckets, the filter fields belong to whichever entity the
-        # metric is about, and page/size/sort mean nothing. ``page``/``size``
-        # carry non-None defaults, so only a value the caller actually chose
-        # is passed on; the defaults reaching here cannot be told from absence
-        # and are harmless.
+    tool_args: dict[str, Any] = {
+        "name": name,
+        "filters": filters,
+        "sort": sort,
+        "since": since,
+        "until": until,
+        "search": search,
+        "project_id": project_id,
+        "project_name": project_name,
+        "test_suite_id": test_suite_id,
+        "prompt_id": prompt_id,
+        "experiment_ids": experiment_ids,
+        "status": status,
+        "metric_type": metric_type,
+        "interval": interval,
+        "breakdown": breakdown,
+        "series": series,
+    }
+    if handler is not None and handler.run_fn is not None and _whole_call(handler, tool_args):
+        # The entity answers on its own, because what it answers is not a
+        # collection: a time series' rows are buckets, and a comparison's are
+        # cases with several runs on each. Both need the tool's arguments and
+        # none of its table. ``page``/``size`` carry non-None defaults, so only
+        # a value the caller actually chose is passed on; the defaults reaching
+        # a runner cannot be told from absence and are harmless.
         return await _run_whole(
             handler.run_fn,
             entity_type,
-            project_id=project_id,
-            project_name=project_name,
-            metric_type=metric_type,
-            interval=interval,
-            breakdown=breakdown,
-            series=series,
-            since=since,
-            until=until,
-            filters=filters,
-            page=page if page != 1 else None,
-            size=size if size != _DEFAULT_SIZE else None,
-            sort=sort,
             settings=settings,
             client=client,
+            page=page if page != 1 else None,
+            size=size if size != _DEFAULT_SIZE else None,
+            **tool_args,
         )
 
     # Checked after the runner branch rather than before it, so that reaching

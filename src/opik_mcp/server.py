@@ -418,7 +418,22 @@ async def list_entities(
     ] = None,
     test_suite_id: Annotated[
         str | None,
-        Field(description="Required when listing test_suite_items. UUID of the suite."),
+        Field(
+            description=(
+                "Required when listing test_suite_items, unless experiment_ids is given. "
+                "UUID of the suite."
+            )
+        ),
+    ] = None,
+    experiment_ids: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "test_suite_item: compare these experiments case by case — which cases "
+                "regressed, not two averages. First id is the baseline; up to 10. Resolves "
+                "the suite itself, and is what filters/sort/search apply to."
+            )
+        ),
     ] = None,
     prompt_id: Annotated[
         str | None,
@@ -498,7 +513,7 @@ async def list_entities(
       this project's traces)
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
-    - test_suite_item: test_suite_id
+    - test_suite_item: test_suite_id, or experiment_ids to compare runs case by case
     - prompt_version: prompt_id
 
     Workspace-wide types (project, experiment, prompt, test_suite) accept
@@ -521,6 +536,7 @@ async def list_entities(
         project_id=project_id,
         project_name=project_name,
         test_suite_id=test_suite_id,
+        experiment_ids=experiment_ids,
         prompt_id=prompt_id,
         status=status,
         metric_type=metric_type,

@@ -49,12 +49,29 @@ FieldType = Literal[
     "enum_legacy",
     "error_container",
     "string_list",
+    "keyed_string",
+    "flat_or_keyed_string",
 ]
 
 # Operator → FieldType entries of opik-backend's ANALYTICS_DB_OPERATOR_MAP
 # (FilterQueryBuilder.java). A pair missing there is a 400 server-side.
 OPERATORS_BY_TYPE: Final[dict[str, tuple[str, ...]]] = {
     "string": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with", ">", "<"),
+    # A key addressed inside a map the user owns: ``data.question`` on a test
+    # suite item, ``output.answer`` on the runs compared with it. opik-backend
+    # calls these dynamic fields and wants the key spliced into the field name
+    # with a declared type, which is what ``_dynamic_clause`` below writes.
+    "keyed_string": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with", ">", "<"),
+    "flat_or_keyed_string": (
+        "=",
+        "!=",
+        "contains",
+        "not_contains",
+        "starts_with",
+        "ends_with",
+        ">",
+        "<",
+    ),
     "date_time": ("=", "!=", ">", ">=", "<", "<="),
     "number": ("=", "!=", ">", ">=", "<", "<="),
     "feedback_scores": ("=", "!=", ">", ">=", "<", "<=", "is_empty", "is_not_empty"),
@@ -81,6 +98,15 @@ NO_VALUE_OPERATORS: Final = frozenset({"is_empty", "is_not_empty"})
 LIST_VALUE_OPERATORS: Final = frozenset({"in", "not_in"})
 # Types whose filters need a ``.key`` (the backend rejects a blank key).
 KEYED_TYPES: Final = frozenset({"feedback_scores", "dictionary"})
+#: Types whose filters carry a key. ``keyed_string`` needs one (``data`` alone
+#: is not a field the backend knows); ``flat_or_keyed_string`` takes one or
+#: not (``output`` searches the whole body, ``output.answer`` one key of it).
+KEY_REQUIRED_TYPES: Final = KEYED_TYPES | {"keyed_string"}
+KEY_ALLOWED_TYPES: Final = KEY_REQUIRED_TYPES | {"flat_or_keyed_string"}
+#: Types the backend cannot type on its own, because the field name is the
+#: user's. The compiled clause declares the type for them and splices the key
+#: into the name; everything else is a known field the backend types itself.
+DYNAMIC_TYPES: Final = frozenset({"keyed_string", "flat_or_keyed_string"})
 USAGE_FIELDS: Final = ("usage.total_tokens", "usage.prompt_tokens", "usage.completion_tokens")
 # Number fields the backend stores in milliseconds — named in value errors so
 # an agent writing ``duration > 5`` learns it asked for five milliseconds.
@@ -160,6 +186,19 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
         "tags": "list",
         "feedback_scores": "feedback_scores",
         "experiment_scores": "feedback_scores",
+    },
+    # What the UI's compare page offers, which is also what the backend
+    # actually applies. ``total_estimated_cost`` and ``usage.total_tokens``
+    # are deliberately absent: the joined endpoint validates them, answers
+    # 200 and never puts them in the query, so a page filtered on either is
+    # an unfiltered page that reads like a filtered one.
+    "test_suite_item": {
+        "id": "string",
+        "data": "keyed_string",
+        "output": "flat_or_keyed_string",
+        "duration": "number",
+        "comments": "string",
+        "feedback_scores": "feedback_scores",
     },
 }
 # Closed enum values, per entity, from opik-backend's own enums (Source,
@@ -528,8 +567,8 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
         )
 
     ftype = fields[field]
-    if key is not None and ftype not in KEYED_TYPES:
-        keyed = ", ".join(sorted(f for f, t in fields.items() if t in KEYED_TYPES))
+    if key is not None and ftype not in KEY_ALLOWED_TYPES:
+        keyed = ", ".join(sorted(f for f, t in fields.items() if t in KEY_ALLOWED_TYPES))
         return None, OQLIssue(
             "unknown_field",
             f"Field '{field}' does not take a key ('{field}.{key}'). Keyed fields: {keyed}.",
@@ -546,17 +585,42 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
     issue = _validate_value(entity_type, field, ftype, key, raw)
     if issue is not None:
         return None, issue
+    if ftype in DYNAMIC_TYPES:
+        return _dynamic_clause(field, key, raw), None
     return {"field": field, "operator": raw.operator, "key": key or "", "value": raw.value}, None
+
+
+def _dynamic_clause(field: str, key: str | None, raw: _RawClause) -> dict[str, str]:
+    """A clause on a field whose name the user chose.
+
+    opik-backend types its own known fields and refuses a dynamic one that
+    arrives untyped, so the type rides along. The key is spliced into the name
+    (``data`` + ``question`` → ``data.question``) because that is the field
+    name on the wire, not a key beside it the way a score name is.
+    """
+    return {
+        "field": f"{field}.{key}" if key else field,
+        "type": "string",
+        "operator": raw.operator,
+        "key": "",
+        "value": raw.value,
+    }
 
 
 def _validate_value(
     entity_type: str, field: str, ftype: str, key: str | None, raw: _RawClause
 ) -> OQLIssue | None:
-    if ftype in KEYED_TYPES and not key:
+    if ftype in KEY_REQUIRED_TYPES and not key:
         if ftype == "feedback_scores":
             return OQLIssue(
                 "bad_value",
                 f"'{field}' needs a score name: write {field}.<name>, e.g. {field}.accuracy < 0.5.",
+            )
+        if ftype == "keyed_string":
+            return OQLIssue(
+                "bad_value",
+                f"'{field}' needs a key: write {field}.<key>, "
+                f'e.g. {field}.question contains "refund".',
             )
         return OQLIssue(
             "bad_value",

@@ -17,7 +17,8 @@ from opik_mcp.read_list.oql import (
     ENUM_VALUES,
     FILTERABLE_FIELDS,
     GRAMMAR_LINE,
-    KEYED_TYPES,
+    KEY_ALLOWED_TYPES,
+    KEY_REQUIRED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
     SOURCE_DEFAULTED_ENTITIES,
@@ -52,6 +53,10 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
         'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
         'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
     ),
+    "test_suite_item": (
+        "feedback_scores.correctness < 0.5",
+        'data.question contains "refund" AND output contains "sorry"',
+    ),
 }
 
 
@@ -66,8 +71,10 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
         spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}
-        if ftype in KEYED_TYPES:
+        if ftype in KEY_REQUIRED_TYPES:
             spec["key"] = "required"
+        elif ftype in KEY_ALLOWED_TYPES:
+            spec["key"] = "optional"
         if name in MILLISECOND_FIELDS:
             spec["unit"] = "milliseconds"
         if ftype == "date_time":
@@ -86,6 +93,11 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
     if entity_type in SOURCE_DEFAULTED_ENTITIES:
         filters["default"] = 'source = "sdk" unless you name source'
+    if entity_type == "test_suite_item":
+        # Every one of these reads the compared runs, which only exist when
+        # the call names them. Without experiment_ids the list is the suite's
+        # cases and takes none of the three.
+        filters["requires"] = "experiment_ids: filters, sort and search apply to the runs"
 
     return {
         "operation": f"list.{entity_type}",

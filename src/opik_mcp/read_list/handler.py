@@ -195,6 +195,16 @@ class EntityHandler:
         """
         return self.list_fn is not None or self.run_fn is not None
 
+    run_when_kwargs: tuple[str, ...] = ()
+    """Tool arguments that hand the call to ``run_fn``; empty means always.
+
+    An entity can answer one question through the collection path and another
+    through its runner — a suite's cases are a collection, the same cases with
+    two experiments' runs attached are not. Naming the arguments that switch
+    between them here keeps the ``list`` tool from knowing which entity has
+    two questions, and lets a test pin the choice.
+    """
+
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
     then starts at ``id`` instead of rendering an always-empty name column."""

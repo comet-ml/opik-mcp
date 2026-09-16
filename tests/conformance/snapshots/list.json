@@ -34,6 +34,22 @@
       "title": "Entity Type",
       "type": "string"
     },
+    "experiment_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "test_suite_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the suite itself, and is what filters/sort/search apply to.",
+      "title": "Experiment Ids"
+    },
     "filters": {
       "anyOf": [
         {
@@ -256,7 +272,7 @@
         }
       ],
       "default": null,
-      "description": "Required when listing test_suite_items. UUID of the suite.",
+      "description": "Required when listing test_suite_items, unless experiment_ids is given. UUID of the suite.",
       "title": "Test Suite Id"
     },
     "until": {

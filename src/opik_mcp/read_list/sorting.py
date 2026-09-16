@@ -100,6 +100,30 @@ _EXPERIMENT_SORTABLE: Final = (
     "pass_rate",
 )
 
+_TEST_SUITE_ITEM_SORTABLE: Final = (
+    "id",
+    "created_at",
+    "last_updated_at",
+    "duration",
+    "total_estimated_cost",
+    "comments",
+    "usage.*",
+    "feedback_scores.*",
+    "data.*",
+    "output.*",
+    "input.*",
+    "metadata.*",
+)
+"""Transcribed from ``SortingFactoryDatasets``, which serves the joined
+comparison page.
+
+There is no ``status`` and no pass/fail field on it, so "show me the failed
+cases first" cannot be a sort — it is a filter on the score the judge wrote.
+Naming that here is the point: the backend logs an unsupported sort field and
+answers 200 with an unsorted page, so anything missing from this list has to
+be refused before the call.
+"""
+
 _PROJECT_SORTABLE: Final = (
     "id",
     "name",
@@ -121,6 +145,7 @@ SORTABLE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "span": _SPAN_SORTABLE,
     "thread": _THREAD_SORTABLE,
     "experiment": _EXPERIMENT_SORTABLE,
+    "test_suite_item": _TEST_SUITE_ITEM_SORTABLE,
 }
 SORTABLE_ENTITIES: Final[tuple[str, ...]] = tuple(SORTABLE_FIELDS)
 

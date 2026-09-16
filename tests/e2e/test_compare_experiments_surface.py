@@ -188,3 +188,87 @@ def test_an_unknown_route_is_still_a_404(backend: StubBackend) -> None:
     response = httpx.get(f"http://127.0.0.1:{backend.port}/api/v1/private/nope", timeout=30)
 
     assert response.status_code == 404
+
+
+# --- the comparison, over stdio -------------------------------------------- #
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBackend) -> None:
+    backend.suite = CompareSuite(case_count=8)
+
+    async with _session(backend) as session:
+        answer = await _call(
+            session,
+            "list",
+            entity_type="test_suite_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+            size=4,
+        )
+
+    # The suite was resolved from the experiments, not asked for.
+    assert [request.path for request in backend.requests] == [
+        f"/v1/private/experiments/{EXPERIMENT_A}",
+        f"/v1/private/experiments/{EXPERIMENT_B}",
+        _JOINED,
+    ]
+    joined = backend.sent(_JOINED)[0]
+    assert joined.query["experiment_ids"] == [f"{EXPERIMENT_A},{EXPERIMENT_B}"]
+    assert joined.query["truncate"] == ["true"]
+
+    assert answer.startswith("[list: test_suite_item | compare: 2 experiments]")
+    assert "Found 8 test_suite_items (page 1, showing 4 of 8):" in answer
+    assert f"E1 = baseline-v1 ({EXPERIMENT_A}); E2 = rerank-v3 ({EXPERIMENT_B})" in answer
+    # The fourth case is the one rerank-v3 regressed on.
+    regressed = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
+    assert "0.9 / 0.4 Δ0.5" in regressed
+    assert "Use page=2 for next 4 results." in answer
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_cases(
+    backend: StubBackend,
+) -> None:
+    """The whole point of the joined endpoint: the page is the cost, not the suite.
+
+    The same diagnosis on a suite five thousand times larger must take the
+    same number of calls and about the same number of tokens, or the agent is
+    back to reading every trace.
+    """
+    answers: dict[int, str] = {}
+    calls: dict[int, list[str]] = {}
+    for case_count in (20, 100_000):
+        backend.suite = CompareSuite(case_count=case_count)
+        backend.requests.clear()
+        async with _session(backend) as session:
+            answers[case_count] = await _call(
+                session,
+                "list",
+                entity_type="test_suite_item",
+                experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+                size=5,
+            )
+        calls[case_count] = [request.path for request in backend.requests]
+
+    assert calls[20] == calls[100_000]
+    ratio = len(answers[100_000]) / len(answers[20])
+    assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
+async def test_experiments_from_two_suites_are_refused_before_anything_is_joined(
+    backend: StubBackend,
+) -> None:
+    async with _session(backend) as session:
+        refusal = await _refuse(
+            session,
+            "list",
+            entity_type="test_suite_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_OTHER_SUITE],
+        )
+
+    assert "support-qa" in refusal and "billing-qa" in refusal
+    assert not backend.called("items/experiments/items")

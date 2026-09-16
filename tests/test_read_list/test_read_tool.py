@@ -129,6 +129,18 @@ class FakeOpikClient:
             raise OpikNotFoundError(f"trace {trace_id!r} not found (404).")
         return self.traces_by_id[trace_id]
 
+    # Not exercised by the read tool — the comparison is a list — but part of
+    # the client protocol a read is handed.
+    async def list_compared_test_suite_items(
+        self, test_suite_id: str, /, **_kw: Any
+    ) -> dict[str, Any]:
+        return {"content": [], "page": 1, "size": 0, "total": 0}
+
+    async def list_compared_output_columns(
+        self, test_suite_id: str, /, **_kw: Any
+    ) -> dict[str, Any]:
+        return {"columns": []}
+
     async def list_spans(
         self,
         *,

@@ -24,6 +24,7 @@
         "list.span",
         "list.thread",
         "list.experiment",
+        "list.test_suite_item",
         "list.project_metric"
       ],
       "title": "Operation",

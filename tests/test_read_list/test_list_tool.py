@@ -34,6 +34,16 @@ class FakeOpikClient:
     issues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     score_names: dict[str, Any] = field(default_factory=lambda: {"scores": []})
     automation_rules: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    # The comparison surface: the experiments a call can name, the joined page
+    # they come back on, and every joined request made, in order — the refetch
+    # wave is only visible as a list.
+    experiment_records: dict[str, Any] = field(default_factory=dict)
+    compared_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    compared_columns: dict[str, Any] = field(default_factory=lambda: {"columns": []})
+    compare_calls: list[dict[str, Any]] = field(default_factory=list)
+    column_calls: list[dict[str, Any]] = field(default_factory=list)
+    compare_error: Exception | None = None
+    columns_error: Exception | None = None
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
 
@@ -130,6 +140,29 @@ class FakeOpikClient:
     async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = {"prompt_id": prompt_id, **kw}
         return self.prompt_versions
+
+    async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]:
+        record = self.experiment_records.get(experiment_id)
+        if record is None:
+            raise OpikNotFoundError(f"experiment {experiment_id!r} not found (404).")
+        return dict(record)
+
+    async def list_compared_test_suite_items(
+        self, test_suite_id: str, /, **kw: Any
+    ) -> dict[str, Any]:
+        self.compare_calls.append({"test_suite_id": test_suite_id, **kw})
+        self.last_kwargs = {"test_suite_id": test_suite_id, **kw}
+        if self.compare_error is not None:
+            raise self.compare_error
+        return self.compared_items
+
+    async def list_compared_output_columns(
+        self, test_suite_id: str, /, **kw: Any
+    ) -> dict[str, Any]:
+        self.column_calls.append({"test_suite_id": test_suite_id, **kw})
+        if self.columns_error is not None:
+            raise self.columns_error
+        return self.compared_columns
 
     async def list_spans(self, **_: Any) -> dict[str, Any]:
         # Not exercised by the list tool (span has no list_fn) — included to

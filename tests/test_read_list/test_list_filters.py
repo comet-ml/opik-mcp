@@ -50,6 +50,20 @@ class FakeOpikClient:
         self.last_kwargs = kw
         return self.traces
 
+    async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]:
+        return {"id": experiment_id, "name": experiment_id, "dataset_id": "suite-1"}
+
+    async def list_compared_test_suite_items(
+        self, test_suite_id: str, /, **kw: Any
+    ) -> dict[str, Any]:
+        self.last_kwargs = {"test_suite_id": test_suite_id, **kw}
+        return {"content": [], "total": 0}
+
+    async def list_compared_output_columns(
+        self, test_suite_id: str, /, **_kw: Any
+    ) -> dict[str, Any]:
+        return {"columns": []}
+
     async def list_spans(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         return self.spans
