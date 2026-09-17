@@ -289,7 +289,9 @@ async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_c
             )
         calls[case_count] = [request.path for request in backend.requests]
 
-    assert calls[20] == calls[100_000]
+    # The experiment reads go out together, so their order in the stub's log is
+    # a race; the claim is the same requests, not the same sequence.
+    assert sorted(calls[20]) == sorted(calls[100_000])
     ratio = len(answers[100_000]) / len(answers[20])
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
 
@@ -367,7 +369,9 @@ async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
             )
         calls[case_count] = [request.path for request in backend.requests]
 
-    assert calls[20] == calls[100_000]
+    # The experiment reads go out together, so their order in the stub's log is
+    # a race; the claim is the same requests, not the same sequence.
+    assert sorted(calls[20]) == sorted(calls[100_000])
     ratio = len(answers[100_000]) / len(answers[20])
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
 
