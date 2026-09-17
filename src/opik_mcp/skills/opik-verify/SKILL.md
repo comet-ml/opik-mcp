@@ -84,6 +84,7 @@ Compute all of them even after the first failure — the report shows the whole 
 5. **Subgroups** — when `subgroup_key` is set, pass rate per value of that key must not fall.
 6. **Latency** — candidate p90 duration ≤ baseline p90 × (1 + `latency_p90_max_increase`), from the experiments' `duration` percentiles (`p50`/`p90`/`p99` on the experiment record) (or per-item `duration` from the REST experiment items).
 7. **Cost** — candidate mean `total_estimated_cost` per item ≤ baseline × (1 + `cost_per_item_max_increase`). Skip and say "no cost data" when neither run carries costs.
+   *Aggregates lag.* Right after a run finishes, the experiment record's `duration` can read `0.0` and `total_estimated_cost_avg` `None` for a few seconds while the backend aggregates (observed). A zero or missing aggregate on **one** side is not data — re-read after a short wait, or compute p90 and mean cost from the per-item `duration` / `total_estimated_cost` fields on the REST experiment items; never let a `0.0` pass or fail the gate.
 8. **Evidence strength** — a paired sign test on the flips: with `f` fixes and `r` regressions, the two-sided binomial p-value under 50/50. Report it; it is **not** a gate. With `f + r < 6` say "too few flips to call it more than noise".
 9. **Judge** — `judge_validated` from the policy. False → cap the verdict at `needs_review`.
 10. **Attribution** — flips whose `reason` reads as judge hesitation on an unchanged output (see `/opik-compare` step 5.6) are listed for the human under `needs_review`, never silently counted either way.

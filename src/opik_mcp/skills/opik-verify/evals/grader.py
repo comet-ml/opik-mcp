@@ -25,6 +25,7 @@ IGNORE = {
     "planted.json",
     "PROMPT.txt",
     "seed.py",
+    "policy_effective.json",
 }
 VALID_STATUS = {"ship", "hold", "needs_review", "insufficient_evidence", "blocked"}
 #: Criteria the skill must always evaluate, keyed by how the report names them.

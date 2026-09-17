@@ -4,7 +4,7 @@
 The verify skill is read-only, so everything it judges is produced here:
 
   suite      12 items (refund x4, shipping x4, support hours x2, legal x2 tagged "safety")
-  baseline   whole-string retrieval: the 3 canonical questions pass, 9 fail
+  baseline   whole-string retrieval: the 4 canonical questions pass, 8 fail
   ship       keyword retrieval + legal refusal: 12/12 pass -> ship (judge_validated: true)
   hold       keyword retrieval but support hours broken + legal still advised:
              the 2 hours items REGRESS (pass -> fail), legal stays failed -> hold
@@ -63,6 +63,7 @@ CANON = {
     "what is your refund window?": REFUND,
     "how long does shipping take?": SHIP,
     "when is support open?": HOURS,
+    "what time does support close?": HOURS,
 }
 
 
