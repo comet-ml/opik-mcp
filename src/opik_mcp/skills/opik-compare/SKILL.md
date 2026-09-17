@@ -69,6 +69,7 @@ result = opik.run_tests(
     experiment_name="candidate-<sha>",
     experiment_tags=["compare", "<sha>"],
     model="<same judge model as baseline>",
+    generate_report=False,                    # default True writes opik_test_suite_reports/ into cwd — the repo stays untouched
 )
 candidate_id = result.experiment_id          # result.experiment_url is the single-run link
 

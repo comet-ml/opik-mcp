@@ -1,13 +1,15 @@
 # Test cases for the `/opik-optimize` skill.
 #
 #   triggering  -> does the skill load at the right times (change the prompt vs measure it)?
-#   functional  -> given a library prompt + dataset with expected outputs, does it report a
-#                  VALIDATION gain, the run link, the cost, and save a new version — without
-#                  touching the repo? (contract below; fixture pending)
+#   functional  -> given a weak library prompt + a dataset with expected outputs, does it report
+#                  a VALIDATION gain, the run link, the cost, bound the budget, and save a new
+#                  version only on a real improvement — without touching the repo?
 #
-# Only the triggering suite is automated today. The functional contract is pinned
-# here so the fixture (a seeded prompt + dataset with a deliberately weak prompt)
-# can be added without changing the grader's target.
+# The fixture is a seeder (fixtures/format/seed.py): 50 order-line items whose expected
+# output is a strict format ("TOTAL: 41.50") the weak prompt never mentions, so the
+# prompt IS the bottleneck and a real gain is available. The grader scores result.json
+# against planted.json; `verify` (network) checks the prompt library: a new version
+# exists iff the result says `improved`.
 
 triggering:
   should_trigger:
@@ -28,15 +30,17 @@ triggering:
 
 functional:
   - id: library_prompt
-    fixture: TODO            # seeder: dataset (>=40 items, expected_output) + a weak library prompt
-    prompt: "Optimize the prompt <PROMPT> against dataset <DATASET>."
+    fixture: format
+    prompt: "Optimize the library prompt <PROMPT> against dataset <DATASET> (project <PROJECT>). Items have `input` and `expected_output`."
     expect_status: improved
     assert:
-      status_in: [improved, no_improvement]   # honest either way; never a training-only gain
-      validation_score_reported: true
+      status_in: [improved, no_improvement]   # honest either way
+      validation_reported: true               # scores.validation present (not just training)
       run_url_present: true
-      cost_reported: true
-      budget_bounded: true                    # optimizer.n_samples and max_trials set
-      new_version_saved_when_improved: true
+      cost_reported: true                     # cost key present (value may be null when the provider gives none)
+      budget_bounded: true                    # optimizer.n_samples and optimizer.max_trials set
+      split_reported: true                    # dataset.train and dataset.validation with counts; validation >= 10
+      version_saved_iff_improved: true        # prompt.new_version set <=> status == improved
+      prompt_matches_planted: true            # prompt.name == the seeded library prompt
       one_next_step: true
-      no_modifications: true                  # prompt in the repo untouched
+      no_modifications: true                  # nothing in the workdir changed

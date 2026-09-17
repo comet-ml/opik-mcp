@@ -1,6 +1,6 @@
 ---
 name: opik-evaluate
-description: Build an LLM evaluation and run it against the app, returning an Opik experiment with scores and its link. Picks a test suite with judge assertions or a dataset with metrics, sources cases from traces or synthetic data, scores heuristics-first then one-failure-mode judges, runs client-side via the SDK or server-side for prompt-only targets, and reads the scores back. Covers RAG evaluation, error analysis, and validating a judge against human labels. Use for "evaluate my agent", "measure quality", "build an eval", "write an LLM judge", "how good is my RAG", "set up evals for this". Not for before/after on an existing suite (use compare), one regression case (use test), or scoring production traffic (use online-eval).
+description: Build an LLM evaluation and run it against the app, returning an Opik experiment with scores and its link. Picks a test suite with judge assertions or a dataset with metrics, sources cases from traces or synthetic data, scores heuristics-first then one-failure-mode judges, runs client-side via the SDK or server-side for prompt-only targets, and reads the scores back. Covers RAG evaluation, error analysis, writing and validating LLM judges against human labels, and auditing an existing eval pipeline. Use for "evaluate my agent", "measure quality", "build an eval", "write an LLM judge for hallucinations", "audit our evaluation pipeline", "how good is my RAG", "set up evals for this". Not for before/after on an existing suite (use compare), one regression case (use test), scoring production traffic (use online-eval), or the ship/hold decision (use verify).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured. Install the `opik` skill alongside this one — it holds the shared test-suite, dataset, and metric references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -74,7 +74,8 @@ Write the task adapter as a temp file **outside the repo** (needs the app's prov
 ```python
 # Test suite
 results = opik.run_tests(test_suite=suite, task=lambda item: {"input": item["input"], "output": str(app(item["input"]))},
-                         experiment_name="baseline-<sha>", model="<judge model>")
+                         experiment_name="baseline-<sha>", model="<judge model>",
+                         generate_report=False)   # default True writes opik_test_suite_reports/ into cwd — keep the repo clean
 # Dataset
 from opik.evaluation import evaluate
 res = evaluate(dataset=dataset, task=task, scoring_metrics=[...], experiment_name="baseline-<sha>",
