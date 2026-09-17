@@ -21,6 +21,8 @@ triggering:
     - "which cases regressed"
     - "compare these two experiments"
   should_not_trigger:
+    - "is this safe to ship"                       # verify
+    - "can I merge this"                           # verify
     - "turn this trace into a test"                # test
     - "what is broken in production"               # diagnose
     - "build an evaluation for my agent"           # evaluate

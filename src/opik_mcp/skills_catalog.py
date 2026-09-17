@@ -112,6 +112,10 @@ SKILL_SUMMARIES: dict[str, str] = {
         '"optimize this prompt", "improve my system prompt", "tune the prompt against '
         'my dataset", "run the prompt optimizer".'
     ),
+    "opik-verify": (
+        '"is this safe to ship", "can I merge this", "go/no-go on this change", "gate '
+        'this release" — a ship/hold verdict against a release policy.'
+    ),
 }
 
 #: Content types by suffix. Markdown is what skills are made of; the rest cover
