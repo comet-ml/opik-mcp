@@ -1,0 +1,49 @@
+# Test cases for the `/opik-online-eval` skill.
+#
+#   triggering  -> does the skill load at the right times (live scoring vs offline eval)?
+#   functional  -> given a project with traffic, does it create ONE rule with a cost cap
+#                  and confirm a scored trace? (contract below; fixture pending)
+#
+# Only the triggering suite is automated today. The functional contract is
+# pinned here so the fixture (a seeder that emits traces into a fresh project)
+# can be added without changing the grader's target.
+
+triggering:
+  should_trigger:
+    - "score production traces"
+    - "monitor hallucinations in prod"
+    - "take this judge live"
+    - "set up an online evaluation rule"
+    - "alert me when answer quality drops"
+    - "automatically score every trace for moderation"
+  should_not_trigger:
+    - "evaluate my agent"                          # evaluate
+    - "build an eval for this chatbot"             # evaluate
+    - "did my fix work"                            # compare
+    - "what is broken in production"               # diagnose
+    - "turn this trace into a test"                # test
+    - "optimize my system prompt"                  # optimize
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: judge_live
+    fixture: TODO            # seeder: fresh project + a stream of traces with input/output
+    prompt: "Score the traces in project <PROJECT> for wrong refund windows."
+    expect_status: live
+    assert:
+      status: live
+      exactly_one_rule_created: true
+      rule_has_cost_cap: true            # max_cost_usd set
+      rule_has_sampling_rate: true
+      variables_are_field_paths: true    # no "{{" in variables
+      verification_trace_present: true   # verification.trace_id
+      one_next_step: true
+      no_modifications: true
+  - id: already_exists
+    fixture: TODO            # same seeder, with a rule of the same name pre-created
+    prompt: "Score the traces in project <PROJECT> for wrong refund windows."
+    expect_status: exists
+    assert:
+      status: exists
+      no_rule_created: true
+      one_next_step: true

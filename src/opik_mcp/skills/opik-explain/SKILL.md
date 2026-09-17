@@ -47,7 +47,10 @@ client = opik.Opik()
 
 tid = "<trace_id>"
 trace = client.get_trace_content(tid)       # TracePublic: exposes project_id, input, output, error info — NOT project_name (accessing .project_name raises)
-spans = client.search_spans(trace_id=tid)   # spans come from a SEPARATE call, not from the trace object
+project = client.rest_client.projects.get_project_by_id(trace.project_id).name
+spans = client.search_spans(project_name=project, trace_id=tid)   # spans come from a SEPARATE call, not from the trace object
+# ALWAYS pass project_name: without it the SDK searches the configured default project, which
+# returns an empty list (or a 404 if that project doesn't exist) even for a valid trace id.
 # Reconstruct the tree via each span's parent_span_id (the root span has none).
 # Your anchor is the first span that errored, returned wrong output, or dominates the duration.
 ```
@@ -110,7 +113,7 @@ Invariants: `explained` must carry a `root_cause` **and** at least one evidence 
 **Blocked — bad id.** `/opik-explain 123`. `get_trace_content` finds nothing. → **`not_found`**: "No trace `123` in project `X` — confirm the id/project and rerun." (No code touched.)
 
 ## Anti-patterns
-Dumping the span tree without naming a cause; guessing a cause without reading the anchor span's input/output; listing five maybes instead of the one best-evidenced cause; returning bare span/trace ids instead of clickable Opik UI links; **editing code** (this skill explains; `opik-instrument`/`opik-test` or the developer make changes); calling `.project_name` on a `TracePublic` (it raises — use `project_id`).
+Dumping the span tree without naming a cause; guessing a cause without reading the anchor span's input/output; listing five maybes instead of the one best-evidenced cause; returning bare span/trace ids instead of clickable Opik UI links; **editing code** (this skill explains; `opik-instrument`/`opik-test` or the developer make changes); calling `.project_name` on a `TracePublic` (it raises — use `project_id`); calling `search_spans(trace_id=…)` without `project_name` (it searches the default project and comes back empty).
 
 ## References
 

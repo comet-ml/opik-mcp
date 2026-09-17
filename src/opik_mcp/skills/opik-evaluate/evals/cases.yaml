@@ -1,0 +1,42 @@
+# Test cases for the `/opik-evaluate` skill.
+#
+#   triggering  -> does the skill load at the right times (and stay out of the way
+#                  of test / compare / online-eval, whose phrasing overlaps)?
+#   functional  -> given an uninstrumented-but-runnable app, does it produce an
+#                  experiment with scores? (contract below; fixture pending OPIK-7646)
+#
+# Only the triggering suite is automated today. The functional contract is
+# pinned here so the fixture can be added without changing the grader's target.
+
+triggering:
+  should_trigger:
+    - "evaluate my agent"
+    - "measure the quality of my RAG pipeline"
+    - "build an eval for this chatbot"
+    - "write an LLM judge for hallucinations"
+    - "how good is my agent right now"
+    - "set up evals for this project"
+    - "audit our existing evaluation pipeline"
+  should_not_trigger:
+    - "turn this trace into a test"                # test
+    - "did my fix work"                            # compare
+    - "compare against the baseline"               # compare
+    - "score production traces as they come in"    # online-eval
+    - "what is broken in production"               # diagnose
+    - "why did this trace fail"                    # explain
+    - "optimize my system prompt"                  # optimize
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: first_experiment
+    fixture: TODO            # a small runnable agent + 20 traces (or provided cases)
+    prompt: "Evaluate the agent in this directory."
+    expect_status: evaluated
+    assert:
+      status: evaluated
+      experiment_url_present: true
+      scores_nonempty: true
+      worst_items_named: true          # at least one worst item with a reason
+      each_judge_names_one_failure_mode: true
+      one_next_step: true
+      no_modifications: true           # the runner lives outside the repo
