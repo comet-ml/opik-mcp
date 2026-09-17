@@ -13,6 +13,7 @@ the parts a caller cannot reconstruct from an average.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
@@ -193,7 +194,22 @@ def _worst(
     Ties go to the last experiment named, which is the newer run in the
     comparison a caller actually makes: the baseline's trace is the one they
     already know.
+
+    A suite judged by assertions alone records no scores, so every total is
+    zero and the tie rule would crown the last experiment on every row — a
+    ranking nobody made. There the failed run is the only signal: the last
+    experiment that has one owns the trace, and with none, there is nothing
+    worth opening.
     """
+    if not any(scores_of(run) for own in runs.values() for run in own):
+        failed_by: tuple[Experiment, dict[str, Any]] | None = None
+        for experiment in experiments:
+            for run in runs.get(experiment.id, []):
+                if run.get("status") == "failed":
+                    failed_by = (experiment, run)
+                    break
+        return failed_by
+
     worst: tuple[float, Experiment, list[dict[str, Any]]] | None = None
     for experiment in experiments:
         own = runs.get(experiment.id, [])
@@ -223,19 +239,24 @@ def render(
     size: int,
     header: str,
     notes: list[str],
-    suite_columns: bool = False,
+    assertion_columns: bool = False,
 ) -> str:
     """The page, as the agent reads it.
 
     Follows the shared list table: a count line, the rows, then everything the
-    table did to the data said under the data.
+    table did to the data said under the data. The same layout serves plain
+    ``evaluate()`` experiments and test-suite runs; only the two assertion
+    columns depend on which it is.
     """
     data_keys, omitted_keys = data_columns(rows, MAX_DATA_COLUMNS)
     scores, omitted_scores = score_columns(rows)
     columns = ["id", *(f"data.{key}" for key in data_keys), *scores]
-    # Every comparison names the run worth opening next. Only a test suite has
-    # a pass count and a judge's sentence to show beside it.
-    columns += ["passed", "worst_trace", "reason"] if suite_columns else ["worst_trace"]
+    # Every comparison names the run worth opening next. ``passed`` and
+    # ``reason`` come from assertions, which only a test suite records:
+    # opik-backend's ``run_passed`` subquery (ExperimentDAO) inner-joins on
+    # ``evaluation_method = 'evaluation_suite'``, so for a plain dataset the
+    # backend cannot fill them and the columns would be dashes read as loss.
+    columns += ["passed", "worst_trace", "reason"] if assertion_columns else ["worst_trace"]
     limit = cell_limit(len(rows), len(columns))
 
     lines = [
@@ -249,7 +270,7 @@ def render(
         row = ComparedRow.of(case, experiments)
         values = []
         for column in columns:
-            text = _cell(row, column, scores)
+            text = one_line(_cell(row, column, scores))
             if len(text) > limit:
                 text = text[: limit - 3] + "..."
                 cut += 1
@@ -257,6 +278,20 @@ def render(
         lines.append(" | ".join(values))
 
     under = [*notes]
+    if not scores:
+        under.append(
+            "These runs recorded no feedback scores; they are judged by assertions, and only "
+            "a failed assertion's reason is shown."
+            if assertion_columns
+            else "These runs recorded no feedback scores, so there is nothing numeric to compare."
+        )
+    partial = sum(1 for case in rows if _not_run_by_every(case, experiments))
+    if partial:
+        under.append(
+            f"{partial} of {len(rows)} case{'s' if len(rows) != 1 else ''} "
+            f"{'was' if partial == 1 else 'were'} not run by every experiment; "
+            f"a {_MISSING} there means no run, not a zero score."
+        )
     if omitted_keys:
         under.append(
             f"Case columns are the suite's data keys, showing {len(data_keys)} of "
@@ -278,6 +313,29 @@ def render(
     if page * size < total:
         lines += ["", f"Use page={page + 1} for next {size} results."]
     return "\n".join(lines)
+
+
+_WHITESPACE = re.compile(r"\s+")
+
+
+def one_line(text: str) -> str:
+    """A cell the pipe table can hold: no line breaks, no bare ``|``.
+
+    A judge's reason is prose with paragraph breaks, and a case's data can be
+    anything the user put there. Either would split the row or add a column;
+    the first real suite would have broken the table.
+    """
+    return _WHITESPACE.sub(" ", text.replace("|", "¦")).strip()
+
+
+def _not_run_by_every(case: dict[str, Any], experiments: list[Experiment]) -> bool:
+    """Did some compared experiment leave this case untouched?
+
+    Its cells show ``-`` exactly like a run that scored nothing, so the page
+    counts these rows and says which reading applies.
+    """
+    ran = runs_by_experiment(case)
+    return any(experiment.id not in ran for experiment in experiments)
 
 
 def _cell(row: ComparedRow, column: str, scores: list[str]) -> str:

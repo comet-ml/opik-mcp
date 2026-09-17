@@ -4,7 +4,15 @@ The question this answers is the one two experiment records cannot: not "did
 the average move" but "which cases moved". opik-backend joins the cases to the
 runs already — it is what the UI's compare page reads — and nothing here does
 that join, or reads a trace to do it: a page of twenty cases costs a page of
-twenty cases, whether the suite holds twenty or a hundred thousand.
+twenty cases, whether the dataset holds twenty or a hundred thousand.
+
+It serves any experiments that ran the same dataset: plain ``evaluate()``
+runs as much as test-suite runs. A test suite is a dataset whose experiments
+carry ``evaluation_method = evaluation_suite``, and that flag adds exactly two
+columns, ``passed`` and ``reason``, because only a suite records assertions.
+Everything else — the cases, the scores, the worst trace — renders the same.
+(The entity is named ``test_suite`` after the product's newer name for the
+same ``/datasets`` record; the datasets are the common case.)
 
 The call takes the whole ``list`` invocation rather than the shared collection
 path because its rows are not records. A row is one case with several runs
@@ -85,7 +93,7 @@ async def run_compare(
         )
     sorting, sort_label, sort_field = _sorting(sort)
 
-    suite_columns = any(experiment.is_suite for experiment in experiments)
+    assertion_columns = any(experiment.is_suite for experiment in experiments)
     # The output keys are the first page's business only, and they do not
     # depend on it, so the two go out together rather than one after the other.
     page_result, *column_results = await asyncio.gather(
@@ -121,7 +129,7 @@ async def run_compare(
         applied.append(f'search: "{search}"')
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
-    notes = [_how_to_read(experiments, suite_columns=suite_columns)]
+    notes = [_how_to_read(experiments, assertion_columns=assertion_columns)]
     if stripping and rows:
         notes.append(
             "A filter on the runs matches a case when any of its experiments matches; the "
@@ -129,7 +137,7 @@ async def run_compare(
             "is the whole case."
         )
     keys_line = _keys_note(
-        column_results[0] if column_results else None, rows, hide_echo=suite_columns
+        column_results[0] if column_results else None, rows, hide_echo=assertion_columns
     )
     if keys_line is not None:
         notes.append(keys_line)
@@ -163,7 +171,7 @@ async def run_compare(
         size=size,
         header=header,
         notes=notes,
-        suite_columns=suite_columns,
+        assertion_columns=assertion_columns,
     )
 
 
@@ -450,11 +458,11 @@ def _legend(experiments: list[Experiment]) -> str:
     )
 
 
-def _how_to_read(experiments: list[Experiment], *, suite_columns: bool) -> str:
+def _how_to_read(experiments: list[Experiment], *, assertion_columns: bool) -> str:
     """What the separators in a cell mean. The header already said who is who."""
     passed = (
         f" passed is passed/total runs, {PASS_SEPARATOR.join(e.label for e in experiments)}."
-        if suite_columns
+        if assertion_columns
         else ""
     )
     if len(experiments) == 1:

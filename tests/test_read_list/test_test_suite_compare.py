@@ -577,7 +577,9 @@ async def test_a_row_without_run_summaries_or_assertions_still_renders() -> None
 
     out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
 
-    assert "case-1 | Capital? | -·- | tr-b (E2) | " in out
+    # No scores, no summaries, no failed run: nothing ranks the experiments,
+    # so no trace is called the worst one.
+    assert "case-1 | Capital? | -·- | - | -" in out
 
 
 # --- filters ---------------------------------------------------------------- #
@@ -895,3 +897,133 @@ async def test_a_sort_says_which_of_the_runs_it_actually_ordered_by() -> None:
     assert "the most recent run's value on each case" in newest
     # One value per row: nothing to warn about.
     assert "ordered the page by" not in case_level
+
+
+# --- the shapes review found on live data ----------------------------------- #
+
+
+def _assertion_only_run(
+    experiment_id: str, *, trace: str, passed: bool = True, reason: str | None = None
+) -> dict[str, Any]:
+    """A run judged by assertions alone: ``feedback_scores`` is null, as the
+    backend sends it for a suite that scores nothing numerically."""
+    return {
+        "experiment_id": experiment_id,
+        "trace_id": trace,
+        "feedback_scores": None,
+        "status": "passed" if passed else "failed",
+        "assertion_results": [{"value": "Names the capital", "passed": passed, "reason": reason}],
+    }
+
+
+@pytest.mark.anyio
+async def test_a_suite_judged_by_assertions_alone_says_so_and_names_no_worst_run() -> None:
+    """Every run passed and none scored anything, so nothing distinguishes the
+    experiments. A worst trace here would be a ranking nobody made, and a
+    table with no score columns needs to say why."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [_assertion_only_run(A, trace="tr-a"), _assertion_only_run(B, trace="tr-b")],
+            summaries={**_summaries(**{A: (1, 1)}), **_summaries(**{B: (1, 1)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "case-1 | Capital? | 1/1·1/1 | - | " in out
+    assert "recorded no feedback scores" in out
+    assert "judged by assertions" in out
+
+
+@pytest.mark.anyio
+async def test_a_failed_assertion_run_is_still_the_worst_trace_without_scores() -> None:
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _assertion_only_run(A, trace="tr-a"),
+                _assertion_only_run(B, trace="tr-b", passed=False, reason="Names Lyon."),
+            ],
+            summaries={**_summaries(**{A: (1, 1)}), **_summaries(**{B: (0, 1)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
+
+
+@pytest.mark.anyio
+async def test_a_page_with_score_columns_does_not_claim_there_are_none() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "recorded no feedback scores" not in out
+
+
+@pytest.mark.anyio
+async def test_a_case_one_experiment_never_ran_is_counted_so_its_dash_reads_right() -> None:
+    """``0 / -`` looks like a missing score. When the experiment has no run on
+    the case at all, the page has to say that is what the dash means."""
+    fake = _fake(
+        _case("case-1", {"question": "Week?"}, [_run(A, trace="tr-a", scores={"strict": 0.0})]),
+        _case(
+            "case-2",
+            {"question": "Sum?"},
+            [
+                _run(A, trace="tr-a2", scores={"strict": 0.0}),
+                _run(B, trace="tr-b2", scores={"strict": 0.0}),
+            ],
+        ),
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "case-1 | Week? | 0 / -" in out
+    assert "1 of 2 cases was not run by every experiment" in out
+    assert "a - there means no run, not a zero score" in out
+
+
+@pytest.mark.anyio
+async def test_every_experiment_running_every_case_needs_no_such_note() -> None:
+    fake = _fake(_DEFAULT_CASE)
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    assert "not run by every experiment" not in out
+
+
+@pytest.mark.anyio
+async def test_a_reason_with_line_breaks_and_a_pipe_stays_one_cell() -> None:
+    """A judge writes prose. The first real reason with a paragraph break
+    would otherwise split the row, and a ``|`` would add a column."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Line one\nLine two | with a pipe"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(
+                    B,
+                    trace="tr-b",
+                    scores={"correctness": 0.1},
+                    passed=False,
+                    reason="The answer names Lyon.\n\nParis | expected.\r\nSee trace.",
+                ),
+            ],
+            summaries={**_summaries(**{A: (1, 1)}), **_summaries(**{B: (0, 1)})},
+        )
+    )
+
+    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+
+    rows = [line for line in out.splitlines() if line.startswith("case-1")]
+    assert len(rows) == 1, "the row must stay on one line"
+    row = rows[0]
+    assert row.count(" | ") == 5, "id, question, score, passed, worst_trace, reason"
+    assert "Line one Line two ¦ with a pipe" in row
+    assert "The answer names Lyon. Paris ¦ expected. See trace." in row
