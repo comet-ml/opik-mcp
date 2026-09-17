@@ -1,6 +1,6 @@
 ---
 name: opik-compare
-description: Run a candidate against the baseline over an Opik test suite and read the numbers back — which cases broke, which got fixed, the per-metric deltas, worst rows, and whether the two runs are comparable — with the Opik compare-view link. Runs via the SDK; reads results via the MCP when connected. Does not issue a ship/no-ship verdict. Use for "did my fix work", "compare against the baseline", "run the regression suite", "why did quality drop", "which cases regressed", "compare these two experiments". Not for live production triage (use diagnose), building an evaluation from scratch (use evaluate), or capturing a single case (use test).
+description: Run a candidate against the baseline over an Opik test suite and read the numbers back — which cases broke, which got fixed, the per-metric deltas, worst rows, and whether the two runs are comparable — with the Opik compare-view link. Runs via the SDK; reads results via the MCP when connected. Does not issue a ship/no-ship verdict. Use for "did my fix work", "compare against the baseline", "run the regression suite", "why did quality drop", "which cases regressed", "compare these two experiments". Not for the ship/hold decision itself (use verify), live production triage (use diagnose), building an evaluation from scratch (use evaluate), or capturing a single case (use test).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and a test suite (from the test or evaluate skill) or two existing experiments. Install the `opik` skill alongside this one — it holds the shared test-suite and experiment references; without it, this skill falls back to the public docs.
 allowed-tools:
   - Read
@@ -109,7 +109,7 @@ rows = client.get_experiments_client().find_experiment_items_for_dataset(
 8. **Flaky cases** — items that flip across repeated runs of the *same* code (the suite's execution policy exposes `runs_passed`/`runs_total`).
 9. **Trend** — when more than two runs exist, the pass rate across the last few, so a one-step delta has context.
 
-Report what the numbers say. **Do not decide ship or hold** — that decision has its own policy and is a later step.
+Report what the numbers say. **Do not decide ship or hold** — that is `/opik-verify`, which applies an explicit release policy to these numbers.
 
 ### 6. Link and hand off
 Build the compare link with **both** ids — a URL-encoded JSON array — so the user lands on the side-by-side view:
@@ -118,7 +118,7 @@ import json, urllib.parse
 ids = urllib.parse.quote(json.dumps(["<baseline_id>", candidate_id]))
 compare_url = f"{ui_base}/{workspace}/experiments/{suite.id}/compare?experiments={ids}"
 ```
-`ui_base` is the Opik UI origin (the configured URL minus `/api`; `result.experiment_url` shows the exact host and workspace to reuse). Then one next step (see **Output**).
+`ui_base` is the Opik UI origin (the configured URL minus `/api`; `result.experiment_url` shows the exact host and workspace to reuse). Then one next step (see **Output**) — when the user's question is whether to ship, that step is `/opik-verify`.
 
 ### 7. Record (only when asked)
 If the user wants the finding kept beside the data: a comment on a regressed case's trace via `client.rest_client.traces.add_trace_comment(trace_id, text=…)`, or a human score beside the judge's via `client.log_traces_feedback_scores([...])`. Never by default.
