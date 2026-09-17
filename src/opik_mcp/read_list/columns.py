@@ -10,6 +10,7 @@ while the renderer would have found it, or the reverse.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 
@@ -43,4 +44,19 @@ def has_value(item: dict[str, Any], column: str) -> bool:
     return value is not None and value != ""
 
 
-__all__ = ["has_value", "resolve"]
+_WHITESPACE = re.compile(r"\s+")
+
+
+def one_line(text: str) -> str:
+    """A cell the pipe table can hold: no line breaks, no bare ``|``.
+
+    A judge's reason is prose with paragraph breaks, and a case's data can be
+    anything the user put there. Either would split the row or add a column;
+    the first real dataset would have broken the table. The comparison table
+    learnt this first; every table applies it now, from here, so two tables
+    cannot escape differently.
+    """
+    return _WHITESPACE.sub(" ", text.replace("|", "¦")).strip()
+
+
+__all__ = ["has_value", "one_line", "resolve"]

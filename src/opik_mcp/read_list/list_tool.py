@@ -35,8 +35,9 @@ import json
 import logging
 import math
 import re
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
@@ -53,12 +54,14 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     client_for_call,
 )
+from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
+from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
 from opik_mcp.read_list.oql import (
     FILTERABLE_FIELDS,
     NAME_SEARCHABLE_ENTITIES,
+    PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
@@ -90,11 +93,27 @@ from opik_mcp.read_list.window import (
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
-#: A filter on one of these names a parent record, and turns a list into the
-#: rest of that record rather than a triage of the project.
-PARENT_ID_FIELDS = ("trace_id", "thread_id")
-
 _TRUNCATE_AT = 60
+
+#: What the last ``list`` call learned about its own page, for the analytics
+#: props the tool wrapper attaches after the call returns. A ContextVar and
+#: not a module global because two calls can be in flight on one server, and
+#: each must read its own page. Set fresh at the top of every call.
+_PAGE_FACTS: ContextVar[dict[str, str] | None] = ContextVar("list_page_facts", default=None)
+
+
+def page_facts() -> dict[str, str]:
+    """``empty`` and ``source_defaulted`` for the call that just returned.
+
+    Whether a page was empty, and whether the ``sdk`` default was on it, is
+    what tells "the default hid the traces" apart from "there were none" in a
+    dashboard — a question the arguments alone cannot answer. Empty before
+    any call, and after a call that never reached a page (a runner, or a
+    refusal).
+    """
+    return dict(_PAGE_FACTS.get() or {})
+
+
 # Free-text search is an ilike across several columns; on a cold cache the
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
@@ -196,6 +215,7 @@ async def run_list(
     client: OpikListClient | None = None,
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
+    _PAGE_FACTS.set({})
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
     tool_args: dict[str, Any] = {
@@ -430,23 +450,33 @@ async def run_list(
             rows=tuple(content),
         )
 
+        _PAGE_FACTS.set(
+            {"empty": str(not content).lower(), "source_defaulted": str(source_defaulted).lower()}
+        )
         if not content:
-            # "No agent constraints" = nothing but the default source clause,
-            # no window, no search. A sort does not change what matches.
-            unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
+            # Under the sdk default, the one question worth a call is whether
+            # widening it would find anything. Only when the page's own total
+            # is zero: a slice past the last page has rows, on an earlier page.
+            widened = (
+                _without_default(opik, handler.list_fn, kw, clauses)
+                if source_defaulted and total == 0
+                else None
+            )
             empty = await _empty_message(
                 opik,
                 handler,
                 name=name,
                 from_time=kw.get("from_time"),
-                unconstrained=unconstrained,
+                widened=widened,
                 settings=resolved_settings,
                 page_ctx=page_ctx,
             )
             return f"{header}\n{empty}" if header else empty
 
         extra = _requested_columns(sort_field, clauses)
-        table = _format_table(entity_type, handler, content, total, page, size, name, extra)
+        table = _format_table(
+            entity_type, handler, content, total, page, size, name, extra, _pinned_fields(clauses)
+        )
         if handler.page_note_fn is not None:
             note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
             if note is not None:
@@ -482,10 +512,59 @@ def _search_refusal(entity_type: str) -> str:
     )
 
 
-_SOURCE_HINT = (
-    'Only source = "sdk" rows are listed by default; add source = "experiment", '
-    '"evaluator" or "playground" to filters to see the others.'
-)
+def _source_hint(entity_type: str, hidden: int) -> str:
+    """What the ``sdk`` default hid, in numbers, and how to see it.
+
+    Names every source the backend writes, ``optimization`` included: the
+    optimizer's traces were the ones a caller went looking for and were not
+    told about.
+    """
+    return (
+        f"{hidden} {entity_type}{'s' if hidden != 1 else ''} match without the default "
+        'source = "sdk", which is all that is listed unless you name a source. Add '
+        'source = "experiment", "evaluator", "playground" or "optimization" to filters to '
+        "see them."
+    )
+
+
+def _without_default(
+    opik: OpikListClient,
+    list_fn: ListFn | None,
+    kw: dict[str, Any],
+    clauses: list[dict[str, str]],
+) -> Callable[[], Awaitable[int | None]]:
+    """The same listing again, one row wide, with the ``sdk`` default lifted.
+
+    An empty page under the default used to earn a hint only when the default
+    was the sole clause — the guess being that a caller's own filter was the
+    likelier reason. Driving the tool: ``experiment_id = "…"`` on an
+    experiment with twenty traces got "No traces found" and no hint, because
+    the guess was wrong and there was no way to know. So the hint is earned by
+    asking: it fires when the widened count is non-zero, whatever the caller
+    filtered on, and stays silent on a project that is genuinely empty.
+
+    Returns ``None`` when the probe cannot answer; a note decorates an answer
+    the caller already has, and must never turn it into an error.
+    """
+
+    async def count() -> int | None:
+        if list_fn is None:
+            return None
+        kept = [c for c in clauses if c != SDK_SOURCE_CLAUSE]
+        probe = {**kw, "page": 1, "size": 1}
+        if kept:
+            probe["filters"] = json.dumps(kept, separators=(",", ":"))
+        else:
+            probe.pop("filters", None)
+        try:
+            body = await list_fn(opik, **probe)
+        except Exception:
+            logger.debug("widening probe for the source hint failed", exc_info=True)
+            return None
+        found = body.get("total") if isinstance(body, dict) else None
+        return found if isinstance(found, int) else None
+
+    return count
 
 
 async def _empty_message(
@@ -494,7 +573,7 @@ async def _empty_message(
     *,
     name: str | None,
     from_time: str | None,
-    unconstrained: bool,
+    widened: Callable[[], Awaitable[int | None]] | None,
     settings: Settings,
     page_ctx: PageContext,
 ) -> str:
@@ -502,8 +581,9 @@ async def _empty_message(
 
     Two cases seen live look identical without help: a project holding only
     experiment traces under the ``source = "sdk"`` default, and a window that
-    starts after the project's last trace. The first costs nothing to explain;
-    the second costs one project read, spent only on an empty windowed page.
+    starts after the project's last trace. Each costs one extra call, spent
+    only on an empty page: a one-row probe without the default for the first
+    (see :func:`_without_default`), a project read for the second.
 
     An entity whose empty page has its own ambiguity (a Diagnostics issue
     list: never enabled, off, unscanned, or genuinely clean) explains itself
@@ -515,8 +595,13 @@ async def _empty_message(
     if handler.page_note_fn is not None:
         note = await handler.page_note_fn(opik, settings, page_ctx)
         return f"{empty} {note}" if note else empty
+
+    async def hinted() -> str:
+        hidden = await widened() if widened is not None else None
+        return f"{empty} {_source_hint(entity_type, hidden)}" if hidden else empty
+
     if from_time is None:
-        return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
+        return await hinted()
 
     rows = await project_rows(opik, name=project_name)
     match = [
@@ -535,7 +620,7 @@ async def _empty_message(
     if last_dt < start_dt:
         return f"{empty} Last trace in this project: {to_minute(last_dt)}, before your window."
     # Traffic exists inside the window, so the default source is what hid it.
-    return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
+    return await hinted()
 
 
 def _window_echo(raw: str, resolved: str) -> str:
@@ -557,6 +642,20 @@ _NEVER_COLUMNS = frozenset(
 )
 
 
+def _pinned(clause: dict[str, str]) -> bool:
+    """Does this clause fix its field to one value?
+
+    A column that reads the same on every row distinguishes nothing, and the
+    applied-filters header above the table already states the value. Seen
+    live: ``optimization_id = "…"`` repeated a 36-character id down the page,
+    a tenth of its bytes. A range or a substring still earns its column — it
+    explains an order or a membership the rows would not otherwise justify.
+    """
+    if clause["operator"] == "=":
+        return True
+    return clause["operator"] == "in" and "," not in clause.get("value", "")
+
+
 def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) -> list[str]:
     """Columns the request names — the sort field first, then filter fields in
     order of first mention. Nested references keep their ``field.key`` form."""
@@ -570,6 +669,11 @@ def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) ->
     return out
 
 
+def _pinned_fields(clauses: list[dict[str, str]]) -> frozenset[str]:
+    """Fields the request fixed to one value, whatever column would show them."""
+    return frozenset(c["field"] for c in clauses if _pinned(c))
+
+
 def _format_table(
     entity_type: str,
     handler: EntityHandler,
@@ -579,12 +683,16 @@ def _format_table(
     size: int,
     name: str | None,
     extra_columns: list[str] | None = None,
+    pinned: frozenset[str] = frozenset(),
 ) -> str:
     """Pipe-delimited table — mirrors ollie's ``_format_table``.
 
     ``extra_columns`` are the fields the request sorted or filtered on; they
     are appended after the entity's default columns (deduplicated) so the
-    table shows why each row is present and in what order.
+    table shows why each row is present and in what order. ``pinned`` are the
+    fields a clause fixed to one value; a column of those reads the same on
+    every row and the header above already states it, so it is dropped
+    whichever way it got in — requested, or chosen by the entity from the page.
     """
     base = tuple(
         column
@@ -603,8 +711,12 @@ def _format_table(
     cell_limit = projection.cell_limit if projection is not None else _TRUNCATE_AT
     columns: tuple[str, ...] = (*base, *chosen)
     for col in extra_columns or ():
-        if col not in columns:
+        # ``feedback_scores.accuracy`` beside a ``feedback_scores`` column that
+        # already renders every score as ``name=value`` is the same number
+        # twice, and reads like a second metric. The summary column wins.
+        if col not in columns and col.partition(".")[0] not in columns:
             columns = (*columns, col)
+    columns = tuple(c for c in columns if c in base or c.partition(".")[0] not in pinned)
     count = len(content)
     if name:
         header = (
@@ -620,7 +732,10 @@ def _format_table(
     for item in content:
         values: list[str] = []
         for col in columns:
-            s = _render(col, _cell(item, col))
+            # A name, a reason or a case's data can carry a line break or a
+            # bare pipe; either splits the row or adds a column. Same rule
+            # the comparison table applies, from the same place.
+            s = one_line(_render(col, _cell(item, col)))
             if len(s) > cell_limit:
                 s = s[: cell_limit - 3] + "..."
                 cut += 1

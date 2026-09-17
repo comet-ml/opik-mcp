@@ -38,7 +38,12 @@ from opik_mcp.read_list.entities.project_metric.table import (
     render,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE, compile_filters, render_filters
+from opik_mcp.read_list.oql import (
+    PARENT_ID_FIELDS,
+    SDK_SOURCE_CLAUSE,
+    compile_filters,
+    render_filters,
+)
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,
     recorded,
@@ -152,12 +157,14 @@ async def run_project_metric(
     clauses = compile_filters(metric.entity, filters or "")
     refuse_dropped_fields(metric, clauses)
     if metric.entity in SOURCE_FILTERED_METRIC_ENTITIES and not any(
-        clause["field"] == "source" for clause in clauses
+        clause["field"] in ("source", *PARENT_ID_FIELDS) for clause in clauses
     ):
-        # Same default as the Logs page and the other lists. Echoed as part of
-        # the filter rather than called out separately: the filter line already
-        # reads `source = "sdk"`, and saying it twice is two claims where the
-        # agent has to check they agree.
+        # Same default as the Logs page and the other lists, with the same
+        # exemption: a filter naming a parent record is a drill-in, not a
+        # triage, and an experiment's traces are never ``sdk``. Echoed as part
+        # of the filter rather than called out separately: the filter line
+        # already reads `source = "sdk"`, and saying it twice is two claims
+        # where the agent has to check they agree.
         clauses.append(dict(SDK_SOURCE_CLAUSE))
 
     name = metric.name

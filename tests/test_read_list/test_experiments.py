@@ -288,7 +288,9 @@ async def test_a_version_with_no_number_falls_back_to_its_commit() -> None:
 @pytest.mark.anyio
 async def test_the_optimization_run_is_on_the_row_so_trials_group_without_a_read() -> None:
     """Ranking one optimization's trials needs the run each trial belongs to.
-    Reading a trial to discover it is the round trip this feature removes."""
+    Reading a trial to discover it is the round trip this feature removes.
+    The column shows when the page was not filtered to one run — once it is,
+    the header names the run and the column would repeat it on every row."""
     fake = FakeOpikClient(
         experiments=_page(_experiment("trial-7", type="trial", optimization_id=RUN))
     )

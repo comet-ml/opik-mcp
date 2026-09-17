@@ -13,11 +13,11 @@ the parts a caller cannot reconstruct from an average.
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
+from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.entities.dataset.items import cell_limit, data_columns
 
 #: Case columns in comparison mode. The plain listing shows up to eight; here
@@ -321,19 +321,6 @@ def render(
     if page * size < total:
         lines += ["", f"Use page={page + 1} for next {size} results."]
     return "\n".join(lines)
-
-
-_WHITESPACE = re.compile(r"\s+")
-
-
-def one_line(text: str) -> str:
-    """A cell the pipe table can hold: no line breaks, no bare ``|``.
-
-    A judge's reason is prose with paragraph breaks, and a case's data can be
-    anything the user put there. Either would split the row or add a column;
-    the first real dataset would have broken the table.
-    """
-    return _WHITESPACE.sub(" ", text.replace("|", "¦")).strip()
 
 
 def _not_run_by_every(case: dict[str, Any], experiments: list[Experiment]) -> bool:

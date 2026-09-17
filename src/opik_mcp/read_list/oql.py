@@ -336,6 +336,23 @@ SOURCE_DEFAULTED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists that add ``source = "sdk"`` unless the caller names ``source`` — the
 UI's Logs page default, so evaluator / playground / experiment traces don't
 crowd out application traffic."""
+PARENT_ID_FIELDS: Final[tuple[str, ...]] = (
+    "trace_id",
+    "thread_id",
+    "experiment_id",
+    "experiment_ids",
+)
+"""A filter on one of these names a parent record, and turns a list into the
+rest of that record rather than a triage of the project — so the ``sdk``
+default is not added on top of it.
+
+The two experiment fields joined late. ``list('trace', filters='experiment_id
+= "…"')`` answered "No traces found" on an experiment with twenty, because
+every experiment trace carries a source other than ``sdk`` (``evaluate`` and
+``run_tests`` write ``experiment``, the optimizer writes ``optimization``),
+and the default was added on top of the drill-in. Declared here beside the
+default it exempts from, because two callers apply that default — the list
+tool and the metric runner — and had to agree."""
 SDK_SOURCE_CLAUSE: Final[dict[str, str]] = {
     "field": "source",
     "operator": "=",
@@ -986,6 +1003,7 @@ __all__ = [
     "NEGATING_OPERATORS",
     "OPERATORS_BY_TYPE",
     "PARAM_FIELDS",
+    "PARENT_ID_FIELDS",
     "SDK_SOURCE_CLAUSE",
     "SOURCE_DEFAULTED_ENTITIES",
     "SUPPORTED_ENTITIES",

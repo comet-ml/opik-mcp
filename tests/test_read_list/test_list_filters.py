@@ -19,7 +19,7 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.opik_client import OpikNotFoundError
-from opik_mcp.read_list.list_tool import run_list
+from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 
 
@@ -42,12 +42,17 @@ class FakeOpikClient:
     experiments: dict[str, Any] = field(default_factory=lambda: _page([]))
     projects: dict[str, Any] = field(default_factory=lambda: _page([]))
     last_kwargs: dict[str, Any] = field(default_factory=dict)
+    list_calls: list[dict[str, Any]] = field(default_factory=list)
+    """Every trace, span or thread listing call, in order. An empty page under
+    the sdk default asks once more without it, so the last call is not always
+    the listing a test meant to observe."""
     project_kwargs: dict[str, Any] = field(default_factory=dict)
     """``list_projects`` records separately: the tool also calls it on the side
     (project-name recovery, last-trace hint) after the main list call."""
 
     async def list_traces(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        self.list_calls.append(kw)
         return self.traces
 
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]:
@@ -62,10 +67,12 @@ class FakeOpikClient:
 
     async def list_spans(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        self.list_calls.append(kw)
         return self.spans
 
     async def list_threads(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        self.list_calls.append(kw)
         return self.threads
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
@@ -114,10 +121,39 @@ class FakeOpikClient:
 
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:
-    raw = fake.last_kwargs.get("filters")
-    assert isinstance(raw, str), f"filters not sent as a JSON string: {fake.last_kwargs!r}"
+    """The filters of the listing call — the first, when an empty page made
+    the tool ask again without the default."""
+    sent = fake.list_calls[0] if fake.list_calls else fake.last_kwargs
+    raw = sent.get("filters")
+    assert isinstance(raw, str), f"filters not sent as a JSON string: {sent!r}"
     parsed: list[dict[str, str]] = json.loads(raw)
     return parsed
+
+
+@dataclass
+class SourceAwareClient(FakeOpikClient):
+    """A project whose traces all came from experiments.
+
+    Nothing under the sdk default; ``hidden`` of them without it. This is the
+    live shape the source hint exists for, and the only fake that can show
+    the hint being earned rather than guessed.
+    """
+
+    hidden: int = 20
+
+    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        self.list_calls.append(kw)
+        raw = kw.get("filters")
+        clauses = json.loads(raw) if isinstance(raw, str) else []
+        if any(c == SDK_SOURCE for c in clauses):
+            return _page([])
+        return {
+            "content": [{"id": "t-1", "name": "eval"}],
+            "page": 1,
+            "size": 1,
+            "total": self.hidden,
+        }
 
 
 SDK_SOURCE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
@@ -164,11 +200,38 @@ async def test_naming_source_disables_the_default() -> None:
 @pytest.mark.anyio
 async def test_empty_result_under_the_default_source_says_how_to_widen_it() -> None:
     """Seen live: a project holding only experiment traces answers 'No traces
-    found' under the sdk default. The agent needs to learn why in that reply."""
-    out = await run_list("trace", project_id="p-1", client=FakeOpikClient())
+    found' under the sdk default. The agent needs to learn why in that reply,
+    and how many it is missing."""
+    fake = SourceAwareClient(hidden=20)
+    out = await run_list("trace", project_id="p-1", client=fake)
     assert out.splitlines()[0] == '[list: trace | filters: source = "sdk"]'
     assert "No traces found." in out
+    assert "20 traces match without the default" in out
     assert 'source = "experiment"' in out and "evaluator" in out and "playground" in out
+    assert '"optimization"' in out, "the optimizer's traces were the ones nobody was told about"
+
+
+@pytest.mark.anyio
+async def test_the_widening_probe_is_one_row_wide_and_drops_only_the_default() -> None:
+    fake = SourceAwareClient()
+    await run_list("trace", project_id="p-1", filters="duration > 5", size=50, client=fake)
+    listing, probe = fake.list_calls
+    assert json.loads(listing["filters"]) == [
+        {"field": "duration", "operator": ">", "key": "", "value": "5"},
+        SDK_SOURCE,
+    ]
+    assert json.loads(probe["filters"]) == [
+        {"field": "duration", "operator": ">", "key": "", "value": "5"}
+    ], "the caller's own clause stays; only the default is lifted"
+    assert probe["size"] == 1 and probe["page"] == 1
+
+
+@pytest.mark.anyio
+async def test_a_genuinely_empty_project_earns_no_source_hint() -> None:
+    """The hint is earned by asking, not guessed from the clauses. A project
+    with nothing under any source gets the plain answer."""
+    out = await run_list("trace", project_id="p-1", client=FakeOpikClient())
+    assert out.splitlines()[-1] == "No traces found."
 
 
 @pytest.mark.anyio
@@ -181,9 +244,22 @@ async def test_empty_result_with_an_explicit_source_carries_no_hint() -> None:
 
 
 @pytest.mark.anyio
-async def test_empty_result_under_the_agents_own_filters_carries_no_hint() -> None:
-    """With filters of the agent's own, those are the likelier reason for an
-    empty page; the source hint would point the wrong way."""
+async def test_the_agents_own_filters_no_longer_silence_the_hint_when_it_is_true() -> None:
+    """This used to assert the opposite: with filters of the agent's own, the
+    hint was suppressed on the guess that those were the likelier reason.
+    Driving the tool, ``experiment_id = "…"`` on an experiment with twenty
+    traces got "No traces found" and no hint — the guess was wrong and there
+    was no way to know. The hint is earned by the probe now, whatever the
+    caller filtered on; the guess is gone."""
+    fake = SourceAwareClient(hidden=20)
+    out = await run_list("trace", project_id="p-1", filters="duration > 5", client=fake)
+    assert "20 traces match without the default" in out
+
+
+@pytest.mark.anyio
+async def test_the_agents_own_filters_on_an_empty_project_carry_no_hint() -> None:
+    """A ``duration > 5000`` query on a project with nothing under any source:
+    nothing was hidden, so nothing is said about hiding."""
     out = await run_list("trace", project_id="p-1", filters="duration > 5", client=FakeOpikClient())
     assert "No traces found." in out and "playground" not in out
 
@@ -191,7 +267,9 @@ async def test_empty_result_under_the_agents_own_filters_carries_no_hint() -> No
 @pytest.mark.anyio
 async def test_a_sort_does_not_suppress_the_source_hint() -> None:
     """Sorting changes order, not membership — the empty page still needs the why."""
-    out = await run_list("trace", project_id="p-1", sort="duration desc", client=FakeOpikClient())
+    out = await run_list(
+        "trace", project_id="p-1", sort="duration desc", client=SourceAwareClient()
+    )
     assert "playground" in out
 
 
@@ -199,7 +277,7 @@ async def test_a_sort_does_not_suppress_the_source_hint() -> None:
 async def test_window_with_traffic_inside_it_points_at_the_source_default() -> None:
     """The project's last trace is inside the window yet the page is empty: the
     sdk default hid it (experiment/evaluator traces). Say so."""
-    fake = FakeOpikClient(
+    fake = SourceAwareClient(
         projects=_page(
             [{"id": "p-1", "name": "demo", "last_updated_trace_at": "2026-09-08T10:00:00Z"}]
         )
@@ -749,6 +827,110 @@ async def test_negating_a_type_is_refused_through_the_tool_with_the_rewrite() ->
     assert 'type in ("regular", "mini-batch", "mutation")' in str(err.value)
 
 
+# --- a filter on an experiment is a drill-in, not a triage ------------------ #
+
+EXPERIMENT = "019fada0-fcb8-73eb-a946-827d4135f028"
+
+
+@pytest.mark.anyio
+async def test_a_filter_on_an_experiment_gets_no_sdk_default_on_top() -> None:
+    """Every experiment trace carries a source other than sdk, so the default
+    on top of ``experiment_id`` matched nothing by construction. Same
+    exemption a trace_id or thread_id drill-in already had."""
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "eval"}]))
+    await run_list(
+        "trace", project_id="p-1", filters=f'experiment_id = "{EXPERIMENT}"', client=fake
+    )
+    assert _sent_filters(fake) == [
+        {"field": "experiment_id", "operator": "=", "key": "", "value": EXPERIMENT}
+    ]
+
+
+@pytest.mark.anyio
+async def test_the_experiment_id_column_reads_the_nested_reference() -> None:
+    """The filter field is ``experiment_id``; the record carries
+    ``experiment: {id}``. The column was blank on every row it had selected,
+    which read as "these traces have no experiment"."""
+    fake = FakeOpikClient(
+        traces=_page([{"id": "t-1", "name": "eval", "experiment": {"id": EXPERIMENT}}])
+    )
+    out = await run_list(
+        "trace", project_id="p-1", filters='experiment_id != "another"', client=fake
+    )
+    header, row = out.splitlines()[3], out.splitlines()[4]
+    assert "experiment_id" in header
+    assert EXPERIMENT in row
+
+
+# --- a column that says what another column or the header already said ----- #
+
+
+@pytest.mark.anyio
+async def test_sorting_by_a_score_adds_no_column_the_summary_already_shows() -> None:
+    """Seen live: ``levenshtein_ratio=0.634`` in the scores column, and
+    ``0.634`` again in a column the sort appended. Same number, twice, and it
+    read like a second metric."""
+    fake = FakeOpikClient(
+        experiments=_page(
+            [{"id": "e-1", "name": "a", "feedback_scores": [{"name": "acc", "value": 0.9}]}]
+        )
+    )
+    out = await run_list("experiment", sort="feedback_scores.acc desc", client=fake)
+    header = out.splitlines()[3]
+    assert header.count("feedback_scores") == 1
+    assert "feedback_scores.acc" not in header
+
+
+@pytest.mark.anyio
+async def test_a_filter_pinned_to_one_value_adds_no_column_even_when_the_entity_would() -> None:
+    """The header above states the value once; a column repeating it on every
+    row was a tenth of the page. This holds for a column the entity chose
+    from the page, not only for one the request appended."""
+    run = "019fada0-bdba-73cf-bff3-4eefec82cf51"
+    fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "a", "optimization_id": run}]))
+    out = await run_list("experiment", filters=f'optimization_id = "{run}"', client=fake)
+    assert run in out.splitlines()[0], "the header still says which run"
+    assert "optimization_id" not in out.splitlines()[3]
+
+
+@pytest.mark.anyio
+async def test_a_range_clause_still_earns_its_column() -> None:
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "slow", "duration": 9000}]))
+    out = await run_list("trace", project_id="p-1", filters="duration > 5000", client=fake)
+    assert "duration_ms" in out.splitlines()[3]
+
+
+# --- a cell is one cell ------------------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_a_line_break_or_a_pipe_in_a_value_stays_inside_its_cell() -> None:
+    """A name or a reason is prose. A line break split the row in two and a
+    bare pipe added a column; the comparison table learnt this first, and the
+    rule now lives where every table reads it."""
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "first line\nsecond | third"}]))
+    out = await run_list("trace", project_id="p-1", client=fake)
+    rows = [line for line in out.splitlines() if line.startswith("t-1")]
+    assert len(rows) == 1
+    assert rows[0].count("|") == 5, "six columns, five separators — the value's pipe is not one"
+    assert "¦" in rows[0]
+
+
+# --- what the analytics learn about the page --------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_the_page_facts_say_whether_it_was_empty_and_defaulted() -> None:
+    """Two booleans a dashboard needs to tell "the default hid the traces"
+    from "there were none". Never a count, never a value."""
+    await run_list("trace", project_id="p-1", client=FakeOpikClient())
+    assert page_facts() == {"empty": "true", "source_defaulted": "true"}
+    await run_list(
+        "experiment", client=FakeOpikClient(experiments=_page([{"id": "e", "name": "n"}]))
+    )
+    assert page_facts() == {"empty": "false", "source_defaulted": "false"}
+
+
 @pytest.mark.anyio
 async def test_window_on_thread_is_forwarded() -> None:
     fake = FakeOpikClient()
@@ -960,12 +1142,17 @@ async def test_filter_fields_become_columns_deduplicated_and_in_order() -> None:
         client=fake,
     )
     header = out.splitlines()[3]
+    # ``metadata.environment = "staging"`` earns no column: pinned to one
+    # value, it would read "staging" on every row, and the header above the
+    # table already says so. ``tags contains "prod"`` keeps its column — a
+    # row can carry other tags too, so the value differs and explains.
     assert header == (
         "id | name | start_time | duration_ms | error_type | total_estimated_cost"
-        " | feedback_scores.accuracy | tags | metadata.environment"
+        " | feedback_scores.accuracy | tags"
     )
     # A list value is compact JSON, the same form a nested data value takes.
-    assert 't-1 | chat |  | 9000 |  |  | 0.42 | ["prod","beta"] | staging' in out
+    assert 't-1 | chat |  | 9000 |  |  | 0.42 | ["prod","beta"]' in out
+    assert "staging" not in out.splitlines()[4]
 
 
 @pytest.mark.anyio

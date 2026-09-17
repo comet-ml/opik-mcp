@@ -52,6 +52,7 @@ from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
+from opik_mcp.read_list.list_tool import page_facts
 from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.read_list.sorting import sort_field_label
@@ -118,6 +119,11 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     filters = kwargs.get("filters")
     sort = kwargs.get("sort")
     return {
+        # What the page itself turned out to be, which the arguments cannot
+        # say: an empty page under the sdk default is the shape of "the
+        # default hid the traces", and a dashboard needs to see that apart
+        # from "there were none".
+        **page_facts(),
         "entity_type": kwargs.get("entity_type", ""),
         "had_name_filter": str(kwargs.get("name") is not None).lower(),
         "page": str(kwargs.get("page", 1)),

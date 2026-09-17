@@ -93,10 +93,27 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_traces(**kw)
 
 
+def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
+    """``experiment_id``, from the ``experiment`` reference the record carries.
+
+    The filter field is ``experiment_id``; the trace record has ``experiment:
+    {id, …}``. A caller who filtered on the field saw its column empty on
+    every row, which reads as "these traces have no experiment" about traces
+    selected for having one.
+    """
+    if "experiment_id" in record:
+        return record
+    experiment = record.get("experiment")
+    if isinstance(experiment, dict) and experiment.get("id"):
+        return {**record, "experiment_id": experiment["id"]}
+    return record
+
+
 HANDLER = EntityHandler(
     entity_type="trace",
     fetch_fn=fetch,
     list_fn=list_page,
+    list_row_fn=derive_columns,
     # Triage columns: what a "which traces need attention" list needs
     # without a read() per row. error_type is derived from error_info.
     list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
