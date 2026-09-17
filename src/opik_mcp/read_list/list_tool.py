@@ -73,6 +73,7 @@ from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
 )
+from opik_mcp.read_list.reference import FILTER_REQUIREMENTS
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
@@ -465,10 +466,16 @@ def _search_refusal(entity_type: str) -> str:
         alternatives.append("match a name with name=<substring>")
     if entity_type in FILTERABLE_FIELDS:
         example = "metadata.<key>" if "metadata" in FILTERABLE_FIELDS[entity_type] else "a field"
+        # An entity whose filters need something else first (the compared
+        # items need the experiments to compare) is told so here, or the
+        # suggestion is one refusal short of a working call.
+        needs = FILTER_REQUIREMENTS.get(entity_type)
+        given = f", given {needs.split(':', 1)[0]}" if needs else ""
         alternatives.append(
-            f'narrow with filters (e.g. {example} = "…"; schema("list.{entity_type}"))'
+            f'narrow with filters{given} (e.g. {example} = "…"; schema("list.{entity_type}"))'
         )
-    how = f" {'; or '.join(alternatives).capitalize()}." if alternatives else ""
+    joined = "; or ".join(alternatives)
+    how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
         f"search is not supported for {entity_type!r}: only {', '.join(WINDOWED_ENTITIES)} "
         f"take free text.{how}"

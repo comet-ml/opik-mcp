@@ -39,6 +39,10 @@ SHARED: frozenset[str] = frozenset(
         # when they disagreed the failure was silent.
         "columns",
         "decorations",
+        # How many cases make a mean worth acting on: the experiment listing
+        # and the per-case comparison have to agree, and may not import each
+        # other.
+        "sample",
         "errors",
         "handler",
         "list_tool",

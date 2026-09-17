@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.entities.dataset.layout import (
@@ -34,12 +34,17 @@ from opik_mcp.read_list.entities.dataset.layout import (
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
 from opik_mcp.read_list.paging import clamp_size
+from opik_mcp.read_list.sample import is_thin
 from opik_mcp.read_list.sorting import compile_sort
 
 #: What opik-backend stores on an experiment that ran a test suite. Not
 #: ``test_suite``: its OPIK-5795 plans that rename and has not done it, so
 #: this is the one place that knows the stored spelling.
 TEST_SUITE_METHOD = "evaluation_suite"
+#: opik-backend's ``ExperimentStatus.RUNNING``. The record's ``status`` is not
+#: a filterable field, so it has no entry in the OQL enum table; the one value
+#: the comparison has to recognise is named here.
+RUNNING: Final = "running"
 
 MAX_EXPERIMENTS = 10
 #: Filter fields that live on the runs rather than on the case. opik-backend
@@ -432,19 +437,20 @@ def _guards(experiments: list[Experiment]) -> list[str]:
     """What makes this comparison unsafe to read at face value, before the table.
 
     Each was a check the agent had to make itself with a ``list('experiment')``
-    call before comparing — and skipped, because the table renders either way.
-    Three facts decide whether two averages are the same kind of number:
+    call before comparing, and skipped, because the table renders either way.
+    Three facts decide whether two averages are the same kind of number: the
+    dataset version each run used (same dataset, different version means
+    cases were added, edited or removed, so a dash may be a case that did not
+    exist yet — a warning, not the refusal a different *dataset* gets, since
+    the shared cases still line up); whether a run has finished (a running
+    one's averages will move); and how many cases each covered (the incident
+    behind ``experiment._SPINE`` — a mean over three beside a mean over
+    twenty is not a comparison of the same thing).
 
-    - **The dataset version.** Same dataset, different version: cases were
-      added, edited or removed between the runs. The shared cases still line
-      up, so this is a warning and not the refusal a different *dataset* gets
-      — but a case one version lacks reads as a dash, and a regression on an
-      edited case is not a regression.
-    - **Whether a run has finished.** A running experiment's averages are over
-      the cases done so far. They will move.
-    - **How many cases each covered.** A mean over three cases beside a mean
-      over twenty is not a comparison of the same thing; driving the tool, a
-      "winner" at 0.634 over three cases had lost one of them.
+    Every guard stays silent when a record lacks the field it reads. Older
+    experiments carry no ``dataset_version_id`` and some carry no
+    ``trace_count``; a guard that fired on absence would warn about a
+    difference nobody can see.
     """
     if len(experiments) < 2:
         return []
@@ -462,7 +468,7 @@ def _guards(experiments: list[Experiment]) -> list[str]:
             "and a gap on an edited case is not a regression."
         )
 
-    running = [e.label for e in experiments if e.status == "running"]
+    running = [e.label for e in experiments if e.status == RUNNING]
     if running:
         who = " and ".join(running)
         verb = "is" if len(running) == 1 else "are"
@@ -475,7 +481,7 @@ def _guards(experiments: list[Experiment]) -> list[str]:
     if len(counts) == len(experiments) and len({n for _, n in counts}) > 1:
         each = ", ".join(f"{label} {n}" for label, n in counts)
         smallest = min(n for _, n in counts)
-        thin = f" {smallest} is too few to weigh against the others." if smallest < 10 else ""
+        thin = f" {smallest} is too few to weigh against the others." if is_thin(smallest) else ""
         notes.append(f"The runs covered different numbers of cases ({each}).{thin}")
     return notes
 

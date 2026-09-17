@@ -766,10 +766,8 @@ async def test_search_is_forwarded_for_spans_and_echoed() -> None:
 
 @pytest.mark.anyio
 async def test_search_on_a_type_without_it_is_refused_not_quietly_dropped() -> None:
-    """This used to return the full unfiltered page under a header saying
-    "search ignored". Driving the tool: an agent skims a header and reads
-    thirty-two rows as the result of the search it asked for. A page that is
-    not what was asked for is worse than an error, and the error can name
+    """The reason is in the list tool beside the refusal: a page that is not
+    what was asked for is worse than an error. This pins that the error names
     the thing that would have worked."""
     fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
     with pytest.raises(ToolError) as err:
@@ -788,6 +786,18 @@ async def test_search_refusal_on_experiments_points_at_filters_too() -> None:
     message = str(err.value)
     assert "name=" in message
     assert "metadata.<key>" in message
+
+
+@pytest.mark.anyio
+async def test_search_refusal_on_compared_items_says_filters_need_the_experiments() -> None:
+    """Suggesting filters to a caller whose filters would themselves be
+    refused for want of experiment_ids is one refusal short of a working
+    call. Review found it; the requirement table already knew."""
+    with pytest.raises(ToolError) as err:
+        await run_list("dataset_item", dataset_id="ds-1", search="Japan", client=FakeOpikClient())
+    message = str(err.value)
+    assert "given experiment_ids" in message
+    assert "name=" not in message, "compared items have no name to match"
 
 
 # --- sort ------------------------------------------------------------------ #

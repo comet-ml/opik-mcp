@@ -71,13 +71,13 @@ class PageContext:
     only a filtering caller asked."""
     sort_field: str | None = None
     rows: tuple[dict[str, Any], ...] = ()
-    """The page as the backend sent it, and what it was ordered by.
+    """The page as the backend sent it, and the field it was ordered by.
 
-    A note about a *ranking* needs both: which field the rows are ordered by,
-    and the rows themselves to read that field off. An experiment listing
-    sorted by a score is an invitation to name a winner, and whether the top
-    two are far enough apart over enough cases to mean anything is a fact
-    about this page that only this page can state."""
+    ``empty`` is the fact most notes need. These are for a note that reads
+    values off the page — how far apart the first two rows are on the field
+    they were sorted by, say. Only the entity knows which of its fields that
+    is and how the value sits in its record, so the tool hands over the rows
+    and the name and decides nothing."""
 
 
 PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]

@@ -18,6 +18,14 @@ entities need belongs to neither.
 An empty part is omitted rather than returned empty: "nothing recorded yet"
 and "could not load" have to stay distinguishable, and a failed part carries
 an ``error`` instead of names for the same reason the summary does.
+
+One part is sampled rather than enumerated. The experiments' metadata keys
+have no endpoint of their own; they are read off the freshest page of runs.
+Such a part carries ``sampled_from`` beside ``total``, so ``total`` is read
+as "distinct keys in the sample" and a key seen once is not taken for a
+convention, and it carries the ``filter`` that uses a key. It has no ``all``
+pointer for the same reason usage keys have none: no call enumerates the
+rest, so there is nothing to point at.
 """
 
 from __future__ import annotations
@@ -155,7 +163,7 @@ def assemble(
     scores: dict[str, Any] | None,
     usage: dict[str, Any] | None,
     rules: dict[str, Any] | None,
-    metadata_keys: dict[str, Any] | None = None,
+    metadata_keys: dict[str, Any] | None,
 ) -> dict[str, Any] | None:
     """The vocabulary block, or ``None`` when the project has no vocabulary.
 
