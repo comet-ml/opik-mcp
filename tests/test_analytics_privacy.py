@@ -267,6 +267,51 @@ async def test_list_props_emits_had_name_filter_without_leaking(
 
 
 @pytest.mark.anyio
+async def test_list_props_carry_the_page_shape_as_two_booleans(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Whether the page was empty and whether the sdk default was on it are
+    the two facts that tell "the default hid the traces" from "there were
+    none" in a dashboard. They arrive as booleans, set by the list call
+    itself, never as a count or a value."""
+    from opik_mcp import server
+    from opik_mcp.read_list import list_tool
+
+    async def run_list_that_saw_an_empty_defaulted_page(**_kw: Any) -> str:
+        list_tool._PAGE_FACTS.set({"empty": "true", "source_defaulted": "true"})
+        return '[list: trace | filters: source = "sdk"]\nNo traces found.'
+
+    monkeypatch.setattr("opik_mcp.server.run_list", run_list_that_saw_an_empty_defaulted_page)
+
+    await server.list_entities(entity_type="trace", project_id=FORBIDDEN[0])
+    _assert_no_leak(recorder.events)
+    props = _tool_called(recorder.events)
+    assert props["empty"] == "true"
+    assert props["source_defaulted"] == "true"
+
+
+@pytest.mark.anyio
+async def test_list_props_carry_no_page_facts_after_a_call_that_saw_no_page(
+    recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A metric series or a refusal never reaches a page. Neither boolean is
+    sent, rather than a default that would count as an empty page."""
+    from opik_mcp import server
+    from opik_mcp.read_list import list_tool
+
+    async def run_list_that_answered_through_a_runner(**_kw: Any) -> str:
+        list_tool._PAGE_FACTS.set({})
+        return "[list: project_metric]\nseries"
+
+    monkeypatch.setattr("opik_mcp.server.run_list", run_list_that_answered_through_a_runner)
+
+    await server.list_entities(entity_type="project_metric", project_id=FORBIDDEN[0])
+    props = _tool_called(recorder.events)
+    assert "empty" not in props
+    assert "source_defaulted" not in props
+
+
+@pytest.mark.anyio
 async def test_list_props_emits_had_name_filter_false_when_absent(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -44,8 +44,20 @@ class FakeOpikClient:
     column_calls: list[dict[str, Any]] = field(default_factory=list)
     compare_error: Exception | None = None
     columns_error: Exception | None = None
+    # Per-experiment figures, keyed by experiment id; a key of
+    # ``(experiment id, filters json)`` answers one filtered call ahead of the
+    # unkeyed one. Every stats request is kept, in order.
+    compared_stats: dict[Any, dict[str, Any]] = field(default_factory=dict)
+    stats_calls: list[dict[str, Any]] = field(default_factory=list)
+    stats_error: Exception | None = None
+    feedback_definitions: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "total": 0}
+    )
+    definition_calls: list[dict[str, Any]] = field(default_factory=list)
+    definitions_error: Exception | None = None
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
+    experiment_calls: list[dict[str, Any]] = field(default_factory=list)
 
     project_lookups: int = 0
     fail_issues_with: Exception | None = None
@@ -115,6 +127,10 @@ class FakeOpikClient:
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
+        # Every call, in order: an empty experiment page asks the backend how
+        # many exist at all, so ``last_kwargs`` alone can no longer be trusted
+        # to hold the listing a test meant to observe.
+        self.experiment_calls.append(kw)
         return self.experiments
 
     async def list_prompts(self, **kw: Any) -> dict[str, Any]:
@@ -160,6 +176,22 @@ class FakeOpikClient:
             raise self.columns_error
         return self.compared_columns
 
+    async def get_compared_stats(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+        self.stats_calls.append({"dataset_id": dataset_id, **kw})
+        if self.stats_error is not None:
+            raise self.stats_error
+        (experiment_id,) = kw["experiment_ids"]
+        keyed = self.compared_stats.get((experiment_id, kw.get("filters")))
+        if keyed is not None:
+            return keyed
+        return self.compared_stats.get(experiment_id, {"stats": []})
+
+    async def list_feedback_definitions(self, **kw: Any) -> dict[str, Any]:
+        self.definition_calls.append(kw)
+        if self.definitions_error is not None:
+            raise self.definitions_error
+        return self.feedback_definitions
+
     async def list_spans(self, **_: Any) -> dict[str, Any]:
         # Not exercised by the list tool (span has no list_fn) — included to
         # satisfy the OpikListClient Protocol structurally.
@@ -198,7 +230,7 @@ async def test_list_with_name_filter_in_header_and_empty_message() -> None:
     fake = FakeOpikClient(experiments={"content": [], "total": 0})
     out = await run_list("experiment", name="zzz", client=fake)
     assert "No experiments matching 'zzz' found" in out
-    assert fake.last_kwargs.get("name") == "zzz"
+    assert fake.experiment_calls[0].get("name") == "zzz"
 
 
 @pytest.mark.anyio

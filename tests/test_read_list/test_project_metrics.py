@@ -298,6 +298,24 @@ async def test_an_explicit_source_is_not_overridden() -> None:
     assert sources == ["experiment"]
 
 
+@pytest.mark.anyio
+async def test_a_drill_in_on_an_experiment_gets_no_sdk_default() -> None:
+    """The metric's default had no exemption at all. A series over an
+    experiment's traces came back empty, because every experiment trace is
+    written under another source and the default was added on top. Same
+    exemption the list tool applies, from the same table."""
+    fake = _fake()
+    await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="trace_count",
+        filters='experiment_id = "019fada0-fcb8-73eb-a946-827d4135f028"',
+        client=fake,
+    )
+    fields = [c["field"] for c in fake.last_body["trace_filters"]]
+    assert fields == ["experiment_id"]
+
+
 # --- the interval follows the window, as it does in the UI ---------------- #
 #
 # No request is refused for size. The UI never needed such a guard because it

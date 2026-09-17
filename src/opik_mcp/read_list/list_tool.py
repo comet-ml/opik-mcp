@@ -35,8 +35,9 @@ import json
 import logging
 import math
 import re
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, cast
 
@@ -53,22 +54,31 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     client_for_call,
 )
+from opik_mcp.read_list.columns import one_line
+from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
+from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
 from opik_mcp.read_list.oql import (
+    FILTERABLE_FIELDS,
+    NAME_SEARCHABLE_ENTITIES,
+    PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
+    SOURCE_VALUES,
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
     OQLError,
     compile_filters,
+    operand_values,
     render_filters,
+    split_param_clauses,
 )
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
 )
+from opik_mcp.read_list.reference import FILTER_REQUIREMENTS
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
@@ -85,11 +95,27 @@ from opik_mcp.read_list.window import (
 
 logger = logging.getLogger("opik_mcp.read_list.list")
 
-#: A filter on one of these names a parent record, and turns a list into the
-#: rest of that record rather than a triage of the project.
-PARENT_ID_FIELDS = ("trace_id", "thread_id")
-
 _TRUNCATE_AT = 60
+
+#: What the last ``list`` call learned about its own page, for the analytics
+#: props the tool wrapper attaches after the call returns. A ContextVar and
+#: not a module global because two calls can be in flight on one server, and
+#: each must read its own page. Set fresh at the top of every call.
+_PAGE_FACTS: ContextVar[dict[str, str] | None] = ContextVar("list_page_facts", default=None)
+
+
+def page_facts() -> dict[str, str]:
+    """``empty`` and ``source_defaulted`` for the call that just returned.
+
+    Whether a page was empty, and whether the ``sdk`` default was on it, is
+    what tells "the default hid the traces" apart from "there were none" in a
+    dashboard — a question the arguments alone cannot answer. Empty before
+    any call, and after a call that never reached a page (a runner, or a
+    refusal).
+    """
+    return dict(_PAGE_FACTS.get() or {})
+
+
 # Free-text search is an ilike across several columns; on a cold cache the
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
@@ -191,6 +217,7 @@ async def run_list(
     client: OpikListClient | None = None,
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
+    _PAGE_FACTS.set({})
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
     tool_args: dict[str, Any] = {
@@ -294,7 +321,17 @@ async def run_list(
             clauses.append(dict(SDK_SOURCE_CLAUSE))
             source_defaulted = True
         if clauses:
-            kw["filters"] = json.dumps(clauses, separators=(",", ":"))
+            # A few fields are query parameters to the backend rather than
+            # entries in the filter array. They are lifted out here, and the
+            # header still echoes the whole list: a clause that narrowed the
+            # page and went unmentioned would under-report what was applied.
+            try:
+                sent, params = split_param_clauses(entity_type, clauses)
+            except OQLError as err:
+                raise ToolError(str(err)) from err
+            kw.update(params)
+            if sent:
+                kw["filters"] = json.dumps(sent, separators=(",", ":"))
             applied.append(f"filters: {render_filters(entity_type, clauses)}")
     if entity_type in WINDOWED_ENTITIES:
         # Bodies never reach the table, so let the backend trim them.
@@ -333,11 +370,16 @@ async def run_list(
                 applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
-        if entity_type in WINDOWED_ENTITIES:
-            kw["search"] = search
-            applied.append(f'search: "{search}"')
-        else:
-            applied.append(f"search ignored (only {', '.join(WINDOWED_ENTITIES)})")
+        if entity_type not in WINDOWED_ENTITIES:
+            # Refused, not dropped. This used to return the whole unfiltered
+            # page under a header saying "search ignored" — and an agent that
+            # skims the header reads thirty-two rows as the result of the
+            # search it asked for. A page that is not what was asked for is
+            # worse than an error, and the error can name what would work.
+            refusal = EntityArgValidationError(_search_refusal(entity_type))
+            raise ToolError(str(refusal)) from refusal
+        kw["search"] = search
+        applied.append(f'search: "{search}"')
 
     sort_label: str | None = None
     sort_field: str | None = None
@@ -403,25 +445,40 @@ async def run_list(
             status=kw.get("status"),
             windowed="from_date" in kw or "to_date" in kw,
             window_end=parse_instant(to_time) if to_time else None,
+            page=page,
+            total=total,
+            filtered=bool(filters and filters.strip()),
+            sort_field=sort_field,
+            rows=tuple(content),
         )
 
+        _PAGE_FACTS.set(
+            {"empty": str(not content).lower(), "source_defaulted": str(source_defaulted).lower()}
+        )
         if not content:
-            # "No agent constraints" = nothing but the default source clause,
-            # no window, no search. A sort does not change what matches.
-            unconstrained = source_defaulted and len(clauses) == 1 and "search" not in kw
+            # Under the sdk default, the one question worth a call is whether
+            # widening it would find anything. Only when the page's own total
+            # is zero: a slice past the last page has rows, on an earlier page.
+            widened = (
+                _without_default(entity_type, opik, handler.list_fn, kw, clauses)
+                if source_defaulted and total == 0
+                else None
+            )
             empty = await _empty_message(
                 opik,
                 handler,
                 name=name,
                 from_time=kw.get("from_time"),
-                unconstrained=unconstrained,
+                widened=widened,
                 settings=resolved_settings,
                 page_ctx=page_ctx,
             )
             return f"{header}\n{empty}" if header else empty
 
         extra = _requested_columns(sort_field, clauses)
-        table = _format_table(entity_type, handler, content, total, page, size, name, extra)
+        table = _format_table(
+            entity_type, handler, content, total, page, size, name, extra, _pinned_columns(clauses)
+        )
         if handler.page_note_fn is not None:
             note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
             if note is not None:
@@ -429,10 +486,90 @@ async def run_list(
         return f"{header}\n{table}" if header else table
 
 
-_SOURCE_HINT = (
-    'Only source = "sdk" rows are listed by default; add source = "experiment", '
-    '"evaluator" or "playground" to filters to see the others.'
-)
+def _search_refusal(entity_type: str) -> str:
+    """Why free text does not apply here, and the nearest thing that does.
+
+    Every workspace-wide list takes a ``name`` substring, and the filterable
+    ones take OQL, so the caller who reached for ``search`` almost always has
+    a query that works one keyword away.
+    """
+    alternatives: list[str] = []
+    if entity_type in NAME_SEARCHABLE_ENTITIES:
+        alternatives.append("match a name with name=<substring>")
+    if entity_type in FILTERABLE_FIELDS:
+        example = "metadata.<key>" if "metadata" in FILTERABLE_FIELDS[entity_type] else "a field"
+        # An entity whose filters need something else first (the compared
+        # items need the experiments to compare) is told so here, or the
+        # suggestion is one refusal short of a working call.
+        needs = FILTER_REQUIREMENTS.get(entity_type)
+        given = f", given {needs.split(':', 1)[0]}" if needs else ""
+        alternatives.append(
+            f'narrow with filters{given} (e.g. {example} = "…"; schema("list.{entity_type}"))'
+        )
+    joined = "; or ".join(alternatives)
+    how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
+    return (
+        f"search is not supported for {entity_type!r}: only {', '.join(WINDOWED_ENTITIES)} "
+        f"take free text.{how}"
+    )
+
+
+def _source_hint(entity_type: str, hidden: int) -> str:
+    """What the ``sdk`` default hid, in numbers, and how to see it.
+
+    Names every source the backend writes, ``optimization`` included: the
+    optimizer's traces were the ones a caller went looking for and were not
+    told about.
+    """
+    named = [v for v in SOURCE_VALUES if v not in ("sdk", "unknown")]
+    choices = ", ".join(f'"{v}"' for v in named[:-1]) + f' or "{named[-1]}"'
+    return (
+        f"{hidden} {entity_type}{'s' if hidden != 1 else ''} match without the default "
+        'source = "sdk", which is all that is listed unless you name a source. Add '
+        f"source = {choices} to filters to see them."
+    )
+
+
+def _without_default(
+    entity_type: str,
+    opik: OpikListClient,
+    list_fn: ListFn,
+    kw: dict[str, Any],
+    clauses: list[dict[str, str]],
+) -> Callable[[], Awaitable[int | None]]:
+    """The same listing again, one row wide, with the ``sdk`` default lifted.
+
+    An empty page under the default used to earn a hint only when the default
+    was the sole clause — the guess being that a caller's own filter was the
+    likelier reason. Driving the tool: ``experiment_id = "…"`` on an
+    experiment with twenty traces got "No traces found" and no hint, because
+    the guess was wrong and there was no way to know. So the hint is earned by
+    asking: it fires when the widened count is non-zero, whatever the caller
+    filtered on, and stays silent on a project that is genuinely empty.
+
+    Returns ``None`` when the probe cannot answer; a note decorates an answer
+    the caller already has, and must never turn it into an error.
+    """
+
+    async def count() -> int | None:
+        kept = [c for c in clauses if c != SDK_SOURCE_CLAUSE]
+        probe = {**kw, "page": 1, "size": 1}
+        probe.pop("filters", None)
+        try:
+            # The same split the page went through: a clause that is a query
+            # parameter must not turn back into a filter entry on the probe.
+            sent, params = split_param_clauses(entity_type, kept)
+            probe.update(params)
+            if sent:
+                probe["filters"] = json.dumps(sent, separators=(",", ":"))
+            body = await list_fn(opik, **probe)
+        except Exception:
+            logger.debug("widening probe for the source hint failed", exc_info=True)
+            return None
+        found = body.get("total") if isinstance(body, dict) else None
+        return found if isinstance(found, int) else None
+
+    return count
 
 
 async def _empty_message(
@@ -441,7 +578,7 @@ async def _empty_message(
     *,
     name: str | None,
     from_time: str | None,
-    unconstrained: bool,
+    widened: Callable[[], Awaitable[int | None]] | None,
     settings: Settings,
     page_ctx: PageContext,
 ) -> str:
@@ -449,8 +586,9 @@ async def _empty_message(
 
     Two cases seen live look identical without help: a project holding only
     experiment traces under the ``source = "sdk"`` default, and a window that
-    starts after the project's last trace. The first costs nothing to explain;
-    the second costs one project read, spent only on an empty windowed page.
+    starts after the project's last trace. Each costs one extra call, spent
+    only on an empty page: a one-row probe without the default for the first
+    (see :func:`_without_default`), a project read for the second.
 
     An entity whose empty page has its own ambiguity (a Diagnostics issue
     list: never enabled, off, unscanned, or genuinely clean) explains itself
@@ -462,8 +600,13 @@ async def _empty_message(
     if handler.page_note_fn is not None:
         note = await handler.page_note_fn(opik, settings, page_ctx)
         return f"{empty} {note}" if note else empty
+
+    async def hinted() -> str:
+        hidden = await widened() if widened is not None else None
+        return f"{empty} {_source_hint(entity_type, hidden)}" if hidden else empty
+
     if from_time is None:
-        return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
+        return await hinted()
 
     rows = await project_rows(opik, name=project_name)
     match = [
@@ -482,7 +625,7 @@ async def _empty_message(
     if last_dt < start_dt:
         return f"{empty} Last trace in this project: {to_minute(last_dt)}, before your window."
     # Traffic exists inside the window, so the default source is what hid it.
-    return f"{empty} {_SOURCE_HINT}" if unconstrained else empty
+    return await hinted()
 
 
 def _window_echo(raw: str, resolved: str) -> str:
@@ -495,9 +638,32 @@ def _window_echo(raw: str, resolved: str) -> str:
 
 
 # Filter fields that make no sense as a table column: bodies (never shown in a
-# list), the error container (error_type carries the useful part) and source
-# (it is a scope, not a per-row fact).
-_NEVER_COLUMNS = frozenset({"input", "output", "input_json", "output_json", "error_info", "source"})
+# list), the error container (error_type carries the useful part), source (it
+# is a scope, not a per-row fact) and experiment_ids (a selector naming the
+# rows, which is what the id column already is — seen live as a blank column
+# on every row it selected).
+_NEVER_COLUMNS = frozenset(
+    {"input", "output", "input_json", "output_json", "error_info", "source", "experiment_ids"}
+)
+
+
+def _pinned(clause: dict[str, str]) -> bool:
+    """Does this clause fix its field to one value?
+
+    A column that reads the same on every row distinguishes nothing, and the
+    applied-filters header above the table already states the value. Seen
+    live: ``optimization_id = "…"`` repeated a 36-character id down the page,
+    a tenth of its bytes. A range or a substring still earns its column — it
+    explains an order or a membership the rows would not otherwise justify.
+    """
+    if clause["operator"] == "=":
+        return True
+    return clause["operator"] == "in" and len(operand_values("in", clause.get("value", ""))) == 1
+
+
+def _column_of(clause: dict[str, str]) -> str:
+    """The column a clause is about: ``field.key`` for a nested reference."""
+    return f"{clause['field']}.{clause['key']}" if clause.get("key") else clause["field"]
 
 
 def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) -> list[str]:
@@ -507,10 +673,21 @@ def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) ->
     if sort_field is not None:
         out.append(sort_field)
     for c in clauses:
-        col = f"{c['field']}.{c['key']}" if c.get("key") else c["field"]
+        col = _column_of(c)
         if c["field"] not in _NEVER_COLUMNS and col not in out:
             out.append(col)
     return out
+
+
+def _pinned_columns(clauses: list[dict[str, str]]) -> frozenset[str]:
+    """The exact columns the request fixed to one value.
+
+    Exact, not by root: ``feedback_scores.acc = 0.9`` pins one score, and the
+    ``feedback_scores`` summary beside it still carries every other score;
+    ``metadata.environment = "staging"`` says nothing about a
+    ``metadata.region contains "eu"`` column on the same request.
+    """
+    return frozenset(_column_of(c) for c in clauses if _pinned(c))
 
 
 def _format_table(
@@ -522,18 +699,27 @@ def _format_table(
     size: int,
     name: str | None,
     extra_columns: list[str] | None = None,
+    pinned: frozenset[str] = frozenset(),
 ) -> str:
     """Pipe-delimited table — mirrors ollie's ``_format_table``.
 
     ``extra_columns`` are the fields the request sorted or filtered on; they
     are appended after the entity's default columns (deduplicated) so the
-    table shows why each row is present and in what order.
+    table shows why each row is present and in what order. ``pinned`` are the
+    fields a clause fixed to one value; a column of those reads the same on
+    every row and the header above already states it, so it is dropped
+    whichever way it got in — requested, or chosen by the entity from the page.
     """
     base = tuple(
         column
         for column, present in (("id", handler.list_has_id), ("name", handler.list_has_name))
         if present
     )
+    # Columns the record does not carry, computed before anything looks at
+    # the page: the projection decides on them like any other column, and the
+    # renderer resolves them like any other key.
+    if handler.list_row_fn is not None:
+        content = [handler.list_row_fn(item) for item in content]
     projection = (
         handler.list_projection_fn(content) if handler.list_projection_fn is not None else None
     )
@@ -541,8 +727,13 @@ def _format_table(
     cell_limit = projection.cell_limit if projection is not None else _TRUNCATE_AT
     columns: tuple[str, ...] = (*base, *chosen)
     for col in extra_columns or ():
-        if col not in columns:
+        # ``feedback_scores.accuracy`` beside a ``feedback_scores`` column that
+        # already renders every score as ``name=value`` is the same number
+        # twice, and reads like a second metric. The summary column wins.
+        if col not in columns and col.partition(".")[0] not in columns:
             columns = (*columns, col)
+    dropped = tuple(c for c in columns if c not in base and c in pinned)
+    columns = tuple(c for c in columns if c not in dropped)
     count = len(content)
     if name:
         header = (
@@ -558,7 +749,10 @@ def _format_table(
     for item in content:
         values: list[str] = []
         for col in columns:
-            s = _render(col, _cell(item, col))
+            # A name, a reason or a case's data can carry a line break or a
+            # bare pipe; either splits the row or adds a column. Same rule
+            # the comparison table applies, from the same place.
+            s = one_line(_render(col, _cell(item, col)))
             if len(s) > cell_limit:
                 s = s[: cell_limit - 3] + "..."
                 cut += 1
@@ -572,6 +766,12 @@ def _format_table(
     notes: list[str] = []
     if projection is not None and projection.note:
         notes.append(projection.note)
+    if dropped:
+        # The projection's note promised to account for every column the page
+        # had; a column the filter pinned is left out after it decided.
+        names = ", ".join(dropped)
+        verb = "is" if len(dropped) == 1 else "are"
+        notes.append(f"{names} {verb} pinned by the filter; the header states the value.")
     if cut:
         cut_line = f"{cut} value{'s' if cut != 1 else ''} cut at {cell_limit} chars"
         if projection is not None and projection.cut_hint:
@@ -608,16 +808,7 @@ def _cell(item: dict[str, Any], col: str) -> Any:
         info = item.get("error_info")
         if isinstance(info, dict):
             return info.get("exception_type")
-    if "." in col:
-        top, _, key = col.partition(".")
-        container = item.get(top)
-        if isinstance(container, dict):
-            return container.get(key)
-        if isinstance(container, list):
-            for entry in container:
-                if isinstance(entry, dict) and entry.get("name") == key:
-                    return entry.get("value")
-    return None
+    return resolve_column(item, col)
 
 
 def _score_summary(scores: list[dict[str, Any]]) -> str:
@@ -627,7 +818,16 @@ def _score_summary(scores: list[dict[str, Any]]) -> str:
 # Header labels that carry the unit the backend leaves implicit. The field
 # keeps its backend name in filters/sort (``duration > 5000``); only the
 # column heading says ``_ms`` so the agent never mistakes 82.461 for seconds.
-_COLUMN_LABELS = {"duration": "duration_ms", "ttft": "ttft_ms"}
+_COLUMN_LABELS = {
+    "duration": "duration_ms",
+    "ttft": "ttft_ms",
+    # An experiment's duration is a set of percentiles rather than one number.
+    # Same reasoning, one level down: the unit is not guessable from 1260.107,
+    # and the label is what rounds the cell to whole milliseconds.
+    "duration.p50": "duration.p50_ms",
+    "duration.p90": "duration.p90_ms",
+    "duration.p99": "duration.p99_ms",
+}
 _ISO_WITH_FRACTION = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$")
 
 

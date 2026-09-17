@@ -44,10 +44,10 @@ in workspace "{workspace}". The Opik UI is at {opik_url}.
 Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
 reads. read takes (entity_type, id_or_name_or_uri); list takes (entity_type, \
-page, size, and a name substring for workspace-wide types). For trace, span, \
-thread and experiment, list \
-also takes filters (OQL, the same language as search_traces(filter_string=…)), \
-sort, since/until and search, so one call answers most questions: \
+page, size, and a name substring for workspace-wide types). For trace, span \
+and thread, list also takes filters (OQL, the same language as \
+search_traces(filter_string=…)), sort, since/until and search; for experiment, \
+filters and sort. One call answers most questions: \
 list('trace', project_name=…, since="1h", filters="error_info is_not_empty", \
 sort="duration desc"). Field reference: schema("list.trace"). Readable entity \
 types include trace, span, project, experiment, prompt, dataset, thread, \

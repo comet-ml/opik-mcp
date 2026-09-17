@@ -234,27 +234,41 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     # The suite was resolved from the experiments, not asked for.
     # The page and the output keys go out together, so their order is a race;
     # what matters is that the suite was resolved from the experiments first.
+    # Beside the page: the score definitions once, and the figures once per
+    # experiment — never once per row.
     assert sorted(request.path for request in backend.requests) == sorted(
         [
             f"/v1/private/experiments/{EXPERIMENT_A}",
             f"/v1/private/experiments/{EXPERIMENT_B}",
+            "/v1/private/feedback-definitions",
             _JOINED,
+            f"{_JOINED}/stats",
+            f"{_JOINED}/stats",
             f"{_JOINED}/output/columns",
         ]
     )
-    joined = next(r for r in backend.sent(_JOINED) if not r.path.endswith("columns"))
+    joined = next(r for r in backend.sent(_JOINED) if r.path.endswith("items"))
     assert joined.query["experiment_ids"] == [_BOTH]
     assert joined.query["truncate"] == ["true"]
+    stats = backend.sent(f"{_JOINED}/stats")
+    assert sorted(r.query["experiment_ids"][0] for r in stats) == sorted(
+        [json.dumps([EXPERIMENT_A]), json.dumps([EXPERIMENT_B])]
+    )
 
     assert answer.startswith(
         "[list: dataset_item | compare: "
         f"E1 = baseline rerank-v1 ({EXPERIMENT_A}), E2 = rerank-v3 ({EXPERIMENT_B})]"
     )
     assert "Found 8 dataset_items (page 1, showing 4 of 8):" in answer
+    # The figures are over the whole suite, not the page: B fails every fourth
+    # of eight cases, so its mean is (6 * 0.9 + 2 * 0.4) / 8.
+    assert "E1: 8 runs; correctness 0.9, hallucination 1; avg cost 0.0001; p50 1204 ms" in answer
+    assert "E2: 8 runs; correctness 0.775, hallucination 1; avg cost 0.0001; p50 1204 ms" in answer
     assert "E1 is the baseline" in answer
+    assert "Δ is E2 minus E1" in answer
     # The fourth case is the one rerank-v3 regressed on.
     regressed = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
-    assert "0.9 / 0.4 Δ0.5" in regressed
+    assert "0.9 / 0.4 Δ-0.5" in regressed
     assert "1/1·0/1" in regressed
     assert "(E2)" in regressed and "names Lyon, not Paris." in regressed
     assert "Use page=2 for next 4 results." in answer
@@ -333,19 +347,26 @@ async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
             size=4,
         )
 
-    joined = [r for r in backend.sent(_JOINED) if not r.path.endswith("columns")]
+    joined = [r for r in backend.sent(_JOINED) if r.path.endswith("items")]
     assert len(joined) == 5, "one filtered page, then one refetch per row on it"
-    assert joined[0].query["filters"] == [
-        '[{"field":"feedback_scores","operator":"<","key":"correctness","value":"0.5"}]'
-    ]
+    sent = '[{"field":"feedback_scores","operator":"<","key":"correctness","value":"0.5"}]'
+    assert joined[0].query["filters"] == [sent]
     for request in joined[1:]:
         assert '"field":"id"' in request.query["filters"][0]
         assert request.query["size"] == ["1"]
 
     rows = [line for line in answer.splitlines() if line.startswith("0199c6a4")]
     assert all(" / " in row for row in rows), "both runs are on every row again"
-    assert "0.9 / 0.4 Δ0.5" in rows[3]
+    assert "0.9 / 0.4 Δ-0.5" in rows[3]
     assert "matches a case when any of its experiments matches" in answer
+
+    # The figures take the same filter, so "how many scored under 0.5 in each"
+    # is read off the header: none of A's eight runs, two of B's.
+    stats = backend.sent(f"{_JOINED}/stats")
+    assert [r.query["filters"] for r in stats] == [[sent], [sent]]
+    assert "E1: 0 runs match" in answer
+    assert "E2: 2 runs; correctness 0.4, hallucination 1;" in answer
+    assert "figures over the runs matching the filter" in answer
 
 
 @pytest.mark.e2e

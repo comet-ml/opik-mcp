@@ -32,10 +32,12 @@ expected format. The full type/operator reference lives behind
 from __future__ import annotations
 
 import difflib
+import json
 from dataclasses import dataclass
 from typing import Final, Literal
 
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.uri import is_uuid
 from opik_mcp.read_list.window import parse_instant
 
 FieldType = Literal[
@@ -186,6 +188,14 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
         "tags": "list",
         "feedback_scores": "feedback_scores",
         "experiment_scores": "feedback_scores",
+        # Not in ``ExperimentField``: the backend takes these three as query
+        # parameters of their own, and ``split_param_clauses`` lifts them out
+        # of the compiled array before the call is made. They are declared
+        # here because they are the caller's vocabulary either way — how a
+        # filter travels is our problem, not theirs.
+        "type": "enum",
+        "optimization_id": "string",
+        "experiment_ids": "string_list",
     },
     # What the UI's compare page offers, which is also what the backend
     # actually applies. ``total_estimated_cost`` and ``usage.total_tokens``
@@ -220,20 +230,27 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
 # Only genuinely closed sets appear. ``environment`` is an enum to the operator
 # map but a free string in the data — any deployment names its own — so listing
 # values would reject valid filters.
-_SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
+SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
 
 ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     "trace": {
-        "source": _SOURCE_VALUES,
+        "source": SOURCE_VALUES,
         "visibility_mode": ("default", "hidden"),
     },
     "span": {
-        "source": _SOURCE_VALUES,
+        "source": SOURCE_VALUES,
         "type": ("general", "tool", "llm", "guardrail", "unknown"),
     },
     "thread": {
-        "source": _SOURCE_VALUES,
+        "source": SOURCE_VALUES,
         "status": ("active", "inactive"),
+    },
+    # ``ExperimentType``. The resource deserializes the query parameter into
+    # this enum and throws on a miss, so an unknown value is a 400 with the
+    # parameter echoed back rather than anything the agent can act on. It is
+    # also what makes the complement of a negation computable.
+    "experiment": {
+        "type": ("regular", "trial", "mini-batch", "mutation"),
     },
 }
 
@@ -248,6 +265,69 @@ IGNORED_BY_BACKEND: Final[dict[str, tuple[frozenset[str], str]]] = {
     ),
 }
 
+
+@dataclass(frozen=True)
+class ParamField:
+    """A filter field the backend takes as a query parameter of its own.
+
+    Most fields travel in the ``filters`` array, which the backend types and
+    applies itself. A few predate it and have their own parameter — the
+    experiment listing's ``types`` and ``optimization_id`` are both older than
+    ``ExperimentField``, which is why neither is in that enum. Either way it
+    is a filter to the caller, so it is declared in ``FILTERABLE_FIELDS`` like
+    anything else and lifted out at the end by :func:`split_param_clauses`.
+
+    The operators are narrower than the field's type allows, because the
+    constraint is the parameter's shape rather than the column's: one value
+    cannot express a negation, and one identifier cannot express a set.
+    """
+
+    param: str
+    """The query parameter the clause becomes."""
+    operators: tuple[str, ...]
+    """Operators that translate. Anything else is refused with ``why``."""
+    encoding: Literal["json_list", "single"]
+    """``json_list``: a JSON array the resource parses. ``single``: the bare
+    value, so only one clause with one value can be expressed."""
+    why: str
+    """Why the other operators cannot translate, in the refusal's voice."""
+    value_form: Literal["uuid"] | None = None
+    """A shape the parameter requires beyond the field's type. The resource
+    declares ``optimization_id`` as a UUID and answers its own error for
+    anything else, which is a response the agent has to interpret rather than
+    act on — so the check happens here instead."""
+
+
+PARAM_FIELDS: Final[dict[str, dict[str, ParamField]]] = {
+    "experiment": {
+        "type": ParamField(
+            param="types",
+            operators=("=", "in"),
+            encoding="json_list",
+            why="the backend filters types as a set",
+        ),
+        "optimization_id": ParamField(
+            param="optimization_id",
+            operators=("=",),
+            encoding="single",
+            why="the backend takes one exact id",
+            value_form="uuid",
+        ),
+        # The runs a caller already holds ids for — the two it is about to
+        # compare, the five it just ranked — in one call, with every column
+        # the listing has. That was N reads or a paged scan before.
+        "experiment_ids": ParamField(
+            param="experiment_ids",
+            operators=("in",),
+            encoding="json_list",
+            why="the backend takes a set of exact ids to include",
+            value_form="uuid",
+        ),
+    },
+}
+
+NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
+
 SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(FILTERABLE_FIELDS)
 # The per-entity search surface beyond filters, in one place so the list tool
 # and the schema reference cannot disagree. Experiments have no ``source``
@@ -256,6 +336,22 @@ SOURCE_DEFAULTED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists that add ``source = "sdk"`` unless the caller names ``source`` — the
 UI's Logs page default, so evaluator / playground / experiment traces don't
 crowd out application traffic."""
+PARENT_ID_FIELDS: Final[tuple[str, ...]] = (
+    "trace_id",
+    "thread_id",
+    "experiment_id",
+    "experiment_ids",
+)
+"""A filter on one of these names a parent record, and turns a list into the
+rest of that record rather than a triage of the project — so the ``sdk``
+default is not added on top of it.
+
+Every experiment trace carries a source other than ``sdk`` (``evaluate`` and
+``run_tests`` write ``experiment``, the optimizer writes ``optimization``), so
+the default on top of an experiment drill-in hid all of it; the list tool's
+``_without_default`` tells that story. Declared here beside the default it
+exempts from, because two callers apply that default — the list tool and the
+metric runner — and had to agree."""
 SDK_SOURCE_CLAUSE: Final[dict[str, str]] = {
     "field": "source",
     "operator": "=",
@@ -271,6 +367,9 @@ clause lists are built by appending to them."""
 WINDOWED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists whose backend endpoint takes ``from_time``/``to_time`` and free-text
 ``search`` (the two capabilities ship together on the backend)."""
+NAME_SEARCHABLE_ENTITIES: Final[tuple[str, ...]] = ("project", "experiment", "prompt", "dataset")
+"""Workspace-wide lists whose endpoint takes a ``name`` substring — the match
+a caller who reached for ``search`` on one of them can have instead."""
 
 GRAMMAR_LINE: Final = (
     "<field>[.<key>] <op> <value> [AND ...] — strings in double quotes, numbers bare, "
@@ -583,6 +682,14 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
             f"Field '{field}' does not take a key ('{field}.{key}'). Keyed fields: {keyed}.",
         )
 
+    spec = PARAM_FIELDS.get(entity_type, {}).get(field)
+    if spec is not None and raw.operator not in spec.operators:
+        # Checked before the type's own operator set, and instead of it: the
+        # parameter's shape is the tighter rule and the one the caller has to
+        # hear about. ``type != "trial"`` is a valid enum operator refused for
+        # a reason that has nothing to do with enums.
+        return None, _param_operator_issue(entity_type, field, spec, raw)
+
     valid_ops = OPERATORS_BY_TYPE[ftype]
     if raw.operator not in valid_ops:
         return None, OQLIssue(
@@ -614,6 +721,33 @@ def _dynamic_clause(field: str, key: str | None, raw: _RawClause) -> dict[str, s
         "key": "",
         "value": raw.value,
     }
+
+
+def operand_values(operator: str, value: str) -> list[str]:
+    """The values a clause names. ``in``/``not_in`` carry them comma-joined;
+    everything else names exactly one."""
+    return value.split(",") if operator in LIST_VALUE_OPERATORS else [value]
+
+
+def _param_operator_issue(
+    entity_type: str, field: str, spec: ParamField, raw: _RawClause
+) -> OQLIssue:
+    """Refuse an operator the query parameter cannot carry — with the query
+    that would have worked, whenever one can be computed.
+
+    A negation over a closed set has an exact rewrite, so naming the valid
+    operators and stopping would leave the caller to enumerate the rest of
+    the set themselves. Everything else falls back to naming them.
+    """
+    base = f"Operator '{raw.operator}' is not valid for '{field}' on {entity_type}: {spec.why}."
+    values = ENUM_VALUES.get(entity_type, {}).get(field)
+    if values is not None and raw.operator in NEGATING_OPERATORS:
+        excluded = set(operand_values(raw.operator, raw.value))
+        rest = [v for v in values if v not in excluded]
+        if rest:
+            items = ", ".join(_quote(v) for v in rest)
+            return OQLIssue("bad_operator", f"{base} Write: {field} in ({items})")
+    return OQLIssue("bad_operator", f"{base} Valid: {', '.join(spec.operators)}.")
 
 
 def _unknown_field(entity_type: str, field: str, fields: dict[str, FieldType]) -> OQLIssue:
@@ -669,12 +803,21 @@ def _validate_value(
         return OQLIssue(
             "bad_value", f"Empty value for '{field}': the backend rejects blank filter values."
         )
+    spec = PARAM_FIELDS.get(entity_type, {}).get(field)
+    if spec is not None and spec.value_form == "uuid":
+        bad = [v for v in operand_values(raw.operator, raw.value) if not is_uuid(v)]
+        if bad:
+            return OQLIssue(
+                "bad_value",
+                f"Invalid value{'s' if len(bad) > 1 else ''} "
+                f"{', '.join(repr(v) for v in bad)} for '{field}': expected a UUID, which is "
+                f"what the backend's '{spec.param}' parameter takes.",
+            )
     allowed = ENUM_VALUES.get(entity_type, {}).get(field)
     if allowed is not None:
         # ``in``/``not_in`` values arrive comma-joined; one bad element fails
         # the whole filter server-side, so every element is checked.
-        given = raw.value.split(",") if raw.operator in LIST_VALUE_OPERATORS else [raw.value]
-        bad = [v for v in given if v not in allowed]
+        bad = [v for v in operand_values(raw.operator, raw.value) if v not in allowed]
         if bad:
             return OQLIssue(
                 "bad_value",
@@ -771,6 +914,54 @@ def filter_field_names(entity_type: str, query: str | None) -> list[str]:
     return sorted({c["field"] for c in clauses})
 
 
+def split_param_clauses(
+    entity_type: str, clauses: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], dict[str, str]]:
+    """Lift the clauses the backend wants as query parameters out of the array.
+
+    Returns the clauses that still travel in ``filters`` and the query
+    parameters the rest became. The caller keeps the *whole* compiled list for
+    the applied-filters header — a clause that narrowed the page and went
+    unmentioned would make the header under-report what was applied.
+
+    A separate pass rather than part of :func:`compile_filters`, so that
+    compiling stays a pure function of the query string: the metric runner
+    compiles filters it never sends as parameters, and the compiled shape is
+    what the OQL tests assert against.
+    """
+    specs = PARAM_FIELDS.get(entity_type)
+    if not specs:
+        return clauses, {}
+
+    remaining: list[dict[str, str]] = []
+    params: dict[str, str] = {}
+    for clause in clauses:
+        spec = specs.get(clause["field"])
+        if spec is None:
+            remaining.append(clause)
+            continue
+        if spec.param in params:
+            # One parameter cannot carry two AND-ed clauses: merging their
+            # values into one set would turn the AND into an OR and answer a
+            # question nobody asked.
+            raise OQLError(
+                entity_type,
+                render_filters(entity_type, clauses),
+                [
+                    OQLIssue(
+                        "bad_operator",
+                        f"'{clause['field']}' can appear only once: the backend takes it as a "
+                        f"single '{spec.param}' parameter, so two clauses cannot both apply.",
+                    )
+                ],
+            )
+        values = operand_values(clause["operator"], clause["value"])
+        params[spec.param] = (
+            json.dumps(values, separators=(",", ":")) if spec.encoding == "json_list" else values[0]
+        )
+    return remaining, params
+
+
 def render_filters(entity_type: str, clauses: list[dict[str, str]]) -> str:
     """Render a compiled filter array back to OQL, for the applied-filters header.
 
@@ -785,7 +976,7 @@ def render_filters(entity_type: str, clauses: list[dict[str, str]]) -> str:
         if op in NO_VALUE_OPERATORS:
             parts.append(f"{name} {op}")
         elif op in LIST_VALUE_OPERATORS:
-            items = ", ".join(_quote(v) for v in value.split(","))
+            items = ", ".join(_quote(v) for v in operand_values(op, value))
             parts.append(f"{name} {op} ({items})")
         elif fields.get(field) in ("number", "feedback_scores"):
             parts.append(f"{name} {op} {value}")
@@ -807,7 +998,11 @@ __all__ = [
     "GRAMMAR_LINE",
     "KEYED_TYPES",
     "MILLISECOND_FIELDS",
+    "NAME_SEARCHABLE_ENTITIES",
+    "NEGATING_OPERATORS",
     "OPERATORS_BY_TYPE",
+    "PARAM_FIELDS",
+    "PARENT_ID_FIELDS",
     "SDK_SOURCE_CLAUSE",
     "SOURCE_DEFAULTED_ENTITIES",
     "SUPPORTED_ENTITIES",
@@ -822,8 +1017,10 @@ __all__ = [
     "OQLSyntaxError",
     "OQLUnknownFieldError",
     "OQLUnsupportedEntityError",
+    "ParamField",
     "compile_filters",
     "filter_field_names",
     "filter_fields",
     "render_filters",
+    "split_param_clauses",
 ]

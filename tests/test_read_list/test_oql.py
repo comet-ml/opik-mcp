@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.oql import OQLError, compile_filters
+from opik_mcp.read_list.oql import OQLError, compile_filters, split_param_clauses
 
 
 def _clause(field: str, operator: str, value: str = "", key: str = "") -> dict[str, str]:
@@ -357,3 +357,140 @@ def test_a_value_the_backend_answers_with_nothing_is_still_refused() -> None:
     with pytest.raises(OQLError) as exc:
         compile_filters("span", 'type = "retrieval"')
     assert "general, tool, llm, guardrail" in str(exc.value)
+
+
+# --- fields the backend takes as query parameters -------------------------- #
+#
+# ``type`` and ``optimization_id`` are filter fields to the caller and query
+# parameters to the backend. They compile like any other clause and are then
+# lifted out of the filter array by ``split_param_clauses``, which is what
+# these cases pin: the clause is well-formed, the operators are narrower than
+# the field's type alone would allow, and what is refused comes back as a
+# query that works.
+
+
+def test_experiment_type_compiles_like_any_other_clause() -> None:
+    assert compile_filters("experiment", 'type = "trial"') == [_clause("type", "=", "trial")]
+    assert compile_filters("experiment", 'type in ("regular", "mini-batch")') == [
+        _clause("type", "in", "regular,mini-batch")
+    ]
+
+
+def test_negating_a_type_is_refused_with_the_complement() -> None:
+    """The type set is closed, so "not this one" has an exact rewrite. A
+    refusal that only named the valid operators would leave the caller to
+    work out the other three values for themselves."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'type != "trial"')
+    message = str(exc.value)
+    assert 'type in ("regular", "mini-batch", "mutation")' in message
+    assert "trial" not in message.split("Write:")[1]
+
+
+def test_negating_a_set_of_types_is_refused_with_the_rest_of_the_set() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'type not_in ("trial", "mutation")')
+    assert 'type in ("regular", "mini-batch")' in str(exc.value)
+
+
+def test_an_unknown_experiment_type_is_refused_with_the_four_values() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'type = "optimiser"')
+    assert "regular, trial, mini-batch, mutation" in str(exc.value)
+
+
+def test_the_type_clause_leaves_the_filter_array_as_a_query_parameter() -> None:
+    clauses = compile_filters("experiment", 'type = "trial" AND tags contains "baseline"')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"types": '["trial"]'}
+    assert remaining == [_clause("tags", "contains", "baseline")]
+
+
+def test_a_set_of_types_encodes_as_the_json_array_the_backend_parses() -> None:
+    clauses = compile_filters("experiment", 'type in ("regular", "mini-batch")')
+    _, params = split_param_clauses("experiment", clauses)
+    assert params == {"types": '["regular","mini-batch"]'}
+
+
+def test_an_entity_with_no_parameter_fields_is_left_alone() -> None:
+    clauses = compile_filters("trace", 'name = "x"')
+    remaining, params = split_param_clauses("trace", clauses)
+    assert remaining == clauses
+    assert params == {}
+
+
+OPTIMIZATION = "019fb348-cf24-78a5-bd6f-9b22527c02b6"
+
+
+def test_an_optimization_id_becomes_its_own_bare_query_parameter() -> None:
+    """One identifier, not a set: the resource declares the parameter as a
+    UUID, so it travels bare rather than as a JSON array."""
+    clauses = compile_filters("experiment", f'optimization_id = "{OPTIMIZATION}"')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"optimization_id": OPTIMIZATION}
+    assert remaining == []
+
+
+def test_an_optimization_id_and_a_type_travel_as_two_parameters() -> None:
+    clauses = compile_filters(
+        "experiment", f'optimization_id = "{OPTIMIZATION}" AND type = "trial"'
+    )
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"optimization_id": OPTIMIZATION, "types": '["trial"]'}
+    assert remaining == []
+
+
+def test_any_operator_but_equality_on_an_optimization_id_is_refused() -> None:
+    """``optimization_id`` is a string field, so the type's operator set would
+    let ``contains`` through. The parameter carries one exact id, which is the
+    tighter rule and the one worth saying out loud."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'optimization_id contains "019f"')
+    message = str(exc.value)
+    assert "one exact id" in message
+    assert "Valid: =." in message
+
+
+def test_a_malformed_optimization_id_is_refused_before_the_backend_sees_it() -> None:
+    """The resource declares the parameter as a UUID and answers its own
+    error for anything else — a response the agent has to interpret rather
+    than act on."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'optimization_id = "not-a-uuid"')
+    assert "not-a-uuid" in str(exc.value)
+
+
+RUN_A = "019fada0-fcb8-73eb-a946-827d4135f028"
+RUN_B = "019fada1-647e-77c5-b9cf-1f5661ab1257"
+
+
+def test_a_set_of_experiment_ids_becomes_the_backends_json_array() -> None:
+    """Fetching exactly the runs a caller already holds ids for — the two it
+    is about to compare, the five it just ranked — was N reads or a paged
+    scan. The backend has taken a JSON array of ids all along."""
+    clauses = compile_filters("experiment", f'experiment_ids in ("{RUN_A}", "{RUN_B}")')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"experiment_ids": f'["{RUN_A}","{RUN_B}"]'}
+    assert remaining == []
+
+
+def test_excluding_experiment_ids_is_refused_because_the_parameter_cannot() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", f'experiment_ids not_in ("{RUN_A}")')
+    assert "Valid: in." in str(exc.value)
+
+
+def test_every_experiment_id_in_the_set_has_to_be_an_id() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", f'experiment_ids in ("{RUN_A}", "rerank-v3")')
+    assert "rerank-v3" in str(exc.value)
+
+
+def test_two_clauses_on_one_parameter_field_are_refused() -> None:
+    """The backend takes one value for the parameter, so two AND-ed clauses
+    would have to be merged — and merging them into a set turns an AND into
+    an OR, which answers a question nobody asked."""
+    clauses = compile_filters("experiment", 'type = "trial" AND type = "regular"')
+    with pytest.raises(OQLError) as exc:
+        split_param_clauses("experiment", clauses)
+    assert "once" in str(exc.value)

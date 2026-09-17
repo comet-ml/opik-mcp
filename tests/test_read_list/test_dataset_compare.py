@@ -41,13 +41,21 @@ def _experiment(
     dataset_id: str = DATASET,
     dataset_name: str = "support-qa",
     method: str = "evaluation_suite",
+    version: tuple[str, str] = ("dv-1", "v1"),
+    status: str = "completed",
+    trace_count: int = 20,
 ) -> dict[str, Any]:
+    version_id, version_name = version
     return {
         "id": experiment_id,
         "name": name,
         "dataset_id": dataset_id,
         "dataset_name": dataset_name,
         "evaluation_method": method,
+        "dataset_version_id": version_id,
+        "dataset_version_summary": {"id": version_id, "version_name": version_name},
+        "status": status,
+        "trace_count": trace_count,
     }
 
 
@@ -120,7 +128,7 @@ async def test_a_row_is_one_case_with_every_experiments_score_in_one_cell() -> N
 
     # Case keys keep the plain listing's ranking: fill rate, then name.
     assert "id | data.expected_answer | data.question | correctness" in out
-    assert "case-1 | Paris | Capital of France? | 0.9 / 0.4 Δ0.5" in out
+    assert "case-1 | Paris | Capital of France? | 0.9 / 0.4 Δ-0.5" in out
     assert "Found 1 dataset_items (page 1, showing 1 of 1):" in out
 
 
@@ -136,7 +144,7 @@ async def test_the_legend_names_the_baseline_and_the_order_of_the_values() -> No
         f"[list: dataset_item | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
     )
     assert "E1 is the baseline" in out
-    assert "Δ is the unsigned gap between them" in out
+    assert "Δ is E2 minus E1 (a + means E2 scored higher)" in out
 
 
 @pytest.mark.anyio
@@ -187,7 +195,7 @@ async def test_several_runs_of_one_case_average_into_the_cell() -> None:
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "case-1 | Capital? | 0.75 / 0.4 Δ0.35" in out
+    assert "case-1 | Capital? | 0.75 / 0.4 Δ-0.35" in out
 
 
 @pytest.mark.anyio
@@ -284,6 +292,66 @@ async def test_experiments_of_different_datasets_are_refused_naming_both() -> No
     message = str(refusal.value)
     assert "support-qa" in message and "billing-qa" in message
     assert fake.compare_calls == []
+
+
+# --- whether the table can be read at face value ---------------------------- #
+#
+# Each of these was a check the agent had to make for itself, with a
+# list('experiment') call before comparing — and skipped, because the table
+# renders either way. Driving the tool: a "winner" at 0.634 over three cases
+# had lost one of them, and nothing on the page said three.
+
+
+@pytest.mark.anyio
+async def test_runs_over_different_dataset_versions_are_compared_with_a_warning() -> None:
+    """Same dataset, different version: the shared cases still line up, so it
+    is not the refusal a different dataset gets — but a - may mean the case
+    did not exist yet, and a gap on an edited case is not a regression."""
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", version=("dv-2", "v2"))
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "different versions of the dataset" in out
+    assert "E1 ran v1" in out and "E2 ran v2" in out
+    assert "case-1" in out, "the table still renders"
+    assert out.index("different versions") < out.index("E1 is the baseline"), (
+        "the warning comes before the explanation of how to read the cells"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_run_still_running_is_flagged_as_a_moving_number() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", status="running")
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "E2 is still running" in out
+    assert "will change" in out
+
+
+@pytest.mark.anyio
+async def test_runs_over_different_numbers_of_cases_say_so_and_name_the_thin_one() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", trace_count=3)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "different numbers of cases (E1 20, E2 3)" in out
+    assert "3 is too few" in out
+
+
+@pytest.mark.anyio
+async def test_runs_that_differ_only_in_size_but_both_large_get_the_count_not_the_verdict() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", trace_count=40)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "(E1 20, E2 40)" in out
+    assert "too few" not in out
+
+
+@pytest.mark.anyio
+async def test_comparable_runs_get_no_warning_at_all() -> None:
+    """Same version, both finished, same size: nothing to say, and saying
+    nothing is how the reader learns that a note means something."""
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=_fake(_DEFAULT_CASE))
+    for phrase in ("different versions", "still running", "different numbers of cases"):
+        assert phrase not in out
 
 
 @pytest.mark.anyio
@@ -442,7 +510,7 @@ async def test_a_suite_row_carries_pass_state_the_worst_trace_and_the_reason() -
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "passed | worst_trace | reason" in out
-    assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
+    assert "1/1·0/1 | tr-b (E2) | names the capital: Names Lyon." in out
     assert "passed is passed/total runs, E1·E2." in out
 
 
@@ -461,7 +529,7 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     assert "reason" not in out
     # The run worth opening next is not a test suite's privilege.
     assert "correctness | worst_trace" in out
-    assert "0.9 / 0.4 Δ0.5 | tr-b (E2)" in out
+    assert "0.9 / 0.4 Δ-0.5 | tr-b (E2)" in out
 
 
 @pytest.mark.anyio
@@ -489,7 +557,7 @@ async def test_the_worst_trace_is_a_run_that_actually_failed() -> None:
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "1/1·1/2 | tr-b-fail (E2) | Names Lyon." in out
+    assert "1/1·1/2 | tr-b-fail (E2) | names the capital: Names Lyon." in out
 
 
 @pytest.mark.anyio
@@ -520,7 +588,7 @@ async def test_the_worst_run_is_the_worst_run_not_the_worst_average() -> None:
 
     # A averages 0.83 against B's 0.7, so an average would open B's trace and
     # show nothing. The lowest experiment item is A's third run.
-    assert "2/3·1/1 | tr-a3 (E1) | Names Lyon." in out
+    assert "2/3·1/1 | tr-a3 (E1) | names the capital: Names Lyon." in out
 
 
 @pytest.mark.anyio
@@ -951,7 +1019,7 @@ async def test_a_failed_assertion_run_is_still_the_worst_trace_without_scores() 
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
+    assert "1/1·0/1 | tr-b (E2) | Names the capital: Names Lyon." in out
 
 
 @pytest.mark.anyio
