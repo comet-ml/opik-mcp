@@ -355,7 +355,10 @@ async def test_an_empty_page_names_the_values_the_filter_accepts() -> None:
     under — so the recovery path has to live here or nowhere."""
     out = await run_list("experiment", filters='type = "regular"', client=PickyClient())
     assert "regular, trial, mini-batch, mutation" in out
-    assert "optimization_id" in out
+    assert "optimization_id takes one id" in out
+    # Seen live on the installed build: the set-valued field was described as
+    # taking one id, the opposite of what it is for.
+    assert "experiment_ids takes a set of ids" in out
 
 
 @pytest.mark.anyio

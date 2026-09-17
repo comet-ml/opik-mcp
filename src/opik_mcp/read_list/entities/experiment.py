@@ -112,6 +112,10 @@ def _accepted_values() -> str:
         values = ENUM_VALUES.get("experiment", {}).get(field)
         if values:
             parts.append(f"{field} accepts {', '.join(values)}")
+        elif spec.value_form == "uuid" and spec.encoding == "json_list":
+            # Seen live: this said "takes one id" of the field whose whole
+            # point is taking several.
+            parts.append(f"{field} takes a set of ids, in (…)")
         elif spec.value_form == "uuid":
             parts.append(f"{field} takes one id")
         else:
