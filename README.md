@@ -219,7 +219,7 @@ lifecycle (read → annotate → curate → author → iterate).
 |---|---|
 | [`read`](#read) | Universal read by id / name / `opik://` URI |
 | [`list`](#list) | Universal list with optional name filter + pagination |
-| [`write`](#write) | Universal write — log traces/spans, score, comment, save prompts, manage test suites & experiments |
+| [`write`](#write) | Universal write — log traces/spans, score, comment, save prompts, manage datasets & experiments |
 | [`schema`](#schema) | Introspect write-operation schemas (used by the LLM to construct valid payloads) |
 | `read_skill` | Read one of the Opik agent skills bundled with this server |
 
@@ -244,12 +244,14 @@ prompt versions. Past that, `spansTruncated` / `messagesTruncated` /
 `moreVersions` line beside it carries the count and the exact `list(...)` call
 that continues from where the inlined part stopped.
 
-**Supported entities:** `project`, `trace`, `span`, `test_suite`, `experiment`,
+**Supported entities:** `project`, `trace`, `span`, `dataset`, `experiment`,
 `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
-`project`, `experiment`, `prompt`, `test_suite` (slower — two API calls — and
+`project`, `experiment`, `prompt`, `dataset` (slower — two API calls — and
 may return multiple matches). `thread` and `agent_insights_issue` are
 project-scoped: pass `project_id` or `project_name`, or a link/URI that carries
-the project.
+the project. `dataset` and `dataset_item` were called `test_suite` and
+`test_suite_item` before; the old names still resolve, but they are not
+advertised and new code should use the new ones.
 
 ```python
 read(entity_type="trace", id="7f2e3c8a-…")
@@ -277,7 +279,7 @@ scoring its traces. These are the names that go into a filter or into
 `series=` below, and guessing them returns an empty page that reads like good
 news. Score names and rules are capped, always report the true total, and name
 the call that returns the rest; usage keys are listed in full, since nothing
-else enumerates them. `contains` names the freshest experiment, test suite, prompt
+else enumerates them. `contains` names the freshest experiment, dataset, prompt
 version and optimization run, so "what has been happening here" does not need
 four more calls. A part that failed to load says so instead of looking empty,
 and an empty one is omitted.
@@ -306,8 +308,8 @@ workspace included. It is the same link the Python SDK prints for a trace.
 ### `list`
 
 Browse or search a collection with pagination. Project-scoped types (`trace`,
-`span`, `thread`, `agent_insights_issue`, `test_suite_item`, `prompt_version`)
-need their parent: a project UUID or name, a suite UUID, or a prompt UUID.
+`span`, `thread`, `agent_insights_issue`, `dataset_item`, `prompt_version`)
+need their parent: a project UUID or name, a dataset UUID, or a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
@@ -497,9 +499,9 @@ backend response.
 | `score.create` | Attach a numeric feedback score to a trace, span, or thread. |
 | `comment.create` | Attach a free-text comment to a trace, span, or thread. |
 | `prompt_version.save` | Save a new prompt version (creates the prompt by name if missing). |
-| `test_suite.create` | Create an evaluation test suite. |
-| `test_suite_item.upsert` | Upsert items into a test suite (always the envelope shape). |
-| `experiment.create` | Create an experiment scoped to a test suite. |
+| `dataset.create` | Create a dataset — `type: "test_suite"` makes it an evaluation test suite. |
+| `dataset_item.upsert` | Upsert items into a dataset (always the envelope shape). |
+| `experiment.create` | Create an experiment scoped to a dataset. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
 | `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans, safe to repeat). |
 | `agent_insights_job.trigger` | Run a Diagnostics scan now, over the last 24 hours. |

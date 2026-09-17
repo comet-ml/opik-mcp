@@ -1,6 +1,7 @@
-"""Real-MCP wire-capture smoke: confirms the dispatcher emits the BE's
-legacy ``dataset_*`` field names on the wire even when the MCP caller used
-``test_suite_*``, and injects ``type='evaluation_suite'`` on test_suite.create.
+"""Real-MCP wire-capture smoke: confirms the dispatcher sends the dataset
+operations the way opik-backend reads them — ``dataset_*`` field names on the
+wire, and ``dataset.create``'s ``type`` mapped to the BE enum value
+(``test_suite`` → ``evaluation_suite``).
 
 Uses ``respx`` so the dispatcher's actual HTTP layer fires — same code path
 a live BE call would take — but we intercept and inspect the request body.
@@ -59,7 +60,7 @@ async def main() -> None:
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         await session.initialize()
 
-        # --- test_suite.create -------------------------------------------- #
+        # --- dataset.create ----------------------------------------------- #
         with respx.mock(base_url=OPIK_BASE) as mock:
             route = mock.post("/v1/private/datasets").mock(
                 return_value=httpx.Response(201, json={"id": "ds-1"})
@@ -67,33 +68,36 @@ async def main() -> None:
             await session.call_tool(
                 "write",
                 {
-                    "operation": "test_suite.create",
-                    "data": {"name": "smoke_001", "description": "wire-check"},
+                    "operation": "dataset.create",
+                    "data": {
+                        "name": "smoke_001",
+                        "description": "wire-check",
+                        "type": "test_suite",
+                    },
                 },
             )
             sent = json.loads(route.calls.last.request.read())
-            print("test_suite.create →", json.dumps(sent, indent=2))
-            assert sent.get("type") == "evaluation_suite", "missing type=evaluation_suite!"
+            print("dataset.create →", json.dumps(sent, indent=2))
+            assert sent.get("type") == "evaluation_suite", (
+                "type=test_suite must reach the wire as evaluation_suite"
+            )
 
-        # --- test_suite_item.upsert --------------------------------------- #
+        # --- dataset_item.upsert ------------------------------------------ #
         with respx.mock(base_url=OPIK_BASE) as mock:
             route = mock.put("/v1/private/datasets/items").mock(return_value=httpx.Response(204))
             await session.call_tool(
                 "write",
                 {
-                    "operation": "test_suite_item.upsert",
+                    "operation": "dataset_item.upsert",
                     "data": {
-                        "test_suite_name": "smoke_001",
+                        "dataset_name": "smoke_001",
                         "items": [{"input": {"q": "ping"}, "expected_output": {"a": "pong"}}],
                     },
                 },
             )
             sent = json.loads(route.calls.last.request.read())
-            print("test_suite_item.upsert →", json.dumps(sent, indent=2))
-            assert "dataset_name" in sent, (
-                "MCP test_suite_name should translate to wire dataset_name"
-            )
-            assert "test_suite_name" not in sent, "test_suite_name should NOT leak to wire"
+            print("dataset_item.upsert →", json.dumps(sent, indent=2))
+            assert "dataset_name" in sent, "dataset_item.upsert must send dataset_name on wire"
 
         # --- experiment.create -------------------------------------------- #
         with respx.mock(base_url=OPIK_BASE) as mock:
@@ -104,7 +108,7 @@ async def main() -> None:
                 "write",
                 {
                     "operation": "experiment.create",
-                    "data": {"test_suite_name": "smoke_001", "name": "baseline"},
+                    "data": {"dataset_name": "smoke_001", "name": "baseline"},
                 },
             )
             sent = json.loads(route.calls.last.request.read())
@@ -124,7 +128,7 @@ async def main() -> None:
                         "experiment_items": [
                             {
                                 "experiment_id": experiment_id,
-                                "test_suite_item_id": suite_item_id,
+                                "dataset_item_id": suite_item_id,
                                 "trace_id": trace_id,
                             }
                         ]
@@ -134,8 +138,7 @@ async def main() -> None:
             sent = json.loads(route.calls.last.request.read())
             print("experiment_item.create →", json.dumps(sent, indent=2))
             item0 = sent["experiment_items"][0]
-            assert "dataset_item_id" in item0, "must translate test_suite_item_id → dataset_item_id"
-            assert "test_suite_item_id" not in item0, "test_suite_item_id should NOT leak"
+            assert "dataset_item_id" in item0, "experiment_item.create must send dataset_item_id"
 
     print("\nALL WIRE TRANSLATIONS VERIFIED ✓")
 

@@ -20,7 +20,7 @@ from opik_mcp.read_list.uri import (
         ("opik://projects/p-1", ParsedURI("project", "p-1")),
         ("opik://traces/tr-1", ParsedURI("trace", "tr-1")),
         ("opik://spans/sp-1", ParsedURI("span", "sp-1")),
-        ("opik://test-suites/ds-1", ParsedURI("test_suite", "ds-1")),
+        ("opik://datasets/ds-1", ParsedURI("dataset", "ds-1")),
         ("opik://experiments/ex-1", ParsedURI("experiment", "ex-1")),
         ("opik://prompts/pr-1", ParsedURI("prompt", "pr-1")),
     ],
@@ -35,9 +35,14 @@ def test_looks_like_uri_only_matches_opik_prefix() -> None:
     assert not looks_like_uri("http://opik.test/x")
 
 
+def test_parse_legacy_test_suites_form_still_resolves_to_dataset() -> None:
+    """The pre-rename spelling keeps working — old links stay resolvable."""
+    assert parse("opik://test-suites/ds-1") == ParsedURI("dataset", "ds-1")
+
+
 def test_parse_rejects_unknown_entity() -> None:
     with pytest.raises(InvalidURI):
-        parse("opik://datasets/d-1")
+        parse("opik://widgets/w-1")
 
 
 def test_parse_rejects_collection_paths() -> None:
@@ -48,7 +53,7 @@ def test_parse_rejects_collection_paths() -> None:
         parse("opik://projects/p-1/traces")
 
 
-def test_parse_underscore_form_for_test_suite_rejected() -> None:
+def test_parse_underscore_form_of_legacy_spelling_rejected() -> None:
     """We canonicalize on hyphens in the URI shape to match the old resources.py."""
     with pytest.raises(InvalidURI):
         parse("opik://test_suites/ds-1")

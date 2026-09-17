@@ -4,14 +4,14 @@ Ported from ollie-assist's ``tools/list.py``. Output is a pipe-delimited
 table (mirrors ollie's format) — easier for the LLM to scan than nested
 JSON and lossless for the columns we care about (id, name, plus a few
 entity-specific fields like ``created_at`` / ``dataset_name``). An entity
-whose records have no fixed fields (``test_suite_item``, whose payload is a
+whose records have no fixed fields (``dataset_item``, whose payload is a
 user-shaped ``data`` map) chooses its columns from the page instead, through
 the registry's ``list_projection_fn``. Whatever the table cuts — a long value,
 a column it had no room for — it says so under the rows.
 
 Project-scoped lists (``trace``, ``span``, ``thread``, ``agent_insights_issue``,
-``test_suite_item``, ``prompt_version``) require their parent id via
-``project_id`` / ``test_suite_id`` / ``prompt_id`` — enforced via the
+``dataset_item``, ``prompt_version``) require their parent id via
+``project_id`` / ``dataset_id`` / ``prompt_id`` — enforced via the
 registry's ``list_required_kwargs``. Entity-specific kwargs (``status`` for
 Diagnostics issues) are forwarded only to the entity that declares them in
 ``list_optional_kwargs``.
@@ -64,6 +64,7 @@ from opik_mcp.read_list.oql import (
     compile_filters,
     render_filters,
 )
+from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
@@ -88,14 +89,10 @@ logger = logging.getLogger("opik_mcp.read_list.list")
 #: rest of that record rather than a triage of the project.
 PARENT_ID_FIELDS = ("trace_id", "thread_id")
 
-_MAX_SIZE = 100
 _TRUNCATE_AT = 60
 # Free-text search is an ilike across several columns; on a cold cache the
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
-
-
-_DEFAULT_SIZE = 25
 
 
 @contextmanager
@@ -128,7 +125,7 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
 
 
 async def _run_whole(
-    run: RunFn,
+    handler: EntityHandler,
     entity_type: str,
     *,
     settings: Settings | None,
@@ -140,20 +137,33 @@ async def _run_whole(
     Same lifecycle as the collection path: the answer may be one backend call,
     but resolving a project name is another, and both ride one connection.
 
-    The kwargs below are still the metric's, and the runner is still the only
-    one there is. What the hook bought is that the choice became data the
-    registry owns, which a test can pin; it is not yet a second implementation
-    waiting to happen, and should not be described as one until one exists.
+    The words an upstream failure becomes come from the handler, because there
+    is more than one runner now and they are not doing the same thing: a
+    comparison that opik-backend refuses used to report that it had failed to
+    *chart* a dataset_item, and to suggest widening an interval it has not
+    got.
     """
+    run = cast("RunFn", handler.run_fn)
     async with client_for_call(settings, client) as opik:
         with _as_tool_error(
-            f"chart {entity_type}",
-            on_timeout=(
-                f"Opik did not answer in time for list({entity_type!r}, …). Narrow "
-                "the window or widen the interval and retry."
-            ),
+            f"{handler.run_verb} {entity_type}",
+            on_timeout=handler.run_timeout_hint
+            or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
+            "page (size=…).",
         ):
             return await run(cast("OpikReadClient", opik), **kw)
+
+
+def _whole_call(handler: EntityHandler, tool_args: dict[str, Any]) -> bool:
+    """Does this call belong to the entity's runner, or to the collection path?
+
+    An entity with no ``run_when_kwargs`` answers every call through its
+    runner. One that declares them answers two different questions, and the
+    arguments say which was asked.
+    """
+    if not handler.run_when_kwargs:
+        return True
+    return any(tool_args.get(arg) is not None for arg in handler.run_when_kwargs)
 
 
 async def run_list(
@@ -166,11 +176,12 @@ async def run_list(
     until: str | None = None,
     search: str | None = None,
     page: int = 1,
-    size: int = _DEFAULT_SIZE,
+    size: int = DEFAULT_PAGE_SIZE,
     project_id: str | None = None,
     project_name: str | None = None,
-    test_suite_id: str | None = None,
+    dataset_id: str | None = None,
     prompt_id: str | None = None,
+    experiment_ids: list[str] | None = None,
     status: str | None = None,
     metric_type: str | None = None,
     interval: str | None = None,
@@ -182,30 +193,39 @@ async def run_list(
     """List tool entrypoint. See ``server.py`` for the registered tool."""
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
-    if handler is not None and handler.run_fn is not None:
-        # The entity answers on its own: a time series is not a collection, so
-        # rows are buckets, the filter fields belong to whichever entity the
-        # metric is about, and page/size/sort mean nothing. ``page``/``size``
-        # carry non-None defaults, so only a value the caller actually chose
-        # is passed on; the defaults reaching here cannot be told from absence
-        # and are harmless.
+    tool_args: dict[str, Any] = {
+        "name": name,
+        "filters": filters,
+        "sort": sort,
+        "since": since,
+        "until": until,
+        "search": search,
+        "project_id": project_id,
+        "project_name": project_name,
+        "dataset_id": dataset_id,
+        "prompt_id": prompt_id,
+        "experiment_ids": experiment_ids,
+        "status": status,
+        "metric_type": metric_type,
+        "interval": interval,
+        "breakdown": breakdown,
+        "series": series,
+    }
+    if handler is not None and handler.run_fn is not None and _whole_call(handler, tool_args):
+        # The entity answers on its own, because what it answers is not a
+        # collection: a time series' rows are buckets, and a comparison's are
+        # cases with several runs on each. Both need the tool's arguments and
+        # none of its table. ``page``/``size`` carry non-None defaults, so only
+        # a value the caller actually chose is passed on; the defaults reaching
+        # a runner cannot be told from absence and are harmless.
         return await _run_whole(
-            handler.run_fn,
+            handler,
             entity_type,
-            project_id=project_id,
-            project_name=project_name,
-            metric_type=metric_type,
-            interval=interval,
-            breakdown=breakdown,
-            series=series,
-            since=since,
-            until=until,
-            filters=filters,
-            page=page if page != 1 else None,
-            size=size if size != _DEFAULT_SIZE else None,
-            sort=sort,
             settings=settings,
             client=client,
+            page=page if page != 1 else None,
+            size=size if size != DEFAULT_PAGE_SIZE else None,
+            **tool_args,
         )
 
     # Checked after the runner branch rather than before it, so that reaching
@@ -215,7 +235,7 @@ async def run_list(
         err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
         raise ToolError(str(err)) from err
 
-    size = max(1, min(size, _MAX_SIZE))
+    size = clamp_size(size)
     page = max(1, page)
 
     kw: dict[str, Any] = {"page": page, "size": size}
@@ -232,7 +252,7 @@ async def run_list(
     candidates: dict[str, Any] = {
         "project_id": project_id,
         "project_name": project_name,
-        "test_suite_id": test_suite_id,
+        "dataset_id": dataset_id,
         "prompt_id": prompt_id,
         "status": status,
     }

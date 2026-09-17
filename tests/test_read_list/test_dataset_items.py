@@ -1,4 +1,4 @@
-"""``list('test_suite_item')`` — columns discovered from the items' ``data``.
+"""``list('dataset_item')`` — columns discovered from the items' ``data``.
 
 A dataset item has no fixed fields: its payload is a ``data`` map whose keys
 the user chose. The projection reads the columns off the page, ranks them,
@@ -13,20 +13,19 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.read_list.entities.test_suite import (
+from opik_mcp.read_list.entities.dataset import ITEM_HANDLER, project_items
+from opik_mcp.read_list.entities.dataset.items import (
     _CELL_CEILING,
     _CELL_FLOOR,
     _MAX_DATA_COLUMNS,
     _PAGE_DATA_BUDGET,
-    ITEM_HANDLER,
-    project_items,
 )
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 
 from .test_list_tool import FakeOpikClient
 
-SUITE = "019f8d97-c83c-7597-b40a-bd2e0e1ad558"
+DATASET = "019f8d97-c83c-7597-b40a-bd2e0e1ad558"
 
 
 @pytest.fixture
@@ -140,7 +139,7 @@ def test_rows_without_a_data_map_are_skipped_not_fatal() -> None:
 @pytest.mark.anyio
 async def test_list_renders_the_items_content_for_every_row() -> None:
     fake = FakeOpikClient(
-        test_suite_items=_page(
+        dataset_items=_page(
             _item(
                 "i-1",
                 question="How can I evaluate my LLM outputs using Opik?",
@@ -155,8 +154,8 @@ async def test_list_renders_the_items_content_for_every_row() -> None:
             ),
         )
     )
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
-    assert fake.last_kwargs["test_suite_id"] == SUITE
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
+    assert fake.last_kwargs["dataset_id"] == DATASET
     lines = out.splitlines()
     assert lines[2] == "id | data.answer | data.expected_behavior | data.question"
     assert (
@@ -171,10 +170,8 @@ async def test_list_renders_the_items_content_for_every_row() -> None:
 
 @pytest.mark.anyio
 async def test_list_renders_a_row_missing_a_key_as_an_empty_cell() -> None:
-    fake = FakeOpikClient(
-        test_suite_items=_page(_item("i-1", q="q1", a="a1"), _item("i-2", q="q2"))
-    )
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", q="q1", a="a1"), _item("i-2", q="q2")))
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
     # ``q`` fills both rows and ``a`` one, so ``q`` leads; the gap is an empty cell.
     assert "i-1 | q1 | a1" in out
     assert "i-2 | q2 | " in out
@@ -184,8 +181,8 @@ async def test_list_renders_a_row_missing_a_key_as_an_empty_cell() -> None:
 async def test_list_cuts_long_values_and_declares_the_cut() -> None:
     long = "x" * 5_000
     page = _page(*(_item(f"i-{n}", q=long, a="short") for n in range(20)))
-    fake = FakeOpikClient(test_suite_items=page)
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
+    fake = FakeOpikClient(dataset_items=page)
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
     cap = _PAGE_DATA_BUDGET // (20 * 2)
     assert long not in out
     assert "x" * (cap - 3) + "..." in out
@@ -195,8 +192,8 @@ async def test_list_cuts_long_values_and_declares_the_cut() -> None:
 @pytest.mark.anyio
 async def test_list_shows_more_of_each_value_on_a_smaller_page() -> None:
     long = "x" * 500
-    fake = FakeOpikClient(test_suite_items={"content": [_item("i-1", q=long, a="a")], "total": 20})
-    out = await run_list("test_suite_item", test_suite_id=SUITE, size=1, client=fake)
+    fake = FakeOpikClient(dataset_items={"content": [_item("i-1", q=long, a="a")], "total": 20})
+    out = await run_list("dataset_item", dataset_id=DATASET, size=1, client=fake)
     assert long in out
     assert "cut at" not in out
     assert "Use page=2 for next 1 results." in out
@@ -205,7 +202,7 @@ async def test_list_shows_more_of_each_value_on_a_smaller_page() -> None:
 @pytest.mark.anyio
 async def test_list_renders_nested_values_as_compact_json() -> None:
     fake = FakeOpikClient(
-        test_suite_items=_page(
+        dataset_items=_page(
             _item(
                 "i-1",
                 input={"messages": [{"role": "user", "content": "hi"}]},
@@ -214,7 +211,7 @@ async def test_list_renders_nested_values_as_compact_json() -> None:
             )
         )
     )
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
     assert 'i-1 | {"messages":[{"role":"user","content":"hi"}]} | ["a","b"] | 3' in out
     assert "[object]" not in out
     assert "{'" not in out
@@ -223,8 +220,8 @@ async def test_list_renders_nested_values_as_compact_json() -> None:
 @pytest.mark.anyio
 async def test_list_declares_the_column_cut_under_the_table() -> None:
     keys = {f"k{i:02d}": "v" for i in range(_MAX_DATA_COLUMNS + 2)}
-    fake = FakeOpikClient(test_suite_items=_page(_item("i-1", **keys)))
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", **keys)))
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
     header = out.splitlines()[2]
     assert header.count(" | ") == _MAX_DATA_COLUMNS  # id + capped data columns
     assert f"showing {_MAX_DATA_COLUMNS} of {_MAX_DATA_COLUMNS + 2} by fill rate" in out
@@ -233,15 +230,15 @@ async def test_list_declares_the_column_cut_under_the_table() -> None:
 
 @pytest.mark.anyio
 async def test_list_empty_page_is_the_plain_empty_message() -> None:
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=FakeOpikClient())
-    assert out == "No test_suite_items found."
+    out = await run_list("dataset_item", dataset_id=DATASET, client=FakeOpikClient())
+    assert out == "No dataset_items found."
 
 
 # --- the registry row --------------------------------------------------- #
 
 
 def test_item_handler_projects_rather_than_declaring_fields() -> None:
-    handler = ENTITY_REGISTRY["test_suite_item"]
+    handler = ENTITY_REGISTRY["dataset_item"]
     assert handler is ITEM_HANDLER
     assert handler.list_projection_fn is project_items
     assert handler.list_extra_fields == ()
@@ -249,10 +246,10 @@ def test_item_handler_projects_rather_than_declaring_fields() -> None:
 
 
 def test_item_handler_description_matches_the_code() -> None:
-    """The old description promised items inline on ``read('test_suite')``;
+    """The old description promised items inline on ``read('dataset')``;
     nothing ever inlined them. The description is a comment nobody renders,
     so this is the only place a drift would show."""
     assert (
-        "read('test_suite') returns the suite record without its items" in ITEM_HANDLER.description
+        "read('dataset') returns the dataset record without its items" in ITEM_HANDLER.description
     )
     assert "up to 200 items inline" not in ITEM_HANDLER.description

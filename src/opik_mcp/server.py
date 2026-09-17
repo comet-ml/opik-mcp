@@ -257,7 +257,7 @@ async def read(
     """Read any Opik entity by ID, name, or opik:// URI.
 
     Prefer a UUID for `id` — it's faster (single API call) and unambiguous.
-    Name lookup is available for: project, experiment, prompt, test_suite —
+    Name lookup is available for: project, experiment, prompt, dataset —
     name lookup is slower (two API calls) and may return multiple matches,
     in which case the tool lists the candidates so you can retry with the
     correct ID.
@@ -266,7 +266,7 @@ async def read(
     - project: returns {project, summary, vocabulary, contains, url} — the
       week's figures against the 7 days before (SDK traffic only, as the Logs
       cards show, though the UI opens on 30 days), the score names and usage
-      keys to filter on, and the freshest experiment / suite / prompt version
+      keys to filter on, and the freshest experiment / dataset / prompt version
       / run. `since`/`until` move the summary's window; the rest is current.
     - trace: returns {trace, spans, spansTruncated} with up to 200 spans
       inlined, their bodies slim, and spanBodies saying what the cut took.
@@ -327,7 +327,7 @@ async def list_entities(
         Field(
             description=(
                 "Optional substring filter on entity name. Supported for project, "
-                "experiment, prompt, test_suite; ignored for sub-collections."
+                "experiment, prompt, dataset; ignored for sub-collections."
             ),
             max_length=200,
         ),
@@ -416,9 +416,24 @@ async def list_entities(
             max_length=200,
         ),
     ] = None,
-    test_suite_id: Annotated[
+    dataset_id: Annotated[
         str | None,
-        Field(description="Required when listing test_suite_items. UUID of the suite."),
+        Field(
+            description=(
+                "Required when listing dataset_items, unless experiment_ids is given. "
+                "UUID of the dataset."
+            )
+        ),
+    ] = None,
+    experiment_ids: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "dataset_item: compare these experiments case by case — which cases "
+                "regressed, not two averages. First id is the baseline; up to 10. Resolves "
+                "the dataset itself, and is what filters/sort/search apply to."
+            )
+        ),
     ] = None,
     prompt_id: Annotated[
         str | None,
@@ -498,10 +513,10 @@ async def list_entities(
       this project's traces)
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
-    - test_suite_item: test_suite_id
+    - dataset_item: dataset_id, or experiment_ids to compare runs case by case
     - prompt_version: prompt_id
 
-    Workspace-wide types (project, experiment, prompt, test_suite) accept
+    Workspace-wide types (project, experiment, prompt, dataset) accept
     an optional `name` substring filter. trace, span, thread, experiment
     accept an OQL `filters` string and a `sort`; trace, span, thread also
     take a `since`/`until` window and free-text `search`.
@@ -520,7 +535,8 @@ async def list_entities(
         size=size,
         project_id=project_id,
         project_name=project_name,
-        test_suite_id=test_suite_id,
+        dataset_id=dataset_id,
+        experiment_ids=experiment_ids,
         prompt_id=prompt_id,
         status=status,
         metric_type=metric_type,
@@ -560,7 +576,7 @@ async def write(
             description=(
                 "Payload for the operation. Object for a single write, or array "
                 "(max 1000 elements) for batch. Always-envelope operations "
-                "(test_suite_item.upsert, experiment_item.create) take their list "
+                "(dataset_item.upsert, experiment_item.create) take their list "
                 "inside the envelope, not at the top level."
             ),
         ),

@@ -190,35 +190,35 @@ async def test_prompt_version_save_missing_template() -> None:
 
 
 @pytest.mark.anyio
-async def test_test_suite_create_missing_name() -> None:
+async def test_dataset_create_missing_name() -> None:
     from opik_mcp.writes.dispatch import run_write
 
     with pytest.raises(ValidationFailedError) as exc_info:
-        await run_write(operation="test_suite.create", data={})
+        await run_write(operation="dataset.create", data={})
     body = json.loads(exc_info.value.to_json())
     fields = {i["field"] for i in body["issues"]}
     assert "name" in fields
 
 
 @pytest.mark.anyio
-async def test_test_suite_item_upsert_both_parent_conflict() -> None:
+async def test_dataset_item_upsert_both_parent_conflict() -> None:
     from opik_mcp.writes.dispatch import run_write
 
     with pytest.raises(ValidationFailedError) as exc_info:
         await run_write(
-            operation="test_suite_item.upsert",
+            operation="dataset_item.upsert",
             data={
-                "test_suite_name": "x",
-                "test_suite_id": "00000000-0000-0000-0000-000000000001",
+                "dataset_name": "x",
+                "dataset_id": "00000000-0000-0000-0000-000000000001",
                 "items": [{"input": {"q": "a"}}],
             },
         )
     body = json.loads(exc_info.value.to_json())
-    assert any("test_suite_parent_conflict" in i.get("code", "") for i in body["issues"])
+    assert any("dataset_parent_conflict" in i.get("code", "") for i in body["issues"])
 
 
 @pytest.mark.anyio
-async def test_test_suite_item_upsert_rejects_data_field_conflict() -> None:
+async def test_dataset_item_upsert_rejects_data_field_conflict() -> None:
     """Same key on both ``data: {…}`` and the top level fails Stage 2 loudly.
 
     Earlier versions silently kept the ``data`` value and dropped the top-
@@ -229,9 +229,9 @@ async def test_test_suite_item_upsert_rejects_data_field_conflict() -> None:
 
     with pytest.raises(ValidationFailedError) as exc_info:
         await run_write(
-            operation="test_suite_item.upsert",
+            operation="dataset_item.upsert",
             data={
-                "test_suite_name": "x",
+                "dataset_name": "x",
                 "items": [
                     {
                         "data": {"input": {"q": "in-data"}},
@@ -245,13 +245,13 @@ async def test_test_suite_item_upsert_rejects_data_field_conflict() -> None:
 
 
 @pytest.mark.anyio
-async def test_experiment_create_missing_test_suite_parent() -> None:
+async def test_experiment_create_missing_dataset_parent() -> None:
     from opik_mcp.writes.dispatch import run_write
 
     with pytest.raises(ValidationFailedError) as exc_info:
         await run_write(operation="experiment.create", data={"name": "exp"})
     body = json.loads(exc_info.value.to_json())
-    assert any("test_suite_parent_missing" in i.get("code", "") for i in body["issues"])
+    assert any("dataset_parent_missing" in i.get("code", "") for i in body["issues"])
 
 
 @pytest.mark.anyio
@@ -264,7 +264,7 @@ async def test_experiment_item_create_bare_object_returns_envelope_example() -> 
             operation="experiment_item.create",
             data={
                 "experiment_id": "00000000-0000-0000-0000-000000000001",
-                "test_suite_item_id": "00000000-0000-0000-0000-000000000002",
+                "dataset_item_id": "00000000-0000-0000-0000-000000000002",
                 "trace_id": "00000000-0000-0000-0000-000000000003",
             },
         )

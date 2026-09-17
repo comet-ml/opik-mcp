@@ -25,6 +25,11 @@ HANDLER = EntityHandler(
     entity_type="project_metric",
     fetch_fn=unsupported_fetch,
     run_fn=run_project_metric,
+    run_verb="chart",
+    run_timeout_hint=(
+        "Opik did not answer in time for list('project_metric', …). Narrow "
+        "the window or widen the interval and retry."
+    ),
     reference_fn=reference,
     # Deliberately declares no kwargs. The list tool returns before its
     # forwarding gate for this entity, so anything declared here would be

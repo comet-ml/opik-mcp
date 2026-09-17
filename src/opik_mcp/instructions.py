@@ -50,7 +50,7 @@ also takes filters (OQL, the same language as search_traces(filter_string=…)),
 sort, since/until and search, so one call answers most questions: \
 list('trace', project_name=…, since="1h", filters="error_info is_not_empty", \
 sort="duration desc"). Field reference: schema("list.trace"). Readable entity \
-types include trace, span, project, experiment, prompt, test_suite, thread, \
+types include trace, span, project, experiment, prompt, dataset, thread, \
 agent_insights_issue. Composite reads (trace, prompt, thread, \
 agent_insights_issue) inline their child collections so one call usually gets \
 the full picture. For a thread, pass the thread link/URI or a project_id — \
@@ -58,7 +58,7 @@ read('thread', …) returns the messages list, and list('thread', project_id=…
 enumerates a project's threads. For "how is my project doing", start with \
 read('project', name_or_id): traces, error rate, average duration and cost \
 for a window against the window before it, plus the score names and usage \
-keys to filter on, and the freshest experiment, suite, prompt version and \
+keys to filter on, and the freshest experiment, dataset, prompt version and \
 run. since/until move the summary's window; the UI opens on since="30d". \
 To attribute a change rather than just report it, chart it: \
 list('project_metric', project_name=…, metric_type="span_count", \

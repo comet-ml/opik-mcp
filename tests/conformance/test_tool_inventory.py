@@ -50,6 +50,17 @@ from opik_mcp.server import mcp
 #           `since` put back, and a line on `read` saying that a long inlined
 #           collection carries the call for its remainder. +667 bytes, all of
 #           it wording rather than arguments.
+#   20,770  OPIK-8393 — comparing experiments case by case. +456 bytes: the
+#           `experiment_ids` array on `list` (~330) with the rest on the
+#           `dataset_id` line that now says when it is optional, and the
+#           entity list saying what experiment_ids does. The argument is the
+#           whole feature — without it the agent's only route to "which cases
+#           regressed" is reading every trace of both runs — so this is the
+#           kind of spend the budget exists to permit, not to prevent.
+#   20,673  OPIK-8393 — the `test_suite` entity renamed to `dataset` across
+#           read, list, write and schema, with `dataset.create` gaining `type`
+#           so both kinds can be made. -97 bytes: the shorter name paid for the
+#           new field. The old names still resolve as unadvertised aliases.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the

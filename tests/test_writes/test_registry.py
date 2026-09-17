@@ -117,7 +117,7 @@ def test_supports_batch_implies_endpoint_pair(name: str) -> None:
 
     ``experiment_item.create`` is an always-envelope operation with
     ``supports_batch=True`` but no separate ``batch_endpoint`` because the
-    singleton path already accepts the envelope. ``test_suite_item.upsert``
+    singleton path already accepts the envelope. ``dataset_item.upsert``
     is also always-envelope but uses ``supports_batch=False`` to reject a
     top-level array (which would silently lose items past index 0). Both
     shapes are deliberate, so this assertion only checks the *false*

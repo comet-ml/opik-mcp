@@ -63,7 +63,7 @@ def run_schema(operation: str) -> dict[str, Any]:
         "parent_id_fields": list(op.parent_id_fields),
         # Universal codes first, domain-specific codes appended. Callers can
         # preempt the known failure surface before sending; an LLM seeing
-        # ``test_suite_parent_missing`` here will include a parent id from
+        # ``dataset_parent_missing`` here will include a parent id from
         # the start instead of recovering from a 400.
         "failure_modes": list(_UNIVERSAL_FAILURE_MODES) + list(op.failure_modes),
         "description": op.description,

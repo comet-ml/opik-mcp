@@ -126,8 +126,14 @@ async def run_project_metric(
     page: int | None = None,
     size: int | None = None,
     sort: str | None = None,
+    **_collection_args: Any,
 ) -> str:
     """``list('project_metric', …)`` end to end: validate, ask, render.
+
+    The list tool hands a runner every argument it took, so the ones that
+    belong to collections and to other entities' parents arrive here too. A
+    series has no parent and no name, and ``page``/``size``/``sort`` are
+    refused below rather than ignored, so the rest are dropped.
 
     Everything that can be rejected is rejected before the backend is called —
     an unknown metric, an unknown interval, a filter field that does not exist

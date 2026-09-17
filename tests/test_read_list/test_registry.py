@@ -6,15 +6,16 @@ from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
     READABLE_TYPES,
+    resolve_entity_type,
 )
 
 
 def test_list_only_entities_excluded_from_readable() -> None:
-    """test_suite_item and prompt_version are sub-collections — they can only be
+    """dataset_item and prompt_version are sub-collections — they can only be
     listed under a parent, never fetched by their own id through the read tool.
     A regression that adds them to READABLE_TYPES would create an unusable code
     path (no get_* endpoint exists on the client)."""
-    assert "test_suite_item" not in READABLE_TYPES
+    assert "dataset_item" not in READABLE_TYPES
     assert "prompt_version" not in READABLE_TYPES
 
 
@@ -25,15 +26,15 @@ def test_span_is_listable_with_project_scope() -> None:
     assert ENTITY_REGISTRY["span"].list_required_kwargs == ("project_id",)
 
 
-def test_id_only_flag_set_for_trace_span_prompt_version_test_suite_item() -> None:
+def test_id_only_flag_set_for_trace_span_prompt_version_dataset_item() -> None:
     assert ENTITY_REGISTRY["trace"].id_only
     assert ENTITY_REGISTRY["span"].id_only
-    assert ENTITY_REGISTRY["test_suite_item"].id_only
+    assert ENTITY_REGISTRY["dataset_item"].id_only
     assert ENTITY_REGISTRY["prompt_version"].id_only
 
 
 def test_nameable_entities_have_search_fn() -> None:
-    for entity_type in ("project", "experiment", "prompt", "test_suite"):
+    for entity_type in ("project", "experiment", "prompt", "dataset"):
         assert ENTITY_REGISTRY[entity_type].search_by_name_fn is not None
 
 
@@ -44,7 +45,7 @@ def test_id_only_entities_have_no_search_fn() -> None:
 
 def test_project_scoped_lists_declare_required_kwarg() -> None:
     assert ENTITY_REGISTRY["trace"].list_required_kwargs == ("project_id",)
-    assert ENTITY_REGISTRY["test_suite_item"].list_required_kwargs == ("test_suite_id",)
+    assert ENTITY_REGISTRY["dataset_item"].list_required_kwargs == ("dataset_id",)
     assert ENTITY_REGISTRY["prompt_version"].list_required_kwargs == ("prompt_id",)
     assert ENTITY_REGISTRY["thread"].list_required_kwargs == ("project_id",)
 
@@ -108,3 +109,10 @@ def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
     assert handler.needs_project is True
     assert handler.id_only is True
     assert handler.search_by_name_fn is None
+
+
+def test_legacy_test_suite_names_resolve_to_dataset() -> None:
+    """The pre-rename type names stay accepted as aliases, so an agent that
+    learned the old vocabulary still lands on the renamed entity."""
+    assert resolve_entity_type("test_suite") == "dataset"
+    assert resolve_entity_type("test_suite_item") == "dataset_item"

@@ -129,7 +129,7 @@ read("project", "<project name or id>")
 One call returns the last 7 days against the 7 before — trace count, error
 rate, average duration, total cost, SDK traffic only, which is what the Logs
 page's four cards show — plus the score names and usage keys the project
-actually records, and the freshest experiment, test suite, prompt version and
+actually records, and the freshest experiment, dataset, prompt version and
 optimization run in it. `since`/`until` pick another window; `since="30d"` is
 what the UI opens on. A rate or an average over a window with no traces comes
 back `null` rather than `0`, because a rate over no samples is undefined and

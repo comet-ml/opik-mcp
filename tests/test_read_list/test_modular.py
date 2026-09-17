@@ -16,9 +16,10 @@ thirteen files. The line drawn here is about *code paths*, not about tables.
 from __future__ import annotations
 
 import ast
+import inspect
 import pathlib
 
-from opik_mcp.read_list import registry
+from opik_mcp.read_list import list_tool, registry
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 
 READ_LIST = pathlib.Path(registry.__file__).parent
@@ -144,17 +145,48 @@ def test_the_dispatchers_name_no_entity() -> None:
             assert branch not in source, f"{name} branches on {entity_type!r}"
 
 
-def test_an_entity_that_answers_list_whole_declares_no_list_function() -> None:
+def test_an_entity_declares_a_list_function_for_every_path_it_answers_on() -> None:
     """``project_metric`` used to carry a sentinel ``list_fn`` that existed
     only to make it count as listable. Asking the handler whether it lists is
-    what retired it, and this is what stops the sentinel coming back."""
+    what retired it, and this is what stops the sentinel coming back.
+
+    An entity that answers every call through its runner has no use for a
+    collection function; one that answers only some calls there (a suite's
+    items, which compare runs when the call names them) needs both, and the
+    arguments in ``run_when_kwargs`` are what choose between them."""
     for entity_type, handler in ENTITY_REGISTRY.items():
-        if handler.run_fn is not None:
+        if handler.run_fn is not None and not handler.run_when_kwargs:
             assert handler.list_fn is None, (
-                f"{entity_type} answers list through run_fn, so a list_fn here "
+                f"{entity_type} answers every list through run_fn, so a list_fn here "
                 "would never be called"
             )
+        if handler.run_when_kwargs:
+            assert handler.run_fn is not None, (
+                f"{entity_type} names arguments that hand the call to a runner it does not have"
+            )
+            assert handler.list_fn is not None, (
+                f"{entity_type} answers only some calls through run_fn; the rest reach the "
+                "collection path and need a list_fn"
+            )
         assert handler.lists == (handler.list_fn is not None or handler.run_fn is not None)
+
+
+def test_every_argument_the_list_tool_takes_reaches_a_runner() -> None:
+    """``run_list`` hands a runner one bag of arguments rather than a curated
+    set, because the curated set was the metric's and a second runner needed a
+    different one. The bag repeats the signature, so this is what stops the
+    two drifting: an argument added to ``run_list`` and forgotten in the bag
+    would simply not exist for any entity that answers whole, and a runner
+    that takes ``**kwargs`` cannot notice."""
+    bag: set[str] = set()
+    for node in ast.walk(ast.parse((READ_LIST / "list_tool.py").read_text())):
+        if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "tool_args":
+            assert isinstance(node.value, ast.Dict), "tool_args stopped being a literal"
+            bag = {str(key.value) for key in node.value.keys if isinstance(key, ast.Constant)}
+    # The entity is the dispatch key, the page arguments are normalised on the
+    # way in, and the last two are the call's plumbing, not the agent's.
+    plumbing = {"entity_type", "page", "size", "settings", "client"}
+    assert bag == set(inspect.signature(list_tool.run_list).parameters) - plumbing
 
 
 def test_the_handler_contract_imports_no_entity() -> None:

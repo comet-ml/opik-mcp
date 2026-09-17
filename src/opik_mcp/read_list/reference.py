@@ -17,7 +17,8 @@ from opik_mcp.read_list.oql import (
     ENUM_VALUES,
     FILTERABLE_FIELDS,
     GRAMMAR_LINE,
-    KEYED_TYPES,
+    KEY_ALLOWED_TYPES,
+    KEY_REQUIRED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
     SOURCE_DEFAULTED_ENTITIES,
@@ -52,6 +53,18 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
         'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
         'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
     ),
+    "dataset_item": (
+        "feedback_scores.correctness < 0.5",
+        'data.question contains "refund" AND output contains "sorry"',
+    ),
+}
+
+
+#: What an entity's filters cannot be used without. Only the compared items
+#: have such a condition: every one of their filter fields reads the runs,
+#: which exist only when the call names the experiments to compare.
+FILTER_REQUIREMENTS: Final[dict[str, str]] = {
+    "dataset_item": "experiment_ids: filters, sort and search apply to the runs",
 }
 
 
@@ -66,8 +79,10 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
         spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}
-        if ftype in KEYED_TYPES:
+        if ftype in KEY_REQUIRED_TYPES:
             spec["key"] = "required"
+        elif ftype in KEY_ALLOWED_TYPES:
+            spec["key"] = "optional"
         if name in MILLISECOND_FIELDS:
             spec["unit"] = "milliseconds"
         if ftype == "date_time":
@@ -86,6 +101,9 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
     if entity_type in SOURCE_DEFAULTED_ENTITIES:
         filters["default"] = 'source = "sdk" unless you name source'
+    requires = FILTER_REQUIREMENTS.get(entity_type)
+    if requires is not None:
+        filters["requires"] = requires
 
     return {
         "operation": f"list.{entity_type}",
@@ -97,4 +115,4 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
 
 
-__all__ = ["FILTER_EXAMPLES", "LIST_SCHEMA_KEYS", "list_reference"]
+__all__ = ["FILTER_EXAMPLES", "FILTER_REQUIREMENTS", "LIST_SCHEMA_KEYS", "list_reference"]

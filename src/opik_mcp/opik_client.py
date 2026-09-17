@@ -173,12 +173,12 @@ class OpikListClient(Protocol):
         size: int = 100,
     ) -> dict[str, Any]: ...
 
-    async def list_test_suites(
+    async def list_datasets(
         self, *, name: str | None = None, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
-    async def list_test_suite_items(
-        self, test_suite_id: str, /, *, page: int = 1, size: int = 10
+    async def list_dataset_items(
+        self, dataset_id: str, /, *, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
     async def list_experiments(
@@ -193,6 +193,23 @@ class OpikListClient(Protocol):
         truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def list_compared_dataset_items(
+        self,
+        dataset_id: str,
+        /,
+        *,
+        experiment_ids: list[str],
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def list_compared_output_columns(
+        self, dataset_id: str, /, *, experiment_ids: list[str]
     ) -> dict[str, Any]: ...
 
     async def list_prompts(
@@ -270,7 +287,7 @@ class OpikReadClient(OpikListClient, Protocol):
 
     async def get_span(self, span_id: str, /) -> dict[str, Any]: ...
 
-    async def get_test_suite(self, test_suite_id: str, /) -> dict[str, Any]: ...
+    async def get_dataset(self, dataset_id: str, /) -> dict[str, Any]: ...
 
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]: ...
 
@@ -304,6 +321,18 @@ _DEFAULT_TIMEOUT: Final = 30.0
 
 def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _ids_param(ids: list[str]) -> str:
+    """A list of ids as opik-backend's ``experiment_ids`` query param.
+
+    ``ParamsValidator.getIds`` deserializes the whole param as JSON into a
+    ``List<UUID>``, so it is a JSON array and not the comma-separated list
+    every other multi-value param in this API uses. Comma-joined reaches the
+    caller as ``Invalid query param ids`` (400), which says nothing about the
+    format it wanted — so it is written once, here.
+    """
+    return _json.dumps(list(ids), separators=(",", ":"))
 
 
 def _search_params(
@@ -813,9 +842,9 @@ class OpikClient:
             entity_hint=f"span {span_id!r}",
         )
 
-    # -- reads: test suites (REST path = "datasets") --
+    # -- reads: datasets --
 
-    async def list_test_suites(
+    async def list_datasets(
         self,
         *,
         name: str | None = None,
@@ -824,8 +853,7 @@ class OpikClient:
     ) -> dict[str, Any]:
         """``GET /v1/private/datasets`` — Spring Page envelope.
 
-        Opik 2.0 test suites share the dataset REST path. ``name`` is a
-        substring filter used for name-lookup in the read tool.
+        ``name`` is a substring filter used for name-lookup in the read tool.
         """
         params: dict[str, Any] = {"page": page, "size": size}
         if name is not None:
@@ -833,29 +861,86 @@ class OpikClient:
         return await self._get_json(
             "/v1/private/datasets",
             params=params,
-            entity_hint="test_suites",
+            entity_hint="datasets",
         )
 
-    async def get_test_suite(self, test_suite_id: str) -> dict[str, Any]:
-        """``GET /v1/private/datasets/{id}`` — Opik 2.0 test suites live on the dataset path."""
+    async def get_dataset(self, dataset_id: str) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}`` — one dataset record."""
         return await self._get_json(
-            f"/v1/private/datasets/{test_suite_id}",
+            f"/v1/private/datasets/{dataset_id}",
             params=None,
-            entity_hint=f"test_suite {test_suite_id!r}",
+            entity_hint=f"dataset {dataset_id!r}",
         )
 
-    async def list_test_suite_items(
+    async def list_dataset_items(
         self,
-        test_suite_id: str,
+        dataset_id: str,
         *,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
         """``GET /v1/private/datasets/{id}/items`` — paginated item list."""
         return await self._get_json(
-            f"/v1/private/datasets/{test_suite_id}/items",
+            f"/v1/private/datasets/{dataset_id}/items",
             params={"page": page, "size": size},
-            entity_hint=f"test_suite {test_suite_id!r} items",
+            entity_hint=f"dataset {dataset_id!r} items",
+        )
+
+    async def list_compared_dataset_items(
+        self,
+        dataset_id: str,
+        /,
+        *,
+        experiment_ids: list[str],
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}/items/experiments/items``.
+
+        One row per case with every named experiment's run attached. Filters,
+        sorting and search are evaluated on the joined row.
+        """
+        params: dict[str, Any] = {
+            "page": page,
+            "size": size,
+            "experiment_ids": _ids_param(experiment_ids),
+        }
+        params.update(
+            _search_params(
+                filters=filters,
+                sorting=sorting,
+                search=search,
+                from_time=None,
+                to_time=None,
+                # Bodies never reach the table; let the backend trim them.
+                truncate=True,
+            )
+        )
+        return await self._get_json(
+            f"/v1/private/datasets/{dataset_id}/items/experiments/items",
+            params=params,
+            entity_hint=f"dataset {dataset_id!r} items compared",
+        )
+
+    async def list_compared_output_columns(
+        self,
+        dataset_id: str,
+        /,
+        *,
+        experiment_ids: list[str],
+    ) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}/items/experiments/items/output/columns``.
+
+        The keys the runs' outputs carry, which is what ``output.<key>``
+        filters can name. The dataset's own ``data`` keys come off the page.
+        """
+        return await self._get_json(
+            f"/v1/private/datasets/{dataset_id}/items/experiments/items/output/columns",
+            params={"experiment_ids": _ids_param(experiment_ids)},
+            entity_hint=f"dataset {dataset_id!r} output columns",
         )
 
     # -- reads: experiments --

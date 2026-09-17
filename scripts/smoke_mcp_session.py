@@ -82,19 +82,19 @@ async def main() -> None:
         ),
         # NEW: renamed surface
         (
-            "test_suite.create",
+            "dataset.create",
             {"name": "smoke_suite_001", "description": "smoke test"},
         ),
         (
-            "test_suite_item.upsert",
+            "dataset_item.upsert",
             {
-                "test_suite_name": "smoke_suite_001",
+                "dataset_name": "smoke_suite_001",
                 "items": [{"input": {"q": "ping"}, "expected_output": {"a": "pong"}}],
             },
         ),
         (
             "experiment.create",
-            {"test_suite_name": "smoke_suite_001", "name": "baseline"},
+            {"dataset_name": "smoke_suite_001", "name": "baseline"},
         ),
         (
             "experiment_item.create",
@@ -102,7 +102,7 @@ async def main() -> None:
                 "experiment_items": [
                     {
                         "experiment_id": experiment_id,
-                        "test_suite_item_id": suite_item_id,
+                        "dataset_item_id": suite_item_id,
                         "trace_id": trace_id,
                     }
                 ]
@@ -118,8 +118,8 @@ async def main() -> None:
         names = sorted(t.name for t in tools.tools)
         print(json.dumps(names, indent=2))
 
-        print("\n=== schema(test_suite.create) ===\n")
-        sch = await session.call_tool("schema", {"operation": "test_suite.create"})
+        print("\n=== schema(dataset.create) ===\n")
+        sch = await session.call_tool("schema", {"operation": "dataset.create"})
         sch_body = _decode(sch.content)
         # Print only the headline + scope so output stays readable.
         if isinstance(sch_body, dict):
@@ -182,15 +182,15 @@ async def main() -> None:
                 )
             )
 
-        # --- targeted: test_suite_item.upsert top-level array MUST be rejected (no silent loss) ---
-        print("\n=== test_suite_item.upsert top-level array (expect batch_unsupported) ===\n")
+        # --- targeted: dataset_item.upsert top-level array MUST be rejected (no silent loss) ---
+        print("\n=== dataset_item.upsert top-level array (expect batch_unsupported) ===\n")
         bad2 = await session.call_tool(
             "write",
             {
-                "operation": "test_suite_item.upsert",
+                "operation": "dataset_item.upsert",
                 "data": [
-                    {"test_suite_name": "a", "items": [{"input": {"q": "1"}}]},
-                    {"test_suite_name": "b", "items": [{"input": {"q": "2"}}]},
+                    {"dataset_name": "a", "items": [{"input": {"q": "1"}}]},
+                    {"dataset_name": "b", "items": [{"input": {"q": "2"}}]},
                 ],
             },
         )
@@ -207,8 +207,8 @@ async def main() -> None:
                 )
             )
 
-        # --- targeted: experiment.create with no test_suite_* → test_suite_parent_missing ---
-        print("\n=== experiment.create with neither test_suite_name nor test_suite_id ===\n")
+        # --- targeted: experiment.create with no dataset_* → dataset_parent_missing ---
+        print("\n=== experiment.create with neither dataset_name nor dataset_id ===\n")
         bad3 = await session.call_tool(
             "write",
             {"operation": "experiment.create", "data": {"name": "exp-x"}},
@@ -226,16 +226,16 @@ async def main() -> None:
                 )
             )
 
-        # --- targeted: experiment.create with BOTH → test_suite_parent_conflict ---
-        print("\n=== experiment.create with both test_suite_name AND test_suite_id ===\n")
+        # --- targeted: experiment.create with BOTH → dataset_parent_conflict ---
+        print("\n=== experiment.create with both dataset_name AND dataset_id ===\n")
         bad4 = await session.call_tool(
             "write",
             {
                 "operation": "experiment.create",
                 "data": {
                     "name": "exp-y",
-                    "test_suite_name": "x",
-                    "test_suite_id": suite_id,
+                    "dataset_name": "x",
+                    "dataset_id": suite_id,
                 },
             },
         )

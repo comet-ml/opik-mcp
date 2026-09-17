@@ -331,12 +331,13 @@ async def test_get_span_hits_singleton_path() -> None:
     assert body == {"id": "sp-1"}
 
 
-# --- test suites (REST = datasets) --------------------------------------- #
+# --- datasets ------------------------------------------------------------ #
 
 
 @pytest.mark.anyio
-async def test_get_test_suite_maps_to_dataset_path() -> None:
-    """Opik 2.0 test_suite REST path == datasets — assert headers + parsed body.
+async def test_get_dataset_hits_the_datasets_path() -> None:
+    """The dataset singleton is served from /v1/private/datasets — assert
+    headers + parsed body.
 
     `route.called` alone passes if the dataset path is swapped for any other
     endpoint that ds-1 also resolves on; checking the parsed body forces the
@@ -346,7 +347,7 @@ async def test_get_test_suite_maps_to_dataset_path() -> None:
         route = mock.get("/v1/private/datasets/ds-1").mock(
             return_value=httpx.Response(200, json={"id": "ds-1", "name": "suite"}),
         )
-        body = await _client().get_test_suite("ds-1")
+        body = await _client().get_dataset("ds-1")
 
     req = route.calls.last.request
     assert req.headers["authorization"] == "key-abc"
@@ -355,12 +356,12 @@ async def test_get_test_suite_maps_to_dataset_path() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_test_suite_items_uses_dataset_items_path() -> None:
+async def test_list_dataset_items_uses_dataset_items_path() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         route = mock.get("/v1/private/datasets/ds-1/items").mock(
             return_value=httpx.Response(200, json=_page([])),
         )
-        await _client().list_test_suite_items("ds-1", page=3, size=5)
+        await _client().list_dataset_items("ds-1", page=3, size=5)
     params = dict(route.calls.last.request.url.params)
     assert params == {"page": "3", "size": "5"}
 
@@ -409,7 +410,7 @@ async def test_list_prompt_versions_hits_subresource() -> None:
     ("method", "path"),
     [
         ("list_projects", "/v1/private/projects"),
-        ("list_test_suites", "/v1/private/datasets"),
+        ("list_datasets", "/v1/private/datasets"),
         ("list_experiments", "/v1/private/experiments"),
         ("list_prompts", "/v1/private/prompts"),
     ],
@@ -433,7 +434,7 @@ async def test_list_name_filter_lands_in_query_params(method: str, path: str) ->
     ("method", "path"),
     [
         ("list_projects", "/v1/private/projects"),
-        ("list_test_suites", "/v1/private/datasets"),
+        ("list_datasets", "/v1/private/datasets"),
         ("list_experiments", "/v1/private/experiments"),
         ("list_prompts", "/v1/private/prompts"),
     ],

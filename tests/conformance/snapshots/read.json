@@ -1,14 +1,14 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: agent_insights_issue, experiment, project, prompt, span, test_suite, thread, trace.",
+      "description": "One of: agent_insights_issue, dataset, experiment, project, prompt, span, thread, trace.",
       "enum": [
         "agent_insights_issue",
+        "dataset",
         "experiment",
         "project",
         "prompt",
         "span",
-        "test_suite",
         "thread",
         "trace"
       ],
