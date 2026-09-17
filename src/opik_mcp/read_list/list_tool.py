@@ -425,6 +425,8 @@ async def run_list(
             page=page,
             total=total,
             filtered=bool(filters and filters.strip()),
+            sort_field=sort_field,
+            rows=tuple(content),
         )
 
         if not content:

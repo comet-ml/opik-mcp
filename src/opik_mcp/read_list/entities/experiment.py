@@ -10,7 +10,7 @@ from opik_mcp.opik_client import (
     OpikListClient,
     OpikReadClient,
 )
-from opik_mcp.read_list.columns import has_value
+from opik_mcp.read_list.columns import has_value, resolve
 from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
 from opik_mcp.read_list.oql import ENUM_VALUES, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
@@ -135,11 +135,12 @@ async def page_note(client: OpikListClient, _settings: Settings, page: PageConte
     "none match" is false there — they do match, on page one. The page's own
     total settles it without asking the backend anything.
 
-    Returns ``None`` for a page that has rows: the projection note carries the
-    hint there, and saying it twice is worse than saying it once.
+    A page with rows gets no vocabulary — the projection note carries it, and
+    saying it twice is worse than once — but it may get the one thing a table
+    of ranked scores cannot say about itself: see :func:`_ranking_caveat`.
     """
     if not page.empty:
-        return None
+        return _ranking_caveat(page)
     if page.total > 0:
         # Rows exist and this slice is past them. Nothing was filtered out,
         # so there is no count to look up and nothing to explain but the page.
@@ -162,6 +163,47 @@ async def page_note(client: OpikListClient, _settings: Settings, page: PageConte
     # The vocabulary answers "what may I filter by", which only a caller who
     # wrote a filter was asking. A name search gets the count and no lecture.
     return f"{matched} {_accepted_values()}" if page.filtered else matched
+
+
+#: Sort fields that rank runs by how well they did. A page ordered by one is
+#: an invitation to name a winner.
+_SCORE_SORTS: Final = ("feedback_scores.", "experiment_scores.", "pass_rate")
+#: Below this many cases, a mean is a hint and a gap between two means is
+#: not a ranking. Not a statistical threshold — a plain one, chosen so that
+#: the runs seen live (one, two, three cases) trip it and a twenty-case
+#: evaluation does not.
+_THIN_SAMPLE: Final = 10
+
+
+def _ranking_caveat(page: PageContext) -> str | None:
+    """When the page ranks runs by a score over too few cases to trust, say so.
+
+    Driving the tool: sorted by score, a trial stood first at 0.634. It was a
+    mean over three cases, and it had lost one of them — the per-case
+    comparison said so a call later. I would have named it the winner. The
+    table now carries ``trace_count`` beside the score, which lets a careful
+    reader notice; this line is for the reader who is about to not notice.
+    """
+    field = page.sort_field
+    if not field or len(page.rows) < 2:
+        return None
+    if not (field.startswith(_SCORE_SORTS[:2]) or field == _SCORE_SORTS[2]):
+        return None
+    first, second = page.rows[0], page.rows[1]
+    top, runner_up = resolve(first, field), resolve(second, field)
+    first_count, second_count = first.get("trace_count"), second.get("trace_count")
+    if not isinstance(top, int | float) or not isinstance(runner_up, int | float):
+        return None
+    if not isinstance(first_count, int) or not isinstance(second_count, int):
+        return None
+    if min(first_count, second_count) >= _THIN_SAMPLE:
+        return None
+    gap = abs(float(top) - float(runner_up))
+    return (
+        f"Ranked by {field}: the top two differ by {gap:.3g} over {first_count} and "
+        f"{second_count} cases. A sample that small does not settle a ranking; compare them "
+        "case by case (list('dataset_item', experiment_ids=[…])) before naming a winner."
+    )
 
 
 def derive_columns(record: dict[str, Any]) -> dict[str, Any]:

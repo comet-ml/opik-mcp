@@ -433,6 +433,64 @@ async def test_the_workspace_count_costs_one_call_and_only_when_empty() -> None:
     assert quiet.side_calls == 0, "a page with rows asks nothing extra"
 
 
+# --- a ranking over too few cases ------------------------------------------- #
+#
+# Driving the tool: sorted by score, a trial stood first at 0.634. It was a
+# mean over three cases and had lost one of them. trace_count beside the
+# score lets a careful reader notice; this line is for the reader about to
+# not notice.
+
+
+def _ranked(*runs: tuple[str, float, int]) -> FakeOpikClient:
+    """Rows already in score order, the way the backend returns a sorted page."""
+    rows = [
+        _experiment(name, trace_count=count, feedback_scores=[{"name": "accuracy", "value": v}])
+        for name, v, count in runs
+    ]
+    return FakeOpikClient(experiments=_page(*rows))
+
+
+@pytest.mark.anyio
+async def test_a_ranking_over_a_thin_sample_is_flagged_with_the_gap_and_the_counts() -> None:
+    fake = _ranked(("winner", 0.634, 3), ("runner-up", 0.575, 3), ("third", 0.48, 3))
+    out = await run_list("experiment", sort="feedback_scores.accuracy desc", client=fake)
+    assert "Ranked by feedback_scores.accuracy" in out
+    assert "differ by 0.059 over 3 and 3 cases" in out
+    assert "list('dataset_item'" in out, "and it points at the call that would settle it"
+
+
+@pytest.mark.anyio
+async def test_a_ranking_over_enough_cases_carries_no_caveat() -> None:
+    fake = _ranked(("winner", 0.634, 40), ("runner-up", 0.575, 25))
+    out = await run_list("experiment", sort="feedback_scores.accuracy desc", client=fake)
+    assert "does not settle" not in out
+
+
+@pytest.mark.anyio
+async def test_one_thin_run_among_the_top_two_is_enough_to_flag() -> None:
+    fake = _ranked(("winner", 0.634, 3), ("runner-up", 0.575, 40))
+    out = await run_list("experiment", sort="feedback_scores.accuracy desc", client=fake)
+    assert "over 3 and 40 cases" in out
+
+
+@pytest.mark.anyio
+async def test_a_page_not_sorted_by_a_score_is_not_a_ranking() -> None:
+    """Sorted by date, the order says nothing about who won, so there is no
+    winner to caution against naming."""
+    fake = _ranked(("a", 0.634, 3), ("b", 0.575, 3))
+    by_date = await run_list("experiment", sort="created_at desc", client=fake)
+    unsorted = await run_list("experiment", client=fake)
+    assert "does not settle" not in by_date
+    assert "does not settle" not in unsorted
+
+
+@pytest.mark.anyio
+async def test_a_single_row_is_not_a_ranking_either() -> None:
+    fake = _ranked(("only", 0.634, 3))
+    out = await run_list("experiment", sort="feedback_scores.accuracy desc", client=fake)
+    assert "does not settle" not in out
+
+
 # --- what the headers promise ---------------------------------------------- #
 
 

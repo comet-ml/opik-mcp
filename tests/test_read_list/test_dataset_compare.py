@@ -41,13 +41,21 @@ def _experiment(
     dataset_id: str = DATASET,
     dataset_name: str = "support-qa",
     method: str = "evaluation_suite",
+    version: tuple[str, str] = ("dv-1", "v1"),
+    status: str = "completed",
+    trace_count: int = 20,
 ) -> dict[str, Any]:
+    version_id, version_name = version
     return {
         "id": experiment_id,
         "name": name,
         "dataset_id": dataset_id,
         "dataset_name": dataset_name,
         "evaluation_method": method,
+        "dataset_version_id": version_id,
+        "dataset_version_summary": {"id": version_id, "version_name": version_name},
+        "status": status,
+        "trace_count": trace_count,
     }
 
 
@@ -284,6 +292,66 @@ async def test_experiments_of_different_datasets_are_refused_naming_both() -> No
     message = str(refusal.value)
     assert "support-qa" in message and "billing-qa" in message
     assert fake.compare_calls == []
+
+
+# --- whether the table can be read at face value ---------------------------- #
+#
+# Each of these was a check the agent had to make for itself, with a
+# list('experiment') call before comparing — and skipped, because the table
+# renders either way. Driving the tool: a "winner" at 0.634 over three cases
+# had lost one of them, and nothing on the page said three.
+
+
+@pytest.mark.anyio
+async def test_runs_over_different_dataset_versions_are_compared_with_a_warning() -> None:
+    """Same dataset, different version: the shared cases still line up, so it
+    is not the refusal a different dataset gets — but a - may mean the case
+    did not exist yet, and a gap on an edited case is not a regression."""
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", version=("dv-2", "v2"))
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "different versions of the dataset" in out
+    assert "E1 ran v1" in out and "E2 ran v2" in out
+    assert "case-1" in out, "the table still renders"
+    assert out.index("different versions") < out.index("E1 is the baseline"), (
+        "the warning comes before the explanation of how to read the cells"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_run_still_running_is_flagged_as_a_moving_number() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", status="running")
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "E2 is still running" in out
+    assert "will change" in out
+
+
+@pytest.mark.anyio
+async def test_runs_over_different_numbers_of_cases_say_so_and_name_the_thin_one() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", trace_count=3)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "different numbers of cases (E1 20, E2 3)" in out
+    assert "3 is too few" in out
+
+
+@pytest.mark.anyio
+async def test_runs_that_differ_only_in_size_but_both_large_get_the_count_not_the_verdict() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    fake.experiment_records[B] = _experiment(B, "rerank-v3", trace_count=40)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "(E1 20, E2 40)" in out
+    assert "too few" not in out
+
+
+@pytest.mark.anyio
+async def test_comparable_runs_get_no_warning_at_all() -> None:
+    """Same version, both finished, same size: nothing to say, and saying
+    nothing is how the reader learns that a note means something."""
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=_fake(_DEFAULT_CASE))
+    for phrase in ("different versions", "still running", "different numbers of cases"):
+        assert phrase not in out
 
 
 @pytest.mark.anyio

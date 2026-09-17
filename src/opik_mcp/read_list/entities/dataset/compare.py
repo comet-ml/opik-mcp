@@ -131,7 +131,9 @@ async def run_compare(
         applied.append(f'search: "{search}"')
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
-    notes = [_how_to_read(experiments, assertion_columns=assertion_columns)]
+    # Warnings first: whether the table can be read at face value is decided
+    # before how to read it.
+    notes = [*_guards(experiments), _how_to_read(experiments, assertion_columns=assertion_columns)]
     if stripping and rows:
         notes.append(
             "A filter on the runs matches a case when any of its experiments matches; the "
@@ -402,6 +404,11 @@ async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
                 f"Experiment {experiment_id!r} carries no dataset, so its cases cannot "
                 "be lined up with another run's."
             )
+        version_summary = record.get("dataset_version_summary")
+        version_name = (
+            version_summary.get("version_name") if isinstance(version_summary, dict) else None
+        )
+        trace_count = record.get("trace_count")
         experiments.append(
             Experiment(
                 id=experiment_id,
@@ -410,9 +417,67 @@ async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
                 dataset_id=str(dataset_id),
                 dataset_name=str(record.get("dataset_name") or dataset_id),
                 is_suite=record.get("evaluation_method") == TEST_SUITE_METHOD,
+                dataset_version_id=(
+                    str(record["dataset_version_id"]) if record.get("dataset_version_id") else None
+                ),
+                dataset_version=str(version_name) if version_name else None,
+                status=str(record["status"]) if record.get("status") else None,
+                trace_count=trace_count if isinstance(trace_count, int) else None,
             )
         )
     return experiments
+
+
+def _guards(experiments: list[Experiment]) -> list[str]:
+    """What makes this comparison unsafe to read at face value, before the table.
+
+    Each was a check the agent had to make itself with a ``list('experiment')``
+    call before comparing — and skipped, because the table renders either way.
+    Three facts decide whether two averages are the same kind of number:
+
+    - **The dataset version.** Same dataset, different version: cases were
+      added, edited or removed between the runs. The shared cases still line
+      up, so this is a warning and not the refusal a different *dataset* gets
+      — but a case one version lacks reads as a dash, and a regression on an
+      edited case is not a regression.
+    - **Whether a run has finished.** A running experiment's averages are over
+      the cases done so far. They will move.
+    - **How many cases each covered.** A mean over three cases beside a mean
+      over twenty is not a comparison of the same thing; driving the tool, a
+      "winner" at 0.634 over three cases had lost one of them.
+    """
+    if len(experiments) < 2:
+        return []
+    notes: list[str] = []
+
+    versions = {e.dataset_version_id for e in experiments if e.dataset_version_id}
+    if len(versions) > 1:
+        ran = ", ".join(
+            f"{e.label} ran {e.dataset_version or e.dataset_version_id or 'an unknown version'}"
+            for e in experiments
+        )
+        notes.append(
+            f"These runs used different versions of the dataset ({ran}): cases may have been "
+            "added, edited or removed between them, so a - can mean the case did not exist yet, "
+            "and a gap on an edited case is not a regression."
+        )
+
+    running = [e.label for e in experiments if e.status == "running"]
+    if running:
+        who = " and ".join(running)
+        verb = "is" if len(running) == 1 else "are"
+        notes.append(
+            f"{who} {verb} still running: {'its' if len(running) == 1 else 'their'} scores are "
+            "over the cases finished so far and will change."
+        )
+
+    counts = [(e.label, e.trace_count) for e in experiments if e.trace_count is not None]
+    if len(counts) == len(experiments) and len({n for _, n in counts}) > 1:
+        each = ", ".join(f"{label} {n}" for label, n in counts)
+        smallest = min(n for _, n in counts)
+        thin = f" {smallest} is too few to weigh against the others." if smallest < 10 else ""
+        notes.append(f"The runs covered different numbers of cases ({each}).{thin}")
+    return notes
 
 
 def _dataset_of(experiments: list[Experiment], dataset_id: str | None) -> str:

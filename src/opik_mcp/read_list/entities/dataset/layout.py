@@ -44,6 +44,14 @@ class Experiment:
     dataset_id: str
     dataset_name: str
     is_suite: bool
+    # What decides whether lining these runs up means anything: the version
+    # of the dataset each ran, whether it has finished, and how many cases it
+    # covered. Read off the record the legend already needed, at no extra
+    # call, and checked before the table is drawn — see ``compare._guards``.
+    dataset_version_id: str | None = None
+    dataset_version: str | None = None
+    status: str | None = None
+    trace_count: int | None = None
 
 
 def runs_by_experiment(row: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:

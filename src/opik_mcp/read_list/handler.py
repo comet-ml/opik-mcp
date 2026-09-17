@@ -69,6 +69,15 @@ class PageContext:
     """Did the caller write a ``filters`` clause, as opposed to narrowing by
     name or not at all? Advice about filter fields is an answer to a question
     only a filtering caller asked."""
+    sort_field: str | None = None
+    rows: tuple[dict[str, Any], ...] = ()
+    """The page as the backend sent it, and what it was ordered by.
+
+    A note about a *ranking* needs both: which field the rows are ordered by,
+    and the rows themselves to read that field off. An experiment listing
+    sorted by a score is an invitation to name a winner, and whether the top
+    two are far enough apart over enough cases to mean anything is a fact
+    about this page that only this page can state."""
 
 
 PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
