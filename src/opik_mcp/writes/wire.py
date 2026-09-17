@@ -133,18 +133,14 @@ def dump(model: BaseModel) -> dict[str, Any]:
     return dumped
 
 
-def rename_test_suite_to_dataset(body: dict[str, Any]) -> None:
-    """Translate MCP-facing ``test_suite_{name,id}`` to the BE's ``dataset_{name,id}``.
-
-    Opik 2.0 renamed the entity in the FE / public surface, but the BE request
-    body fields kept the legacy ``dataset_*`` names for back-compat (see
-    /v1/private/datasets/items, /v1/private/experiments). Centralising the
-    rename here prevents wire-shape drift between operations.
-    """
-    if "test_suite_name" in body:
-        body["dataset_name"] = body.pop("test_suite_name")
-    if "test_suite_id" in body:
-        body["dataset_id"] = body.pop("test_suite_id")
+#: MCP ``dataset.create`` type → the backend's ``DatasetType`` value. The two
+#: names agree except for the test suite, whose DB value is still the older
+#: ``evaluation_suite`` (opik-backend's DatasetType carries a TODO, OPIK-5795,
+#: to migrate it to ``test_suite``); when it moves, only this table changes.
+DATASET_TYPE_TO_WIRE: Final[dict[str, str]] = {
+    "dataset": "dataset",
+    "test_suite": "evaluation_suite",
+}
 
 
 def safe_body(resp: httpx.Response) -> Any:
@@ -156,6 +152,7 @@ def safe_body(resp: httpx.Response) -> Any:
 
 
 __all__ = [
+    "DATASET_TYPE_TO_WIRE",
     "TARGET_PATH",
     "BuildContext",
     "BuildFn",
@@ -167,7 +164,6 @@ __all__ = [
     "WireRequest",
     "dump",
     "refuse",
-    "rename_test_suite_to_dataset",
     "safe_body",
     "stringify_uuids",
 ]

@@ -53,7 +53,7 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
         'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
         'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
     ),
-    "test_suite_item": (
+    "dataset_item": (
         "feedback_scores.correctness < 0.5",
         'data.question contains "refund" AND output contains "sorry"',
     ),
@@ -64,7 +64,7 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
 #: have such a condition: every one of their filter fields reads the runs,
 #: which exist only when the call names the experiments to compare.
 FILTER_REQUIREMENTS: Final[dict[str, str]] = {
-    "test_suite_item": "experiment_ids: filters, sort and search apply to the runs",
+    "dataset_item": "experiment_ids: filters, sort and search apply to the runs",
 }
 
 

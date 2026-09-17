@@ -26,9 +26,9 @@ class FakeOpikClient:
     projects: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     experiments: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompts: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    test_suites: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    datasets: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     traces: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    test_suite_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    dataset_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
     issues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
@@ -121,9 +121,9 @@ class FakeOpikClient:
         self.last_kwargs = kw
         return self.prompts
 
-    async def list_test_suites(self, **kw: Any) -> dict[str, Any]:
+    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
-        return self.test_suites
+        return self.datasets
 
     async def list_traces(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -133,9 +133,9 @@ class FakeOpikClient:
         self.last_kwargs = kw
         return self.threads
 
-    async def list_test_suite_items(self, test_suite_id: str, **kw: Any) -> dict[str, Any]:
-        self.last_kwargs = {"test_suite_id": test_suite_id, **kw}
-        return self.test_suite_items
+    async def list_dataset_items(self, dataset_id: str, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = {"dataset_id": dataset_id, **kw}
+        return self.dataset_items
 
     async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = {"prompt_id": prompt_id, **kw}
@@ -147,19 +147,15 @@ class FakeOpikClient:
             raise OpikNotFoundError(f"experiment {experiment_id!r} not found (404).")
         return dict(record)
 
-    async def list_compared_test_suite_items(
-        self, test_suite_id: str, /, **kw: Any
-    ) -> dict[str, Any]:
-        self.compare_calls.append({"test_suite_id": test_suite_id, **kw})
-        self.last_kwargs = {"test_suite_id": test_suite_id, **kw}
+    async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+        self.compare_calls.append({"dataset_id": dataset_id, **kw})
+        self.last_kwargs = {"dataset_id": dataset_id, **kw}
         if self.compare_error is not None:
             raise self.compare_error
         return self.compared_items
 
-    async def list_compared_output_columns(
-        self, test_suite_id: str, /, **kw: Any
-    ) -> dict[str, Any]:
-        self.column_calls.append({"test_suite_id": test_suite_id, **kw})
+    async def list_compared_output_columns(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+        self.column_calls.append({"dataset_id": dataset_id, **kw})
         if self.columns_error is not None:
             raise self.columns_error
         return self.compared_columns
@@ -251,9 +247,9 @@ async def test_list_traces_with_project_id_forwards_kwarg() -> None:
 
 
 @pytest.mark.anyio
-async def test_list_test_suite_items_requires_test_suite_id() -> None:
-    with pytest.raises(ToolError, match="requires test_suite_id"):
-        await run_list("test_suite_item", client=FakeOpikClient())
+async def test_list_dataset_items_requires_dataset_id() -> None:
+    with pytest.raises(ToolError, match="requires dataset_id"):
+        await run_list("dataset_item", client=FakeOpikClient())
 
 
 @pytest.mark.anyio
@@ -370,12 +366,12 @@ async def test_list_missing_required_kwarg_chains_typed_cause() -> None:
 async def test_list_forwards_only_kwargs_the_entity_declares() -> None:
     """Parent ids meant for other entities never reach a workspace-wide list_fn.
 
-    ``list('project', project_id=…, test_suite_id=…, prompt_id=…)`` is a
+    ``list('project', project_id=…, dataset_id=…, prompt_id=…)`` is a
     confused call, but it must degrade to a plain project list rather than
     blow up the client with unexpected kwargs."""
     fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "a"}], "total": 1})
     out = await run_list(
-        "project", project_id="p-1", test_suite_id="ts-1", prompt_id="pr-1", client=fake
+        "project", project_id="p-1", dataset_id="ts-1", prompt_id="pr-1", client=fake
     )
     assert "p-1" in out
     assert set(fake.last_kwargs) == {"page", "size"}
@@ -1077,9 +1073,9 @@ async def test_list_issues_project_id_wins_over_name_without_lookup() -> None:
 @pytest.mark.anyio
 async def test_list_forwards_declared_parent_id_to_sub_collection() -> None:
     fake = FakeOpikClient(prompt_versions={"content": [{"id": "v-1"}], "total": 1})
-    await run_list("prompt_version", prompt_id="pr-1", test_suite_id="ts-1", client=fake)
+    await run_list("prompt_version", prompt_id="pr-1", dataset_id="ts-1", client=fake)
     assert fake.last_kwargs.get("prompt_id") == "pr-1"
-    assert "test_suite_id" not in fake.last_kwargs
+    assert "dataset_id" not in fake.last_kwargs
 
 
 # --- project vocabulary: score names and online rules -------------------- #

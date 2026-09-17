@@ -34,7 +34,10 @@ def test_every_operation_says_how_to_build_its_request() -> None:
     right only for the plain creates. Anything with a batch envelope, a path
     id or a renamed field needs its own, and forgetting one would silently
     send the wrong body rather than fail."""
-    plain = {"trace.create", "span.create"}
+    # experiment.create and experiment_item.create joined this set when the
+    # entity was renamed to `dataset`: their only translation was
+    # test_suite_* -> dataset_*, and their MCP fields now say dataset_* already.
+    plain = {"trace.create", "span.create", "experiment.create", "experiment_item.create"}
     for name, op in WRITE_REGISTRY.items():
         if name in plain:
             continue

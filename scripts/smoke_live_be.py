@@ -157,20 +157,20 @@ async def main() -> None:
         },
     )
 
-    # 7. test_suite.create
+    # 7. dataset.create
     suite_name = f"mcp_smoke_suite_{uuid4().hex[:8]}"
     await _run(
-        "7. test_suite.create",
-        "test_suite.create",
+        "7. dataset.create",
+        "dataset.create",
         {"name": suite_name, "description": "smoke test from MCP"},
     )
 
-    # 8. test_suite_item.upsert
+    # 8. dataset_item.upsert
     await _run(
-        "8. test_suite_item.upsert",
-        "test_suite_item.upsert",
+        "8. dataset_item.upsert",
+        "dataset_item.upsert",
         {
-            "test_suite_name": suite_name,
+            "dataset_name": suite_name,
             "items": [
                 {"input": {"q": "ping"}, "expected_output": {"a": "pong"}},
                 {"input": {"q": "hello"}, "expected_output": {"a": "world"}},
@@ -183,7 +183,7 @@ async def main() -> None:
         "9. experiment.create",
         "experiment.create",
         {
-            "test_suite_name": suite_name,
+            "dataset_name": suite_name,
             "name": f"mcp_smoke_exp_{uuid4().hex[:8]}",
         },
     )
@@ -194,19 +194,19 @@ async def main() -> None:
     from opik_mcp.opik_client import make_opik_client
 
     client = make_opik_client(get_settings())
-    test_suite_item_id = None
+    dataset_item_id = None
     resolved_suite_id = None
     try:
-        suites = await client.list_test_suites(name=suite_name, page=1, size=5)
+        suites = await client.list_datasets(name=suite_name, page=1, size=5)
         for s in suites.get("content", []):
             if s.get("name") == suite_name:
                 resolved_suite_id = s["id"]
                 break
         if resolved_suite_id:
-            items_resp = await client.list_test_suite_items(resolved_suite_id, page=1, size=5)
+            items_resp = await client.list_dataset_items(resolved_suite_id, page=1, size=5)
             for it in items_resp.get("content", []):
-                test_suite_item_id = it.get("id")
-                if test_suite_item_id:
+                dataset_item_id = it.get("id")
+                if dataset_item_id:
                     break
     except Exception as e:
         print(f"  (suite-item lookup failed: {e})")
@@ -226,7 +226,7 @@ async def main() -> None:
             print(f"  (experiment lookup failed: {e})")
 
     # 10. experiment_item.create
-    if experiment_id and test_suite_item_id:
+    if experiment_id and dataset_item_id:
         await _run(
             "10. experiment_item.create",
             "experiment_item.create",
@@ -235,7 +235,7 @@ async def main() -> None:
                     {
                         "id": _uuid7(),
                         "experiment_id": experiment_id,
-                        "test_suite_item_id": test_suite_item_id,
+                        "dataset_item_id": dataset_item_id,
                         "trace_id": trace_id,
                     }
                 ]
@@ -244,7 +244,7 @@ async def main() -> None:
     else:
         print(
             f"\n--- 10. experiment_item.create SKIPPED "
-            f"(exp_id={experiment_id}, item_id={test_suite_item_id}) ---"
+            f"(exp_id={experiment_id}, item_id={dataset_item_id}) ---"
         )
 
     print("\n=== LIVE BE SMOKE COMPLETE ===")

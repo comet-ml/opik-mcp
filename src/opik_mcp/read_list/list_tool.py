@@ -4,14 +4,14 @@ Ported from ollie-assist's ``tools/list.py``. Output is a pipe-delimited
 table (mirrors ollie's format) — easier for the LLM to scan than nested
 JSON and lossless for the columns we care about (id, name, plus a few
 entity-specific fields like ``created_at`` / ``dataset_name``). An entity
-whose records have no fixed fields (``test_suite_item``, whose payload is a
+whose records have no fixed fields (``dataset_item``, whose payload is a
 user-shaped ``data`` map) chooses its columns from the page instead, through
 the registry's ``list_projection_fn``. Whatever the table cuts — a long value,
 a column it had no room for — it says so under the rows.
 
 Project-scoped lists (``trace``, ``span``, ``thread``, ``agent_insights_issue``,
-``test_suite_item``, ``prompt_version``) require their parent id via
-``project_id`` / ``test_suite_id`` / ``prompt_id`` — enforced via the
+``dataset_item``, ``prompt_version``) require their parent id via
+``project_id`` / ``dataset_id`` / ``prompt_id`` — enforced via the
 registry's ``list_required_kwargs``. Entity-specific kwargs (``status`` for
 Diagnostics issues) are forwarded only to the entity that declares them in
 ``list_optional_kwargs``.
@@ -140,7 +140,7 @@ async def _run_whole(
     The words an upstream failure becomes come from the handler, because there
     is more than one runner now and they are not doing the same thing: a
     comparison that opik-backend refuses used to report that it had failed to
-    *chart* a test_suite_item, and to suggest widening an interval it has not
+    *chart* a dataset_item, and to suggest widening an interval it has not
     got.
     """
     run = cast("RunFn", handler.run_fn)
@@ -179,7 +179,7 @@ async def run_list(
     size: int = DEFAULT_PAGE_SIZE,
     project_id: str | None = None,
     project_name: str | None = None,
-    test_suite_id: str | None = None,
+    dataset_id: str | None = None,
     prompt_id: str | None = None,
     experiment_ids: list[str] | None = None,
     status: str | None = None,
@@ -202,7 +202,7 @@ async def run_list(
         "search": search,
         "project_id": project_id,
         "project_name": project_name,
-        "test_suite_id": test_suite_id,
+        "dataset_id": dataset_id,
         "prompt_id": prompt_id,
         "experiment_ids": experiment_ids,
         "status": status,
@@ -252,7 +252,7 @@ async def run_list(
     candidates: dict[str, Any] = {
         "project_id": project_id,
         "project_name": project_name,
-        "test_suite_id": test_suite_id,
+        "dataset_id": dataset_id,
         "prompt_id": prompt_id,
         "status": status,
     }

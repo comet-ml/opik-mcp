@@ -1,4 +1,4 @@
-"""``experiment`` — one evaluation run over a test suite."""
+"""``experiment`` — one evaluation run over a dataset."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def _with_next_step(record: dict[str, Any], entity_id: str) -> dict[str, Any]:
 
     A read of an experiment answers "how did this run do" with means. The next
     question is always "on which cases", and the call that answers it needs
-    nothing but this id and another run's — not the suite, which it resolves
+    nothing but this id and another run's — not the dataset, which it resolves
     itself. An agent that does not know the call falls back to reading every
     trace of both runs, which is what this feature exists to stop.
     """
@@ -30,7 +30,7 @@ def _with_next_step(record: dict[str, Any], entity_id: str) -> dict[str, Any]:
         **record,
         "comparePerCase": (
             "Which cases differ, rather than these averages: "
-            f"list('test_suite_item', experiment_ids=['{experiment_id}', "
+            f"list('dataset_item', experiment_ids=['{experiment_id}', "
             "'<other experiment id>'])"
         ),
     }

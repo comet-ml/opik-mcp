@@ -57,8 +57,8 @@ FieldType = Literal[
 # (FilterQueryBuilder.java). A pair missing there is a 400 server-side.
 OPERATORS_BY_TYPE: Final[dict[str, tuple[str, ...]]] = {
     "string": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with", ">", "<"),
-    # A key addressed inside a map the user owns: ``data.question`` on a test
-    # suite item, ``output.answer`` on the runs compared with it. opik-backend
+    # A key addressed inside a map the user owns: ``data.question`` on a
+    # dataset item, ``output.answer`` on the runs compared with it. opik-backend
     # calls these dynamic fields and wants the key spliced into the field name
     # with a declared type, which is what ``_dynamic_clause`` below writes.
     "keyed_string": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with", ">", "<"),
@@ -192,7 +192,7 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
     # are deliberately absent: the joined endpoint validates them, answers
     # 200 and never puts them in the query, so a page filtered on either is
     # an unfiltered page that reads like a filtered one.
-    "test_suite_item": {
+    "dataset_item": {
         "id": "string",
         "data": "keyed_string",
         "output": "flat_or_keyed_string",
@@ -241,7 +241,7 @@ ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
 #: Appended to the unknown-field message so the answer is "the backend ignores
 #: it" rather than "you misspelled something".
 IGNORED_BY_BACKEND: Final[dict[str, tuple[frozenset[str], str]]] = {
-    "test_suite_item": (
+    "dataset_item": (
         frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
         "The compare endpoint accepts it, answers 200 and never applies it, so a page "
         "filtered on it would be an unfiltered page.",

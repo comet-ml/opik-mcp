@@ -1,4 +1,4 @@
-"""``list('test_suite_item', experiment_ids=[…])`` — the cases, with the runs.
+"""``list('dataset_item', experiment_ids=[…])`` — the cases, with the runs.
 
 What these pin is the answer an agent reads: which experiment each value in a
 cell belongs to, which case is worth opening, and every refusal that is
@@ -22,8 +22,8 @@ from opik_mcp.read_list.reference import list_reference
 
 from .test_list_tool import FakeOpikClient
 
-SUITE = "019f8d97-c83c-7597-b40a-bd2e0e1ad558"
-OTHER_SUITE = "019f8d97-c83c-7597-b40a-bd2e0e1ad559"
+DATASET = "019f8d97-c83c-7597-b40a-bd2e0e1ad558"
+OTHER_DATASET = "019f8d97-c83c-7597-b40a-bd2e0e1ad559"
 A = "019f8d97-c83c-7597-b40a-00000000000a"
 B = "019f8d97-c83c-7597-b40a-00000000000b"
 C = "019f8d97-c83c-7597-b40a-00000000000c"
@@ -38,7 +38,7 @@ def _experiment(
     experiment_id: str,
     name: str,
     *,
-    dataset_id: str = SUITE,
+    dataset_id: str = DATASET,
     dataset_name: str = "support-qa",
     method: str = "evaluation_suite",
 ) -> dict[str, Any]:
@@ -116,24 +116,24 @@ _DEFAULT_CASE = _case(
 async def test_a_row_is_one_case_with_every_experiments_score_in_one_cell() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     # Case keys keep the plain listing's ranking: fill rate, then name.
     assert "id | data.expected_answer | data.question | correctness" in out
     assert "case-1 | Paris | Capital of France? | 0.9 / 0.4 Δ0.5" in out
-    assert "Found 1 test_suite_items (page 1, showing 1 of 1):" in out
+    assert "Found 1 dataset_items (page 1, showing 1 of 1):" in out
 
 
 @pytest.mark.anyio
 async def test_the_legend_names_the_baseline_and_the_order_of_the_values() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     # The labels are the key to every cell, so they are above the table, with
     # the ids the caller's next call is written with — not in a note below it.
     assert out.startswith(
-        f"[list: test_suite_item | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
+        f"[list: dataset_item | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
     )
     assert "E1 is the baseline" in out
     assert "Δ is the unsigned gap between them" in out
@@ -153,7 +153,7 @@ async def test_three_experiments_get_no_delta_and_keep_one_column_per_score() ->
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B, C], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B, C], client=fake)
 
     assert "case-1 | Capital? | 0.9 / 0.4 / 0.7" in out
     assert "Δ" not in out
@@ -166,7 +166,7 @@ async def test_an_experiment_that_did_not_run_a_case_shows_a_dash() -> None:
         _case("case-1", {"question": "Capital?"}, [_run(A, scores={"correctness": 0.9})]),
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "case-1 | Capital? | 0.9 / -" in out
 
@@ -185,7 +185,7 @@ async def test_several_runs_of_one_case_average_into_the_cell() -> None:
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "case-1 | Capital? | 0.75 / 0.4 Δ0.35" in out
 
@@ -201,7 +201,7 @@ async def test_the_case_keys_are_cut_to_two_and_the_cut_is_stated() -> None:
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "id | data.expected_answer | data.locale | correctness" in out
     assert "showing 2 of 4 (the runs take the width); omitted: question, tier." in out
@@ -230,7 +230,7 @@ async def test_scores_beyond_four_are_cut_by_fill_rate_and_named_in_the_note() -
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "id | data.question | brevity | correctness | grounding | helpfulness |" in out
     assert "Showing 4 of 6 scores by fill rate; omitted: safety, tone." in out
@@ -240,14 +240,14 @@ async def test_scores_beyond_four_are_cut_by_fill_rate_and_named_in_the_note() -
 
 
 @pytest.mark.anyio
-async def test_the_suite_comes_from_the_experiments_not_from_the_caller() -> None:
+async def test_the_dataset_comes_from_the_experiments_not_from_the_caller() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert fake.compare_calls == [
         {
-            "test_suite_id": SUITE,
+            "dataset_id": DATASET,
             "experiment_ids": [A, B],
             "filters": None,
             "sorting": None,
@@ -259,29 +259,27 @@ async def test_the_suite_comes_from_the_experiments_not_from_the_caller() -> Non
 
 
 @pytest.mark.anyio
-async def test_a_matching_test_suite_id_is_accepted_and_a_wrong_one_is_refused() -> None:
+async def test_a_matching_dataset_id_is_accepted_and_a_wrong_one_is_refused() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], test_suite_id=SUITE, client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], dataset_id=DATASET, client=fake)
     assert "case-1" in out
 
     with pytest.raises(ToolError) as refusal:
-        await run_list(
-            "test_suite_item", experiment_ids=[A, B], test_suite_id=OTHER_SUITE, client=fake
-        )
-    assert OTHER_SUITE in str(refusal.value)
+        await run_list("dataset_item", experiment_ids=[A, B], dataset_id=OTHER_DATASET, client=fake)
+    assert OTHER_DATASET in str(refusal.value)
     assert "resolved from the experiments" in str(refusal.value)
 
 
 @pytest.mark.anyio
-async def test_experiments_of_different_suites_are_refused_naming_both() -> None:
+async def test_experiments_of_different_datasets_are_refused_naming_both() -> None:
     fake = _fake(_DEFAULT_CASE)
     fake.experiment_records[B] = _experiment(
-        B, "billing-v1", dataset_id=OTHER_SUITE, dataset_name="billing-qa"
+        B, "billing-v1", dataset_id=OTHER_DATASET, dataset_name="billing-qa"
     )
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+        await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     message = str(refusal.value)
     assert "support-qa" in message and "billing-qa" in message
@@ -292,7 +290,7 @@ async def test_experiments_of_different_suites_are_refused_naming_both() -> None
 async def test_the_page_the_caller_asked_for_is_the_page_that_is_fetched() -> None:
     fake = _fake(_DEFAULT_CASE, total=60)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], page=2, size=5, client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], page=2, size=5, client=fake)
 
     assert fake.compare_calls[0]["page"] == 2
     assert fake.compare_calls[0]["size"] == 5
@@ -317,7 +315,7 @@ async def test_the_experiment_ids_a_call_cannot_mean_are_refused(
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", experiment_ids=ids, client=fake)
+        await run_list("dataset_item", experiment_ids=ids, client=fake)
 
     assert expected in str(refusal.value)
     assert fake.compare_calls == []
@@ -328,9 +326,9 @@ async def test_a_filter_without_experiment_ids_says_what_it_needs() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", test_suite_id=SUITE, filters="duration > 1", client=fake)
+        await run_list("dataset_item", dataset_id=DATASET, filters="duration > 1", client=fake)
 
-    assert "filters on test_suite_item need experiment_ids" in str(refusal.value)
+    assert "filters on dataset_item need experiment_ids" in str(refusal.value)
 
 
 @pytest.mark.anyio
@@ -338,9 +336,9 @@ async def test_a_sort_without_experiment_ids_says_what_it_needs() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", test_suite_id=SUITE, sort="duration desc", client=fake)
+        await run_list("dataset_item", dataset_id=DATASET, sort="duration desc", client=fake)
 
-    assert "sort on test_suite_item need experiment_ids" in str(refusal.value)
+    assert "sort on dataset_item need experiment_ids" in str(refusal.value)
 
 
 @pytest.mark.anyio
@@ -348,7 +346,7 @@ async def test_a_time_window_is_refused_because_a_case_has_none() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", experiment_ids=[A, B], since="7d", client=fake)
+        await run_list("dataset_item", experiment_ids=[A, B], since="7d", client=fake)
 
     assert "since/until are not supported" in str(refusal.value)
 
@@ -357,7 +355,7 @@ async def test_a_time_window_is_refused_because_a_case_has_none() -> None:
 async def test_an_empty_comparison_says_why_it_could_be_empty() -> None:
     fake = _fake()
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], search="nothing", client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], search="nothing", client=fake)
 
     assert "No case matched the search" in out
     assert f"E1 = baseline rerank-v1 ({A})" in out
@@ -371,7 +369,7 @@ async def test_an_empty_page_past_the_end_says_so_rather_than_blaming_the_runs()
     common — which would have been a real problem, and was not one."""
     fake = _fake(total=3)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], page=2, size=25, client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], page=2, size=25, client=fake)
 
     assert "Page 2 is past the end: the comparison has 3 cases." in out
     assert "no items in common" not in out
@@ -383,7 +381,7 @@ async def test_a_case_filter_that_matches_nothing_does_not_explain_the_runs() ->
     fake = _fake()
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         filters='data.question contains "nothing"',
         client=fake,
@@ -397,17 +395,17 @@ async def test_a_case_filter_that_matches_nothing_does_not_explain_the_runs() ->
 
 
 @pytest.mark.anyio
-async def test_without_experiment_ids_the_list_is_still_the_suites_cases() -> None:
+async def test_without_experiment_ids_the_list_is_still_the_datasets_cases() -> None:
     fake = FakeOpikClient(
-        test_suite_items={
+        dataset_items={
             "content": [{"id": "i-1", "data": {"question": "Capital?", "answer": "Paris"}}],
             "total": 1,
         }
     )
 
-    out = await run_list("test_suite_item", test_suite_id=SUITE, client=fake)
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
 
-    assert fake.last_kwargs == {"test_suite_id": SUITE, "page": 1, "size": DEFAULT_PAGE_SIZE}
+    assert fake.last_kwargs == {"dataset_id": DATASET, "page": 1, "size": DEFAULT_PAGE_SIZE}
     assert "i-1 | Paris | Capital?" in out
     assert fake.compare_calls == []
 
@@ -441,7 +439,7 @@ _REGRESSED = _case(
 async def test_a_suite_row_carries_pass_state_the_worst_trace_and_the_reason() -> None:
     fake = _fake(_REGRESSED)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "passed | worst_trace | reason" in out
     assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
@@ -457,7 +455,7 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     fake.experiment_records[A] = _experiment(A, "rerank-v1", method="dataset")
     fake.experiment_records[B] = _experiment(B, "rerank-v3", method="dataset")
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "passed" not in out
     assert "reason" not in out
@@ -489,7 +487,7 @@ async def test_the_worst_trace_is_a_run_that_actually_failed() -> None:
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "1/1·1/2 | tr-b-fail (E2) | Names Lyon." in out
 
@@ -518,7 +516,7 @@ async def test_the_worst_run_is_the_worst_run_not_the_worst_average() -> None:
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     # A averages 0.83 against B's 0.7, so an average would open B's trace and
     # show nothing. The lowest experiment item is A's third run.
@@ -540,7 +538,7 @@ async def test_with_no_failed_run_the_worst_trace_is_the_lowest_scoring_one() ->
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "tr-a-low (E1)" in out
 
@@ -559,7 +557,7 @@ async def test_a_case_every_run_passed_names_a_trace_and_no_reason() -> None:
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     # Ties go to the newer run: the baseline's trace is the one already known.
     assert out.splitlines()[4].endswith("1/1·1/1 | tr-b (E2) | ")
@@ -575,7 +573,7 @@ async def test_a_row_without_run_summaries_or_assertions_still_renders() -> None
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     # No scores, no summaries, no failed run: nothing ranks the experiments,
     # so no trace is called the worst one.
@@ -598,7 +596,7 @@ async def test_a_filter_on_the_runs_puts_the_hidden_experiments_back() -> None:
     fake.compared_items = {"content": [stripped], "total": 1}
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         filters="feedback_scores.correctness < 0.5",
         client=fake,
@@ -621,7 +619,7 @@ async def test_a_filter_on_the_case_needs_no_second_call() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         filters='data.question contains "Capital"',
         client=fake,
@@ -645,16 +643,16 @@ async def test_a_refetch_that_fails_keeps_the_row_it_could_not_complete() -> Non
     fake = _fake(_DEFAULT_CASE)
     calls: list[dict[str, Any]] = []
 
-    async def one_good_then_broken(test_suite_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def one_good_then_broken(dataset_id: str, /, **kw: Any) -> dict[str, Any]:
         calls.append(kw)
         if len(calls) == 1:
             return fake.compared_items
         raise OpikServerError("refetch exploded (500).")
 
-    fake.list_compared_test_suite_items = one_good_then_broken  # type: ignore[method-assign]
+    fake.list_compared_dataset_items = one_good_then_broken  # type: ignore[method-assign]
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         filters="feedback_scores.correctness < 0.5",
         client=fake,
@@ -678,16 +676,16 @@ async def test_a_backend_having_a_bad_minute_does_not_fill_the_note_with_ids() -
     fake = _fake(*cases)
     calls: list[dict[str, Any]] = []
 
-    async def one_good_then_broken(test_suite_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def one_good_then_broken(dataset_id: str, /, **kw: Any) -> dict[str, Any]:
         calls.append(kw)
         if len(calls) == 1:
             return fake.compared_items
         raise OpikServerError("refetch exploded (500).")
 
-    fake.list_compared_test_suite_items = one_good_then_broken  # type: ignore[method-assign]
+    fake.list_compared_dataset_items = one_good_then_broken  # type: ignore[method-assign]
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         filters="feedback_scores.correctness < 0.5",
         client=fake,
@@ -702,7 +700,7 @@ async def test_a_run_filter_over_a_wide_page_is_refused_before_it_fans_out() -> 
 
     with pytest.raises(ToolError) as refusal:
         await run_list(
-            "test_suite_item",
+            "dataset_item",
             experiment_ids=[A, B],
             filters="feedback_scores.correctness < 0.5",
             size=26,
@@ -713,7 +711,7 @@ async def test_a_run_filter_over_a_wide_page_is_refused_before_it_fans_out() -> 
     assert fake.compare_calls == []
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         filters="feedback_scores.correctness < 0.5",
         size=25,
@@ -733,7 +731,7 @@ async def test_filters_the_backend_accepts_and_ignores_are_refused(unapplied: st
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", experiment_ids=[A, B], filters=unapplied, client=fake)
+        await run_list("dataset_item", experiment_ids=[A, B], filters=unapplied, client=fake)
 
     message = str(refusal.value)
     assert "Unknown field" in message
@@ -743,7 +741,7 @@ async def test_filters_the_backend_accepts_and_ignores_are_refused(unapplied: st
 
 
 def test_the_schema_publishes_the_fields_a_comparison_can_filter_and_sort_on() -> None:
-    reference = list_reference("test_suite_item")
+    reference = list_reference("dataset_item")
 
     assert sorted(reference["filters"]["fields"]) == [
         "comments",
@@ -767,7 +765,7 @@ async def test_a_sort_the_backend_orders_by_is_sent_and_echoed() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     out = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         sort="feedback_scores.correctness asc",
         client=fake,
@@ -787,7 +785,7 @@ async def test_a_sort_the_backend_would_drop_is_refused_before_the_call(dropped:
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
-        await run_list("test_suite_item", experiment_ids=[A, B], sort=dropped, client=fake)
+        await run_list("dataset_item", experiment_ids=[A, B], sort=dropped, client=fake)
 
     message = str(refusal.value)
     assert "feedback_scores.<name>" in message
@@ -799,7 +797,7 @@ async def test_sorting_by_a_case_key_or_an_output_key_is_allowed() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     for sort in ("data.question desc", "output.answer asc", "duration desc"):
-        await run_list("test_suite_item", experiment_ids=[A, B], sort=sort, client=fake)
+        await run_list("dataset_item", experiment_ids=[A, B], sort=sort, client=fake)
 
     assert [json.loads(call["sorting"])[0]["field"] for call in fake.compare_calls] == [
         "data.question",
@@ -819,7 +817,7 @@ def _columns(*names: str) -> dict[str, Any]:
 async def test_the_first_page_names_the_output_keys_and_the_case_keys() -> None:
     fake = _fake(_DEFAULT_CASE, compared_columns=_columns("input", "answer", "reasoning"))
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     # ``input`` is the case echoed back by a suite run, not an output of it.
     assert "runs' output keys: answer, reasoning" in out
@@ -834,7 +832,7 @@ async def test_a_plain_dataset_keeps_its_input_output_key() -> None:
     fake.experiment_records[A] = _experiment(A, "rerank-v1", method="dataset")
     fake.experiment_records[B] = _experiment(B, "rerank-v3", method="dataset")
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "runs' output keys: input, answer" in out
 
@@ -843,7 +841,7 @@ async def test_a_plain_dataset_keeps_its_input_output_key() -> None:
 async def test_the_second_page_does_not_ask_for_the_output_keys_again() -> None:
     fake = _fake(_DEFAULT_CASE, total=60, compared_columns=_columns("answer"))
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], page=2, client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], page=2, client=fake)
 
     assert fake.column_calls == []
     assert "output keys" not in out
@@ -853,7 +851,7 @@ async def test_the_second_page_does_not_ask_for_the_output_keys_again() -> None:
 async def test_a_failed_output_columns_call_costs_the_line_not_the_page() -> None:
     fake = _fake(_DEFAULT_CASE, columns_error=OpikServerError("columns exploded (500)."))
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "case-1" in out
     assert "output keys" not in out
@@ -864,7 +862,7 @@ async def test_a_failed_output_columns_call_costs_the_line_not_the_page() -> Non
 async def test_a_search_says_which_half_of_the_row_it_matched() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], search="Capital", client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], search="Capital", client=fake)
 
     assert fake.compare_calls[0]["search"] == "Capital"
     assert 'search: "Capital"' in out.splitlines()[0]
@@ -880,16 +878,16 @@ async def test_a_sort_says_which_of_the_runs_it_actually_ordered_by() -> None:
     fake = _fake(_DEFAULT_CASE)
 
     averaged = await run_list(
-        "test_suite_item",
+        "dataset_item",
         experiment_ids=[A, B],
         sort="feedback_scores.correctness asc",
         client=fake,
     )
     newest = await run_list(
-        "test_suite_item", experiment_ids=[A, B], sort="output.answer asc", client=fake
+        "dataset_item", experiment_ids=[A, B], sort="output.answer asc", client=fake
     )
     case_level = await run_list(
-        "test_suite_item", experiment_ids=[A, B], sort="created_at desc", client=fake
+        "dataset_item", experiment_ids=[A, B], sort="created_at desc", client=fake
     )
 
     assert "averaged across the compared runs" in averaged
@@ -930,7 +928,7 @@ async def test_a_suite_judged_by_assertions_alone_says_so_and_names_no_worst_run
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "case-1 | Capital? | 1/1·1/1 | - | " in out
     assert "recorded no feedback scores" in out
@@ -951,7 +949,7 @@ async def test_a_failed_assertion_run_is_still_the_worst_trace_without_scores() 
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
 
@@ -960,7 +958,7 @@ async def test_a_failed_assertion_run_is_still_the_worst_trace_without_scores() 
 async def test_a_page_with_score_columns_does_not_claim_there_are_none() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "recorded no feedback scores" not in out
 
@@ -981,7 +979,7 @@ async def test_a_case_one_experiment_never_ran_is_counted_so_its_dash_reads_righ
         ),
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "case-1 | Week? | 0 / -" in out
     assert "1 of 2 cases was not run by every experiment" in out
@@ -992,7 +990,7 @@ async def test_a_case_one_experiment_never_ran_is_counted_so_its_dash_reads_righ
 async def test_every_experiment_running_every_case_needs_no_such_note() -> None:
     fake = _fake(_DEFAULT_CASE)
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "not run by every experiment" not in out
 
@@ -1019,7 +1017,7 @@ async def test_a_reason_with_line_breaks_and_a_pipe_stays_one_cell() -> None:
         )
     )
 
-    out = await run_list("test_suite_item", experiment_ids=[A, B], client=fake)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     rows = [line for line in out.splitlines() if line.startswith("case-1")]
     assert len(rows) == 1, "the row must stay on one line"

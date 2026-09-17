@@ -9,7 +9,7 @@ Recognized shapes (matching the deleted ``resources.py`` URI templates):
 - ``opik://projects/{id}``                  → ("project", id)
 - ``opik://traces/{id}``                    → ("trace", id)
 - ``opik://spans/{id}``                     → ("span", id)
-- ``opik://test-suites/{id}``               → ("test_suite", id)
+- ``opik://datasets/{id}``                  → ("dataset", id)
 - ``opik://experiments/{id}``               → ("experiment", id)
 - ``opik://prompts/{id}``                   → ("prompt", id)
 - ``opik://projects/{pid}/threads/{tid}``   → ("thread", tid, project_id=pid)
@@ -22,7 +22,7 @@ Pasted Opik web links are also recognized via ``looks_like_opik_link`` +
 (``https://…/projects/{pid}/diagnostics…?issue={iid}``).
 
 List-shaped URIs (``opik://projects``, ``opik://projects/{id}/traces``,
-``opik://test-suites/{id}/items``) are accepted only as best-effort hints
+``opik://datasets/{id}/items``) are accepted only as best-effort hints
 toward the ``list`` tool — ``read`` is for singletons.
 """
 
@@ -54,14 +54,15 @@ class ParsedURI(NamedTuple):
     scope the fetch. ``None`` for every other entity (globally-unique ids)."""
 
 
-# Canonical singleton URI patterns. test-suites is hyphenated in the URI
-# but the registry key is ``test_suite`` (snake_case) for consistency
-# with every other entity.
+# Canonical singleton URI patterns.
 _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^opik://projects/([^/?#]+)$"), "project"),
     (re.compile(r"^opik://traces/([^/?#]+)$"), "trace"),
     (re.compile(r"^opik://spans/([^/?#]+)$"), "span"),
-    (re.compile(r"^opik://test-suites/([^/?#]+)$"), "test_suite"),
+    (re.compile(r"^opik://datasets/([^/?#]+)$"), "dataset"),
+    # Legacy spelling: the entity was called test_suite before the rename, and
+    # URIs handed out then still have to resolve.
+    (re.compile(r"^opik://test-suites/([^/?#]+)$"), "dataset"),
     (re.compile(r"^opik://experiments/([^/?#]+)$"), "experiment"),
     (re.compile(r"^opik://prompts/([^/?#]+)$"), "prompt"),
 ]

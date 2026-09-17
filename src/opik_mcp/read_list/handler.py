@@ -68,7 +68,7 @@ class ListProjection:
     """The columns one ``list`` page shows, decided from the page itself.
 
     Most entities declare their columns once, in ``list_extra_fields``: a
-    trace always has a ``start_time``. A test suite item does not have fixed
+    trace always has a ``start_time``. A dataset item does not have fixed
     fields — its payload is a ``data`` map whose keys the user chose when they
     built the dataset — so the columns can only be known once the page is in
     hand. This is what an entity's ``list_projection_fn`` returns for it.
@@ -185,7 +185,7 @@ class EntityHandler:
     run_verb: str = "list"
     """What the runner was doing, for the error an upstream failure becomes.
 
-    "Failed to chart test_suite_item" is what a comparison used to say when
+    "Failed to chart dataset_item" is what a comparison used to say when
     opik-backend refused it: the metric runner arrived first and its verb was
     written into the shared path. The word belongs to whoever owns the call.
     """
@@ -202,7 +202,7 @@ class EntityHandler:
     """Tool arguments that hand the call to ``run_fn``; empty means always.
 
     An entity can answer one question through the collection path and another
-    through its runner — a suite's cases are a collection, the same cases with
+    through its runner — a dataset's cases are a collection, the same cases with
     two experiments' runs attached are not. Naming the arguments that switch
     between them here keeps the ``list`` tool from knowing which entity has
     two questions, and lets a test pin the choice.

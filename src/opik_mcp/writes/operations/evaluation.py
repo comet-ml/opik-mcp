@@ -1,9 +1,9 @@
-"""Prompts, test suites and experiments.
+"""Prompts, datasets and experiments.
 
-What these have in common is a name the wire does not use. Opik 2.0 renamed
-the dataset to a test suite everywhere a user can see, and the backend kept
-``dataset_*`` in its request bodies for back-compat, so every operation here
-translates on the way out.
+What these have in common is a payload the wire does not take verbatim: a
+prompt version nests under ``version``, a dataset's ``type`` is a backend
+enum whose test-suite value is spelled differently, and a dataset item is
+re-shaped into the backend's ``{source, data}`` envelope.
 """
 
 from __future__ import annotations
@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel
 
 from opik_mcp.writes.wire import (
+    DATASET_TYPE_TO_WIRE,
     BuildContext,
     WireRequest,
     dump,
-    rename_test_suite_to_dataset,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -35,27 +35,28 @@ def build_prompt_version_save(
     return WireRequest(op.endpoint, body)
 
 
-def build_test_suite_create(
+def build_dataset_create(
     op: WriteOperation, items: list[BaseModel], ctx: BuildContext
 ) -> WireRequest:
-    """Opik 2.0: the BE accepts the same /v1/private/datasets endpoint for both
-    classic datasets and evaluation suites; the discriminator is the ``type``
-    field. We always create the evaluation_suite variant — the classic
-    ``dataset`` flavor is not exposed via MCP."""
+    """One endpoint, two flavors: /v1/private/datasets creates a plain dataset
+    or a test suite, and ``type`` is the discriminator. Ours is spelled
+    ``test_suite``; the backend's DatasetType still calls that value
+    ``evaluation_suite``, so it is translated here. The type is always sent —
+    before this, the operation named ``test_suite.create`` hard-coded
+    ``evaluation_suite``, which left no way to create a plain dataset at all.
+    """
     body = dump(items[0])
-    body["type"] = "evaluation_suite"
+    body["type"] = DATASET_TYPE_TO_WIRE[body.get("type", "dataset")]
     return WireRequest(op.endpoint, body)
 
 
-def build_test_suite_item_upsert(
+def build_dataset_item_upsert(
     op: WriteOperation, items: list[BaseModel], ctx: BuildContext
 ) -> WireRequest:
     """Single-envelope shape (``supports_batch=False`` enforces this in Stage
-    2). Translate MCP-facing test_suite_* fields to the wire's dataset_*
-    fields, and re-shape each item into the BE's
+    2). Re-shape each item into the BE's
     ``{source, data: {input, expected_output, metadata}}`` envelope."""
     body = dump(items[0])
-    rename_test_suite_to_dataset(body)
     for item in body.get("items", []):
         if not isinstance(item, dict):
             continue
@@ -69,36 +70,8 @@ def build_test_suite_item_upsert(
     return WireRequest(op.endpoint, body)
 
 
-def build_experiment_create(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
-) -> WireRequest:
-    body = dump(items[0])
-    rename_test_suite_to_dataset(body)
-    return WireRequest(op.endpoint, body)
-
-
-def build_experiment_item_create(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
-) -> WireRequest:
-    """Always an envelope. Each item's MCP-facing ``test_suite_item_id``
-    translates to the BE's ``dataset_item_id`` field.
-
-    There is no singleton route (spec §3.2): ``{experiment_items: [...]}`` is
-    the only valid shape, which the model itself enforces, so a bare object
-    never reaches here — Pydantic rejects it with a missing-field error on
-    ``experiment_items``.
-    """
-    body = dump(items[0])
-    for item in body.get("experiment_items", []):
-        if isinstance(item, dict) and "test_suite_item_id" in item:
-            item["dataset_item_id"] = item.pop("test_suite_item_id")
-    return WireRequest(op.endpoint, body)
-
-
 __all__ = [
-    "build_experiment_create",
-    "build_experiment_item_create",
+    "build_dataset_create",
+    "build_dataset_item_upsert",
     "build_prompt_version_save",
-    "build_test_suite_create",
-    "build_test_suite_item_upsert",
 ]

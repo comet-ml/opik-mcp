@@ -100,7 +100,7 @@ _EXPERIMENT_SORTABLE: Final = (
     "pass_rate",
 )
 
-_TEST_SUITE_ITEM_SORTABLE: Final = (
+_DATASET_ITEM_SORTABLE: Final = (
     "id",
     "created_at",
     "last_updated_at",
@@ -145,7 +145,7 @@ SORTABLE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "span": _SPAN_SORTABLE,
     "thread": _THREAD_SORTABLE,
     "experiment": _EXPERIMENT_SORTABLE,
-    "test_suite_item": _TEST_SUITE_ITEM_SORTABLE,
+    "dataset_item": _DATASET_ITEM_SORTABLE,
 }
 SORTABLE_ENTITIES: Final[tuple[str, ...]] = tuple(SORTABLE_FIELDS)
 

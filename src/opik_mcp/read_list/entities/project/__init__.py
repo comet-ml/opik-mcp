@@ -8,7 +8,7 @@ read fans out, and the parts are one file each:
   the window before it.
 - ``vocabulary`` is the names the project records, which is what the next
   question has to be written in.
-- ``contents`` is what is freshest in it: an experiment, a suite, a prompt
+- ``contents`` is what is freshest in it: an experiment, a dataset, a prompt
   version, an optimization run.
 - ``read`` assembles them.
 """

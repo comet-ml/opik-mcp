@@ -226,7 +226,7 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
         answer = await _call(
             session,
             "list",
-            entity_type="test_suite_item",
+            entity_type="dataset_item",
             experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
             size=4,
         )
@@ -247,10 +247,10 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     assert joined.query["truncate"] == ["true"]
 
     assert answer.startswith(
-        "[list: test_suite_item | compare: "
+        "[list: dataset_item | compare: "
         f"E1 = baseline rerank-v1 ({EXPERIMENT_A}), E2 = rerank-v3 ({EXPERIMENT_B})]"
     )
-    assert "Found 8 test_suite_items (page 1, showing 4 of 8):" in answer
+    assert "Found 8 dataset_items (page 1, showing 4 of 8):" in answer
     assert "E1 is the baseline" in answer
     # The fourth case is the one rerank-v3 regressed on.
     regressed = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
@@ -283,7 +283,7 @@ async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_c
             answers[case_count] = await _call(
                 session,
                 "list",
-                entity_type="test_suite_item",
+                entity_type="dataset_item",
                 experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
                 size=5,
             )
@@ -296,14 +296,14 @@ async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_c
 
 @pytest.mark.e2e
 @pytest.mark.anyio
-async def test_experiments_from_two_suites_are_refused_before_anything_is_joined(
+async def test_experiments_from_two_datasets_are_refused_before_anything_is_joined(
     backend: StubBackend,
 ) -> None:
     async with _session(backend) as session:
         refusal = await _refuse(
             session,
             "list",
-            entity_type="test_suite_item",
+            entity_type="dataset_item",
             experiment_ids=[EXPERIMENT_A, EXPERIMENT_OTHER_SUITE],
         )
 
@@ -325,7 +325,7 @@ async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
         answer = await _call(
             session,
             "list",
-            entity_type="test_suite_item",
+            entity_type="dataset_item",
             experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
             filters="feedback_scores.correctness < 0.5",
             size=4,
@@ -360,7 +360,7 @@ async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
             answers[case_count] = await _call(
                 session,
                 "list",
-                entity_type="test_suite_item",
+                entity_type="dataset_item",
                 experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
                 filters="feedback_scores.correctness < 0.5",
                 size=5,
@@ -380,5 +380,5 @@ async def test_reading_an_experiment_names_the_call_that_compares_it(
     async with _session(backend) as session:
         answer = await _call(session, "read", entity_type="experiment", id=EXPERIMENT_A)
 
-    assert "list('test_suite_item', experiment_ids=" in answer
+    assert "list('dataset_item', experiment_ids=" in answer
     assert EXPERIMENT_A in answer

@@ -1,4 +1,4 @@
-"""``list('test_suite_item', experiment_ids=[A, B])`` — which cases regressed.
+"""``list('dataset_item', experiment_ids=[A, B])`` — which cases regressed.
 
 The question this answers is the one two experiment records cannot: not "did
 the average move" but "which cases moved". opik-backend joins the cases to the
@@ -11,8 +11,6 @@ runs as much as test-suite runs. A test suite is a dataset whose experiments
 carry ``evaluation_method = evaluation_suite``, and that flag adds exactly two
 columns, ``passed`` and ``reason``, because only a suite records assertions.
 Everything else — the cases, the scores, the worst trace — renders the same.
-(The entity is named ``test_suite`` after the product's newer name for the
-same ``/datasets`` record; the datasets are the common case.)
 
 The call takes the whole ``list`` invocation rather than the shared collection
 path because its rows are not records. A row is one case with several runs
@@ -27,7 +25,7 @@ import json
 from typing import Any
 
 from opik_mcp.opik_client import OpikReadClient
-from opik_mcp.read_list.entities.test_suite.layout import (
+from opik_mcp.read_list.entities.dataset.layout import (
     PASS_SEPARATOR,
     RUN_SEPARATOR,
     Experiment,
@@ -54,14 +52,14 @@ REFETCH_ROW_CAP = 25
 #: A test suite's runs echo the case input back under ``input``, so it shows
 #: up as an output key that is not one. The UI hides it on the same page.
 ECHOED_OUTPUT_KEY = "input"
-_ENTITY = "test_suite_item"
+_ENTITY = "dataset_item"
 
 
 async def run_compare(
     client: OpikReadClient,
     *,
     experiment_ids: list[str] | None = None,
-    test_suite_id: str | None = None,
+    dataset_id: str | None = None,
     filters: str | None = None,
     sort: str | None = None,
     search: str | None = None,
@@ -80,7 +78,7 @@ async def run_compare(
     size = clamp_size(size)
 
     experiments = await _resolve(client, ids)
-    suite_id = _suite_of(experiments, test_suite_id)
+    ran_dataset_id = _dataset_of(experiments, dataset_id)
 
     clauses = compile_filters(_ENTITY, filters) if filters else []
     stripping = _strips_runs(clauses, experiment_count=len(ids))
@@ -97,8 +95,8 @@ async def run_compare(
     # The output keys are the first page's business only, and they do not
     # depend on it, so the two go out together rather than one after the other.
     page_result, *column_results = await asyncio.gather(
-        client.list_compared_test_suite_items(
-            suite_id,
+        client.list_compared_dataset_items(
+            ran_dataset_id,
             experiment_ids=ids,
             filters=json.dumps(clauses, separators=(",", ":")) if clauses else None,
             sorting=sorting,
@@ -106,7 +104,11 @@ async def run_compare(
             page=page,
             size=size,
         ),
-        *([client.list_compared_output_columns(suite_id, experiment_ids=ids)] if page == 1 else []),
+        *(
+            [client.list_compared_output_columns(ran_dataset_id, experiment_ids=ids)]
+            if page == 1
+            else []
+        ),
         return_exceptions=True,
     )
     if isinstance(page_result, BaseException):
@@ -118,7 +120,7 @@ async def run_compare(
 
     unrestored: list[str] = []
     if stripping and rows:
-        rows, unrestored = await _with_every_run(client, suite_id, ids, rows)
+        rows, unrestored = await _with_every_run(client, ran_dataset_id, ids, rows)
 
     applied = [f"compare: {_legend(experiments)}"]
     if clauses:
@@ -176,7 +178,7 @@ async def run_compare(
 
 
 def _keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> str | None:
-    """What this suite and its runs can be filtered and sorted on, once.
+    """What this dataset and its runs can be filtered and sorted on, once.
 
     The case keys are read off the page; the runs' output keys need a call,
     which only the first page makes. A failed columns call costs the line, not
@@ -239,7 +241,7 @@ def _strips_runs(clauses: list[dict[str, str]], *, experiment_count: int) -> boo
 
 async def _with_every_run(
     client: OpikReadClient,
-    suite_id: str,
+    dataset_id: str,
     ids: list[str],
     rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[str]]:
@@ -256,8 +258,8 @@ async def _with_every_run(
     """
     fetched = await asyncio.gather(
         *(
-            client.list_compared_test_suite_items(
-                suite_id,
+            client.list_compared_dataset_items(
+                dataset_id,
                 experiment_ids=ids,
                 filters=json.dumps(
                     [{"field": "id", "operator": "=", "key": "", "value": str(row.get("id"))}],
@@ -295,12 +297,12 @@ def _validated_ids(
         if asked:
             raise EntityArgValidationError(
                 f"{' and '.join(asked)} on {_ENTITY} need experiment_ids: they apply to the "
-                f"compared runs, and a plain list of a suite's cases has none. "
+                f"compared runs, and a plain list of a dataset's cases has none. "
                 f"E.g. list('{_ENTITY}', experiment_ids=['<uuid>', '<uuid>'], "
                 f"filters='feedback_scores.correctness < 0.5')."
             )
         raise EntityArgValidationError(
-            f"list('{_ENTITY}') needs test_suite_id, or experiment_ids to compare runs."
+            f"list('{_ENTITY}') needs dataset_id, or experiment_ids to compare runs."
         )
     if not isinstance(experiment_ids, list) or not all(
         isinstance(one, str) and one.strip() for one in experiment_ids
@@ -326,7 +328,7 @@ def _validated_ids(
 def _refuse_window(since: str | None, until: str | None) -> None:
     if since is not None or until is not None:
         raise EntityArgValidationError(
-            f"since/until are not supported for {_ENTITY}: a case belongs to a suite, not "
+            f"since/until are not supported for {_ENTITY}: a case belongs to a dataset, not "
             "to a window. Filter the experiments instead, or compare different ones."
         )
 
@@ -381,13 +383,13 @@ def _sort_caveat(field: str | None) -> str | None:
     return None
 
 
-# --- the experiments, and the suite they agree on -------------------------- #
+# --- the experiments, and the dataset they agree on ------------------------ #
 
 
 async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
     """Read the named experiments at once, in the order the caller named them.
 
-    The first is the baseline. The records carry the suite to query, the names
+    The first is the baseline. The records carry the dataset to query, the names
     the legend needs, and whether the run was a test suite — which is what
     decides if the table has a pass column at all.
     """
@@ -397,7 +399,7 @@ async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
         dataset_id = record.get("dataset_id")
         if not dataset_id:
             raise EntityArgValidationError(
-                f"Experiment {experiment_id!r} carries no test suite, so its cases cannot "
+                f"Experiment {experiment_id!r} carries no dataset, so its cases cannot "
                 "be lined up with another run's."
             )
         experiments.append(
@@ -413,31 +415,31 @@ async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
     return experiments
 
 
-def _suite_of(experiments: list[Experiment], test_suite_id: str | None) -> str:
-    """The one suite every compared experiment ran.
+def _dataset_of(experiments: list[Experiment], dataset_id: str | None) -> str:
+    """The one dataset every compared experiment ran.
 
-    Experiments of different suites have no cases in common, so lining them up
-    would produce a table of blanks rather than an answer. The UI refuses the
-    same comparison in the same words.
+    Experiments of different datasets have no cases in common, so lining them
+    up would produce a table of blanks rather than an answer. The UI refuses
+    the same comparison in the same words.
     """
-    suite_ids = {experiment.dataset_id for experiment in experiments}
-    if len(suite_ids) > 1:
+    dataset_ids = {experiment.dataset_id for experiment in experiments}
+    if len(dataset_ids) > 1:
         ran = "; ".join(
             f"{experiment.name} ran {experiment.dataset_name} ({experiment.dataset_id})"
             for experiment in experiments
         )
         raise EntityArgValidationError(
-            f"Cannot compare experiments that ran different test suites: {ran}. "
-            "Compare experiments of one suite."
+            f"Cannot compare experiments that ran different datasets: {ran}. "
+            "Compare experiments of one dataset."
         )
-    suite_id = experiments[0].dataset_id
-    if test_suite_id and test_suite_id != suite_id:
+    ran_dataset_id = experiments[0].dataset_id
+    if dataset_id and dataset_id != ran_dataset_id:
         raise EntityArgValidationError(
-            f"test_suite_id {test_suite_id!r} is not the suite these experiments ran "
-            f"({experiments[0].dataset_name}, {suite_id}). Drop test_suite_id: with "
-            "experiment_ids the suite is resolved from the experiments."
+            f"dataset_id {dataset_id!r} is not the dataset these experiments ran "
+            f"({experiments[0].dataset_name}, {ran_dataset_id}). Drop dataset_id: with "
+            "experiment_ids the dataset is resolved from the experiments."
         )
-    return suite_id
+    return ran_dataset_id
 
 
 # --- the lines under the table --------------------------------------------- #

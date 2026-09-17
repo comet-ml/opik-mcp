@@ -174,25 +174,24 @@ _REGISTRY: dict[str, WriteOperation] = {
         ),
         example=EXAMPLES["prompt_version.save"],
     ),
-    "test_suite.create": WriteOperation(
-        name="test_suite.create",
-        build_fn=evaluation.build_test_suite_create,
-        pydantic_model=MODELS["test_suite.create"],
+    "dataset.create": WriteOperation(
+        name="dataset.create",
+        build_fn=evaluation.build_dataset_create,
+        pydantic_model=MODELS["dataset.create"],
         endpoint="/v1/private/datasets",
         method="POST",
         oauth_scope=SCOPE_DATASET_EDIT,
         supports_batch=False,
         description=(
-            "Create an Opik 2.0 test suite (evaluation suite). The BE path "
-            "remains /v1/private/datasets for back-compat; the dispatcher "
-            "injects type='evaluation_suite' on the wire."
+            "Create a dataset. Pass type='test_suite' for an evaluation suite "
+            "(items carry assertions and run as tests); default is a plain dataset."
         ),
-        example=EXAMPLES["test_suite.create"],
+        example=EXAMPLES["dataset.create"],
     ),
-    "test_suite_item.upsert": WriteOperation(
-        name="test_suite_item.upsert",
-        build_fn=evaluation.build_test_suite_item_upsert,
-        pydantic_model=MODELS["test_suite_item.upsert"],
+    "dataset_item.upsert": WriteOperation(
+        name="dataset_item.upsert",
+        build_fn=evaluation.build_dataset_item_upsert,
+        pydantic_model=MODELS["dataset_item.upsert"],
         endpoint="/v1/private/datasets/items",
         method="PUT",
         oauth_scope=SCOPE_DATASET_EDIT,
@@ -200,41 +199,39 @@ _REGISTRY: dict[str, WriteOperation] = {
         # all but the first envelope, so the dispatcher rejects it via
         # supports_batch=False — items live inside the envelope.
         supports_batch=False,
-        parent_id_fields=("test_suite_name", "test_suite_id"),
+        parent_id_fields=("dataset_name", "dataset_id"),
         description=(
-            "Upsert items into a test suite. Always pass the envelope "
-            "{test_suite_name|test_suite_id, items: [...]}."
+            "Upsert items into a dataset or test suite. Always pass the envelope "
+            "{dataset_name|dataset_id, items: [...]}."
         ),
-        example=EXAMPLES["test_suite_item.upsert"],
+        example=EXAMPLES["dataset_item.upsert"],
         failure_modes=(
-            "test_suite_parent_missing",
-            "test_suite_parent_conflict",
+            "dataset_parent_missing",
+            "dataset_parent_conflict",
             "data_field_conflict",
         ),
     ),
     "experiment.create": WriteOperation(
         name="experiment.create",
-        build_fn=evaluation.build_experiment_create,
         pydantic_model=MODELS["experiment.create"],
         endpoint="/v1/private/experiments",
         method="POST",
         oauth_scope=SCOPE_EXPERIMENT_CREATE,
         supports_batch=False,
-        parent_id_fields=("test_suite_name", "test_suite_id"),
-        description="Create an experiment scoped to a test suite.",
+        parent_id_fields=("dataset_name", "dataset_id"),
+        description="Create an experiment scoped to a dataset or test suite.",
         example=EXAMPLES["experiment.create"],
-        failure_modes=("test_suite_parent_missing", "test_suite_parent_conflict"),
+        failure_modes=("dataset_parent_missing", "dataset_parent_conflict"),
     ),
     "experiment_item.create": WriteOperation(
         name="experiment_item.create",
-        build_fn=evaluation.build_experiment_item_create,
         pydantic_model=MODELS["experiment_item.create"],
         endpoint="/v1/private/experiments/items",
         method="POST",
         oauth_scope=SCOPE_EXPERIMENT_CREATE,
         # Always-array shape via the {experiment_items: [...]} envelope.
         supports_batch=True,
-        parent_id_fields=("experiment_id", "test_suite_item_id", "trace_id"),
+        parent_id_fields=("experiment_id", "dataset_item_id", "trace_id"),
         description="Attach trace + dataset_item rows to an experiment. Always the array envelope.",
         example=EXAMPLES["experiment_item.create"],
     ),

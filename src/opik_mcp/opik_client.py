@@ -173,12 +173,12 @@ class OpikListClient(Protocol):
         size: int = 100,
     ) -> dict[str, Any]: ...
 
-    async def list_test_suites(
+    async def list_datasets(
         self, *, name: str | None = None, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
-    async def list_test_suite_items(
-        self, test_suite_id: str, /, *, page: int = 1, size: int = 10
+    async def list_dataset_items(
+        self, dataset_id: str, /, *, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
 
     async def list_experiments(
@@ -195,9 +195,9 @@ class OpikListClient(Protocol):
         size: int = 10,
     ) -> dict[str, Any]: ...
 
-    async def list_compared_test_suite_items(
+    async def list_compared_dataset_items(
         self,
-        test_suite_id: str,
+        dataset_id: str,
         /,
         *,
         experiment_ids: list[str],
@@ -209,7 +209,7 @@ class OpikListClient(Protocol):
     ) -> dict[str, Any]: ...
 
     async def list_compared_output_columns(
-        self, test_suite_id: str, /, *, experiment_ids: list[str]
+        self, dataset_id: str, /, *, experiment_ids: list[str]
     ) -> dict[str, Any]: ...
 
     async def list_prompts(
@@ -287,7 +287,7 @@ class OpikReadClient(OpikListClient, Protocol):
 
     async def get_span(self, span_id: str, /) -> dict[str, Any]: ...
 
-    async def get_test_suite(self, test_suite_id: str, /) -> dict[str, Any]: ...
+    async def get_dataset(self, dataset_id: str, /) -> dict[str, Any]: ...
 
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]: ...
 
@@ -842,9 +842,9 @@ class OpikClient:
             entity_hint=f"span {span_id!r}",
         )
 
-    # -- reads: test suites (REST path = "datasets") --
+    # -- reads: datasets --
 
-    async def list_test_suites(
+    async def list_datasets(
         self,
         *,
         name: str | None = None,
@@ -853,8 +853,7 @@ class OpikClient:
     ) -> dict[str, Any]:
         """``GET /v1/private/datasets`` — Spring Page envelope.
 
-        Opik 2.0 test suites share the dataset REST path. ``name`` is a
-        substring filter used for name-lookup in the read tool.
+        ``name`` is a substring filter used for name-lookup in the read tool.
         """
         params: dict[str, Any] = {"page": page, "size": size}
         if name is not None:
@@ -862,34 +861,34 @@ class OpikClient:
         return await self._get_json(
             "/v1/private/datasets",
             params=params,
-            entity_hint="test_suites",
+            entity_hint="datasets",
         )
 
-    async def get_test_suite(self, test_suite_id: str) -> dict[str, Any]:
-        """``GET /v1/private/datasets/{id}`` — Opik 2.0 test suites live on the dataset path."""
+    async def get_dataset(self, dataset_id: str) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}`` — one dataset record."""
         return await self._get_json(
-            f"/v1/private/datasets/{test_suite_id}",
+            f"/v1/private/datasets/{dataset_id}",
             params=None,
-            entity_hint=f"test_suite {test_suite_id!r}",
+            entity_hint=f"dataset {dataset_id!r}",
         )
 
-    async def list_test_suite_items(
+    async def list_dataset_items(
         self,
-        test_suite_id: str,
+        dataset_id: str,
         *,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
         """``GET /v1/private/datasets/{id}/items`` — paginated item list."""
         return await self._get_json(
-            f"/v1/private/datasets/{test_suite_id}/items",
+            f"/v1/private/datasets/{dataset_id}/items",
             params={"page": page, "size": size},
-            entity_hint=f"test_suite {test_suite_id!r} items",
+            entity_hint=f"dataset {dataset_id!r} items",
         )
 
-    async def list_compared_test_suite_items(
+    async def list_compared_dataset_items(
         self,
-        test_suite_id: str,
+        dataset_id: str,
         /,
         *,
         experiment_ids: list[str],
@@ -921,14 +920,14 @@ class OpikClient:
             )
         )
         return await self._get_json(
-            f"/v1/private/datasets/{test_suite_id}/items/experiments/items",
+            f"/v1/private/datasets/{dataset_id}/items/experiments/items",
             params=params,
-            entity_hint=f"test_suite {test_suite_id!r} items compared",
+            entity_hint=f"dataset {dataset_id!r} items compared",
         )
 
     async def list_compared_output_columns(
         self,
-        test_suite_id: str,
+        dataset_id: str,
         /,
         *,
         experiment_ids: list[str],
@@ -936,12 +935,12 @@ class OpikClient:
         """``GET /v1/private/datasets/{id}/items/experiments/items/output/columns``.
 
         The keys the runs' outputs carry, which is what ``output.<key>``
-        filters can name. The suite's own ``data`` keys come off the page.
+        filters can name. The dataset's own ``data`` keys come off the page.
         """
         return await self._get_json(
-            f"/v1/private/datasets/{test_suite_id}/items/experiments/items/output/columns",
+            f"/v1/private/datasets/{dataset_id}/items/experiments/items/output/columns",
             params={"experiment_ids": _ids_param(experiment_ids)},
-            entity_hint=f"test_suite {test_suite_id!r} output columns",
+            entity_hint=f"dataset {dataset_id!r} output columns",
         )
 
     # -- reads: experiments --

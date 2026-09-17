@@ -768,6 +768,34 @@ async def test_partial_scope_advertised_but_rejected_per_op() -> None:
     assert body["required_scope"] == SCOPE_TRACE_SPAN_THREAD_ANNOTATE
 
 
+# --- dataset.create type ------------------------------------------------ #
+
+
+async def _dataset_create_body(data: dict[str, object]) -> dict[str, object]:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/datasets").mock(return_value=httpx.Response(201))
+        await run_write(operation="dataset.create", data=data, client=_client())
+    sent: dict[str, object] = json.loads(route.calls.last.request.content)
+    return sent
+
+
+@pytest.mark.anyio
+async def test_dataset_create_sends_the_backends_spelling_of_a_test_suite() -> None:
+    """Our ``test_suite`` is the backend DatasetType whose value is still
+    ``evaluation_suite`` (OPIK-5795 plans that rename). A create that sent our
+    spelling straight through would be rejected as an unknown DatasetType."""
+    sent = await _dataset_create_body({"name": "eval_q3", "type": "test_suite"})
+    assert sent["type"] == "evaluation_suite"
+
+
+@pytest.mark.anyio
+async def test_dataset_create_always_sends_a_type() -> None:
+    """Omitting ``type`` means a plain dataset, said on the wire rather than
+    left to whatever the backend defaults to."""
+    sent = await _dataset_create_body({"name": "plain"})
+    assert sent["type"] == "dataset"
+
+
 # --- dry_run ------------------------------------------------------------ #
 
 

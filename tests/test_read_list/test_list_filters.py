@@ -53,15 +53,11 @@ class FakeOpikClient:
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]:
         return {"id": experiment_id, "name": experiment_id, "dataset_id": "suite-1"}
 
-    async def list_compared_test_suite_items(
-        self, test_suite_id: str, /, **kw: Any
-    ) -> dict[str, Any]:
-        self.last_kwargs = {"test_suite_id": test_suite_id, **kw}
+    async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = {"dataset_id": dataset_id, **kw}
         return {"content": [], "total": 0}
 
-    async def list_compared_output_columns(
-        self, test_suite_id: str, /, **_kw: Any
-    ) -> dict[str, Any]:
+    async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
         return {"columns": []}
 
     async def list_spans(self, **kw: Any) -> dict[str, Any]:
@@ -83,10 +79,10 @@ class FakeOpikClient:
     async def list_prompts(self, **kw: Any) -> dict[str, Any]:
         return _page([])
 
-    async def list_test_suites(self, **kw: Any) -> dict[str, Any]:
+    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
         return _page([])
 
-    async def list_test_suite_items(self, test_suite_id: str, **kw: Any) -> dict[str, Any]:
+    async def list_dataset_items(self, dataset_id: str, **kw: Any) -> dict[str, Any]:
         return _page([])
 
     async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:

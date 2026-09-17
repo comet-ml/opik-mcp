@@ -14,10 +14,25 @@
       "description": "project_metric only: group each bucket by this field, or 'metadata.<key>'. Not valid for every metric \u2014 schema('list.project_metric') says which.",
       "title": "Breakdown"
     },
+    "dataset_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Required when listing dataset_items, unless experiment_ids is given. UUID of the dataset.",
+      "title": "Dataset Id"
+    },
     "entity_type": {
-      "description": "One of: agent_insights_issue, experiment, online_rule, project, project_metric, prompt, prompt_version, score_name, span, test_suite, test_suite_item, thread, trace.",
+      "description": "One of: agent_insights_issue, dataset, dataset_item, experiment, online_rule, project, project_metric, prompt, prompt_version, score_name, span, thread, trace.",
       "enum": [
         "agent_insights_issue",
+        "dataset",
+        "dataset_item",
         "experiment",
         "online_rule",
         "project",
@@ -26,8 +41,6 @@
         "prompt_version",
         "score_name",
         "span",
-        "test_suite",
-        "test_suite_item",
         "thread",
         "trace"
       ],
@@ -47,7 +60,7 @@
         }
       ],
       "default": null,
-      "description": "test_suite_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the suite itself, and is what filters/sort/search apply to.",
+      "description": "dataset_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the dataset itself, and is what filters/sort/search apply to.",
       "title": "Experiment Ids"
     },
     "filters": {
@@ -129,7 +142,7 @@
         }
       ],
       "default": null,
-      "description": "Optional substring filter on entity name. Supported for project, experiment, prompt, test_suite; ignored for sub-collections.",
+      "description": "Optional substring filter on entity name. Supported for project, experiment, prompt, dataset; ignored for sub-collections.",
       "title": "Name"
     },
     "page": {
@@ -261,19 +274,6 @@
       "default": null,
       "description": "agent_insights_issue only: which Diagnostics issues to list. Defaults to 'open' (what is broken now); 'resolved' and 'closed' show issues already dealt with. Ignored for other entity types.",
       "title": "Status"
-    },
-    "test_suite_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Required when listing test_suite_items, unless experiment_ids is given. UUID of the suite.",
-      "title": "Test Suite Id"
     },
     "until": {
       "anyOf": [

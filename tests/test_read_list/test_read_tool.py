@@ -41,7 +41,7 @@ class FakeOpikClient:
     trace_spans: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     experiments_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     experiments_by_name: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
-    test_suites_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    datasets_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     prompts_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     prompt_versions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     threads_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -131,14 +131,10 @@ class FakeOpikClient:
 
     # Not exercised by the read tool — the comparison is a list — but part of
     # the client protocol a read is handed.
-    async def list_compared_test_suite_items(
-        self, test_suite_id: str, /, **_kw: Any
-    ) -> dict[str, Any]:
+    async def list_compared_dataset_items(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
-    async def list_compared_output_columns(
-        self, test_suite_id: str, /, **_kw: Any
-    ) -> dict[str, Any]:
+    async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
         return {"columns": []}
 
     async def list_spans(
@@ -182,10 +178,10 @@ class FakeOpikClient:
         content = self.experiments_by_name.get(name or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
 
-    async def get_test_suite(self, test_suite_id: str) -> dict[str, Any]:
-        return self.test_suites_by_id[test_suite_id]
+    async def get_dataset(self, dataset_id: str) -> dict[str, Any]:
+        return self.datasets_by_id[dataset_id]
 
-    async def list_test_suites(self, **_: Any) -> dict[str, Any]:
+    async def list_datasets(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
     async def get_prompt(self, prompt_id: str) -> dict[str, Any]:
@@ -252,7 +248,7 @@ class FakeOpikClient:
     async def list_threads(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
-    async def list_test_suite_items(self, _test_suite_id: str, **_kw: Any) -> dict[str, Any]:
+    async def list_dataset_items(self, _dataset_id: str, **_kw: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
 
     async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
@@ -501,7 +497,7 @@ async def test_read_rejects_unknown_entity_type() -> None:
 @pytest.mark.anyio
 async def test_read_rejects_list_only_entity() -> None:
     with pytest.raises(ToolError, match="list-only"):
-        await run_read("test_suite_item", UUID, client=FakeOpikClient())
+        await run_read("dataset_item", UUID, client=FakeOpikClient())
 
 
 @pytest.mark.anyio
@@ -918,11 +914,11 @@ async def test_read_thread_has_no_link_fields() -> None:
 
 @pytest.mark.anyio
 async def test_read_list_only_entity_chains_typed_cause() -> None:
-    """``read('test_suite_item', '<uuid>')`` — list-only entity surfaced as
+    """``read('dataset_item', '<uuid>')`` — list-only entity surfaced as
     ToolError chained from EntityArgValidationError so the analytics wrapper
     buckets it as validation/400 instead of unknown."""
     with pytest.raises(ToolError) as ei:
-        await run_read("test_suite_item", "00000000-0000-0000-0000-000000000000")
+        await run_read("dataset_item", "00000000-0000-0000-0000-000000000000")
 
     assert isinstance(ei.value.__cause__, EntityArgValidationError)
 
@@ -2024,7 +2020,7 @@ async def test_an_experiment_read_points_at_the_per_case_comparison() -> None:
 
     assert body["comparePerCase"] == (
         "Which cases differ, rather than these averages: "
-        f"list('test_suite_item', experiment_ids=['{UUID}', '<other experiment id>'])"
+        f"list('dataset_item', experiment_ids=['{UUID}', '<other experiment id>'])"
     )
 
 

@@ -1,7 +1,7 @@
 """One row per case, one column per score: the comparison's table.
 
 The shape is the decision here. The obvious layout gives every experiment its
-own column for every score, which on a realistic suite (three scores, two
+own column for every score, which on a realistic dataset (three scores, two
 experiments, a handful of case keys) is eighteen columns inside a page budget
 of eight thousand characters — about seventeen characters a cell, which is not
 a table, it is a smear. So a score keeps one column and the experiments share
@@ -18,7 +18,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
-from opik_mcp.read_list.entities.test_suite.items import cell_limit, data_columns
+from opik_mcp.read_list.entities.dataset.items import cell_limit, data_columns
 
 #: Case columns in comparison mode. The plain listing shows up to eight; here
 #: the caller came for the runs, and two keys are enough to recognise a case.
@@ -261,7 +261,7 @@ def render(
 
     lines = [
         header,
-        f"Found {total} test_suite_items (page {page}, showing {len(rows)} of {total}):",
+        f"Found {total} dataset_items (page {page}, showing {len(rows)} of {total}):",
         "",
         " | ".join(columns),
     ]
@@ -294,7 +294,7 @@ def render(
         )
     if omitted_keys:
         under.append(
-            f"Case columns are the suite's data keys, showing {len(data_keys)} of "
+            f"Case columns are the dataset's data keys, showing {len(data_keys)} of "
             f"{len(data_keys) + len(omitted_keys)} (the runs take the width); "
             f"omitted: {', '.join(omitted_keys)}."
         )
@@ -323,7 +323,7 @@ def one_line(text: str) -> str:
 
     A judge's reason is prose with paragraph breaks, and a case's data can be
     anything the user put there. Either would split the row or add a column;
-    the first real suite would have broken the table.
+    the first real dataset would have broken the table.
     """
     return _WHITESPACE.sub(" ", text.replace("|", "¦")).strip()
 

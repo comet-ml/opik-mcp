@@ -305,29 +305,35 @@ class PromptVersionSave(_StrictBase):
     change_description: str | None = Field(default=None, max_length=2000)
 
 
-# --- 7. test_suite.create ------------------------------------------------ #
+# --- 7. dataset.create --------------------------------------------------- #
 #
-# Opik 2.0 renamed the entity formerly called "dataset" to "test_suite"
-# (a.k.a. "evaluation suite"). REST paths on the BE keep `/datasets` for
-# back-compat; the MCP surface mirrors the FE/UI naming. The dispatcher
-# translates between MCP-facing `test_suite_*` fields and the wire's
-# `dataset_*` fields, and injects ``type="evaluation_suite"`` on create.
+# One BE entity, two flavors: a plain dataset and a test suite (the UI's
+# "evaluation suite"), told apart by ``type`` on ``POST /v1/private/datasets``.
+# ``type`` is the caller's choice here and the builder always sends it, so a
+# create never rides on the backend's default.
 
 
-class TestSuiteCreate(_StrictBase, _ClientIdMixin):
-    """``POST /v1/private/datasets`` — create an Opik 2.0 test suite (eval suite)."""
+class DatasetCreate(_StrictBase, _ClientIdMixin):
+    """``POST /v1/private/datasets`` — create a dataset or a test suite."""
 
     name: str = Field(min_length=1, max_length=200)
+    type: Literal["dataset", "test_suite"] = Field(
+        default="dataset",
+        description=(
+            "`dataset` for a plain dataset, `test_suite` for an evaluation suite "
+            "(a dataset whose items carry assertions and run as tests)."
+        ),
+    )
     description: str | None = Field(default=None, max_length=10_000)
     tags: TagList | None = Field(default=None)
     metadata: Metadata = Field(default=None)
 
 
-# --- 8. test_suite_item.upsert ------------------------------------------ #
+# --- 8. dataset_item.upsert ---------------------------------------------- #
 
 
-class TestSuiteItem(BaseModel):
-    """Single item inside a ``test_suite_item.upsert`` envelope.
+class DatasetItem(BaseModel):
+    """Single item inside a ``dataset_item.upsert`` envelope.
 
     Items accept two equivalent shapes — flat (``input`` / ``expected_output``
     / ``metadata`` at the top level) or pre-enveloped (``data: {input, …}``).
@@ -345,7 +351,7 @@ class TestSuiteItem(BaseModel):
     metadata: Metadata = Field(default=None)
 
     @model_validator(mode="after")
-    def _validate_no_data_conflict(self) -> TestSuiteItem:
+    def _validate_no_data_conflict(self) -> DatasetItem:
         if self.data is None:
             return self
         for k in ("input", "expected_output", "metadata"):
@@ -357,32 +363,28 @@ class TestSuiteItem(BaseModel):
         return self
 
 
-class TestSuiteItemUpsert(_StrictBase):
+class DatasetItemUpsert(_StrictBase):
     """``PUT /v1/private/datasets/items`` — always envelope form.
 
-    Exactly one of ``test_suite_name`` / ``test_suite_id`` is required;
-    spec §3.2. Distinguished error codes per failure mode so recovery
-    tooling can react differently to "you passed neither" vs. "you passed
-    both".
+    Exactly one of ``dataset_name`` / ``dataset_id`` is required; spec §3.2.
+    Distinguished error codes per failure mode so recovery tooling can react
+    differently to "you passed neither" vs. "you passed both".
     """
 
-    test_suite_name: str | None = Field(default=None, max_length=200)
-    test_suite_id: UUID | None = Field(default=None)
-    items: list[TestSuiteItem] = Field(min_length=1, max_length=1000)
+    dataset_name: str | None = Field(default=None, max_length=200)
+    dataset_id: UUID | None = Field(default=None)
+    items: list[DatasetItem] = Field(min_length=1, max_length=1000)
 
     @model_validator(mode="after")
-    def _validate_parent_xor(self) -> TestSuiteItemUpsert:
-        has_name = self.test_suite_name is not None
-        has_id = self.test_suite_id is not None
+    def _validate_parent_xor(self) -> DatasetItemUpsert:
+        has_name = self.dataset_name is not None
+        has_id = self.dataset_id is not None
         if has_name and has_id:
             raise ValueError(
-                "test_suite_parent_conflict: pass either `test_suite_name` "
-                "or `test_suite_id`, not both."
+                "dataset_parent_conflict: pass either `dataset_name` or `dataset_id`, not both."
             )
         if not has_name and not has_id:
-            raise ValueError(
-                "test_suite_parent_missing: pass `test_suite_name` or `test_suite_id`."
-            )
+            raise ValueError("dataset_parent_missing: pass `dataset_name` or `dataset_id`.")
         return self
 
 
@@ -392,25 +394,22 @@ class TestSuiteItemUpsert(_StrictBase):
 class ExperimentCreate(_StrictBase, _ClientIdMixin):
     """``POST /v1/private/experiments`` — start a new experiment run."""
 
-    test_suite_name: str | None = Field(default=None, max_length=200)
-    test_suite_id: UUID | None = Field(default=None)
+    dataset_name: str | None = Field(default=None, max_length=200)
+    dataset_id: UUID | None = Field(default=None)
     name: str | None = Field(default=None, max_length=200)
     metadata: Metadata = Field(default=None)
     prompt_versions: list[dict[str, Any]] | None = Field(default=None)
 
     @model_validator(mode="after")
-    def _validate_test_suite_xor(self) -> ExperimentCreate:
-        has_name = self.test_suite_name is not None
-        has_id = self.test_suite_id is not None
+    def _validate_dataset_xor(self) -> ExperimentCreate:
+        has_name = self.dataset_name is not None
+        has_id = self.dataset_id is not None
         if has_name and has_id:
             raise ValueError(
-                "test_suite_parent_conflict: pass either `test_suite_name` "
-                "or `test_suite_id`, not both."
+                "dataset_parent_conflict: pass either `dataset_name` or `dataset_id`, not both."
             )
         if not has_name and not has_id:
-            raise ValueError(
-                "test_suite_parent_missing: pass `test_suite_name` or `test_suite_id`."
-            )
+            raise ValueError("dataset_parent_missing: pass `dataset_name` or `dataset_id`.")
         return self
 
 
@@ -424,10 +423,8 @@ class ExperimentItem(BaseModel):
 
     id: UUID | None = Field(default=None)
     experiment_id: UUID
-    test_suite_item_id: UUID = Field(
-        description=(
-            "UUID of the test-suite item the trace ran against (wire field: dataset_item_id)."
-        ),
+    dataset_item_id: UUID = Field(
+        description="UUID of the dataset item the trace ran against.",
     )
     trace_id: UUID
 
@@ -585,19 +582,20 @@ EXAMPLES: dict[str, dict[str, Any]] = {
         "commit": "v3",
         "change_description": "tighten greeting",
     },
-    "test_suite.create": {
+    "dataset.create": {
         "name": "eval_q3",
+        "type": "test_suite",
         "description": "Q3 regression set",
         "tags": ["regression"],
     },
-    "test_suite_item.upsert": {
-        "test_suite_name": "eval_q3",
+    "dataset_item.upsert": {
+        "dataset_name": "eval_q3",
         "items": [
             {"input": {"query": "what is opik?"}, "expected_output": {"text": "an LLM eval tool"}},
         ],
     },
     "experiment.create": {
-        "test_suite_name": "eval_q3",
+        "dataset_name": "eval_q3",
         "name": "gpt-4o-baseline",
         "metadata": {"git_sha": "abc123"},
     },
@@ -605,7 +603,7 @@ EXAMPLES: dict[str, dict[str, Any]] = {
         "experiment_items": [
             {
                 "experiment_id": _example_uuid("01"),
-                "test_suite_item_id": _example_uuid("02"),
+                "dataset_item_id": _example_uuid("02"),
                 "trace_id": _example_uuid("03"),
             }
         ]
@@ -638,8 +636,8 @@ MODELS: dict[str, type[BaseModel]] = {
     "score.create": ScoreCreate,
     "comment.create": CommentCreate,
     "prompt_version.save": PromptVersionSave,
-    "test_suite.create": TestSuiteCreate,
-    "test_suite_item.upsert": TestSuiteItemUpsert,
+    "dataset.create": DatasetCreate,
+    "dataset_item.upsert": DatasetItemUpsert,
     "experiment.create": ExperimentCreate,
     "experiment_item.create": ExperimentItemCreate,
     "thread.close": ThreadClose,
@@ -660,6 +658,9 @@ __all__ = [
     "EXAMPLES",
     "MODELS",
     "CommentCreate",
+    "DatasetCreate",
+    "DatasetItem",
+    "DatasetItemUpsert",
     "ExperimentCreate",
     "ExperimentItem",
     "ExperimentItemCreate",
@@ -668,9 +669,6 @@ __all__ = [
     "ScoreTarget",
     "SpanCreate",
     "SpanType",
-    "TestSuiteCreate",
-    "TestSuiteItem",
-    "TestSuiteItemUpsert",
     "ThreadClose",
     "ThreadOpen",
     "TraceCreate",

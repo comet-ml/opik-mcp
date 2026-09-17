@@ -1,7 +1,7 @@
-"""The cases of a test suite: listing them, and choosing their columns.
+"""The cases of a dataset: listing them, and choosing their columns.
 
 A dataset item has no fixed fields. Its payload is ``data``, a map keyed
-however the user built the suite, so the columns of a page are read off the
+however the user built the dataset, so the columns of a page are read off the
 page rather than declared. Comparison mode reuses the same ranking through
 :func:`data_columns`, with a tighter cap, because there the runs need the
 width.
@@ -17,13 +17,13 @@ from opik_mcp.read_list.handler import ListProjection
 
 
 async def list_items(client: OpikListClient, **kw: Any) -> dict[str, Any]:
-    # opik-backend's items endpoint is ``/datasets/{id}/items`` — the suite id
-    # is in the path, not a query param. Pull it out before forwarding.
-    suite_id = kw.pop("test_suite_id", None)
-    if not suite_id:
-        raise ValueError("list test_suite_item requires test_suite_id")
+    # opik-backend's items endpoint is ``/datasets/{id}/items`` — the dataset
+    # id is in the path, not a query param. Pull it out before forwarding.
+    dataset_id = kw.pop("dataset_id", None)
+    if not dataset_id:
+        raise ValueError("list dataset_item requires dataset_id")
     kw.pop("name", None)
-    return await client.list_test_suite_items(suite_id, **kw)
+    return await client.list_dataset_items(dataset_id, **kw)
 
 
 #: The item keys Opik's SDKs document, shown first when a dataset has them.
@@ -86,7 +86,7 @@ def project_items(content: list[dict[str, Any]]) -> ListProjection:
 
     A dataset item has no fixed fields. Its payload is ``data``, a map whose
     keys the user chose when they built the dataset (``question``/``answer``
-    for one suite, ``input``/``expected_output`` for the next), so the columns
+    for one dataset, ``input``/``expected_output`` for the next), so the columns
     are read off the page rather than declared. The page's ``columns`` field
     from the backend is the whole dataset's key union, and
     ``/items/experiments/items/output/columns`` enumerates experiment *output*

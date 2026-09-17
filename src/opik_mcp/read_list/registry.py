@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from opik_mcp.read_list.entities import (
     agent_insights_issue,
+    dataset,
     experiment,
     online_rule,
     project,
@@ -20,7 +21,6 @@ from opik_mcp.read_list.entities import (
     prompt,
     score_name,
     span,
-    test_suite,
     thread,
     trace,
 )
@@ -34,8 +34,8 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         trace.HANDLER,
         span.HANDLER,
         thread.HANDLER,
-        test_suite.HANDLER,
-        test_suite.ITEM_HANDLER,
+        dataset.HANDLER,
+        dataset.ITEM_HANDLER,
         experiment.HANDLER,
         prompt.HANDLER,
         prompt.VERSION_HANDLER,
@@ -52,8 +52,13 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
 #: enum is the closed set an agent should choose from, and listing a type twice
 #: under two names invites the question of which is real. This is a safety net
 #: for the guess an agent makes anyway — ``agent_insights_issue`` is a mouthful,
-#: and "issue" is what the UI calls it.
-ENTITY_ALIASES: dict[str, str] = {"issue": "agent_insights_issue"}
+#: and "issue" is what the UI calls it; ``test_suite`` is what this tool called
+#: the dataset before the rename, and callers still reach for it.
+ENTITY_ALIASES: dict[str, str] = {
+    "issue": "agent_insights_issue",
+    "test_suite": "dataset",
+    "test_suite_item": "dataset_item",
+}
 
 
 def resolve_entity_type(entity_type: str) -> str:

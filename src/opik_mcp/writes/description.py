@@ -34,7 +34,7 @@ def build_write_description() -> str:
             "",
             "Notes:",
             "- `data` shape: object for single, array for batch (where supported). "
-            "Always-envelope ops (test_suite_item.upsert, experiment_item.create) "
+            "Always-envelope ops (dataset_item.upsert, experiment_item.create) "
             "take their list inside the envelope, not at the top level.",
             "- `dry_run=true`: validate + check authorization without calling the "
             "backend. Returns {dry_run, would_call: {method, path, body_size}}.",
