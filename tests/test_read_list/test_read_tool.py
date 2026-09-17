@@ -70,6 +70,10 @@ class FakeOpikClient:
     last_list_spans_kwargs: dict[str, Any] = field(default_factory=dict)
     last_get_thread_truncate: bool | None = None
     last_list_traces_kwargs: dict[str, Any] = field(default_factory=dict)
+    # The project's experiments as a listing page, for the read that samples
+    # their metadata keys; ``None`` falls back to the by-name lookup.
+    experiments_page: dict[str, Any] | None = None
+    last_experiments_kwargs: dict[str, Any] = field(default_factory=dict)
 
     async def _concurrently(self, result: dict[str, Any]) -> dict[str, Any]:
         """Yield once so overlapping callers are observable.
@@ -173,8 +177,11 @@ class FakeOpikClient:
         name: str | None = None,
         page: int = 1,
         size: int = 10,
-        **_search: Any,
+        **search: Any,
     ) -> dict[str, Any]:
+        self.last_experiments_kwargs = {"name": name, "page": page, "size": size, **search}
+        if self.experiments_page is not None and name is None:
+            return await self._concurrently(self.experiments_page)
         content = self.experiments_by_name.get(name or "", [])
         return {"content": content, "page": page, "size": len(content), "total": len(content)}
 
@@ -1126,6 +1133,58 @@ async def test_read_project_carries_the_scores_usage_keys_and_rules() -> None:
     assert vocab["score_names"]["names"] == ["hallucination", "tone"]
     assert vocab["usage_keys"]["names"] == ["prompt_tokens", "completion_tokens"]
     assert vocab["online_rules"]["names"] == ["judge"]
+
+
+def _experiments_with(*metadata: dict[str, Any] | None) -> dict[str, Any]:
+    rows = [
+        {"id": f"e-{i}", "name": f"run-{i}", **({"metadata": md} if md is not None else {})}
+        for i, md in enumerate(metadata)
+    ]
+    return {"content": rows, "page": 1, "size": len(rows), "total": len(rows)}
+
+
+@pytest.mark.anyio
+async def test_read_project_names_the_metadata_keys_its_experiments_carry() -> None:
+    """``metadata.<key>`` is the only filter that reaches into how a run was
+    configured — the model, the optimizer, the prompt — and it needs the key.
+    Nothing listed the keys. An agent driving the tool wrote ``metadata.model``
+    against runs that had recorded ``agent_config`` and read the empty page as
+    "no run used that model". The keys are a property of how a project's
+    experiments are written, not of each one, so the freshest page is enough
+    to say what the next filter can name."""
+    fake = _vocab_fake(
+        experiments_page=_experiments_with(
+            {"model": "gpt-4o", "optimizer": "gepa"},
+            {"model": "gpt-4o-mini"},
+            {"dataset_training": "qa-v2", "model": "gpt-4o"},
+        )
+    )
+    body = _payload(await run_read("project", UUID, client=fake))
+    keys = body["vocabulary"]["experiment_metadata_keys"]
+    assert keys["names"] == ["model", "optimizer", "dataset_training"], (
+        "ordered by how many runs carry them"
+    )
+    assert keys["total"] == 3
+    assert keys["sampled_from"] == 3, "the basis is stated, not implied"
+    assert "list('experiment'" in keys["filter"] and "metadata.<key>" in keys["filter"]
+
+
+@pytest.mark.anyio
+async def test_the_metadata_keys_are_the_projects_and_one_page_of_it() -> None:
+    fake = _vocab_fake(experiments_page=_experiments_with({"model": "x"}))
+    await run_read("project", UUID, client=fake)
+    sent = fake.last_experiments_kwargs
+    assert UUID in str(sent.get("filters")), "scoped to this project, not the workspace"
+    assert sent["size"] == 25, "one page, the freshest — not a scan"
+
+
+@pytest.mark.anyio
+async def test_experiments_without_metadata_leave_the_vocabulary_without_that_part() -> None:
+    """Like every other part: absent means "nothing recorded", and a project
+    whose runs carry no metadata gets no empty list to wonder about."""
+    fake = _vocab_fake(experiments_page=_experiments_with(None, {}, None))
+    body = _payload(await run_read("project", UUID, client=fake))
+    assert "experiment_metadata_keys" not in body["vocabulary"]
 
 
 @pytest.mark.anyio

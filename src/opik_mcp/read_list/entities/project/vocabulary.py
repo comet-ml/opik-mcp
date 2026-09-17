@@ -22,6 +22,8 @@ an ``error`` instead of names for the same reason the summary does.
 
 from __future__ import annotations
 
+import json
+from collections import Counter
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
@@ -37,6 +39,17 @@ RULES_CAP: Final = 10
 """The page size asked of the evaluators endpoint — ours, not a backend limit.
 The endpoint has no maximum; ten is enough to say what is scoring the project,
 and ``list('online_rule')`` pages through the rest."""
+
+METADATA_SAMPLE: Final = 25
+"""Experiments read for their metadata keys: the freshest page, no more.
+
+``metadata.<key>`` is the only filter that reaches into how a run was
+configured — the model, the optimizer, the prompt — and it needs the key.
+Nothing enumerated the keys, so an agent wrote ``metadata.model`` against runs
+that had recorded ``agent_config`` and read the empty page as "no run used
+that model". The keys are a property of how a project's experiments are
+written, not of each one: twenty-five recent runs say what the next filter
+can name, and a scan of the rest would say the same thing slower."""
 
 
 def _part(names: list[str]) -> dict[str, Any] | None:
@@ -104,16 +117,51 @@ async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any
     return await block("this project's online rules", load)
 
 
+async def experiment_metadata_keys(
+    client: OpikReadClient, project_id: str
+) -> dict[str, Any] | None:
+    """The top-level ``metadata`` keys the project's recent experiments carry,
+    most common first — the names a ``metadata.<key>`` filter can take.
+
+    Top level only, because that is as deep as the filter reaches: the
+    backend's dictionary filter addresses one key. The part says what it was
+    sampled from, so a key seen once in twenty-five runs is not mistaken for
+    a convention.
+    """
+
+    async def load() -> dict[str, Any] | None:
+        scope = [{"field": "project_id", "operator": "=", "key": "", "value": project_id}]
+        body = await client.list_experiments(
+            filters=json.dumps(scope, separators=(",", ":")), size=METADATA_SAMPLE
+        )
+        rows = body.get("content") if isinstance(body, dict) else None
+        rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        seen: Counter[str] = Counter()
+        for row in rows:
+            metadata = row.get("metadata")
+            if isinstance(metadata, dict):
+                seen.update(key for key in metadata if isinstance(key, str))
+        part = _part([key for key, _ in seen.most_common()])
+        if part is None:
+            return None
+        part["sampled_from"] = len(rows)
+        part["filter"] = "list('experiment', filters='metadata.<key> = \"…\"')"
+        return part
+
+    return await block("this project's experiment metadata keys", load)
+
+
 def assemble(
     scores: dict[str, Any] | None,
     usage: dict[str, Any] | None,
     rules: dict[str, Any] | None,
+    metadata_keys: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """The vocabulary block, or ``None`` when the project has no vocabulary.
 
-    A project that has never been scored, never reported usage and has no rules
-    gets no block at all rather than three empty ones — the absence is the
-    answer.
+    A project that has never been scored, never reported usage, has no rules
+    and no experiment metadata gets no block at all rather than four empty
+    ones — the absence is the answer.
     """
     block = {
         name: part
@@ -121,6 +169,7 @@ def assemble(
             ("score_names", scores),
             ("usage_keys", usage),
             ("online_rules", rules),
+            ("experiment_metadata_keys", metadata_keys),
         )
         if part is not None
     }
@@ -128,8 +177,10 @@ def assemble(
 
 
 __all__ = [
+    "METADATA_SAMPLE",
     "RULES_CAP",
     "assemble",
+    "experiment_metadata_keys",
     "online_rules",
     "score_names",
     "usage_keys",

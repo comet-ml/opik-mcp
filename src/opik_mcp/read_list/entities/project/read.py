@@ -51,13 +51,14 @@ async def fetch_project(
         project_vocabulary.score_names(client, entity_id),
         project_vocabulary.usage_keys(client, entity_id),
         project_vocabulary.online_rules(client, entity_id),
+        project_vocabulary.experiment_metadata_keys(client, entity_id),
         project_contents(client, entity_id),
         return_exceptions=True,
     )
     for leg in legs:
         if isinstance(leg, BaseException):
             raise leg
-    summary, scores, usage, rules, contents = legs
+    summary, scores, usage, rules, metadata_keys, contents = legs
 
     data: dict[str, Any] = {
         "project": project,
@@ -66,7 +67,7 @@ async def fetch_project(
         # are stripped by the read tool once links are attached.
         "_project_id": entity_id,
     }
-    vocabulary = project_vocabulary.assemble(scores, usage, rules)
+    vocabulary = project_vocabulary.assemble(scores, usage, rules, metadata_keys)
     if vocabulary is not None:
         data["vocabulary"] = vocabulary
     if contents is not None:
