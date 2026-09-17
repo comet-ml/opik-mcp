@@ -717,6 +717,25 @@ async def test_an_optimization_run_narrows_to_its_own_trials() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_set_of_experiment_ids_fetches_exactly_those_runs_in_one_call() -> None:
+    """The ids an agent already holds — from a ranking, from a comparison it
+    is about to make — used to cost a read each. One listing call, and the
+    rows come back with every column the listing has."""
+    rows = _page([{"id": "e-1", "name": "a"}, {"id": "e-2", "name": "b"}])
+    fake = FakeOpikClient(experiments=rows)
+    a, b = "019fada0-fcb8-73eb-a946-827d4135f028", "019fada1-647e-77c5-b9cf-1f5661ab1257"
+    out = await run_list("experiment", filters=f'experiment_ids in ("{a}", "{b}")', client=fake)
+    assert fake.last_kwargs["experiment_ids"] == f'["{a}","{b}"]'
+    assert "filters" not in fake.last_kwargs
+    assert out.splitlines()[0] == f'[list: experiment | filters: experiment_ids in ("{a}", "{b}")]'
+    # The selector names the rows, which the id column already does; seen
+    # live as a blank column on every row it selected.
+    column_header = out.splitlines()[3]
+    assert column_header.startswith("id | name")
+    assert "experiment_ids" not in column_header
+
+
+@pytest.mark.anyio
 async def test_the_optimization_id_parameter_is_absent_when_nobody_asked() -> None:
     fake = FakeOpikClient(experiments=_page([{"id": "e-1", "name": "nightly"}]))
     await run_list("experiment", filters='type = "regular"', client=fake)
@@ -746,11 +765,29 @@ async def test_search_is_forwarded_for_spans_and_echoed() -> None:
 
 
 @pytest.mark.anyio
-async def test_search_on_a_type_without_it_is_dropped_with_a_note() -> None:
+async def test_search_on_a_type_without_it_is_refused_not_quietly_dropped() -> None:
+    """This used to return the full unfiltered page under a header saying
+    "search ignored". Driving the tool: an agent skims a header and reads
+    thirty-two rows as the result of the search it asked for. A page that is
+    not what was asked for is worse than an error, and the error can name
+    the thing that would have worked."""
     fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
-    out = await run_list("project", search="demo", client=fake)
-    assert "search" not in fake.project_kwargs
-    assert out.splitlines()[0] == "[list: project | search ignored (only trace, span, thread)]"
+    with pytest.raises(ToolError) as err:
+        await run_list("project", search="demo", client=fake)
+    message = str(err.value)
+    assert "search is not supported for 'project'" in message
+    assert "trace, span, thread" in message
+    assert "name=" in message, "the alternative that does exist is named"
+    assert fake.project_kwargs == {}, "nothing was fetched and shown as a result"
+
+
+@pytest.mark.anyio
+async def test_search_refusal_on_experiments_points_at_filters_too() -> None:
+    with pytest.raises(ToolError) as err:
+        await run_list("experiment", search="geography", client=FakeOpikClient())
+    message = str(err.value)
+    assert "name=" in message
+    assert "metadata.<key>" in message
 
 
 # --- sort ------------------------------------------------------------------ #

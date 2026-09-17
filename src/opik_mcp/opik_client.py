@@ -188,6 +188,7 @@ class OpikListClient(Protocol):
         filters: str | None = None,
         types: str | None = None,
         optimization_id: str | None = None,
+        experiment_ids: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
         from_time: str | None = None,
@@ -954,6 +955,7 @@ class OpikClient:
         filters: str | None = None,
         types: str | None = None,
         optimization_id: str | None = None,
+        experiment_ids: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
         from_time: str | None = None,
@@ -980,6 +982,10 @@ class OpikClient:
             params["types"] = types
         if optimization_id is not None:
             params["optimization_id"] = optimization_id
+        if experiment_ids is not None:
+            # A JSON array like ``types``; the resource parses it with its own
+            # reader and 400s on anything that is not a list of UUIDs.
+            params["experiment_ids"] = experiment_ids
         params.update(
             _search_params(
                 filters=filters,

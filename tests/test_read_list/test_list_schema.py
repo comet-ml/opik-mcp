@@ -70,6 +70,8 @@ def test_a_field_the_backend_takes_as_a_parameter_lists_only_what_compiles() -> 
     assert fields["type"]["operators"] == ["=", "in"]
     assert fields["optimization_id"]["operators"] == ["="]
     assert fields["optimization_id"]["format"] == "UUID"
+    assert fields["experiment_ids"]["operators"] == ["in"]
+    assert fields["experiment_ids"]["format"] == "UUID"
 
 
 def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None:

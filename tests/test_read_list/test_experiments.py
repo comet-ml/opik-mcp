@@ -415,7 +415,9 @@ async def test_a_full_page_pays_for_no_second_note() -> None:
     print the same advice twice."""
     fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
     out = await run_list("experiment", client=fake)
-    assert "filter: type, optimization_id." in out, "the projection note still carries the hint"
+    assert "filter: type, optimization_id, experiment_ids." in out, (
+        "the projection note still carries the hint"
+    )
     assert "type accepts" not in out, "and the page note stayed silent"
     assert "none match" not in out
 

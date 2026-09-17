@@ -95,6 +95,22 @@ async def test_list_experiments_forwards_the_types_query_parameter() -> None:
 
 
 @pytest.mark.anyio
+async def test_list_experiments_forwards_the_experiment_ids_query_parameter() -> None:
+    """A JSON array, like ``types``: the resource parses it with ``getIds`` and
+    400s on anything that is not a list of UUIDs."""
+    ids = '["019fada0-fcb8-73eb-a946-827d4135f028","019fada1-647e-77c5-b9cf-1f5661ab1257"]'
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/experiments").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_experiments()
+        assert "experiment_ids" not in dict(route.calls.last.request.url.params)
+
+        await _client().list_experiments(experiment_ids=ids)
+    assert dict(route.calls.last.request.url.params)["experiment_ids"] == ids
+
+
+@pytest.mark.anyio
 async def test_list_experiments_forwards_the_optimization_id_query_parameter() -> None:
     run = "019fb348-cf24-78a5-bd6f-9b22527c02b6"
     with respx.mock(base_url=OPIK_BASE) as mock:

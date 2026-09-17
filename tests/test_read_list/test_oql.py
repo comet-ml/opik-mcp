@@ -460,6 +460,32 @@ def test_a_malformed_optimization_id_is_refused_before_the_backend_sees_it() -> 
     assert "not-a-uuid" in str(exc.value)
 
 
+RUN_A = "019fada0-fcb8-73eb-a946-827d4135f028"
+RUN_B = "019fada1-647e-77c5-b9cf-1f5661ab1257"
+
+
+def test_a_set_of_experiment_ids_becomes_the_backends_json_array() -> None:
+    """Fetching exactly the runs a caller already holds ids for — the two it
+    is about to compare, the five it just ranked — was N reads or a paged
+    scan. The backend has taken a JSON array of ids all along."""
+    clauses = compile_filters("experiment", f'experiment_ids in ("{RUN_A}", "{RUN_B}")')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"experiment_ids": f'["{RUN_A}","{RUN_B}"]'}
+    assert remaining == []
+
+
+def test_excluding_experiment_ids_is_refused_because_the_parameter_cannot() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", f'experiment_ids not_in ("{RUN_A}")')
+    assert "Valid: in." in str(exc.value)
+
+
+def test_every_experiment_id_in_the_set_has_to_be_an_id() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", f'experiment_ids in ("{RUN_A}", "rerank-v3")')
+    assert "rerank-v3" in str(exc.value)
+
+
 def test_two_clauses_on_one_parameter_field_are_refused() -> None:
     """The backend takes one value for the parameter, so two AND-ed clauses
     would have to be merged — and merging them into a set turns an AND into

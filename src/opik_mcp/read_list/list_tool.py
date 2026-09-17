@@ -57,6 +57,8 @@ from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
 from opik_mcp.read_list.oql import (
+    FILTERABLE_FIELDS,
+    NAME_SEARCHABLE_ENTITIES,
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
@@ -345,11 +347,16 @@ async def run_list(
                 applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
-        if entity_type in WINDOWED_ENTITIES:
-            kw["search"] = search
-            applied.append(f'search: "{search}"')
-        else:
-            applied.append(f"search ignored (only {', '.join(WINDOWED_ENTITIES)})")
+        if entity_type not in WINDOWED_ENTITIES:
+            # Refused, not dropped. This used to return the whole unfiltered
+            # page under a header saying "search ignored" — and an agent that
+            # skims the header reads thirty-two rows as the result of the
+            # search it asked for. A page that is not what was asked for is
+            # worse than an error, and the error can name what would work.
+            refusal = EntityArgValidationError(_search_refusal(entity_type))
+            raise ToolError(str(refusal)) from refusal
+        kw["search"] = search
+        applied.append(f'search: "{search}"')
 
     sort_label: str | None = None
     sort_field: str | None = None
@@ -444,6 +451,28 @@ async def run_list(
         return f"{header}\n{table}" if header else table
 
 
+def _search_refusal(entity_type: str) -> str:
+    """Why free text does not apply here, and the nearest thing that does.
+
+    Every workspace-wide list takes a ``name`` substring, and the filterable
+    ones take OQL, so the caller who reached for ``search`` almost always has
+    a query that works one keyword away.
+    """
+    alternatives: list[str] = []
+    if entity_type in NAME_SEARCHABLE_ENTITIES:
+        alternatives.append("match a name with name=<substring>")
+    if entity_type in FILTERABLE_FIELDS:
+        example = "metadata.<key>" if "metadata" in FILTERABLE_FIELDS[entity_type] else "a field"
+        alternatives.append(
+            f'narrow with filters (e.g. {example} = "…"; schema("list.{entity_type}"))'
+        )
+    how = f" {'; or '.join(alternatives).capitalize()}." if alternatives else ""
+    return (
+        f"search is not supported for {entity_type!r}: only {', '.join(WINDOWED_ENTITIES)} "
+        f"take free text.{how}"
+    )
+
+
 _SOURCE_HINT = (
     'Only source = "sdk" rows are listed by default; add source = "experiment", '
     '"evaluator" or "playground" to filters to see the others.'
@@ -510,9 +539,13 @@ def _window_echo(raw: str, resolved: str) -> str:
 
 
 # Filter fields that make no sense as a table column: bodies (never shown in a
-# list), the error container (error_type carries the useful part) and source
-# (it is a scope, not a per-row fact).
-_NEVER_COLUMNS = frozenset({"input", "output", "input_json", "output_json", "error_info", "source"})
+# list), the error container (error_type carries the useful part), source (it
+# is a scope, not a per-row fact) and experiment_ids (a selector naming the
+# rows, which is what the id column already is — seen live as a blank column
+# on every row it selected).
+_NEVER_COLUMNS = frozenset(
+    {"input", "output", "input_json", "output_json", "error_info", "source", "experiment_ids"}
+)
 
 
 def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) -> list[str]:

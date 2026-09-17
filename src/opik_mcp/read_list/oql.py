@@ -188,13 +188,14 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
         "tags": "list",
         "feedback_scores": "feedback_scores",
         "experiment_scores": "feedback_scores",
-        # Not in ``ExperimentField``: the backend takes these two as query
+        # Not in ``ExperimentField``: the backend takes these three as query
         # parameters of their own, and ``split_param_clauses`` lifts them out
         # of the compiled array before the call is made. They are declared
         # here because they are the caller's vocabulary either way — how a
         # filter travels is our problem, not theirs.
         "type": "enum",
         "optimization_id": "string",
+        "experiment_ids": "string_list",
     },
     # What the UI's compare page offers, which is also what the backend
     # actually applies. ``total_estimated_cost`` and ``usage.total_tokens``
@@ -312,6 +313,16 @@ PARAM_FIELDS: Final[dict[str, dict[str, ParamField]]] = {
             why="the backend takes one exact id",
             value_form="uuid",
         ),
+        # The runs a caller already holds ids for — the two it is about to
+        # compare, the five it just ranked — in one call, with every column
+        # the listing has. That was N reads or a paged scan before.
+        "experiment_ids": ParamField(
+            param="experiment_ids",
+            operators=("in",),
+            encoding="json_list",
+            why="the backend takes a set of exact ids to include",
+            value_form="uuid",
+        ),
     },
 }
 
@@ -340,6 +351,9 @@ clause lists are built by appending to them."""
 WINDOWED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
 """Lists whose backend endpoint takes ``from_time``/``to_time`` and free-text
 ``search`` (the two capabilities ship together on the backend)."""
+NAME_SEARCHABLE_ENTITIES: Final[tuple[str, ...]] = ("project", "experiment", "prompt", "dataset")
+"""Workspace-wide lists whose endpoint takes a ``name`` substring — the match
+a caller who reached for ``search`` on one of them can have instead."""
 
 GRAMMAR_LINE: Final = (
     "<field>[.<key>] <op> <value> [AND ...] — strings in double quotes, numbers bare, "
@@ -968,6 +982,7 @@ __all__ = [
     "GRAMMAR_LINE",
     "KEYED_TYPES",
     "MILLISECOND_FIELDS",
+    "NAME_SEARCHABLE_ENTITIES",
     "NEGATING_OPERATORS",
     "OPERATORS_BY_TYPE",
     "PARAM_FIELDS",
