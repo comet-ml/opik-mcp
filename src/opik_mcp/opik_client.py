@@ -294,6 +294,14 @@ class OpikReadClient(OpikListClient, Protocol):
 
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]: ...
 
+    async def get_compared_stats(
+        self, dataset_id: str, /, *, experiment_ids: list[str], filters: str | None = None
+    ) -> dict[str, Any]: ...
+
+    async def list_feedback_definitions(
+        self, *, page: int = 1, size: int = 10
+    ) -> dict[str, Any]: ...
+
     async def get_prompt(self, prompt_id: str, /) -> dict[str, Any]: ...
 
     async def get_thread(
@@ -1008,6 +1016,38 @@ class OpikClient:
             f"/v1/private/experiments/{experiment_id}",
             params=None,
             entity_hint=f"experiment {experiment_id!r}",
+        )
+
+    async def get_compared_stats(
+        self, dataset_id: str, /, *, experiment_ids: list[str], filters: str | None = None
+    ) -> dict[str, Any]:
+        """``GET /v1/private/datasets/{id}/items/experiments/items/stats``.
+
+        Count, averages and percentiles over the experiment items of the
+        named experiments, pooled — so one experiment per call is what gives
+        per-experiment figures. ``filters`` is the same array the joined
+        list takes, evaluated on the same rows.
+        """
+        params: dict[str, Any] = {"experiment_ids": _ids_param(experiment_ids)}
+        if filters:
+            params["filters"] = filters
+        return await self._get_json(
+            f"/v1/private/datasets/{dataset_id}/items/experiments/items/stats",
+            params=params,
+            entity_hint=f"dataset {dataset_id!r} experiment stats",
+        )
+
+    async def list_feedback_definitions(self, *, page: int = 1, size: int = 10) -> dict[str, Any]:
+        """``GET /v1/private/feedback-definitions`` — the workspace's score definitions.
+
+        A definition carries the score's type (``numerical``, ``categorical``,
+        ``boolean``) and, for a categorical one, the category labels and the
+        number each is stored as. It carries no direction.
+        """
+        return await self._get_json(
+            "/v1/private/feedback-definitions",
+            params={"page": page, "size": size},
+            entity_hint="feedback definitions",
         )
 
     async def execute_experiment(self, body: dict[str, Any]) -> httpx.Response:

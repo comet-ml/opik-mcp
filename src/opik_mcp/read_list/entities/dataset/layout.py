@@ -27,6 +27,11 @@ MAX_DATA_COLUMNS = 2
 #: note, so a cut score is never mistaken for a score nothing recorded.
 MAX_SCORE_COLUMNS = 4
 _MISSING = "-"
+#: An experiment that ran the case and recorded nothing for the score. Not a
+#: dash: a dash is "did not run", and the two were the same cell. A task or a
+#: judge that raised looks exactly like this on the joined row, which carries
+#: no error of its own; the trace does.
+UNSCORED = "unscored"
 #: Experiments are separated by a slash in a score cell and by a middle dot in
 #: the pass cell, whose values already carry a slash: "1/1 / 0/2" is not
 #: something anyone should have to parse.
@@ -71,12 +76,107 @@ def runs_by_experiment(row: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
 def scores_of(run: dict[str, Any]) -> dict[str, float]:
     """One run's scores as a map, from the backend's list of named entries."""
     out: dict[str, float] = {}
-    for score in run.get("feedback_scores") or []:
-        if not isinstance(score, dict):
-            continue
+    for score in _entries(run):
         name, value = score.get("name"), score.get("value")
         if isinstance(name, str) and isinstance(value, int | float):
             out[name] = float(value)
+    return out
+
+
+def _entries(run: dict[str, Any]) -> list[dict[str, Any]]:
+    return [s for s in run.get("feedback_scores") or [] if isinstance(s, dict)]
+
+
+def _entry(run: dict[str, Any], name: str) -> dict[str, Any] | None:
+    return next((s for s in _entries(run) if s.get("name") == name), None)
+
+
+@dataclass(frozen=True)
+class ScoreKinds:
+    """What the workspace's feedback definitions say a score *is*.
+
+    A categorical score is stored as a number with a label beside it (``low``
+    is ``0``), and the definition maps every label to its number. That is the
+    one fact a row cannot always supply: a score written through the SDK with
+    a bare value carries no label, and only the definition can restore it.
+    The definition records no direction — nothing in Opik says whether a
+    higher ``hallucination`` is better or worse — so there is nothing here
+    about which way a delta points.
+    """
+
+    #: score name -> stored value -> label
+    categorical: dict[str, dict[float, str]]
+
+    @classmethod
+    def of(cls, definitions: list[dict[str, Any]]) -> ScoreKinds:
+        categorical: dict[str, dict[float, str]] = {}
+        for definition in definitions:
+            if definition.get("type") != "categorical":
+                continue
+            details = definition.get("details")
+            categories = details.get("categories") if isinstance(details, dict) else None
+            name = definition.get("name")
+            if not isinstance(name, str) or not isinstance(categories, dict):
+                continue
+            categorical[name] = {
+                float(value): str(label)
+                for label, value in categories.items()
+                if isinstance(value, int | float)
+            }
+        return cls(categorical=categorical)
+
+    def label(self, name: str, value: float) -> str | None:
+        return self.categorical.get(name, {}).get(value)
+
+
+NO_KINDS = ScoreKinds(categorical={})
+
+
+def is_categorical(runs: list[dict[str, Any]], name: str, kinds: ScoreKinds) -> bool:
+    """Is this score a label rather than a number, by definition or by the rows?
+
+    A run's entry carries ``category_name`` when the score was written with a
+    label; that decides even with no definition in the workspace.
+    """
+    if name in kinds.categorical:
+        return True
+    return any((e := _entry(run, name)) is not None and e.get("category_name") for run in runs)
+
+
+def category_of(run: dict[str, Any], name: str, kinds: ScoreKinds) -> str | None:
+    """The label one run recorded for a categorical score, or the number when
+    no label is known for it — a value the definition does not list is still
+    what the run said."""
+    entry = _entry(run, name)
+    if entry is None:
+        return None
+    label = entry.get("category_name")
+    if label:
+        return str(label)
+    value = entry.get("value")
+    if isinstance(value, int | float):
+        return kinds.label(name, float(value)) or number(float(value))
+    return None
+
+
+def authored(run: dict[str, Any], name: str) -> list[tuple[float, str]]:
+    """Every author's value for one score on one run, with where it came from.
+
+    The backend keeps one entry per score name and folds the authors into
+    ``value_by_author``; a judge's ``sdk`` value and a reviewer's ``ui`` value
+    for the same name are two opinions, not one number, and averaging them
+    would hide the disagreement that is the point of recording both.
+    """
+    entry = _entry(run, name)
+    if entry is None:
+        return []
+    by_author = entry.get("value_by_author")
+    if not isinstance(by_author, dict) or len(by_author) < 2:
+        return []
+    out: list[tuple[float, str]] = []
+    for opinion in by_author.values():
+        if isinstance(opinion, dict) and isinstance(opinion.get("value"), int | float):
+            out.append((float(opinion["value"]), str(opinion.get("source") or "?")))
     return out
 
 
@@ -115,6 +215,13 @@ def number(value: float) -> str:
     return f"{round(value, 4):g}"
 
 
+def signed(value: float) -> str:
+    """A difference with its sign, ``+0.5`` / ``-0.5``; zero is plain ``0``."""
+    if round(value, 4) == 0:
+        return "0"
+    return f"{'+' if value > 0 else '-'}{number(abs(value))}"
+
+
 @dataclass(frozen=True)
 class ComparedRow:
     """One case, with its runs grouped and its worst run already found.
@@ -128,11 +235,20 @@ class ComparedRow:
     experiments: list[Experiment]
     runs: dict[str, list[dict[str, Any]]]
     worst: tuple[Experiment, dict[str, Any]] | None
+    kinds: ScoreKinds = NO_KINDS
 
     @classmethod
-    def of(cls, case: dict[str, Any], experiments: list[Experiment]) -> ComparedRow:
+    def of(
+        cls, case: dict[str, Any], experiments: list[Experiment], kinds: ScoreKinds = NO_KINDS
+    ) -> ComparedRow:
         runs = runs_by_experiment(case)
-        return cls(case=case, experiments=experiments, runs=runs, worst=_worst(runs, experiments))
+        return cls(
+            case=case,
+            experiments=experiments,
+            runs=runs,
+            worst=_worst(runs, experiments),
+            kinds=kinds,
+        )
 
     @property
     def id(self) -> str:
@@ -145,15 +261,66 @@ class ComparedRow:
     def score(self, name: str) -> str:
         """One score, every experiment's value, in the order the caller named them.
 
-        With exactly two experiments the cell carries the gap between them. It
-        is unsigned here: which direction counts as better depends on the
-        metric, and saying so is OPIK-8394's job, not this one's.
+        Three kinds of cell, decided per score. A categorical score is its
+        labels, one per run, and nothing is averaged or subtracted from a
+        label. A score two authors wrote — a judge through the SDK and a
+        reviewer in the UI — shows both opinions with their source, and no
+        mean of the two. A number is the mean over the experiment's runs, and
+        with exactly two experiments the cell carries E2 minus E1, signed: the
+        sign is arithmetic, not a verdict, because no definition in Opik says
+        which direction a metric improves in (see ``compare._how_to_read``).
+
+        A dash is an experiment that did not run the case; ``unscored`` is one
+        that ran it and recorded nothing for this score.
         """
+        all_runs = [run for e in self.experiments for run in self.runs.get(e.id, [])]
+        if is_categorical(all_runs, name, self.kinds):
+            return RUN_SEPARATOR.join(self._labels(e, name) for e in self.experiments)
+        if any(authored(run, name) for run in all_runs):
+            return RUN_SEPARATOR.join(self._opinions(e, name) for e in self.experiments)
         values = [score_value(self.runs.get(e.id, []), name) for e in self.experiments]
-        cell = RUN_SEPARATOR.join(_MISSING if v is None else number(v) for v in values)
+        parts = []
+        for e, v in zip(self.experiments, values, strict=True):
+            if v is not None:
+                parts.append(number(v))
+            else:
+                parts.append(UNSCORED if self.runs.get(e.id) else _MISSING)
+        cell = RUN_SEPARATOR.join(parts)
         if len(values) == 2 and values[0] is not None and values[1] is not None:
-            cell += f" Δ{number(abs(values[0] - values[1]))}"
+            cell += f" Δ{signed(values[1] - values[0])}"
         return cell
+
+    def _labels(self, experiment: Experiment, name: str) -> str:
+        runs = self.runs.get(experiment.id)
+        if not runs:
+            return _MISSING
+        labels = [label for run in runs if (label := category_of(run, name, self.kinds))]
+        return ",".join(dict.fromkeys(labels)) if labels else UNSCORED
+
+    def _opinions(self, experiment: Experiment, name: str) -> str:
+        runs = self.runs.get(experiment.id)
+        if not runs:
+            return _MISSING
+        parts: list[str] = []
+        for run in runs:
+            several = authored(run, name)
+            if several:
+                parts.extend(f"{number(v)} {source}" for v, source in several)
+            elif (one := scores_of(run).get(name)) is not None:
+                parts.append(number(one))
+        return ", ".join(parts) if parts else UNSCORED
+
+    def unscored(self) -> bool:
+        """Did some experiment run this case and record no score at all?"""
+        for experiment in self.experiments:
+            runs = self.runs.get(experiment.id)
+            if runs and not any(scores_of(run) for run in runs):
+                return True
+        return False
+
+    def failed(self) -> bool:
+        """Did some run fail an assertion?"""
+        return any(run.get("status") == "failed" for own in self.runs.values() for run in own)
 
     def passed(self) -> str:
         """Passed runs out of total, per experiment, in the caller's order."""
@@ -175,12 +342,20 @@ class ComparedRow:
         return f"{run.get('trace_id') or _MISSING} ({experiment.label})"
 
     def reason(self) -> str:
-        """What the judge said about the first assertion the worst run failed."""
+        """The first assertion the worst run failed, by name, with what the judge said.
+
+        A suite checks several assertions on one case; a reason without the
+        assertion it belongs to says that the case fell but not on what.
+        """
         if self.worst is None:
             return _MISSING
         for assertion in self.worst[1].get("assertion_results") or []:
             if isinstance(assertion, dict) and assertion.get("passed") is False:
-                return str(assertion.get("reason") or "")
+                name = str(assertion.get("value") or "").strip()
+                reason = str(assertion.get("reason") or "").strip()
+                if name and reason:
+                    return f"{name}: {reason}"
+                return name or reason
         return ""
 
 
@@ -248,13 +423,15 @@ def render(
     header: str,
     notes: list[str],
     assertion_columns: bool = False,
+    kinds: ScoreKinds = NO_KINDS,
+    figures: list[str] | None = None,
 ) -> str:
     """The page, as the agent reads it.
 
-    Follows the shared list table: a count line, the rows, then everything the
-    table did to the data said under the data. The same layout serves plain
-    ``evaluate()`` experiments and test-suite runs; only the two assertion
-    columns depend on which it is.
+    Follows the shared list table: a count line, the per-experiment figures,
+    the rows, then everything the table did to the data said under the data.
+    The same layout serves plain ``evaluate()`` experiments and test-suite
+    runs; only the two assertion columns depend on which it is.
     """
     data_keys, omitted_keys = data_columns(rows, MAX_DATA_COLUMNS)
     scores, omitted_scores = score_columns(rows)
@@ -270,12 +447,15 @@ def render(
     lines = [
         header,
         f"Found {total} dataset_items (page {page}, showing {len(rows)} of {total}):",
+        *(figures or []),
         "",
         " | ".join(columns),
     ]
     cut = 0
+    compared: list[ComparedRow] = []
     for case in rows:
-        row = ComparedRow.of(case, experiments)
+        row = ComparedRow.of(case, experiments, kinds)
+        compared.append(row)
         values = []
         for column in columns:
             text = one_line(_cell(row, column, scores))
@@ -293,6 +473,9 @@ def render(
             if assertion_columns
             else "These runs recorded no feedback scores, so there is nothing numeric to compare."
         )
+    tally = _tally(compared, scored=bool(scores), assertions=assertion_columns)
+    if tally:
+        under.append(tally)
     partial = sum(1 for case in rows if _not_run_by_every(case, experiments))
     if partial:
         under.append(
@@ -321,6 +504,38 @@ def render(
     if page * size < total:
         lines += ["", f"Use page={page + 1} for next {size} results."]
     return "\n".join(lines)
+
+
+def _tally(rows: list[ComparedRow], *, scored: bool, assertions: bool) -> str | None:
+    """How many cases on the page failed, and how many ran without a score.
+
+    Two different things that read alike in a table: a case a judge marked
+    down, and a case where the task or the judge raised and nothing was
+    scored. The joined row carries no error — the trace does — so the second
+    is counted as what it is here, a run with no score, and the caller is
+    told where the error would be. Kept apart from the low scores: an errored
+    case in a "how many scored under 0.5" count is a wrong count.
+    """
+    parts: list[str] = []
+    if assertions:
+        failed = sum(1 for row in rows if row.failed())
+        if failed:
+            parts.append(f"{_cases(failed)} failed an assertion")
+    if scored:
+        unscored = sum(1 for row in rows if row.unscored())
+        if unscored:
+            parts.append(
+                f"{_cases(unscored)} {'has' if unscored == 1 else 'have'} a run with no score at "
+                "all (unscored): what a task or judge that raised looks like here, apart from the "
+                "low scores — open its worst_trace for error_info"
+            )
+    if not parts:
+        return None
+    return f"On this page, {'; '.join(parts)}."
+
+
+def _cases(n: int) -> str:
+    return f"{n} case{'s' if n != 1 else ''}"
 
 
 def _not_run_by_every(case: dict[str, Any], experiments: list[Experiment]) -> bool:

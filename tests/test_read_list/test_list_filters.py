@@ -65,6 +65,12 @@ class FakeOpikClient:
     async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
         return {"columns": []}
 
+    async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
+        return {"stats": []}
+
+    async def list_feedback_definitions(self, **_kw: Any) -> dict[str, Any]:
+        return {"content": [], "total": 0}
+
     async def list_spans(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         self.list_calls.append(kw)

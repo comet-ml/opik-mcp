@@ -44,6 +44,17 @@ class FakeOpikClient:
     column_calls: list[dict[str, Any]] = field(default_factory=list)
     compare_error: Exception | None = None
     columns_error: Exception | None = None
+    # Per-experiment figures, keyed by experiment id; a key of
+    # ``(experiment id, filters json)`` answers one filtered call ahead of the
+    # unkeyed one. Every stats request is kept, in order.
+    compared_stats: dict[Any, dict[str, Any]] = field(default_factory=dict)
+    stats_calls: list[dict[str, Any]] = field(default_factory=list)
+    stats_error: Exception | None = None
+    feedback_definitions: dict[str, Any] = field(
+        default_factory=lambda: {"content": [], "total": 0}
+    )
+    definition_calls: list[dict[str, Any]] = field(default_factory=list)
+    definitions_error: Exception | None = None
 
     last_kwargs: dict[str, Any] = field(default_factory=dict)
     experiment_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -164,6 +175,22 @@ class FakeOpikClient:
         if self.columns_error is not None:
             raise self.columns_error
         return self.compared_columns
+
+    async def get_compared_stats(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+        self.stats_calls.append({"dataset_id": dataset_id, **kw})
+        if self.stats_error is not None:
+            raise self.stats_error
+        (experiment_id,) = kw["experiment_ids"]
+        keyed = self.compared_stats.get((experiment_id, kw.get("filters")))
+        if keyed is not None:
+            return keyed
+        return self.compared_stats.get(experiment_id, {"stats": []})
+
+    async def list_feedback_definitions(self, **kw: Any) -> dict[str, Any]:
+        self.definition_calls.append(kw)
+        if self.definitions_error is not None:
+            raise self.definitions_error
+        return self.feedback_definitions
 
     async def list_spans(self, **_: Any) -> dict[str, Any]:
         # Not exercised by the list tool (span has no list_fn) — included to

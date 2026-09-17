@@ -25,10 +25,20 @@ import json
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.read_list.entities.dataset.figures import (
+    CATEGORY_CALL_CAP,
+    Figures,
+    category_clause,
+    figures_note,
+    label_counts_wanted,
+    render_figures,
+)
 from opik_mcp.read_list.entities.dataset.layout import (
+    NO_KINDS,
     PASS_SEPARATOR,
     RUN_SEPARATOR,
     Experiment,
+    ScoreKinds,
     render,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -97,17 +107,25 @@ async def run_compare(
     sorting, sort_label, sort_field = _sorting(sort)
 
     assertion_columns = any(experiment.is_suite for experiment in experiments)
-    # The output keys are the first page's business only, and they do not
-    # depend on it, so the two go out together rather than one after the other.
-    page_result, *column_results = await asyncio.gather(
+    filters_json = json.dumps(clauses, separators=(",", ":")) if clauses else None
+    # Everything the page needs and nothing that depends on it goes out at
+    # once: the rows, the output keys (first page only), the score
+    # definitions, and one stats call per experiment. Only the rows can fail
+    # the call; the rest decorate an answer and say so when they are missing.
+    page_result, definitions_result, *rest = await asyncio.gather(
         client.list_compared_dataset_items(
             ran_dataset_id,
             experiment_ids=ids,
-            filters=json.dumps(clauses, separators=(",", ":")) if clauses else None,
+            filters=filters_json,
             sorting=sorting,
             search=search or None,
             page=page,
             size=size,
+        ),
+        client.list_feedback_definitions(size=DEFINITIONS_PAGE),
+        *(
+            client.get_compared_stats(ran_dataset_id, experiment_ids=[one], filters=filters_json)
+            for one in ids
         ),
         *(
             [client.list_compared_output_columns(ran_dataset_id, experiment_ids=ids)]
@@ -122,6 +140,19 @@ async def run_compare(
     rows = [row for row in body.get("content") or [] if isinstance(row, dict)]
     total_raw = body.get("total")
     total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(rows)
+    stats_results, column_results = rest[: len(ids)], rest[len(ids) :]
+
+    kinds = _kinds(definitions_result)
+    figures: dict[str, Figures | BaseException] = {
+        one: got if isinstance(got, BaseException) else Figures.of(got)
+        for one, got in zip(ids, stats_results, strict=True)
+    }
+    label_counts, uncounted = await _label_counts(
+        client, ran_dataset_id, experiments, figures, kinds, clauses
+    )
+    figure_lines = render_figures(
+        experiments, figures, kinds, label_counts, counts_skipped=bool(uncounted)
+    )
 
     unrestored: list[str] = []
     if stripping and rows:
@@ -139,6 +170,8 @@ async def run_compare(
     # Warnings first: whether the table can be read at face value is decided
     # before how to read it.
     notes = [*_guards(experiments), _how_to_read(experiments, assertion_columns=assertion_columns)]
+    if figure_lines:
+        notes.append(figures_note(experiments, filtered=bool(clauses), skipped=uncounted))
     if stripping and rows:
         notes.append(
             "A filter on the runs matches a case when any of its experiments matches; the "
@@ -170,7 +203,7 @@ async def run_compare(
             page=page,
             total=total,
         )
-        return "\n".join([header, reason, "", *notes])
+        return "\n".join([header, reason, *figure_lines, "", *notes])
 
     return render(
         rows,
@@ -181,7 +214,66 @@ async def run_compare(
         header=header,
         notes=notes,
         assertion_columns=assertion_columns,
+        kinds=kinds,
+        figures=figure_lines,
     )
+
+
+#: Feedback definitions read in one page. A workspace defines a handful; the
+#: live one defines none. Past a hundred, the rest are read as plain numbers.
+DEFINITIONS_PAGE: Final = 100
+
+
+def _kinds(definitions: Any) -> ScoreKinds:
+    """The score kinds, or none when the definitions could not be read —
+    every score is then a number, which is what it was before OPIK-8394."""
+    if not isinstance(definitions, dict):
+        return NO_KINDS
+    content = definitions.get("content")
+    return ScoreKinds.of([d for d in content or [] if isinstance(d, dict)])
+
+
+async def _label_counts(
+    client: OpikReadClient,
+    dataset_id: str,
+    experiments: list[Experiment],
+    figures: dict[str, Figures | BaseException],
+    kinds: ScoreKinds,
+    clauses: list[dict[str, str]],
+) -> tuple[dict[tuple[str, str], dict[str, int]], list[str]]:
+    """Count each categorical score's labels per experiment, in one wave.
+
+    One stats call per (experiment, label), each the page's own filters plus
+    a clause pinning the score to that label's number. Returns the counts
+    keyed by (experiment id, score) and the score names left uncounted when
+    the wave would exceed ``CATEGORY_CALL_CAP``; a count that fails is left
+    out and the header shows the score as categorical without it.
+    """
+    wanted = label_counts_wanted(experiments, figures, kinds)
+    if not wanted:
+        return {}, []
+    if len(wanted) > CATEGORY_CALL_CAP:
+        return {}, sorted({name for _, name, _, _ in wanted})
+    answers = await asyncio.gather(
+        *(
+            client.get_compared_stats(
+                dataset_id,
+                experiment_ids=[experiment.id],
+                filters=json.dumps([*clauses, category_clause(name, value)], separators=(",", ":")),
+            )
+            for experiment, name, _, value in wanted
+        ),
+        return_exceptions=True,
+    )
+    counts: dict[tuple[str, str], dict[str, int]] = {}
+    for (experiment, name, label, _), answer in zip(wanted, answers, strict=True):
+        if isinstance(answer, BaseException):
+            continue
+        runs = Figures.of(answer).runs
+        if runs is None:
+            continue
+        counts.setdefault((experiment.id, name), {})[label] = runs
+    return counts, []
 
 
 def _keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> str | None:
@@ -541,7 +633,18 @@ def _how_to_read(experiments: list[Experiment], *, assertion_columns: bool) -> s
     if len(experiments) == 1:
         return f"Score cells carry {experiments[0].label}'s value.{passed}"
     order = RUN_SEPARATOR.join(e.label for e in experiments)
-    gap = ", and Δ is the unsigned gap between them" if len(experiments) == 2 else ""
+    gap = ""
+    if len(experiments) == 2:
+        # The sign is arithmetic. Opik's feedback definitions record a score's
+        # type and range and nothing about which way it improves, so the
+        # table cannot call a drop a regression; it says who scored higher
+        # and leaves the reading of a lower-is-better metric to the caller,
+        # in so many words.
+        gap = (
+            f", and Δ is {experiments[1].label} minus {experiments[0].label} (a + means "
+            f"{experiments[1].label} scored higher). No score definition records which "
+            "direction is better, so on a lower-is-better metric a + is the regression"
+        )
     return (
         f"{experiments[0].label} is the baseline; score cells read {order} "
         f"in that order{gap}.{passed}"

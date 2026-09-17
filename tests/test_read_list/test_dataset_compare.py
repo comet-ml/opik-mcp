@@ -128,7 +128,7 @@ async def test_a_row_is_one_case_with_every_experiments_score_in_one_cell() -> N
 
     # Case keys keep the plain listing's ranking: fill rate, then name.
     assert "id | data.expected_answer | data.question | correctness" in out
-    assert "case-1 | Paris | Capital of France? | 0.9 / 0.4 Δ0.5" in out
+    assert "case-1 | Paris | Capital of France? | 0.9 / 0.4 Δ-0.5" in out
     assert "Found 1 dataset_items (page 1, showing 1 of 1):" in out
 
 
@@ -144,7 +144,7 @@ async def test_the_legend_names_the_baseline_and_the_order_of_the_values() -> No
         f"[list: dataset_item | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
     )
     assert "E1 is the baseline" in out
-    assert "Δ is the unsigned gap between them" in out
+    assert "Δ is E2 minus E1 (a + means E2 scored higher)" in out
 
 
 @pytest.mark.anyio
@@ -195,7 +195,7 @@ async def test_several_runs_of_one_case_average_into_the_cell() -> None:
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "case-1 | Capital? | 0.75 / 0.4 Δ0.35" in out
+    assert "case-1 | Capital? | 0.75 / 0.4 Δ-0.35" in out
 
 
 @pytest.mark.anyio
@@ -510,7 +510,7 @@ async def test_a_suite_row_carries_pass_state_the_worst_trace_and_the_reason() -
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     assert "passed | worst_trace | reason" in out
-    assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
+    assert "1/1·0/1 | tr-b (E2) | names the capital: Names Lyon." in out
     assert "passed is passed/total runs, E1·E2." in out
 
 
@@ -529,7 +529,7 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     assert "reason" not in out
     # The run worth opening next is not a test suite's privilege.
     assert "correctness | worst_trace" in out
-    assert "0.9 / 0.4 Δ0.5 | tr-b (E2)" in out
+    assert "0.9 / 0.4 Δ-0.5 | tr-b (E2)" in out
 
 
 @pytest.mark.anyio
@@ -557,7 +557,7 @@ async def test_the_worst_trace_is_a_run_that_actually_failed() -> None:
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "1/1·1/2 | tr-b-fail (E2) | Names Lyon." in out
+    assert "1/1·1/2 | tr-b-fail (E2) | names the capital: Names Lyon." in out
 
 
 @pytest.mark.anyio
@@ -588,7 +588,7 @@ async def test_the_worst_run_is_the_worst_run_not_the_worst_average() -> None:
 
     # A averages 0.83 against B's 0.7, so an average would open B's trace and
     # show nothing. The lowest experiment item is A's third run.
-    assert "2/3·1/1 | tr-a3 (E1) | Names Lyon." in out
+    assert "2/3·1/1 | tr-a3 (E1) | names the capital: Names Lyon." in out
 
 
 @pytest.mark.anyio
@@ -1019,7 +1019,7 @@ async def test_a_failed_assertion_run_is_still_the_worst_trace_without_scores() 
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "1/1·0/1 | tr-b (E2) | Names Lyon." in out
+    assert "1/1·0/1 | tr-b (E2) | Names the capital: Names Lyon." in out
 
 
 @pytest.mark.anyio
