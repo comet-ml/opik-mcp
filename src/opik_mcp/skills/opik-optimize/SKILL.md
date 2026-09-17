@@ -54,7 +54,7 @@ dataset = client.get_dataset(name="<dataset>", project_name="<project>")
 
 ### 3. Define the metric
 A function `(dataset_item, llm_output) -> float`, higher is better. **Give it a real name** (`def refund_answer_similarity(...)`) — its `__name__` becomes the Optimization run's objective name in the UI and `result.metric_name`; a function called `metric` shows up as "metric".
-- `expected_output` present → heuristic (`LevenshteinRatio`, `Equals`, or a task-specific check) — deterministic and free.
+- `expected_output` present → heuristic (`LevenshteinRatio`, `Equals`, or a task-specific check) — deterministic and free. Prefer a **graded** metric over exact match: when the baseline scores 0.0 on every item (observed with `Equals` on a strict output format), every candidate also scores 0.0 and the optimizer has nothing to climb — five trials of flat zeros is a metric problem, not a prompt problem.
 - Otherwise → **one** binary judge for the failure mode being optimized (`../opik-evaluate/references/write-judge-prompt.md`), wrapped to return its score `.value`. Multi-objective → `MultiMetricObjective`.
 Never optimize against a judge nobody validated: an unvalidated judge is the easiest thing to overfit.
 

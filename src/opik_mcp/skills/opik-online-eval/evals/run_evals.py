@@ -1,26 +1,45 @@
 #!/usr/bin/env python3
 # mypy: ignore-errors
-"""Triggering harness for the `/opik-online-eval` skill (selection_accuracy).
+"""Test-automation harness for the `/opik-online-eval` skill.
 
-    uv run --with pyyaml python run_evals.py trigger-prepare
-    # ...a judge panel classifies each phrase (descriptions only) into verdicts.json...
-    uv run --with pyyaml python run_evals.py trigger-grade
+Flows:
 
-The functional contract is pinned in cases.yaml; its seeder and grader are the
-next step. Same shape as the other skills' harnesses.
+  1. Manual (default):
+        uv run --with pyyaml python run_evals.py prepare   # seed a fresh project per case
+        # ...run the /opik-online-eval skill in each _work/<case>/ (cwd = the workdir) with
+        #    PROMPT.txt; it should write result.json = {status, rule, score_name, variables,
+        #    verification, source, next_step}...
+        uv run --with pyyaml python run_evals.py grade     # score vs planted.json, offline
+        uv run --with pyyaml python run_evals.py verify    # (network) exactly one rule of that name
+
+  2. Triggering (selection_accuracy):
+        uv run --with pyyaml python run_evals.py trigger-prepare
+        uv run --with pyyaml python run_evals.py trigger-grade
+
+`prepare` runs the seeder (fixtures/traffic/seed.py) per case: six production-shaped
+traces in a fresh project, plus — for the edge case — a pre-created rule. Requires
+Opik configured and network. Rules run on the workspace's free provider, so no LLM
+key is needed. Grading is offline.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
+
+import grader
+import metrics
 
 HERE = Path(__file__).resolve().parent
 SKILL = HERE.parent / "SKILL.md"
 NAME = "opik-online-eval"
+FIXTURES = HERE / "fixtures"
 WORK = HERE / "_work"
 TRIG = WORK / "triggering"
 
@@ -55,6 +74,113 @@ def load_cases() -> dict:
     import yaml
 
     return yaml.safe_load((HERE / "cases.yaml").read_text())
+
+
+def _all_cases(cases: dict) -> list[tuple[str, dict]]:
+    return [("functional", c) for c in cases.get("functional", [])] + [
+        ("edge", c) for c in cases.get("edge", [])
+    ]
+
+
+def _seed(wd: Path, env: dict) -> dict | None:
+    try:
+        out = subprocess.run(
+            ["uv", "run", "--quiet", "python", "seed.py"],
+            cwd=wd,
+            capture_output=True,
+            text=True,
+            timeout=900,
+            env={**os.environ, **env},
+        )
+    except Exception as e:
+        print(f"  ! seed failed for {wd.name}: {e}")
+        return None
+    planted = wd / "planted.json"
+    if planted.exists():
+        return json.loads(planted.read_text())
+    print(f"  ! no planted.json from {wd.name}:\n{out.stdout[-400:]}\n{out.stderr[-400:]}")
+    return None
+
+
+def prepare() -> None:
+    cases = load_cases()
+    WORK.mkdir(exist_ok=True)
+    lines = [f"skill: {SKILL}", ""]
+    for area, c in _all_cases(cases):
+        wd = WORK / c["id"]
+        if wd.exists():
+            shutil.rmtree(wd)
+        shutil.copytree(FIXTURES / c["fixture"], wd)
+        planted = _seed(wd, {k: str(v) for k, v in (c.get("seed_env") or {}).items()})
+        project = (planted or {}).get("project", "<seed-failed>")
+        prompt = c["prompt"].replace("<PROJECT>", project)
+        (wd / "PROMPT.txt").write_text(prompt)
+        (wd / "seed.py").unlink(missing_ok=True)  # not part of what the skill may touch
+        lines.append(
+            f"## {c['id']}  ({area})\n- workdir: {wd}\n- project: {project}\n- prompt: {prompt}\n"
+        )
+    (WORK / "PROMPTS.md").write_text("\n".join(lines))
+    print(f"Prepared {len(_all_cases(cases))} workdir(s) under {WORK}")
+    print(f"Run /{NAME} in each workdir (cwd = the workdir), write result.json, then `grade`.")
+
+
+def _read_json(wd: Path, name: str) -> dict | None:
+    f = wd / name
+    if f.exists():
+        try:
+            return json.loads(f.read_text())
+        except Exception:
+            return None
+    return None
+
+
+def grade() -> int:
+    cases = load_cases()
+    results = []
+    for area, c in _all_cases(cases):
+        wd = WORK / c["id"]
+        if not wd.exists():
+            print(f"  ! skip {c['id']}: no workdir (run `prepare` + the skill first)")
+            continue
+        result = _read_json(wd, "result.json")
+        planted = _read_json(wd, "planted.json")
+        results.append(
+            grader.grade_case(c, FIXTURES / c["fixture"], wd, result, planted, area=area)
+        )
+    m = metrics.compute(results)
+    rep = metrics.report(results, m)
+    (WORK / "report.md").write_text(rep)
+    print(rep)
+    return 0 if all(r.passed for r in results) else 1
+
+
+def verify() -> int:
+    """Networked: the project holds exactly one rule with the reported name."""
+    import opik
+
+    client = opik.Opik()
+    rc = 0
+    for _area, c in _all_cases(load_cases()):
+        wd = WORK / c["id"]
+        result = _read_json(wd, "result.json") or {}
+        planted = _read_json(wd, "planted.json") or {}
+        name = (result.get("rule") or {}).get("name")
+        if not name or result.get("status") == "blocked":
+            continue
+        rules = client.rest_client.automation_rule_evaluators.find_evaluators(
+            project_id=planted["project_id"]
+        )
+        same = [r for r in (rules.content or []) if r.name == name]
+        ok = len(same) == 1
+        print(
+            f"[{'PASS' if ok else 'FAIL'}] {c['id']}: {len(same)} rule(s) named {name!r} in "
+            f"{planted['project']} (expect exactly 1)"
+        )
+        rc = rc or (0 if ok else 1)
+    return rc
+
+
+# ---------- triggering ----------
 
 
 def _skill_description() -> str:
@@ -106,23 +232,31 @@ def trigger_grade() -> int:
     trig = load_cases().get("triggering", {})
     st = {p: (verdicts.get(p) == NAME) for p in trig.get("should_trigger", [])}
     sn = {p: (verdicts.get(p) == NAME) for p in trig.get("should_not_trigger", [])}
-    correct = sum(1 for v in st.values() if v) + sum(1 for v in sn.values() if not v)
-    total = len(st) + len(sn)
-    acc = round(correct / total, 3) if total else 0.0
+    m = metrics.compute([], triggering={"should_trigger": st, "should_not_trigger": sn})
     for p, did in st.items():
         print(f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}")
     for p, did in sn.items():
         print(f"[{'PASS' if not did else 'FAIL'}] should_not_trigger: {p!r} -> {verdicts.get(p)}")
-    print(f"\nselection_accuracy: {acc}")
-    return 0 if acc == 1.0 else 1
+    print(f"\nselection_accuracy: {m.get('selection_accuracy')}")
+    return 0 if m.get("selection_accuracy") == 1.0 else 1
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=f"Triggering harness for the /{NAME} skill")
+    ap = argparse.ArgumentParser(description=f"Eval harness for the /{NAME} skill")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("prepare", help="seed a fresh project per case")
+    sub.add_parser("grade", help="grade result.json vs planted.json (offline)")
+    sub.add_parser("verify", help="(network) exactly one rule of the reported name exists")
     sub.add_parser("trigger-prepare", help="emit the triggering judge input")
     sub.add_parser("trigger-grade", help="score verdicts.json -> selection_accuracy")
     args = ap.parse_args()
+    if args.cmd == "prepare":
+        prepare()
+        return 0
+    if args.cmd == "grade":
+        return grade()
+    if args.cmd == "verify":
+        return verify()
     if args.cmd == "trigger-prepare":
         trigger_prepare()
         return 0
