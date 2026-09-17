@@ -230,19 +230,19 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
 # Only genuinely closed sets appear. ``environment`` is an enum to the operator
 # map but a free string in the data — any deployment names its own — so listing
 # values would reject valid filters.
-_SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
+SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
 
 ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     "trace": {
-        "source": _SOURCE_VALUES,
+        "source": SOURCE_VALUES,
         "visibility_mode": ("default", "hidden"),
     },
     "span": {
-        "source": _SOURCE_VALUES,
+        "source": SOURCE_VALUES,
         "type": ("general", "tool", "llm", "guardrail", "unknown"),
     },
     "thread": {
-        "source": _SOURCE_VALUES,
+        "source": SOURCE_VALUES,
         "status": ("active", "inactive"),
     },
     # ``ExperimentType``. The resource deserializes the query parameter into
@@ -346,13 +346,12 @@ PARENT_ID_FIELDS: Final[tuple[str, ...]] = (
 rest of that record rather than a triage of the project — so the ``sdk``
 default is not added on top of it.
 
-The two experiment fields joined late. ``list('trace', filters='experiment_id
-= "…"')`` answered "No traces found" on an experiment with twenty, because
-every experiment trace carries a source other than ``sdk`` (``evaluate`` and
-``run_tests`` write ``experiment``, the optimizer writes ``optimization``),
-and the default was added on top of the drill-in. Declared here beside the
-default it exempts from, because two callers apply that default — the list
-tool and the metric runner — and had to agree."""
+Every experiment trace carries a source other than ``sdk`` (``evaluate`` and
+``run_tests`` write ``experiment``, the optimizer writes ``optimization``), so
+the default on top of an experiment drill-in hid all of it; the list tool's
+``_without_default`` tells that story. Declared here beside the default it
+exempts from, because two callers apply that default — the list tool and the
+metric runner — and had to agree."""
 SDK_SOURCE_CLAUSE: Final[dict[str, str]] = {
     "field": "source",
     "operator": "=",
@@ -724,7 +723,7 @@ def _dynamic_clause(field: str, key: str | None, raw: _RawClause) -> dict[str, s
     }
 
 
-def _operand_values(operator: str, value: str) -> list[str]:
+def operand_values(operator: str, value: str) -> list[str]:
     """The values a clause names. ``in``/``not_in`` carry them comma-joined;
     everything else names exactly one."""
     return value.split(",") if operator in LIST_VALUE_OPERATORS else [value]
@@ -743,7 +742,7 @@ def _param_operator_issue(
     base = f"Operator '{raw.operator}' is not valid for '{field}' on {entity_type}: {spec.why}."
     values = ENUM_VALUES.get(entity_type, {}).get(field)
     if values is not None and raw.operator in NEGATING_OPERATORS:
-        excluded = set(_operand_values(raw.operator, raw.value))
+        excluded = set(operand_values(raw.operator, raw.value))
         rest = [v for v in values if v not in excluded]
         if rest:
             items = ", ".join(_quote(v) for v in rest)
@@ -806,7 +805,7 @@ def _validate_value(
         )
     spec = PARAM_FIELDS.get(entity_type, {}).get(field)
     if spec is not None and spec.value_form == "uuid":
-        bad = [v for v in _operand_values(raw.operator, raw.value) if not is_uuid(v)]
+        bad = [v for v in operand_values(raw.operator, raw.value) if not is_uuid(v)]
         if bad:
             return OQLIssue(
                 "bad_value",
@@ -818,7 +817,7 @@ def _validate_value(
     if allowed is not None:
         # ``in``/``not_in`` values arrive comma-joined; one bad element fails
         # the whole filter server-side, so every element is checked.
-        bad = [v for v in _operand_values(raw.operator, raw.value) if v not in allowed]
+        bad = [v for v in operand_values(raw.operator, raw.value) if v not in allowed]
         if bad:
             return OQLIssue(
                 "bad_value",
@@ -956,7 +955,7 @@ def split_param_clauses(
                     )
                 ],
             )
-        values = _operand_values(clause["operator"], clause["value"])
+        values = operand_values(clause["operator"], clause["value"])
         params[spec.param] = (
             json.dumps(values, separators=(",", ":")) if spec.encoding == "json_list" else values[0]
         )
@@ -977,7 +976,7 @@ def render_filters(entity_type: str, clauses: list[dict[str, str]]) -> str:
         if op in NO_VALUE_OPERATORS:
             parts.append(f"{name} {op}")
         elif op in LIST_VALUE_OPERATORS:
-            items = ", ".join(_quote(v) for v in _operand_values(op, value))
+            items = ", ".join(_quote(v) for v in operand_values(op, value))
             parts.append(f"{name} {op} ({items})")
         elif fields.get(field) in ("number", "feedback_scores"):
             parts.append(f"{name} {op} {value}")

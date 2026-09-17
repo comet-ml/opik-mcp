@@ -97,9 +97,10 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     """``experiment_id``, from the ``experiment`` reference the record carries.
 
     The filter field is ``experiment_id``; the trace record has ``experiment:
-    {id, …}``. A caller who filtered on the field saw its column empty on
-    every row, which reads as "these traces have no experiment" about traces
-    selected for having one.
+    {id, …}``. A column named after the field resolved to nothing, and an
+    empty column under a filter on it reads as "these traces have no
+    experiment". A filter that pins one id drops the column (the header
+    states it); ``!=`` or ``in`` over several keeps it, and this fills it.
     """
     if "experiment_id" in record:
         return record

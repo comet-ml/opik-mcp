@@ -246,11 +246,9 @@ async def test_empty_result_with_an_explicit_source_carries_no_hint() -> None:
 @pytest.mark.anyio
 async def test_the_agents_own_filters_no_longer_silence_the_hint_when_it_is_true() -> None:
     """This used to assert the opposite: with filters of the agent's own, the
-    hint was suppressed on the guess that those were the likelier reason.
-    Driving the tool, ``experiment_id = "…"`` on an experiment with twenty
-    traces got "No traces found" and no hint — the guess was wrong and there
-    was no way to know. The hint is earned by the probe now, whatever the
-    caller filtered on; the guess is gone."""
+    hint was suppressed on the guess that those were the likelier reason. The
+    hint is earned by the probe now, whatever the caller filtered on (see
+    ``list_tool._without_default`` for the case that ended the guess)."""
     fake = SourceAwareClient(hidden=20)
     out = await run_list("trace", project_id="p-1", filters="duration > 5", client=fake)
     assert "20 traces match without the default" in out
@@ -891,6 +889,53 @@ async def test_a_filter_pinned_to_one_value_adds_no_column_even_when_the_entity_
     out = await run_list("experiment", filters=f'optimization_id = "{run}"', client=fake)
     assert run in out.splitlines()[0], "the header still says which run"
     assert "optimization_id" not in out.splitlines()[3]
+    assert "optimization_id is pinned by the filter; the header states the value." in out, (
+        "the note accounts for a column the page had and the table left out"
+    )
+
+
+@pytest.mark.anyio
+async def test_pinning_one_score_keeps_the_summary_that_carries_the_others() -> None:
+    """``feedback_scores.acc = 0.9`` pins one score, not the ``feedback_scores``
+    column, which still carries every other score on the row. The first
+    version pinned by root and lost f1 here."""
+    fake = FakeOpikClient(
+        experiments=_page(
+            [
+                {
+                    "id": "e-1",
+                    "name": "a",
+                    "feedback_scores": [
+                        {"name": "acc", "value": 0.9},
+                        {"name": "f1", "value": 0.4},
+                    ],
+                }
+            ]
+        )
+    )
+    out = await run_list("experiment", filters="feedback_scores.acc = 0.9", client=fake)
+    assert "feedback_scores" in out.splitlines()[3]
+    assert "f1=0.4" in out.splitlines()[4]
+    assert "pinned by the filter" not in out, "nothing was dropped, so nothing is said"
+
+
+@pytest.mark.anyio
+async def test_pinning_one_metadata_key_leaves_a_sibling_keys_column_alone() -> None:
+    fake = FakeOpikClient(
+        traces=_page(
+            [{"id": "t-1", "name": "a", "metadata": {"environment": "staging", "region": "eu-1"}}]
+        )
+    )
+    out = await run_list(
+        "trace",
+        project_id="p-1",
+        filters='metadata.environment = "staging" AND metadata.region contains "eu"',
+        client=fake,
+    )
+    header = out.splitlines()[3]
+    assert "metadata.region" in header
+    assert "metadata.environment" not in header
+    assert "eu-1" in out.splitlines()[4]
 
 
 @pytest.mark.anyio
@@ -905,9 +950,9 @@ async def test_a_range_clause_still_earns_its_column() -> None:
 
 @pytest.mark.anyio
 async def test_a_line_break_or_a_pipe_in_a_value_stays_inside_its_cell() -> None:
-    """A name or a reason is prose. A line break split the row in two and a
-    bare pipe added a column; the comparison table learnt this first, and the
-    rule now lives where every table reads it."""
+    """A trace name with a line break split its row in two, and a bare pipe
+    added a column. The rule is ``columns.one_line``, shared with the
+    comparison table."""
     fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "first line\nsecond | third"}]))
     out = await run_list("trace", project_id="p-1", client=fake)
     rows = [line for line in out.splitlines() if line.startswith("t-1")]

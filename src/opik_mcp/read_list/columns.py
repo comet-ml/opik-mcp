@@ -50,11 +50,10 @@ _WHITESPACE = re.compile(r"\s+")
 def one_line(text: str) -> str:
     """A cell the pipe table can hold: no line breaks, no bare ``|``.
 
-    A judge's reason is prose with paragraph breaks, and a case's data can be
-    anything the user put there. Either would split the row or add a column;
-    the first real dataset would have broken the table. The comparison table
-    learnt this first; every table applies it now, from here, so two tables
-    cannot escape differently.
+    A judge's reason is prose with paragraph breaks, a trace name can carry a
+    newline, and a case's data can be anything the user put there. Either
+    would split the row or add a column. Every table applies this from here,
+    so two tables cannot escape differently.
     """
     return _WHITESPACE.sub(" ", text.replace("|", "¦")).strip()
 

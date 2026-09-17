@@ -64,10 +64,12 @@ from opik_mcp.read_list.oql import (
     PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
+    SOURCE_VALUES,
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
     OQLError,
     compile_filters,
+    operand_values,
     render_filters,
     split_param_clauses,
 )
@@ -458,7 +460,7 @@ async def run_list(
             # widening it would find anything. Only when the page's own total
             # is zero: a slice past the last page has rows, on an earlier page.
             widened = (
-                _without_default(opik, handler.list_fn, kw, clauses)
+                _without_default(entity_type, opik, handler.list_fn, kw, clauses)
                 if source_defaulted and total == 0
                 else None
             )
@@ -475,7 +477,7 @@ async def run_list(
 
         extra = _requested_columns(sort_field, clauses)
         table = _format_table(
-            entity_type, handler, content, total, page, size, name, extra, _pinned_fields(clauses)
+            entity_type, handler, content, total, page, size, name, extra, _pinned_columns(clauses)
         )
         if handler.page_note_fn is not None:
             note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
@@ -519,17 +521,19 @@ def _source_hint(entity_type: str, hidden: int) -> str:
     optimizer's traces were the ones a caller went looking for and were not
     told about.
     """
+    named = [v for v in SOURCE_VALUES if v not in ("sdk", "unknown")]
+    choices = ", ".join(f'"{v}"' for v in named[:-1]) + f' or "{named[-1]}"'
     return (
         f"{hidden} {entity_type}{'s' if hidden != 1 else ''} match without the default "
         'source = "sdk", which is all that is listed unless you name a source. Add '
-        'source = "experiment", "evaluator", "playground" or "optimization" to filters to '
-        "see them."
+        f"source = {choices} to filters to see them."
     )
 
 
 def _without_default(
+    entity_type: str,
     opik: OpikListClient,
-    list_fn: ListFn | None,
+    list_fn: ListFn,
     kw: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
@@ -548,15 +552,16 @@ def _without_default(
     """
 
     async def count() -> int | None:
-        if list_fn is None:
-            return None
         kept = [c for c in clauses if c != SDK_SOURCE_CLAUSE]
         probe = {**kw, "page": 1, "size": 1}
-        if kept:
-            probe["filters"] = json.dumps(kept, separators=(",", ":"))
-        else:
-            probe.pop("filters", None)
+        probe.pop("filters", None)
         try:
+            # The same split the page went through: a clause that is a query
+            # parameter must not turn back into a filter entry on the probe.
+            sent, params = split_param_clauses(entity_type, kept)
+            probe.update(params)
+            if sent:
+                probe["filters"] = json.dumps(sent, separators=(",", ":"))
             body = await list_fn(opik, **probe)
         except Exception:
             logger.debug("widening probe for the source hint failed", exc_info=True)
@@ -653,7 +658,12 @@ def _pinned(clause: dict[str, str]) -> bool:
     """
     if clause["operator"] == "=":
         return True
-    return clause["operator"] == "in" and "," not in clause.get("value", "")
+    return clause["operator"] == "in" and len(operand_values("in", clause.get("value", ""))) == 1
+
+
+def _column_of(clause: dict[str, str]) -> str:
+    """The column a clause is about: ``field.key`` for a nested reference."""
+    return f"{clause['field']}.{clause['key']}" if clause.get("key") else clause["field"]
 
 
 def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) -> list[str]:
@@ -663,15 +673,21 @@ def _requested_columns(sort_field: str | None, clauses: list[dict[str, str]]) ->
     if sort_field is not None:
         out.append(sort_field)
     for c in clauses:
-        col = f"{c['field']}.{c['key']}" if c.get("key") else c["field"]
+        col = _column_of(c)
         if c["field"] not in _NEVER_COLUMNS and col not in out:
             out.append(col)
     return out
 
 
-def _pinned_fields(clauses: list[dict[str, str]]) -> frozenset[str]:
-    """Fields the request fixed to one value, whatever column would show them."""
-    return frozenset(c["field"] for c in clauses if _pinned(c))
+def _pinned_columns(clauses: list[dict[str, str]]) -> frozenset[str]:
+    """The exact columns the request fixed to one value.
+
+    Exact, not by root: ``feedback_scores.acc = 0.9`` pins one score, and the
+    ``feedback_scores`` summary beside it still carries every other score;
+    ``metadata.environment = "staging"`` says nothing about a
+    ``metadata.region contains "eu"`` column on the same request.
+    """
+    return frozenset(_column_of(c) for c in clauses if _pinned(c))
 
 
 def _format_table(
@@ -716,7 +732,8 @@ def _format_table(
         # twice, and reads like a second metric. The summary column wins.
         if col not in columns and col.partition(".")[0] not in columns:
             columns = (*columns, col)
-    columns = tuple(c for c in columns if c in base or c.partition(".")[0] not in pinned)
+    dropped = tuple(c for c in columns if c not in base and c in pinned)
+    columns = tuple(c for c in columns if c not in dropped)
     count = len(content)
     if name:
         header = (
@@ -749,6 +766,12 @@ def _format_table(
     notes: list[str] = []
     if projection is not None and projection.note:
         notes.append(projection.note)
+    if dropped:
+        # The projection's note promised to account for every column the page
+        # had; a column the filter pinned is left out after it decided.
+        names = ", ".join(dropped)
+        verb = "is" if len(dropped) == 1 else "are"
+        notes.append(f"{names} {verb} pinned by the filter; the header states the value.")
     if cut:
         cut_line = f"{cut} value{'s' if cut != 1 else ''} cut at {cell_limit} chars"
         if projection is not None and projection.cut_hint:

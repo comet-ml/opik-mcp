@@ -150,11 +150,12 @@ def _report_to_sentry(
 ) -> None:
     """Capture a tool-call failure with the bucket context BI already tracks.
 
-    ``props_fn`` is invoked with ``result=None`` on the failure path — every
-    current implementation derives its bucket props from ``kwargs`` only
-    (the ``result`` argument is underscore-prefixed in all six sites). If
-    that contract ever changes, the inner try/except swallows the failure
-    so we still get the bare exception instead of nothing.
+    ``props_fn`` is invoked with ``result=None`` on the failure path — no
+    implementation reads ``result`` (the argument is underscore-prefixed in
+    all six sites). The list props also read two booleans the list call left
+    in a ContextVar, which a failed call leaves empty. If that contract ever
+    changes, the inner try/except swallows the failure so we still get the
+    bare exception instead of nothing.
 
     MCP host fingerprint (``mcp_host`` / ``mcp_client_version``) is attached
     when available — invaluable when triaging which client (Claude Code,
