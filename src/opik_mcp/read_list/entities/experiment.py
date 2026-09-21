@@ -12,7 +12,7 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.columns import has_value, resolve
 from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
-from opik_mcp.read_list.oql import ENUM_VALUES, PARAM_FIELDS
+from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
 
@@ -87,12 +87,27 @@ _CONDITIONAL: Final = (
     "optimization_id",
 )
 
-#: The table advertises a filter field by rendering it as a column. These
-#: two are not columns on an ordinary page — an experiment nobody optimized
-#: has no optimization id — so they are named instead. Read off the
-#: compiler's own table, so the hint cannot come to name a field that no
-#: longer compiles.
-_FILTER_HINT: Final = f"filter: {', '.join(PARAM_FIELDS['experiment'])}."
+#: Every field a caller may filter this listing on, and where the operators
+#: are. It used to name ``PARAM_FIELDS`` — the three the backend takes as
+#: query parameters — on the premise that a rendered column advertises its
+#: own filterability and so needs no naming. Driving the built server, that
+#: premise held for one of the other seven: ``dataset_id`` is filterable
+#: while the column is ``dataset_name``, and ``metadata``, ``project_id``,
+#: ``prompt_ids``, ``tags`` and ``experiment_scores`` are not columns at all.
+#: A footer that claimed to say what you could filter by named three of ten,
+#: and scoping a workspace to one dataset — the commonest scope there is —
+#: was reachable only by reading the schema first.
+#:
+#: Naming all ten rather than the ones the page cannot show keeps the line
+#: the same on every page: a hint whose contents depend on which conditional
+#: columns this page happened to fill is a hint no caller can learn. Read off
+#: the compiler's own table, so it cannot come to name a field that no longer
+#: compiles, and closed with the schema call, because the page can say which
+#: fields exist but not which operators each one takes.
+_FILTER_HINT: Final = (
+    f"filter: {', '.join(sorted(FILTERABLE_FIELDS['experiment']))}. "
+    'Operators: schema("list.experiment").'
+)
 
 #: The table's own default. Named rather than widened: an experiment's
 #: scores are no longer than a trace's, and the table states every cut it

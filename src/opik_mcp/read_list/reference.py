@@ -109,10 +109,14 @@ FIELD_NOTES: Final[dict[str, dict[str, str]]] = {
             "not have; a key you can name (data.<key>) is the cheaper question."
         ),
         "source": (
-            "how the case was created: manual, trace, span or sdk. A plain string column, "
-            "not an enum the backend validates the way trace.source is — so the operators "
-            "are the string ones, substrings included, and a value outside that set "
-            "compiles and answers an empty page rather than an error."
+            "how the case was created: manual, trace, span or sdk. Use contains — it is the "
+            "only operator that answers. The column is a ClickHouse Enum8 while "
+            "opik-backend declares the filter field as a string, so = and starts_with "
+            "compile to lower(source), which ClickHouse cannot apply to an enum and which "
+            "fails the request with a 500; contains compiles to ilike, which converts. "
+            "Measured against two unrelated datasets, on a valid value as well as an "
+            "unknown one. Fixed backend-side by typing the field as the enum it is, the way "
+            "TraceField.SOURCE already is — at which point = works and contains stops."
         ),
         "data": (
             "the case's own keys, one per column of the dataset — data.question, "

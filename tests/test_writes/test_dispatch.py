@@ -1173,3 +1173,61 @@ async def test_issue_lifecycle_dry_run_shows_the_real_path_and_body() -> None:
     assert call["method"] == "PATCH"
     assert call["path"] == f"/v1/private/agent-insights/issues/{ISSUE}"
     assert call["body"] == {"project_id": PROJECT, "status": "closed"}
+
+
+# --- the receipt counts what was sent ------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_an_envelope_upsert_counts_its_cases_not_its_envelope() -> None:
+    """``item_count`` used to be the length of the top-level payload, which for
+    an always-envelope operation is the envelope: five cases in, ``1`` back.
+    The rows were written correctly, so the only thing wrong was the number an
+    agent reads to decide whether to send them again."""
+    result = await run_write(
+        operation="dataset_item.upsert",
+        data={
+            "dataset_name": "regressions",
+            "items": [{"data": {"q": str(n)}} for n in range(5)],
+        },
+        dry_run=True,
+        client=_client(),
+    )
+    assert result["would_call"]["item_count"] == 5
+    assert len(result["would_call"]["body"]["items"]) == 5
+
+
+@pytest.mark.anyio
+async def test_experiment_items_are_counted_through_their_own_envelope() -> None:
+    result = await run_write(
+        operation="experiment_item.create",
+        data={
+            "experiment_items": [
+                {
+                    "experiment_id": "01923456-7890-7abc-8def-000000000001",
+                    "dataset_item_id": "01923456-7890-7abc-8def-000000000002",
+                    "trace_id": f"01923456-7890-7abc-8def-00000000000{n}",
+                }
+                for n in (3, 4)
+            ]
+        },
+        dry_run=True,
+        client=_client(),
+    )
+    assert result["would_call"]["item_count"] == 2
+
+
+@pytest.mark.anyio
+async def test_a_top_level_payload_still_counts_itself() -> None:
+    """The envelope key is the exception, not the rule: an operation whose
+    records sit at the top level is unchanged."""
+    result = await run_write(
+        operation="trace.create",
+        data=[
+            {"name": "a", "start_time": "2026-05-18T12:00:00Z", "project_name": "demo"},
+            {"name": "b", "start_time": "2026-05-18T12:00:01Z", "project_name": "demo"},
+        ],
+        dry_run=True,
+        client=_client(),
+    )
+    assert result["would_call"]["item_count"] == 2

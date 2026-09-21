@@ -162,8 +162,8 @@ def test_the_note_names_what_was_left_out_and_why() -> None:
 
 
 def test_the_note_carries_the_filter_vocabulary_even_with_nothing_omitted() -> None:
-    """The columns teach what can be sorted; this line is where the two
-    fields that are not columns on an ordinary page get named."""
+    """The columns teach what can be sorted; this line is where every field a
+    caller may filter on gets named, column or not."""
     note = _project(
         _experiment(
             "everything",
@@ -174,7 +174,13 @@ def test_the_note_carries_the_filter_vocabulary_even_with_nothing_omitted() -> N
         )
     ).note
     assert note is not None
-    assert "type" in note and "optimization_id" in note
+    # The three that are query parameters rather than OQL fields...
+    assert "type" in note and "optimization_id" in note and "experiment_ids" in note
+    # ...and the ones a column never advertised: dataset_id is filterable
+    # while the column is dataset_name, and these are not columns at all.
+    for hidden in ("dataset_id", "metadata", "project_id", "prompt_ids", "tags"):
+        assert hidden in note, f"{hidden} is filterable and went unnamed"
+    assert 'schema("list.experiment")' in note, "and the operators are one call away"
 
 
 # --- the cells ------------------------------------------------------------- #
@@ -420,7 +426,7 @@ async def test_a_full_page_pays_for_no_second_note() -> None:
     print the same advice twice."""
     fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
     out = await run_list("experiment", client=fake)
-    assert "filter: type, optimization_id, experiment_ids." in out, (
+    assert "dataset_id" in out and 'schema("list.experiment")' in out, (
         "the projection note still carries the hint"
     )
     assert "type accepts" not in out, "and the page note stayed silent"

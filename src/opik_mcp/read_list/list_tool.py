@@ -502,12 +502,21 @@ async def run_list(
                 if source_defaulted and total == 0
                 else None
             )
+            # Only when the caller filtered: without one there is no filter to
+            # lift, and the probe would re-ask the question the page just
+            # answered.
+            unfiltered = (
+                _without_filters(entity_type, opik, handler.list_fn, kw, clauses)
+                if page_ctx.filtered and total == 0
+                else None
+            )
             empty = await _empty_message(
                 opik,
                 handler,
                 name=name,
                 from_time=kw.get("from_time"),
                 widened=widened,
+                unfiltered=unfiltered,
                 settings=resolved_settings,
                 page_ctx=page_ctx,
             )
@@ -608,20 +617,55 @@ def _without_default(
     the caller already has, and must never turn it into an error.
     """
 
+    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
+
+
+def _without_filters(
+    entity_type: str,
+    opik: OpikListClient,
+    list_fn: ListFn,
+    kw: dict[str, Any],
+    clauses: list[dict[str, str]],
+) -> Callable[[], Awaitable[int | None]]:
+    """The same listing again, one row wide, with the caller's filters lifted.
+
+    The third reading of an empty page, and the one nothing covered. The
+    source probe answers "a default hid them" and the window check answers
+    "they are older than you asked for"; when both come back no, the page
+    still cannot say whether the scope is empty or the filter simply matched
+    none of it. Measured on a live project, ``error_info is_not_empty``
+    returned "No traces found" over 164 traces in the same window — read, as
+    it invites, as "this project is empty" rather than "nothing is broken".
+
+    Keeps the ``sdk`` default when the page applied it, so the count is of
+    the rows the caller would otherwise have seen, not a wider set they would
+    then have to reconcile.
+    """
+    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
+
+
+def _probe(
+    entity_type: str,
+    opik: OpikListClient,
+    list_fn: ListFn,
+    kw: dict[str, Any],
+    clauses: list[dict[str, str]],
+) -> Callable[[], Awaitable[int | None]]:
+    """One-row count of ``clauses``, or ``None`` when it cannot be had."""
+
     async def count() -> int | None:
-        kept = [c for c in clauses if c != SDK_SOURCE_CLAUSE]
         probe = {**kw, "page": 1, "size": 1}
         probe.pop("filters", None)
         try:
             # The same split the page went through: a clause that is a query
             # parameter must not turn back into a filter entry on the probe.
-            sent, params = split_param_clauses(entity_type, kept)
+            sent, params = split_param_clauses(entity_type, clauses)
             probe.update(params)
             if sent:
                 probe["filters"] = json.dumps(sent, separators=(",", ":"))
             body = await list_fn(opik, **probe)
         except Exception:
-            logger.debug("widening probe for the source hint failed", exc_info=True)
+            logger.debug("empty-page probe failed", exc_info=True)
             return None
         found = body.get("total") if isinstance(body, dict) else None
         return found if isinstance(found, int) else None
@@ -636,16 +680,19 @@ async def _empty_message(
     name: str | None,
     from_time: str | None,
     widened: Callable[[], Awaitable[int | None]] | None,
+    unfiltered: Callable[[], Awaitable[int | None]] | None,
     settings: Settings,
     page_ctx: PageContext,
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
-    Two cases seen live look identical without help: a project holding only
-    experiment traces under the ``source = "sdk"`` default, and a window that
-    starts after the project's last trace. Each costs one extra call, spent
-    only on an empty page: a one-row probe without the default for the first
-    (see :func:`_without_default`), a project read for the second.
+    Three cases seen live look identical without help: a project holding only
+    experiment traces under the ``source = "sdk"`` default, a window that
+    starts after the project's last trace, and a filter that matched none of
+    a scope that is not itself empty. Each costs one extra call, spent only
+    on an empty page: a one-row probe without the default for the first (see
+    :func:`_without_default`), a project read for the second, a one-row probe
+    without the caller's filters for the third (:func:`_without_filters`).
 
     An entity whose empty page has its own ambiguity (a Diagnostics issue
     list: never enabled, off, unscanned, or genuinely clean) explains itself
@@ -658,9 +705,22 @@ async def _empty_message(
         note = await handler.page_note_fn(opik, settings, page_ctx)
         return f"{empty} {note}" if note else empty
 
+    async def scoped() -> str:
+        """What the filter matched none of, when nothing else explains it."""
+        found = await unfiltered() if unfiltered is not None else None
+        if not found:
+            # Zero, or no answer. Either way there is nothing to contrast the
+            # empty page against, and a note with no fact in it is noise.
+            return empty
+        plural = "s" if found != 1 else ""
+        return (
+            f"{empty} Without your filter this listing has {found} "
+            f"{entity_type}{plural}; none of them match it."
+        )
+
     async def hinted() -> str:
         hidden = await widened() if widened is not None else None
-        return f"{empty} {_source_hint(entity_type, hidden)}" if hidden else empty
+        return f"{empty} {_source_hint(entity_type, hidden)}" if hidden else await scoped()
 
     if from_time is None:
         return await hinted()
