@@ -747,16 +747,17 @@ def _format_table(
     else:
         header = f"Found {total} {entity_type}s (page {page}, showing {count} of {total}):"
 
-    col_header = " | ".join(_COLUMN_LABELS.get(c, c) for c in columns)
+    # The column names are data too: a dataset item's columns are the keys
+    # the user chose for its ``data`` map, and one with a line break split
+    # the header line in two while a bare pipe left the table with a name no
+    # row had a cell for.
+    col_header = " | ".join(one_line(_COLUMN_LABELS.get(c, c)) for c in columns)
     rows: list[str] = []
     cut = 0
     for item in content:
         values: list[str] = []
         for col in columns:
-            # A name, a reason or a case's data can carry a line break or a
-            # bare pipe; either splits the row or adds a column. Same rule
-            # the comparison table applies, from the same place.
-            s = one_line(_render(col, _cell(item, col)))
+            s = _render(col, _cell(item, col))
             if len(s) > cell_limit:
                 s = s[: cell_limit - 3] + "..."
                 cut += 1
@@ -836,7 +837,19 @@ _ISO_WITH_FRACTION = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|
 
 
 def _render(col: str, val: Any) -> str:
-    """One cell, compact: whole milliseconds, seconds-precision timestamps,
+    """One cell of the table: compact, and one cell.
+
+    A name, a reason or a case's data can carry a line break or a bare pipe;
+    either splits the row or adds a column to it. The escaping is applied
+    here rather than at the call site so that rendering a cell and making it
+    safe to put in a cell are one step — it is the same rule the comparison
+    table applies, from the same place (``columns.one_line``).
+    """
+    return one_line(_compact(col, val))
+
+
+def _compact(col: str, val: Any) -> str:
+    """The value itself: whole milliseconds, seconds-precision timestamps,
     plain decimals. Every page pays for every character here."""
     if val is None:
         return ""
