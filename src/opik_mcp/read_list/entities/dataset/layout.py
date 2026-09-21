@@ -367,7 +367,11 @@ def _worst(
     The worst run is the single experiment item with the lowest sum of the
     scores it recorded — not the experiment with the lowest average, which an
     experiment that ran the case three times can win while every one of its
-    runs passed. Its experiment owns the row's trace.
+    runs passed. Its experiment owns the row's trace. A run that recorded
+    nothing sums to zero, which makes it the one to open — the likeliest
+    place for the error the joined row cannot carry. A categorical score
+    enters the sum as its stored number, and the definition orders those
+    (``low`` is 0, ``high`` is 2), so the lower label still loses.
 
     Within that experiment it is the first run that *failed*, because one that
     ran the case three times and failed once has two traces that show nothing;

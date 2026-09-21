@@ -431,6 +431,10 @@ async def run_list(
             # workspace — the only signal that the page is not actually ordered.
             if page_body.get("sortable_by") == []:
                 sort_label += " (dropped by the backend for this workspace size; page is unsorted)"
+                # Nothing downstream may read this page as ordered: the
+                # ranking caveat once fired here and told the caller the first
+                # two rows were ranked, on a page the header called unsorted.
+                sort_field = None
             applied.insert(sort_slot, sort_label)
 
         header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None

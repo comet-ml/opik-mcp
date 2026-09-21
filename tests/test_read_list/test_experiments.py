@@ -465,6 +465,19 @@ async def test_a_ranking_over_a_thin_sample_is_flagged_with_the_gap_and_the_coun
 
 
 @pytest.mark.anyio
+async def test_a_sort_the_backend_dropped_leaves_no_ranking_to_caveat() -> None:
+    """The backend blanks ``sortable_by`` when it dropped the sort for a large
+    workspace. The header says the page is unsorted; the caveat once fired
+    anyway and told the caller the first two rows were ranked, so the answer
+    contradicted itself (found in review on PR #192)."""
+    fake = _ranked(("winner", 0.634, 3), ("runner-up", 0.575, 3))
+    fake.experiments["sortable_by"] = []
+    out = await run_list("experiment", sort="feedback_scores.accuracy desc", client=fake)
+    assert "page is unsorted" in out.splitlines()[0]
+    assert "Ranked by" not in out
+
+
+@pytest.mark.anyio
 async def test_a_ranking_over_enough_cases_carries_no_caveat() -> None:
     fake = _ranked(("winner", 0.634, 40), ("runner-up", 0.575, 25))
     out = await run_list("experiment", sort="feedback_scores.accuracy desc", client=fake)

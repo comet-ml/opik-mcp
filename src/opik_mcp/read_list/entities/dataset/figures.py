@@ -118,6 +118,12 @@ def render_figures(
     score renders its labels' counts in place of a mean, or, when the count
     calls were skipped for being too many, says so and how to get one.
     """
+    # A body with nothing in it. When every experiment's is empty there are
+    # no lines at all — no line beats a label with nothing after it. When one
+    # experiment's is empty beside another's figures, its line says so, or the
+    # missing line would read as a missing experiment.
+    if all(figures.get(e.id) == Figures() for e in experiments):
+        return []
     lines: list[str] = []
     for experiment in experiments:
         got = figures.get(experiment.id)
@@ -129,8 +135,7 @@ def render_figures(
             lines.append(f"{experiment.label}: 0 runs match")
             continue
         if got == Figures():
-            # A body with nothing in it: no line beats a label with nothing
-            # after it, and the note still says what the lines would be.
+            lines.append(f"{experiment.label}: no figures returned")
             continue
         parts: list[str] = []
         if got.runs is not None:
@@ -166,12 +171,14 @@ def figures_note(experiments: list[Experiment], *, filtered: bool, skipped: list
         "mean per score, mean cost, median duration."
     )
     if skipped:
-        names = ", ".join(sorted(skipped))
+        names = sorted(skipped)
         text += (
-            f" {names} {'is' if len(skipped) == 1 else 'are'} categorical and not counted per "
-            f"label here (more than {CATEGORY_CALL_CAP} calls); pin one label with "
-            f"filters='feedback_scores.{sorted(skipped)[0]} = <value>' to count it."
+            f" {', '.join(names)} {'is' if len(names) == 1 else 'are'} categorical and not "
+            f"counted per label here (more than {CATEGORY_CALL_CAP} calls); pin one label with "
+            f"filters='feedback_scores.{names[0]} = <value>' to count it."
         )
-    if len(experiments) > 1:
+    if filtered and len(experiments) > 1:
+        # Unfiltered, a different count is different coverage, and the guard
+        # above the table already says so.
         text += " A different run count per experiment means the filter matched them differently."
     return text
