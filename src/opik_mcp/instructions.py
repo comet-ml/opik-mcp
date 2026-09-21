@@ -90,10 +90,7 @@ Schema + bundled example). Operations covered by Phase 1: \
 tools/list for what's actually advertised on this connection.
 - read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
 Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
-task — unless it's already in your context, in which case use what you have. \
-"Why did quality drop", "which cases regressed" and "compare these two \
-experiments" are opik-compare: it reads two runs on one suite back case by \
-case, which an aggregate score cannot answer.
+task — unless it's already in your context, in which case use what you have.
 
 Today's date is {date}.\
 """
