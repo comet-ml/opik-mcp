@@ -18,7 +18,8 @@ and why the notice is ours to write.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import json
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 #: ``ResponseFormattingConfig.truncationSize`` in opik-backend: a field this
@@ -44,6 +45,65 @@ def count_cut(children: Iterable[Mapping[str, Any]], fields: tuple[str, ...]) ->
     return sum(1 for child in children if any(was_cut(child.get(f)) for f in fields))
 
 
+def drop_bodies_past(
+    children: Sequence[Mapping[str, Any]], budget: int, fields: tuple[str, ...]
+) -> tuple[list[dict[str, Any]], int]:
+    """Bodies until ``budget`` characters are spent, structure all the way down.
+
+    The backend cuts each field at its own threshold and nothing added those
+    up, so a read inlining two hundred children was bounded only by their
+    count: measured live, five spans of one trace serialised to 38,423
+    characters — 8,421 tokens by the header's own estimate — and the client
+    refused the whole answer, so the caller saw an error where the trace
+    should have been.
+
+    What goes is the bodies, never the children. A span's id, name, type and
+    timings are the tree, and the tree is most of what a trace read is for —
+    dropping whole spans would answer "your trace has four spans" for one
+    that has forty, which is the silently-short answer :mod:`size` refuses.
+    Dropping a body says less about one span while keeping the shape of all
+    of them, and every dropped body is one ``read('span', id)`` away, which
+    is the same bargain the backend's own cut is allowed under.
+
+    The first child keeps its body whatever it costs, so a trace whose single
+    span is enormous still answers the question it was opened for.
+    """
+    kept: list[dict[str, Any]] = []
+    spent = 0
+    dropped = 0
+    spending = True
+    for child in children:
+        record = dict(child)
+        # Once the budget is gone it stays gone, so the rest are not measured:
+        # serialising a body only to discard it is the one cost this function
+        # exists to avoid paying.
+        if spending:
+            cost = len(json.dumps(record, default=str))
+            if kept and spent + cost > budget:
+                spending = False
+            else:
+                spent += cost
+        if not spending:
+            for field in fields:
+                record.pop(field, None)
+            dropped += 1
+        kept.append(record)
+    return kept, dropped
+
+
+def dropped_notice(*, dropped: int, total: int, noun: str, budget: int) -> str:
+    """What the inline budget spent, said where the payload it cut is.
+
+    Carries no "and here is how to get one back": it is only ever appended to
+    :func:`slim_notice`, which has just said it, and the same sentence twice
+    in one line reads as two different offers.
+    """
+    return (
+        f"{dropped} of {total} {noun}s past the {budget:,}-character inline budget kept "
+        f"their place and lost their bodies, which the same call returns."
+    )
+
+
 def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
     """The line a composite read carries above its inlined children.
 
@@ -63,4 +123,4 @@ def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
     )
 
 
-__all__ = ["count_cut", "slim_notice"]
+__all__ = ["count_cut", "drop_bodies_past", "dropped_notice", "slim_notice"]

@@ -436,11 +436,13 @@ THREAD = "conv-1"
 _THREAD_META = {"id": THREAD, "status": "active", "project_id": "p-9"}
 
 
-def _thread_fake() -> FakeOpikClient:
+def _thread_fake(traces: list[dict[str, Any]] | None = None) -> FakeOpikClient:
     return FakeOpikClient(
         threads_by_id={THREAD: _THREAD_META},
         thread_messages={
-            THREAD: [
+            THREAD: traces
+            if traces is not None
+            else [
                 {"id": "tr-2", "name": "turn2", "input": "b", "start_time": "2026-01-02"},
                 {"id": "tr-1", "name": "turn1", "input": "a", "start_time": "2026-01-01"},
             ]
@@ -2105,3 +2107,168 @@ async def test_an_experiment_with_no_suite_gets_no_comparison_hint() -> None:
     body = _payload(await run_read("experiment", UUID, client=fake))
 
     assert "comparePerCase" not in body
+
+
+# --- UI links on the two entities people share ---------------------------- #
+
+
+@pytest.mark.anyio
+async def test_read_trace_carries_a_clickable_url() -> None:
+    """ "Send me the link" is how most of these sessions end. The trace goes
+    through the backend redirect, so it needs no project_id and survives a
+    workspace introspection could not name."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: []},
+    )
+    out = await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS)
+    assert f"trace_id={UUID}" in out
+    assert "/v1/session/redirect/projects/" in out
+
+
+@pytest.mark.anyio
+async def test_read_experiment_links_to_its_compare_view() -> None:
+    """An experiment's page is the compare view with one run on it, which is
+    also where a second run gets added — so the link lands where the next
+    question is asked."""
+    fake = FakeOpikClient(
+        experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
+    )
+    out = await run_read("experiment", UUID, client=fake, settings=_UI_SETTINGS)
+    assert "https://opik.test/demo-ws/experiments/ds-7/compare?experiments=" in out
+    assert UUID in out
+
+
+@pytest.mark.anyio
+async def test_an_experiment_without_a_dataset_gets_no_link() -> None:
+    """The dataset id is the path of the compare route; without it the link
+    would land on a view that cannot resolve the run."""
+    fake = FakeOpikClient(experiments_by_id={UUID: {"id": UUID, "name": "orphan"}})
+    out = await run_read("experiment", UUID, client=fake, settings=_UI_SETTINGS)
+    assert "compare?experiments=" not in out
+
+
+@pytest.mark.anyio
+async def test_links_are_absent_when_the_ui_is_unknown() -> None:
+    bare = Settings(opik_api_key="k", comet_workspace="demo-ws", comet_url_override="")
+    fake = FakeOpikClient(
+        experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
+    )
+    out = await run_read("experiment", UUID, client=fake, settings=bare)
+    assert "compare?experiments=" not in out
+
+
+@pytest.mark.anyio
+async def test_a_pasted_compare_link_reads_the_experiment_it_names() -> None:
+    """End to end: the URL a user copies out of the address bar, which used to
+    come back as "Verify the ID is a valid UUID"."""
+    fake = FakeOpikClient(
+        experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
+    )
+    url = f"https://opik.test/ws/experiments/ds-7/compare?experiments=%5B%22{UUID}%22%5D"
+    out = await run_read("experiment", url, client=fake, settings=_UI_SETTINGS)
+    assert "nightly" in out and UUID in out
+
+
+# --- what a composite read spends on the children it inlines --------------- #
+
+
+def _fat_span(span_id: str, chars: int) -> dict[str, Any]:
+    """A span whose body is the size the backend's per-field cut allows."""
+    return {"id": span_id, "name": "completion", "type": "llm", "output": "x" * chars}
+
+
+@pytest.mark.anyio
+async def test_bodies_stop_at_the_size_budget_and_the_tree_does_not() -> None:
+    """Measured live: a five-span trace serialised to 38,423 characters and
+    was refused by the client before the caller saw any of it. The backend
+    cuts each field at 10,001 characters and nothing added those up, so the
+    only cap was 200 spans.
+
+    What the budget spends is bodies. Every span keeps its place, because the
+    tree is most of what a trace read is for and a short one would answer
+    "your trace has three spans" for a trace that has six."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
+    )
+    out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
+    spans = out["spans"]
+    assert [s["id"] for s in spans] == [f"sp-{n}" for n in range(6)], "every span kept its place"
+    assert "output" in spans[0], "the first bodies are inlined"
+    assert "output" not in spans[-1], "the tail lost its body to the budget"
+    assert all("name" in s and "type" in s for s in spans), "and none of them lost their shape"
+
+
+@pytest.mark.anyio
+async def test_the_dropped_bodies_are_counted_and_one_call_away() -> None:
+    """A payload that quietly lost fields is the silently-short answer the
+    read exists to avoid, so the notice states it beside the payload."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
+    )
+    out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
+    note = out["spanBodies"]
+    assert "inline budget" in note and "25,000" in note
+    assert "read('span', id)" in note, "and how to get one back whole"
+
+
+@pytest.mark.anyio
+async def test_the_budget_does_not_claim_the_collection_was_cut_short() -> None:
+    """``spansTruncated`` means spans are missing. None are — so a budget that
+    set it would send the caller paging for rows already in front of them."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
+    )
+    out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
+    assert out["spansTruncated"] is False
+    assert "moreSpans" not in out
+
+
+@pytest.mark.anyio
+async def test_one_oversized_span_keeps_its_body() -> None:
+    """Spending nothing would answer "here is a span" and nothing about it,
+    for the one span the read was opened to see."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: [_fat_span("sp-huge", 60_000)]},
+    )
+    out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
+    assert "output" in out["spans"][0]
+
+
+@pytest.mark.anyio
+async def test_a_small_trace_is_untouched() -> None:
+    """The budget is a ceiling, not a target: an ordinary trace still arrives
+    whole, with the flag saying so."""
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1", "name": "child"}, {"id": "sp-2", "name": "other"}]},
+    )
+    out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
+    assert [s["id"] for s in out["spans"]] == ["sp-1", "sp-2"]
+    assert out["spansTruncated"] is False
+    assert "inline budget" not in out["spanBodies"], "nothing was spent, so nothing is claimed"
+
+
+@pytest.mark.anyio
+async def test_a_long_thread_keeps_every_turn_and_spends_its_budget_on_bodies() -> None:
+    """A thread is the shape likeliest to reach the ceiling: two hundred turns
+    each carrying a whole prompt and a whole answer. Losing turns would
+    misreport the length of the conversation, which is the one thing a thread
+    read is asked for most."""
+    fat = [
+        {
+            "id": f"tr-{n}",
+            "thread_id": THREAD,
+            "input": {"q": "x" * 9_000},
+            "output": {"a": "y" * 900},
+        }
+        for n in range(8)
+    ]
+    fake = _thread_fake(traces=fat)
+    out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
+    assert len(out["messages"]) == 8, "every turn kept its place"
+    assert "inline budget" in out["messageBodies"]

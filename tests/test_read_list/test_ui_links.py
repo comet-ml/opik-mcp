@@ -7,6 +7,7 @@ two can never disagree about where the UI lives.
 from __future__ import annotations
 
 import base64
+from urllib.parse import unquote
 
 from opik_mcp.auth_context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
@@ -16,6 +17,7 @@ from opik_mcp.auth_context import (
 )
 from opik_mcp.config import Settings
 from opik_mcp.read_list.ui_links import (
+    compare_url,
     current_workspace,
     link_workspace,
     opik_ui_base,
@@ -133,3 +135,27 @@ def test_trace_link_template_none_without_an_api_segment() -> None:
     """opik-backend derives the UI base by cutting the decoded path at ``/api``
     and throws when there is none, so a base without it cannot be linked."""
     assert trace_link_template(_settings(opik_url="https://opik.test")) is None
+
+
+# --- the compare view a pair of experiments lives on ----------------------- #
+
+
+def test_compare_url_carries_both_runs_in_the_order_given() -> None:
+    """The UI reads ``experiments`` as a JSON array, so a one-run link and a
+    two-run link are the same shape — and the baseline has to stay first."""
+    url = compare_url(_settings(), "ds-1", ["exp-a", "exp-b"])
+    assert url is not None
+    assert url.startswith("https://opik.test/demo-ws/experiments/ds-1/compare?experiments=")
+    assert unquote(url.split("experiments=", 1)[1]) == '["exp-a","exp-b"]'
+
+
+def test_compare_url_is_absent_rather_than_guessed() -> None:
+    """Same bargain as every other link: no link beats a wrong one."""
+    assert compare_url(_settings(opik_url=None, comet_url_override=""), "ds-1", ["e"]) is None
+
+
+def test_compare_url_needs_a_dataset_and_a_run() -> None:
+    """The dataset id is the path and the runs are the query — neither is
+    optional, and a link missing one lands on an empty compare view."""
+    assert compare_url(_settings(), "", ["e"]) is None
+    assert compare_url(_settings(), "ds-1", []) is None

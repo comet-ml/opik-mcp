@@ -10,6 +10,9 @@ the derivation here means neither can drift from where REST calls go.
 from __future__ import annotations
 
 import base64
+import json
+from collections.abc import Sequence
+from urllib.parse import quote
 
 from opik_mcp.auth_context import (
     classify_bearer,
@@ -91,6 +94,28 @@ def trace_link_template(settings: Settings) -> str | None:
     return f"{base}/v1/session/redirect/projects/?trace_id={{trace_id}}&path={path}"
 
 
+def compare_url(settings: Settings, dataset_id: str, experiment_ids: Sequence[str]) -> str | None:
+    """The UI's compare view for these runs, or ``None`` when it cannot be known.
+
+    An experiment's own page is that view with one run selected, so a single
+    id and a pair build the same URL — which is why this takes a sequence and
+    not an id plus optional others. Order is the caller's: the UI reads the
+    first as the baseline, the same way ``list('dataset_item', experiment_ids=…)``
+    does, and a link that quietly sorted them would disagree with the table it
+    was attached to.
+
+    The ids ride as a JSON array in the query string because that is what the
+    route parses; ``quote`` rather than ``urlencode`` so the shape stays
+    readable in a terminal, where these are read as often as they are clicked.
+    """
+    base = opik_ui_base(settings)
+    workspace = link_workspace(settings)
+    if base is None or workspace is None or not dataset_id or not experiment_ids:
+        return None
+    runs = quote(json.dumps(list(experiment_ids), separators=(",", ":")))
+    return f"{base}/{workspace}/experiments/{dataset_id}/compare?experiments={runs}"
+
+
 def project_page_url(settings: Settings, project_id: str, page: str) -> str | None:
     """``<ui>/<workspace>/projects/<project_id>/<page>``, or ``None`` when the
     UI base or the workspace cannot be known for this session."""
@@ -102,6 +127,7 @@ def project_page_url(settings: Settings, project_id: str, page: str) -> str | No
 
 
 __all__ = [
+    "compare_url",
     "current_workspace",
     "link_workspace",
     "opik_ui_base",

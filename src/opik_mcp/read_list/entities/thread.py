@@ -28,9 +28,16 @@ from opik_mcp.read_list.paging import (
     page_items,
     rest_of,
 )
-from opik_mcp.read_list.slim import count_cut, slim_notice
+from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
 
 MESSAGES_INLINE_LIMIT = 200
+
+#: And what those turns may cost in characters of serialised JSON — the same
+#: ceiling a trace read puts on its spans, for the same reason and against the
+#: same measurement. A thread is the shape more likely to reach it: two
+#: hundred turns of a long conversation, each carrying a whole prompt and a
+#: whole answer, is the payload the count cap alone never bounded.
+MESSAGES_INLINE_CHARS = 25_000
 
 #: ``as_messages`` projects a trace down to input and output, so those are
 #: the only cut fields a caller can see on a turn.
@@ -105,7 +112,9 @@ async def fetch(
         }
     traces = page_items(traces_page)
     truncated = collection_truncated(traces_page, inlined=len(traces), limit=MESSAGES_INLINE_LIMIT)
-    messages = as_messages(traces)
+    messages, dropped = drop_bodies_past(
+        as_messages(traces), MESSAGES_INLINE_CHARS, SLIM_TURN_FIELDS
+    )
     result: dict[str, Any] = {
         "thread": thread,
         "messages": messages,
@@ -123,12 +132,21 @@ async def fetch(
             ),
         )
     if messages:
-        result["messageBodies"] = slim_notice(
+        notice = slim_notice(
             cut=count_cut(messages, SLIM_TURN_FIELDS),
             total=len(messages),
             noun="turn",
             whole="read('trace', trace_id)",
         )
+        if dropped:
+            spent = dropped_notice(
+                dropped=dropped,
+                total=len(messages),
+                noun="turn",
+                budget=MESSAGES_INLINE_CHARS,
+            )
+            notice = f"{notice} {spent}"
+        result["messageBodies"] = notice
     return result
 
 

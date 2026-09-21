@@ -1412,3 +1412,42 @@ async def test_a_genuinely_empty_scope_says_nothing_about_the_filter() -> None:
         "trace", project_id="p-1", filters="duration > 5", client=FilterOnlyEmptyClient(in_scope=0)
     )
     assert out.splitlines()[-1] == "No traces found."
+
+
+@dataclass
+class NameSearchClient(FakeOpikClient):
+    """A workspace with datasets, none of them matching the name asked for."""
+
+    stock: int = 342
+
+    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
+        self.list_calls.append(kw)
+        if kw.get("name"):
+            return _page([])
+        return {"content": [{"id": "ds-1"}], "page": 1, "size": 1, "total": self.stock}
+
+
+@pytest.mark.anyio
+async def test_a_name_search_that_finds_nothing_says_what_the_listing_holds() -> None:
+    """ "No datasets matching 'regression' found" over a workspace of 342 reads
+    as an empty workspace — the same false inference the experiment page note
+    was written to stop, on the path that never inherited it."""
+    fake = NameSearchClient()
+    out = await run_list("dataset", name="regression", client=fake)
+    assert "No datasets matching 'regression' found." in out
+    assert "Without that name this listing has 342 datasets" in out
+
+
+@pytest.mark.anyio
+async def test_a_genuinely_empty_workspace_says_nothing_extra() -> None:
+    out = await run_list("dataset", name="regression", client=NameSearchClient(stock=0))
+    assert out.splitlines()[-1] == "No datasets matching 'regression' found."
+
+
+@pytest.mark.anyio
+async def test_the_name_probe_is_one_row_wide_and_only_on_an_empty_page() -> None:
+    fake = NameSearchClient()
+    await run_list("dataset", name="regression", size=50, client=fake)
+    probe = fake.list_calls[-1]
+    assert not probe.get("name"), "the name is what gets lifted"
+    assert probe["size"] == 1 and probe["page"] == 1

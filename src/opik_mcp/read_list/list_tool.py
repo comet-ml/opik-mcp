@@ -510,6 +510,19 @@ async def run_list(
                 if page_ctx.filtered and total == 0
                 else None
             )
+            # A name search narrows the same way a filter does and leaves the
+            # same ambiguity behind, so it is lifted by the same probe.
+            unnamed = (
+                _probe(
+                    entity_type,
+                    opik,
+                    {k: v for k, v in kw.items() if k != "name"},
+                    handler.list_fn,
+                    [],
+                )
+                if name and total == 0
+                else None
+            )
             empty = await _empty_message(
                 opik,
                 handler,
@@ -517,6 +530,7 @@ async def run_list(
                 from_time=kw.get("from_time"),
                 widened=widened,
                 unfiltered=unfiltered,
+                unnamed=unnamed,
                 settings=resolved_settings,
                 page_ctx=page_ctx,
             )
@@ -617,7 +631,7 @@ def _without_default(
     the caller already has, and must never turn it into an error.
     """
 
-    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
+    return _probe(entity_type, opik, kw, list_fn, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
 
 
 def _without_filters(
@@ -641,14 +655,14 @@ def _without_filters(
     the rows the caller would otherwise have seen, not a wider set they would
     then have to reconcile.
     """
-    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
+    return _probe(entity_type, opik, kw, list_fn, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
 
 
 def _probe(
     entity_type: str,
     opik: OpikListClient,
-    list_fn: ListFn,
     kw: dict[str, Any],
+    list_fn: ListFn,
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """One-row count of ``clauses``, or ``None`` when it cannot be had."""
@@ -681,6 +695,7 @@ async def _empty_message(
     from_time: str | None,
     widened: Callable[[], Awaitable[int | None]] | None,
     unfiltered: Callable[[], Awaitable[int | None]] | None,
+    unnamed: Callable[[], Awaitable[int | None]] | None,
     settings: Settings,
     page_ctx: PageContext,
 ) -> str:
@@ -706,15 +721,23 @@ async def _empty_message(
         return f"{empty} {note}" if note else empty
 
     async def scoped() -> str:
-        """What the filter matched none of, when nothing else explains it."""
-        found = await unfiltered() if unfiltered is not None else None
+        """What the narrowing matched none of, when nothing else explains it.
+
+        A name and a filter leave the same hole — "none of what?" — so they
+        share the sentence, differing only in which word names what was
+        lifted to get the count.
+        """
+        probe, lifted = (
+            (unnamed, "that name") if unnamed is not None else (unfiltered, "your filter")
+        )
+        found = await probe() if probe is not None else None
         if not found:
             # Zero, or no answer. Either way there is nothing to contrast the
             # empty page against, and a note with no fact in it is noise.
             return empty
         plural = "s" if found != 1 else ""
         return (
-            f"{empty} Without your filter this listing has {found} "
+            f"{empty} Without {lifted} this listing has {found} "
             f"{entity_type}{plural}; none of them match it."
         )
 

@@ -15,6 +15,7 @@ from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContex
 from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
+from opik_mcp.read_list.ui_links import compare_url
 
 logger = logging.getLogger("opik_mcp.read_list.entities.experiment")
 
@@ -291,9 +292,30 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
     )
 
 
+def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The compare view this run lives on.
+
+    An experiment has no page of its own in the UI: the route is the dataset's
+    compare view with the run selected, which is also where the second run is
+    added. So the link lands where the next question gets asked rather than on
+    a summary of the one already answered — and it is the view ``comparePerCase``
+    names one line above it, in the browser instead of the table.
+
+    The dataset id is the route's path segment, so a run whose record does not
+    carry one gets no link: the view cannot resolve the run without it.
+    """
+    dataset_id = data.get("dataset_id")
+    experiment_id = data.get("id")
+    if not isinstance(dataset_id, str) or not isinstance(experiment_id, str):
+        return {}
+    url = compare_url(settings, dataset_id, [experiment_id])
+    return {"url": url} if url is not None else {}
+
+
 HANDLER = EntityHandler(
     entity_type="experiment",
     fetch_fn=fetch,
+    link_fn=experiment_links,
     search_by_name_fn=search_by_name,
     list_fn=list_page,
     # The listing used to show the dataset, the date and the scores, and drop
