@@ -516,8 +516,8 @@ async def run_list(
                 _probe(
                     entity_type,
                     opik,
-                    {k: v for k, v in kw.items() if k != "name"},
                     handler.list_fn,
+                    {k: v for k, v in kw.items() if k != "name"},
                     [],
                 )
                 if name and total == 0
@@ -631,7 +631,7 @@ def _without_default(
     the caller already has, and must never turn it into an error.
     """
 
-    return _probe(entity_type, opik, kw, list_fn, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
+    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
 
 
 def _without_filters(
@@ -655,14 +655,14 @@ def _without_filters(
     the rows the caller would otherwise have seen, not a wider set they would
     then have to reconcile.
     """
-    return _probe(entity_type, opik, kw, list_fn, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
+    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
 
 
 def _probe(
     entity_type: str,
     opik: OpikListClient,
-    kw: dict[str, Any],
     list_fn: ListFn,
+    kw: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """One-row count of ``clauses``, or ``None`` when it cannot be had."""

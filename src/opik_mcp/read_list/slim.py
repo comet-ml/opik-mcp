@@ -1,4 +1,4 @@
-"""Asking opik-backend for slim bodies on the children a read inlines.
+"""Slim bodies on the children a read inlines: the backend's cut, and ours.
 
 The backend's cut is the one this server relies on (for why it has none of
 its own, see :mod:`opik_mcp.read_list.size`). ``?truncate=true`` on the trace,
@@ -14,6 +14,13 @@ but the DAO spends it choosing between a parsed object and a string, and it
 never reaches the API model. So the only trace a cut leaves is a body that
 would have been JSON arriving as text — which is what :func:`was_cut` reads,
 and why the notice is ours to write.
+
+The backend's cut is per field, which bounds no answer: two hundred children
+of three fields each cut at ten thousand characters is six million. So this
+module also holds the one cut this server makes — :func:`drop_bodies_past`,
+a ceiling on the whole inlined collection — under the same terms that make
+the backend's allowable: it takes bodies and never children, it is stated in
+the answer, and what it drops is one read away.
 """
 
 from __future__ import annotations

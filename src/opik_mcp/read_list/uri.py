@@ -17,9 +17,18 @@ Recognized shapes (matching the deleted ``resources.py`` URI templates):
                                             → ("agent_insights_issue", iid, project_id=pid)
 
 Pasted Opik web links are also recognized via ``looks_like_opik_link`` +
-``parse`` so a user can drop a URL straight from the UI: a thread link
-(``https://…/projects/{pid}/…?thread={tid}``) and a Diagnostics link
-(``https://…/projects/{pid}/diagnostics…?issue={iid}``).
+``parse`` so a user can drop a URL straight from the UI:
+
+- a thread link      ``https://…/projects/{pid}/…?thread={tid}``
+- a Diagnostics link ``https://…/projects/{pid}/diagnostics…?issue={iid}``
+- a compare link     ``https://…/experiments/{dsid}/compare?experiments=["{eid}"]``
+  → ("experiment", first id), which is what the address bar holds when a
+  user says "here's my experiment": a run has no page of its own.
+- a trace link       ``…?tls_trace={tid}`` (the UI) or ``…?trace_id={tid}``
+  (this server's own redirect, so a link we handed out is one we take back)
+
+A link naming one trace wins over the compare view it sits on — that is the
+record the user is looking at.
 
 List-shaped URIs (``opik://projects``, ``opik://projects/{id}/traces``,
 ``opik://datasets/{id}/items``) are accepted only as best-effort hints
