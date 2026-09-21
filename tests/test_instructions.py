@@ -13,6 +13,7 @@ from opik_mcp.config import Settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.ui_links import trace_link_template
 from opik_mcp.server import mcp
+from opik_mcp.skills_catalog import skill_names
 
 
 @pytest.fixture
@@ -210,3 +211,20 @@ def test_render_names_every_diagnostics_state() -> None:
         "enabled and clean",
     ):
         assert state in out
+
+
+def test_render_routes_a_quality_drop_question_to_the_compare_skill() -> None:
+    """A quality-drop question is what the whole compare epic exists for, and
+    the blob is where an agent decides what to do with it. Without a route
+    it reaches for `list('experiment')`, reads two aggregate means, and answers
+    without ever naming a case — which is the failure `opik-compare` was built
+    to prevent. The skill must also be one this server actually ships."""
+    out = render_instructions(_settings())
+    assert "opik-compare" in out
+    for question in ("Why did quality drop", "which cases regressed", "compare these two"):
+        assert question in out
+    # Named inside the read_skill bullet, beside the catalog it belongs to —
+    # not as a bullet of its own, which would claim a tool by that name.
+    bullet = out.split("- read_skill")[1]
+    assert "opik-compare" in bullet
+    assert "opik-compare" in skill_names()
