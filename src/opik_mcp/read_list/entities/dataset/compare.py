@@ -390,10 +390,11 @@ async def _with_every_run(
 
 def _validated_ids(experiment_ids: list[str] | None) -> list[str]:
     if not experiment_ids:
-        # Only reachable by calling the runner directly: the registry hands it
-        # the call when ``experiment_ids`` is there, and a list without them is
-        # the dataset's own cases — which filter and (do not) sort on their own
-        # endpoint's terms (OPIK-8397), not on a missing comparison's.
+        # Reached by ``experiment_ids=[]``, which is an argument the caller
+        # passed and so hands the call to this runner, and by calling the
+        # runner directly. A list with no ids at all is the dataset's own
+        # cases, which filter (and do not sort) on their own endpoint's terms
+        # since OPIK-8397 — not on a missing comparison's.
         raise EntityArgValidationError(
             f"list('{_ENTITY}') needs dataset_id, or experiment_ids to compare runs."
         )

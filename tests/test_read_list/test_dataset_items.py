@@ -445,6 +445,55 @@ async def test_an_unfiltered_page_sends_no_filters_at_all() -> None:
     assert "filters" not in fake.last_kwargs
 
 
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("argument", "value", "refusal", "points_at_the_table"),
+    [
+        ("filters", "data.score > 1", "Invalid filters for dataset_item:", True),
+        ("search", "Japan", "search is not supported for 'dataset_item'", True),
+        # Sort points at the call that orders cases instead: the table it
+        # would send the caller to lists no sortable field at all.
+        ("sort", "created_at desc", "sort is not supported for 'dataset_item'", False),
+    ],
+)
+async def test_a_refusal_names_the_entity_the_caller_typed(
+    argument: str, value: str, refusal: str, points_at_the_table: bool
+) -> None:
+    """``dataset_item_case`` is the name of a field table, not of anything a
+    caller can pass. A refusal that named it would read as a typo the caller
+    could not have made — so the refusal names the entity, and where a field
+    table is what the caller needs next, the pointer beside it names that."""
+    asked: dict[str, Any] = {argument: value}
+    with pytest.raises(ToolError) as err:
+        await run_list(
+            "dataset_item",
+            dataset_id=DATASET,
+            client=FakeOpikClient(),
+            filters=asked.get("filters"),
+            sort=asked.get("sort"),
+            search=asked.get("search"),
+        )
+
+    message = str(err.value)
+    assert refusal in message
+    assert "dataset_item_case" not in message.split("schema(")[0]
+    assert ('schema("list.dataset_item_case")' in message) is points_at_the_table
+
+
+def test_each_reference_names_the_fields_of_the_other_call() -> None:
+    """One entity, two field tables, and an agent asks for whichever name it
+    knows. Whichever it lands on has to say that the other call exists and
+    what could be asked there — a bare pointer would cost a round trip to find
+    out that ``data.question`` is available without experiments."""
+    compared = list_reference("dataset_item")["filters"]["see_also"]
+    case = list_reference("dataset_item_case")["filters"]["see_also"]
+
+    assert "full_data" in compared and "trace_id" in compared
+    assert 'schema("list.dataset_item_case")' in compared
+    assert "feedback_scores" in case and "duration" in case
+    assert 'schema("list.dataset_item")' in case
+
+
 def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> None:
     reference = list_reference("dataset_item_case")
     fields = reference["filters"]["fields"]

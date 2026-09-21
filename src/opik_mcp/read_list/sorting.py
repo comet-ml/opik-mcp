@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Final
 
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.oql import called
 
 _TRACE_SORTABLE: Final = (
     "id",
@@ -193,13 +194,12 @@ def compile_sort(entity_type: str, sort: str) -> tuple[str, str]:
     Direction defaults to ``DESC`` — "slowest / most expensive / most recent
     first" is what a sort on a list is almost always for.
     """
-    allowed = SORTABLE_FIELDS.get(entity_type)
-    if not allowed:
+    if not SORTABLE_FIELDS.get(entity_type):
         why = UNSORTABLE_WHY.get(entity_type)
+        if why is not None:
+            raise SortError(f"sort is not supported for {called(entity_type)!r}: {why}.")
         raise SortError(
-            f"sort is not supported for {entity_type!r}: {why}."
-            if why
-            else f"sort is not supported for {entity_type!r}. "
+            f"sort is not supported for {called(entity_type)!r}. "
             f"Sortable types: {', '.join(SORTABLE_ENTITIES)}."
         )
     parts = sort.split()
@@ -213,7 +213,7 @@ def compile_sort(entity_type: str, sort: str) -> tuple[str, str]:
         )
     if not is_sortable(entity_type, field):
         raise SortError(
-            f"'{field}' is not sortable for {entity_type}. "
+            f"'{field}' is not sortable for {called(entity_type)}. "
             f"Sortable: {', '.join(sortable_names(entity_type))}."
         )
     return field, direction.upper()

@@ -83,13 +83,18 @@ FILTER_REQUIREMENTS: Final[dict[str, str]] = {
 VOCABULARY_POINTERS: Final[dict[str, str]] = {
     "dataset_item": (
         "without experiment_ids the same list is the dataset's own cases, filtered on the "
-        'case itself: schema("list.dataset_item_case")'
+        "case itself ({dataset_item_case}) — operators in "
+        'schema("list.dataset_item_case")'
     ),
     "dataset_item_case": (
         "with experiment_ids the same list is those experiments' runs case by case, filtered "
-        'on the runs: schema("list.dataset_item")'
+        'on the runs ({dataset_item}) — operators in schema("list.dataset_item")'
     ),
 }
+"""``{vocabulary}`` is filled in with that vocabulary's field names, so the
+pointer cannot promise a field the table does not have. The names are worth
+the bytes: an agent asks for one of these two references and has to learn from
+it that the other call exists *and* what it would be able to ask there."""
 
 
 #: Per-field caveats, keyed by entity then field. For a field whose name
@@ -104,13 +109,17 @@ FIELD_NOTES: Final[dict[str, dict[str, str]]] = {
             "not have; a key you can name (data.<key>) is the cheaper question."
         ),
         "source": (
-            "how the case was created: manual, trace, span or sdk. Matched as a string, so "
-            "the operators are the string ones and an unknown value is an empty page."
+            "how the case was created: manual, trace, span or sdk. A plain string column, "
+            "not an enum the backend validates the way trace.source is — so the operators "
+            "are the string ones, substrings included, and a value outside that set "
+            "compiles and answers an empty page rather than an error."
         ),
         "data": (
             "the case's own keys, one per column of the dataset — data.question, "
-            "data.expected_output. Comparisons are not available: the values are stored as "
-            "strings, so the backend refuses > and <."
+            "data.expected_output. No comparisons: the column is a ClickHouse Map, and "
+            "opik-backend's operator map has no > or < for that type (it answers 400). The "
+            "comparison's data.<key> does take them — there the key becomes a field the "
+            "backend types as a string."
         ),
     },
     "experiment": {
@@ -174,7 +183,9 @@ def list_reference(entity_type: str) -> dict[str, Any]:
 
     pointer = VOCABULARY_POINTERS.get(entity_type)
     if pointer is not None:
-        filters["see_also"] = pointer
+        filters["see_also"] = pointer.format(
+            **{name: ", ".join(FILTERABLE_FIELDS[name]) for name in VOCABULARY_POINTERS}
+        )
 
     sort: dict[str, Any] = {"form": SORT_FORM, "fields": sortable_names(entity_type)}
     why = UNSORTABLE_WHY.get(entity_type)

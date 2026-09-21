@@ -245,7 +245,7 @@ class StubBackend:
         experiment_ids = _ids(query)
         page = int(_one(query, "page", "1"))
         size = int(_one(query, "size", "10"))
-        clauses = json.loads(_one(query, "filters", "") or "[]")
+        clauses = _filters(query)
 
         pinned = next((c.get("value") for c in clauses if c.get("field") == "id"), None)
         if pinned is not None:
@@ -270,7 +270,7 @@ class StubBackend:
         would be asserting against itself. Tests read the clauses back off
         ``backend.one("/items").filters()`` to see what was sent.
         """
-        _filters(query)
+        _filters(query)  # for the 400 alone: which rows match is not the stub's business
         page = int(_one(query, "page", "1"))
         size = int(_one(query, "size", "10"))
         start = (page - 1) * size
@@ -297,7 +297,7 @@ class StubBackend:
         the filter language is not the stub's business.
         """
         experiment_ids = _ids(query)
-        clauses = json.loads(_one(query, "filters", "") or "[]")
+        clauses = _filters(query)
         matched: list[dict[str, Any]] = []
         for index in range(self.suite.case_count):
             row = self._case_row(index, experiment_ids)
@@ -495,8 +495,12 @@ def _dataset_item(index: int) -> dict[str, Any]:
 
 
 def _filters(query: dict[str, list[str]]) -> list[dict[str, Any]]:
-    """The ``filters`` param as ``FiltersFactory`` reads it: a JSON array, or
-    a 400. Nothing here interprets a clause."""
+    """The ``filters`` param as ``FiltersFactory`` reads it.
+
+    A JSON array of clauses, or a 400. Nothing here interprets a clause: what
+    one matches is opik-backend's business, and a stub that reimplemented it
+    would start to disagree with the backend it stands for.
+    """
     raw = _one(query, "filters", "")
     if not raw:
         return []

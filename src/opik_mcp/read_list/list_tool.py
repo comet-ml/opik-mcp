@@ -67,6 +67,7 @@ from opik_mcp.read_list.oql import (
     SOURCE_VALUES,
     WINDOWED_ENTITIES,
     OQLError,
+    called,
     compile_filters,
     operand_values,
     render_filters,
@@ -512,8 +513,11 @@ def _search_refusal(entity_type: str) -> str:
         # whole payload where there is one, a key of it otherwise.
         example = next(
             (
-                f'{name} contains "…"'
-                for name in ("full_data", "metadata.<key>")
+                f"{name} {operator}"
+                for name, operator in (
+                    ("full_data", 'contains "…"'),
+                    ("metadata.<key>", '= "…"'),
+                )
                 if name.partition(".")[0] in fields
             ),
             'a field = "…"',
@@ -529,8 +533,8 @@ def _search_refusal(entity_type: str) -> str:
     joined = "; or ".join(alternatives)
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
-        f"search is not supported for {entity_type!r}: only {', '.join(WINDOWED_ENTITIES)} "
-        f"take free text.{how}"
+        f"search is not supported for {called(entity_type)!r}: "
+        f"only {', '.join(WINDOWED_ENTITIES)} take free text.{how}"
     )
 
 

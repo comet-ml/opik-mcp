@@ -245,8 +245,8 @@ prompt versions. Past that, `spansTruncated` / `messagesTruncated` /
 that continues from where the inlined part stopped.
 
 **Supported entities:** `project`, `trace`, `span`, `dataset`, `dataset_item`,
-`experiment`, `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
-`project`, `experiment`, `prompt`, `dataset` (slower — two API calls — and
+`experiment`, `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is
+available for `project`, `experiment`, `prompt`, `dataset` (slower — two API calls — and
 may return multiple matches). `thread` and `agent_insights_issue` are
 project-scoped: pass `project_id` or `project_name`, or a link/URI that carries
 the project. `dataset` and `dataset_item` were called `test_suite` and
@@ -381,12 +381,14 @@ each run attached — and it filters on the runs (`feedback_scores.<name>`,
 endpoints: `schema("list.dataset_item_case")` is the dataset's own cases,
 `schema("list.dataset_item")` the comparison.
 
-**Sort.** `trace`, `span`, `thread` and `experiment` take `sort="<field> [asc|desc]"`, `desc` by
-default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
+**Sort.** `trace`, `span`, `thread` and `experiment` take
+`sort="<field> [asc|desc]"`, `desc` by default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
 `sort="feedback_scores.accuracy asc"`, `sort="usage.total_tokens"`. The field is
 checked against the entity's sortable list before the call, because the backend
 silently ignores fields it cannot sort by. On very large workspaces the backend
-drops sorting altogether; the header says so when that happens.
+drops sorting altogether; the header says so when that happens. `dataset_item`
+sorts only as a comparison (with `experiment_ids`) — the items endpoint takes
+no sorting parameter, so a sort on a plain listing is refused, not dropped.
 
 **Time window and search.** `trace`, `span` and `thread` take `since` and
 `until`, each a relative span (`"30m"`, `"1h"`, `"7d"`) or an ISO-8601 instant

@@ -247,6 +247,19 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
 #: stay out of the "filterable types" a refusal names, and the entity's
 #: registry row says which of them its collection path uses.
 VOCABULARY_MODES: Final[dict[str, str]] = {"dataset_item_case": "dataset_item"}
+
+
+def called(vocabulary: str) -> str:
+    """The ``entity_type`` a caller typed to reach this field table.
+
+    Refusals name this; the ``schema("list.…")`` pointer beside them names the
+    vocabulary, because that is the key that answers with the fields being
+    refused. Saying ``dataset_item_case`` where the call said ``dataset_item``
+    reads as a typo the caller cannot have made.
+    """
+    return VOCABULARY_MODES.get(vocabulary, vocabulary)
+
+
 # Closed enum values, per entity, from opik-backend's own enums (Source,
 # SpanType, TraceThreadStatus, VisibilityMode), confirmed against a live
 # backend rather than read off the Java alone.
@@ -461,7 +474,7 @@ class OQLError(EntityArgValidationError):
         return tuple(i.kind for i in self.issues)
 
     def _render(self) -> str:
-        lines = [f"Invalid filters for {self.entity_type}:"]
+        lines = [f"Invalid filters for {called(self.entity_type)}:"]
         for n, issue in enumerate(self.issues, start=1):
             lines.append(f"  {n}. {issue.message}")
             if issue.position is not None:
@@ -786,7 +799,10 @@ def _param_operator_issue(
     operators and stopping would leave the caller to enumerate the rest of
     the set themselves. Everything else falls back to naming them.
     """
-    base = f"Operator '{raw.operator}' is not valid for '{field}' on {entity_type}: {spec.why}."
+    base = (
+        f"Operator '{raw.operator}' is not valid for '{field}' on "
+        f"{called(entity_type)}: {spec.why}."
+    )
     values = ENUM_VALUES.get(entity_type, {}).get(field)
     if values is not None and raw.operator in NEGATING_OPERATORS:
         excluded = set(operand_values(raw.operator, raw.value))
@@ -1074,6 +1090,7 @@ __all__ = [
     "OQLUnknownFieldError",
     "OQLUnsupportedEntityError",
     "ParamField",
+    "called",
     "compile_filters",
     "filter_field_names",
     "filter_fields",
