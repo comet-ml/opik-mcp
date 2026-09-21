@@ -96,11 +96,20 @@ class ExperimentSpec:
     )
     #: Every Nth case fails for this experiment; 0 means it never fails.
     fails_every: int = 0
+    #: Every Nth case errors for this experiment: its task or its judge
+    #: raised, so the run exists and carries no score, no assertion and no
+    #: status. The joined endpoint has no error field to put anything else in
+    #: — the error is on the trace — which is exactly what the table has to
+    #: read as "errored" rather than as a zero.
+    errors_every: int = 0
     #: How many times this experiment ran each case (``execution_policy``).
     runs_per_item: int = 1
 
     def fails(self, index: int) -> bool:
         return self.fails_every > 0 and (index + 1) % self.fails_every == 0
+
+    def errors(self, index: int) -> bool:
+        return self.errors_every > 0 and (index + 1) % self.errors_every == 0
 
 
 @dataclass
@@ -324,15 +333,18 @@ class StubBackend:
             if spec is None or (strip_to is not None and experiment_id != strip_to):
                 continue
             failing = spec.fails(index)
+            erroring = spec.errors(index)
             passed_runs = 0
             for run in range(spec.runs_per_item):
                 # With several runs the first one passes and the rest carry the
                 # failure, so the worst run is a different trace from the
                 # experiment's first.
                 run_failed = failing and (run > 0 or spec.runs_per_item == 1)
-                passed_runs += 0 if run_failed else 1
+                passed_runs += 0 if run_failed or erroring else 1
                 items.append(
-                    _experiment_item(index, position, run, experiment_id, spec, run_failed)
+                    _experiment_item(
+                        index, position, run, experiment_id, spec, run_failed, erroring
+                    )
                 )
             summaries[experiment_id] = {
                 "passed_runs": passed_runs,
@@ -558,9 +570,27 @@ def _experiment_item(
     experiment_id: str,
     spec: ExperimentSpec,
     failed: bool,
+    errored: bool = False,
 ) -> dict[str, Any]:
     scores = spec.failing_scores if failed else spec.passing_scores
     answer = "Lyon" if failed else "Paris"
+    if errored:
+        # What the joined endpoint returns for a run whose task or judge
+        # raised: the item, its trace, and none of the three fields that say
+        # how it went. Nothing here is an error flag, because the payload has
+        # none (``ExperimentItemCompare``); the error is on the trace.
+        return {
+            "id": _trace_id(index, position, run),
+            "experiment_id": experiment_id,
+            "dataset_item_id": _case_id(index),
+            "trace_id": _trace_id(index, position, run),
+            "output": {},
+            "feedback_scores": [],
+            "duration": 1200.0 + index,
+            "usage": {},
+            "total_estimated_cost": 0.0,
+            "created_at": "2026-09-08T10:00:00Z",
+        }
     return {
         "id": f"{_trace_id(index, position, run)}",
         "experiment_id": experiment_id,

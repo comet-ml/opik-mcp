@@ -10,6 +10,7 @@ it then ignores.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pytest
@@ -1165,3 +1166,126 @@ async def test_a_categorical_column_is_unmarked_because_a_label_has_no_delta() -
     # The legend still owns up to the missing direction; the column does not
     # carry the marker, because a label has no sign to misread.
     assert "verdict (direction unknown)" not in out
+
+
+# --- errored, not low (OPIK-8394) ------------------------------------------- #
+
+
+def _crashed(experiment_id: str, trace: str) -> dict[str, Any]:
+    """What a task or a judge that raised leaves on the joined row: a run,
+    a trace, and no score at all. The row carries no error field — the
+    compare join selects none (``ExperimentItemCompare``) — so this is the
+    whole fingerprint."""
+    return {"experiment_id": experiment_id, "trace_id": trace, "feedback_scores": []}
+
+
+@pytest.mark.anyio
+async def test_a_run_that_scored_nothing_beside_one_that_did_reads_errored() -> None:
+    """The asymmetry is the signal: the same case, the same judges, and one
+    experiment recorded nothing. That is not a low score and never a 0, and
+    the run to open is the one that produced nothing."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [_run(A, trace="tr-a", scores={"correctness": 0.9}), _crashed(B, "tr-b")],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    row = next(line for line in out.splitlines() if line.startswith("case-1"))
+    assert "0.9 / errored" in row
+    assert "unscored" not in row, "a crash is not the same as a judge that scored nothing"
+    assert "Δ" not in row, "there is nothing to subtract from an error"
+    assert "0.9 / errored |" in row and " 0 " not in row, "an error is never a zero"
+    assert "tr-b (E2)" in row, "the errored run is the one to open"
+
+
+@pytest.mark.anyio
+async def test_a_case_no_run_scored_is_unscored_rather_than_errored() -> None:
+    """With nothing to be asymmetric against, a run that recorded nothing is
+    a case nobody scored — the judges may simply not have run on it."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, scores={"correctness": 1}),
+            ],
+        ),
+        _case("case-2", {"question": "River?"}, [_crashed(A, "tr-a2"), _crashed(B, "tr-b2")]),
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    row = next(line for line in out.splitlines() if line.startswith("case-2"))
+    assert "unscored / unscored" in row
+    assert "errored" not in row
+
+
+@pytest.mark.anyio
+async def test_the_note_counts_scored_errored_and_unscored_and_they_add_up() -> None:
+    """Three readings of a case, counted apart so that none of them lands in
+    the low scores, and summing to the page so that none of them is double
+    counted either."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.4}),
+            ],
+        ),
+        _case(
+            "case-2",
+            {"question": "River?"},
+            [_run(A, trace="tr-a2", scores={"correctness": 0.8}), _crashed(B, "tr-b2")],
+        ),
+        _case("case-3", {"question": "Sea?"}, [_crashed(A, "tr-a3"), _crashed(B, "tr-b3")]),
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    note = next(line for line in out.splitlines() if line.startswith("On this page,"))
+    counted = re.search(
+        r"(\d+) of (\d+) cases fully scored, (\d+) errored .* and (\d+) unscored", note
+    )
+    assert counted is not None, note
+    scored, total, errored, unscored = (int(n) for n in counted.groups())
+    assert (scored, errored, unscored) == (1, 1, 1)
+    assert scored + errored + unscored == total == 3
+    assert "open its worst_trace for error_info" in note
+
+
+@pytest.mark.anyio
+async def test_a_count_of_zero_keeps_its_number_and_drops_its_explanation() -> None:
+    """The three counts have to add up, so a zero stays in the sentence; there
+    is nothing to explain about it, so it does not pay for the explanation."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.4}),
+            ],
+        ),
+        _case("case-2", {"question": "River?"}, [_crashed(A, "tr-a2"), _crashed(B, "tr-b2")]),
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    note = next(line for line in out.splitlines() if line.startswith("On this page,"))
+    assert "1 of 2 cases fully scored, 0 errored and 1 unscored (no run" in note
+    assert "open its worst_trace for error_info" not in note, "nothing errored to explain"
+
+
+@pytest.mark.anyio
+async def test_a_page_where_every_run_scored_says_nothing_about_errors() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "errored" not in out
+    assert "unscored" not in out
