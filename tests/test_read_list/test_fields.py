@@ -11,6 +11,7 @@ here is aimed at.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
@@ -46,7 +47,7 @@ def test_normalise_trims_drops_blanks_and_keeps_first_mention() -> None:
 def test_row_fields_names_flat_keys_dict_keys_and_named_entries() -> None:
     """The names offered are exactly the names ``columns.resolve`` finds: a
     flat key, one level into a dict, and a ``[{name, value}]`` list by name."""
-    rows = [
+    rows: list[dict[str, Any]] = [
         {
             "id": "t-1",
             "data": {"question": "q", "answer": "a"},
