@@ -65,9 +65,9 @@ from opik_mcp.read_list.oql import (
     SDK_SOURCE_CLAUSE,
     SOURCE_DEFAULTED_ENTITIES,
     SOURCE_VALUES,
-    SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
     OQLError,
+    called,
     compile_filters,
     operand_values,
     render_filters,
@@ -78,7 +78,6 @@ from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
 )
-from opik_mcp.read_list.reference import FILTER_REQUIREMENTS
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
@@ -301,12 +300,19 @@ async def run_list(
             )
             raise ToolError(str(err)) from err
 
+    # Which field table this call's filters and sort are checked against. It
+    # is the entity's own name everywhere but one: a dataset item listed under
+    # its dataset is filtered on the case, and listed with experiments on the
+    # runs, and the two endpoints share no field but ``id``. The registry row
+    # says which, so this stays a lookup rather than a branch on a name.
+    vocabulary = handler.list_vocabulary or entity_type
+
     applied: list[str] = []
     clauses: list[dict[str, str]] = []
     source_defaulted = False
-    if entity_type in SUPPORTED_ENTITIES or filters:
+    if vocabulary in FILTERABLE_FIELDS or filters:
         try:
-            clauses = compile_filters(entity_type, filters or "")
+            clauses = compile_filters(vocabulary, filters or "")
         except OQLError as err:
             raise ToolError(str(err)) from err
         if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
@@ -326,13 +332,13 @@ async def run_list(
             # header still echoes the whole list: a clause that narrowed the
             # page and went unmentioned would under-report what was applied.
             try:
-                sent, params = split_param_clauses(entity_type, clauses)
+                sent, params = split_param_clauses(vocabulary, clauses)
             except OQLError as err:
                 raise ToolError(str(err)) from err
             kw.update(params)
             if sent:
                 kw["filters"] = json.dumps(sent, separators=(",", ":"))
-            applied.append(f"filters: {render_filters(entity_type, clauses)}")
+            applied.append(f"filters: {render_filters(vocabulary, clauses)}")
     if entity_type in WINDOWED_ENTITIES:
         # Bodies never reach the table, so let the backend trim them.
         kw["truncate"] = True
@@ -376,7 +382,7 @@ async def run_list(
             # skims the header reads thirty-two rows as the result of the
             # search it asked for. A page that is not what was asked for is
             # worse than an error, and the error can name what would work.
-            refusal = EntityArgValidationError(_search_refusal(entity_type))
+            refusal = EntityArgValidationError(_search_refusal(vocabulary))
             raise ToolError(str(refusal)) from refusal
         kw["search"] = search
         applied.append(f'search: "{search}"')
@@ -385,7 +391,7 @@ async def run_list(
     sort_field: str | None = None
     if sort is not None:
         try:
-            sort_field, direction = compile_sort(entity_type, sort)
+            sort_field, direction = compile_sort(vocabulary, sort)
         except SortError as err:
             raise ToolError(str(err)) from err
         kw["sorting"] = json.dumps(
@@ -501,20 +507,21 @@ def _search_refusal(entity_type: str) -> str:
     if entity_type in NAME_SEARCHABLE_ENTITIES:
         alternatives.append("match a name with name=<substring>")
     if entity_type in FILTERABLE_FIELDS:
-        example = "metadata.<key>" if "metadata" in FILTERABLE_FIELDS[entity_type] else "a field"
-        # An entity whose filters need something else first (the compared
-        # items need the experiments to compare) is told so here, or the
-        # suggestion is one refusal short of a working call.
-        needs = FILTER_REQUIREMENTS.get(entity_type)
-        given = f", given {needs.split(':', 1)[0]}" if needs else ""
-        alternatives.append(
-            f'narrow with filters{given} (e.g. {example} = "…"; schema("list.{entity_type}"))'
-        )
+        # The nearest thing to free text the entity has: one ilike over a whole
+        # payload where there is one, a key of one otherwise.
+        fields = FILTERABLE_FIELDS[entity_type]
+        if "full_data" in fields:
+            example = 'full_data contains "…"'
+        elif "metadata" in fields:
+            example = 'metadata.<key> = "…"'
+        else:
+            example = 'a field = "…"'
+        alternatives.append(f'narrow with filters (e.g. {example}; schema("list.{entity_type}"))')
     joined = "; or ".join(alternatives)
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
-        f"search is not supported for {entity_type!r}: only {', '.join(WINDOWED_ENTITIES)} "
-        f"take free text.{how}"
+        f"search is not supported for {called(entity_type)!r}: "
+        f"only {', '.join(WINDOWED_ENTITIES)} take free text.{how}"
     )
 
 
@@ -647,7 +654,19 @@ def _window_echo(raw: str, resolved: str) -> str:
 # rows, which is what the id column already is — seen live as a blank column
 # on every row it selected).
 _NEVER_COLUMNS = frozenset(
-    {"input", "output", "input_json", "output_json", "error_info", "source", "experiment_ids"}
+    {
+        "input",
+        "output",
+        "input_json",
+        "output_json",
+        "error_info",
+        "source",
+        "experiment_ids",
+        # The whole payload as one string: a column of it would be every data
+        # column again, and the record does not carry the field at all — the
+        # cell would come back blank on every row it matched.
+        "full_data",
+    }
 )
 
 

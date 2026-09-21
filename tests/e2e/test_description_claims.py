@@ -48,6 +48,7 @@ from mcp.client.stdio import stdio_client
 
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from tests.e2e.stub_backend import (
+    CASE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
     ISSUE_ID,
@@ -214,9 +215,15 @@ CLAIMS: tuple[Claim, ...] = (
     Claim("dataset_item", "Dataset item", "dataset_item_lists_a_suites_cases"),
     Claim(
         "dataset_item",
-        "there is no read of an item, and read('dataset') returns the dataset "
-        "record without its items",
-        "dataset_item_has_no_read_and_the_parent_inlines_none",
+        "filtered on the case itself (data.<key>, full_data, id, tags, source, trace_id, "
+        "span_id); the endpoint has no sorting",
+        "dataset_item_filters_on_the_case_and_refuses_sort",
+    ),
+    Claim(
+        "dataset_item",
+        "read('dataset_item', id) is one case whole, which is how a value the table cut "
+        "is read, while read('dataset') returns the dataset record without its items",
+        "dataset_item_read_is_the_case_uncut_and_the_parent_inlines_none",
     ),
     Claim(
         "dataset_item",
@@ -526,14 +533,42 @@ async def _dataset_is_a_test_suite(drive: Driver) -> None:
 @probe("dataset_item_lists_a_suites_cases")
 async def _dataset_item_list(drive: Driver) -> None:
     answer = await drive.call("list", entity_type="dataset_item", dataset_id=SUITE_ID)
-    assert "Found 3 dataset_items" in answer
+    assert f"Found {drive.backend.suite.case_count} dataset_items" in answer
     assert "what is the capital of France?" in answer
 
 
-@probe("dataset_item_has_no_read_and_the_parent_inlines_none")
-async def _dataset_item_no_read(drive: Driver) -> None:
-    refusal = await drive.refuse("read", entity_type="dataset_item", id=SUITE_ID)
-    assert "dataset_item" in refusal
+@probe("dataset_item_filters_on_the_case_and_refuses_sort")
+async def _dataset_item_filters_on_the_case(drive: Driver) -> None:
+    """The fields named in the description, against the endpoint that has
+    them — and the sort the endpoint has no parameter for."""
+    await drive.call(
+        "list",
+        entity_type="dataset_item",
+        dataset_id=SUITE_ID,
+        filters='data.question contains "capital" AND tags contains "regression"',
+    )
+    # The entity's probes share one session, so the listing above is on the
+    # record too: this claim is about the call just made.
+    sent = drive.backend.sent(f"/v1/private/datasets/{SUITE_ID}/items")[-1].filters()
+    # The key rides beside the field: this is the MAP clause the backend
+    # deserializes, and the shape the claim's "data.<key>" stands for.
+    assert sent == [
+        {"field": "data", "key": "question", "operator": "contains", "value": "capital"},
+        {"field": "tags", "key": "", "operator": "contains", "value": "regression"},
+    ]
+    refusal = await drive.refuse(
+        "list", entity_type="dataset_item", dataset_id=SUITE_ID, sort="created_at desc"
+    )
+    assert "sort is not supported" in refusal
+
+
+@probe("dataset_item_read_is_the_case_uncut_and_the_parent_inlines_none")
+async def _dataset_item_read(drive: Driver) -> None:
+    table = await drive.call("list", entity_type="dataset_item", dataset_id=SUITE_ID, size=25)
+    assert "values cut at" in table
+    case = await drive.read_json(entity_type="dataset_item", id=CASE_ID)
+    assert case["data"]["notes"] not in table, "the read is the value the table cut"
+
     parent = await drive.read_json(entity_type="dataset", id=SUITE_ID)
     assert "items" not in parent, "the parent read is the record, not the cases"
     # dataset_id is what enumerates them, so without it the call cannot run.

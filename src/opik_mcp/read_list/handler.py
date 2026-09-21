@@ -156,6 +156,18 @@ class EntityHandler:
     Returns a new mapping; the page the backend sent is left alone for
     everything else that reads it.
     """
+    list_vocabulary: str | None = None
+    """The OQL and sort vocabulary the collection path validates against, when
+    it is not the entity's own name.
+
+    An entity whose two calls hit two backend endpoints filters on two sets of
+    fields: a dataset item listed under its dataset is filtered on the case
+    (``data.<key>``, ``full_data``, ``trace_id``), and the same item listed
+    with experiments attached is filtered on the runs (``duration``,
+    ``output``, ``feedback_scores``). The runner owns the second and names it
+    itself; this is how the collection path is told about the first. ``None``
+    means the entity's name is its vocabulary, which is the usual case.
+    """
     list_required_kwargs: tuple[str, ...] = ()
     """Entity-specific kwargs ``list_fn`` cannot run without (a parent id).
 

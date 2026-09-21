@@ -11,12 +11,17 @@ from opik_mcp.read_list.registry import (
 
 
 def test_list_only_entities_excluded_from_readable() -> None:
-    """dataset_item and prompt_version are sub-collections — they can only be
-    listed under a parent, never fetched by their own id through the read tool.
-    A regression that adds them to READABLE_TYPES would create an unusable code
-    path (no get_* endpoint exists on the client)."""
-    assert "dataset_item" not in READABLE_TYPES
+    """A prompt version is a sub-collection — it can only be listed under its
+    prompt, never fetched by its own id through the read tool. A regression
+    that adds it to READABLE_TYPES would create an unusable code path (no
+    get_* endpoint exists on the client)."""
     assert "prompt_version" not in READABLE_TYPES
+
+
+def test_a_dataset_item_is_readable_because_the_backend_addresses_one() -> None:
+    """The exception that proves the rule above: ``/datasets/items/{itemId}``
+    takes the id on its own, so a case the listing cut can be read whole."""
+    assert "dataset_item" in READABLE_TYPES
 
 
 def test_span_is_listable_with_project_scope() -> None:

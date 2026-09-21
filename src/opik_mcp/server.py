@@ -342,7 +342,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "OQL filter for trace, span, thread, experiment, project_metric: "
+                "OQL filter for trace, span, thread, experiment, dataset_item, "
+                "project_metric: "
                 "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
                 "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
                 "strings quoted, numbers bare (duration in ms). E.g. "
@@ -437,7 +438,8 @@ async def list_entities(
             description=(
                 "dataset_item: compare these experiments case by case — which cases "
                 "regressed, not two averages. First id is the baseline; up to 10. Resolves "
-                "the dataset itself, and is what filters/sort/search apply to."
+                "the dataset itself; sort and search apply to the runs, and so do filters "
+                "(without it they apply to the cases)."
             )
         ),
     ] = None,
@@ -519,13 +521,16 @@ async def list_entities(
       this project's traces)
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
-    - dataset_item: dataset_id, or experiment_ids to compare runs case by case
+    - dataset_item: dataset_id, or experiment_ids to compare runs case by case.
+      Filter the dataset's own cases on data.<key>, full_data, tags, source,
+      trace_id (no sort); read('dataset_item', id) is one case whole
     - prompt_version: prompt_id
 
     Workspace-wide types (project, experiment, prompt, dataset) accept
-    an optional `name` substring filter. trace, span, thread, experiment
-    accept an OQL `filters` string and a `sort`; trace, span, thread also
-    take a `since`/`until` window and free-text `search`.
+    an optional `name` substring filter. trace, span, thread, experiment and
+    dataset_item accept an OQL `filters` string; all but dataset_item also
+    take a `sort`, and trace, span, thread take a `since`/`until` window and
+    free-text `search`.
     """
     if ctx is not None:
         await ctx.info(f"list.called entity_type={entity_type} page={page} size={size}")

@@ -9,6 +9,11 @@ is the dataset's cases. With them it is the same cases with each experiment's
 run attached — the comparison, which needs several backend calls and columns
 computed from the runs, so it answers the whole call through ``run_fn``
 rather than through the shared collection path.
+
+The two questions are asked of two endpoints, which filter on two sets of
+fields: the case's own keys and provenance here (``dataset_item_case``), the
+runs' scores and outputs there (``dataset_item``). Neither endpoint takes the
+other's fields, so the vocabulary is declared per call rather than per entity.
 """
 
 from __future__ import annotations
@@ -17,12 +22,11 @@ from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.entities.dataset.compare import run_compare
-from opik_mcp.read_list.entities.dataset.items import list_items, project_items
+from opik_mcp.read_list.entities.dataset.items import fetch_item, list_items, project_items
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import name_candidates
-from opik_mcp.read_list.unsupported import unsupported_fetch
 
-__all__ = ["HANDLER", "ITEM_HANDLER", "list_items", "project_items"]
+__all__ = ["HANDLER", "ITEM_HANDLER", "fetch_item", "list_items", "project_items"]
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -52,10 +56,11 @@ HANDLER = EntityHandler(
 
 ITEM_HANDLER = EntityHandler(
     entity_type="dataset_item",
-    fetch_fn=unsupported_fetch,
+    fetch_fn=fetch_item,
     list_fn=list_items,
     list_projection_fn=project_items,
     list_required_kwargs=("dataset_id",),
+    list_vocabulary="dataset_item_case",
     list_has_name=False,
     id_only=True,
     run_fn=run_compare,
@@ -65,14 +70,17 @@ ITEM_HANDLER = EntityHandler(
         "Retry with a smaller page (size=…), or fewer experiments."
     ),
     # Comparison is a different question with a different answer shape, so it
-    # takes the whole call. ``filters`` and ``sort`` are in the list because
-    # they are only meaningful with runs attached: the runner is where that
-    # refusal can be written, and the collection path stays free of it.
-    run_when_kwargs=("experiment_ids", "filters", "sort"),
+    # takes the whole call. Only the experiments switch to it: ``filters`` and
+    # ``sort`` used to, back when the items endpoint could do neither, and a
+    # filter meant for the cases was answered by refusing it.
+    run_when_kwargs=("experiment_ids",),
     description=(
-        "Dataset item. List-only — pass dataset_id to enumerate; there is no read "
-        "of an item, and read('dataset') returns the dataset record without its items. "
-        "Columns are the items' data keys, discovered from each page. With experiment_ids "
-        "the same list compares those experiments case by case."
+        "Dataset item. Pass dataset_id to enumerate the dataset's cases, filtered on the "
+        "case itself (data.<key>, full_data, id, tags, source, trace_id, span_id); the "
+        "endpoint has no sorting. read('dataset_item', id) is one case whole, which is how "
+        "a value the table cut is read, while read('dataset') returns the dataset record "
+        "without its items. Columns are the items' data keys, discovered from each page. "
+        "With experiment_ids the same list compares those experiments case by case, on "
+        "the runs' fields instead."
     ),
 )
