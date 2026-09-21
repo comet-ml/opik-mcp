@@ -23,14 +23,17 @@ from opik_mcp.read_list.oql import (
     OPERATORS_BY_TYPE,
     PARAM_FIELDS,
     SOURCE_DEFAULTED_ENTITIES,
-    SUPPORTED_ENTITIES,
+    VOCABULARY_MODES,
     WINDOWED_ENTITIES,
 )
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
-from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
+from opik_mcp.read_list.sorting import SORT_FORM, UNSORTABLE_WHY, sortable_names
 
 LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
-    *(f"list.{e}" for e in SUPPORTED_ENTITIES),
+    # Every vocabulary, not only every entity type: a dataset item filtered
+    # under its dataset and the same item filtered with runs attached are two
+    # field tables, and each has to be answerable on its own.
+    *(f"list.{e}" for e in FILTERABLE_FIELDS),
     # Not an OQL entity of its own — a time series over one of them — but it
     # has a reference of its own to answer, and it is the reference that keeps
     # the metric table out of the tool description.
@@ -58,6 +61,10 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
         "feedback_scores.correctness < 0.5",
         'data.question contains "refund" AND output contains "sorry"',
     ),
+    "dataset_item_case": (
+        'data.question contains "install"',
+        'trace_id = "<trace-uuid>"',
+    ),
 }
 
 
@@ -65,7 +72,23 @@ FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
 #: have such a condition: every one of their filter fields reads the runs,
 #: which exist only when the call names the experiments to compare.
 FILTER_REQUIREMENTS: Final[dict[str, str]] = {
-    "dataset_item": "experiment_ids: filters, sort and search apply to the runs",
+    "dataset_item": "experiment_ids: these filters, the sort and search apply to the runs",
+}
+
+
+#: The other field table of an entity that has two, named from each. An agent
+#: reaches for ``schema("list.dataset_item")`` whichever of the two calls it
+#: means, and the fields it finds there are the ones the other call refuses —
+#: so each reference says where the rest of them are.
+VOCABULARY_POINTERS: Final[dict[str, str]] = {
+    "dataset_item": (
+        "without experiment_ids the same list is the dataset's own cases, filtered on the "
+        'case itself: schema("list.dataset_item_case")'
+    ),
+    "dataset_item_case": (
+        "with experiment_ids the same list is those experiments' runs case by case, filtered "
+        'on the runs: schema("list.dataset_item")'
+    ),
 }
 
 
@@ -74,6 +97,22 @@ FILTER_REQUIREMENTS: Final[dict[str, str]] = {
 #: before writing the filter, so it is where the gap has to be stated. A
 #: refusal cannot carry it — the filter is accepted and answers 200.
 FIELD_NOTES: Final[dict[str, dict[str, str]]] = {
+    "dataset_item_case": {
+        "full_data": (
+            "the whole payload as one string, matched case-insensitively: a full scan of the "
+            "dataset, with no index behind it. It is the free-text search this endpoint does "
+            "not have; a key you can name (data.<key>) is the cheaper question."
+        ),
+        "source": (
+            "how the case was created: manual, trace, span or sdk. Matched as a string, so "
+            "the operators are the string ones and an unknown value is an empty page."
+        ),
+        "data": (
+            "the case's own keys, one per column of the dataset — data.question, "
+            "data.expected_output. Comparisons are not available: the values are stored as "
+            "strings, so the backend refuses > and <."
+        ),
+    },
     "experiment": {
         "prompt_ids": (
             "matches prompt ids, not prompt version ids: the backend compares against the "
@@ -133,11 +172,25 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     if requires is not None:
         filters["requires"] = requires
 
+    pointer = VOCABULARY_POINTERS.get(entity_type)
+    if pointer is not None:
+        filters["see_also"] = pointer
+
+    sort: dict[str, Any] = {"form": SORT_FORM, "fields": sortable_names(entity_type)}
+    why = UNSORTABLE_WHY.get(entity_type)
+    if why is not None:
+        # An empty field list reads as "not implemented yet". The endpoint has
+        # no sorting parameter at all, and the caller is better off knowing
+        # that before they page through a dataset looking for one.
+        sort["why"] = why
+
     return {
         "operation": f"list.{entity_type}",
-        "entity_type": entity_type,
+        # What the caller types, which is not this key when the key is one of
+        # an entity's two vocabularies.
+        "entity_type": VOCABULARY_MODES.get(entity_type, entity_type),
         "filters": filters,
-        "sort": {"form": SORT_FORM, "fields": sortable_names(entity_type)},
+        "sort": sort,
         "window": entity_type in WINDOWED_ENTITIES,
         "search": entity_type in WINDOWED_ENTITIES,
     }
@@ -148,5 +201,6 @@ __all__ = [
     "FILTER_EXAMPLES",
     "FILTER_REQUIREMENTS",
     "LIST_SCHEMA_KEYS",
+    "VOCABULARY_POINTERS",
     "list_reference",
 ]

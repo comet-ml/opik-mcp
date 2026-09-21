@@ -1022,15 +1022,16 @@ async def test_search_refusal_on_experiments_points_at_filters_too() -> None:
 
 
 @pytest.mark.anyio
-async def test_search_refusal_on_compared_items_says_filters_need_the_experiments() -> None:
-    """Suggesting filters to a caller whose filters would themselves be
-    refused for want of experiment_ids is one refusal short of a working
-    call. Review found it; the requirement table already knew."""
+async def test_search_refusal_on_dataset_items_points_at_the_payload_filter() -> None:
+    """The caller asked to find a case by something they read in it. The
+    endpoint has no free text, but it has one ilike over the whole payload —
+    which is the query they meant, one keyword away."""
     with pytest.raises(ToolError) as err:
         await run_list("dataset_item", dataset_id="ds-1", search="Japan", client=FakeOpikClient())
     message = str(err.value)
-    assert "given experiment_ids" in message
-    assert "name=" not in message, "compared items have no name to match"
+    assert 'full_data contains "…"' in message
+    assert 'schema("list.dataset_item_case")' in message
+    assert "name=" not in message, "a dataset item has no name to match"
 
 
 # --- sort ------------------------------------------------------------------ #

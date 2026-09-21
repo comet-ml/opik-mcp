@@ -85,7 +85,7 @@ async def run_compare(
     **_collection_args: Any,
 ) -> str:
     """The comparison, end to end: validate, resolve, ask, render."""
-    ids = _validated_ids(experiment_ids, filters=filters, sort=sort)
+    ids = _validated_ids(experiment_ids)
     _refuse_window(since, until)
     # A runner is handed ``None`` for a page argument the caller did not
     # choose (see ``list_tool._run_whole``), so the defaults are applied here.
@@ -388,18 +388,12 @@ async def _with_every_run(
 # --- what the call has to get right before anything is fetched ------------- #
 
 
-def _validated_ids(
-    experiment_ids: list[str] | None, *, filters: str | None, sort: str | None
-) -> list[str]:
+def _validated_ids(experiment_ids: list[str] | None) -> list[str]:
     if not experiment_ids:
-        asked = [name for name, given in (("filters", filters), ("sort", sort)) if given]
-        if asked:
-            raise EntityArgValidationError(
-                f"{' and '.join(asked)} on {_ENTITY} need experiment_ids: they apply to the "
-                f"compared runs, and a plain list of a dataset's cases has none. "
-                f"E.g. list('{_ENTITY}', experiment_ids=['<uuid>', '<uuid>'], "
-                f"filters='feedback_scores.correctness < 0.5')."
-            )
+        # Only reachable by calling the runner directly: the registry hands it
+        # the call when ``experiment_ids`` is there, and a list without them is
+        # the dataset's own cases — which filter and (do not) sort on their own
+        # endpoint's terms (OPIK-8397), not on a missing comparison's.
         raise EntityArgValidationError(
             f"list('{_ENTITY}') needs dataset_id, or experiment_ids to compare runs."
         )

@@ -58,6 +58,10 @@ ENTITY_ALIASES: dict[str, str] = {
     "issue": "agent_insights_issue",
     "test_suite": "dataset",
     "test_suite_item": "dataset_item",
+    # The vocabulary key the items' filter refusals name (``oql.VOCABULARY_MODES``).
+    # It is a field table, not a type, but an agent that has just read it in a
+    # message is the likeliest caller to type it back.
+    "dataset_item_case": "dataset_item",
 }
 
 

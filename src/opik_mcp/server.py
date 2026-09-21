@@ -342,7 +342,8 @@ async def list_entities(
         str | None,
         Field(
             description=(
-                "OQL filter for trace, span, thread, experiment, project_metric: "
+                "OQL filter for trace, span, thread, experiment, dataset_item, "
+                "project_metric: "
                 "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
                 "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
                 "strings quoted, numbers bare (duration in ms). E.g. "
@@ -519,7 +520,9 @@ async def list_entities(
       this project's traces)
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
-    - dataset_item: dataset_id, or experiment_ids to compare runs case by case
+    - dataset_item: dataset_id, or experiment_ids to compare runs case by case.
+      Filter the dataset's own cases on data.<key>, full_data, tags, source,
+      trace_id (no sort); read('dataset_item', id) is one case whole
     - prompt_version: prompt_id
 
     Workspace-wide types (project, experiment, prompt, dataset) accept

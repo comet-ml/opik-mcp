@@ -261,6 +261,31 @@ class StubBackend:
         ]
         return _compare_envelope(rows, page=page, total=self.suite.case_count)
 
+    def _items_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """One page of the dataset's own cases — ``GET /{id}/items``.
+
+        The filters are read far enough to be a 400 when they are not the
+        array the backend deserializes, and no further: what each clause
+        *means* is opik-backend's business, and a stub that reimplemented it
+        would be asserting against itself. Tests read the clauses back off
+        ``backend.one("/items").filters()`` to see what was sent.
+        """
+        _filters(query)
+        page = int(_one(query, "page", "1"))
+        size = int(_one(query, "size", "10"))
+        start = (page - 1) * size
+        rows = [
+            _dataset_item(index) for index in range(start, min(start + size, self.suite.case_count))
+        ]
+        return _page(rows, total=self.suite.case_count)
+
+    def _one_item(self, item_id: str) -> tuple[int, Any]:
+        """``GET /datasets/items/{itemId}`` — the case, whole and uncut."""
+        index = _case_index(item_id)
+        if index is None:
+            return 404, {"message": f"Dataset item id: {item_id} not found"}
+        return 200, _dataset_item(index)
+
     def _compare_stats(self, query: dict[str, list[str]]) -> dict[str, Any]:
         """Count, means and a median over the runs the filter matched.
 
@@ -374,6 +399,10 @@ class StubBackend:
                 return 200, self._compare_stats(query or {})
             if path.endswith("/items/experiments/items"):
                 return 200, self._compare_page(query or {})
+            if path.startswith("/v1/private/datasets/items/"):
+                return self._one_item(path.rsplit("/", 1)[-1])
+            if path.startswith("/v1/private/datasets/") and path.endswith("/items"):
+                return 200, self._items_page(query or {})
         except _BadRequest as refusal:
             return 400, {"message": str(refusal)}
         if path == "/v1/private/feedback-definitions":
@@ -439,6 +468,45 @@ def _page(content: list[dict[str, Any]], *, total: int | None = None) -> dict[st
         "size": len(content),
         "total": len(content) if total is None else total,
     }
+
+
+#: A case's payload carries one value no page can print whole: the reason a
+#: dataset item has a read of its own.
+_NOTES = "why this case is here. " * 60
+
+
+def _dataset_item(index: int) -> dict[str, Any]:
+    """One case as ``DatasetItem`` serialises it, outside any comparison."""
+    return {
+        "id": _case_id(index),
+        "source": "trace",
+        "trace_id": _trace_id(index, 0, 0),
+        "data": {
+            "question": f"Case {index}: what is the capital of France?",
+            "expected_answer": "Paris",
+            "notes": f"Case {index}: {_NOTES}",
+        },
+        "tags": ["regression"],
+        "created_at": "2026-09-08T10:00:00Z",
+        "last_updated_at": "2026-09-08T10:00:00Z",
+        "created_by": "stub-user",
+        "last_updated_by": "stub-user",
+    }
+
+
+def _filters(query: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """The ``filters`` param as ``FiltersFactory`` reads it: a JSON array, or
+    a 400. Nothing here interprets a clause."""
+    raw = _one(query, "filters", "")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise _BadRequest(f"Invalid filters query parameter '{raw}'") from None
+    if not isinstance(parsed, list) or not all(isinstance(one, dict) for one in parsed):
+        raise _BadRequest(f"Invalid filters query parameter '{raw}'")
+    return parsed
 
 
 def _one(query: dict[str, list[str]], key: str, default: str) -> str:

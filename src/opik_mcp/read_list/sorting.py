@@ -139,6 +139,27 @@ creation, so "which project is actually live" meant reading fifteen rows and
 comparing two date columns by eye.
 """
 
+_DATASET_ITEM_CASE_SORTABLE: Final[tuple[str, ...]] = ()
+"""The dataset's own items endpoint orders by nothing at all.
+
+``GET /datasets/{id}/items`` takes ``page``, ``size``, ``version``, ``filters``
+and ``truncate`` — there is no ``sorting`` parameter to send, so every sort is
+refused here rather than dropped silently. Declared as an empty tuple rather
+than left out, because a missing entry would make the entity unsortable *and*
+make ``schema("list.dataset_item_case")`` raise on its way to saying so.
+"""
+
+#: Why an entity with an empty sortable list has one, in the refusal's voice.
+#: The general message ("sortable types are …") reads as our limitation; this
+#: says whose it is and what does order the same rows.
+UNSORTABLE_WHY: Final[dict[str, str]] = {
+    "dataset_item_case": (
+        "opik-backend's dataset items endpoint takes no sorting parameter. Only the "
+        "comparison orders cases, so a sort needs experiment_ids: "
+        "list('dataset_item', experiment_ids=['<uuid>', '<uuid>'], sort='duration desc')"
+    ),
+}
+
 SORTABLE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "project": _PROJECT_SORTABLE,
     "trace": _TRACE_SORTABLE,
@@ -146,8 +167,14 @@ SORTABLE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
     "thread": _THREAD_SORTABLE,
     "experiment": _EXPERIMENT_SORTABLE,
     "dataset_item": _DATASET_ITEM_SORTABLE,
+    "dataset_item_case": _DATASET_ITEM_CASE_SORTABLE,
 }
-SORTABLE_ENTITIES: Final[tuple[str, ...]] = tuple(SORTABLE_FIELDS)
+SORTABLE_ENTITIES: Final[tuple[str, ...]] = tuple(
+    entity for entity, fields in SORTABLE_FIELDS.items() if fields
+)
+"""The entities a sort can name. An entity whose backend orders by nothing is
+in ``SORTABLE_FIELDS`` with an empty list — so that the reference can publish
+"no sorting here" — and out of this one, which is what a refusal lists."""
 
 SORT_FORM: Final = "<field> [asc|desc]"
 
@@ -166,9 +193,13 @@ def compile_sort(entity_type: str, sort: str) -> tuple[str, str]:
     Direction defaults to ``DESC`` — "slowest / most expensive / most recent
     first" is what a sort on a list is almost always for.
     """
-    if entity_type not in SORTABLE_FIELDS:
+    allowed = SORTABLE_FIELDS.get(entity_type)
+    if not allowed:
+        why = UNSORTABLE_WHY.get(entity_type)
         raise SortError(
-            f"sort is not supported for {entity_type!r}. "
+            f"sort is not supported for {entity_type!r}: {why}."
+            if why
+            else f"sort is not supported for {entity_type!r}. "
             f"Sortable types: {', '.join(SORTABLE_ENTITIES)}."
         )
     parts = sort.split()
@@ -224,6 +255,7 @@ __all__ = [
     "SORTABLE_ENTITIES",
     "SORTABLE_FIELDS",
     "SORT_FORM",
+    "UNSORTABLE_WHY",
     "SortError",
     "compile_sort",
     "is_sortable",

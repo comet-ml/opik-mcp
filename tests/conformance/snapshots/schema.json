@@ -25,6 +25,7 @@
         "list.thread",
         "list.experiment",
         "list.dataset_item",
+        "list.dataset_item_case",
         "list.project_metric"
       ],
       "title": "Operation",

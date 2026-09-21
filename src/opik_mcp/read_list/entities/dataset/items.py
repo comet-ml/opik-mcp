@@ -1,10 +1,15 @@
-"""The cases of a dataset: listing them, and choosing their columns.
+"""The cases of a dataset: listing them, reading one, choosing their columns.
 
 A dataset item has no fixed fields. Its payload is ``data``, a map keyed
 however the user built the dataset, so the columns of a page are read off the
 page rather than declared. Comparison mode reuses the same ranking through
 :func:`data_columns`, with a tighter cap, because there the runs need the
 width.
+
+A page is also a slice of a dataset that can hold thousands of cases, which is
+why the listing forwards ``filters`` (the ``dataset_item_case`` vocabulary)
+and why one case has a read of its own: the table cuts long values to fit a
+row, and :func:`fetch_item` is where the rest of one is.
 """
 
 from __future__ import annotations
@@ -12,7 +17,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient
+from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import ListProjection
 
 
@@ -26,6 +31,16 @@ async def list_items(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_dataset_items(dataset_id, **kw)
 
 
+async def fetch_item(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+    """One case, from ``/datasets/items/{itemId}``, uncut.
+
+    The listing cuts every cell to fit its row and says so; this is the id it
+    says it with. The dataset is not needed — the item id addresses the case
+    on its own.
+    """
+    return await client.get_dataset_item(entity_id)
+
+
 #: The item keys Opik's SDKs document, shown first when a dataset has them.
 #: Everything else is ranked by how many rows on the page fill it, then by
 #: name, so the same page always gets the same columns. Nothing here is
@@ -34,9 +49,9 @@ _PREFERRED_KEYS = ("input", "expected_output", "output", "context", "reference")
 _MAX_DATA_COLUMNS = 8
 #: Characters of item data a page may spend, split across its rows and data
 #: columns into a per-cell cap. Fewer rows (``size=5``) or fewer columns means
-#: more of each value, so the way to see a long value whole is to narrow the
-#: page — an item has no read of its own, and this server keeps no copy of the
-#: page to fetch the rest from (see :mod:`opik_mcp.read_list.size`).
+#: more of each value; the whole of one value is ``read('dataset_item', id)``,
+#: since this server keeps no copy of the page to fetch the rest from (see
+#: :mod:`opik_mcp.read_list.size`).
 _PAGE_DATA_BUDGET = 8_000
 _CELL_FLOOR = 60
 _CELL_CEILING = 4_000
@@ -72,10 +87,10 @@ def data_columns(content: list[dict[str, Any]], limit: int) -> tuple[list[str], 
 def cell_limit(rows: int, columns: int) -> int:
     """The per-cell cut for a page, from the page's character budget.
 
-    Fewer rows (``size=5``) or fewer columns means more of each value, so the
-    way to see a long value whole is to narrow the page — an item has no read
-    of its own, and this server keeps no copy of the page to fetch the rest
-    from (see :mod:`opik_mcp.read_list.size`).
+    Fewer rows (``size=5``) or fewer columns means more of each value; the
+    whole of one value is ``read('dataset_item', id)``, since this server
+    keeps no copy of the page to fetch the rest from (see
+    :mod:`opik_mcp.read_list.size`).
     """
     per_cell = _PAGE_DATA_BUDGET // (max(1, rows) * max(1, columns))
     return min(_CELL_CEILING, max(_CELL_FLOOR, per_cell))
@@ -109,5 +124,8 @@ def project_items(content: list[dict[str, Any]]) -> ListProjection:
         columns=tuple(f"data.{key}" for key in shown),
         cell_limit=cell_limit(len(content), len(shown)),
         note=note,
-        cut_hint="fewer rows per page (size=…) raise the cap",
+        cut_hint=(
+            "fewer rows per page (size=…) raise the cap, "
+            "and read('dataset_item', id) is the value whole"
+        ),
     )
