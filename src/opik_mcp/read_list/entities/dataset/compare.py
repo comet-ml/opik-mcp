@@ -639,11 +639,16 @@ def _how_to_read(experiments: list[Experiment], *, assertion_columns: bool) -> s
         # type and range and nothing about which way it improves, so the
         # table cannot call a drop a regression; it says who scored higher
         # and leaves the reading of a lower-is-better metric to the caller,
-        # in so many words.
+        # in so many words — and in the column header too, which is where a
+        # caller reading a Δ is looking (``layout._header``). Phrased as the
+        # rule rather than as a claim about this page: with only a categorical
+        # or a two-authored score there is no Δ to mark, and the sentence has
+        # to be true there as well.
         gap = (
             f", and Δ is {experiments[1].label} minus {experiments[0].label} (a + means "
             f"{experiments[1].label} scored higher). No score definition records which "
-            "direction is better, so on a lower-is-better metric a + is the regression"
+            "direction is better, so a score column carrying a Δ is marked direction "
+            "unknown: on a lower-is-better metric a + is the regression"
         )
     return (
         f"{experiments[0].label} is the baseline; score cells read {order} "

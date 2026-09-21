@@ -240,7 +240,11 @@ async def test_scores_beyond_four_are_cut_by_fill_rate_and_named_in_the_note() -
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "id | data.question | brevity | correctness | grounding | helpfulness |" in out
+    # Only ``correctness`` carries a Δ: the rest are E1's alone, so they are
+    # the columns with no sign to misread (see the direction section below).
+    assert (
+        "id | data.question | brevity | correctness (direction unknown) | grounding | helpfulness |"
+    ) in out
     assert "Showing 4 of 6 scores by fill rate; omitted: safety, tone." in out
 
 
@@ -528,7 +532,7 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     assert "passed" not in out
     assert "reason" not in out
     # The run worth opening next is not a test suite's privilege.
-    assert "correctness | worst_trace" in out
+    assert "correctness (direction unknown) | worst_trace" in out
     assert "0.9 / 0.4 Δ-0.5 | tr-b (E2)" in out
 
 
@@ -1093,3 +1097,71 @@ async def test_a_reason_with_line_breaks_and_a_pipe_stays_one_cell() -> None:
     assert row.count(" | ") == 5, "id, question, score, passed, worst_trace, reason"
     assert "Line one Line two ¦ with a pipe" in row
     assert "The answer names Lyon. Paris ¦ expected. See trace." in row
+
+
+# --- the direction nobody records (OPIK-8394) ------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_score_column_that_carries_a_delta_says_the_direction_is_unknown() -> None:
+    """Opik records no direction for a score — a numerical definition carries
+    a min and a max and nothing else — so the sign of Δ is arithmetic. The
+    column header says so, where the Δ is read, not only in a note under it."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"hallucination": 0.2}),
+                _run(B, trace="tr-b", scores={"hallucination": 0.9}),
+            ],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    assert "id | data.question | hallucination (direction unknown) | passed" in out
+    assert "case-1 | Capital? | 0.2 / 0.9 Δ+0.7" in out
+    assert "No score definition records which direction is better" in out
+    assert "on a lower-is-better metric a + is the regression" in out
+
+
+@pytest.mark.anyio
+async def test_one_experiment_has_no_delta_so_its_score_column_is_unmarked() -> None:
+    """The marker belongs to the Δ. With one run there is no subtraction, so
+    the header carries the score's name and nothing to distrust."""
+    fake = _fake(_case("case-1", {"question": "Capital?"}, [_run(A, scores={"correctness": 0.9})]))
+
+    out = await run_list("dataset_item", experiment_ids=[A], client=fake)
+
+    assert "id | data.question | correctness | passed" in out
+    assert "direction unknown" not in out
+
+
+@pytest.mark.anyio
+async def test_a_categorical_column_is_unmarked_because_a_label_has_no_delta() -> None:
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                {
+                    "experiment_id": A,
+                    "trace_id": "tr-a",
+                    "feedback_scores": [{"name": "verdict", "value": 0, "category_name": "low"}],
+                },
+                {
+                    "experiment_id": B,
+                    "trace_id": "tr-b",
+                    "feedback_scores": [{"name": "verdict", "value": 2, "category_name": "high"}],
+                },
+            ],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    assert "id | data.question | verdict | passed" in out
+    # The legend still owns up to the missing direction; the column does not
+    # carry the marker, because a label has no sign to misread.
+    assert "verdict (direction unknown)" not in out

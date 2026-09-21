@@ -37,6 +37,14 @@ UNSCORED = "unscored"
 #: something anyone should have to parse.
 RUN_SEPARATOR = " / "
 PASS_SEPARATOR = "·"
+#: What a score column is marked with when its cell carries a Δ. Opik
+#: records no direction for a score, so the sign is arithmetic and the header
+#: says so where the Δ is read — see :func:`_header`.
+DIRECTION_UNKNOWN = "direction unknown"
+
+#: How a score renders, decided once per row and per score: a label, several
+#: authors' opinions, or a number. Only a number is subtracted.
+_LABELLED, _OPINIONS, _NUMBER = "labelled", "opinions", "number"
 
 
 @dataclass(frozen=True)
@@ -101,7 +109,8 @@ class ScoreKinds:
     a bare value carries no label, and only the definition can restore it.
     The definition records no direction — nothing in Opik says whether a
     higher ``hallucination`` is better or worse — so there is nothing here
-    about which way a delta points.
+    about which way a delta points, and the header says as much
+    (:func:`_header`).
     """
 
     #: score name -> stored value -> label
@@ -258,6 +267,33 @@ class ComparedRow:
         value = (self.case.get("data") or {}).get(key)
         return "" if value is None else str(value)
 
+    def _kind(self, name: str) -> str:
+        """Which of the three cells this score gets on this row.
+
+        The cell and the column header have to agree about it — a header that
+        marks a Δ the cell does not carry is worse than no marker — so the
+        branch is taken once, here, and both read it.
+        """
+        all_runs = [run for e in self.experiments for run in self.runs.get(e.id, [])]
+        if is_categorical(all_runs, name, self.kinds):
+            return _LABELLED
+        if any(authored(run, name) for run in all_runs):
+            return _OPINIONS
+        return _NUMBER
+
+    def _values(self, name: str) -> list[float | None]:
+        return [score_value(self.runs.get(e.id, []), name) for e in self.experiments]
+
+    def compares(self, name: str) -> bool:
+        """Does this row's cell for ``name`` carry a Δ?
+
+        Which is what the header's ``direction unknown`` marker warns about,
+        so the header asks the rows rather than guessing from the page.
+        """
+        if len(self.experiments) != 2 or self._kind(name) != _NUMBER:
+            return False
+        return all(value is not None for value in self._values(name))
+
     def score(self, name: str) -> str:
         """One score, every experiment's value, in the order the caller named them.
 
@@ -273,12 +309,12 @@ class ComparedRow:
         A dash is an experiment that did not run the case; ``unscored`` is one
         that ran it and recorded nothing for this score.
         """
-        all_runs = [run for e in self.experiments for run in self.runs.get(e.id, [])]
-        if is_categorical(all_runs, name, self.kinds):
+        kind = self._kind(name)
+        if kind == _LABELLED:
             return RUN_SEPARATOR.join(self._labels(e, name) for e in self.experiments)
-        if any(authored(run, name) for run in all_runs):
+        if kind == _OPINIONS:
             return RUN_SEPARATOR.join(self._opinions(e, name) for e in self.experiments)
-        values = [score_value(self.runs.get(e.id, []), name) for e in self.experiments]
+        values = self._values(name)
         parts = []
         for e, v in zip(self.experiments, values, strict=True):
             if v is not None:
@@ -448,15 +484,9 @@ def render(
     columns += ["passed", "worst_trace", "reason"] if assertion_columns else ["worst_trace"]
     limit = cell_limit(len(rows), len(columns))
 
-    lines = [
-        header,
-        f"Found {total} dataset_items (page {page}, showing {len(rows)} of {total}):",
-        *(figures or []),
-        "",
-        " | ".join(columns),
-    ]
     cut = 0
     compared: list[ComparedRow] = []
+    body: list[str] = []
     for case in rows:
         row = ComparedRow.of(case, experiments, kinds)
         compared.append(row)
@@ -467,7 +497,18 @@ def render(
                 text = text[: limit - 3] + "..."
                 cut += 1
             values.append(text)
-        lines.append(" | ".join(values))
+        body.append(" | ".join(values))
+
+    # The header is written after the rows because one of its columns depends
+    # on them: only a rendered cell knows whether it carried a Δ.
+    lines = [
+        header,
+        f"Found {total} dataset_items (page {page}, showing {len(rows)} of {total}):",
+        *(figures or []),
+        "",
+        " | ".join(_header(columns, scores, compared)),
+        *body,
+    ]
 
     under = [*notes]
     if not scores:
@@ -508,6 +549,28 @@ def render(
     if page * size < total:
         lines += ["", f"Use page={page + 1} for next {size} results."]
     return "\n".join(lines)
+
+
+def _header(columns: list[str], scores: list[str], rows: list[ComparedRow]) -> list[str]:
+    """The column names, with every Δ-bearing score marked ``direction unknown``.
+
+    Opik records what a score *is* and never which way it improves: a
+    feedback definition carries a name, a description, a type and its
+    details — min and max for a numerical one, the labels and their numbers
+    for a categorical one — and nothing else (``FeedbackDefinition.java``;
+    the one ``higher is better`` in the product is a per-widget choice on a
+    dashboard's leaderboard, not a property of the score). The name is not
+    evidence either: a workspace's ``hallucination`` may be scored so that 1
+    is clean.
+
+    So the Δ stays arithmetic, E2 minus E1, and the column that carries it
+    says the direction is unknown where the Δ is read. The note under the
+    table says what to do about it; a reader who never reaches the note still
+    sees the marker. A column with no Δ — one experiment, a label, two
+    authors — is unmarked, because there is no sign there to misread.
+    """
+    marked = {name for name in scores if any(row.compares(name) for row in rows)}
+    return [f"{column} ({DIRECTION_UNKNOWN})" if column in marked else column for column in columns]
 
 
 def _tally(rows: list[ComparedRow], *, scored: bool, assertions: bool) -> str | None:
