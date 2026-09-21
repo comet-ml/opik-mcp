@@ -1,12 +1,17 @@
 # Test cases for the `/opik-online-eval` skill.
 #
 #   triggering  -> does the skill load at the right times (live scoring vs offline eval)?
-#   functional  -> given a project with traffic, does it create ONE rule with a cost cap
-#                  and confirm a scored trace? (contract below; fixture pending)
+#   functional  -> given a project with production-shaped traces, does it create ONE rule
+#                  with a cost cap and sampling, map variables as field paths, and confirm a
+#                  scored trace?
+#   edge        -> a same-named rule already exists -> `exists`, nothing created.
 #
-# Only the triggering suite is automated today. The functional contract is
-# pinned here so the fixture (a seeder that emits traces into a fresh project)
-# can be added without changing the grader's target.
+# The fixture is a seeder (fixtures/traffic/seed.py) that plants six traces in a fresh
+# project (input {"question"}, output {"output"}); with SEED_EXISTING_RULE=1 it also
+# pre-creates the rule. `traffic.py` in the workdir sends three more traces so the
+# skill's verify step has something to score. Rules run on the workspace's free
+# provider (`opik-free-model`) — no LLM key needed. The grader scores result.json
+# offline; `verify` (network) confirms the project holds exactly one rule of that name.
 
 triggering:
   should_trigger:
@@ -27,23 +32,28 @@ triggering:
 
 functional:
   - id: judge_live
-    fixture: TODO            # seeder: fresh project + a stream of traces with input/output
-    prompt: "Score the traces in project <PROJECT> for wrong refund windows."
+    fixture: traffic
+    seed_env: {SEED_EXISTING_RULE: "0"}
+    prompt: "Score the traces in Opik project <PROJECT> for wrong refund windows (the answer must say 5-7 business days). New traffic arrives when you run `OPIK_PROJECT_NAME=<PROJECT> uv run python traffic.py` in this directory."
     expect_status: live
     assert:
       status: live
-      exactly_one_rule_created: true
-      rule_has_cost_cap: true            # max_cost_usd set
-      rule_has_sampling_rate: true
+      rule_named: true
+      rule_has_cost_cap: true            # rule.max_cost_usd set
+      rule_has_sampling_rate: true       # rule.sampling_rate set
       variables_are_field_paths: true    # no "{{" in variables
       verification_trace_present: true   # verification.trace_id
       one_next_step: true
       no_modifications: true
+
+edge:
   - id: already_exists
-    fixture: TODO            # same seeder, with a rule of the same name pre-created
-    prompt: "Score the traces in project <PROJECT> for wrong refund windows."
+    fixture: traffic
+    seed_env: {SEED_EXISTING_RULE: "1"}
+    prompt: "Score the traces in Opik project <PROJECT> for wrong refund windows (the answer must say 5-7 business days). New traffic arrives when you run `OPIK_PROJECT_NAME=<PROJECT> uv run python traffic.py` in this directory."
     expect_status: exists
     assert:
       status: exists
-      no_rule_created: true
+      rule_matches_planted: true         # rule.id == the pre-created rule
       one_next_step: true
+      no_modifications: true
