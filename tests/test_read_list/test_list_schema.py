@@ -11,7 +11,12 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, OPERATORS_BY_TYPE
+from opik_mcp.read_list.oql import (
+    ENUM_VALUES,
+    FILTERABLE_FIELDS,
+    OPERATORS_BY_TYPE,
+    PARAM_FIELDS,
+)
 from opik_mcp.read_list.sorting import sortable_names
 from opik_mcp.writes.errors import UnknownOperationError
 from opik_mcp.writes.schema_tool import run_schema
@@ -52,6 +57,35 @@ def test_list_experiment_reference_has_no_window_search_or_source_default() -> N
     assert set(ref["filters"]["fields"]) == set(FILTERABLE_FIELDS["experiment"])
 
 
+def test_a_field_the_backend_takes_as_a_parameter_lists_only_what_compiles() -> None:
+    """The reference is the accepted set, not the field type's set.
+
+    ``type`` is an enum and ``optimization_id`` a string, so the type tables
+    would offer ``!=``, ``not_in``, ``contains`` and the rest — every one of
+    which the compiler refuses, because the query parameter behind them
+    cannot carry it. Advertising them here is the exact failure the values
+    list was added to prevent, one field over.
+    """
+    fields = run_schema("list.experiment")["filters"]["fields"]
+    assert fields["type"]["operators"] == ["=", "in"]
+    assert fields["optimization_id"]["operators"] == ["="]
+    assert fields["optimization_id"]["format"] == "UUID"
+    assert fields["experiment_ids"]["operators"] == ["in"]
+    assert fields["experiment_ids"]["format"] == "UUID"
+
+
+def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None:
+    """The field is named for ids and matches prompts, which is the kind of
+    gap a caller cannot see from the name. The backend concatenates the
+    legacy prompt id with the keys of the prompt-versions map, and those
+    keys are prompt ids — nothing filters by prompt version id at all. A
+    caller who assumes otherwise gets a broader page that looks exact."""
+    ref = run_schema("list.experiment")
+    note = ref["filters"]["fields"]["prompt_ids"]["note"]
+    assert "prompt ids" in note
+    assert "version" in note
+
+
 @pytest.mark.parametrize("entity_type", ["trace", "span", "thread", "experiment"])
 def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> None:
     ref = run_schema(f"list.{entity_type}")
@@ -60,7 +94,14 @@ def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> Non
     for name, spec in fields.items():
         expected_type = FILTERABLE_FIELDS[entity_type][name]
         assert spec["type"] == expected_type
-        assert spec["operators"] == list(OPERATORS_BY_TYPE[expected_type])
+        # A field the backend takes as a query parameter accepts less than
+        # its type does, and the reference has to say the smaller set — that
+        # is what the caller is held to.
+        param = PARAM_FIELDS.get(entity_type, {}).get(name)
+        expected_ops = (
+            list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[expected_type])
+        )
+        assert spec["operators"] == expected_ops
     assert ref["sort"]["fields"] == sortable_names(entity_type)
 
 

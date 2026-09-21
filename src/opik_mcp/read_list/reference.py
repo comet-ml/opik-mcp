@@ -21,6 +21,7 @@ from opik_mcp.read_list.oql import (
     KEY_REQUIRED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
+    PARAM_FIELDS,
     SOURCE_DEFAULTED_ENTITIES,
     SUPPORTED_ENTITIES,
     WINDOWED_ENTITIES,
@@ -68,6 +69,21 @@ FILTER_REQUIREMENTS: Final[dict[str, str]] = {
 }
 
 
+#: Per-field caveats, keyed by entity then field. For a field whose name
+#: promises more than it matches: the reference is where a caller looks
+#: before writing the filter, so it is where the gap has to be stated. A
+#: refusal cannot carry it — the filter is accepted and answers 200.
+FIELD_NOTES: Final[dict[str, dict[str, str]]] = {
+    "experiment": {
+        "prompt_ids": (
+            "matches prompt ids, not prompt version ids: the backend compares against the "
+            "experiment's prompt ids, so this narrows to a prompt and not to one version of "
+            "it. No prompt-version filter exists on the backend."
+        ),
+    },
+}
+
+
 def list_reference(entity_type: str) -> dict[str, Any]:
     """The ``schema("list.<entity>")`` payload. ``entity_type`` must be supported."""
     handler = ENTITY_REGISTRY.get(entity_type)
@@ -78,7 +94,16 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         return handler.reference_fn()
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
-        spec: dict[str, Any] = {"type": ftype, "operators": list(OPERATORS_BY_TYPE[ftype])}
+        # A field the backend takes as a query parameter accepts less than its
+        # type does — one value cannot carry a negation, one id cannot carry a
+        # set. The reference has to state the accepted set for the same reason
+        # it states a closed enum's values: what the compiler refuses must be
+        # discoverable here rather than by being rejected.
+        param = PARAM_FIELDS.get(entity_type, {}).get(name)
+        operators = list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[ftype])
+        spec: dict[str, Any] = {"type": ftype, "operators": operators}
+        if param is not None and param.value_form == "uuid":
+            spec["format"] = "UUID"
         if ftype in KEY_REQUIRED_TYPES:
             spec["key"] = "required"
         elif ftype in KEY_ALLOWED_TYPES:
@@ -87,6 +112,9 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             spec["unit"] = "milliseconds"
         if ftype == "date_time":
             spec["format"] = 'ISO-8601 instant with timezone, e.g. "2026-09-08T10:00:00Z"'
+        note = FIELD_NOTES.get(entity_type, {}).get(name)
+        if note is not None:
+            spec["note"] = note
         values = ENUM_VALUES.get(entity_type, {}).get(name)
         if values is not None:
             # The compiler refuses anything else, so the accepted set has to be
@@ -115,4 +143,10 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     }
 
 
-__all__ = ["FILTER_EXAMPLES", "FILTER_REQUIREMENTS", "LIST_SCHEMA_KEYS", "list_reference"]
+__all__ = [
+    "FIELD_NOTES",
+    "FILTER_EXAMPLES",
+    "FILTER_REQUIREMENTS",
+    "LIST_SCHEMA_KEYS",
+    "list_reference",
+]

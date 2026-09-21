@@ -34,7 +34,15 @@ SHARED: frozenset[str] = frozenset(
         "__init__",
         "size",
         "slim",
+        # How a column name finds its value: the table renders it, an
+        # entity's projection asks whether the page has one. Two callers, and
+        # when they disagreed the failure was silent.
+        "columns",
         "decorations",
+        # How many cases make a mean worth acting on: the experiment listing
+        # and the per-case comparison have to agree, and may not import each
+        # other.
+        "sample",
         "errors",
         "handler",
         "list_tool",

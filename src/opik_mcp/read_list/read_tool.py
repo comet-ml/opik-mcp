@@ -15,7 +15,6 @@ LLM's error-recovery prompting is portable.
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,19 +39,11 @@ from opik_mcp.read_list.registry import (
     resolve_entity_type,
 )
 from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
-from opik_mcp.read_list.uri import InvalidURI, looks_like_opik_link, looks_like_uri
+from opik_mcp.read_list.uri import InvalidURI, is_uuid, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
 from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
-
-_UUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
-
-
-def _is_uuid(s: str) -> bool:
-    return bool(_UUID_RE.match(s))
 
 
 def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, Any]]) -> str:
@@ -251,7 +242,7 @@ async def _fetch_with_name_lookup(
     - 1 candidate  → resolve to that id, fetch.
     - >1 candidates → raise a disambiguation error listing the matches.
     """
-    if not handler.id_only and handler.search_by_name_fn is not None and not _is_uuid(entity_id):
+    if not handler.id_only and handler.search_by_name_fn is not None and not is_uuid(entity_id):
         try:
             candidates = await handler.search_by_name_fn(client, entity_id)
         except Exception as e:

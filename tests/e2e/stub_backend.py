@@ -152,6 +152,9 @@ class StubBackend:
     suite: CompareSuite = field(default_factory=CompareSuite)
     #: Experiments addressable by id, whatever suite they ran.
     experiments: dict[str, ExperimentSpec] = field(default_factory=_default_experiments)
+    #: The workspace's feedback definitions, as ``GET /feedback-definitions``
+    #: pages them. None by default, which is what the live workspace has.
+    feedback_definitions: list[dict[str, Any]] = field(default_factory=list)
 
     port: int = 0
     _httpd: ThreadingHTTPServer | None = None
@@ -258,6 +261,55 @@ class StubBackend:
         ]
         return _compare_envelope(rows, page=page, total=self.suite.case_count)
 
+    def _compare_stats(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """Count, means and a median over the runs the filter matched.
+
+        Honest where the comparison reads it: the count is the number of
+        experiment items of the named experiments whose scores satisfy every
+        ``feedback_scores.<name>`` clause, so a test can count the fixture by
+        hand and check the header against it. A clause on anything else is
+        applied as the backend would only for ``data.<key> =``; the rest of
+        the filter language is not the stub's business.
+        """
+        experiment_ids = _ids(query)
+        clauses = json.loads(_one(query, "filters", "") or "[]")
+        matched: list[dict[str, Any]] = []
+        for index in range(self.suite.case_count):
+            row = self._case_row(index, experiment_ids)
+            if not _case_matches(row, clauses):
+                continue
+            matched.extend(item for item in row["experiment_items"] if _item_matches(item, clauses))
+        scores: dict[str, list[float]] = {}
+        for item in matched:
+            for score in item["feedback_scores"]:
+                scores.setdefault(score["name"], []).append(float(score["value"]))
+        durations = sorted(float(item["duration"]) for item in matched)
+        median = durations[len(durations) // 2] if durations else 0.0
+        cost = (
+            sum(item["total_estimated_cost"] for item in matched) / len(matched) if matched else 0.0
+        )
+        return {
+            "stats": [
+                {"name": "experiment_items_count", "value": len(matched), "type": "COUNT"},
+                {"name": "trace_count", "value": len(matched), "type": "COUNT"},
+                {"name": "total_estimated_cost", "value": cost, "type": "AVG"},
+                {
+                    "name": "duration",
+                    "value": {"p50": median, "p90": median, "p99": median},
+                    "type": "PERCENTAGE",
+                },
+                *(
+                    {
+                        "name": f"feedback_scores.{name}",
+                        "value": sum(values) / len(values),
+                        "type": "AVG",
+                    }
+                    for name, values in sorted(scores.items())
+                ),
+                {"name": "usage.total_tokens", "value": 120.0, "type": "AVG"},
+            ]
+        }
+
     def _case_row(
         self,
         index: int,
@@ -318,10 +370,14 @@ class StubBackend:
             if path.endswith("/items/experiments/items/output/columns"):
                 _ids(query or {})
                 return 200, self._output_columns()
+            if path.endswith("/items/experiments/items/stats"):
+                return 200, self._compare_stats(query or {})
             if path.endswith("/items/experiments/items"):
                 return 200, self._compare_page(query or {})
         except _BadRequest as refusal:
             return 400, {"message": str(refusal)}
+        if path == "/v1/private/feedback-definitions":
+            return 200, _page(self.feedback_definitions)
         experiment = self.experiments.get(path.removeprefix("/v1/private/experiments/"))
         if experiment is not None:
             return 200, _experiment(path.rsplit("/", 1)[-1], experiment)
@@ -435,6 +491,42 @@ def _trace_id(index: int, position: int, run: int) -> str:
 #: The filter fields that make the real backend drop the runs that did not
 #: match, taken from its EXPERIMENT_ITEM filter strategy.
 _RUN_LEVEL_FIELDS = ("feedback_scores", "output", "duration")
+
+
+_COMPARISONS = {
+    "=": lambda a, b: a == b,
+    "<": lambda a, b: a < b,
+    "<=": lambda a, b: a <= b,
+    ">": lambda a, b: a > b,
+    ">=": lambda a, b: a >= b,
+}
+
+
+def _item_matches(item: dict[str, Any], clauses: list[dict[str, Any]]) -> bool:
+    """Every ``feedback_scores.<name>`` clause, against one run's scores."""
+    scores = {s["name"]: float(s["value"]) for s in item["feedback_scores"]}
+    for clause in clauses:
+        if clause.get("field") != "feedback_scores":
+            continue
+        compare = _COMPARISONS.get(str(clause.get("operator")))
+        value = scores.get(str(clause.get("key")))
+        if compare is None or value is None or not compare(value, float(clause["value"])):
+            return False
+    return True
+
+
+def _case_matches(row: dict[str, Any], clauses: list[dict[str, Any]]) -> bool:
+    """Every ``data.<key> = …`` clause, against the case's data."""
+    for clause in clauses:
+        field_name = str(clause.get("field", ""))
+        key = str(clause.get("key") or "")
+        if field_name.startswith("data.") and not key:
+            field_name, key = "data", field_name.removeprefix("data.")
+        if field_name != "data" or clause.get("operator") != "=":
+            continue
+        if str(row["data"].get(key)) != str(clause.get("value")):
+            return False
+    return True
 
 
 def _is_run_level(clauses: list[dict[str, Any]]) -> bool:
