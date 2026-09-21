@@ -28,15 +28,28 @@ MAX_DATA_COLUMNS = 2
 MAX_SCORE_COLUMNS = 4
 _MISSING = "-"
 #: An experiment that ran the case and recorded nothing for the score. Not a
-#: dash: a dash is "did not run", and the two were the same cell. A task or a
-#: judge that raised looks exactly like this on the joined row, which carries
-#: no error of its own; the trace does.
+#: dash: a dash is "did not run", and the two were the same cell.
 UNSCORED = "unscored"
+#: An experiment that ran the case and recorded nothing at all, while another
+#: scored it — a task or a judge that raised. The joined row carries no error
+#: of its own (the trace does), so that asymmetry is the whole fingerprint,
+#: and it is worth its own word: reading it as ``unscored`` put a crash in
+#: with the cases nobody judged, and reading it as a number would put it in
+#: with the low scores. See :meth:`ComparedRow.errored`.
+ERRORED = "errored"
 #: Experiments are separated by a slash in a score cell and by a middle dot in
 #: the pass cell, whose values already carry a slash: "1/1 / 0/2" is not
 #: something anyone should have to parse.
 RUN_SEPARATOR = " / "
 PASS_SEPARATOR = "·"
+#: What a score column is marked with when its cell carries a Δ. Opik
+#: records no direction for a score, so the sign is arithmetic and the header
+#: says so where the Δ is read — see :func:`_header`.
+DIRECTION_UNKNOWN = "direction unknown"
+
+#: How a score renders, decided once per row and per score: a label, several
+#: authors' opinions, or a number. Only a number is subtracted.
+_LABELLED, _OPINIONS, _NUMBER = "labelled", "opinions", "number"
 
 
 @dataclass(frozen=True)
@@ -101,7 +114,8 @@ class ScoreKinds:
     a bare value carries no label, and only the definition can restore it.
     The definition records no direction — nothing in Opik says whether a
     higher ``hallucination`` is better or worse — so there is nothing here
-    about which way a delta points.
+    about which way a delta points, and the header says as much
+    (:func:`_header`).
     """
 
     #: score name -> stored value -> label
@@ -258,6 +272,33 @@ class ComparedRow:
         value = (self.case.get("data") or {}).get(key)
         return "" if value is None else str(value)
 
+    def _kind(self, name: str) -> str:
+        """Which of the three cells this score gets on this row.
+
+        The cell and the column header have to agree about it — a header that
+        marks a Δ the cell does not carry is worse than no marker — so the
+        branch is taken once, here, and both read it.
+        """
+        all_runs = [run for e in self.experiments for run in self.runs.get(e.id, [])]
+        if is_categorical(all_runs, name, self.kinds):
+            return _LABELLED
+        if any(authored(run, name) for run in all_runs):
+            return _OPINIONS
+        return _NUMBER
+
+    def _values(self, name: str) -> list[float | None]:
+        return [score_value(self.runs.get(e.id, []), name) for e in self.experiments]
+
+    def compares(self, name: str) -> bool:
+        """Does this row's cell for ``name`` carry a Δ?
+
+        Which is what the header's ``direction unknown`` marker warns about,
+        so the header asks the rows rather than guessing from the page.
+        """
+        if len(self.experiments) != 2 or self._kind(name) != _NUMBER:
+            return False
+        return all(value is not None for value in self._values(name))
+
     def score(self, name: str) -> str:
         """One score, every experiment's value, in the order the caller named them.
 
@@ -271,20 +312,22 @@ class ComparedRow:
         which direction a metric improves in (see ``compare._how_to_read``).
 
         A dash is an experiment that did not run the case; ``unscored`` is one
-        that ran it and recorded nothing for this score.
+        that ran it and recorded nothing for this score; ``errored`` is one
+        that recorded nothing at all while another scored the case, which is
+        what a raised task or judge looks like here (:meth:`errored`).
         """
-        all_runs = [run for e in self.experiments for run in self.runs.get(e.id, [])]
-        if is_categorical(all_runs, name, self.kinds):
+        kind = self._kind(name)
+        if kind == _LABELLED:
             return RUN_SEPARATOR.join(self._labels(e, name) for e in self.experiments)
-        if any(authored(run, name) for run in all_runs):
+        if kind == _OPINIONS:
             return RUN_SEPARATOR.join(self._opinions(e, name) for e in self.experiments)
-        values = [score_value(self.runs.get(e.id, []), name) for e in self.experiments]
+        values = self._values(name)
         parts = []
         for e, v in zip(self.experiments, values, strict=True):
             if v is not None:
                 parts.append(number(v))
             else:
-                parts.append(UNSCORED if self.runs.get(e.id) else _MISSING)
+                parts.append(self._nothing(e) if self.runs.get(e.id) else _MISSING)
         cell = RUN_SEPARATOR.join(parts)
         if len(values) == 2 and values[0] is not None and values[1] is not None:
             cell += f" Δ{signed(values[1] - values[0])}"
@@ -295,7 +338,7 @@ class ComparedRow:
         if not runs:
             return _MISSING
         labels = [label for run in runs if (label := category_of(run, name, self.kinds))]
-        return ",".join(dict.fromkeys(labels)) if labels else UNSCORED
+        return ",".join(dict.fromkeys(labels)) if labels else self._nothing(experiment)
 
     def _opinions(self, experiment: Experiment, name: str) -> str:
         runs = self.runs.get(experiment.id)
@@ -308,15 +351,46 @@ class ComparedRow:
                 parts.extend(f"{number(v)} {source}" for v, source in several)
             elif (one := scores_of(run).get(name)) is not None:
                 parts.append(number(one))
-        return ", ".join(parts) if parts else UNSCORED
+        return ", ".join(parts) if parts else self._nothing(experiment)
+
+    def _scoreless(self, experiment: Experiment) -> bool:
+        """Did this experiment run the case and record no score at all?"""
+        runs = self.runs.get(experiment.id) or []
+        return bool(runs) and not any(scores_of(run) for run in runs)
+
+    def _ran(self) -> list[Experiment]:
+        return [e for e in self.experiments if self.runs.get(e.id)]
+
+    def errored(self) -> bool:
+        """Did some experiment record nothing here while another scored the case?
+
+        The joined row carries no error of its own: the compare query selects
+        none (``ExperimentItemCompare`` has no error field), and an item's
+        ``status`` is the assertions' verdict — passed or failed — not the
+        task's. So what a task or a judge that raised leaves behind is this
+        asymmetry: the same case, the same judges, and one run produced
+        nothing at all. Its cells say ``errored`` rather than a number, so it
+        cannot be read as a low score, and the note counts it apart.
+
+        With one experiment, or with no run that scored, there is nothing to
+        be asymmetric against and the case is :meth:`unscored` instead.
+        """
+        scoreless = [e for e in self._ran() if self._scoreless(e)]
+        return bool(scoreless) and len(scoreless) < len(self._ran())
 
     def unscored(self) -> bool:
-        """Did some experiment run this case and record no score at all?"""
-        for experiment in self.experiments:
-            runs = self.runs.get(experiment.id)
-            if runs and not any(scores_of(run) for run in runs):
-                return True
-        return False
+        """Did every experiment that ran this case record nothing?
+
+        Which says less than an error does: with no run that scored it,
+        nothing here claims the judges were meant to run on this case.
+        """
+        ran = self._ran()
+        return bool(ran) and all(self._scoreless(e) for e in ran)
+
+    def _nothing(self, experiment: Experiment) -> str:
+        """What an experiment that ran the case and wrote no value in this
+        column is called — which depends on what the rest of the row did."""
+        return ERRORED if self._scoreless(experiment) and self.errored() else UNSCORED
 
     def failed(self) -> bool:
         """Did some run fail an assertion?"""
@@ -448,15 +522,9 @@ def render(
     columns += ["passed", "worst_trace", "reason"] if assertion_columns else ["worst_trace"]
     limit = cell_limit(len(rows), len(columns))
 
-    lines = [
-        header,
-        f"Found {total} dataset_items (page {page}, showing {len(rows)} of {total}):",
-        *(figures or []),
-        "",
-        " | ".join(columns),
-    ]
     cut = 0
     compared: list[ComparedRow] = []
+    body: list[str] = []
     for case in rows:
         row = ComparedRow.of(case, experiments, kinds)
         compared.append(row)
@@ -467,7 +535,18 @@ def render(
                 text = text[: limit - 3] + "..."
                 cut += 1
             values.append(text)
-        lines.append(" | ".join(values))
+        body.append(" | ".join(values))
+
+    # The header is written after the rows because one of its columns depends
+    # on them: only a rendered cell knows whether it carried a Δ.
+    lines = [
+        header,
+        f"Found {total} dataset_items (page {page}, showing {len(rows)} of {total}):",
+        *(figures or []),
+        "",
+        " | ".join(_header(columns, scores, compared)),
+        *body,
+    ]
 
     under = [*notes]
     if not scores:
@@ -510,15 +589,55 @@ def render(
     return "\n".join(lines)
 
 
-def _tally(rows: list[ComparedRow], *, scored: bool, assertions: bool) -> str | None:
-    """How many cases on the page failed, and how many ran without a score.
+def _header(columns: list[str], scores: list[str], rows: list[ComparedRow]) -> list[str]:
+    """The column names, with every Δ-bearing score marked ``direction unknown``.
 
-    Two different things that read alike in a table: a case a judge marked
-    down, and a case where the task or the judge raised and nothing was
-    scored. The joined row carries no error — the trace does — so the second
-    is counted as what it is here, a run with no score, and the caller is
-    told where the error would be. Kept apart from the low scores: an errored
-    case in a "how many scored under 0.5" count is a wrong count.
+    Opik records what a score *is* and never which way it improves: a
+    feedback definition carries a name, a description, a type and its
+    details — min and max for a numerical one, the labels and their numbers
+    for a categorical one — and nothing else (``FeedbackDefinition.java``;
+    the one ``higher is better`` in the product is a per-widget choice on a
+    dashboard's leaderboard, not a property of the score). The name is not
+    evidence either: a workspace's ``hallucination`` may be scored so that 1
+    is clean.
+
+    So the Δ stays arithmetic, E2 minus E1, and the column that carries it
+    says the direction is unknown where the Δ is read. The note under the
+    table says what to do about it; a reader who never reaches the note still
+    sees the marker. A column with no Δ — one experiment, a label, two
+    authors — is unmarked, because there is no sign there to misread.
+
+    The names are escaped like any cell: a case column is a data key the user
+    chose, and one carrying a line break split this line in two.
+    """
+    marked = {name for name in scores if any(row.compares(name) for row in rows)}
+    return [
+        one_line(f"{column} ({DIRECTION_UNKNOWN})" if column in marked else column)
+        for column in columns
+    ]
+
+
+def _tally(rows: list[ComparedRow], *, scored: bool, assertions: bool) -> str | None:
+    """How many cases on the page failed, and how the rest are to be read.
+
+    Three things read alike in a table and are not alike at all: a case every
+    experiment scored, a case where one run produced nothing while another
+    scored it (the task or the judge raised), and a case nobody scored. An
+    errored case counted in with the low scores makes "how many scored under
+    0.5" a wrong number, and counted in with the unscored it stops pointing
+    at a trace worth opening.
+
+    So the page's cases are partitioned, not merely flagged: fully scored,
+    errored and unscored are exclusive and exhaustive, and the counts sum to
+    the rows on the page — which is what lets a caller trust that no case was
+    quietly counted twice or not at all. Silent when there is nothing to
+    separate: a page where every run scored says so by saying nothing.
+
+    Failed assertions are a different axis and keep their own count; a case
+    can be fully scored and have failed one. "Fully scored" rather than
+    "compared" because every case on the page was compared — that is what the
+    page is — and the count is of the cases every experiment that ran them
+    also scored.
     """
     parts: list[str] = []
     if assertions:
@@ -526,16 +645,30 @@ def _tally(rows: list[ComparedRow], *, scored: bool, assertions: bool) -> str | 
         if failed:
             parts.append(f"{_cases(failed)} failed an assertion")
     if scored:
+        errored = sum(1 for row in rows if row.errored())
         unscored = sum(1 for row in rows if row.unscored())
-        if unscored:
+        if errored or unscored:
+            # A zero keeps its number, because the three counts have to add
+            # up to the page, and loses its explanation, because there is
+            # nothing there to explain.
             parts.append(
-                f"{_cases(unscored)} {'has' if unscored == 1 else 'have'} a run with no score at "
-                "all (unscored): what a task or judge that raised looks like here, apart from the "
-                "low scores — open its worst_trace for error_info"
+                f"{len(rows) - errored - unscored} of {_cases(len(rows))} fully scored, "
+                f"{errored} errored{_WHY_ERRORED if errored else ''} and "
+                f"{unscored} unscored{_WHY_UNSCORED if unscored else ''}"
             )
     if not parts:
         return None
     return f"On this page, {'; '.join(parts)}."
+
+
+#: Why an errored case is not a low score, and where its error is. Said
+#: beside the count, which is the number a caller checks before believing a
+#: page of scores.
+_WHY_ERRORED = (
+    " (a run recorded nothing while another experiment scored the same case — what a task or "
+    "judge that raised looks like here; open its worst_trace for error_info)"
+)
+_WHY_UNSCORED = " (no run on the case recorded a score)"
 
 
 def _cases(n: int) -> str:

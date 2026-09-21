@@ -43,6 +43,18 @@ EXPERIMENT_A = "0199c6a4-3a4c-7f1e-9d2b-000000000020"
 EXPERIMENT_B = "0199c6a4-3a4c-7f1e-9d2b-000000000021"
 EXPERIMENT_OTHER_SUITE = "0199c6a4-3a4c-7f1e-9d2b-000000000022"
 
+#: The entities the claim table probes and nothing else needed yet. A thread
+#: is keyed by a caller-chosen string, not a UUID, which is the whole reason
+#: ``read('thread', …)`` cannot be addressed the way a trace is.
+THREAD_ID = "checkout-session-8842"
+THREAD_TRACE_IDS = (
+    "0199c6a4-3a4c-7f1e-9d2b-000000000030",
+    "0199c6a4-3a4c-7f1e-9d2b-000000000031",
+)
+PROMPT_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000040"
+PROMPT_NAME = "refund-answer"
+ISSUE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000050"
+
 #: What the backend stores for a test suite, on the dataset's ``type`` and on
 #: the experiment's ``evaluation_method``. Not ``test_suite``: opik-backend's
 #: OPIK-5795 plans that rename and has not done it.
@@ -96,11 +108,20 @@ class ExperimentSpec:
     )
     #: Every Nth case fails for this experiment; 0 means it never fails.
     fails_every: int = 0
+    #: Every Nth case errors for this experiment: its task or its judge
+    #: raised, so the run exists and carries no score, no assertion and no
+    #: status. The joined endpoint has no error field to put anything else in
+    #: — the error is on the trace — which is exactly what the table has to
+    #: read as "errored" rather than as a zero.
+    errors_every: int = 0
     #: How many times this experiment ran each case (``execution_policy``).
     runs_per_item: int = 1
 
     def fails(self, index: int) -> bool:
         return self.fails_every > 0 and (index + 1) % self.fails_every == 0
+
+    def errors(self, index: int) -> bool:
+        return self.errors_every > 0 and (index + 1) % self.errors_every == 0
 
 
 @dataclass
@@ -155,6 +176,26 @@ class StubBackend:
     #: The workspace's feedback definitions, as ``GET /feedback-definitions``
     #: pages them. None by default, which is what the live workspace has.
     feedback_definitions: list[dict[str, Any]] = field(default_factory=list)
+    #: How many versions the prompt has. Above the read's inline limit the
+    #: parent read has to say so rather than quietly showing the first 100.
+    prompt_version_count: int = 3
+    #: How many spans the trace has, and how many turns the thread has.
+    #: Both reads inline up to 200 and then say what they left out, so a
+    #: probe of that claim needs a collection the stub can grow past it.
+    span_count: int = 1
+    thread_turn_count: int = len(THREAD_TRACE_IDS)
+    #: The Diagnostics job's state for the project, or ``None`` for "never
+    #: enabled" — which the backend spells as a 404, not as a record.
+    agent_insights_job: dict[str, Any] | None = field(
+        default_factory=lambda: {
+            "project_id": PROJECT_ID,
+            "status": "enabled",
+            "last_scan_at": "2026-09-09T02:00:00Z",
+        }
+    )
+    #: Diagnostics issues the project has, newest-seen first. Keyed by status
+    #: so a probe can ask for the closed ones the default page leaves out.
+    issues: list[dict[str, Any]] = field(default_factory=lambda: [_issue()])
 
     port: int = 0
     _httpd: ThreadingHTTPServer | None = None
@@ -349,15 +390,18 @@ class StubBackend:
             if spec is None or (strip_to is not None and experiment_id != strip_to):
                 continue
             failing = spec.fails(index)
+            erroring = spec.errors(index)
             passed_runs = 0
             for run in range(spec.runs_per_item):
                 # With several runs the first one passes and the rest carry the
                 # failure, so the worst run is a different trace from the
                 # experiment's first.
                 run_failed = failing and (run > 0 or spec.runs_per_item == 1)
-                passed_runs += 0 if run_failed else 1
+                passed_runs += 0 if run_failed or erroring else 1
                 items.append(
-                    _experiment_item(index, position, run, experiment_id, spec, run_failed)
+                    _experiment_item(
+                        index, position, run, experiment_id, spec, run_failed, erroring
+                    )
                 )
             summaries[experiment_id] = {
                 "passed_runs": passed_runs,
@@ -450,12 +494,78 @@ class StubBackend:
                 total=1,
             )
         if path == "/v1/private/traces":
-            return 200, _page([_trace()])
+            rows = self._traces(query or {}, body or {})
+            threaded = bool(rows) and rows[0].get("thread_id") == THREAD_ID
+            return 200, _page(rows, total=self.thread_turn_count if threaded else len(rows))
         if path == f"/v1/private/traces/{TRACE_ID}":
             return 200, _trace()
+        if path == "/v1/private/traces/threads":
+            return 200, _page([_thread_record()])
+        if path == "/v1/private/traces/threads/retrieve":
+            return 200, _thread_record()
         if path == "/v1/private/spans":
-            return 200, _page([_span()])
+            return 200, _page(
+                [_span(index) for index in range(min(self.span_count, _size(query or {})))],
+                total=self.span_count,
+            )
+        if path == f"/v1/private/spans/{SPAN_ID}":
+            return 200, _span()
+        if path == "/v1/private/datasets":
+            return 200, _page([_dataset(SUITE_ID), _dataset(OTHER_SUITE_ID)])
+        if path == "/v1/private/experiments":
+            return 200, self._experiment_page(query or {})
+        if path == "/v1/private/prompts":
+            return 200, _page([_prompt()])
+        if path == f"/v1/private/prompts/{PROMPT_ID}":
+            return 200, _prompt()
+        if path == f"/v1/private/prompts/{PROMPT_ID}/versions":
+            asked = min(self.prompt_version_count, _size(query or {}))
+            return 200, _page(
+                [_prompt_version(n) for n in range(asked)],
+                total=self.prompt_version_count,
+            )
+        if path == "/v1/private/toggles/":
+            return 200, {"AGENT_INSIGHTS_ENABLED": "true"}
+        if path.startswith("/v1/private/agent-insights/jobs/"):
+            if self.agent_insights_job is None:
+                return 404, {"message": "no job for this project"}
+            return 200, self.agent_insights_job
+        if path == "/v1/private/agent-insights/issues":
+            return 200, self._issue_page(query or {})
+        if path.startswith("/v1/private/agent-insights/issues/"):
+            return 200, _issue_details(path.rsplit("/", 1)[-1], self.issues)
         return 404, {"message": f"stub has no route for {method} {path}"}
+
+    # --- the routes that read what was asked for --------------------------- #
+
+    def _traces(self, query: dict[str, list[str]], body: dict[str, Any]) -> list[dict[str, Any]]:
+        """The project's traces, or a thread's turns when filtered to one.
+
+        ``read('thread', …)`` fetches the turns by filtering traces on
+        ``thread_id``, so a stub that always answers the same single trace
+        would let a thread read look right with no turns in it.
+        """
+        raw = _one(query, "filters", "") or json.dumps(body.get("filters") or [])
+        if THREAD_ID in raw:
+            asked = min(self.thread_turn_count, _size(query, body))
+            return [_thread_turn(index, self.thread_turn_count) for index in range(asked)]
+        return [_trace()]
+
+    def _experiment_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """Every experiment the stub holds, narrowed by the ``name`` substring."""
+        wanted = _one(query, "name", "")
+        rows = [
+            _experiment(experiment_id, spec)
+            for experiment_id, spec in self.experiments.items()
+            if wanted.lower() in spec.name.lower()
+        ]
+        return _page(rows, total=len(rows))
+
+    def _issue_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """Open issues unless a status was asked for — the Diagnostics default."""
+        wanted = _one(query, "status", "open")
+        rows = [issue for issue in self.issues if issue["status"] == wanted]
+        return _page(rows, total=len(rows))
 
 
 # --- payload shapes, as the real backend sends them ------------------------ #
@@ -476,9 +586,16 @@ _NOTES = "why this case is here. " * 60
 
 
 def _dataset_item(index: int) -> dict[str, Any]:
-    """One case as ``DatasetItem`` serialises it, outside any comparison."""
+    """One case as ``DatasetItem`` serialises it, outside any comparison.
+
+    The ``data`` keys are the columns ``list('dataset_item', dataset_id=…)``
+    discovers from the page, so they are what the projection claim is read
+    against; ``notes`` is the value no page can print whole, which is what a
+    cut and the read that lifts it are proved with.
+    """
     return {
         "id": _case_id(index),
+        "dataset_id": SUITE_ID,
         "source": "trace",
         "trace_id": _trace_id(index, 0, 0),
         "data": {
@@ -516,6 +633,19 @@ def _filters(query: dict[str, list[str]]) -> list[dict[str, Any]]:
 def _one(query: dict[str, list[str]], key: str, default: str) -> str:
     values = query.get(key) or []
     return values[0] if values else default
+
+
+def _size(query: dict[str, list[str]], body: dict[str, Any] | None = None) -> int:
+    """The page size asked for, from wherever this endpoint takes it.
+
+    A collection the caller asked 200 of must come back at 200, not whole:
+    the inline limit is the server's, and a stub that ignores it would let
+    "up to 200 inlined" pass on a read that inlined everything.
+    """
+    if body and isinstance(body.get("size"), int):
+        return int(body["size"])
+    raw = _one(query, "size", "")
+    return int(raw) if raw.isdigit() else 10
 
 
 def _ids(query: dict[str, list[str]]) -> list[str]:
@@ -630,9 +760,27 @@ def _experiment_item(
     experiment_id: str,
     spec: ExperimentSpec,
     failed: bool,
+    errored: bool = False,
 ) -> dict[str, Any]:
     scores = spec.failing_scores if failed else spec.passing_scores
     answer = "Lyon" if failed else "Paris"
+    if errored:
+        # What the joined endpoint returns for a run whose task or judge
+        # raised: the item, its trace, and none of the three fields that say
+        # how it went. Nothing here is an error flag, because the payload has
+        # none (``ExperimentItemCompare``); the error is on the trace.
+        return {
+            "id": _trace_id(index, position, run),
+            "experiment_id": experiment_id,
+            "dataset_item_id": _case_id(index),
+            "trace_id": _trace_id(index, position, run),
+            "output": {},
+            "feedback_scores": [],
+            "duration": 1200.0 + index,
+            "usage": {},
+            "total_estimated_cost": 0.0,
+            "created_at": "2026-09-08T10:00:00Z",
+        }
     return {
         "id": f"{_trace_id(index, position, run)}",
         "experiment_id": experiment_id,
@@ -687,6 +835,117 @@ def _dataset(dataset_id: str) -> dict[str, Any]:
         "type": TEST_SUITE_METHOD,
         "created_at": "2026-09-01T09:00:00Z",
         "last_updated_at": "2026-09-08T09:00:00Z",
+    }
+
+
+def _thread_record() -> dict[str, Any]:
+    """Thread metadata, as both the list page and ``retrieve`` send it.
+
+    ``first_message`` / ``last_message`` are ``argMin``/``argMax`` over the
+    turns' own bodies — the same bytes the messages carry — which is why the
+    read asks for them truncated.
+    """
+    return {
+        "id": THREAD_ID,
+        "thread_id": THREAD_ID,
+        "project_id": PROJECT_ID,
+        "status": "inactive",
+        "start_time": "2026-09-02T10:00:00Z",
+        "end_time": "2026-09-02T10:02:00Z",
+        "duration": 120_000.0,
+        "number_of_messages": len(THREAD_TRACE_IDS),
+        "first_message": {"question": "where is my refund?"},
+        "last_message": {"answer": "5-7 business days"},
+        "total_estimated_cost": 0.0004,
+        "created_at": "2026-09-02T10:00:00Z",
+        "last_updated_at": "2026-09-02T10:02:00Z",
+    }
+
+
+def _thread_turn(index: int, total: int) -> dict[str, Any]:
+    """One trace carrying the thread's id — a turn, once the read projects it."""
+    return {
+        "id": _turn_id(index),
+        "project_id": PROJECT_ID,
+        "thread_id": THREAD_ID,
+        "name": "answer",
+        # Descending on purpose: the read sorts turns into conversation order
+        # itself, and a stub that hands them over already sorted could not
+        # tell a working sort from a missing one.
+        "start_time": f"2026-09-02T{10 + (total - index) // 60:02d}:{(total - index) % 60:02d}:00Z",
+        "end_time": f"2026-09-02T{10 + (total - index) // 60:02d}:{(total - index) % 60:02d}:30Z",
+        "duration": 30_000.0,
+        # The first turn's body is the one the backend cut, for the same
+        # reason only the first span's is: the notice counts the turns that
+        # lost bytes, and that count is only meaningful below the total.
+        "input": CUT_SPAN_OUTPUT if index == 0 else {"question": f"turn {index}"},
+        "output": {"answer": f"answer {index}"},
+        "source": "sdk",
+    }
+
+
+def _prompt() -> dict[str, Any]:
+    return {
+        "id": PROMPT_ID,
+        "name": PROMPT_NAME,
+        "description": "The refund-window answer",
+        "created_at": "2026-09-01T09:00:00Z",
+        "last_updated_at": "2026-09-08T09:00:00Z",
+    }
+
+
+def _prompt_version(index: int) -> dict[str, Any]:
+    return {
+        "id": f"0199c6a4-3a4c-7f1e-9d2b-00000000004{index + 1}",
+        "prompt_id": PROMPT_ID,
+        "commit": f"v{index + 1}",
+        "template": f"Answer the refund question, revision {index + 1}.",
+        "type": "mustache",
+        "created_at": f"2026-09-0{index + 1}T09:00:00Z",
+    }
+
+
+def _issue() -> dict[str, Any]:
+    """One Diagnostics issue, as the list page ranks them."""
+    return {
+        "id": ISSUE_ID,
+        "project_id": PROJECT_ID,
+        "name": "Refund window stated wrongly",
+        "title": "Refund window stated wrongly",
+        "severity": "high",
+        "status": "open",
+        "total_occurrences": 42,
+        "latest_count": 22,
+        "last_seen": "2026-09-09",
+        "trace_count": 37,
+        "cause": "retrieve() returns nothing for refund questions",
+        "suggested_fix": "Widen the retriever's window to the policy docs",
+        "first_seen_at": "2026-09-01T09:00:00Z",
+        "last_seen_at": "2026-09-09T09:00:00Z",
+    }
+
+
+def _issue_details(issue_id: str, issues: list[dict[str, Any]]) -> dict[str, Any]:
+    """One issue plus its per-day rows, whose ``metadata`` carries the traces.
+
+    The example trace ids arrive per report day and repeat across days; the
+    read is the thing that dedupes them, so the stub repeats one on purpose.
+    """
+    record = next((one for one in issues if one["id"] == issue_id), _issue())
+    return {
+        **record,
+        "details": [
+            {
+                "report_date": "2026-09-08",
+                "occurrence_count": 20,
+                "metadata": {"example_trace_ids": [TRACE_ID]},
+            },
+            {
+                "report_date": "2026-09-09",
+                "occurrence_count": 22,
+                "metadata": {"example_trace_ids": [TRACE_ID, THREAD_TRACE_IDS[0]]},
+            },
+        ],
     }
 
 
@@ -758,9 +1017,20 @@ def _trace() -> dict[str, Any]:
 CUT_SPAN_OUTPUT = "y" * 10_001
 
 
-def _span() -> dict[str, Any]:
+def _turn_id(index: int) -> str:
+    """A turn's trace id. The first two are named so a probe can point at one."""
+    if index < len(THREAD_TRACE_IDS):
+        return THREAD_TRACE_IDS[index]
+    return f"0199c6a4-3a4c-7f1e-9d2b-3{index:07d}0000"
+
+
+def _span_id(index: int) -> str:
+    return SPAN_ID if index == 0 else f"0199c6a4-3a4c-7f1e-9d2b-4{index:07d}0000"
+
+
+def _span(index: int = 0) -> dict[str, Any]:
     return {
-        "id": SPAN_ID,
+        "id": _span_id(index),
         "trace_id": TRACE_ID,
         "project_id": PROJECT_ID,
         "name": "charge",
@@ -768,7 +1038,11 @@ def _span() -> dict[str, Any]:
         "start_time": "2026-09-02T10:00:00Z",
         "end_time": "2026-09-02T10:00:01Z",
         "input": {"amount": 12},
-        "output": CUT_SPAN_OUTPUT,
+        # Only the first span carries the cut body: the point is that a read
+        # counts the spans that lost bytes, and a tree where every span was
+        # cut cannot tell that count from the span count. It also keeps a
+        # 200-span tree from costing two megabytes to serve.
+        "output": CUT_SPAN_OUTPUT if index == 0 else {"ok": True},
     }
 
 

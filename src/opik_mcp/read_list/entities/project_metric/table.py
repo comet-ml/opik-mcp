@@ -22,6 +22,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
+from opik_mcp.read_list.columns import one_line
+
 OTHERS: Final = "__others__"
 """The backend's own bucket for groups past its limit (``BreakdownQueryBuilder``).
 
@@ -158,9 +160,15 @@ than as "the spans with no environment set".
 
 
 def _column(one: dict[str, Any], table: Table) -> str:
+    """What to call one series: the name the backend gave it.
+
+    Which on a grouped chart is the value it grouped on — a model, a tag, a
+    metadata value — and so is data, not a label this server chose. It is
+    escaped like a cell, because a bare pipe in one added a column.
+    """
     name = one.get("name")
     if isinstance(name, str) and name:
-        return name
+        return one_line(name)
     return NO_GROUP if table.grouped else table.metric_name
 
 

@@ -78,8 +78,9 @@ ITEM_HANDLER = EntityHandler(
         "Dataset item. Pass dataset_id to enumerate the dataset's cases, filtered on the "
         "case itself (data.<key>, full_data, id, tags, source, trace_id, span_id); the "
         "endpoint has no sorting. read('dataset_item', id) is one case whole, which is how "
-        "a value the table cut is read. Columns are the items' data keys, discovered from "
-        "each page. With experiment_ids the same list compares those experiments case by "
-        "case, on the runs' fields instead."
+        "a value the table cut is read, while read('dataset') returns the dataset record "
+        "without its items. Columns are the items' data keys, discovered from each page. "
+        "With experiment_ids the same list compares those experiments case by case, on "
+        "the runs' fields instead."
     ),
 )

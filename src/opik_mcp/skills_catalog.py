@@ -102,7 +102,7 @@ SKILL_SUMMARIES: dict[str, str] = {
     ),
     "opik-compare": (
         '"did my fix work", "compare against the baseline", "run the regression suite", '
-        '"why did quality drop", "which cases regressed".'
+        '"why did quality drop", "which cases regressed", "compare these two experiments".'
     ),
     "opik-online-eval": (
         '"score production traces", "monitor hallucinations in prod", "take this judge '
