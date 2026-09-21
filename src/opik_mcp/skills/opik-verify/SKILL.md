@@ -61,24 +61,33 @@ runs = sorted(client.get_test_suite_experiments(name="<suite>", project_name="<p
               key=lambda e: e.get_experiment_data().created_at)
 baseline, candidate = runs[-2], runs[-1]     # or the two ids the user gave
 ```
-Skip any run whose items all carry `scoring_failed` (a failed-judge run is not a candidate — `/opik-compare` explains). When the hosted MCP is connected, `list('experiment', name=…)` shows each run's averages and pass rate to pick from; the item-level read below stays on the SDK.
+Skip a **failed-judge run** (a run whose judge had no credential is not a candidate — `/opik-compare` explains how it happens). `scoring_failed` does not survive the read path; the read-back signal is: **every item failed and every assertion `reason` mentions a missing credential or an LLM infrastructure error**. Say which run you skipped and why. When the hosted MCP is connected, `list('experiment', name=…)` shows each run's averages and pass rate to pick from; the item-level read below stays on the SDK.
 
 ### 3. Read both runs, item by item
+An experiment holds **one item per run**: with `runs_per_item: 3` a dataset item appears three times, same `dataset_item_id`, different `trace_id`. Group — a dict keyed on `dataset_item_id` silently keeps one run and loses the counts.
 ```python
-b = {i.dataset_item_id: i for i in baseline.get_items()}
-c = {i.dataset_item_id: i for i in candidate.get_items()}
-# each item: dataset_item_data (with any tags / subgroup key), assertion_results [{passed, reason}],
-#            feedback_scores, trace_id
+from collections import defaultdict
+def by_item(exp):
+    groups = defaultdict(list)
+    for i in exp.get_items():
+        groups[i.dataset_item_id].append(i)      # each: dataset_item_data (tags / subgroup key),
+    return groups                                #       assertion_results [{passed, reason}], trace_id
+b, c = by_item(baseline), by_item(candidate)
+
+def run_passed(i): return bool(i.assertion_results) and all(a.get("passed") for a in i.assertion_results)
+def counts(runs): return sum(run_passed(r) for r in runs), len(runs)            # runs_passed, runs_total
+thresholds = {it["id"]: (it.get("execution_policy") or suite.get_global_execution_policy() or {}).get("pass_threshold", 1)
+              for it in suite.get_items()}                                      # the suite, not the experiment, holds the policy
+def passed(item_id, runs): return counts(runs)[0] >= thresholds.get(item_id, 1)
 # experiment level (client.rest_client.experiments.get_experiment_by_id(id)): pass_rate,
 #            duration (p50/p90/p99), total_estimated_cost_avg, dataset_version_id
-def passed(i): return bool(i.assertion_results) and all(a.get("passed") for a in i.assertion_results)
 ```
 **Comparability first:** same `dataset_version_id`, same item set, same judge model (experiment config). Different → **Blocker** ("rerun the candidate on suite version X with judge Y, then `/opik-verify`") — a verdict on non-comparable runs is not a verdict.
 
 ### 4. Evaluate every criterion, in this order
 Compute all of them even after the first failure — the report shows the whole table.
-1. **Evidence size** — scored items (items with assertions) ≥ `min_items`. Below → the verdict is `insufficient_evidence` regardless of the rest; still report the rest.
-2. **Regressions** — items `passed` in baseline and not in candidate. Exclude flaky ones under `flaky_policy: exclude` (an item is flaky when `runs_passed` is strictly between 0 and `runs_total` in either run, or it flips between two runs of the same code if you have them). Count ≤ `max_regressions`.
+1. **Evidence size** — scored items (items with assertions) ≥ `min_items`. Below → the verdict is `insufficient_evidence` regardless of the rest, **unless a gate criterion (2–7) also failed — then it is `hold`**: a known safety regression outranks thin evidence. Still report every criterion.
+2. **Regressions** — items `passed` in baseline and not in candidate. An item is **flaky** when `runs_passed` is strictly between 0 and `runs_total` in either run (the counts from step 3), or it flips between two runs of the same code if you have them. Under `flaky_policy: exclude` a flaky item is dropped from the regression count and listed separately with its counts; under `count` it stays in. When every item has `runs_total == 1`, flakiness is **not observable** — report the flaky check as `not_evaluated`, state that `exclude` excluded nothing, and suggest `runs_per_item: 3` on the suite if the user wants the protection. Count ≤ `max_regressions`.
 3. **Safety** — any regression whose `data.tags` intersects `safety_tags` → fail, no exceptions, no exclusions.
 4. **Pass rate** — candidate `pass_rate` vs baseline, or vs the number given.
 5. **Subgroups** — when `subgroup_key` is set, pass rate per value of that key must not fall.
@@ -90,8 +99,9 @@ Compute all of them even after the first failure — the report shows the whole 
 10. **Attribution** — flips whose `reason` reads as judge hesitation on an unchanged output (see `/opik-compare` step 5.6) are listed for the human under `needs_review`, never silently counted either way.
 
 ### 5. Decide
-- Any of criteria 2–7 failed → **`hold`**.
-- Criterion 1 failed → **`insufficient_evidence`** (even if nothing else failed).
+Precedence, top to bottom — the first line that applies wins:
+- Any of criteria 2–7 failed → **`hold`** (even when criterion 1 also failed).
+- Criterion 1 failed → **`insufficient_evidence`**.
 - All gates pass but `judge_validated: false`, or attribution flagged items → **`needs_review`**, naming exactly what a person should look at.
 - Otherwise → **`ship`**.
 
@@ -126,6 +136,7 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 - `baseline` / `candidate`: `experiment_id`, `name`, `url`, `items`, `pass_rate`
 - `criteria`: list of `{name, threshold, observed, passed, note}` — always all of them
 - `regressions`: list of `{dataset_item_id, input, assertion, reason, trace_url, safety: bool, flaky: bool}`
+- `flaky`: list of `{dataset_item_id, baseline_runs, candidate_runs}` excluded or counted per `flaky_policy`, or the string `not_evaluated` on a single-run suite
 - `review_items`: list of `{dataset_item_id, why}` (when `needs_review`)
 - `evidence`: `{items, fixes, regressions, sign_test_p}`
 - `compare_url`

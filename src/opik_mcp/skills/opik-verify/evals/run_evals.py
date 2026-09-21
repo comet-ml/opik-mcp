@@ -5,7 +5,7 @@
 Flows:
 
   1. Manual (default):
-        uv run --with pyyaml python run_evals.py prepare   # seed one suite + 3 runs, stage workdirs
+        uv run --with pyyaml python run_evals.py prepare   # seed one suite + 4 runs, stage workdirs
         # ...run the /opik-verify skill in each _work/<case>/ (cwd = the workdir) with PROMPT.txt;
         #    it should write result.json = {status, policy, criteria, regressions, ...}...
         uv run --with pyyaml python run_evals.py grade     # score vs planted.json, offline
@@ -15,7 +15,7 @@ Flows:
         uv run --with pyyaml python run_evals.py trigger-grade
 
 `prepare` runs the seeder once (fixtures/gate/seed.py): a 12-item suite, a baseline and
-two candidates with known verdicts. Every case shares that seed; what differs per case is
+three candidates with known verdicts. Every case shares that seed; what differs per case is
 the candidate id substituted into the prompt and the policy file staged in its workdir.
 Requires Opik configured, network, and a judge model (OPIK_EVAL_JUDGE_MODEL, default
 gpt-4o-mini, plus its key). Grading is offline.

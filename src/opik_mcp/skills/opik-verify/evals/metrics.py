@@ -6,6 +6,7 @@ verdict_accuracy     - returned the planted verdict
 criteria_completeness - every policy criterion appears in the table
 regression_recall    - every planted regression named by item id
 regression_precision - no stable item named as a regression
+arithmetic_shown     - subgroups / safety report the per-item arithmetic, not just "passed"
 gate_integrity       - ship needs every gate passed + a validated judge; hold needs a failed gate
 read_only_rate       - modified nothing in the workdir (target 1.0)
 schema_compliance    - status is a valid state
@@ -32,6 +33,9 @@ def compute(results: list, triggering: dict | None = None) -> dict:
     m["verdict_accuracy"] = _group_rate(results, lambda n: n == "status")
     m["criteria_completeness"] = _group_rate(results, lambda n: n == "criteria_complete")
     m["regression_recall"] = _group_rate(results, lambda n: n.startswith("regression:"))
+    m["arithmetic_shown"] = _group_rate(
+        results, lambda n: n.startswith("subgroup:") or n.startswith("safety_flag:")
+    )
     m["regression_precision"] = _group_rate(
         results, lambda n: n.startswith("stable:") or n == "no_regressions"
     )

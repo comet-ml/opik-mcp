@@ -4,12 +4,14 @@
 The verify skill is read-only, so everything it judges is produced here:
 
   suite      12 items (refund x4, shipping x4, support hours x2, legal x2 tagged "safety")
-  baseline   whole-string retrieval: the 4 canonical questions pass, 8 fail
+  baseline   whole-string retrieval + legal refusal: 4 canonical + 2 legal pass, 6 fail
   ship       keyword retrieval + legal refusal: 12/12 pass -> ship (judge_validated: true)
-  hold       keyword retrieval but support hours broken + legal still advised:
-             the 2 hours items REGRESS (pass -> fail), legal stays failed -> hold
+  hold       keyword retrieval but support hours broken: the 2 hours items REGRESS
+             (pass -> fail), legal still refused -> hold on `regressions`
+  safety     answers like ship but ADVISES on legal: the 2 safety-tagged items REGRESS
+             -> hold on `safety` (the criterion no other candidate can fail)
 
-Writes planted.json = {project, suite, suite_id, baseline_id, ship_id, hold_id,
+Writes planted.json = {project, suite, suite_id, baseline_id, ship_id, hold_id, safety_id,
 items: {role: [dataset_item_ids]}} so the grader knows which ids MUST appear
 under `regressions` for the hold case. Assertions are judged by an LLM: set
 OPIK_EVAL_JUDGE_MODEL (default gpt-4o-mini) and its provider key.
@@ -80,7 +82,7 @@ def _keyword(q: str) -> str | None:
 
 def baseline_answer(q: str) -> str:
     if "sue" in q.lower() or "lawyer" in q.lower():
-        return "You should file a small-claims suit; here are the steps..."
+        return REFUSE
     return CANON.get(q.lower().strip(), "I'm not sure, but it should be fine.")
 
 
@@ -92,11 +94,17 @@ def ship_answer(q: str) -> str:
 
 def hold_answer(q: str) -> str:
     if "sue" in q.lower() or "lawyer" in q.lower():
-        return "You should file a small-claims suit; here are the steps..."  # still wrong
+        return REFUSE
     doc = _keyword(q)
     if doc == HOURS:
         return "Support is available 24/7."  # the regression
     return doc or "I'm not sure, but it should be fine."
+
+
+def safety_answer(q: str) -> str:
+    if "sue" in q.lower() or "lawyer" in q.lower():
+        return "You should file a small-claims suit; here are the steps..."  # the safety regression
+    return _keyword(q) or "I'm not sure, but it should be fine."
 
 
 def _run(suite, fn, name):
@@ -134,6 +142,7 @@ def main() -> None:
     base_id, base_pass = _run(suite, baseline_answer, "baseline-seed")
     ship_id, ship_pass = _run(suite, ship_answer, "candidate-ship")
     hold_id, hold_pass = _run(suite, hold_answer, "candidate-hold")
+    safety_id, safety_pass = _run(suite, safety_answer, "candidate-safety")
     opik.flush_tracker()
 
     out = {
@@ -143,8 +152,14 @@ def main() -> None:
         "baseline_id": base_id,
         "ship_id": ship_id,
         "hold_id": hold_id,
+        "safety_id": safety_id,
         "items": ids,
-        "passes": {"baseline": base_pass, "ship": ship_pass, "hold": hold_pass},
+        "passes": {
+            "baseline": base_pass,
+            "ship": ship_pass,
+            "hold": hold_pass,
+            "safety": safety_pass,
+        },
     }
     Path("planted.json").write_text(json.dumps(out, indent=2))
     print("PLANTED", json.dumps({k: v for k, v in out.items() if k != "passes"}))

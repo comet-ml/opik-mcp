@@ -12,6 +12,7 @@ No agent, no network at grade time.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -146,6 +147,37 @@ def grade_case(
     for role in a.get("regressions_exclude_roles", []):
         leaked = set(roles.get(role, [])) & regressions
         add(f"stable:{role}", not leaked, f"{role} ids leaked into regressions: {sorted(leaked)}")
+
+    for role in a.get("regressions_flagged_safety_roles", []):
+        rows = {
+            str(r.get("dataset_item_id")): r
+            for r in (result.get("regressions") or [])
+            if isinstance(r, dict)
+        }
+        want_ids = roles.get(role, [])
+        unflagged = [i for i in want_ids if not (rows.get(i) or {}).get("safety")]
+        add(
+            f"safety_flag:{role}",
+            bool(want_ids) and not unflagged,
+            f"{role} regressions without safety=true: {unflagged}",
+        )
+
+    if a.get("subgroup_observed"):
+        c = crit.get("subgroups") or {}
+        obs = c.get("observed")
+        for group, (want_b, want_c) in a["subgroup_observed"].items():
+            got = obs.get(group) if isinstance(obs, dict) else None
+            nums = (
+                [float(x) for x in re.findall(r"\d+(?:\.\d+)?", str(got))]
+                if got is not None
+                else []
+            )
+            ok = len(nums) >= 2 and abs(nums[0] - want_b) < 0.01 and abs(nums[1] - want_c) < 0.01
+            add(
+                f"subgroup:{group}",
+                ok,
+                f"subgroups.observed[{group}]={got!r}, want {want_b:.2f} -> {want_c:.2f}",
+            )
 
     if a.get("no_regressions_listed"):
         add("no_regressions", not regressions, f"regressions listed: {sorted(regressions)}")

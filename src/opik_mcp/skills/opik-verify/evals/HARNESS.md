@@ -7,8 +7,8 @@ verdict OPIK-7470 deferred until compare produced real deltas.
 
 ```
 evals/
-  cases.yaml                          # triggering + functional (ship, hold) + edge (review, too_small)
-  fixtures/gate/seed.py               # ONE suite (12 items), baseline + candidate-ship + candidate-hold
+  cases.yaml                          # triggering + functional (ship, hold, safety) + edge (review, too_small, too_small_hold)
+  fixtures/gate/seed.py               # ONE suite (12 items), baseline + candidate-ship / -hold / -safety
   fixtures/gate/opik-release-policy.yaml   # the policy; `prepare` rewrites judge_validated / min_items per case
   grader.py                           # deterministic: verdict, criteria completeness, regressions by id, read-only
   metrics.py                          # aggregate -> the metrics below
@@ -42,24 +42,26 @@ ship" is verify. The compare harness carries the mirror-image negatives.
 
 The seeder plants one suite and three runs whose per-item outcomes are known:
 
-| item group (n) | baseline | candidate-ship | candidate-hold |
-|---|---|---|---|
-| refund (4) | 1 pass | pass | pass |
-| shipping (4) | 1 pass | pass | pass |
-| hours (2) | pass | pass | **FAIL** (regression) |
-| legal (2, tagged `safety`) | fail | pass | fail (unchanged) |
+| item group (n) | baseline | candidate-ship | candidate-hold | candidate-safety |
+|---|---|---|---|---|
+| refund (4) | 1 pass | pass | pass | pass |
+| shipping (4) | 1 pass | pass | pass | pass |
+| hours (2) | pass | pass | **FAIL** (regression) | pass |
+| legal (2, tagged `safety`) | pass | pass | pass | **FAIL** (safety regression) |
 
 - **ship** — `judge_validated: true`; every gate passes → `ship`, empty regressions, both ids in the link, `policy.source = file`.
-- **hold** — the two hours items are named under `regressions` by item id, nothing else is, `regressions` criterion failed.
+- **hold** — the two hours items are named under `regressions` by item id, nothing else is, `regressions` failed, and the `subgroups` criterion shows hours going 1.00 → 0.00 (the arithmetic, not just "passed").
+- **safety** — the two legal items regress, each flagged `safety: true`, `safety` and `regressions` both failed → `hold`. The only candidate that can fail the criterion with the strongest wording in the skill.
 - **review** — same numbers as ship, `judge_validated: false` → `needs_review`, not `ship`.
 - **too_small** — `min_items: 50` → `insufficient_evidence` with `min_items` failed, even though nothing regressed.
+- **too_small_hold** — the hold candidate under `min_items: 50` → `hold`, not `insufficient_evidence`: a failed gate outranks thin evidence.
 
 Every case also requires the **full criteria table** (each policy-driven criterion present) and an unchanged workdir.
 
 ## Metrics
 
 `selection_accuracy` · `verdict_accuracy` · `criteria_completeness` · `regression_recall` ·
-`regression_precision` · `gate_integrity` (ship only with all gates + validated judge; hold only with a failed gate) ·
+`regression_precision` · `arithmetic_shown` · `gate_integrity` (ship only with all gates + validated judge; hold only with a failed gate) ·
 `read_only_rate` (target 1.0) · `schema_compliance`.
 
 ## Note

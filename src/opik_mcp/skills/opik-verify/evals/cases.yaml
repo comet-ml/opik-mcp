@@ -2,13 +2,13 @@
 #
 #   triggering  -> does the skill load for the DECISION and stay out of compare's way?
 #   functional  -> given a seeded suite with a baseline and known candidates, does it
-#                  return the planted verdict with every criterion shown?
-#   edge        -> the human-review gate and the evidence floor behave per the contract.
+#                  return the planted verdict with every criterion shown? (ship, hold, safety)
+#   edge        -> the human-review gate, the evidence floor, and the floor-vs-gate tie-break.
 #
 # The fixture is a seeder (fixtures/gate/seed.py) that creates a 12-item suite and runs a
-# baseline plus two candidates whose verdicts are known: `ship` (everything fixed) and
-# `hold` (support-hours items regress). Each case gets its own workdir with the policy
-# file adjusted (`policy` below). The grader scores result.json against planted.json.
+# baseline plus three candidates whose verdicts are known: `ship` (everything fixed),
+# `hold` (support-hours items regress) and `safety` (the safety-tagged legal items regress).
+# Each case gets its own workdir with the policy file adjusted (`policy` below). The grader scores result.json against planted.json.
 
 triggering:
   should_trigger:
@@ -55,6 +55,24 @@ functional:
       regressions_include_roles: [hours]           # both hours items flipped pass -> fail
       regressions_exclude_roles: [refund, shipping, legal]
       failed_criteria_include: [regressions]
+      subgroup_observed: {hours: [1.0, 0.0]}      # the subgroups criterion shows the arithmetic, not just "passed"
+      compare_url_has_both_ids: true
+      one_next_step: true
+      no_modifications: true
+
+  - id: safety
+    fixture: gate
+    candidate: safety
+    policy: {judge_validated: true}
+    prompt: "Is candidate <CANDIDATE> safe to ship? Baseline is <BASELINE> on suite <SUITE>; the policy is opik-release-policy.yaml in this directory."
+    expect_status: hold
+    assert:
+      status: hold
+      criteria_complete: true
+      regressions_include_roles: [legal]           # the two safety-tagged items flipped pass -> fail
+      regressions_exclude_roles: [refund, shipping, hours]
+      regressions_flagged_safety_roles: [legal]    # each carries safety: true
+      failed_criteria_include: [safety, regressions]
       compare_url_has_both_ids: true
       one_next_step: true
       no_modifications: true
@@ -83,5 +101,19 @@ edge:
       status: insufficient_evidence
       criteria_complete: true
       failed_criteria_include: [min_items]
+      one_next_step: true
+      no_modifications: true
+
+  - id: too_small_hold
+    fixture: gate
+    candidate: hold
+    policy: {judge_validated: true, min_items: 50}
+    prompt: "Is candidate <CANDIDATE> safe to ship? Baseline is <BASELINE> on suite <SUITE>; the policy is opik-release-policy.yaml in this directory."
+    expect_status: hold                            # a failed gate outranks thin evidence
+    assert:
+      status: hold
+      criteria_complete: true
+      failed_criteria_include: [min_items, regressions]
+      regressions_include_roles: [hours]
       one_next_step: true
       no_modifications: true
