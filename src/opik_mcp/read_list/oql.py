@@ -303,21 +303,33 @@ ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     },
 }
 
-#: Fields an agent will reasonably try that an entity does not offer, and why.
-#: Appended to the unknown-field message so the answer says where the field
-#: went — the backend ignores it, or it belongs to the entity's other call —
-#: rather than "you misspelled something".
-IGNORED_BY_BACKEND: Final[dict[str, tuple[frozenset[str], str]]] = {
+#: Fields an agent will reasonably try that an entity does not offer, grouped
+#: by why. Appended to the unknown-field message so the answer says where the
+#: field went rather than "you misspelled something" — and grouped, because
+#: the reasons differ and one of them names a call that would work. A field
+#: whose answer is "ask the other call" must not be listed beside one that
+#: other call also refuses.
+IGNORED_BY_BACKEND: Final[dict[str, tuple[tuple[frozenset[str], str], ...]]] = {
     "dataset_item_case": (
-        frozenset({"duration", "output", "comments", "feedback_scores", "total_estimated_cost"}),
-        "It is a field of the runs, and a plain list of a dataset's cases has none. Name the "
-        "experiments to compare and it applies: list('dataset_item', experiment_ids=['<uuid>', "
-        "'<uuid>'], filters='feedback_scores.correctness < 0.5').",
+        (
+            frozenset({"duration", "output", "comments", "feedback_scores"}),
+            "It is a field of the comparison's joined page, which a plain list of a dataset's "
+            "cases does not have. Name the experiments and it applies: list('dataset_item', "
+            "experiment_ids=['<uuid>', '<uuid>'], filters='feedback_scores.correctness < 0.5').",
+        ),
+        (
+            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+            "Neither call filters on it: the items endpoint has no such column, and the "
+            "compare endpoint accepts it, answers 200 and never applies it — so naming the "
+            "experiments would not help.",
+        ),
     ),
     "dataset_item": (
-        frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
-        "The compare endpoint accepts it, answers 200 and never applies it, so a page "
-        "filtered on it would be an unfiltered page.",
+        (
+            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+            "The compare endpoint accepts it, answers 200 and never applies it, so a page "
+            "filtered on it would be an unfiltered page.",
+        ),
     ),
 }
 
@@ -817,9 +829,10 @@ def _unknown_field(entity_type: str, field: str, fields: dict[str, FieldType]) -
     names = sorted(fields)
     close = difflib.get_close_matches(field, names, n=1, cutoff=0.6)
     hint = f" Did you mean '{close[0]}'?" if close else ""
-    ignored, why = IGNORED_BY_BACKEND.get(entity_type, (frozenset(), ""))
-    if field in ignored:
-        hint = f" {why}"
+    for ignored, why in IGNORED_BY_BACKEND.get(entity_type, ()):
+        if field in ignored:
+            hint = f" {why}"
+            break
     return OQLIssue("unknown_field", f"Unknown field '{field}'.{hint} Fields: {', '.join(names)}.")
 
 
@@ -981,7 +994,10 @@ def filter_field_names(entity_type: str, query: str | None) -> list[str]:
             clauses = compile_filters(vocabulary, query)
         except OQLError:
             continue
-        return sorted({c["field"] for c in clauses})
+        # A dynamic field carries the user's key spliced into its name
+        # (``data`` + ``question``), which is exactly what this function
+        # promises not to hand to a dashboard. Cut back to the field.
+        return sorted({c["field"].partition(".")[0] for c in clauses})
     return []
 
 

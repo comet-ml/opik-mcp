@@ -378,6 +378,10 @@ async def test_the_page_the_caller_asked_for_is_the_page_that_is_fetched() -> No
     ("ids", "expected"),
     [
         ([""], "non-empty array"),
+        # An empty array is an argument the caller passed, so it reaches the
+        # runner: the refusal has to be about what is in it, not about it
+        # being absent.
+        ([], "drop the argument"),
         ([f"e-{n}" for n in range(11)], "Compare up to 10"),
         ([A, A], "repeats an experiment"),
     ],
@@ -406,7 +410,7 @@ async def test_a_filter_on_the_runs_without_experiment_ids_says_where_they_are()
 
     message = str(refusal.value)
     assert "Unknown field 'duration'" in message
-    assert "It is a field of the runs" in message
+    assert "It is a field of the comparison's joined page" in message
     assert "experiment_ids" in message
     assert fake.compare_calls == []
 

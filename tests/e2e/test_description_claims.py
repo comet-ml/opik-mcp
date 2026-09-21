@@ -48,6 +48,7 @@ from mcp.client.stdio import stdio_client
 
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from tests.e2e.stub_backend import (
+    CASE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
     ISSUE_ID,
@@ -65,8 +66,6 @@ from tests.e2e.stub_backend import (
 )
 
 _TIMEOUT_S = 90
-#: A case the stub serves, addressed the way the item route addresses one.
-_A_CASE = "0199c6a4-3a4c-7f1e-9d2b-100000030000"
 
 
 # --- driving one session --------------------------------------------------- #
@@ -567,7 +566,7 @@ async def _dataset_item_filters_on_the_case(drive: Driver) -> None:
 async def _dataset_item_read(drive: Driver) -> None:
     table = await drive.call("list", entity_type="dataset_item", dataset_id=SUITE_ID, size=25)
     assert "values cut at" in table
-    case = await drive.read_json(entity_type="dataset_item", id=_A_CASE)
+    case = await drive.read_json(entity_type="dataset_item", id=CASE_ID)
     assert case["data"]["notes"] not in table, "the read is the value the table cut"
 
     parent = await drive.read_json(entity_type="dataset", id=SUITE_ID)

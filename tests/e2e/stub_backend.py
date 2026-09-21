@@ -690,6 +690,14 @@ def _trace_id(index: int, position: int, run: int) -> str:
     return f"0199c6a4-3a4c-7f1e-9d2b-2{index:07d}{position}{run:03d}"
 
 
+#: One case the item routes serve, and the trace it was made from. Exported so
+#: a test can address a case without re-deriving the id scheme above — which
+#: two of them did, and a change to the scheme would have left them pointing
+#: at a case the stub no longer has.
+CASE_ID: str = _case_id(3)
+CASE_TRACE_ID: str = _trace_id(3, 0, 0)
+
+
 #: The filter fields that make the real backend drop the runs that did not
 #: match, taken from its EXPERIMENT_ITEM filter strategy.
 _RUN_LEVEL_FIELDS = ("feedback_scores", "output", "duration")

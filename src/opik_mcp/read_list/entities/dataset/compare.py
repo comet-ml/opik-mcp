@@ -389,12 +389,18 @@ async def _with_every_run(
 
 
 def _validated_ids(experiment_ids: list[str] | None) -> list[str]:
+    if experiment_ids is not None and not experiment_ids:
+        # An empty array is still an argument, so it hands the call to this
+        # runner. Telling that caller they need experiment_ids names the thing
+        # they just passed; what they need is ids in it, or the argument gone.
+        raise EntityArgValidationError(
+            f"experiment_ids is empty. Name the runs to compare — "
+            f"list('{_ENTITY}', experiment_ids=['<uuid>', '<uuid>']) — or drop the argument "
+            f"to list the dataset's own cases: list('{_ENTITY}', dataset_id='<uuid>')."
+        )
     if not experiment_ids:
-        # Reached by ``experiment_ids=[]``, which is an argument the caller
-        # passed and so hands the call to this runner, and by calling the
-        # runner directly. A list with no ids at all is the dataset's own
-        # cases, which filter (and do not sort) on their own endpoint's terms
-        # since OPIK-8397 — not on a missing comparison's.
+        # Only reachable by calling the runner directly: the registry hands it
+        # the call when ``experiment_ids`` is there at all.
         raise EntityArgValidationError(
             f"list('{_ENTITY}') needs dataset_id, or experiment_ids to compare runs."
         )

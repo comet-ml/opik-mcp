@@ -524,7 +524,14 @@ def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> Non
     # The one field that costs a full scan says so where it is chosen, not
     # after it has been run on a 100,000-case dataset.
     assert "scan" in fields["full_data"]["note"]
+    # An empty field list alone reads as "not implemented yet", so the
+    # reference says whose limit it is and what does order cases.
     assert reference["sort"]["fields"] == []
+    assert reference["sort"]["why"] == (
+        "opik-backend's dataset items endpoint takes no sorting parameter. Only the "
+        "comparison orders cases, so a sort needs experiment_ids: "
+        "list('dataset_item', experiment_ids=['<uuid>', '<uuid>'], sort='duration desc')"
+    )
     assert reference["search"] is False
 
 

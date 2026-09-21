@@ -438,7 +438,8 @@ async def list_entities(
             description=(
                 "dataset_item: compare these experiments case by case — which cases "
                 "regressed, not two averages. First id is the baseline; up to 10. Resolves "
-                "the dataset itself, and is what filters/sort/search apply to."
+                "the dataset itself; sort and search apply to the runs, and so do filters "
+                "(without it they apply to the cases)."
             )
         ),
     ] = None,
@@ -526,9 +527,10 @@ async def list_entities(
     - prompt_version: prompt_id
 
     Workspace-wide types (project, experiment, prompt, dataset) accept
-    an optional `name` substring filter. trace, span, thread, experiment
-    accept an OQL `filters` string and a `sort`; trace, span, thread also
-    take a `since`/`until` window and free-text `search`.
+    an optional `name` substring filter. trace, span, thread, experiment and
+    dataset_item accept an OQL `filters` string; all but dataset_item also
+    take a `sort`, and trace, span, thread take a `since`/`until` window and
+    free-text `search`.
     """
     if ctx is not None:
         await ctx.info(f"list.called entity_type={entity_type} page={page} size={size}")

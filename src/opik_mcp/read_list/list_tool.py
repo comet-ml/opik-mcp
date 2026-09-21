@@ -78,7 +78,6 @@ from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
 )
-from opik_mcp.read_list.reference import FILTER_REQUIREMENTS
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
@@ -508,28 +507,16 @@ def _search_refusal(entity_type: str) -> str:
     if entity_type in NAME_SEARCHABLE_ENTITIES:
         alternatives.append("match a name with name=<substring>")
     if entity_type in FILTERABLE_FIELDS:
+        # The nearest thing to free text the entity has: one ilike over a whole
+        # payload where there is one, a key of one otherwise.
         fields = FILTERABLE_FIELDS[entity_type]
-        # The nearest thing to free text the entity has: one ilike over a
-        # whole payload where there is one, a key of it otherwise.
-        example = next(
-            (
-                f"{name} {operator}"
-                for name, operator in (
-                    ("full_data", 'contains "…"'),
-                    ("metadata.<key>", '= "…"'),
-                )
-                if name.partition(".")[0] in fields
-            ),
-            'a field = "…"',
-        )
-        # An entity whose filters need something else first (the compared
-        # items need the experiments to compare) is told so here, or the
-        # suggestion is one refusal short of a working call.
-        needs = FILTER_REQUIREMENTS.get(entity_type)
-        given = f", given {needs.split(':', 1)[0]}" if needs else ""
-        alternatives.append(
-            f'narrow with filters{given} (e.g. {example}; schema("list.{entity_type}"))'
-        )
+        if "full_data" in fields:
+            example = 'full_data contains "…"'
+        elif "metadata" in fields:
+            example = 'metadata.<key> = "…"'
+        else:
+            example = 'a field = "…"'
+        alternatives.append(f'narrow with filters (e.g. {example}; schema("list.{entity_type}"))')
     joined = "; or ".join(alternatives)
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (

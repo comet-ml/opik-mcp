@@ -60,7 +60,7 @@
         }
       ],
       "default": null,
-      "description": "dataset_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the dataset itself, and is what filters/sort/search apply to.",
+      "description": "dataset_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the dataset itself; sort and search apply to the runs, and so do filters (without it they apply to the cases).",
       "title": "Experiment Ids"
     },
     "filters": {

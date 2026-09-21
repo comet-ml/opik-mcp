@@ -27,11 +27,15 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.e2e.stub_backend import SUITE_ID, CompareSuite, StubBackend
+from tests.e2e.stub_backend import (
+    CASE_ID,
+    CASE_TRACE_ID,
+    SUITE_ID,
+    CompareSuite,
+    StubBackend,
+)
 
 _TIMEOUT_S = 60
-#: The id of a case the stub serves, built the way its rows are.
-_CASE = "0199c6a4-3a4c-7f1e-9d2b-100000030000"
 
 
 @pytest.fixture
@@ -121,9 +125,9 @@ def test_filters_that_are_not_the_backends_array_are_a_400(backend: StubBackend)
 
 @pytest.mark.e2e
 def test_one_case_is_addressed_without_its_dataset(backend: StubBackend) -> None:
-    body = _get(backend, f"/v1/private/datasets/items/{_CASE}").json()
+    body = _get(backend, f"/v1/private/datasets/items/{CASE_ID}").json()
 
-    assert body["id"] == _CASE
+    assert body["id"] == CASE_ID
     assert body["data"]["expected_answer"] == "Paris"
     assert _get(backend, "/v1/private/datasets/items/not-a-case-id").status_code == 404
 
@@ -176,7 +180,7 @@ async def test_the_source_trace_is_one_call_and_a_comparison_is_none(
             "list",
             entity_type="dataset_item",
             dataset_id=SUITE_ID,
-            filters='trace_id = "0199c6a4-3a4c-7f1e-9d2b-200000030000"',
+            filters=f'trace_id = "{CASE_TRACE_ID}"',
         )
         refusal = await _refuse(
             session,
@@ -194,12 +198,7 @@ async def test_the_source_trace_is_one_call_and_a_comparison_is_none(
         )
 
     assert backend.one("/items").filters() == [
-        {
-            "field": "trace_id",
-            "key": "",
-            "operator": "=",
-            "value": "0199c6a4-3a4c-7f1e-9d2b-200000030000",
-        }
+        {"field": "trace_id", "key": "", "operator": "=", "value": CASE_TRACE_ID}
     ]
     assert "not valid for 'data' (map)" in refusal
     assert "sort is not supported" in sort_refusal
@@ -214,7 +213,7 @@ async def test_read_returns_the_case_the_table_had_to_cut(backend: StubBackend) 
         table = await _call(
             session, "list", entity_type="dataset_item", dataset_id=SUITE_ID, size=25
         )
-        record = await _call(session, "read", entity_type="dataset_item", id=_CASE)
+        record = await _call(session, "read", entity_type="dataset_item", id=CASE_ID)
 
     assert "values cut at" in table
     assert "read('dataset_item', id) is the value whole" in table
