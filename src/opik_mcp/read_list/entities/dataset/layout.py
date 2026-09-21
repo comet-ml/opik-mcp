@@ -606,9 +606,15 @@ def _header(columns: list[str], scores: list[str], rows: list[ComparedRow]) -> l
     table says what to do about it; a reader who never reaches the note still
     sees the marker. A column with no Δ — one experiment, a label, two
     authors — is unmarked, because there is no sign there to misread.
+
+    The names are escaped like any cell: a case column is a data key the user
+    chose, and one carrying a line break split this line in two.
     """
     marked = {name for name in scores if any(row.compares(name) for row in rows)}
-    return [f"{column} ({DIRECTION_UNKNOWN})" if column in marked else column for column in columns]
+    return [
+        one_line(f"{column} ({DIRECTION_UNKNOWN})" if column in marked else column)
+        for column in columns
+    ]
 
 
 def _tally(rows: list[ComparedRow], *, scored: bool, assertions: bool) -> str | None:

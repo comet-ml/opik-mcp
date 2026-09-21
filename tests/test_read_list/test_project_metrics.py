@@ -1422,3 +1422,23 @@ async def test_a_long_list_of_score_names_in_a_refusal_names_the_call() -> None:
 
     message = str(exc.value)
     assert "(and 30 more: list('score_name', project_id=" in message
+
+
+@pytest.mark.anyio
+async def test_a_group_name_with_a_pipe_stays_one_column() -> None:
+    """A grouped series is named by the value it grouped on — a model, a tag,
+    a metadata value — which is data, not a label this server chose. A bare
+    pipe in one added a column the rows had no cell for."""
+    fake = _fake(results=[_series("gpt-4o", [1.0, 2.0]), _series("eu | west", [0.5, 0.4])])
+
+    out = await run_list(
+        "project_metric",
+        project_id=PROJECT,
+        metric_type="span_count",
+        breakdown="model",
+        client=fake,
+    )
+
+    table = _table(out)
+    assert table[0] == "time | gpt-4o | eu ¦ west"
+    assert table[1].count(" | ") == table[0].count(" | ")

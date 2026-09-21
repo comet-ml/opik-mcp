@@ -467,6 +467,11 @@ async def test_a_case_filter_that_matches_nothing_does_not_explain_the_runs() ->
 # --- the plain listing is untouched ----------------------------------------- #
 
 
+def _items(data: dict[str, Any]) -> dict[str, Any]:
+    """One page of the plain listing: a single case with the given data map."""
+    return {"content": [{"id": "i-1", "data": data}], "total": 1}
+
+
 @pytest.mark.anyio
 async def test_without_experiment_ids_the_list_is_still_the_datasets_cases() -> None:
     fake = FakeOpikClient(
@@ -1289,3 +1294,67 @@ async def test_a_page_where_every_run_scored_says_nothing_about_errors() -> None
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
     assert "errored" not in out
     assert "unscored" not in out
+
+
+# --- a cell is one cell, and so is a column name (OPIK-8394) --------------- #
+
+
+@pytest.mark.anyio
+async def test_a_case_data_key_with_a_line_break_and_a_pipe_stays_one_column() -> None:
+    """The case columns are the dataset's own keys, so whatever the user
+    named a field reaches the header: a newline split the header line in two
+    and a bare pipe left the table with a column name no row had a cell for.
+    The cells were escaped; the names they sit under were not."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question | note\nsecond line": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.4}),
+            ],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    header = next(line for line in out.splitlines() if line.startswith("id | "))
+    row = next(line for line in out.splitlines() if line.startswith("case-1"))
+    assert "data.question ¦ note second line" in header
+    assert header.count(" | ") == row.count(" | "), "as many column names as the row has cells"
+
+
+@pytest.mark.anyio
+async def test_a_value_with_a_line_break_and_a_pipe_stays_one_cell() -> None:
+    """A dataset item holds whatever the user put in it. A newline split the
+    row in two and a bare pipe added a column to it."""
+    fake = FakeOpikClient(
+        dataset_items=_items({"question": "Line one\nLine two | with a pipe", "answer": "Paris"})
+    )
+
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
+
+    lines = out.splitlines()
+    rows = [line for line in lines if line.startswith("i-1")]
+    assert len(rows) == 1, "the row must stay on one line"
+    assert rows[0].count(" | ") == 2, "id, data.answer, data.question"
+    assert lines[2].count(" | ") == rows[0].count(" | "), "the header has the row's columns"
+    assert "Line one Line two ¦ with a pipe" in rows[0]
+
+
+@pytest.mark.anyio
+async def test_a_data_key_with_a_line_break_and_a_pipe_stays_one_column() -> None:
+    """The columns are the item's own keys, so the same two characters reach
+    the header — where a newline split the header line in two and left the
+    table with more column names than any row had cells."""
+    fake = FakeOpikClient(
+        dataset_items=_items({"question | note": "why", "answer\nline": "because"})
+    )
+
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
+
+    lines = out.splitlines()
+    header = lines[2]
+    assert header == "id | data.answer line | data.question ¦ note"
+    assert lines[3].count(" | ") == header.count(" | "), "as many cells as column names"
+    assert lines[3].startswith("i-1 | because | why")
