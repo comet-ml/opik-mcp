@@ -1371,11 +1371,6 @@ class FilterOnlyEmptyClient(FakeOpikClient):
 
 @pytest.mark.anyio
 async def test_a_filter_that_matched_none_of_a_project_with_traffic_says_so() -> None:
-    """Measured live: ``error_info is_not_empty`` over 164 traces answered
-    "No traces found", which reads as an empty project rather than as nothing
-    being broken. The source probe cannot speak here — widening the default
-    finds nothing either — so the count without the filter is what separates
-    the two."""
     fake = FilterOnlyEmptyClient()
     out = await run_list("trace", project_id="p-1", filters="error_info is_not_empty", client=fake)
     assert "No traces found." in out
@@ -1385,8 +1380,6 @@ async def test_a_filter_that_matched_none_of_a_project_with_traffic_says_so() ->
 
 @pytest.mark.anyio
 async def test_the_unfiltered_probe_is_one_row_wide_and_keeps_only_the_default() -> None:
-    """The count has to be of the rows the caller would otherwise have seen,
-    so the probe keeps the sdk default and drops everything else."""
     fake = FilterOnlyEmptyClient()
     await run_list("trace", project_id="p-1", filters="duration > 5", size=50, client=fake)
     probe = fake.list_calls[-1]
@@ -1396,8 +1389,6 @@ async def test_the_unfiltered_probe_is_one_row_wide_and_keeps_only_the_default()
 
 @pytest.mark.anyio
 async def test_an_unfiltered_empty_page_pays_for_no_probe() -> None:
-    """With no filter there is nothing to lift, and the probe would re-ask the
-    question the page just answered."""
     fake = FilterOnlyEmptyClient(in_scope=0)
     out = await run_list("trace", project_id="p-1", client=fake)
     assert len(fake.list_calls) == 1, "the listing, and nothing else"
@@ -1406,8 +1397,6 @@ async def test_an_unfiltered_empty_page_pays_for_no_probe() -> None:
 
 @pytest.mark.anyio
 async def test_a_genuinely_empty_scope_says_nothing_about_the_filter() -> None:
-    """Zero without the filter too: there is no contrast to draw, and a note
-    with no fact in it is noise."""
     out = await run_list(
         "trace", project_id="p-1", filters="duration > 5", client=FilterOnlyEmptyClient(in_scope=0)
     )
@@ -1429,9 +1418,6 @@ class NameSearchClient(FakeOpikClient):
 
 @pytest.mark.anyio
 async def test_a_name_search_that_finds_nothing_says_what_the_listing_holds() -> None:
-    """ "No datasets matching 'regression' found" over a workspace of 342 reads
-    as an empty workspace — the same false inference the experiment page note
-    was written to stop, on the path that never inherited it."""
     fake = NameSearchClient()
     out = await run_list("dataset", name="regression", client=fake)
     assert "No datasets matching 'regression' found." in out

@@ -150,14 +150,10 @@ _COMPARE = (
 
 
 def test_a_pasted_compare_link_resolves_to_its_experiment() -> None:
-    """What a user pastes when they say "here's my experiment". It used to
-    come back as "Verify the ID is a valid UUID" over a URL carrying two."""
     assert parse(_COMPARE) == ParsedURI("experiment", "019f8d9c-9bcb-7ad5-8b1a-2f00b87a4222")
 
 
 def test_a_compare_link_of_two_runs_opens_the_baseline() -> None:
-    """The route lists the baseline first, so the read lands on the run the
-    comparison is against rather than the candidate."""
     url = (
         "https://www.comet.com/opik/ws/experiments/ds-1/compare"
         "?experiments=%5B%22base-1%22%2C%22cand-2%22%5D"
@@ -166,15 +162,11 @@ def test_a_compare_link_of_two_runs_opens_the_baseline() -> None:
 
 
 def test_a_project_scoped_compare_link_resolves_the_same_way() -> None:
-    """The UI has both a workspace-level and a project-level compare route."""
     url = "https://opik.test/ws/projects/p-1/experiments/ds-1/compare?experiments=%5B%22e-9%22%5D"
     assert parse(url) == ParsedURI("experiment", "e-9")
 
 
 def test_a_trace_deep_link_resolves_to_the_trace() -> None:
-    """``tls_trace`` is how the UI opens one trace inside an experiment's logs
-    tab; ``trace_id`` is what this server's own redirect link carries, so a
-    user pasting back what we handed them lands on the same read."""
     tls = "https://opik.test/ws/projects/p-1/experiments/ds-1/compare?tab=logs&tls_trace=tr-7"
     assert parse(tls) == ParsedURI("trace", "tr-7")
     redirect = "https://opik.test/api/v1/session/redirect/projects/?trace_id=tr-8&path=aHR0cA"
@@ -182,8 +174,6 @@ def test_a_trace_deep_link_resolves_to_the_trace() -> None:
 
 
 def test_a_trace_link_wins_over_the_compare_view_it_sits_on() -> None:
-    """Both patterns match that URL; the one naming a single record is the
-    one the user is looking at."""
     url = (
         "https://opik.test/ws/experiments/ds-1/compare"
         "?experiments=%5B%22e-1%22%5D&tab=logs&tls_trace=tr-3"
@@ -192,15 +182,11 @@ def test_a_trace_link_wins_over_the_compare_view_it_sits_on() -> None:
 
 
 def test_an_unrelated_http_url_is_not_claimed() -> None:
-    """A plain URL falls through to raw-id handling rather than being parsed
-    into some entity it never named."""
     assert not looks_like_opik_link("https://example.com/experiments/x/compare")
     assert not looks_like_opik_link("https://example.com/page?experiments=notjson")
 
 
 def test_a_compare_link_with_an_unparseable_run_list_is_not_claimed() -> None:
-    """The gate uses the regex parse extracts with, and extraction has to
-    survive whatever sits in the query string."""
     assert not looks_like_opik_link(
         "https://opik.test/ws/experiments/ds/compare?experiments=%5B%5D"
     )

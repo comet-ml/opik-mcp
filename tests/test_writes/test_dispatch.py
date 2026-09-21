@@ -1180,10 +1180,6 @@ async def test_issue_lifecycle_dry_run_shows_the_real_path_and_body() -> None:
 
 @pytest.mark.anyio
 async def test_an_envelope_upsert_counts_its_cases_not_its_envelope() -> None:
-    """``item_count`` used to be the length of the top-level payload, which for
-    an always-envelope operation is the envelope: five cases in, ``1`` back.
-    The rows were written correctly, so the only thing wrong was the number an
-    agent reads to decide whether to send them again."""
     result = await run_write(
         operation="dataset_item.upsert",
         data={
@@ -1219,8 +1215,6 @@ async def test_experiment_items_are_counted_through_their_own_envelope() -> None
 
 @pytest.mark.anyio
 async def test_a_top_level_payload_still_counts_itself() -> None:
-    """The envelope key is the exception, not the rule: an operation whose
-    records sit at the top level is unchanged."""
     result = await run_write(
         operation="trace.create",
         data=[

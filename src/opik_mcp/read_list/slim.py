@@ -15,12 +15,8 @@ never reaches the API model. So the only trace a cut leaves is a body that
 would have been JSON arriving as text — which is what :func:`was_cut` reads,
 and why the notice is ours to write.
 
-The backend's cut is per field, which bounds no answer: two hundred children
-of three fields each cut at ten thousand characters is six million. So this
-module also holds the one cut this server makes — :func:`drop_bodies_past`,
-a ceiling on the whole inlined collection — under the same terms that make
-the backend's allowable: it takes bodies and never children, it is stated in
-the answer, and what it drops is one read away.
+The backend's cut is per field, which bounds no answer, so this module also
+holds the one cut this server makes: :func:`drop_bodies_past`.
 """
 
 from __future__ import annotations
@@ -55,25 +51,10 @@ def count_cut(children: Iterable[Mapping[str, Any]], fields: tuple[str, ...]) ->
 def drop_bodies_past(
     children: Sequence[Mapping[str, Any]], budget: int, fields: tuple[str, ...]
 ) -> tuple[list[dict[str, Any]], int]:
-    """Bodies until ``budget`` characters are spent, structure all the way down.
+    """Bodies until ``budget`` is spent; children and their shape always survive.
 
-    The backend cuts each field at its own threshold and nothing added those
-    up, so a read inlining two hundred children was bounded only by their
-    count: measured live, five spans of one trace serialised to 38,423
-    characters — 8,421 tokens by the header's own estimate — and the client
-    refused the whole answer, so the caller saw an error where the trace
-    should have been.
-
-    What goes is the bodies, never the children. A span's id, name, type and
-    timings are the tree, and the tree is most of what a trace read is for —
-    dropping whole spans would answer "your trace has four spans" for one
-    that has forty, which is the silently-short answer :mod:`size` refuses.
-    Dropping a body says less about one span while keeping the shape of all
-    of them, and every dropped body is one ``read('span', id)`` away, which
-    is the same bargain the backend's own cut is allowed under.
-
-    The first child keeps its body whatever it costs, so a trace whose single
-    span is enormous still answers the question it was opened for.
+    Returns the children and how many lost their bodies. The first child keeps
+    its body whatever it costs. Every dropped body is one read away.
     """
     kept: list[dict[str, Any]] = []
     spent = 0
@@ -99,12 +80,7 @@ def drop_bodies_past(
 
 
 def dropped_notice(*, dropped: int, total: int, noun: str, budget: int) -> str:
-    """What the inline budget spent, said where the payload it cut is.
-
-    Carries no "and here is how to get one back": it is only ever appended to
-    :func:`slim_notice`, which has just said it, and the same sentence twice
-    in one line reads as two different offers.
-    """
+    """What the inline budget spent. Appended to :func:`slim_notice`."""
     return (
         f"{dropped} of {total} {noun}s past the {budget:,}-character inline budget kept "
         f"their place and lost their bodies, which the same call returns."

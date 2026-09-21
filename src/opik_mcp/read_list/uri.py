@@ -103,15 +103,11 @@ _ISSUE_URI_RE = re.compile(r"^opik://projects/([^/?#]+)/agent-insights-issues/([
 _WEB_PROJECT_RE = re.compile(r"/projects/([^/?#]+)")
 _WEB_THREAD_QS_RE = re.compile(r"[?&]thread=([^&#]+)")
 _WEB_ISSUE_QS_RE = re.compile(r"[?&]issue=([^&#]+)")
-# The compare route, workspace-level and project-level alike: the dataset is
-# the path segment, the runs ride as a JSON array in the query string. This is
-# the URL a user pastes when they say "here's my experiment" — it is what the
-# address bar holds, because an experiment has no page of its own.
+# The compare route: dataset in the path, runs as a JSON array in the query.
 _WEB_COMPARE_RE = re.compile(r"/experiments/([^/?#]+)/compare")
 _WEB_EXPERIMENTS_QS_RE = re.compile(r"[?&]experiments=([^&#]+)")
-# One trace, named two ways: ``tls_trace`` by the UI's logs tab, ``trace_id``
-# by this server's own redirect link — so a user pasting back a link we handed
-# them lands on the read that produced it.
+# One trace, named two ways: ``tls_trace`` by the UI, ``trace_id`` by our own
+# redirect link.
 _WEB_TRACE_QS_RE = re.compile(r"[?&](?:tls_trace|trace_id)=([^&#]+)")
 
 
@@ -135,10 +131,8 @@ def looks_like_issue_url(s: str) -> bool:
 def _first_experiment_id(s: str) -> str | None:
     """The baseline run out of a compare link's ``experiments`` array.
 
-    Returns ``None`` for anything that is not a non-empty JSON array of
-    strings, so the gate below and the extraction in ``parse`` ask exactly the
-    same question — an ``experiments=[]`` on a view opened with nothing
-    selected must not pass a gate it cannot then satisfy.
+    ``None`` unless it is a non-empty JSON array of strings, so the gate and
+    the extraction ask the same question.
     """
     qm = _WEB_EXPERIMENTS_QS_RE.search(s)
     if qm is None:
@@ -168,12 +162,7 @@ def looks_like_trace_url(s: str) -> bool:
 
 
 def looks_like_opik_link(s: str) -> bool:
-    """Any pasted Opik web link ``parse`` understands.
-
-    A thread, a Diagnostics issue, a compare view or a single trace. Anything
-    else http(s) falls through to raw-id handling, which is what keeps a URL
-    from some other service out of the entity vocabulary.
-    """
+    """Any pasted Opik web link ``parse`` understands."""
     return (
         looks_like_thread_url(s)
         or looks_like_issue_url(s)
@@ -223,8 +212,7 @@ def parse(uri: str) -> ParsedURI:
                 project_id=pm.group(1),
             )
 
-    # A link naming one trace beats the view it sits on: a compare URL with
-    # ``tls_trace`` is a user looking at that trace, not at the comparison.
+    # A link naming one trace beats the view it sits on.
     if looks_like_trace_url(uri):
         qm = _WEB_TRACE_QS_RE.search(uri)
         if qm is not None:
@@ -246,7 +234,6 @@ def parse(uri: str) -> ParsedURI:
                 project_id=pm.group(1),
             )
 
-    # The compare view, which is where an experiment is read from.
     if looks_like_compare_url(uri):
         first = _first_experiment_id(uri)
         if first is not None:

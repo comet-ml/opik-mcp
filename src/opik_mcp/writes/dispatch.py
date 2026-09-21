@@ -268,13 +268,7 @@ def _stage3_authorize(op: WriteOperation, scopes: frozenset[str]) -> None:
 
 
 def _rows_sent(op: WriteOperation, items: list[BaseModel], body: Any) -> int:
-    """How many records the request carries.
-
-    ``len(items)`` counts the top-level payload, which is the answer for
-    every operation whose records sit at the top level and wrong for the two
-    that keep theirs inside an envelope — there the payload is the envelope,
-    so the count was 1 however many rows went with it.
-    """
+    """How many records the request carries, counting through an envelope."""
     key = op.envelope_items_key
     if key is not None and isinstance(body, dict):
         rows = body.get(key)

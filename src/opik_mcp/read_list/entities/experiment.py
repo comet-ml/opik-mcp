@@ -88,23 +88,9 @@ _CONDITIONAL: Final = (
     "optimization_id",
 )
 
-#: Every field a caller may filter this listing on, and where the operators
-#: are. It used to name ``PARAM_FIELDS`` — the three the backend takes as
-#: query parameters — on the premise that a rendered column advertises its
-#: own filterability and so needs no naming. Driving the built server, that
-#: premise held for one of the other seven: ``dataset_id`` is filterable
-#: while the column is ``dataset_name``, and ``metadata``, ``project_id``,
-#: ``prompt_ids``, ``tags`` and ``experiment_scores`` are not columns at all.
-#: A footer that claimed to say what you could filter by named three of ten,
-#: and scoping a workspace to one dataset — the commonest scope there is —
-#: was reachable only by reading the schema first.
-#:
-#: Naming all ten rather than the ones the page cannot show keeps the line
-#: the same on every page: a hint whose contents depend on which conditional
-#: columns this page happened to fill is a hint no caller can learn. Read off
-#: the compiler's own table, so it cannot come to name a field that no longer
-#: compiles, and closed with the schema call, because the page can say which
-#: fields exist but not which operators each one takes.
+#: Every filterable field, read off the compiler's own table so it cannot name
+#: one that no longer compiles. Not just the non-column ones: ``dataset_id`` is
+#: filterable while the column is ``dataset_name``.
 _FILTER_HINT: Final = (
     f"filter: {', '.join(sorted(FILTERABLE_FIELDS['experiment']))}. "
     'Operators: schema("list.experiment").'
@@ -293,16 +279,9 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
 
 
 def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
-    """The compare view this run lives on.
+    """The compare view this run lives on — an experiment has no page of its own.
 
-    An experiment has no page of its own in the UI: the route is the dataset's
-    compare view with the run selected, which is also where the second run is
-    added. So the link lands where the next question gets asked rather than on
-    a summary of the one already answered — and it is the view ``comparePerCase``
-    names one line above it, in the browser instead of the table.
-
-    The dataset id is the route's path segment, so a run whose record does not
-    carry one gets no link: the view cannot resolve the run without it.
+    No dataset id, no link: it is the route's path segment.
     """
     dataset_id = data.get("dataset_id")
     experiment_id = data.get("id")

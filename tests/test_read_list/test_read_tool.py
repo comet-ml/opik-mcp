@@ -2115,9 +2115,6 @@ async def test_an_experiment_with_no_suite_gets_no_comparison_hint() -> None:
 
 @pytest.mark.anyio
 async def test_read_trace_carries_a_clickable_url() -> None:
-    """ "Send me the link" is how most of these sessions end. The trace goes
-    through the backend redirect, so it needs no project_id and survives a
-    workspace introspection could not name."""
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
         trace_spans={UUID: []},
@@ -2129,9 +2126,6 @@ async def test_read_trace_carries_a_clickable_url() -> None:
 
 @pytest.mark.anyio
 async def test_read_experiment_links_to_its_compare_view() -> None:
-    """An experiment's page is the compare view with one run on it, which is
-    also where a second run gets added — so the link lands where the next
-    question is asked."""
     fake = FakeOpikClient(
         experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
     )
@@ -2142,8 +2136,6 @@ async def test_read_experiment_links_to_its_compare_view() -> None:
 
 @pytest.mark.anyio
 async def test_an_experiment_without_a_dataset_gets_no_link() -> None:
-    """The dataset id is the path of the compare route; without it the link
-    would land on a view that cannot resolve the run."""
     fake = FakeOpikClient(experiments_by_id={UUID: {"id": UUID, "name": "orphan"}})
     out = await run_read("experiment", UUID, client=fake, settings=_UI_SETTINGS)
     assert "compare?experiments=" not in out
@@ -2161,8 +2153,6 @@ async def test_links_are_absent_when_the_ui_is_unknown() -> None:
 
 @pytest.mark.anyio
 async def test_a_pasted_compare_link_reads_the_experiment_it_names() -> None:
-    """End to end: the URL a user copies out of the address bar, which used to
-    come back as "Verify the ID is a valid UUID"."""
     fake = FakeOpikClient(
         experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
     )
@@ -2181,14 +2171,6 @@ def _fat_span(span_id: str, chars: int) -> dict[str, Any]:
 
 @pytest.mark.anyio
 async def test_bodies_stop_at_the_size_budget_and_the_tree_does_not() -> None:
-    """Measured live: a five-span trace serialised to 38,423 characters and
-    was refused by the client before the caller saw any of it. The backend
-    cuts each field at 10,001 characters and nothing added those up, so the
-    only cap was 200 spans.
-
-    What the budget spends is bodies. Every span keeps its place, because the
-    tree is most of what a trace read is for and a short one would answer
-    "your trace has three spans" for a trace that has six."""
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
         trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
@@ -2203,8 +2185,6 @@ async def test_bodies_stop_at_the_size_budget_and_the_tree_does_not() -> None:
 
 @pytest.mark.anyio
 async def test_the_dropped_bodies_are_counted_and_one_call_away() -> None:
-    """A payload that quietly lost fields is the silently-short answer the
-    read exists to avoid, so the notice states it beside the payload."""
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
         trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
@@ -2217,8 +2197,6 @@ async def test_the_dropped_bodies_are_counted_and_one_call_away() -> None:
 
 @pytest.mark.anyio
 async def test_the_budget_does_not_claim_the_collection_was_cut_short() -> None:
-    """``spansTruncated`` means spans are missing. None are — so a budget that
-    set it would send the caller paging for rows already in front of them."""
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
         trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
@@ -2230,8 +2208,6 @@ async def test_the_budget_does_not_claim_the_collection_was_cut_short() -> None:
 
 @pytest.mark.anyio
 async def test_one_oversized_span_keeps_its_body() -> None:
-    """Spending nothing would answer "here is a span" and nothing about it,
-    for the one span the read was opened to see."""
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
         trace_spans={UUID: [_fat_span("sp-huge", 60_000)]},
@@ -2242,8 +2218,6 @@ async def test_one_oversized_span_keeps_its_body() -> None:
 
 @pytest.mark.anyio
 async def test_a_small_trace_is_untouched() -> None:
-    """The budget is a ceiling, not a target: an ordinary trace still arrives
-    whole, with the flag saying so."""
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
         trace_spans={UUID: [{"id": "sp-1", "name": "child"}, {"id": "sp-2", "name": "other"}]},
@@ -2256,10 +2230,6 @@ async def test_a_small_trace_is_untouched() -> None:
 
 @pytest.mark.anyio
 async def test_a_long_thread_keeps_every_turn_and_spends_its_budget_on_bodies() -> None:
-    """A thread is the shape likeliest to reach the ceiling: two hundred turns
-    each carrying a whole prompt and a whole answer. Losing turns would
-    misreport the length of the conversation, which is the one thing a thread
-    read is asked for most."""
     fat = [
         {
             "id": f"tr-{n}",

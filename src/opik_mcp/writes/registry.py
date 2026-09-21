@@ -64,13 +64,8 @@ class WriteOperation:
     envelope_items_key: str | None = None
     """Where an always-envelope operation keeps its records, in the built body.
 
-    ``item_count`` on the receipt is otherwise the length of the top-level
-    payload, which for these two operations is the envelope itself — so a
-    500-case upsert reported ``item_count: 1``. The rows are written
-    correctly; only the count was wrong, and wrong in the direction that
-    invites an agent to read the write as having failed and send it again.
-    Naming the key keeps the count a fact about what was sent rather than a
-    guess at which shape the body happens to have.
+    Without it ``item_count`` is the length of the top-level payload, which for
+    these operations is the envelope: a 500-case upsert reported 1.
     """
 
     # --- what this operation does that no other one does ----------------- #

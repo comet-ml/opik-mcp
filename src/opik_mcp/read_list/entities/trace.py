@@ -31,33 +31,8 @@ from opik_mcp.read_list.ui_links import trace_link_template
 # constants so cache shapes stay stable for any in-flight integration.
 SPANS_INLINE_LIMIT = 200
 
-#: And what those spans may cost, in characters of serialised JSON. The count
-#: cap alone left the read unbounded in size: the backend cuts each field at
-#: 10,001 characters, so two hundred spans of three cut fields is six million.
-#: Measured live, five spans came to 38,423 characters — 8,421 tokens by the
-#: header's own estimate — and the client refused the whole answer, so the
-#: caller saw an error where the trace should have been.
-#:
-#: 14,000 keeps an ordinary trace read near 7,000 tokens, inside the tightest
-#: host budget seen in use and far inside the common default. The first number
-#: tried was 25,000, chosen against the header's own estimate of four
-#: characters per token — which is prose's ratio, not JSON's, so the budget
-#: was calibrated at nearly twice the size it meant to allow and the read it
-#: was written for was still refused. See ``size._CHARS_PER_TOKEN``.
-#:
-#: A constant rather than a setting because a fetcher sees a client, not
-#: ``Settings`` — and because the number that matters is the host's, which
-#: this process cannot read either way.
-#:
-#: One span can still exceed this on its own: the backend cuts each field at
-#: 10,001 characters and a span has three, so a single maximally-cut span is
-#: the floor this cannot go under without answering a trace with no bodies at
-#: all. ``fields=[…]`` is the caller's remedy there, and the only one that
-#: can be, since what to keep is their question and not ours.
-#:
-#: What the budget spends is bodies, not spans: see
-#: :func:`opik_mcp.read_list.slim.drop_bodies_past` for why the tree survives
-#: a cut that its payloads do not.
+#: Character ceiling on the bodies of inlined spans. The count cap alone
+#: left the read unbounded: the backend cuts each field at 10,001 chars.
 SPANS_INLINE_CHARS = 14_000
 
 #: The span fields ``truncate=true`` acts on, in the order the backend cuts
@@ -92,10 +67,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     except Exception:
         return {"trace": trace, "spans": [], "spansTruncated": False}
     fetched = page_items(spans_page)
-    # What the backend cut is a fact about the fetch, so it is counted before
-    # the inline budget spends anything: a body this read drops is one the
-    # caller never sees the length of, and counting it as uncut would report
-    # fewer cut spans the larger the trace got.
+    # Counted before the budget spends anything: a dropped body is not an uncut one.
     cut = count_cut(fetched, SLIM_SPAN_FIELDS)
     spans, dropped = drop_bodies_past(fetched, SPANS_INLINE_CHARS, SLIM_SPAN_FIELDS)
     truncated = collection_truncated(spans_page, inlined=len(spans), limit=SPANS_INLINE_LIMIT)
@@ -132,14 +104,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
 
 
 def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
-    """The trace's own page in the UI.
-
-    Built from the template rather than a project path because a trace read is
-    reached from places that never carried a project id — ``worst_trace`` on a
-    comparison is the one this exists for. The backend's redirect resolves both
-    the project and the workspace from the id, which is also why this is the
-    one link that survives an OAuth session introspection could not name.
-    """
+    """The trace's UI link, via the backend redirect (needs no project_id)."""
     trace = data.get("trace")
     trace_id = trace.get("id") if isinstance(trace, dict) else None
     if not isinstance(trace_id, str) or not trace_id:

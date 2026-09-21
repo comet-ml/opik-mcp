@@ -141,8 +141,6 @@ def test_trace_link_template_none_without_an_api_segment() -> None:
 
 
 def test_compare_url_carries_both_runs_in_the_order_given() -> None:
-    """The UI reads ``experiments`` as a JSON array, so a one-run link and a
-    two-run link are the same shape — and the baseline has to stay first."""
     url = compare_url(_settings(), "ds-1", ["exp-a", "exp-b"])
     assert url is not None
     assert url.startswith("https://opik.test/demo-ws/experiments/ds-1/compare?experiments=")
@@ -150,12 +148,9 @@ def test_compare_url_carries_both_runs_in_the_order_given() -> None:
 
 
 def test_compare_url_is_absent_rather_than_guessed() -> None:
-    """Same bargain as every other link: no link beats a wrong one."""
     assert compare_url(_settings(opik_url=None, comet_url_override=""), "ds-1", ["e"]) is None
 
 
 def test_compare_url_needs_a_dataset_and_a_run() -> None:
-    """The dataset id is the path and the runs are the query — neither is
-    optional, and a link missing one lands on an empty compare view."""
     assert compare_url(_settings(), "", ["e"]) is None
     assert compare_url(_settings(), "ds-1", []) is None

@@ -97,16 +97,8 @@ def trace_link_template(settings: Settings) -> str | None:
 def compare_url(settings: Settings, dataset_id: str, experiment_ids: Sequence[str]) -> str | None:
     """The UI's compare view for these runs, or ``None`` when it cannot be known.
 
-    An experiment's own page is that view with one run selected, so a single
-    id and a pair build the same URL — which is why this takes a sequence and
-    not an id plus optional others. Order is the caller's: the UI reads the
-    first as the baseline, the same way ``list('dataset_item', experiment_ids=…)``
-    does, and a link that quietly sorted them would disagree with the table it
-    was attached to.
-
-    The ids ride as a JSON array in the query string because that is what the
-    route parses; ``quote`` rather than ``urlencode`` so the shape stays
-    readable in a terminal, where these are read as often as they are clicked.
+    One run and a pair build the same URL. Order is the caller's: the UI reads
+    the first as the baseline.
     """
     base = opik_ui_base(settings)
     workspace = link_workspace(settings)
