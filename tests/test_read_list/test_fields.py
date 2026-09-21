@@ -68,13 +68,39 @@ def test_row_fields_names_flat_keys_dict_keys_and_named_entries() -> None:
     )
 
 
-def test_row_fields_keeps_a_container_whose_keys_it_could_not_all_name() -> None:
-    """A wide ``metadata`` is not enumerated past the cap, and the container
-    itself stays nameable — so nothing the page carries becomes unreachable."""
+def test_row_fields_names_every_key_and_offered_is_the_short_menu() -> None:
+    """The set a page *accepts* is complete; the line it *prints* is a subset
+    that counts what it left out.
+
+    They were one capped set, and the bug that made was the worst kind this
+    module can have: a key that resolves on the row, refused with a message
+    saying the records do not carry it.
+    """
     wide = {f"k{i:03d}": i for i in range(projection.MAX_NESTED_NAMES + 5)}
     names = projection.row_fields([{"id": "t-1", "metadata": wide}])
     assert "metadata" in names
-    assert len([n for n in names if n.startswith("metadata.")]) == projection.MAX_NESTED_NAMES
+    assert len([n for n in names if n.startswith("metadata.")]) == len(wide)
+
+    shown = projection.offered(names)
+    assert len([n for n in shown if n.startswith("metadata.")]) == projection.MAX_NESTED_NAMES
+    assert shown[-1] == "+5 more"
+
+
+def test_offered_never_lets_one_container_crowd_out_the_flat_keys() -> None:
+    """The per-container cap exists so ``id`` and ``start_time`` survive a
+    hundred-key metadata map. Without it the menu is all one container."""
+    wide = {f"k{i:03d}": i for i in range(200)}
+    names = projection.row_fields([{"id": "t-1", "start_time": "x", "metadata": wide}])
+    shown = projection.offered(names)
+    assert "id" in shown and "start_time" in shown and "metadata" in shown
+
+
+def test_covers_reads_a_container_as_keeping_its_children() -> None:
+    assert projection.covers("trace", "trace.output")
+    assert projection.covers("trace", "trace")
+    assert not projection.covers("trace.output", "trace.input")
+    # Not a prefix match on the raw string: ``trace`` must not cover ``traces``.
+    assert not projection.covers("trace", "traceback")
 
 
 def test_record_paths_stops_at_a_list() -> None:
@@ -273,6 +299,68 @@ async def test_an_empty_page_carries_no_fields_line() -> None:
     fields nobody's rows have is a guess dressed as a fact."""
     out = await run_list("project", client=FakeOpikClient())
     assert "fields:" not in out
+
+
+@pytest.mark.anyio
+async def test_a_nested_key_past_the_printed_menu_is_still_accepted() -> None:
+    """The regression this review found. ``metadata`` is offered, its keys are
+    printed only up to the cap, and a key past it resolves on the row — so
+    refusing it was a refusal the record in the caller's hand contradicts."""
+    wide = {f"k{i:03d}": i for i in range(projection.MAX_NESTED_NAMES + 5)}
+    fake = FakeOpikClient(traces={"content": [{"id": "t-1", "metadata": wide}], "total": 1})
+    late = f"metadata.k{projection.MAX_NESTED_NAMES + 2:03d}"
+
+    offer = next(
+        one
+        for one in (await run_list("trace", project_id=PROJECT, client=fake)).splitlines()
+        if one.startswith("fields:")
+    )
+    assert late not in offer, "the premise: this key is past what the line prints"
+    assert "more" in offer, "and the line says it left some out"
+
+    out = await run_list("trace", project_id=PROJECT, fields=[late], client=fake)
+    assert f"id | {late}" in out
+    assert f"t-1 | {projection.MAX_NESTED_NAMES + 2}" in out
+
+
+@pytest.mark.anyio
+async def test_a_kept_container_is_not_reported_as_omitting_its_own_children() -> None:
+    """The other regression. Naming ``feedback_scores`` renders every score in
+    that cell; the marker listed ``feedback_scores.helpfulness`` as omitted
+    beside the cell showing it — the one line whose whole job is to be true
+    about what went, contradicting the table above it."""
+    fake = FakeOpikClient(
+        traces={
+            "content": [
+                {
+                    "id": "t-1",
+                    "name": "a",
+                    "feedback_scores": [{"name": "helpfulness", "value": 0.9}],
+                }
+            ],
+            "total": 1,
+        }
+    )
+    out = await run_list("trace", project_id=PROJECT, fields=["feedback_scores"], client=fake)
+    assert "t-1 | helpfulness=0.9" in out
+    marker = next(one for one in out.splitlines() if one.startswith("projected:"))
+    assert "feedback_scores.helpfulness" not in marker
+    assert "omitted: name" in marker
+
+
+@pytest.mark.anyio
+async def test_a_data_key_holding_a_newline_does_not_split_the_fields_line() -> None:
+    """A field name is a key the user chose. One with a line break in it broke
+    the offer line into two, making the page's shape depend on what someone
+    put in a dataset — so the line is escaped the way the table header is."""
+    fake = FakeOpikClient(
+        dataset_items={"content": [{"id": "i-1", "data": {"a|b": "x", "c\nd": "y"}}], "total": 1}
+    )
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
+    assert sum(1 for one in out.splitlines() if one.startswith("fields:")) == 1
+    offer = next(one for one in out.splitlines() if one.startswith("fields:"))
+    assert offer.endswith("uncut.")
+    assert "|" not in offer.replace("fields=[…]", "")
 
 
 # --- list: projecting -------------------------------------------------------- #

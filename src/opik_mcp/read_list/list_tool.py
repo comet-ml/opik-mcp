@@ -85,7 +85,14 @@ from opik_mcp.read_list.project_scope import (
     unknown_project_message,
 )
 from opik_mcp.read_list.projection import check as check_fields
-from opik_mcp.read_list.projection import fields_line, leaves, marker, normalise, row_fields
+from opik_mcp.read_list.projection import (
+    covers,
+    fields_line,
+    leaves,
+    marker,
+    normalise,
+    row_fields,
+)
 from opik_mcp.read_list.reference import FILTER_REQUIREMENTS
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
@@ -872,7 +879,13 @@ def _format_table(
         notes.append(
             marker(
                 kept=columns,
-                omitted=tuple(c for c in leaves(available) if c not in columns),
+                # ``covers``, not ``not in``: a caller who named
+                # ``feedback_scores`` gets every score in that cell, and
+                # listing feedback_scores.helpfulness as omitted beside the
+                # cell rendering it is the marker contradicting the table.
+                omitted=tuple(
+                    c for c in leaves(available) if not any(covers(col, c) for col in columns)
+                ),
                 whole="Drop fields= for the row as the table chooses it.",
             )
         )

@@ -12,9 +12,12 @@ Three things hold it together, and each exists because the obvious version of
 this feature is a silent cut:
 
 *Naming.* A page says which fields its records carry, so the caller picks from
-a list rather than guessing a path and getting an empty column. The names
-offered are exactly the names :mod:`opik_mcp.read_list.columns` resolves, so
-the offer and the lookup cannot disagree.
+a list rather than guessing a path and getting an empty column. Every name it
+accepts is one :mod:`opik_mcp.read_list.columns` resolves, so the offer and
+the lookup cannot disagree. The printed line is a subset — a hundred-key
+``metadata`` would be the payload again — and it counts what it left out, but
+the counted remainder is accepted all the same. Offering less than is accepted
+is a short menu; accepting less than is offered would be a lie.
 
 *Refusing.* A field that names nothing is an error with the valid names in it,
 never an empty column. An empty column is indistinguishable from a field the
@@ -30,9 +33,11 @@ because the caller who asked is not always the one who reads.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import Any, Final
 
+from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.errors import EntityArgValidationError
 
 
@@ -46,12 +51,14 @@ class FieldsError(EntityArgValidationError):
 
 
 MAX_NESTED_NAMES: Final = 12
-"""How many keys of one container a page's ``fields:`` line enumerates.
+"""How many keys of one container a page's ``fields:`` line *shows*.
 
 A ``metadata`` map is whatever the application logged, and a line naming
-ninety of its keys is not a menu, it is the payload again. Past the cap the
-container itself is still named and still accepted, so nothing the page
-carries becomes unreachable — only harder to discover.
+ninety of its keys is not a menu, it is the payload again. This caps the
+display only: :func:`row_fields` returns every name, and that complete set is
+what :func:`check` validates against. Capping the two together is a bug this
+review caught — a caller could see ``metadata`` offered, ask for a key that
+genuinely exists past the cap, and be told the records do not carry it.
 """
 
 NAMED_OMISSIONS: Final = 8
@@ -100,30 +107,55 @@ def _named_entries(value: Any) -> list[str]:
 
 
 def row_fields(rows: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
-    """Every name ``fields=`` takes for a page of records.
+    """Every name ``fields=`` takes for a page of records — all of them.
 
     Exactly the three shapes :func:`opik_mcp.read_list.columns.resolve` knows:
     a flat key, one level into a dict, and a named entry of a score-shaped
     list. Taken from the rows rather than from a declaration, because the
     entities whose fields are worth naming are the ones whose fields are the
     user's (``data.question``, ``metadata.region``) and not ours.
+
+    Complete on purpose. What a page *shows* is :func:`offered`, which is a
+    subset and says so; what it *accepts* is this. The two were once the same
+    capped set, and a key past the cap resolved on the row and was refused
+    anyway — a refusal contradicted by the record in the caller's hand.
     """
-    flat: set[str] = set()
-    nested: dict[str, set[str]] = {}
+    names: set[str] = set()
     for row in rows:
         for key, value in row.items():
             if key.startswith("_"):
                 continue
-            flat.add(key)
-            keys = sorted(value) if isinstance(value, dict) else _named_entries(value)
-            if keys:
-                nested.setdefault(key, set()).update(keys)
-    names = set(flat)
-    for key, sub_keys in nested.items():
-        # Sorted before the cap so the same page always offers the same names;
-        # a menu that reshuffles between pages is worse than a short one.
-        names.update(f"{key}.{sub}" for sub in sorted(sub_keys)[:MAX_NESTED_NAMES])
+            names.add(key)
+            sub_keys = sorted(value) if isinstance(value, dict) else _named_entries(value)
+            names.update(f"{key}.{sub}" for sub in sub_keys)
     return tuple(sorted(names))
+
+
+def offered(available: Sequence[str]) -> list[str]:
+    """As much of ``available`` as is worth printing, and a count of the rest.
+
+    Two caps, because they guard different things. The per-container one keeps
+    a hundred-key ``metadata`` from crowding ``id`` and ``start_time`` out of
+    the line; the overall one keeps the line a line. Whatever is left out is
+    counted, so a short menu never reads as a complete one — and everything
+    left out is still accepted, because :func:`check` reads the full set.
+    """
+    shown: list[str] = []
+    per_container: Counter[str] = Counter()
+    for name in available:
+        container, dot, _ = name.partition(".")
+        if dot:
+            per_container[container] += 1
+            if per_container[container] > MAX_NESTED_NAMES:
+                continue
+        shown.append(name)
+    left = len(available) - len(shown)
+    if len(shown) > MAX_OFFERED:
+        left += len(shown) - MAX_OFFERED
+        shown = shown[:MAX_OFFERED]
+    if left:
+        shown.append(f"+{left} more")
+    return shown
 
 
 def record_paths(record: Mapping[str, Any], *, depth: int = _MAX_DEPTH) -> tuple[str, ...]:
@@ -183,13 +215,11 @@ def check(
     unknown = [f for f in requested if f not in known and not (accepts and accepts(f))]
     if not unknown:
         return
-    offered = list(valid[:MAX_OFFERED])
-    if len(valid) > MAX_OFFERED:
-        offered.append(f"+{len(valid) - MAX_OFFERED} more")
-    named = ", ".join(repr(f) for f in unknown)
+    shown = offered(valid)
+    named = one_line(", ".join(repr(f) for f in unknown))
     raise FieldsError(
         f"Unknown field{'s' if len(unknown) > 1 else ''} {named} in fields=. "
-        f"These records carry: {', '.join(offered) if offered else '(nothing)'}. "
+        f"These records carry: {one_line(', '.join(shown)) if shown else '(nothing)'}. "
         f"Drop fields= for the whole of {whole}."
     )
 
@@ -255,7 +285,7 @@ def project_record(
 
     kept = list(fields)
     identity = identity_path(record)
-    if identity is not None and not any(_covers(f, identity) for f in kept):
+    if identity is not None and not any(covers(f, identity) for f in kept):
         kept.append(identity)
 
     out: dict[str, Any] = {}
@@ -263,13 +293,19 @@ def project_record(
         found, value = dig(record, path)
         if found:
             _plant(out, path, value)
-    omitted = tuple(p for p in leaves(paths) if not any(_covers(f, p) for f in kept))
+    omitted = tuple(p for p in leaves(paths) if not any(covers(f, p) for f in kept))
     return out, tuple(kept), omitted
 
 
-def _covers(field: str, path: str) -> bool:
+def covers(field: str, path: str) -> bool:
     """Does keeping ``field`` bring ``path`` along? ``trace`` keeps
-    ``trace.output``; ``trace.output`` does not keep ``trace.input``."""
+    ``trace.output``; ``trace.output`` does not keep ``trace.input``.
+
+    Public because the omitted set of every projected answer is built from it.
+    A marker that counted a kept container's children as omitted said so on
+    the same screen as the cell rendering them — which is the one thing this
+    line exists not to do.
+    """
     return path == field or path.startswith(f"{field}.")
 
 
@@ -290,7 +326,9 @@ def marker(*, kept: Sequence[str], omitted: Sequence[str], whole: str) -> str:
     named = list(omitted[:NAMED_OMISSIONS])
     if len(omitted) > NAMED_OMISSIONS:
         named.append(f"+{len(omitted) - NAMED_OMISSIONS} more")
-    return f"projected: {len(kept)} of {total} fields; omitted: {', '.join(named)}. {whole}"
+    return (
+        f"projected: {len(kept)} of {total} fields; omitted: {one_line(', '.join(named))}. {whole}"
+    )
 
 
 def fields_line(available: Sequence[str]) -> str | None:
@@ -299,14 +337,20 @@ def fields_line(available: Sequence[str]) -> str | None:
     The counterpart of the refusal: a caller who has this line never has to
     guess a path, which is the whole reason the argument is usable at all.
     Capped like a refusal, because a record with a hundred metadata keys would
-    otherwise spend more on the menu than on the rows.
+    otherwise spend more on the menu than on the rows. A name whose key holds
+    a newline or a pipe is rendered the way the table renders it, so the two
+    agree; such a key cannot be projected, which is the same as before this
+    argument existed, and better than a page that breaks apart around it.
     """
     if not available:
         return None
-    offered = list(available[:MAX_OFFERED])
-    if len(available) > MAX_OFFERED:
-        offered.append(f"+{len(available) - MAX_OFFERED} more")
-    return f"fields: {', '.join(offered)} — name any in fields=[…] to get those alone, uncut."
+    # ``one_line`` for the same reason the table header applies it: a field
+    # name is a key the user chose, and one carrying a newline split this line
+    # in two — a page whose shape depends on what someone put in a dataset.
+    return (
+        f"fields: {one_line(', '.join(offered(available)))} — name any in fields=[…] "
+        "to get those alone, uncut."
+    )
 
 
 __all__ = [
@@ -315,12 +359,14 @@ __all__ = [
     "NAMED_OMISSIONS",
     "FieldsError",
     "check",
+    "covers",
     "dig",
     "fields_line",
     "identity_path",
     "leaves",
     "marker",
     "normalise",
+    "offered",
     "project_record",
     "record_paths",
     "row_fields",
