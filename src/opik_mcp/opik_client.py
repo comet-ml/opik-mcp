@@ -1050,20 +1050,6 @@ class OpikClient:
             entity_hint="feedback definitions",
         )
 
-    async def execute_experiment(self, body: dict[str, Any]) -> httpx.Response:
-        """``POST /v1/private/experiments/execute`` — fire-and-return experiment run.
-
-        opik-backend runs the experiment asynchronously. Returns 202 on accept
-        with ``{experiments: [{experiment_id, prompt_index}], total_items}``.
-        Like ``write_json``, this does NOT raise on 4xx/5xx — the orchestrator
-        wraps non-2xx into ``OpikValidationError`` / ``OpikServerError``.
-        """
-        return await self.write_json(
-            "POST",
-            "/v1/private/experiments/execute",
-            body,
-        )
-
     # -- reads: prompts --
 
     async def list_prompts(

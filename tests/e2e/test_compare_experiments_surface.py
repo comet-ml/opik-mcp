@@ -279,6 +279,38 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
 
 @pytest.mark.e2e
 @pytest.mark.anyio
+async def test_a_run_that_produced_nothing_reads_errored_end_to_end(
+    backend: StubBackend,
+) -> None:
+    """The case the in-process suite can only assert about a dict: what the
+    joined endpoint really returns for a run whose task or judge raised is an
+    item with no scores, no assertions and no status — no error field, because
+    the payload has none. The table has to read that as errored rather than as
+    a zero, and count it apart from the cases that were scored."""
+    backend.suite = CompareSuite(case_count=4)
+    backend.experiments[EXPERIMENT_B] = ExperimentSpec(name="rerank-v3", errors_every=4)
+
+    async with _session(backend) as session:
+        answer = await _call(
+            session,
+            "list",
+            entity_type="dataset_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+            size=4,
+        )
+
+    errored = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
+    # id | data.expected_answer | data.question | correctness | hallucination | …
+    assert errored.split(" | ")[3] == "0.9 / errored", errored
+    assert errored.split(" | ")[4] == "1 / errored", "every score column, not just the first"
+    assert "Δ" not in errored, "an error is not a difference"
+    assert "3 of 4 cases fully scored, 1 errored" in answer
+    assert "and 0 unscored" in answer
+    assert "open its worst_trace for error_info" in answer
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
 async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_score(
     backend: StubBackend,
 ) -> None:
@@ -316,7 +348,9 @@ async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_
         )
 
     columns = next(line for line in narrow.splitlines() if line.startswith("id |"))
-    assert columns == "id | data.question | correctness | worst_trace"
+    # The score column keeps the direction marking OPIK-8394 put on it: a
+    # projection narrows what is shown, never what a shown cell means.
+    assert columns == "id | data.question | correctness (direction unknown) | worst_trace"
     # The rows are those four cells. The case key the caller did not name and
     # the score they did not ask for are gone from every one of them, and the
     # trace that opens the case is on every one of them anyway.

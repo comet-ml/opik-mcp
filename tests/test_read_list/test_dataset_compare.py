@@ -10,6 +10,7 @@ it then ignores.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pytest
@@ -240,7 +241,11 @@ async def test_scores_beyond_four_are_cut_by_fill_rate_and_named_in_the_note() -
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "id | data.question | brevity | correctness | grounding | helpfulness |" in out
+    # Only ``correctness`` carries a Δ: the rest are E1's alone, so they are
+    # the columns with no sign to misread (see the direction section below).
+    assert (
+        "id | data.question | brevity | correctness (direction unknown) | grounding | helpfulness |"
+    ) in out
     assert "Showing 4 of 6 scores by fill rate; omitted: safety, tone." in out
 
 
@@ -462,6 +467,11 @@ async def test_a_case_filter_that_matches_nothing_does_not_explain_the_runs() ->
 # --- the plain listing is untouched ----------------------------------------- #
 
 
+def _items(data: dict[str, Any]) -> dict[str, Any]:
+    """One page of the plain listing: a single case with the given data map."""
+    return {"content": [{"id": "i-1", "data": data}], "total": 1}
+
+
 @pytest.mark.anyio
 async def test_without_experiment_ids_the_list_is_still_the_datasets_cases() -> None:
     fake = FakeOpikClient(
@@ -528,7 +538,7 @@ async def test_experiments_over_a_plain_dataset_get_no_suite_columns() -> None:
     assert "passed" not in out
     assert "reason" not in out
     # The run worth opening next is not a test suite's privilege.
-    assert "correctness | worst_trace" in out
+    assert "correctness (direction unknown) | worst_trace" in out
     assert "0.9 / 0.4 Δ-0.5 | tr-b (E2)" in out
 
 
@@ -1093,3 +1103,258 @@ async def test_a_reason_with_line_breaks_and_a_pipe_stays_one_cell() -> None:
     assert row.count(" | ") == 5, "id, question, score, passed, worst_trace, reason"
     assert "Line one Line two ¦ with a pipe" in row
     assert "The answer names Lyon. Paris ¦ expected. See trace." in row
+
+
+# --- the direction nobody records (OPIK-8394) ------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_score_column_that_carries_a_delta_says_the_direction_is_unknown() -> None:
+    """Opik records no direction for a score — a numerical definition carries
+    a min and a max and nothing else — so the sign of Δ is arithmetic. The
+    column header says so, where the Δ is read, not only in a note under it."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"hallucination": 0.2}),
+                _run(B, trace="tr-b", scores={"hallucination": 0.9}),
+            ],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    assert "id | data.question | hallucination (direction unknown) | passed" in out
+    assert "case-1 | Capital? | 0.2 / 0.9 Δ+0.7" in out
+    assert "No score definition records which direction is better" in out
+    assert "on a lower-is-better metric a + is the regression" in out
+
+
+@pytest.mark.anyio
+async def test_one_experiment_has_no_delta_so_its_score_column_is_unmarked() -> None:
+    """The marker belongs to the Δ. With one run there is no subtraction, so
+    the header carries the score's name and nothing to distrust."""
+    fake = _fake(_case("case-1", {"question": "Capital?"}, [_run(A, scores={"correctness": 0.9})]))
+
+    out = await run_list("dataset_item", experiment_ids=[A], client=fake)
+
+    assert "id | data.question | correctness | passed" in out
+    assert "direction unknown" not in out
+
+
+@pytest.mark.anyio
+async def test_a_categorical_column_is_unmarked_because_a_label_has_no_delta() -> None:
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                {
+                    "experiment_id": A,
+                    "trace_id": "tr-a",
+                    "feedback_scores": [{"name": "verdict", "value": 0, "category_name": "low"}],
+                },
+                {
+                    "experiment_id": B,
+                    "trace_id": "tr-b",
+                    "feedback_scores": [{"name": "verdict", "value": 2, "category_name": "high"}],
+                },
+            ],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    assert "id | data.question | verdict | passed" in out
+    # The legend still owns up to the missing direction; the column does not
+    # carry the marker, because a label has no sign to misread.
+    assert "verdict (direction unknown)" not in out
+
+
+# --- errored, not low (OPIK-8394) ------------------------------------------- #
+
+
+def _crashed(experiment_id: str, trace: str) -> dict[str, Any]:
+    """What a task or a judge that raised leaves on the joined row: a run,
+    a trace, and no score at all. The row carries no error field — the
+    compare join selects none (``ExperimentItemCompare``) — so this is the
+    whole fingerprint."""
+    return {"experiment_id": experiment_id, "trace_id": trace, "feedback_scores": []}
+
+
+@pytest.mark.anyio
+async def test_a_run_that_scored_nothing_beside_one_that_did_reads_errored() -> None:
+    """The asymmetry is the signal: the same case, the same judges, and one
+    experiment recorded nothing. That is not a low score and never a 0, and
+    the run to open is the one that produced nothing."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [_run(A, trace="tr-a", scores={"correctness": 0.9}), _crashed(B, "tr-b")],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    row = next(line for line in out.splitlines() if line.startswith("case-1"))
+    assert "0.9 / errored" in row
+    assert "unscored" not in row, "a crash is not the same as a judge that scored nothing"
+    assert "Δ" not in row, "there is nothing to subtract from an error"
+    assert "0.9 / errored |" in row and " 0 " not in row, "an error is never a zero"
+    assert "tr-b (E2)" in row, "the errored run is the one to open"
+
+
+@pytest.mark.anyio
+async def test_a_case_no_run_scored_is_unscored_rather_than_errored() -> None:
+    """With nothing to be asymmetric against, a run that recorded nothing is
+    a case nobody scored — the judges may simply not have run on it."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, scores={"correctness": 1}),
+            ],
+        ),
+        _case("case-2", {"question": "River?"}, [_crashed(A, "tr-a2"), _crashed(B, "tr-b2")]),
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    row = next(line for line in out.splitlines() if line.startswith("case-2"))
+    assert "unscored / unscored" in row
+    assert "errored" not in row
+
+
+@pytest.mark.anyio
+async def test_the_note_counts_scored_errored_and_unscored_and_they_add_up() -> None:
+    """Three readings of a case, counted apart so that none of them lands in
+    the low scores, and summing to the page so that none of them is double
+    counted either."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.4}),
+            ],
+        ),
+        _case(
+            "case-2",
+            {"question": "River?"},
+            [_run(A, trace="tr-a2", scores={"correctness": 0.8}), _crashed(B, "tr-b2")],
+        ),
+        _case("case-3", {"question": "Sea?"}, [_crashed(A, "tr-a3"), _crashed(B, "tr-b3")]),
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    note = next(line for line in out.splitlines() if line.startswith("On this page,"))
+    counted = re.search(
+        r"(\d+) of (\d+) cases fully scored, (\d+) errored .* and (\d+) unscored", note
+    )
+    assert counted is not None, note
+    scored, total, errored, unscored = (int(n) for n in counted.groups())
+    assert (scored, errored, unscored) == (1, 1, 1)
+    assert scored + errored + unscored == total == 3
+    assert "open its worst_trace for error_info" in note
+
+
+@pytest.mark.anyio
+async def test_a_count_of_zero_keeps_its_number_and_drops_its_explanation() -> None:
+    """The three counts have to add up, so a zero stays in the sentence; there
+    is nothing to explain about it, so it does not pay for the explanation."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.4}),
+            ],
+        ),
+        _case("case-2", {"question": "River?"}, [_crashed(A, "tr-a2"), _crashed(B, "tr-b2")]),
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    note = next(line for line in out.splitlines() if line.startswith("On this page,"))
+    assert "1 of 2 cases fully scored, 0 errored and 1 unscored (no run" in note
+    assert "open its worst_trace for error_info" not in note, "nothing errored to explain"
+
+
+@pytest.mark.anyio
+async def test_a_page_where_every_run_scored_says_nothing_about_errors() -> None:
+    fake = _fake(_DEFAULT_CASE)
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+    assert "errored" not in out
+    assert "unscored" not in out
+
+
+# --- a cell is one cell, and so is a column name (OPIK-8394) --------------- #
+
+
+@pytest.mark.anyio
+async def test_a_case_data_key_with_a_line_break_and_a_pipe_stays_one_column() -> None:
+    """The case columns are the dataset's own keys, so whatever the user
+    named a field reaches the header: a newline split the header line in two
+    and a bare pipe left the table with a column name no row had a cell for.
+    The cells were escaped; the names they sit under were not."""
+    fake = _fake(
+        _case(
+            "case-1",
+            {"question | note\nsecond line": "Capital?"},
+            [
+                _run(A, trace="tr-a", scores={"correctness": 0.9}),
+                _run(B, trace="tr-b", scores={"correctness": 0.4}),
+            ],
+        )
+    )
+
+    out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
+
+    header = next(line for line in out.splitlines() if line.startswith("id | "))
+    row = next(line for line in out.splitlines() if line.startswith("case-1"))
+    assert "data.question ¦ note second line" in header
+    assert header.count(" | ") == row.count(" | "), "as many column names as the row has cells"
+
+
+@pytest.mark.anyio
+async def test_a_value_with_a_line_break_and_a_pipe_stays_one_cell() -> None:
+    """A dataset item holds whatever the user put in it. A newline split the
+    row in two and a bare pipe added a column to it."""
+    fake = FakeOpikClient(
+        dataset_items=_items({"question": "Line one\nLine two | with a pipe", "answer": "Paris"})
+    )
+
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
+
+    lines = out.splitlines()
+    rows = [line for line in lines if line.startswith("i-1")]
+    assert len(rows) == 1, "the row must stay on one line"
+    assert rows[0].count(" | ") == 2, "id, data.answer, data.question"
+    assert lines[2].count(" | ") == rows[0].count(" | "), "the header has the row's columns"
+    assert "Line one Line two ¦ with a pipe" in rows[0]
+
+
+@pytest.mark.anyio
+async def test_a_data_key_with_a_line_break_and_a_pipe_stays_one_column() -> None:
+    """The columns are the item's own keys, so the same two characters reach
+    the header — where a newline split the header line in two and left the
+    table with more column names than any row had cells."""
+    fake = FakeOpikClient(
+        dataset_items=_items({"question | note": "why", "answer\nline": "because"})
+    )
+
+    out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
+
+    lines = out.splitlines()
+    header = lines[2]
+    assert header == "id | data.answer line | data.question ¦ note"
+    assert lines[3].count(" | ") == header.count(" | "), "as many cells as column names"
+    assert lines[3].startswith("i-1 | because | why")

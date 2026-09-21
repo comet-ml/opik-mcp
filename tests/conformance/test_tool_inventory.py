@@ -66,7 +66,8 @@ from opik_mcp.server import mcp
 #           OPIK-8396 grew `list` and `read` without noting it, the same way
 #           `write` did before the guard existed. Recorded so the next raise
 #           does not read someone else's spend as its own.
-#   22,300  OPIK-8399 — `fields` on `read` and `list`. +939 bytes, of which
+#   21,394  after OPIK-8401 (#198), which spent 33 bytes on `read_skill`.
+#   22,333  OPIK-8399 — `fields` on `read` and `list`. +939 bytes, of which
 #           551 are the two argument descriptions, ~290 the array schema
 #           Pydantic emits for each, and 102 a correction: `read`'s own
 #           description said the record it returns is never truncated, which

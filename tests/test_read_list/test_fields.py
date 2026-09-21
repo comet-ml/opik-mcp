@@ -423,7 +423,10 @@ async def test_comparison_returns_the_named_case_key_and_score_and_the_trace() -
         client=_fake(case),
     )
     columns = next(one for one in out.splitlines() if one.startswith("id |"))
-    assert columns == "id | data.question | helpfulness | worst_trace"
+    # The score column keeps the "direction unknown" marking OPIK-8394 put on
+    # every column whose cell carries a Δ. A projection narrows which columns
+    # are shown; it never changes what a shown cell means.
+    assert columns == "id | data.question | helpfulness (direction unknown) | worst_trace"
     assert "correctness" not in columns
     assert "expected_answer" not in columns
     assert any(one.startswith("projected:") for one in out.splitlines())

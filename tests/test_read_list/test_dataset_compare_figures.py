@@ -139,10 +139,10 @@ async def test_definitions_that_cannot_be_read_leave_every_score_a_number() -> N
 
 
 @pytest.mark.anyio
-async def test_a_run_that_recorded_nothing_reads_unscored_not_as_a_missing_run() -> None:
+async def test_a_run_that_recorded_nothing_reads_errored_not_as_a_missing_run() -> None:
     """A dash is "did not run this case". A run that exists and scored nothing
-    is a different thing — a task or judge that raised looks exactly like it —
-    and the note counts it apart from the low scores."""
+    beside one that scored the same case is a third thing — a task or judge
+    that raised — and the note counts it apart from the low scores."""
     fake = _fake(
         _case(
             "case-1",
@@ -166,18 +166,19 @@ async def test_a_run_that_recorded_nothing_reads_unscored_not_as_a_missing_run()
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert "case-1 | Capital? | 0.9 / unscored" in out
+    assert "case-1 | Capital? | 0.9 / errored" in out
     assert "Δ" not in next(line for line in out.splitlines() if line.startswith("case-1"))
-    assert "On this page, 1 case has a run with no score at all (unscored)" in out
+    assert "On this page, 1 of 2 cases fully scored, 1 errored" in out
     assert "what a task or judge that raised looks like here" in out
     assert "open its worst_trace for error_info" in out
+    assert "and 0 unscored" in out, "the counts partition the page even when one is empty"
     assert "not run by every experiment" not in out, "the run exists; it is not a missing run"
-    # The unscored run is the one to open: its total is the lowest there is.
-    assert "0.9 / unscored | tr-b (E2)" in out
+    # The errored run is the one to open: its total is the lowest there is.
+    assert "0.9 / errored | tr-b (E2)" in out
 
 
 @pytest.mark.anyio
-async def test_the_note_counts_failed_and_unscored_cases_apart() -> None:
+async def test_the_note_counts_failed_and_errored_cases_apart() -> None:
     fake = _fake(
         _case(
             "case-1",
@@ -214,10 +215,9 @@ async def test_the_note_counts_failed_and_unscored_cases_apart() -> None:
 
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
-    assert (
-        "On this page, 1 case failed an assertion; 1 case has a run with no score at all "
-        "(unscored)" in out
-    )
+    # A failed assertion is a different axis from how the case was scored:
+    # case-1 failed one and is fully scored, case-2 errored, case-3 is clean.
+    assert "On this page, 1 case failed an assertion; 2 of 3 cases fully scored, 1 errored" in out
 
 
 @pytest.mark.anyio

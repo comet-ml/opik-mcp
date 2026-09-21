@@ -13,6 +13,11 @@ from opik_mcp.config import Settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.ui_links import trace_link_template
 from opik_mcp.server import mcp
+from opik_mcp.skills_catalog import (
+    SKILL_SUMMARIES,
+    read_skill_tool_description,
+    skill_names,
+)
 
 
 @pytest.fixture
@@ -210,3 +215,55 @@ def test_render_names_every_diagnostics_state() -> None:
         "enabled and clean",
     ):
         assert state in out
+
+
+def test_the_blob_names_the_skills_and_describes_none_of_them() -> None:
+    """The blob carries the skill *names*; what each one is for is data in
+    ``skills_catalog.SKILL_SUMMARIES``, rendered into the ``read_skill`` tool
+    description. OPIK-8400 first put one skill's routing prose in the template
+    here, which hardcoded for ``opik-compare`` what is a table entry for the
+    other eight and spent every session's context on a duplicate.
+
+    So: every bundled skill is named, and no skill's task phrasings are
+    written into the template. A new skill needs no edit to this module.
+    """
+    out = render_instructions(_settings())
+    bullet = out.split("- read_skill")[1]
+    for name in skill_names():
+        assert name in bullet, f"{name} is bundled but the blob does not name it"
+    # Scoped to the read_skill bullet, not the whole blob: the read/list bullet
+    # routes "what is broken in production" to list('agent_insights_issue', …),
+    # which is a route to a TOOL on this connection and belongs there. It only
+    # happens to read like opik-diagnose's phrasing. The rule being pinned is
+    # narrower — the bullet that introduces the skills does not describe them.
+    for phrasing in SKILL_SUMMARIES.values():
+        for quoted in re.findall(r'"([^"]+)"', phrasing):
+            assert quoted not in bullet, (
+                f"{quoted!r} is a task phrasing from SKILL_SUMMARIES and belongs "
+                "in the catalog, not in the instructions template"
+            )
+
+
+def test_a_quality_drop_question_routes_to_the_compare_skill() -> None:
+    """The route OPIK-8400 owes, asserted where it actually lives.
+
+    Without it an agent asked "why did quality drop" reaches for
+    ``list('experiment')``, reads two aggregate means and answers without ever
+    naming a case — the failure ``opik-compare`` was built to prevent. The
+    ``read_skill`` tool description is on the surface of every session, so
+    that is the routing surface; the blob only has to name the skill.
+    """
+    assert "opik-compare" in skill_names(), "the route cannot point at a skill we do not ship"
+    catalog = read_skill_tool_description()
+    summary = SKILL_SUMMARIES["opik-compare"]
+    for question in (
+        "why did quality drop",
+        "which cases regressed",
+        "compare these two experiments",
+        "did my fix work",
+    ):
+        assert question in summary, f"{question!r} is not routed by the catalog"
+        assert question in catalog, f"{question!r} never reaches the advertised description"
+    # And it is named in the session blob, so a host that injects instructions
+    # knows the skill exists before it ever expands a tool schema.
+    assert "opik-compare" in render_instructions(_settings())
