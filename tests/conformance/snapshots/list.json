@@ -63,6 +63,23 @@
       "description": "dataset_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the dataset itself; sort and search apply to the runs, and so do filters (without it they apply to the cases).",
       "title": "Experiment Ids"
     },
+    "fields": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Return only these columns, uncut: any name from the page's 'fields:' line ('data.question', 'feedback_scores.helpfulness', 'usage.total_tokens'). Each row keeps the id that opens the next level. An unknown name is refused with the valid ones. Omit for the table's own columns.",
+      "title": "Fields"
+    },
     "filters": {
       "anyOf": [
         {

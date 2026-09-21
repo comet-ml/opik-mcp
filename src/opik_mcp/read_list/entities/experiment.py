@@ -287,6 +287,10 @@ HANDLER = EntityHandler(
     # nothing and cost a read per row.
     list_row_fn=derive_columns,
     list_projection_fn=project_experiments,
+    # The next level down from an experiment row is the prompt it ran, so a
+    # projected row keeps its version whether or not it was asked for. Blank
+    # for a run that linked no prompt, and then it is not added at all.
+    list_identity_fields=("prompt_version",),
     page_note_fn=page_note,
     # The refusal has to end the caller's problem, not restate it. The
     # backend orders experiments by id descending and the ids are time

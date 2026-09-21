@@ -156,6 +156,20 @@ class EntityHandler:
     Returns a new mapping; the page the backend sent is left alone for
     everything else that reads it.
     """
+    list_identity_fields: tuple[str, ...] = ()
+    """Columns a projected row keeps beyond its id, even unasked for.
+
+    A projection is the caller narrowing the answer, and the one thing they
+    must not be able to narrow away is the handle that opens the next level:
+    a case's trace, a span's id, the prompt version an experiment ran. Without
+    it a row is a fact with no way back to the record behind it, which is the
+    shape of answer this server exists not to give.
+
+    Named per entity because only the entity knows which of its columns is
+    that handle. A column no row on the page fills is not added — an empty
+    column is a field the records lack, and inventing one would undo the point
+    of :mod:`opik_mcp.read_list.projection`'s naming rule.
+    """
     list_vocabulary: str | None = None
     """The OQL and sort vocabulary the collection path validates against, when
     it is not the entity's own name.

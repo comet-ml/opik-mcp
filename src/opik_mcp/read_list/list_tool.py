@@ -9,6 +9,12 @@ user-shaped ``data`` map) chooses its columns from the page instead, through
 the registry's ``list_projection_fn``. Whatever the table cuts — a long value,
 a column it had no room for — it says so under the rows.
 
+Every page also names the fields its records carry, and ``fields=[…]`` takes
+any of them: the columns are then the caller's, in their order, uncut, with the
+id that opens the next level kept whether or not it was asked for. See
+``projection``, which owns the three rules that keep that from becoming a
+silent cut.
+
 Project-scoped lists (``trace``, ``span``, ``thread``, ``agent_insights_issue``,
 ``dataset_item``, ``prompt_version``) require their parent id via
 ``project_id`` / ``dataset_id`` / ``prompt_id`` — enforced via the
@@ -54,7 +60,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
     client_for_call,
 )
-from opik_mcp.read_list.columns import one_line
+from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
@@ -78,6 +84,15 @@ from opik_mcp.read_list.project_scope import (
     project_rows,
     unknown_project_message,
 )
+from opik_mcp.read_list.projection import check as check_fields
+from opik_mcp.read_list.projection import (
+    covers,
+    fields_line,
+    leaves,
+    marker,
+    normalise,
+    row_fields,
+)
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
@@ -95,6 +110,11 @@ from opik_mcp.read_list.window import (
 logger = logging.getLogger("opik_mcp.read_list.list")
 
 _TRUNCATE_AT = 60
+#: The cell cap for a projected page: none. Written as a number rather than as
+#: ``None`` so the one comparison in the renderer stays a comparison — a field
+#: the caller named is returned whole, and a page of them is as long as the
+#: caller asked for, the same bargain ``read`` makes (see ``size.py``).
+_UNCUT = 10**9
 
 #: What the last ``list`` call learned about its own page, for the analytics
 #: props the tool wrapper attaches after the call returns. A ContextVar and
@@ -200,6 +220,7 @@ async def run_list(
     since: str | None = None,
     until: str | None = None,
     search: str | None = None,
+    fields: list[str] | None = None,
     page: int = 1,
     size: int = DEFAULT_PAGE_SIZE,
     project_id: str | None = None,
@@ -226,6 +247,7 @@ async def run_list(
         "since": since,
         "until": until,
         "search": search,
+        "fields": fields,
         "project_id": project_id,
         "project_name": project_name,
         "dataset_id": dataset_id,
@@ -443,6 +465,12 @@ async def run_list(
                 sort_field = None
             applied.insert(sort_slot, sort_label)
 
+        wanted = normalise(fields)
+        if wanted is not None:
+            # Echoed with the filters and the sort because it is the same kind
+            # of fact: something the caller asked for that the page in front of
+            # them does not otherwise state.
+            applied.append(f"fields: {', '.join(wanted)}")
         header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
         # What the page knows about itself, for an entity whose registry entry
         # has something to add. ``windowed``: Diagnostics issues take a
@@ -485,10 +513,28 @@ async def run_list(
             )
             return f"{header}\n{empty}" if header else empty
 
-        extra = _requested_columns(sort_field, clauses)
-        table = _format_table(
-            entity_type, handler, content, total, page, size, name, extra, _pinned_columns(clauses)
-        )
+        # A caller who named their columns did not ask for the sort and filter
+        # fields to be appended to them; ``fields`` is the whole answer to
+        # "which columns", so the request's own columns stand down.
+        extra = _requested_columns(sort_field, clauses) if wanted is None else []
+        try:
+            table = _format_table(
+                entity_type,
+                handler,
+                content,
+                total,
+                page,
+                size,
+                name,
+                extra,
+                _pinned_columns(clauses) if wanted is None else frozenset(),
+                fields=wanted,
+            )
+        except EntityArgValidationError as err:
+            # The only thing the table can refuse is a ``fields`` entry, and it
+            # can only refuse it here: which names are valid is a fact about
+            # the page, so the check cannot run before the page exists.
+            raise ToolError(str(err)) from err
         if handler.page_note_fn is not None:
             note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
             if note is not None:
@@ -713,6 +759,34 @@ def _pinned_columns(clauses: list[dict[str, str]]) -> frozenset[str]:
     return frozenset(_column_of(c) for c in clauses if _pinned(c))
 
 
+def _projected_columns(
+    handler: EntityHandler,
+    content: list[dict[str, Any]],
+    fields: tuple[str, ...],
+) -> tuple[str, ...]:
+    """The columns of a projected page: the id, the named fields, the handle.
+
+    The id leads because a row nobody can address again is a dead end, and the
+    entity's ``list_identity_fields`` follow for the same reason one level
+    down — an experiment's prompt version, say. Neither is added when no row
+    on the page fills it: an empty column is a field the records lack, which
+    is exactly the mistake the naming rule exists to prevent.
+
+    An entity the backend addresses by name alone (``score_name``) leads with
+    the name instead. It is not a second-best id, it is the id: a page of
+    counts with nothing saying what was counted is the dead end this rule is
+    about, in the one place where dropping ``id`` would have caused it.
+    """
+    handle = "id" if handler.list_has_id else ("name" if handler.list_has_name else None)
+    lead = (handle,) if handle and any(has_value(row, handle) for row in content) else ()
+    columns = [*lead]
+    columns += [f for f in fields if f not in columns]
+    for extra in handler.list_identity_fields:
+        if extra not in columns and any(has_value(row, extra) for row in content):
+            columns.append(extra)
+    return tuple(columns)
+
+
 def _format_table(
     entity_type: str,
     handler: EntityHandler,
@@ -723,6 +797,8 @@ def _format_table(
     name: str | None,
     extra_columns: list[str] | None = None,
     pinned: frozenset[str] = frozenset(),
+    *,
+    fields: tuple[str, ...] | None = None,
 ) -> str:
     """Pipe-delimited table — mirrors ollie's ``_format_table``.
 
@@ -732,6 +808,13 @@ def _format_table(
     fields a clause fixed to one value; a column of those reads the same on
     every row and the header above already states it, so it is dropped
     whichever way it got in — requested, or chosen by the entity from the page.
+
+    ``fields`` replaces all of that. When the caller named their columns, the
+    entity's choice, the request's own columns and the pinning rule are all
+    answers to a question nobody asked any more: the columns are the named
+    fields, in the order they were named, plus the ids that open the next
+    level. The cell cut goes with them — "returns exactly those fields" is
+    not a 60-character prefix of them.
     """
     base = tuple(
         column
@@ -743,20 +826,39 @@ def _format_table(
     # renderer resolves them like any other key.
     if handler.list_row_fn is not None:
         content = [handler.list_row_fn(item) for item in content]
-    projection = (
-        handler.list_projection_fn(content) if handler.list_projection_fn is not None else None
-    )
-    chosen = projection.columns if projection is not None else handler.list_extra_fields
-    cell_limit = projection.cell_limit if projection is not None else _TRUNCATE_AT
-    columns: tuple[str, ...] = (*base, *chosen)
-    for col in extra_columns or ():
-        # ``feedback_scores.accuracy`` beside a ``feedback_scores`` column that
-        # already renders every score as ``name=value`` is the same number
-        # twice, and reads like a second metric. The summary column wins.
-        if col not in columns and col.partition(".")[0] not in columns:
-            columns = (*columns, col)
-    dropped = tuple(c for c in columns if c not in base and c in pinned)
-    columns = tuple(c for c in columns if c not in dropped)
+    available = row_fields(content)
+    if "error_type" not in available and any(
+        _cell(row, "error_type") is not None for row in content
+    ):
+        # The one column the renderer derives rather than reads, out of the
+        # error container. A table that shows a column the caller cannot then
+        # name would be the naming rule failing on our own field, which is
+        # exactly the guess the rule exists to spare them.
+        available = tuple(sorted((*available, "error_type")))
+    projection = None
+    dropped: tuple[str, ...] = ()
+    columns: tuple[str, ...]
+    if fields is not None:
+        check_fields(fields, available, whole=f"list({entity_type!r}, …)")
+        columns = _projected_columns(handler, content, fields)
+        # No cut: the caller named these fields to read them, and a value cut
+        # to sixty characters is not the field, it is a prefix of it.
+        cell_limit = _UNCUT
+    else:
+        projection = (
+            handler.list_projection_fn(content) if handler.list_projection_fn is not None else None
+        )
+        chosen = projection.columns if projection is not None else handler.list_extra_fields
+        cell_limit = projection.cell_limit if projection is not None else _TRUNCATE_AT
+        columns = (*base, *chosen)
+        for col in extra_columns or ():
+            # ``feedback_scores.accuracy`` beside a ``feedback_scores`` column
+            # that already renders every score as ``name=value`` is the same
+            # number twice, and reads like a second metric. The summary wins.
+            if col not in columns and col.partition(".")[0] not in columns:
+                columns = (*columns, col)
+        dropped = tuple(c for c in columns if c not in base and c in pinned)
+        columns = tuple(c for c in columns if c not in dropped)
     count = len(content)
     if name:
         header = (
@@ -788,6 +890,24 @@ def _format_table(
     # the row would otherwise read as the whole value, and a column the page
     # had no room for would read as a key the items never had.
     notes: list[str] = []
+    if fields is not None:
+        # One line does both jobs the page owes the caller: it says the answer
+        # was projected (spec D3) and, by naming the rest, it says what could
+        # have been asked for instead — which is the ``fields:`` line an
+        # unprojected page carries, spent on the half that is still news.
+        notes.append(
+            marker(
+                kept=columns,
+                # ``covers``, not ``not in``: a caller who named
+                # ``feedback_scores`` gets every score in that cell, and
+                # listing feedback_scores.helpfulness as omitted beside the
+                # cell rendering it is the marker contradicting the table.
+                omitted=tuple(
+                    c for c in leaves(available) if not any(covers(col, c) for col in columns)
+                ),
+                whole="Drop fields= for the row as the table chooses it.",
+            )
+        )
     if projection is not None and projection.note:
         notes.append(projection.note)
     if dropped:
@@ -804,6 +924,14 @@ def _format_table(
     if notes:
         lines.append("")
         lines.extend(notes)
+    if fields is None and (offer := fields_line(available)) is not None:
+        # Every page names the fields its records carry, so the caller picks
+        # from a list instead of guessing a path and getting a blank column.
+        # Under the table's own notes: those say what happened to this answer,
+        # and this says what a different one could be.
+        if not notes:
+            lines.append("")
+        lines.append(offer)
     if page * size < total:
         lines.append("")
         lines.append(f"Use page={page + 1} for next {size} results.")

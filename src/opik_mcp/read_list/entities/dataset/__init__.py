@@ -61,6 +61,12 @@ ITEM_HANDLER = EntityHandler(
     list_projection_fn=project_items,
     list_required_kwargs=("dataset_id",),
     list_vocabulary="dataset_item_case",
+    # "case to trace" is the first hop the ``fields`` ticket names: a case
+    # built from a traced run carries the trace it came from, and a projected
+    # row without it is a question and an answer with no way back to the call
+    # that produced them. Only on rows that have one — a hand-authored case
+    # has no trace, and an empty column there would read as a lost link.
+    list_identity_fields=("trace_id",),
     list_has_name=False,
     id_only=True,
     run_fn=run_compare,

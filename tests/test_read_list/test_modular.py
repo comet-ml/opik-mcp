@@ -50,6 +50,11 @@ SHARED: frozenset[str] = frozenset(
         "paging",
         "project_names",
         "project_scope",
+        # ``fields=[…]``: naming what a record carries, refusing what it does
+        # not, and saying that an answer was cut. Both tools and the
+        # comparison's own table apply the same three rules, and a projection
+        # each of them wrote for itself would be three ways to cut silently.
+        "projection",
         "read_tool",
         "reference",
         "registry",

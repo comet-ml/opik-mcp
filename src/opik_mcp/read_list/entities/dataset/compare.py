@@ -44,6 +44,7 @@ from opik_mcp.read_list.entities.dataset.layout import (
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
 from opik_mcp.read_list.paging import clamp_size
+from opik_mcp.read_list.projection import normalise
 from opik_mcp.read_list.sample import is_thin
 from opik_mcp.read_list.sorting import compile_sort
 
@@ -80,12 +81,16 @@ async def run_compare(
     search: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    fields: list[str] | None = None,
     page: int | None = None,
     size: int | None = None,
     **_collection_args: Any,
 ) -> str:
     """The comparison, end to end: validate, resolve, ask, render."""
     ids = _validated_ids(experiment_ids)
+    # Which names are valid is a fact about the page, so ``fields`` is checked
+    # by the renderer once the rows are in hand — here it is only normalised.
+    wanted = normalise(fields)
     _refuse_window(since, until)
     # A runner is handed ``None`` for a page argument the caller did not
     # choose (see ``list_tool._run_whole``), so the defaults are applied here.
@@ -165,6 +170,10 @@ async def run_compare(
         applied.append(sort_label)
     if search:
         applied.append(f'search: "{search}"')
+    if wanted is not None:
+        # Echoed beside the filters for the same reason they are: the header
+        # is where a caller checks what their arguments did to the page.
+        applied.append(f"fields: {', '.join(wanted)}")
     header = f"[list: {_ENTITY} | {' | '.join(applied)}]"
 
     # Warnings first: whether the table can be read at face value is decided
@@ -178,8 +187,14 @@ async def run_compare(
             "experiments that did not match were fetched back onto the row, so what you see "
             "is the whole case."
         )
-    keys_line = _keys_note(
-        column_results[0] if column_results else None, rows, hide_echo=assertion_columns
+    keys_line = (
+        _keys_note(column_results[0] if column_results else None, rows, hide_echo=assertion_columns)
+        if wanted is None
+        # The projection marker already accounts for every field of the row,
+        # and the keys note answers the same question one call earlier. Saying
+        # it twice on a page the caller asked to be narrow is the one place a
+        # note is worse than no note.
+        else None
     )
     if keys_line is not None:
         notes.append(keys_line)
@@ -216,6 +231,7 @@ async def run_compare(
         assertion_columns=assertion_columns,
         kinds=kinds,
         figures=figure_lines,
+        fields=wanted,
     )
 
 
