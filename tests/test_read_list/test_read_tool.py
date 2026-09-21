@@ -20,6 +20,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list import decorations, read_tool
+from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.paging import continuation, short_list
 from opik_mcp.read_list.read_tool import run_read
@@ -2210,7 +2211,7 @@ async def test_the_dropped_bodies_are_counted_and_one_call_away() -> None:
     )
     out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
     note = out["spanBodies"]
-    assert "inline budget" in note and "25,000" in note
+    assert "inline budget" in note and f"{SPANS_INLINE_CHARS:,}" in note
     assert "read('span', id)" in note, "and how to get one back whole"
 
 

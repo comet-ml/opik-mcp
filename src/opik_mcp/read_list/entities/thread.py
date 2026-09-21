@@ -37,7 +37,7 @@ MESSAGES_INLINE_LIMIT = 200
 #: same measurement. A thread is the shape more likely to reach it: two
 #: hundred turns of a long conversation, each carrying a whole prompt and a
 #: whole answer, is the payload the count cap alone never bounded.
-MESSAGES_INLINE_CHARS = 25_000
+MESSAGES_INLINE_CHARS = 14_000
 
 #: ``as_messages`` projects a trace down to input and output, so those are
 #: the only cut fields a caller can see on a turn.
@@ -112,9 +112,10 @@ async def fetch(
         }
     traces = page_items(traces_page)
     truncated = collection_truncated(traces_page, inlined=len(traces), limit=MESSAGES_INLINE_LIMIT)
-    messages, dropped = drop_bodies_past(
-        as_messages(traces), MESSAGES_INLINE_CHARS, SLIM_TURN_FIELDS
-    )
+    turns = as_messages(traces)
+    # Counted before the budget spends anything — see the trace read for why.
+    cut = count_cut(turns, SLIM_TURN_FIELDS)
+    messages, dropped = drop_bodies_past(turns, MESSAGES_INLINE_CHARS, SLIM_TURN_FIELDS)
     result: dict[str, Any] = {
         "thread": thread,
         "messages": messages,
@@ -133,7 +134,7 @@ async def fetch(
         )
     if messages:
         notice = slim_notice(
-            cut=count_cut(messages, SLIM_TURN_FIELDS),
+            cut=cut,
             total=len(messages),
             noun="turn",
             whole="read('trace', trace_id)",

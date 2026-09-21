@@ -33,9 +33,24 @@ def compact_json(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
+#: Characters per token, for the header's estimate. Four is the figure for
+#: prose and it is wrong for what this module actually measures: a read's
+#: payload is JSON, where every brace, quote, colon and UUID segment is its
+#: own token. Measured against a host counting for real, a 25,422-character
+#: trace was over 10,000 tokens — about 2.5 characters each, not 4.
+#:
+#: The difference is not cosmetic. The header exists so a large answer is
+#: visible as a large answer; understating it by 60% is the same failure as
+#: not stating it, and it was the number a span budget was calibrated
+#: against, so one wrong estimate produced two wrong sizes. Erring high is
+#: the safe direction: a caller who budgets for more than arrives has lost
+#: nothing.
+_CHARS_PER_TOKEN = 2.5
+
+
 def estimate_tokens(text: str) -> int:
-    """Rough estimate: ~4 characters per token, for the header only."""
-    return len(text) // 4
+    """Rough estimate for the header only — see :data:`_CHARS_PER_TOKEN`."""
+    return int(len(text) / _CHARS_PER_TOKEN)
 
 
 def size_header(entity_type: str, entity_id: str, tokens: int, *, projected: bool = False) -> str:

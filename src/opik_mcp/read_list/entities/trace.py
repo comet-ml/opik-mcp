@@ -38,16 +38,27 @@ SPANS_INLINE_LIMIT = 200
 #: header's own estimate — and the client refused the whole answer, so the
 #: caller saw an error where the trace should have been.
 #:
-#: 25,000 keeps an ordinary trace read near 7,000 tokens, inside the tightest
-#: host budget seen in use and far inside the common default. A constant
-#: rather than a setting because a fetcher sees a client, not ``Settings`` —
-#: and because the number that matters is the host's, which this process
-#: cannot read either way.
+#: 14,000 keeps an ordinary trace read near 7,000 tokens, inside the tightest
+#: host budget seen in use and far inside the common default. The first number
+#: tried was 25,000, chosen against the header's own estimate of four
+#: characters per token — which is prose's ratio, not JSON's, so the budget
+#: was calibrated at nearly twice the size it meant to allow and the read it
+#: was written for was still refused. See ``size._CHARS_PER_TOKEN``.
+#:
+#: A constant rather than a setting because a fetcher sees a client, not
+#: ``Settings`` — and because the number that matters is the host's, which
+#: this process cannot read either way.
+#:
+#: One span can still exceed this on its own: the backend cuts each field at
+#: 10,001 characters and a span has three, so a single maximally-cut span is
+#: the floor this cannot go under without answering a trace with no bodies at
+#: all. ``fields=[…]`` is the caller's remedy there, and the only one that
+#: can be, since what to keep is their question and not ours.
 #:
 #: What the budget spends is bodies, not spans: see
 #: :func:`opik_mcp.read_list.slim.drop_bodies_past` for why the tree survives
 #: a cut that its payloads do not.
-SPANS_INLINE_CHARS = 25_000
+SPANS_INLINE_CHARS = 14_000
 
 #: The span fields ``truncate=true`` acts on, in the order the backend cuts
 #: them. Used to count what actually lost bytes, not to cut anything here.
@@ -80,7 +91,13 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
         )
     except Exception:
         return {"trace": trace, "spans": [], "spansTruncated": False}
-    spans, dropped = drop_bodies_past(page_items(spans_page), SPANS_INLINE_CHARS, SLIM_SPAN_FIELDS)
+    fetched = page_items(spans_page)
+    # What the backend cut is a fact about the fetch, so it is counted before
+    # the inline budget spends anything: a body this read drops is one the
+    # caller never sees the length of, and counting it as uncut would report
+    # fewer cut spans the larger the trace got.
+    cut = count_cut(fetched, SLIM_SPAN_FIELDS)
+    spans, dropped = drop_bodies_past(fetched, SPANS_INLINE_CHARS, SLIM_SPAN_FIELDS)
     truncated = collection_truncated(spans_page, inlined=len(spans), limit=SPANS_INLINE_LIMIT)
     result: dict[str, Any] = {"trace": trace, "spans": spans, "spansTruncated": truncated}
     if truncated:
@@ -97,7 +114,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
         )
     if spans:
         notice = slim_notice(
-            cut=count_cut(spans, SLIM_SPAN_FIELDS),
+            cut=cut,
             total=len(spans),
             noun="span",
             whole="read('span', id)",

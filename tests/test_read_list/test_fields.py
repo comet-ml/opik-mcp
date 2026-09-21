@@ -195,7 +195,11 @@ async def test_read_returns_only_the_named_fields_under_the_ceiling() -> None:
         "trace", TRACE, fields=["trace.feedback_scores", "trace.name"], client=fake
     )
 
-    assert len(whole) > 30_000
+    # Orders larger rather than a number of its own: what a whole read costs
+    # is the span budget's to decide (see ``trace.SPANS_INLINE_CHARS``), and
+    # this test is about the distance between the two answers, not the size of
+    # either one.
+    assert len(whole) > 20 * READ_CEILING_BYTES
     assert len(projected) < READ_CEILING_BYTES, projected
     payload = json.loads(projected.splitlines()[-1])
     assert set(payload) == {"trace"}
