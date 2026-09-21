@@ -61,6 +61,21 @@ from opik_mcp.server import mcp
 #           read, list, write and schema, with `dataset.create` gaining `type`
 #           so both kinds can be made. -97 bytes: the shorter name paid for the
 #           new field. The old names still resolve as unadvertised aliases.
+#   21,361  measured at the head of OPIK-8399, before it. Nothing in this table
+#           accounts for the 688 bytes between this and the line above it:
+#           OPIK-8396 grew `list` and `read` without noting it, the same way
+#           `write` did before the guard existed. Recorded so the next raise
+#           does not read someone else's spend as its own.
+#   22,300  OPIK-8399 — `fields` on `read` and `list`. +939 bytes, of which
+#           551 are the two argument descriptions, ~290 the array schema
+#           Pydantic emits for each, and 102 a correction: `read`'s own
+#           description said the record it returns is never truncated, which
+#           this ticket makes conditional. This is the argument that makes one
+#           field of one record askable at all — the ticket's measurement is a
+#           trace read costing 8,000-10,000 tokens when one span's output was
+#           wanted, against 33 tokens for the same question asked with
+#           `fields`. A surface that buys itself back on its first use is the
+#           spend this budget exists to permit.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the

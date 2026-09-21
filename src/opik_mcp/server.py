@@ -103,6 +103,11 @@ def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     return {
         "entity_type": kwargs.get("entity_type", ""),
         "id_kind": id_kind,
+        # How many fields, never which: a path is ``data.<key>`` or
+        # ``metadata.<key>``, which is the user's vocabulary and not ours to
+        # put on an event. The count answers the question the feature will be
+        # judged on — whether agents ask for one field or for most of them.
+        "field_count": str(len(kwargs.get("fields") or [])),
     }
 
 
@@ -134,6 +139,9 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "sort_field": sort_field_label(sort),
         "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),
         "has_search": str(bool(kwargs.get("search"))).lower(),
+        # Count only — a column name here is a dataset's data key or a score
+        # name, which is user vocabulary. See ``_read_props``.
+        "field_count": str(len(kwargs.get("fields") or [])),
     }
 
 
@@ -195,6 +203,24 @@ mcp = FastMCP("opik-mcp", instructions=render_instructions())
 
 
 # --- read / list (ADR 0004 D1) ------------------------------------------ #
+
+# OPIK-8399. Both descriptions are load-bearing and both are counted against
+# the tool-surface budget, so each says the three things an agent cannot infer
+# — where the names come from, that arrays are whole, and that the answer will
+# say it was projected — and nothing else. Named constants rather than inline
+# strings so a test can weigh them.
+FIELDS_READ_DESCRIPTION = (
+    "Return only these paths of the record, uncut: dotted into nested objects "
+    "('trace.output'), arrays whole ('spans'). The record's id is always kept; "
+    "an unknown path is refused with the valid ones. The answer says it was "
+    "projected and what it omitted. Omit for the whole record."
+)
+FIELDS_LIST_DESCRIPTION = (
+    "Return only these columns, uncut: any name from the page's 'fields:' line "
+    "('data.question', 'feedback_scores.helpfulness', 'usage.total_tokens'). "
+    "Each row keeps the id that opens the next level. An unknown name is "
+    "refused with the valid ones. Omit for the table's own columns."
+)
 
 
 @mcp.tool()
@@ -258,6 +284,10 @@ async def read(
         str | None,
         Field(description="End of the window, same forms as since.", max_length=40),
     ] = None,
+    fields: Annotated[
+        list[str] | None,
+        Field(description=FIELDS_READ_DESCRIPTION, max_length=50),
+    ] = None,
     ctx: Context[ServerSession, None] | None = None,
 ) -> str:
     """Read any Opik entity by ID, name, or opik:// URI.
@@ -296,8 +326,9 @@ async def read(
     Output is a one-line `[read: …]` header (entity_type, id, size in
     tokens) followed by the record as compact JSON. The record you asked for
     is never truncated: a large answer is large, and narrowing is done by
-    asking a narrower question — a span rather than its trace, a filtered
-    `list` rather than a composite read.
+    asking a narrower question — `fields` to name the paths you want back, a
+    span rather than its trace, a filtered `list` rather than a composite
+    read. A `fields` answer says in its header that it was projected.
 
     The children a composite read inlines are the exception. Their bodies come
     back slim: a field over ~10 KB is cut and base64 images are replaced with
@@ -315,6 +346,7 @@ async def read(
         project_name=project_name,
         since=since,
         until=until,
+        fields=fields,
     )
 
 
@@ -394,6 +426,10 @@ async def list_entities(
             ),
             max_length=500,
         ),
+    ] = None,
+    fields: Annotated[
+        list[str] | None,
+        Field(description=FIELDS_LIST_DESCRIPTION, max_length=50),
     ] = None,
     page: Annotated[
         int,
@@ -537,6 +573,7 @@ async def list_entities(
         since=since,
         until=until,
         search=search,
+        fields=fields,
         page=page,
         size=size,
         project_id=project_id,

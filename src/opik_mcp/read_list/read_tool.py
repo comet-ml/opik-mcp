@@ -3,11 +3,13 @@
 Ported from ollie-assist's ``tools/read/tool.py``, adapted to opik-mcp's
 ``OpikClient`` instead of the Opik SDK. The agent-facing contract is:
 
-    read(entity_type, id) -> str
+    read(entity_type, id, fields=None) -> str
 
 The returned string is a one-line ``[read: …]`` header followed by the
 record as JSON, whole (see ``size`` for why nothing is cut here, and ``slim``
-for the one cut the backend applies to inlined children). Errors come back as
+for the one cut the backend applies to inlined children). With ``fields`` it
+is the paths the caller named, plus the record's id, under a header and a line
+that both say it was projected — see ``projection``. Errors come back as
 ``ToolError`` with status-specific guidance, the same shape as ollie so the
 LLM's error-recovery prompting is portable.
 """
@@ -33,6 +35,7 @@ from opik_mcp.opik_client import (
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
+from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
@@ -109,6 +112,7 @@ async def run_read(
     project_name: str | None = None,
     since: str | None = None,
     until: str | None = None,
+    fields: list[str] | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
     **entity_kwargs: Any,
@@ -217,9 +221,31 @@ async def run_read(
         for private_key in [key for key in data if key.startswith("_")]:
             del data[private_key]
 
-        payload = compact_json(data)
-        header = size_header(entity_type, id, estimate_tokens(payload))
-        return f"{header}\n{payload}"
+        wanted = normalise(fields)
+        if wanted is None:
+            payload = compact_json(data)
+            header = size_header(entity_type, id, estimate_tokens(payload))
+            return f"{header}\n{payload}"
+
+        # Projection is the last thing that happens to the record, after the
+        # links are attached and the private keys are gone: the caller names
+        # what they see, not what the fetcher happened to hand over.
+        whole = f"read({entity_type!r}, {id!r})"
+        try:
+            projected, kept, omitted = project_record(data, wanted, whole=whole)
+        except FieldsError as e:
+            # Which paths are valid is a fact about the record, so this is the
+            # earliest the refusal can be written — and it is written with the
+            # record's own paths in it, which is what makes the retry one call.
+            raise ToolError(str(e)) from e
+        payload = compact_json(projected)
+        header = size_header(entity_type, id, estimate_tokens(payload), projected=True)
+        note = marker(
+            kept=kept,
+            omitted=omitted,
+            whole=f"{whole} without fields returns the record whole.",
+        )
+        return f"{header}\n{note}\n{payload}"
 
 
 async def _fetch_with_name_lookup(

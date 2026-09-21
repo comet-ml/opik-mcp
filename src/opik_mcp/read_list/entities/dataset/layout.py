@@ -19,6 +19,8 @@ from typing import Any
 
 from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.entities.dataset.items import cell_limit, data_columns
+from opik_mcp.read_list.projection import check as check_fields
+from opik_mcp.read_list.projection import fields_line, marker
 
 #: Case columns in comparison mode. The plain listing shows up to eight; here
 #: the caller came for the runs, and two keys are enough to recognise a case.
@@ -37,6 +39,23 @@ UNSCORED = "unscored"
 #: something anyone should have to parse.
 RUN_SEPARATOR = " / "
 PASS_SEPARATOR = "·"
+#: The prefix a projected caller names a run's score by. The column heading is
+#: the bare score name, because the cell holds one value per experiment and
+#: there is no other kind of score on the row — but ``feedback_scores.<name>``
+#: is what the field is called everywhere else in these tools (in ``filters``,
+#: in ``sort``, on a plain list row), and an argument that took a different
+#: spelling per entity would be an argument the agent has to look up.
+SCORE_PREFIX = "feedback_scores."
+#: Columns of a comparison row that are neither a case key nor a score.
+_ROW_COLUMNS = ("id", "worst_trace")
+_ASSERTION_COLUMNS = ("passed", "reason")
+#: The handle a projected comparison row keeps whichever fields were named:
+#: the case's worst run is the trace the next call opens, and a row of scores
+#: with no trace behind it is a number nobody can go and check.
+_HANDLE = "worst_trace"
+#: "every one of them" as a limit, for the two rankings that are asked for
+#: the whole list rather than for the few that fit a table.
+_NO_LIMIT = 10**6
 
 
 @dataclass(frozen=True)
@@ -195,15 +214,22 @@ def score_value(runs: list[dict[str, Any]], name: str) -> float | None:
     return _mean([s[name] for run in runs if (s := scores_of(run)) and name in s])
 
 
-def score_columns(rows: list[dict[str, Any]]) -> tuple[list[str], list[str]]:
-    """The score names on the page, most filled first: (shown, omitted)."""
+def score_columns(
+    rows: list[dict[str, Any]], limit: int = MAX_SCORE_COLUMNS
+) -> tuple[list[str], list[str]]:
+    """The score names on the page, most filled first: (shown, omitted).
+
+    ``limit`` is the table's width; a projected page passes the page's own
+    length instead, because there the question is not which scores fit but
+    which scores exist to be named.
+    """
     filled: Counter[str] = Counter()
     for row in rows:
         names = {name for run in _all_runs(row) for name in scores_of(run)}
         for name in names:
             filled[name] += 1
     ranked = sorted(filled, key=lambda name: (-filled[name], name))
-    return ranked[:MAX_SCORE_COLUMNS], ranked[MAX_SCORE_COLUMNS:]
+    return ranked[:limit], ranked[limit:]
 
 
 def _all_runs(row: dict[str, Any]) -> list[dict[str, Any]]:
@@ -417,6 +443,50 @@ def _total(run: dict[str, Any]) -> float:
     return sum(scores_of(run).values())
 
 
+def compare_fields(
+    rows: list[dict[str, Any]], *, assertions: bool
+) -> tuple[tuple[str, ...], list[str]]:
+    """What a comparison page's rows carry: ``(names, score names)``.
+
+    Spelled the way the rest of the tools spell them — ``data.<key>`` for the
+    case, ``feedback_scores.<name>`` for a run's score — so the caller who
+    filtered on a field can project on the same name.
+    """
+    keys, _ = data_columns(rows, _NO_LIMIT)
+    scores, _ = score_columns(rows, _NO_LIMIT)
+    names = [
+        *_ROW_COLUMNS,
+        *(f"data.{key}" for key in keys),
+        *(f"{SCORE_PREFIX}{name}" for name in scores),
+        *(_ASSERTION_COLUMNS if assertions else ()),
+    ]
+    return tuple(sorted(names)), scores
+
+
+def _column_for(field: str) -> str:
+    """The table column a field name asks for.
+
+    ``feedback_scores.helpfulness`` is the ``helpfulness`` column — one column
+    per score with the experiments sharing its cell, which is the whole shape
+    of this table and not something a projection should reorganise. Everything
+    else is its own name.
+    """
+    return field.removeprefix(SCORE_PREFIX) if field.startswith(SCORE_PREFIX) else field
+
+
+def _named_columns(fields: tuple[str, ...], scores: list[str]) -> tuple[list[str], list[str]]:
+    """The caller's fields as table columns, in the order they named them,
+    with the handle that opens the case on the end whatever they named."""
+    columns = ["id"]
+    for field in fields:
+        column = _column_for(field)
+        if column not in columns:
+            columns.append(column)
+    if _HANDLE not in columns:
+        columns.append(_HANDLE)
+    return columns, [c for c in columns if c in scores]
+
+
 def render(
     rows: list[dict[str, Any]],
     experiments: list[Experiment],
@@ -429,6 +499,7 @@ def render(
     assertion_columns: bool = False,
     kinds: ScoreKinds = NO_KINDS,
     figures: list[str] | None = None,
+    fields: tuple[str, ...] | None = None,
 ) -> str:
     """The page, as the agent reads it.
 
@@ -436,17 +507,32 @@ def render(
     the rows, then everything the table did to the data said under the data.
     The same layout serves plain ``evaluate()`` experiments and test-suite
     runs; only the two assertion columns depend on which it is.
+
+    ``fields`` is the caller naming the columns instead. It is where the
+    comparison earns the most: the widths this table spends its budget
+    rationing — two case keys of eight, four scores of however many, a reason
+    long enough to read — are all rationing against each other, and a caller
+    who wants one question and one score does not need any of it.
     """
-    data_keys, omitted_keys = data_columns(rows, MAX_DATA_COLUMNS)
-    scores, omitted_scores = score_columns(rows)
-    columns = ["id", *(f"data.{key}" for key in data_keys), *scores]
-    # Every comparison names the run worth opening next. ``passed`` and
-    # ``reason`` come from assertions, which only a test suite records:
-    # opik-backend's ``run_passed`` subquery (ExperimentDAO) inner-joins on
-    # ``evaluation_method = 'evaluation_suite'``, so for a plain dataset the
-    # backend cannot fill them and the columns would be dashes read as loss.
-    columns += ["passed", "worst_trace", "reason"] if assertion_columns else ["worst_trace"]
-    limit = cell_limit(len(rows), len(columns))
+    available, all_scores = compare_fields(rows, assertions=assertion_columns)
+    omitted_keys: list[str] = []
+    omitted_scores: list[str] = []
+    if fields is not None:
+        check_fields(fields, available, whole="list('dataset_item', experiment_ids=[…])")
+        columns, scores = _named_columns(fields, all_scores)
+        # Uncut, like every projection: the caller named the column to read it.
+        limit = _NO_LIMIT
+    else:
+        data_keys, omitted_keys = data_columns(rows, MAX_DATA_COLUMNS)
+        scores, omitted_scores = score_columns(rows)
+        columns = ["id", *(f"data.{key}" for key in data_keys), *scores]
+        # Every comparison names the run worth opening next. ``passed`` and
+        # ``reason`` come from assertions, which only a test suite records:
+        # opik-backend's ``run_passed`` subquery (ExperimentDAO) inner-joins on
+        # ``evaluation_method = 'evaluation_suite'``, so for a plain dataset the
+        # backend cannot fill them and the columns would be dashes read as loss.
+        columns += ["passed", "worst_trace", "reason"] if assertion_columns else ["worst_trace"]
+        limit = cell_limit(len(rows), len(columns))
 
     lines = [
         header,
@@ -470,6 +556,15 @@ def render(
         lines.append(" | ".join(values))
 
     under = [*notes]
+    if fields is not None:
+        under.insert(
+            0,
+            marker(
+                kept=columns,
+                omitted=tuple(n for n in available if _column_for(n) not in columns),
+                whole="Drop fields= for the table's own columns.",
+            ),
+        )
     if not scores:
         under.append(
             "These runs recorded no feedback scores; they are judged by assertions, and only "
@@ -503,6 +598,12 @@ def render(
             f"{cut} value{'s' if cut != 1 else ''} cut at {limit} chars; "
             "fewer rows per page (size=…) raise the cap."
         )
+    if fields is None and (offer := fields_line(available)) is not None:
+        # A comparison is a list page like any other, and it names the fields
+        # its rows carry for the same reason: the alternative is the caller
+        # guessing whether the score is ``helpfulness`` or
+        # ``feedback_scores.helpfulness``, and getting a refusal either way.
+        under.append(offer)
     if under:
         lines += ["", *under]
     if page * size < total:

@@ -15,6 +15,23 @@
       "title": "Entity Type",
       "type": "string"
     },
+    "fields": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Return only these paths of the record, uncut: dotted into nested objects ('trace.output'), arrays whole ('spans'). The record's id is always kept; an unknown path is refused with the valid ones. The answer says it was projected and what it omitted. Omit for the whole record.",
+      "title": "Fields"
+    },
     "id": {
       "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik link \u2014 a thread link or a Diagnostics page link (\u2026/projects/<pid>/diagnostics?issue=<id>). When a URI/link is passed, entity_type (and, for project-scoped entities, the project) is overridden from it.",
       "maxLength": 2048,

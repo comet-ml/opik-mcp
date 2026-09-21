@@ -13,6 +13,13 @@ entity and ships a jq tool to fetch the rest; this server has neither.
 The one cut a read does carry is the backend's, on the children a composite
 inlines (see :mod:`opik_mcp.read_list.slim`), and it is allowed because the
 whole child is always one call away.
+
+``fields=[…]`` (see :mod:`opik_mcp.read_list.projection`) is the other way
+round and does not weaken any of this: the caller names what they want, so the
+narrowing is the question rather than something done to the answer. What makes
+it safe is the same thing that makes the backend's cut safe — it is stated. A
+projected read says so in this module's header and in a line under it, because
+a caller who did not write the call is the one who has to be able to tell.
 """
 
 from __future__ import annotations
@@ -31,13 +38,20 @@ def estimate_tokens(text: str) -> int:
     return len(text) // 4
 
 
-def size_header(entity_type: str, entity_id: str, tokens: int) -> str:
+def size_header(entity_type: str, entity_id: str, tokens: int, *, projected: bool = False) -> str:
     """The line above every read.
 
     The size is stated so that a large answer is visible as a large answer,
     in the answer, rather than as context that quietly ran out later.
+
+    ``projected`` is the other half of that bargain, and the reason it is on
+    the header rather than only on the line below it: a small answer is
+    normally good news, and a caller who skims the first line of a projected
+    read would otherwise see a cheap trace where there is a fragment of one.
+    Said twice on purpose — here for the skim, and under it for what went.
     """
-    return f"[read: {entity_type} {entity_id} | {tokens:,} tok]"
+    tag = " | projected" if projected else ""
+    return f"[read: {entity_type} {entity_id} | {tokens:,} tok{tag}]"
 
 
 __all__ = ["compact_json", "estimate_tokens", "size_header"]

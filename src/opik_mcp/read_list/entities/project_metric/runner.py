@@ -131,6 +131,7 @@ async def run_project_metric(
     page: int | None = None,
     size: int | None = None,
     sort: str | None = None,
+    fields: list[str] | None = None,
     **_collection_args: Any,
 ) -> str:
     """``list('project_metric', …)`` end to end: validate, ask, render.
@@ -149,7 +150,7 @@ async def run_project_metric(
     ask for, and the interval a caller does not name follows the window so the
     default is never wide (see ``interval_for_window``).
     """
-    _refuse_collection_args(page=page, size=size, sort=sort)
+    _refuse_collection_args(page=page, size=size, sort=sort, fields=fields)
     metric = parse_metric(metric_type)
     window_since, window_until = resolve_window(since, until)
     interval_name = parse_interval(interval, since=window_since, until=window_until)
@@ -243,16 +244,25 @@ async def run_project_metric(
     return f"{header}\n{table}"
 
 
-def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | None) -> None:
-    """``page``/``size``/``sort`` mean nothing here, so they are refused.
+def _refuse_collection_args(
+    *, page: int | None, size: int | None, sort: str | None, fields: list[str] | None = None
+) -> None:
+    """``page``/``size``/``sort``/``fields`` mean nothing here, so they are refused.
 
     Silently ignoring them would let an agent believe it had paged through a
     series it actually re-read from the start, or ordered rows that are ordered
-    by time by definition.
+    by time by definition. ``fields`` is the same mistake one step further on:
+    a bucket has no record behind it to name a field of, and a projection that
+    quietly did nothing would read as a projection that found nothing.
     """
     named = [
         name
-        for name, value in (("page", page), ("size", size), ("sort", sort))
+        for name, value in (
+            ("page", page),
+            ("size", size),
+            ("sort", sort),
+            ("fields", fields or None),
+        )
         if value is not None
     ]
     if not named:
@@ -260,7 +270,8 @@ def _refuse_collection_args(*, page: int | None, size: int | None, sort: str | N
     raise EntityArgValidationError(
         f"list('project_metric') does not take {', '.join(named)}: rows are time "
         "buckets, not records — they are ordered by time and the window and "
-        "interval decide how many there are. Use since/until and interval instead."
+        "interval decide how many there are. Use since/until, interval and "
+        "breakdown instead."
     )
 
 

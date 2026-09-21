@@ -279,6 +279,69 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
 
 @pytest.mark.e2e
 @pytest.mark.anyio
+async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_score(
+    backend: StubBackend,
+) -> None:
+    """OPIK-8399's own acceptance criterion, over the wire.
+
+    What only this test can see is the argument crossing the MCP boundary: an
+    array of strings through FastMCP's schema and Pydantic's validation, which
+    the in-process suites call ``run_list`` underneath. The narrowing itself is
+    the point — N experiments times M keys becomes one question and one score.
+    """
+    backend.suite = CompareSuite(case_count=8)
+
+    async with _session(backend) as session:
+        wide = await _call(
+            session,
+            "list",
+            entity_type="dataset_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+            size=4,
+        )
+        narrow = await _call(
+            session,
+            "list",
+            entity_type="dataset_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+            size=4,
+            fields=["data.question", "feedback_scores.correctness"],
+        )
+        refusal = await _refuse(
+            session,
+            "list",
+            entity_type="dataset_item",
+            experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
+            fields=["data.quesiton"],
+        )
+
+    columns = next(line for line in narrow.splitlines() if line.startswith("id |"))
+    assert columns == "id | data.question | correctness | worst_trace"
+    # The rows are those four cells. The case key the caller did not name and
+    # the score they did not ask for are gone from every one of them, and the
+    # trace that opens the case is on every one of them anyway.
+    rows = [line for line in narrow.splitlines() if line.startswith("0199c6a4")]
+    assert len(rows) == 4
+    assert all(line.count(" | ") == 3 and "(E" in line for line in rows)
+    assert len(narrow) < len(wide)
+    # The per-experiment figures above the table are not row fields and are
+    # left alone: they say how many runs each mean is over, which is what
+    # makes a narrowed table safe to read rather than noise on top of it.
+    assert "E1: 8 runs; correctness 0.9, hallucination 1" in narrow
+
+    # Spec D3: it says it was projected, and what it left out.
+    marker = next(line for line in narrow.splitlines() if line.startswith("projected:"))
+    assert "omitted:" in marker
+    assert "feedback_scores.hallucination" in marker
+
+    # An unknown field is an error naming the valid ones, never a blank column.
+    assert "data.quesiton" in refusal
+    assert "data.question" in refusal
+    assert "feedback_scores.correctness" in refusal
+
+
+@pytest.mark.e2e
+@pytest.mark.anyio
 async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_cases(
     backend: StubBackend,
 ) -> None:
