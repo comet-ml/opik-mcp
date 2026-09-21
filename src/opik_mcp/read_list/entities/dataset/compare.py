@@ -87,7 +87,7 @@ async def run_compare(
     **_collection_args: Any,
 ) -> str:
     """The comparison, end to end: validate, resolve, ask, render."""
-    ids = _validated_ids(experiment_ids, filters=filters, sort=sort)
+    ids = _validated_ids(experiment_ids)
     # Which names are valid is a fact about the page, so ``fields`` is checked
     # by the renderer once the rows are in hand — here it is only normalised.
     wanted = normalise(fields)
@@ -404,18 +404,19 @@ async def _with_every_run(
 # --- what the call has to get right before anything is fetched ------------- #
 
 
-def _validated_ids(
-    experiment_ids: list[str] | None, *, filters: str | None, sort: str | None
-) -> list[str]:
+def _validated_ids(experiment_ids: list[str] | None) -> list[str]:
+    if experiment_ids is not None and not experiment_ids:
+        # An empty array is still an argument, so it hands the call to this
+        # runner. Telling that caller they need experiment_ids names the thing
+        # they just passed; what they need is ids in it, or the argument gone.
+        raise EntityArgValidationError(
+            f"experiment_ids is empty. Name the runs to compare — "
+            f"list('{_ENTITY}', experiment_ids=['<uuid>', '<uuid>']) — or drop the argument "
+            f"to list the dataset's own cases: list('{_ENTITY}', dataset_id='<uuid>')."
+        )
     if not experiment_ids:
-        asked = [name for name, given in (("filters", filters), ("sort", sort)) if given]
-        if asked:
-            raise EntityArgValidationError(
-                f"{' and '.join(asked)} on {_ENTITY} need experiment_ids: they apply to the "
-                f"compared runs, and a plain list of a dataset's cases has none. "
-                f"E.g. list('{_ENTITY}', experiment_ids=['<uuid>', '<uuid>'], "
-                f"filters='feedback_scores.correctness < 0.5')."
-            )
+        # Only reachable by calling the runner directly: the registry hands it
+        # the call when ``experiment_ids`` is there at all.
         raise EntityArgValidationError(
             f"list('{_ENTITY}') needs dataset_id, or experiment_ids to compare runs."
         )

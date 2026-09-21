@@ -9,9 +9,11 @@ that rendered twenty rows of nothing for a ``question``/``answer`` dataset.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
+from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.read_list.entities.dataset import ITEM_HANDLER, project_items
 from opik_mcp.read_list.entities.dataset.items import (
@@ -21,9 +23,12 @@ from opik_mcp.read_list.entities.dataset.items import (
     _PAGE_DATA_BUDGET,
 )
 from opik_mcp.read_list.list_tool import run_list
-from opik_mcp.read_list.registry import ENTITY_REGISTRY
+from opik_mcp.read_list.read_tool import run_read
+from opik_mcp.read_list.reference import list_reference
+from opik_mcp.read_list.registry import ENTITY_REGISTRY, READABLE_TYPES
 
 from .test_list_tool import FakeOpikClient
+from .test_read_tool import FakeOpikClient as FakeReadClient
 
 DATASET = "019f8d97-c83c-7597-b40a-bd2e0e1ad558"
 
@@ -186,7 +191,10 @@ async def test_list_cuts_long_values_and_declares_the_cut() -> None:
     cap = _PAGE_DATA_BUDGET // (20 * 2)
     assert long not in out
     assert "x" * (cap - 3) + "..." in out
-    assert f"20 values cut at {cap} chars; fewer rows per page (size=…) raise the cap." in out
+    assert (
+        f"20 values cut at {cap} chars; fewer rows per page (size=…) raise the cap, "
+        "and read('dataset_item', id) is the value whole." in out
+    )
 
 
 @pytest.mark.anyio
@@ -246,10 +254,330 @@ def test_item_handler_projects_rather_than_declaring_fields() -> None:
 
 
 def test_item_handler_description_matches_the_code() -> None:
-    """The old description promised items inline on ``read('dataset')``;
-    nothing ever inlined them. The description is a comment nobody renders,
-    so this is the only place a drift would show."""
-    assert (
-        "read('dataset') returns the dataset record without its items" in ITEM_HANDLER.description
-    )
+    """The description is a comment nobody renders, so this is the only place
+    a drift would show. It has been wrong twice: it promised items inline on
+    ``read('dataset')`` that nothing ever inlined, and it went on saying there
+    was no read of an item after one was added."""
+    assert "read('dataset_item', id) is one case whole" in ITEM_HANDLER.description
+    assert "the endpoint has no sorting" in ITEM_HANDLER.description
     assert "up to 200 items inline" not in ITEM_HANDLER.description
+    assert "there is no read" not in ITEM_HANDLER.description
+
+
+# --- finding one case in a large dataset -------------------------------- #
+#
+# The items endpoint takes ``filters`` and nothing else: no ``search``, no
+# ``sorting``. Its fields are the case's own — the keys of its ``data`` map,
+# the whole payload as one string, its id, tags, source and the trace or span
+# it was made from — and they are not the fields of the comparison, which
+# reads the runs. The two vocabularies are kept apart so an operator the one
+# endpoint refuses cannot be written for the other.
+
+_TRACE = "0199c6a4-3a4c-7f1e-9d2b-000000000030"
+_SPAN = "0199c6a4-3a4c-7f1e-9d2b-000000000031"
+_CASE = "0199c6a4-3a4c-7f1e-9d2b-000000000040"
+
+
+def _clauses(fake: FakeOpikClient) -> Any:
+    return json.loads(fake.last_kwargs["filters"])
+
+
+@pytest.mark.anyio
+async def test_a_case_key_travels_as_the_backends_map_filter() -> None:
+    """``data`` is a MAP column: the key rides beside the field rather than
+    being spliced into its name, which is what the comparison's dynamic
+    columns do. Send the wrong one and the backend filters on nothing."""
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", question="How do I install?")))
+
+    out = await run_list(
+        "dataset_item",
+        dataset_id=DATASET,
+        filters='data.question contains "install"',
+        client=fake,
+    )
+
+    assert _clauses(fake) == [
+        {"field": "data", "operator": "contains", "key": "question", "value": "install"}
+    ]
+    assert out.splitlines()[0] == '[list: dataset_item | filters: data.question contains "install"]'
+    assert "i-1 | How do I install?" in out
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("comparison", ["data.score > 0.5", "data.score < 1"])
+async def test_a_comparison_on_a_case_key_is_refused_before_the_call(comparison: str) -> None:
+    """opik-backend maps six string operators onto MAP and answers 400 for the
+    rest, so the refusal is worth more here than the round trip."""
+    fake = FakeOpikClient()
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list("dataset_item", dataset_id=DATASET, filters=comparison, client=fake)
+
+    message = str(refusal.value)
+    assert "is not valid for 'data' (map)" in message
+    assert "Valid: =, !=, contains, not_contains, starts_with, ends_with." in message
+    assert fake.last_kwargs == {}
+
+
+@pytest.mark.anyio
+async def test_a_case_key_filter_without_a_key_says_how_to_write_one() -> None:
+    fake = FakeOpikClient()
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list(
+            "dataset_item", dataset_id=DATASET, filters='data contains "install"', client=fake
+        )
+
+    assert "'data' needs a key: write data.<key>" in str(refusal.value)
+    assert fake.last_kwargs == {}
+
+
+@pytest.mark.anyio
+async def test_the_source_trace_finds_the_case_that_was_made_from_it() -> None:
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", question="q")))
+
+    out = await run_list(
+        "dataset_item", dataset_id=DATASET, filters=f'trace_id = "{_TRACE}"', client=fake
+    )
+
+    assert _clauses(fake) == [{"field": "trace_id", "operator": "=", "key": "", "value": _TRACE}]
+    # One value on every row it selected: the header states it, the table
+    # spends no column on it.
+    assert "trace_id" not in out.splitlines()[2]
+    assert f'filters: trace_id = "{_TRACE}"' in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_the_whole_payload_is_searchable_without_naming_a_key() -> None:
+    """``full_data`` is the endpoint's substitute for free text: one ilike over
+    the serialised map, for the caller who does not know which key holds it."""
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", question="q", answer="a")))
+
+    out = await run_list(
+        "dataset_item", dataset_id=DATASET, filters='full_data contains "refund"', client=fake
+    )
+
+    assert _clauses(fake) == [
+        {"field": "full_data", "operator": "contains", "key": "", "value": "refund"}
+    ]
+    # Not a column: the whole payload is what the data columns already show.
+    assert "full_data" not in out.splitlines()[2]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("filters", "expected"),
+    [
+        (f'id = "{_CASE}"', {"field": "id", "operator": "=", "key": "", "value": _CASE}),
+        (f'span_id = "{_SPAN}"', {"field": "span_id", "operator": "=", "key": "", "value": _SPAN}),
+        (
+            'tags contains "regression"',
+            {"field": "tags", "operator": "contains", "key": "", "value": "regression"},
+        ),
+        (
+            'source = "trace"',
+            {"field": "source", "operator": "=", "key": "", "value": "trace"},
+        ),
+        (
+            'created_at >= "2026-09-08T00:00:00Z"',
+            {
+                "field": "created_at",
+                "operator": ">=",
+                "key": "",
+                "value": "2026-09-08T00:00:00Z",
+            },
+        ),
+    ],
+)
+async def test_the_rest_of_the_item_fields_compile_to_the_backends_shape(
+    filters: str, expected: dict[str, str]
+) -> None:
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", question="q")))
+
+    await run_list("dataset_item", dataset_id=DATASET, filters=filters, client=fake)
+
+    assert _clauses(fake) == [expected]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "compare_only",
+    ["duration > 1", 'output contains "sorry"', "feedback_scores.correctness < 0.5"],
+)
+async def test_a_field_of_the_comparison_points_the_caller_at_experiment_ids(
+    compare_only: str,
+) -> None:
+    """These read the runs, which a plain list of a dataset's cases has none
+    of. The refusal names the call that does have them rather than leaving the
+    caller to read a field list and guess why theirs is missing."""
+    fake = FakeOpikClient()
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list("dataset_item", dataset_id=DATASET, filters=compare_only, client=fake)
+
+    message = str(refusal.value)
+    assert "Unknown field" in message
+    assert "experiment_ids" in message
+    assert fake.last_kwargs == {}
+
+
+@pytest.mark.anyio
+async def test_sort_is_refused_because_the_items_endpoint_has_no_sorting() -> None:
+    """The backend takes no ``sorting`` parameter here, so an accepted sort
+    would be an unordered page that reads as an ordered one."""
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", question="q")))
+
+    with pytest.raises(ToolError) as refusal:
+        await run_list("dataset_item", dataset_id=DATASET, sort="created_at desc", client=fake)
+
+    message = str(refusal.value)
+    assert "sort is not supported" in message
+    assert "experiment_ids" in message
+    assert fake.last_kwargs == {}
+
+
+@pytest.mark.anyio
+async def test_an_unfiltered_page_sends_no_filters_at_all() -> None:
+    fake = FakeOpikClient(dataset_items=_page(_item("i-1", question="q")))
+
+    await run_list("dataset_item", dataset_id=DATASET, client=fake)
+
+    assert "filters" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("argument", "value", "refusal", "points_at_the_table"),
+    [
+        ("filters", "data.score > 1", "Invalid filters for dataset_item:", True),
+        ("search", "Japan", "search is not supported for 'dataset_item'", True),
+        # Sort points at the call that orders cases instead: the table it
+        # would send the caller to lists no sortable field at all.
+        ("sort", "created_at desc", "sort is not supported for 'dataset_item'", False),
+    ],
+)
+async def test_a_refusal_names_the_entity_the_caller_typed(
+    argument: str, value: str, refusal: str, points_at_the_table: bool
+) -> None:
+    """``dataset_item_case`` is the name of a field table, not of anything a
+    caller can pass. A refusal that named it would read as a typo the caller
+    could not have made — so the refusal names the entity, and where a field
+    table is what the caller needs next, the pointer beside it names that."""
+    asked: dict[str, Any] = {argument: value}
+    with pytest.raises(ToolError) as err:
+        await run_list(
+            "dataset_item",
+            dataset_id=DATASET,
+            client=FakeOpikClient(),
+            filters=asked.get("filters"),
+            sort=asked.get("sort"),
+            search=asked.get("search"),
+        )
+
+    message = str(err.value)
+    assert refusal in message
+    assert "dataset_item_case" not in message.split("schema(")[0]
+    assert ('schema("list.dataset_item_case")' in message) is points_at_the_table
+
+
+def test_each_reference_names_the_fields_of_the_other_call() -> None:
+    """One entity, two field tables, and an agent asks for whichever name it
+    knows. Whichever it lands on has to say that the other call exists and
+    what could be asked there — a bare pointer would cost a round trip to find
+    out that ``data.question`` is available without experiments."""
+    compared = list_reference("dataset_item")["filters"]["see_also"]
+    case = list_reference("dataset_item_case")["filters"]["see_also"]
+
+    assert "full_data" in compared and "trace_id" in compared
+    assert 'schema("list.dataset_item_case")' in compared
+    assert "feedback_scores" in case and "duration" in case
+    assert 'schema("list.dataset_item")' in case
+
+
+def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> None:
+    reference = list_reference("dataset_item_case")
+    fields = reference["filters"]["fields"]
+
+    assert sorted(fields) == [
+        "created_at",
+        "created_by",
+        "data",
+        "full_data",
+        "id",
+        "last_updated_at",
+        "last_updated_by",
+        "source",
+        "span_id",
+        "tags",
+        "trace_id",
+    ]
+    assert fields["data"]["type"] == "map"
+    assert fields["data"]["operators"] == [
+        "=",
+        "!=",
+        "contains",
+        "not_contains",
+        "starts_with",
+        "ends_with",
+    ]
+    assert fields["data"]["key"] == "required"
+    # The one field that costs a full scan says so where it is chosen, not
+    # after it has been run on a 100,000-case dataset.
+    assert "scan" in fields["full_data"]["note"]
+    # An empty field list alone reads as "not implemented yet", so the
+    # reference says whose limit it is and what does order cases.
+    assert reference["sort"]["fields"] == []
+    assert reference["sort"]["why"] == (
+        "opik-backend's dataset items endpoint takes no sorting parameter. Only the "
+        "comparison orders cases, so a sort needs experiment_ids: "
+        "list('dataset_item', experiment_ids=['<uuid>', '<uuid>'], sort='duration desc')"
+    )
+    assert reference["search"] is False
+
+
+# --- read('dataset_item', id): the case, uncut -------------------------- #
+
+
+def test_a_case_is_readable_now_that_the_backend_addresses_it_on_its_own() -> None:
+    assert "dataset_item" in READABLE_TYPES
+
+
+@pytest.mark.anyio
+async def test_read_returns_the_whole_value_the_list_cut() -> None:
+    """The page's character budget is split across its cells, so a long case
+    arrives cut. This is where the rest of it is: the endpoint the list could
+    not offer before, addressed by the id the table printed."""
+    long = "x" * 5_000
+    listed = FakeOpikClient(
+        dataset_items=_page(*(_item(f"i-{n}", q=long, a="short") for n in range(20)))
+    )
+    table = await run_list("dataset_item", dataset_id=DATASET, client=listed)
+    assert long not in table
+
+    record = {"id": _CASE, "data": {"q": long, "a": "short"}, "source": "manual"}
+    fake = FakeReadClient(dataset_items_by_id={_CASE: record})
+    out = await run_read("dataset_item", _CASE, client=fake)
+
+    assert out.splitlines()[0].startswith(f"[read: dataset_item {_CASE}")
+    assert json.loads(out.split("\n", 1)[1]) == record
+
+
+@pytest.mark.anyio
+async def test_the_test_suite_item_alias_still_reads_and_lists() -> None:
+    """A suite is a dataset and its cases are dataset items; the old names are
+    what callers with a running prompt still type."""
+    record = {"id": _CASE, "data": {"question": "How do I install?"}}
+    fake = FakeReadClient(dataset_items_by_id={_CASE: record})
+
+    out = await run_read("test_suite_item", _CASE, client=fake)
+
+    assert fake.fetched_items == [_CASE]
+    assert json.loads(out.split("\n", 1)[1]) == record
+
+
+@pytest.mark.anyio
+async def test_reading_a_case_that_is_not_there_names_the_id() -> None:
+    with pytest.raises(ToolError) as refusal:
+        await run_read("dataset_item", _CASE, client=FakeReadClient())
+
+    assert f"Not found: dataset_item with id '{_CASE}'" in str(refusal.value)

@@ -477,6 +477,45 @@ async def test_an_experiment_row_keeps_the_prompt_version_it_was_not_asked_for()
 
 
 @pytest.mark.anyio
+async def test_a_case_built_from_a_trace_keeps_the_trace_it_came_from() -> None:
+    """ "Case to trace" is the first hop this ticket names. A projected row of a
+    question and an answer with no way back to the call that produced them is
+    the dead end the identity floor exists for."""
+    fake = FakeOpikClient(
+        dataset_items={
+            "content": [
+                {
+                    "id": "i-1",
+                    "trace_id": "tr-9",
+                    "source": "trace",
+                    "data": {"question": "q", "answer": "a"},
+                }
+            ],
+            "total": 1,
+        }
+    )
+    out = await run_list("dataset_item", dataset_id=DATASET, fields=["data.question"], client=fake)
+    assert "id | data.question | trace_id" in out
+    assert "i-1 | q | tr-9" in out
+
+
+@pytest.mark.anyio
+async def test_a_hand_authored_case_grows_no_empty_trace_column() -> None:
+    """The other half of the rule. A case nobody traced has no trace, and a
+    blank column there reads as a link that was lost rather than one that
+    never existed."""
+    fake = FakeOpikClient(
+        dataset_items={
+            "content": [{"id": "i-2", "source": "manual", "data": {"question": "q"}}],
+            "total": 1,
+        }
+    )
+    out = await run_list("dataset_item", dataset_id=DATASET, fields=["data.question"], client=fake)
+    assert "id | data.question" in out
+    assert "trace_id" not in out
+
+
+@pytest.mark.anyio
 async def test_a_dataset_item_row_keeps_its_id() -> None:
     fake = FakeOpikClient(
         dataset_items={

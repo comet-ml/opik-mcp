@@ -286,7 +286,7 @@ class StubBackend:
         experiment_ids = _ids(query)
         page = int(_one(query, "page", "1"))
         size = int(_one(query, "size", "10"))
-        clauses = json.loads(_one(query, "filters", "") or "[]")
+        clauses = _filters(query)
 
         pinned = next((c.get("value") for c in clauses if c.get("field") == "id"), None)
         if pinned is not None:
@@ -302,6 +302,31 @@ class StubBackend:
         ]
         return _compare_envelope(rows, page=page, total=self.suite.case_count)
 
+    def _items_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+        """One page of the dataset's own cases — ``GET /{id}/items``.
+
+        The filters are read far enough to be a 400 when they are not the
+        array the backend deserializes, and no further: what each clause
+        *means* is opik-backend's business, and a stub that reimplemented it
+        would be asserting against itself. Tests read the clauses back off
+        ``backend.one("/items").filters()`` to see what was sent.
+        """
+        _filters(query)  # for the 400 alone: which rows match is not the stub's business
+        page = int(_one(query, "page", "1"))
+        size = int(_one(query, "size", "10"))
+        start = (page - 1) * size
+        rows = [
+            _dataset_item(index) for index in range(start, min(start + size, self.suite.case_count))
+        ]
+        return _page(rows, total=self.suite.case_count)
+
+    def _one_item(self, item_id: str) -> tuple[int, Any]:
+        """``GET /datasets/items/{itemId}`` — the case, whole and uncut."""
+        index = _case_index(item_id)
+        if index is None:
+            return 404, {"message": f"Dataset item id: {item_id} not found"}
+        return 200, _dataset_item(index)
+
     def _compare_stats(self, query: dict[str, list[str]]) -> dict[str, Any]:
         """Count, means and a median over the runs the filter matched.
 
@@ -313,7 +338,7 @@ class StubBackend:
         the filter language is not the stub's business.
         """
         experiment_ids = _ids(query)
-        clauses = json.loads(_one(query, "filters", "") or "[]")
+        clauses = _filters(query)
         matched: list[dict[str, Any]] = []
         for index in range(self.suite.case_count):
             row = self._case_row(index, experiment_ids)
@@ -418,6 +443,10 @@ class StubBackend:
                 return 200, self._compare_stats(query or {})
             if path.endswith("/items/experiments/items"):
                 return 200, self._compare_page(query or {})
+            if path.startswith("/v1/private/datasets/items/"):
+                return self._one_item(path.rsplit("/", 1)[-1])
+            if path.startswith("/v1/private/datasets/") and path.endswith("/items"):
+                return 200, self._items_page(query or {})
         except _BadRequest as refusal:
             return 400, {"message": str(refusal)}
         if path == "/v1/private/feedback-definitions":
@@ -483,8 +512,6 @@ class StubBackend:
             return 200, _span()
         if path == "/v1/private/datasets":
             return 200, _page([_dataset(SUITE_ID), _dataset(OTHER_SUITE_ID)])
-        if path.startswith("/v1/private/datasets/") and path.endswith("/items"):
-            return 200, _page(_dataset_items())
         if path == "/v1/private/experiments":
             return 200, self._experiment_page(query or {})
         if path == "/v1/private/prompts":
@@ -553,6 +580,56 @@ def _page(content: list[dict[str, Any]], *, total: int | None = None) -> dict[st
     }
 
 
+#: A case's payload carries one value no page can print whole: the reason a
+#: dataset item has a read of its own.
+_NOTES = "why this case is here. " * 60
+
+
+def _dataset_item(index: int) -> dict[str, Any]:
+    """One case as ``DatasetItem`` serialises it, outside any comparison.
+
+    The ``data`` keys are the columns ``list('dataset_item', dataset_id=…)``
+    discovers from the page, so they are what the projection claim is read
+    against; ``notes`` is the value no page can print whole, which is what a
+    cut and the read that lifts it are proved with.
+    """
+    return {
+        "id": _case_id(index),
+        "dataset_id": SUITE_ID,
+        "source": "trace",
+        "trace_id": _trace_id(index, 0, 0),
+        "data": {
+            "question": f"Case {index}: what is the capital of France?",
+            "expected_answer": "Paris",
+            "notes": f"Case {index}: {_NOTES}",
+        },
+        "tags": ["regression"],
+        "created_at": "2026-09-08T10:00:00Z",
+        "last_updated_at": "2026-09-08T10:00:00Z",
+        "created_by": "stub-user",
+        "last_updated_by": "stub-user",
+    }
+
+
+def _filters(query: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """The ``filters`` param as ``FiltersFactory`` reads it.
+
+    A JSON array of clauses, or a 400. Nothing here interprets a clause: what
+    one matches is opik-backend's business, and a stub that reimplemented it
+    would start to disagree with the backend it stands for.
+    """
+    raw = _one(query, "filters", "")
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        raise _BadRequest(f"Invalid filters query parameter '{raw}'") from None
+    if not isinstance(parsed, list) or not all(isinstance(one, dict) for one in parsed):
+        raise _BadRequest(f"Invalid filters query parameter '{raw}'")
+    return parsed
+
+
 def _one(query: dict[str, list[str]], key: str, default: str) -> str:
     values = query.get(key) or []
     return values[0] if values else default
@@ -611,6 +688,14 @@ def _case_index(case_id: str) -> int | None:
 
 def _trace_id(index: int, position: int, run: int) -> str:
     return f"0199c6a4-3a4c-7f1e-9d2b-2{index:07d}{position}{run:03d}"
+
+
+#: One case the item routes serve, and the trace it was made from. Exported so
+#: a test can address a case without re-deriving the id scheme above — which
+#: two of them did, and a change to the scheme would have left them pointing
+#: at a case the stub no longer has.
+CASE_ID: str = _case_id(3)
+CASE_TRACE_ID: str = _trace_id(3, 0, 0)
 
 
 #: The filter fields that make the real backend drop the runs that did not
@@ -759,28 +844,6 @@ def _dataset(dataset_id: str) -> dict[str, Any]:
         "created_at": "2026-09-01T09:00:00Z",
         "last_updated_at": "2026-09-08T09:00:00Z",
     }
-
-
-def _dataset_items() -> list[dict[str, Any]]:
-    """A suite's cases, as the plain (uncompared) item list pages them.
-
-    The ``data`` keys are the columns ``list('dataset_item', dataset_id=…)``
-    discovers from the page, so they are what the projection claim is read
-    against — two of them, one long enough to be cut.
-    """
-    return [
-        {
-            "id": _case_id(index),
-            "dataset_id": SUITE_ID,
-            "source": "manual",
-            "data": {
-                "question": f"Case {index}: what is the capital of France?",
-                "expected_answer": "Paris, " + "a city in France, " * 6,
-            },
-            "created_at": "2026-09-08T10:00:00Z",
-        }
-        for index in range(3)
-    ]
 
 
 def _thread_record() -> dict[str, Any]:

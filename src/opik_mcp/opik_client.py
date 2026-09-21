@@ -178,7 +178,13 @@ class OpikListClient(Protocol):
     ) -> dict[str, Any]: ...
 
     async def list_dataset_items(
-        self, dataset_id: str, /, *, page: int = 1, size: int = 10
+        self,
+        dataset_id: str,
+        /,
+        *,
+        filters: str | None = None,
+        page: int = 1,
+        size: int = 10,
     ) -> dict[str, Any]: ...
 
     async def list_experiments(
@@ -291,6 +297,8 @@ class OpikReadClient(OpikListClient, Protocol):
     async def get_span(self, span_id: str, /) -> dict[str, Any]: ...
 
     async def get_dataset(self, dataset_id: str, /) -> dict[str, Any]: ...
+
+    async def get_dataset_item(self, item_id: str, /) -> dict[str, Any]: ...
 
     async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]: ...
 
@@ -887,14 +895,37 @@ class OpikClient:
         self,
         dataset_id: str,
         *,
+        filters: str | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
-        """``GET /v1/private/datasets/{id}/items`` — paginated item list."""
+        """``GET /v1/private/datasets/{id}/items`` — paginated item list.
+
+        ``filters`` is the compiled ``DatasetItemFilter`` array, JSON-encoded:
+        the cases' own keys (``data`` with the key beside it), the whole
+        payload, the id, tags, source and the trace or span each case came
+        from. The endpoint has no ``search`` and no ``sorting`` to pass.
+        """
+        params: dict[str, Any] = {"page": page, "size": size}
+        if filters is not None:
+            params["filters"] = filters
         return await self._get_json(
             f"/v1/private/datasets/{dataset_id}/items",
-            params={"page": page, "size": size},
+            params=params,
             entity_hint=f"dataset {dataset_id!r} items",
+        )
+
+    async def get_dataset_item(self, item_id: str) -> dict[str, Any]:
+        """``GET /v1/private/datasets/items/{itemId}`` — one case, whole.
+
+        Addressed under ``/datasets/items``, not under the dataset: the id is
+        unique on its own, so a caller holding one from a listing needs
+        nothing else to read the values the page cut.
+        """
+        return await self._get_json(
+            f"/v1/private/datasets/items/{item_id}",
+            params=None,
+            entity_hint=f"dataset item {item_id!r}",
         )
 
     async def list_compared_dataset_items(

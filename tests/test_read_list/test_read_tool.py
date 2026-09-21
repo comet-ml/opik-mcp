@@ -42,6 +42,8 @@ class FakeOpikClient:
     experiments_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     experiments_by_name: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     datasets_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    dataset_items_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
+    fetched_items: list[str] = field(default_factory=list)
     prompts_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
     prompt_versions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     threads_by_id: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -193,6 +195,13 @@ class FakeOpikClient:
 
     async def get_dataset(self, dataset_id: str) -> dict[str, Any]:
         return self.datasets_by_id[dataset_id]
+
+    async def get_dataset_item(self, item_id: str) -> dict[str, Any]:
+        record = self.dataset_items_by_id.get(item_id)
+        if record is None:
+            raise OpikNotFoundError(f"dataset item {item_id!r} not found (404).")
+        self.fetched_items.append(item_id)
+        return dict(record)
 
     async def list_datasets(self, **_: Any) -> dict[str, Any]:
         return {"content": [], "page": 1, "size": 0, "total": 0}
@@ -510,7 +519,7 @@ async def test_read_rejects_unknown_entity_type() -> None:
 @pytest.mark.anyio
 async def test_read_rejects_list_only_entity() -> None:
     with pytest.raises(ToolError, match="list-only"):
-        await run_read("dataset_item", UUID, client=FakeOpikClient())
+        await run_read("prompt_version", UUID, client=FakeOpikClient())
 
 
 @pytest.mark.anyio
@@ -927,11 +936,11 @@ async def test_read_thread_has_no_link_fields() -> None:
 
 @pytest.mark.anyio
 async def test_read_list_only_entity_chains_typed_cause() -> None:
-    """``read('dataset_item', '<uuid>')`` — list-only entity surfaced as
+    """``read('prompt_version', '<uuid>')`` — list-only entity surfaced as
     ToolError chained from EntityArgValidationError so the analytics wrapper
     buckets it as validation/400 instead of unknown."""
     with pytest.raises(ToolError) as ei:
-        await run_read("dataset_item", "00000000-0000-0000-0000-000000000000")
+        await run_read("prompt_version", "00000000-0000-0000-0000-000000000000")
 
     assert isinstance(ei.value.__cause__, EntityArgValidationError)
 

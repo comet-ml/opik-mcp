@@ -244,12 +244,12 @@ prompt versions. Past that, `spansTruncated` / `messagesTruncated` /
 `moreVersions` line beside it carries the count and the exact `list(...)` call
 that continues from where the inlined part stopped.
 
-**Supported entities:** `project`, `trace`, `span`, `dataset`, `experiment`,
-`prompt`, `thread`, `agent_insights_issue`. Name-based lookup is available for
-`project`, `experiment`, `prompt`, `dataset` (slower — two API calls — and
-may return multiple matches). `thread` and `agent_insights_issue` are
-project-scoped: pass `project_id` or `project_name`, or a link/URI that carries
-the project. `dataset` and `dataset_item` were called `test_suite` and
+**Supported entities:** `project`, `trace`, `span`, `dataset`, `dataset_item`,
+`experiment`, `prompt`, `thread`, `agent_insights_issue`. Name-based lookup is
+available for `project`, `experiment`, `prompt`, `dataset` (slower — two API
+calls — and may return multiple matches). `thread` and `agent_insights_issue`
+are project-scoped: pass `project_id` or `project_name`, or a link/URI that
+carries the project. `dataset` and `dataset_item` were called `test_suite` and
 `test_suite_item` before; the old names still resolve, but they are not
 advertised and new code should use the new ones.
 
@@ -327,8 +327,8 @@ list(entity_type="experiment",
      filters='dataset_id = "<dataset-uuid>" AND tags contains "baseline"')
 ```
 
-**Filters.** `trace`, `span`, `thread` and `experiment` take an OQL string, the
-same grammar as the SDK's `search_traces(filter_string=…)`:
+**Filters.** `trace`, `span`, `thread`, `experiment` and `dataset_item` take an
+OQL string, the same grammar as the SDK's `search_traces(filter_string=…)`:
 
 ```
 <field>[.<key>] <op> <value> [AND ...]
@@ -356,12 +356,42 @@ which reads as "no matches" when it means "no such value". Ask
 `schema("list.trace")` (or `list.span`, `list.thread`, `list.experiment`) for
 the full field reference, accepted values included.
 
-**Sort.** The same four types take `sort="<field> [asc|desc]"`, `desc` by
-default and one field only: `sort="duration desc"`, `sort="total_estimated_cost"`,
+**Finding one case in a dataset.** `list(entity_type="dataset_item",
+dataset_id=…)` filters on the case itself: `data.<key>` for the keys the
+dataset was built with, `full_data` for a substring of the whole payload (a
+full scan — name a key when you can), plus `id`, `tags`, `source`, `trace_id`,
+`span_id` and the timestamps. `data.<key>` takes the six string operators only
+(`=`, `!=`, `contains`, `not_contains`, `starts_with`, `ends_with`); the
+backend answers a comparison with a 400, so this one is refused before the
+call. The endpoint has no sorting and no free-text search — `sort` is refused
+rather than dropped. `read(entity_type="dataset_item", id=…)` returns one case
+whole, which is how a value the table cut is read back.
+
+```python
+list(entity_type="dataset_item", dataset_id="<uuid>",
+     filters='data.question contains "install"')
+list(entity_type="dataset_item", dataset_id="<uuid>",
+     filters='trace_id = "<trace-uuid>"')                 # the case made from that trace
+read(entity_type="dataset_item", id="<item-uuid>")        # the case, uncut
+```
+
+With `experiment_ids` the same list is the comparison instead — the cases with
+each run attached — and it filters on the runs (`feedback_scores.<name>`,
+`output`, `duration`). The two are different field sets on two backend
+endpoints: `schema("list.dataset_item_case")` is the dataset's own cases,
+`schema("list.dataset_item")` the comparison.
+
+**Sort.** `trace`, `span`, `thread` and `experiment` take
+`sort="<field> [asc|desc]"`, `desc` by default and one field only:
+`sort="duration desc"`, `sort="total_estimated_cost"`,
 `sort="feedback_scores.accuracy asc"`, `sort="usage.total_tokens"`. The field is
 checked against the entity's sortable list before the call, because the backend
 silently ignores fields it cannot sort by. On very large workspaces the backend
 drops sorting altogether; the header says so when that happens.
+
+`dataset_item` sorts only as a comparison (with `experiment_ids`): the items
+endpoint takes no sorting parameter, so a sort on a plain listing is refused
+rather than dropped.
 
 **Time window and search.** `trace`, `span` and `thread` take `since` and
 `until`, each a relative span (`"30m"`, `"1h"`, `"7d"`) or an ISO-8601 instant

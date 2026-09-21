@@ -46,6 +46,7 @@ FieldType = Literal[
     "number",
     "feedback_scores",
     "dictionary",
+    "map",
     "list",
     "enum",
     "enum_legacy",
@@ -89,6 +90,13 @@ OPERATORS_BY_TYPE: Final[dict[str, tuple[str, ...]]] = {
         "is_empty",
         "is_not_empty",
     ),
+    # A ClickHouse Map column the user owns: a dataset item's ``data``. The
+    # backend reads the key out of the clause's ``key`` (it is a real column,
+    # not a dynamic field name) and maps six string operators onto it —
+    # ``ANALYTICS_DB_OPERATOR_MAP`` has no MAP entry for a comparison or for
+    # emptiness, and ``FiltersFactory`` answers 400 for the pair. The
+    # dictionary type above promises what this one cannot deliver.
+    "map": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with"),
     "list": ("=", "!=", "contains", "not_contains", "is_empty", "is_not_empty"),
     "enum": ("=", "!=", "in", "not_in", "is_empty", "is_not_empty"),
     "enum_legacy": ("=", "!="),
@@ -99,7 +107,7 @@ OPERATORS_BY_TYPE: Final[dict[str, tuple[str, ...]]] = {
 NO_VALUE_OPERATORS: Final = frozenset({"is_empty", "is_not_empty"})
 LIST_VALUE_OPERATORS: Final = frozenset({"in", "not_in"})
 # Types whose filters need a ``.key`` (the backend rejects a blank key).
-KEYED_TYPES: Final = frozenset({"feedback_scores", "dictionary"})
+KEYED_TYPES: Final = frozenset({"feedback_scores", "dictionary", "map"})
 #: Types whose filters carry a key. ``keyed_string`` needs one (``data`` alone
 #: is not a field the backend knows); ``flat_or_keyed_string`` takes one or
 #: not (``output`` searches the whole body, ``output.answer`` one key of it).
@@ -210,7 +218,48 @@ FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
         "comments": "string",
         "feedback_scores": "feedback_scores",
     },
+    # The dataset's own cases — ``GET /datasets/{id}/items``, from
+    # ``DatasetItemField``. A different endpoint from the comparison above,
+    # with a different set of columns, so it is a vocabulary of its own: the
+    # joined page reads the runs (duration, output, the judge's scores) and
+    # this one reads the case (its keys, its payload, where it came from).
+    # One entity_type, two questions; ``VOCABULARY_MODES`` says which
+    # vocabulary belongs to which call, and neither can be written for the
+    # other endpoint, which would be a 400 at best and an unfiltered page at
+    # worst.
+    "dataset_item_case": {
+        "id": "string",
+        "data": "map",
+        "full_data": "string",
+        "tags": "list",
+        "source": "string",
+        "trace_id": "string",
+        "span_id": "string",
+        "created_at": "date_time",
+        "last_updated_at": "date_time",
+        "created_by": "string",
+        "last_updated_by": "string",
+    },
 }
+#: Vocabularies that are a mode of another entity rather than an ``entity_type``
+#: a caller can pass. A dataset item is listed two ways and the fields differ,
+#: but ``list('dataset_item', …)`` is what is typed either way — so these keys
+#: stay out of the "filterable types" a refusal names, and the entity's
+#: registry row says which of them its collection path uses.
+VOCABULARY_MODES: Final[dict[str, str]] = {"dataset_item_case": "dataset_item"}
+
+
+def called(vocabulary: str) -> str:
+    """The ``entity_type`` a caller typed to reach this field table.
+
+    Refusals name this; the ``schema("list.…")`` pointer beside them names the
+    vocabulary, because that is the key that answers with the fields being
+    refused. Saying ``dataset_item_case`` where the call said ``dataset_item``
+    reads as a typo the caller cannot have made.
+    """
+    return VOCABULARY_MODES.get(vocabulary, vocabulary)
+
+
 # Closed enum values, per entity, from opik-backend's own enums (Source,
 # SpanType, TraceThreadStatus, VisibilityMode), confirmed against a live
 # backend rather than read off the Java alone.
@@ -254,14 +303,33 @@ ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
     },
 }
 
-#: Fields an agent will reasonably try that an entity does not offer, and why.
-#: Appended to the unknown-field message so the answer is "the backend ignores
-#: it" rather than "you misspelled something".
-IGNORED_BY_BACKEND: Final[dict[str, tuple[frozenset[str], str]]] = {
+#: Fields an agent will reasonably try that an entity does not offer, grouped
+#: by why. Appended to the unknown-field message so the answer says where the
+#: field went rather than "you misspelled something" — and grouped, because
+#: the reasons differ and one of them names a call that would work. A field
+#: whose answer is "ask the other call" must not be listed beside one that
+#: other call also refuses.
+IGNORED_BY_BACKEND: Final[dict[str, tuple[tuple[frozenset[str], str], ...]]] = {
+    "dataset_item_case": (
+        (
+            frozenset({"duration", "output", "comments", "feedback_scores"}),
+            "It is a field of the comparison's joined page, which a plain list of a dataset's "
+            "cases does not have. Name the experiments and it applies: list('dataset_item', "
+            "experiment_ids=['<uuid>', '<uuid>'], filters='feedback_scores.correctness < 0.5').",
+        ),
+        (
+            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+            "Neither call filters on it: the items endpoint has no such column, and the "
+            "compare endpoint accepts it, answers 200 and never applies it — so naming the "
+            "experiments would not help.",
+        ),
+    ),
     "dataset_item": (
-        frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
-        "The compare endpoint accepts it, answers 200 and never applies it, so a page "
-        "filtered on it would be an unfiltered page.",
+        (
+            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+            "The compare endpoint accepts it, answers 200 and never applies it, so a page "
+            "filtered on it would be an unfiltered page.",
+        ),
     ),
 }
 
@@ -328,7 +396,11 @@ PARAM_FIELDS: Final[dict[str, dict[str, ParamField]]] = {
 
 NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
 
-SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(FILTERABLE_FIELDS)
+SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(
+    e for e in FILTERABLE_FIELDS if e not in VOCABULARY_MODES
+)
+"""The entity types a caller can put in ``list(entity_type, filters=…)``. Not
+every key of ``FILTERABLE_FIELDS``: a mode of an entity is not a type."""
 # The per-entity search surface beyond filters, in one place so the list tool
 # and the schema reference cannot disagree. Experiments have no ``source``
 # (they are one source by definition), no time window and no free-text search.
@@ -414,7 +486,7 @@ class OQLError(EntityArgValidationError):
         return tuple(i.kind for i in self.issues)
 
     def _render(self) -> str:
-        lines = [f"Invalid filters for {self.entity_type}:"]
+        lines = [f"Invalid filters for {called(self.entity_type)}:"]
         for n, issue in enumerate(self.issues, start=1):
             lines.append(f"  {n}. {issue.message}")
             if issue.position is not None:
@@ -739,7 +811,10 @@ def _param_operator_issue(
     operators and stopping would leave the caller to enumerate the rest of
     the set themselves. Everything else falls back to naming them.
     """
-    base = f"Operator '{raw.operator}' is not valid for '{field}' on {entity_type}: {spec.why}."
+    base = (
+        f"Operator '{raw.operator}' is not valid for '{field}' on "
+        f"{called(entity_type)}: {spec.why}."
+    )
     values = ENUM_VALUES.get(entity_type, {}).get(field)
     if values is not None and raw.operator in NEGATING_OPERATORS:
         excluded = set(operand_values(raw.operator, raw.value))
@@ -754,9 +829,10 @@ def _unknown_field(entity_type: str, field: str, fields: dict[str, FieldType]) -
     names = sorted(fields)
     close = difflib.get_close_matches(field, names, n=1, cutoff=0.6)
     hint = f" Did you mean '{close[0]}'?" if close else ""
-    ignored, why = IGNORED_BY_BACKEND.get(entity_type, (frozenset(), ""))
-    if field in ignored:
-        hint = f" {why}"
+    for ignored, why in IGNORED_BY_BACKEND.get(entity_type, ()):
+        if field in ignored:
+            hint = f" {why}"
+            break
     return OQLIssue("unknown_field", f"Unknown field '{field}'.{hint} Fields: {', '.join(names)}.")
 
 
@@ -769,7 +845,7 @@ def _validate_value(
                 "bad_value",
                 f"'{field}' needs a score name: write {field}.<name>, e.g. {field}.accuracy < 0.5.",
             )
-        if ftype == "keyed_string":
+        if ftype in ("keyed_string", "map"):
             return OQLIssue(
                 "bad_value",
                 f"'{field}' needs a key: write {field}.<key>, "
@@ -907,11 +983,22 @@ def filter_field_names(entity_type: str, query: str | None) -> list[str]:
     """
     if not query:
         return []
-    try:
-        clauses = compile_filters(entity_type, query)
-    except OQLError:
-        return []
-    return sorted({c["field"] for c in clauses})
+    # An entity with more than one vocabulary is filtered through whichever
+    # one the call chose, and this function is handed the ``entity_type`` the
+    # caller typed rather than the mode. Trying each keeps the dashboard from
+    # reading a valid filter as an unparseable one.
+    for vocabulary in (entity_type, *(m for m, e in VOCABULARY_MODES.items() if e == entity_type)):
+        if vocabulary not in FILTERABLE_FIELDS:
+            continue
+        try:
+            clauses = compile_filters(vocabulary, query)
+        except OQLError:
+            continue
+        # A dynamic field carries the user's key spliced into its name
+        # (``data`` + ``question``), which is exactly what this function
+        # promises not to hand to a dashboard. Cut back to the field.
+        return sorted({c["field"].partition(".")[0] for c in clauses})
+    return []
 
 
 def split_param_clauses(
@@ -1007,6 +1094,7 @@ __all__ = [
     "SOURCE_DEFAULTED_ENTITIES",
     "SUPPORTED_ENTITIES",
     "USAGE_FIELDS",
+    "VOCABULARY_MODES",
     "WINDOWED_ENTITIES",
     "FieldType",
     "IssueKind",
@@ -1018,6 +1106,7 @@ __all__ = [
     "OQLUnknownFieldError",
     "OQLUnsupportedEntityError",
     "ParamField",
+    "called",
     "compile_filters",
     "filter_field_names",
     "filter_fields",

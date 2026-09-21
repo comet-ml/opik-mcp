@@ -58,6 +58,11 @@ ENTITY_ALIASES: dict[str, str] = {
     "issue": "agent_insights_issue",
     "test_suite": "dataset",
     "test_suite_item": "dataset_item",
+    # The field table behind ``schema("list.dataset_item_case")``
+    # (``oql.VOCABULARY_MODES``). Refusals name the entity a caller typed, but
+    # the reference pointer beside them names this key — and an agent that has
+    # just read a reference is the likeliest caller to type its name back.
+    "dataset_item_case": "dataset_item",
 }
 
 

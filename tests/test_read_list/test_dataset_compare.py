@@ -378,6 +378,10 @@ async def test_the_page_the_caller_asked_for_is_the_page_that_is_fetched() -> No
     ("ids", "expected"),
     [
         ([""], "non-empty array"),
+        # An empty array is an argument the caller passed, so it reaches the
+        # runner: the refusal has to be about what is in it, not about it
+        # being absent.
+        ([], "drop the argument"),
         ([f"e-{n}" for n in range(11)], "Compare up to 10"),
         ([A, A], "repeats an experiment"),
     ],
@@ -395,23 +399,35 @@ async def test_the_experiment_ids_a_call_cannot_mean_are_refused(
 
 
 @pytest.mark.anyio
-async def test_a_filter_without_experiment_ids_says_what_it_needs() -> None:
+async def test_a_filter_on_the_runs_without_experiment_ids_says_where_they_are() -> None:
+    """Without the experiments this is a plain list of the dataset's cases,
+    which takes filters of its own (OPIK-8397) — but not these: ``duration``
+    is a run's, and there are no runs on the page."""
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
         await run_list("dataset_item", dataset_id=DATASET, filters="duration > 1", client=fake)
 
-    assert "filters on dataset_item need experiment_ids" in str(refusal.value)
+    message = str(refusal.value)
+    assert "Unknown field 'duration'" in message
+    assert "It is a field of the comparison's joined page" in message
+    assert "experiment_ids" in message
+    assert fake.compare_calls == []
 
 
 @pytest.mark.anyio
-async def test_a_sort_without_experiment_ids_says_what_it_needs() -> None:
+async def test_a_sort_without_experiment_ids_says_what_orders_cases() -> None:
+    """The items endpoint takes no sorting parameter at all, so the only
+    ordering of cases is the comparison's."""
     fake = _fake(_DEFAULT_CASE)
 
     with pytest.raises(ToolError) as refusal:
         await run_list("dataset_item", dataset_id=DATASET, sort="duration desc", client=fake)
 
-    assert "sort on dataset_item need experiment_ids" in str(refusal.value)
+    message = str(refusal.value)
+    assert "sort is not supported" in message
+    assert "a sort needs experiment_ids" in message
+    assert fake.compare_calls == []
 
 
 @pytest.mark.anyio
