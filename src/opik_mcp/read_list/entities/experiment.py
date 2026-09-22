@@ -86,16 +86,10 @@ _CONDITIONAL: Final = (
     "prompt_version",
     "dataset_version",
     "optimization_id",
-    # Last, because it is the widest column and the one nobody scans down.
-    # It is here at all because a run is the one listing whose rows cannot
-    # share a link: each names its own project and its own dataset, so there
-    # is nothing constant for a page-level template to be built from, and a
-    # listing of runs with no way to open any of them is the dead end this
-    # column costs its width to close.
-    #
-    # Conditional and not spine, for the session that cannot build one: a
-    # column of empty cells under a header called `url` says both that these
-    # runs have addresses and that we mislaid them, and neither is true.
+    # Last: the widest column, and the one nobody scans down. Runs are the
+    # only listing that cannot share one page-level template, because each
+    # names its own project and dataset. Conditional like the rest of this
+    # tuple, so a session that cannot build links shows no empty column.
     "url",
 )
 
@@ -227,10 +221,7 @@ def row_link(settings: Settings, record: dict[str, Any]) -> str | None:
 
     A url per row, which every other listing avoids, because this one has no
     alternative: the address needs the run's project and its dataset, and a
-    workspace-wide page has a different pair on every row. There is nothing
-    constant for a template to be built from, and the rule this feature was
-    written to — a template where the rows share a project, a url per row
-    where they do not — names exactly this case for the expensive answer.
+    workspace-wide page has a different pair on every row.
     """
     links = experiment_links(settings, record)
     url = links.get("url")
@@ -307,10 +298,9 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
 def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The compare view this run lives on — an experiment has no page of its own.
 
-    Three things address it and all three are in the record: the project it
-    belongs to, the dataset the compare view is keyed by, and the run itself.
-    Any of them missing means no link — the alternative is an address the UI
-    resolves against whatever the reader last had open.
+    Three things address it and all three are in the record: the project, the
+    dataset the view is keyed by, and the run. Any of them missing means no
+    link rather than a guessed one.
     """
     project_id = data.get("project_id")
     dataset_id = data.get("dataset_id")

@@ -114,40 +114,27 @@ async def block[T](what: str, load: Callable[[], Awaitable[T]]) -> T | dict[str,
 
 
 def _project_of(ctx: PageContext) -> str:
-    """The page's project id, resolving the name when that is all we were given.
+    """The page's project id from what is already in hand, or ``""``.
 
-    Every link needs an id and the caller may only have written a name — which
-    is the commoner spelling, so a note that asked for ``ctx.project_id``
-    alone left the usual page linkless. Found by measuring a page rather than
-    by reading the code.
+    A link needs an id and the caller may only have written a name, which is
+    the commoner spelling — so a note that read ``ctx.project_id`` alone left
+    the usual page linkless.
 
-    Three sources, none of which costs a call: what the caller passed, what
-    this listing already resolved for its own endpoint, and what the rows
-    carry. It takes no client on purpose — there is nothing here to ask.
-    Turning a project name into an id would undo the property that makes
-    ``project_name`` as cheap as ``project_id`` on these listings, and a
-    decoration does not get to spend a call the page itself declined to.
+    Three sources, in cost order, none of which is a call: what the caller
+    passed, what the rows carry, and what this listing already resolved to
+    reach its own endpoint. There is deliberately no fourth. Turning a name
+    into an id would undo the property that makes ``project_name`` as cheap
+    as ``project_id`` here, and a decoration does not get to spend a call the
+    page itself declined to, so a page whose rows name no project carries no
+    link.
     """
     if ctx.project_id:
         return ctx.project_id
     for row in ctx.rows:
-        # Cheapest source and the usual one: a trace, span or thread row
-        # carries the project it belongs to, so a page scoped by name needs no
-        # call to know its own project.
         found = row.get("project_id")
         if isinstance(found, str) and found:
             return found
-    known = resolved_project()
-    if known:
-        # This listing resolved a project to call its own endpoint. Reusing
-        # that answer is free; asking again would not be.
-        return known
-    # No lookup from here. A name-scoped list deliberately does not round-trip
-    # the name into an id — that is what makes project_name as cheap as
-    # project_id — and a decoration is not the thing that gets to spend a call
-    # the page itself refused to. A page whose rows carry no project simply
-    # carries no link.
-    return ""
+    return resolved_project() or ""
 
 
 #: The two listings whose rows have no page of their own and whose parent

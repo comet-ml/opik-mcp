@@ -179,12 +179,9 @@ def validate_scores(
 
 
 #: Which Logs view a write's change shows up on, when the link cannot name a
-#: row. ``score.create`` and ``comment.create`` are deliberately absent: a
-#: batch of annotations may name traces, spans and threads together, and there
-#: is no one view that shows all three — so the link is the Logs page itself,
-#: which opens on whichever view the reader last used. Absent by decision, not
-#: by omission; a new operation added here without a decision gets the same
-#: behaviour by accident, which is what this note exists to prevent.
+#: row. The two annotation ops are absent by decision, not omission: a batch
+#: of them may name traces, spans and threads together, and no one view shows
+#: all three, so their link is the Logs page itself.
 _LOGS_VIEW: Final[dict[str, str]] = {
     "trace.create": "logsType=traces",
     "trace.update": "logsType=traces",
@@ -197,11 +194,10 @@ _LOGS_VIEW: Final[dict[str, str]] = {
 def _id_of(item: BaseModel, field: str) -> str | None:
     """One id off a validated write model, as the string a URL is built from.
 
-    The models type their ids as ``UUID``, not ``str`` — which is what a
-    ``isinstance(value, str)`` guard here got wrong, silently: every real
-    write came back unlinked while the tests, whose stand-in model typed the
-    same fields as ``str``, passed. Hence one accessor rather than the check
-    repeated at each call site, where it drifted once already.
+    The models type their ids as ``UUID``, not ``str``, so an
+    ``isinstance(value, str)`` guard silently unlinked every real write while
+    tests whose stand-in typed them as ``str`` passed. One accessor rather
+    than that check repeated at each call site.
     """
     value = getattr(item, field, None)
     if value is None:

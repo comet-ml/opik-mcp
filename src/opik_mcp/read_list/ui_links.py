@@ -1,10 +1,18 @@
-"""Where the Opik UI lives for this session — base URL and workspace name.
+"""Where the Opik UI lives for this session, and how to address a page on it.
 
-Two consumers must agree on this: the instructions blob, which tells the
+Two consumers must agree on the first: the instructions blob, which tells the
 agent the UI address once per session, and the links a ``read`` attaches to
-an entity (a Diagnostics issue's page, a trace deep link) so the agent can
-hand the user something clickable without guessing the URL shape. Keeping
-the derivation here means neither can drift from where REST calls go.
+an entity so the agent can hand the user something clickable without guessing
+the URL shape. Keeping the derivation here means neither can drift from where
+REST calls go.
+
+THE HAZARD EVERY BUILDER BELOW IS SHAPED BY, stated once here rather than at
+each of them. The UI is project-scoped: a page is ``/{workspace}/projects/
+{projectId}/…``. It has been through one migration, and the paths it retired
+are still reachable through a compatibility shim that fills the missing
+project slot from whatever project the reader last had open. So a link in the
+old shape does not fail. It opens a real page under someone else's project,
+which is why this needs enforcing in code and not in review.
 """
 
 from __future__ import annotations
@@ -115,16 +123,12 @@ ProjectArea = Literal[
 ]
 """The areas the Opik UI serves under ``/projects/{id}/``, and only those.
 
-Closed on purpose. The UI is project-scoped and has been through one migration
-already: the paths it retired are still reachable through a compatibility shim
-that fills the project slot from whatever the reader last had open, so a link
-to one of them resolves somewhere plausible and wrong. ``traces`` is the
-subtle member of that set — it is still under ``/projects/{id}/``, but the
-router keeps it only to forward to ``logs``, so it is absent here too.
+``traces`` is the subtle absence: it is still under ``/projects/{id}/`` and
+looks current, but the router keeps it only to forward to ``logs``.
 
-Typed as a ``Literal`` rather than checked only at runtime so that a link to a
-page that does not exist fails at ``make typecheck``, where it costs nothing,
-instead of in an answer a user is reading.
+Typed as a ``Literal`` rather than checked only at runtime, so a link to a
+page that does not exist fails at ``make typecheck`` instead of in an answer
+a user is reading.
 """
 
 _LIVE_AREAS: Final[frozenset[str]] = frozenset(get_args(ProjectArea))
@@ -177,10 +181,9 @@ def experiments_compare_url(
     One run and a pair build the same URL. Order is the caller's: the UI reads
     the first as the baseline.
 
-    The compare view is keyed by the *dataset*, and sits under the project the
-    runs belong to — a run has no page of its own. The project is not
-    decoration: without it the address is one v2 retired, and the compatibility
-    shim would resolve it against whatever project the reader last had open.
+    The compare view is keyed by the *dataset* and sits under the project the
+    runs belong to; a run has no page of its own. Without the project this is
+    one of the retired addresses the module docstring describes.
     """
     if not project_id or not dataset_id or not experiment_ids:
         return None
