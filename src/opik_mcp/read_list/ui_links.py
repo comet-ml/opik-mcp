@@ -194,16 +194,38 @@ def experiments_compare_url(
     )
 
 
-def trace_page_url(settings: Settings, project_id: str, trace_id: str) -> str | None:
+def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str | None:
+    """The Logs page on the threads view, with this thread open."""
+    if not thread_id:
+        return None
+    return project_page_url(
+        settings, project_id, "logs", query=f"logsType=threads&thread={thread_id}"
+    )
+
+
+def trace_page_url(
+    settings: Settings,
+    project_id: str,
+    trace_id: str,
+    *,
+    span_id: str | None = None,
+) -> str | None:
     """The Logs page with this trace open, or ``None`` when it cannot be built.
 
     The direct address, for when the project and the workspace are both known.
     :func:`trace_link_template` is the fallback for when they are not — it
     costs a hop and lands on ``/traces``, which v2 keeps only to forward here.
+
+    ``span_id`` selects one span inside the opened trace. It is not an address
+    of its own: the UI treats it as panel state under the trace, and writes an
+    empty one into the query when a trace is opened without a span.
     """
     if not trace_id:
         return None
-    return project_page_url(settings, project_id, "logs", query=f"logsType=traces&trace={trace_id}")
+    query = f"logsType=traces&trace={trace_id}"
+    if span_id:
+        query = f"{query}&span={span_id}"
+    return project_page_url(settings, project_id, "logs", query=query)
 
 
 __all__ = [
@@ -213,5 +235,7 @@ __all__ = [
     "link_workspace",
     "opik_ui_base",
     "project_page_url",
+    "thread_page_url",
     "trace_link_template",
+    "trace_page_url",
 ]

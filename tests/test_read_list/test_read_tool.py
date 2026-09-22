@@ -926,12 +926,15 @@ async def test_read_undeclared_entity_kwargs_dropped() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_thread_has_no_link_fields() -> None:
-    """Links are an issue-read affordance; other composites are unchanged."""
+async def test_read_thread_links_to_the_threads_view() -> None:
+    """A thread read is project-scoped by construction — the tool refuses
+    without it — so the link can always be built."""
     out = await run_read(
         "thread", THREAD, project_id="p-9", client=_thread_fake(), settings=_UI_SETTINGS
     )
-    assert "url" not in _payload(out)
+    assert _payload(out)["url"] == (
+        f"https://opik.test/demo-ws/projects/p-9/logs?logsType=threads&thread={THREAD}"
+    )
 
 
 # --- exception chain assertions ------------------------------------------- #

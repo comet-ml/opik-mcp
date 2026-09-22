@@ -29,6 +29,8 @@ import pytest
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.experiment import experiment_links
+from opik_mcp.read_list.entities.span import span_links
+from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
 from opik_mcp.read_list.ui_links import ProjectArea
 
@@ -255,3 +257,38 @@ def test_trace_link_falls_back_to_the_redirect_without_a_project() -> None:
     the backend did not scope still has an id — the redirect needs only that."""
     links = trace_links(_settings(), {"trace": {"id": "t-1"}})
     assert "/v1/session/redirect/projects/" in links["url"]
+
+
+# --- ticket 03: threads and spans --------------------------------------- #
+
+
+def test_thread_link_opens_logs_on_the_threads_view() -> None:
+    links = thread_links(_settings(), {"thread": {"id": "th-1", "project_id": "p-7"}})
+    assert links["url"] == (
+        "https://opik.test/demo-ws/projects/p-7/logs?logsType=threads&thread=th-1"
+    )
+    assert live_project_url(links["url"])
+
+
+def test_thread_without_a_project_gets_no_link() -> None:
+    assert thread_links(_settings(), {"thread": {"id": "th-1"}}) == {}
+
+
+def test_span_link_opens_its_trace_with_the_span_selected() -> None:
+    """Verified against the running UI: a span is not a page. ``?span=`` is a
+    selection *inside* an opened trace panel — on its own it does nothing, and
+    the UI appends an empty ``span=`` when a trace is opened without one. So a
+    span is addressed through the trace it belongs to."""
+    links = span_links(
+        _settings(),
+        {"id": "s-1", "trace_id": "t-1", "project_id": "p-7"},
+    )
+    assert links["url"] == (
+        "https://opik.test/demo-ws/projects/p-7/logs?logsType=traces&trace=t-1&span=s-1"
+    )
+    assert live_project_url(links["url"])
+
+
+def test_span_without_its_trace_gets_no_link() -> None:
+    """Nothing to open it inside, and the spans view does not open a panel."""
+    assert span_links(_settings(), {"id": "s-1", "project_id": "p-7"}) == {}

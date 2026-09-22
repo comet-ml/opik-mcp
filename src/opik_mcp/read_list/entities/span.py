@@ -8,12 +8,35 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.ui_links import trace_page_url
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     return await client.get_span(entity_id)
+
+
+def span_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The span, open inside its trace.
+
+    A span has no page and no panel of its own: the Logs spans view lists
+    them but opens nothing, and ``?span=`` is a selection *within* an already
+    opened trace panel — the UI writes an empty one into the address when a
+    trace is opened without a span. So the address is the trace's, with the
+    span named; it opens the trace panel with this span selected in the tree.
+
+    Both parts come from the record, and a span whose trace is unknown gets no
+    link rather than one that lands on a list it is not on.
+    """
+    project_id = data.get("project_id")
+    trace_id = data.get("trace_id")
+    span_id = data.get("id")
+    if not all(isinstance(v, str) and v for v in (project_id, trace_id, span_id)):
+        return {}
+    url = trace_page_url(settings, str(project_id), str(trace_id), span_id=str(span_id))
+    return {"url": url} if url is not None else {}
 
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -27,6 +50,7 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 HANDLER = EntityHandler(
     entity_type="span",
     fetch_fn=fetch,
+    link_fn=span_links,
     list_fn=list_page,
     list_extra_fields=("type", "trace_id", "duration", "model", "error_type"),
     list_required_kwargs=("project_id",),
