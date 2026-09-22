@@ -285,3 +285,21 @@ def test_the_handshake_advertises_no_address_the_ui_has_retired() -> None:
     )
     assert "session/redirect" not in blob
     assert "/traces" not in blob
+
+
+def test_the_link_rule_covers_every_row_and_not_just_the_first() -> None:
+    """The rule's first version said "never print a bare URL" and was still
+    obeyed halfway: an answer that linked the first few rows properly and then
+    dropped to raw addresses for the rest, which is the same defect wearing a
+    table for a hat. So the rule now names the failure instead of the ideal.
+    """
+    blob = render_instructions(
+        Settings(
+            opik_api_key="k",
+            comet_workspace="demo-ws",
+            opik_url="https://opik.test/api/",
+        )
+    )
+    assert "every row" in blob
+    assert "url_opens" in blob
+    assert "url_absent" in blob

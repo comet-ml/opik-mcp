@@ -91,12 +91,15 @@ tools/list for what's actually advertised on this connection.
 Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
 task — unless it's already in your context, in which case use what you have.
 
-Links: a read carries the `url` of what it returned, and never a guessed \
-one — a record with no `url` has `url_absent` saying why, or no page at all. \
-Never print a bare URL to a user: make it a link whose text names what it \
-opens — the entity's own name, or the `url_opens` phrase when the answer \
-carries one, or "Open in Opik". An id alone is not an answer a user can act \
-on.
+Links: a read carries the `url` of what it returned, a list page carries \
+one `url_template` or a `url` per row, and none of them is ever guessed — a \
+record with no `url` has `url_absent` saying why, or no page at all. Put the \
+link on the thing's name, every time you name it: the record's own name, or \
+the `url_opens` phrase where the answer carries one, else "Open in Opik". \
+Never a bare address, a shortened one, or an id by itself. This holds for \
+every row you mention and not just the first few — ten rows named is ten \
+links, and dropping to raw addresses partway through is the same defect as \
+not linking at all.
 
 Today's date is {date}.\
 """
