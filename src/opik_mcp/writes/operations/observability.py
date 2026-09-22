@@ -7,10 +7,12 @@ encodes an id in the path.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel
 
+from opik_mcp.config import Settings
+from opik_mcp.read_list.ui_links import project_page_url, thread_page_url, trace_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 from opik_mcp.writes.wire import TARGET_PATH, BuildContext, WireRequest, dump
 
@@ -184,3 +186,75 @@ __all__ = [
     "build_trace_update",
     "validate_scores",
 ]
+
+
+def decorate_with_page(
+    op: WriteOperation,
+    items: list[BaseModel],
+    out: dict[str, Any],
+    settings: Settings,
+    project_id: str | None,
+) -> None:
+    """Where to go and look at what this write changed.
+
+    One link per call and never one per item: a batch may have changed fifty
+    rows, and most write targets — a score, a comment, an experiment item —
+    have no page of their own. So a single write of one thing links to that
+    thing, and a batch links to the page it landed on.
+
+    The project must already be known, from the request or from what the
+    dispatcher resolved before sending. Looking one up here would mean a call
+    after the write has already succeeded, and a failure in it would turn a
+    write that worked into an error — the price of a link is never the result.
+    """
+    # ``project_id`` is what the dispatcher resolved, where an operation
+    # resolves anything; these do not, so the payload is the other source.
+    # ``project_name`` is deliberately not one: turning it into an id is a
+    # call, and this runs after the write has already succeeded.
+    if not project_id:
+        project_id = next(
+            (
+                value
+                for item in items
+                if isinstance(value := getattr(item, "project_id", None), str) and value
+            ),
+            None,
+        )
+    if not project_id:
+        return
+    single = items[0] if len(items) == 1 else None
+    url: str | None = None
+    if op.name == "span.create" and single is not None:
+        trace_id = getattr(single, "trace_id", None)
+        span_id = getattr(single, "id", None)
+        if isinstance(trace_id, str) and trace_id:
+            url = trace_page_url(
+                settings,
+                project_id,
+                trace_id,
+                span_id=span_id if isinstance(span_id, str) else None,
+            )
+    elif op.name in {"thread.close", "thread.open"} and single is not None:
+        thread_id = getattr(single, "thread_id", None)
+        if isinstance(thread_id, str) and thread_id:
+            url = thread_page_url(settings, project_id, thread_id)
+    elif op.name in {"trace.create", "trace.update"} and single is not None:
+        trace_id = getattr(single, "id", None)
+        if isinstance(trace_id, str) and trace_id:
+            url = trace_page_url(settings, project_id, trace_id)
+    if url is None:
+        # A batch, or a single whose id the caller left to the backend: the
+        # page is still the right answer, just not a row on it.
+        url = project_page_url(settings, project_id, "logs", query=_LOGS_VIEW.get(op.name))
+    if url is not None:
+        out["url"] = url
+
+
+#: Which Logs view a write's change shows up on, when the link cannot name a row.
+_LOGS_VIEW: Final[dict[str, str]] = {
+    "trace.create": "logsType=traces",
+    "trace.update": "logsType=traces",
+    "span.create": "logsType=spans",
+    "thread.close": "logsType=threads",
+    "thread.open": "logsType=threads",
+}
