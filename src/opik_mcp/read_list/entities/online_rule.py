@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, PageContext
 from opik_mcp.read_list.project_scope import scope_of
+from opik_mcp.read_list.ui_links import view_link_note
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 
@@ -22,8 +24,23 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     )
 
 
+async def _page_link_note(
+    client: OpikListClient, settings: Settings, ctx: PageContext
+) -> str | None:
+    """Where to go and look at these in the UI.
+
+    A rule has no page of its own, so the note names the page it is visible
+    on rather than implying otherwise — the label is the point, not the url.
+    """
+    note = view_link_note(settings, "online_rule", ctx.project_id or "")
+    if note is None:
+        return None
+    return f"Open in Opik: {note['url_opens']} — {note['url']}"
+
+
 HANDLER = EntityHandler(
     entity_type="online_rule",
+    page_note_fn=_page_link_note,
     fetch_fn=unsupported_fetch,
     list_fn=list_page,
     list_extra_fields=("type", "enabled", "sampling_rate"),

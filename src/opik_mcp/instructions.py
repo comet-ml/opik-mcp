@@ -80,7 +80,7 @@ nightly run. A non-empty list dates itself ("Report covers data through …") \
 because the issues are whatever the last scan grouped; when it names an \
 uncovered tail, the requested window runs past the report, so close the gap \
 with list('trace', …, since=…) instead of answering from the issues \
-alone.{trace_link_clause}
+alone.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \
@@ -91,6 +91,13 @@ tools/list for what's actually advertised on this connection.
 - read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
 Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
 task — unless it's already in your context, in which case use what you have.
+
+Links: a read carries the `url` of what it returned, and never a guessed \
+one — a record with no `url` has `url_absent` saying why, or no page at all. \
+Never print a bare URL to a user: make it a link whose text names what it \
+opens — the entity's own name, or the `url_opens` phrase when the answer \
+carries one, or "Open in Opik". An id alone is not an answer a user can act \
+on.{trace_link_clause}
 
 Today's date is {date}.\
 """
@@ -109,19 +116,16 @@ def _opik_ui_url(s: Settings) -> str:
 def _render_trace_link_clause(s: Settings) -> str:
     """Name the trace link shape once per session, or say nothing.
 
-    A trace id is not something a user can act on, and neither ``list`` nor
-    ``read`` returns a URL for one. The shape is not guessable — it goes
-    through the backend redirect with a base64 argument — and a guess yields a
-    link that looks right and 404s, which is worse than the bare id. Naming the
-    template on the handshake costs nothing per call and needs no project_id.
+    ``list`` returns no URL for a trace, and its rows are the common case, so
+    the template is named on the handshake: it costs nothing per call and
+    needs no project_id. The shape is not guessable — it goes through the
+    backend redirect with a base64 argument — and a guess yields a link that
+    looks right and 404s, which is worse than the bare id.
     """
     template = trace_link_template(s)
     if template is None:
         return ""
-    return (
-        " A trace id is not clickable: hand the user a link instead, "
-        f"{template}, with the id filled in."
-    )
+    return f" For a trace from list(), that link is {template} with the id filled in."
 
 
 def _render_default_project_clause(s: Settings) -> str:

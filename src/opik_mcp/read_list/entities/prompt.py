@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
@@ -19,6 +20,7 @@ from opik_mcp.read_list.paging import (
     page_items,
     rest_of,
 )
+from opik_mcp.read_list.ui_links import scoped_entity_links
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 VERSIONS_INLINE_LIMIT = 100
@@ -71,8 +73,20 @@ async def list_versions(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_prompt_versions(prompt_id, **kw)
 
 
+def prompt_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The prompt's page under its project, or why there is none.
+
+    Same shape as a dataset's: ``project_id`` is nullable on the backend, and
+    a prompt created without project scope has no page in v2 at all.
+    """
+    prompt = data.get("prompt")
+    record = prompt if isinstance(prompt, dict) else data
+    return scoped_entity_links(settings, record, area="prompts", noun="prompt")
+
+
 HANDLER = EntityHandler(
     entity_type="prompt",
+    link_fn=prompt_links,
     fetch_fn=fetch,
     search_by_name_fn=search_by_name,
     list_fn=list_page,

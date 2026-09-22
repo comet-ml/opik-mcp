@@ -28,11 +28,13 @@ import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 from opik_mcp.config import Settings
+from opik_mcp.read_list.entities.dataset import dataset_links
 from opik_mcp.read_list.entities.experiment import experiment_links
+from opik_mcp.read_list.entities.prompt import prompt_links
 from opik_mcp.read_list.entities.span import span_links
 from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
-from opik_mcp.read_list.ui_links import ProjectArea
+from opik_mcp.read_list.ui_links import ProjectArea, view_link_note
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
 
@@ -292,3 +294,63 @@ def test_span_link_opens_its_trace_with_the_span_selected() -> None:
 def test_span_without_its_trace_gets_no_link() -> None:
     """Nothing to open it inside, and the spans view does not open a panel."""
     assert span_links(_settings(), {"id": "s-1", "project_id": "p-7"}) == {}
+
+
+# --- tickets 04 and 05: scoped entities, and the things that are not pages - #
+
+
+def test_dataset_links_to_its_page_when_it_is_project_scoped() -> None:
+    links = dataset_links(_settings(), {"id": "ds-1", "project_id": "p-7", "name": "cases"})
+    assert links["url"] == "https://opik.test/demo-ws/projects/p-7/datasets/ds-1"
+    assert live_project_url(links["url"])
+
+
+def test_a_workspace_level_dataset_says_why_it_has_no_link() -> None:
+    """v2 has no workspace-level route and the backend filters these listings
+    strictly on project, so there is no page to open — and the reader deserves
+    that sentence rather than wondering why this record alone has no link."""
+    links = dataset_links(_settings(), {"id": "ds-1", "name": "cases"})
+    assert "url" not in links
+    assert "project" in links["url_absent"]
+
+
+def test_prompt_links_to_its_page_when_it_is_project_scoped() -> None:
+    links = prompt_links(
+        _settings(), {"prompt": {"id": "pr-1", "project_id": "p-7", "name": "judge"}}
+    )
+    assert links["url"] == "https://opik.test/demo-ws/projects/p-7/prompts/pr-1"
+
+
+def test_a_workspace_level_prompt_says_why_it_has_no_link() -> None:
+    links = prompt_links(_settings(), {"prompt": {"id": "pr-1", "name": "judge"}})
+    assert "url" not in links
+    assert "project" in links["url_absent"]
+
+
+def test_a_view_tier_link_names_the_page_it_opens() -> None:
+    """A score name is a column, not a page. The link still helps, but the
+    label has to stop it reading as though the score is waiting behind it."""
+    note = view_link_note(_settings(), "score_name", "p-7")
+    assert note is not None
+    assert note["url"] == "https://opik.test/demo-ws/projects/p-7/logs"
+    assert "column" in note["url_opens"].lower()
+    assert live_project_url(note["url"])
+
+
+@pytest.mark.parametrize(
+    ("entity", "area"),
+    [
+        ("score_name", "logs"),
+        ("online_rule", "online-evaluation"),
+        ("project_metric", "dashboards"),
+    ],
+)
+def test_every_view_tier_entity_has_a_page_and_a_label(entity: str, area: str) -> None:
+    note = view_link_note(_settings(), entity, "p-7")
+    assert note is not None
+    assert note["url"].endswith(f"/projects/p-7/{area}")
+    assert note["url_opens"]
+
+
+def test_a_view_tier_link_is_absent_without_a_project() -> None:
+    assert view_link_note(_settings(), "score_name", "") is None

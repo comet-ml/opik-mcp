@@ -194,6 +194,71 @@ def experiments_compare_url(
     )
 
 
+#: The entities that have no page of their own, the page each is visible on,
+#: and what to look for there. The label is not decoration: a link to Logs
+#: under a score name would otherwise read as a link to the score.
+_VIEW_PAGES: Final[dict[str, tuple[ProjectArea, str]]] = {
+    "score_name": (
+        "logs",
+        "the project's Logs, where this score is a column on the rows that carry it",
+    ),
+    "online_rule": (
+        "online-evaluation",
+        "the project's Online evaluation rules, where this rule is a row",
+    ),
+    "project_metric": ("dashboards", "the project's Dashboards, where this metric is charted"),
+}
+
+
+def scoped_entity_links(
+    settings: Settings,
+    record: dict[str, object],
+    *,
+    area: ProjectArea,
+    noun: str,
+) -> dict[str, str]:
+    """A project-scoped entity's page, or the sentence that explains its absence.
+
+    Shared by the two entities the backend lets exist without a project. When
+    one does, there is no page for it anywhere — so this returns a reason in
+    place of a url, which is the only honest answer and is also how the gap
+    reaches whoever can close it.
+    """
+    entity_id = record.get("id")
+    project_id = record.get("project_id")
+    if not isinstance(entity_id, str) or not entity_id:
+        return {}
+    if not isinstance(project_id, str) or not project_id:
+        return {
+            "url_absent": (
+                f"This {noun} is not scoped to a project, and the Opik UI addresses "
+                f"{noun}s under one — so it has no page to open."
+            )
+        }
+    url = project_page_url(settings, project_id, area, subpath=entity_id)
+    return {"url": url} if url is not None else {}
+
+
+def view_link_note(settings: Settings, entity_type: str, project_id: str) -> dict[str, str] | None:
+    """Where to go and look at something that is not a page, or ``None``.
+
+    A feedback score name is a column, an automation rule is a row, a metric
+    is a chart. None of them has an address of its own and none ever will, so
+    waiting for a deep link means these answers stay dead ends forever.
+
+    The label travels with the url because the link overstates itself without
+    one — and the agent is told never to print a bare URL, so the words it
+    puts around the link should be the true ones rather than the entity's
+    name.
+    """
+    page = _VIEW_PAGES.get(entity_type)
+    if page is None or not project_id:
+        return None
+    area, opens = page
+    url = project_page_url(settings, project_id, area)
+    return None if url is None else {"url": url, "url_opens": opens}
+
+
 def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str | None:
     """The Logs page on the threads view, with this thread open."""
     if not thread_id:
@@ -235,7 +300,9 @@ __all__ = [
     "link_workspace",
     "opik_ui_base",
     "project_page_url",
+    "scoped_entity_links",
     "thread_page_url",
     "trace_link_template",
     "trace_page_url",
+    "view_link_note",
 ]
