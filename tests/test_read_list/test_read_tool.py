@@ -835,7 +835,8 @@ async def test_read_issue_carries_diagnostics_page_url_and_trace_url_template() 
     body = _payload(out)
     assert body["url"] == f"https://opik.test/demo-ws/projects/p-9/diagnostics?issue={ISSUE}"
     assert (
-        body["trace_url_template"] == "https://opik.test/demo-ws/projects/p-9/logs?trace={trace_id}"
+        body["trace_url_template"]
+        == "https://opik.test/demo-ws/projects/p-9/logs?logsType=traces&trace={trace_id}"
     )
 
 

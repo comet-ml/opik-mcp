@@ -108,10 +108,7 @@ async def block[T](what: str, load: Callable[[], Awaitable[T]]) -> T | dict[str,
         return {"error": describe(what, exc)}
 
 
-__all__ = ["BLOCK_ERRORS", "DEADLINE_SECONDS", "block", "describe"]
-
-
-async def _project_of(client: OpikListClient, ctx: PageContext) -> str:
+def _project_of(ctx: PageContext) -> str:
     """The page's project id, resolving the name when that is all we were given.
 
     Every link needs an id and the caller may only have written a name — which
@@ -121,10 +118,10 @@ async def _project_of(client: OpikListClient, ctx: PageContext) -> str:
 
     Three sources, none of which costs a call: what the caller passed, what
     this listing already resolved for its own endpoint, and what the rows
-    carry. Asking the backend to turn a project name into an id would undo the
-    property that makes ``project_name`` as cheap as ``project_id`` on these
-    listings, and a decoration does not get to spend a call the page itself
-    declined to.
+    carry. It takes no client on purpose — there is nothing here to ask.
+    Turning a project name into an id would undo the property that makes
+    ``project_name`` as cheap as ``project_id`` on these listings, and a
+    decoration does not get to spend a call the page itself declined to.
     """
     if ctx.project_id:
         return ctx.project_id
@@ -164,7 +161,7 @@ def link_note_for(entity_type: str) -> PageNoteFn:
     """
 
     async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
-        project_id = await _project_of(client, ctx)
+        project_id = _project_of(ctx)
         view = view_link_note(settings, entity_type, project_id, empty=ctx.empty)
         if view is not None:
             return f"Open in Opik: {view['url_opens']} — {view['url']}"
@@ -182,3 +179,12 @@ def link_note_for(entity_type: str) -> PageNoteFn:
         )
 
     return note
+
+
+__all__ = [
+    "BLOCK_ERRORS",
+    "DEADLINE_SECONDS",
+    "block",
+    "describe",
+    "link_note_for",
+]

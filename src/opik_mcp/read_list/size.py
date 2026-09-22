@@ -49,8 +49,7 @@ def size_header(
     tokens: int,
     *,
     projected: bool = False,
-    link_name: str | None = None,
-    has_link: bool = False,
+    link_as: str | None = None,
 ) -> str:
     """The line above every read.
 
@@ -63,16 +62,17 @@ def size_header(
     read would otherwise see a cheap trace where there is a fragment of one.
     Said twice on purpose — here for the skim, and under it for what went.
 
-    ``link_name`` says the record carries a ``url`` and what to call it. The
+    ``link_as`` is the text to give the link this record carries — the
+    record's own name, or ``"Open in Opik"`` where it has none. Present means
+    there is a link; one argument rather than two, because a flag beside a
+    name can disagree with it and only one of them can be right. The
     rule that a bare URL is never shown to a person lives in the instructions
     blob, which not every host passes to the model; the tool result always
     reaches it. The url itself is not repeated here — it is one line below,
     and a header that carried it would be the bare URL this exists to prevent.
     """
     tag = " | projected" if projected else ""
-    link = ""
-    if has_link or link_name:
-        link = f" | open as a link named {link_name or 'Open in Opik'!r}"
+    link = f" | open as a link named {link_as!r}" if link_as else ""
     return f"[read: {entity_type} {entity_id} | {tokens:,} tok{tag}{link}]"
 
 

@@ -178,7 +178,13 @@ def validate_scores(
     )
 
 
-#: Which Logs view a write's change shows up on, when the link cannot name a row.
+#: Which Logs view a write's change shows up on, when the link cannot name a
+#: row. ``score.create`` and ``comment.create`` are deliberately absent: a
+#: batch of annotations may name traces, spans and threads together, and there
+#: is no one view that shows all three — so the link is the Logs page itself,
+#: which opens on whichever view the reader last used. Absent by decision, not
+#: by omission; a new operation added here without a decision gets the same
+#: behaviour by accident, which is what this note exists to prevent.
 _LOGS_VIEW: Final[dict[str, str]] = {
     "trace.create": "logsType=traces",
     "trace.update": "logsType=traces",

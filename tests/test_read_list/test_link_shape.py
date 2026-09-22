@@ -38,6 +38,7 @@ from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
 from opik_mcp.read_list.handler import PageContext
 from opik_mcp.read_list.list_tool import run_list
+from opik_mcp.read_list.project_scope import remember_resolved_project, resolved_project
 from opik_mcp.read_list.read_tool import _link_hint
 from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
@@ -443,7 +444,7 @@ def test_the_header_says_the_answer_has_a_link_and_what_to_call_it() -> None:
     not every host passes those to the model. The tool result always reaches
     it, so the header carries the same instruction where it cannot be lost —
     without the url, which is already one line below."""
-    header = size_header("experiment", "e-1", 120, link_name="baseline-seed")
+    header = size_header("experiment", "e-1", 120, link_as="baseline-seed")
     assert "open as a link named 'baseline-seed'" in header
     assert "http" not in header
 
@@ -453,7 +454,7 @@ def test_the_header_is_unchanged_for_an_answer_with_no_link() -> None:
 
 
 def test_an_unnamed_record_gets_the_generic_link_text() -> None:
-    header = size_header("span", "s-1", 120, link_name=None, has_link=True)
+    header = size_header("span", "s-1", 120, link_as="Open in Opik")
     assert "open as a link named 'Open in Opik'" in header
 
 
@@ -462,7 +463,7 @@ def test_a_projection_that_drops_the_url_drops_the_header_promise_too() -> None:
     name `url` does not get one. The header must not say otherwise: a promise
     of a link the payload has no url for sends the agent looking for it."""
     record = {"id": "e-1", "name": "baseline-seed", "url": "https://opik.test/x"}
-    assert _link_hint("experiment", record)["has_link"] is True
+    assert _link_hint("experiment", record)["link_as"] == "baseline-seed"
     assert _link_hint("experiment", {k: v for k, v in record.items() if k != "url"}) == {}
 
 
@@ -533,8 +534,6 @@ async def test_a_score_name_page_scoped_by_name_keeps_its_link() -> None:
     is what the note uses, so the page costs exactly what it did before and
     the name-scoped call is no poorer than the id-scoped one.
     """
-    from opik_mcp.read_list.project_scope import remember_resolved_project
-
     remember_resolved_project("p-7")
     note = await link_note_for("score_name")(
         cast("OpikListClient", object()),
@@ -552,8 +551,6 @@ async def test_one_page_never_inherits_another_page_s_project() -> None:
     over from a previous listing would build a link into the wrong project —
     which is the failure this whole feature exists to stop, arriving by the
     back door."""
-    from opik_mcp.read_list.project_scope import remember_resolved_project, resolved_project
-
     remember_resolved_project("p-from-an-earlier-call")
     await run_list(
         "score_name", project_id="p-7", client=cast("OpikListClient", _ScoreNameClient())
@@ -579,3 +576,71 @@ def test_a_url_column_is_never_cut_to_fit() -> None:
     trimmed, cut_it = _render_cell("name", "x" * 200, cell_limit=60)
     assert trimmed.endswith("...")
     assert cut_it is True
+
+
+@pytest.mark.anyio
+async def test_a_failed_call_leaves_nothing_for_the_next_one_to_pick_up() -> None:
+    """The clear happens at the start of a call, not in a finally, so it holds
+    whatever the previous call did — crashed, timed out, or never ran. That is
+    the point: correctness here cannot depend on cleanup having run.
+
+    Asserted the way it matters: a project left behind by a failure does not
+    end up in the next page's link.
+    """
+
+    class _Boom:
+        async def list_project_score_names(self, project_id: str, /) -> dict[str, object]:
+            raise RuntimeError("backend down")
+
+    remember_resolved_project("p-stale")
+    with pytest.raises(RuntimeError):
+        await run_list("score_name", project_id="p-7", client=cast("OpikListClient", _Boom()))
+
+    out = await run_list(
+        "score_name", project_id="p-7", client=cast("OpikListClient", _ScoreNameClient())
+    )
+    assert "/projects/p-7/logs" in out
+    assert "p-stale" not in out
+
+
+@pytest.mark.anyio
+async def test_a_runner_call_clears_it_too() -> None:
+    """A metric answers through the runner, which is dispatched from the same
+    entry point — so the clear has to happen before the branch, not inside
+    the collection path."""
+
+    class _Metrics:
+        async def get_project_metrics(
+            self, project_id: str, /, **body: object
+        ) -> dict[str, object]:
+            return {"results": []}
+
+    remember_resolved_project("p-stale")
+    await run_list(
+        "project_metric",
+        project_id="p-7",
+        metric_type="trace_count",
+        client=cast("OpikListClient", _Metrics()),
+    )
+    assert resolved_project() is None
+
+
+@pytest.mark.anyio
+async def test_an_experiment_page_that_cannot_link_prints_no_url_column() -> None:
+    """A column of empty cells under a header called `url` says the wrong
+    thing twice: that these runs have addresses, and that we lost them. The
+    ticket's words are "a list that cannot be linked carries neither, and says
+    nothing about links", so the column appears only when some row filled it.
+    """
+
+    class _Experiments:
+        async def list_experiments(self, **kw: object) -> dict[str, object]:
+            return {
+                "content": [{"id": "e-1", "name": "nightly", "dataset_id": "ds-1"}],
+                "total": 1,
+            }
+
+    # No project_id on the record, so no row can be addressed.
+    out = await run_list("experiment", client=cast("OpikListClient", _Experiments()))
+    assert "nightly" in out
+    assert "url" not in out.splitlines()[2], out.splitlines()[2]

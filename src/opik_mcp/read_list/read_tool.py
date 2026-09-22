@@ -117,7 +117,7 @@ def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
     subject = data.get(entity_type)
     record = subject if isinstance(subject, dict) else data
     name = record.get("name")
-    return {"has_link": True, "link_name": name if isinstance(name, str) and name else None}
+    return {"link_as": name if isinstance(name, str) and name else "Open in Opik"}
 
 
 async def run_read(

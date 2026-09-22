@@ -248,6 +248,10 @@ def scoped_entity_links(
 #: How a row of each project-scoped listing is addressed, as a query with the
 #: row's own columns left as slots. ``{id}`` is the row's id; ``{trace_id}`` is
 #: the column a span row already prints.
+#: Stands in for the project while a project-list template is built, so the
+#: builder is handed something that is an id in shape if not in meaning.
+_SLOT: Final = "0PROJECTSLOT0"
+
 _ROW_QUERIES: Final[dict[str, str]] = {
     "trace": "logsType=traces&trace={id}",
     "span": "logsType=traces&trace={trace_id}&span={id}",
@@ -273,18 +277,17 @@ def row_link_template(
     columns on every row.
     """
     if entity_type == "project":
-        # The row *is* the project, so the slot is the id column itself.
-        return _template_for(settings, "{id}", "logs", None)
+        # The row *is* the project, so the project slot is the id column. The
+        # placeholder is substituted after the url is built rather than passed
+        # in as the project: ``project_page_url`` takes an id, and handing it a
+        # template slot would make its emptiness check the only thing standing
+        # between a slot and a path segment.
+        built = project_page_url(settings, _SLOT, "logs")
+        return None if built is None else {"url_template": built.replace(_SLOT, "{id}")}
     query = _ROW_QUERIES.get(entity_type)
     if query is None or not project_id:
         return None
-    return _template_for(settings, project_id, "logs", query)
-
-
-def _template_for(
-    settings: Settings, project_id: str, area: ProjectArea, query: str | None
-) -> dict[str, str] | None:
-    url = project_page_url(settings, project_id, area, query=query)
+    url = project_page_url(settings, project_id, "logs", query=query)
     return None if url is None else {"url_template": url}
 
 

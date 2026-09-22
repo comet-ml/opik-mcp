@@ -70,13 +70,6 @@ _SPINE: Final = (
     "created_at",
     "trace_count",
     "feedback_scores",
-    # Last, because it is the widest column and the one nobody scans down.
-    # It is here at all because a run is the one listing whose rows cannot
-    # share a link: each names its own project and its own dataset, so there
-    # is nothing constant for a page-level template to be built from, and a
-    # listing of runs with no way to open any of them is the dead end this
-    # column costs its width to close.
-    "url",
 )
 
 #: Printed when some row on the page has one, in this order whichever subset
@@ -93,6 +86,17 @@ _CONDITIONAL: Final = (
     "prompt_version",
     "dataset_version",
     "optimization_id",
+    # Last, because it is the widest column and the one nobody scans down.
+    # It is here at all because a run is the one listing whose rows cannot
+    # share a link: each names its own project and its own dataset, so there
+    # is nothing constant for a page-level template to be built from, and a
+    # listing of runs with no way to open any of them is the dead end this
+    # column costs its width to close.
+    #
+    # Conditional and not spine, for the session that cannot build one: a
+    # column of empty cells under a header called `url` says both that these
+    # runs have addresses and that we mislaid them, and neither is true.
+    "url",
 )
 
 #: Every filterable field, read off the compiler's own table so it cannot name
