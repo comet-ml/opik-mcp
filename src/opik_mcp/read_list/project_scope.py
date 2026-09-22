@@ -20,6 +20,7 @@ import difflib
 import hashlib
 import logging
 import time
+from contextvars import ContextVar
 from typing import Any
 
 import httpx
@@ -187,6 +188,27 @@ async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
     raise EntityArgValidationError("\n".join(lines))
 
 
+#: The project a listing resolved for itself, for the length of one call.
+#:
+#: A name-scoped list does not round-trip the name into an id — that is what
+#: makes ``project_name`` as cheap as ``project_id`` — except where the
+#: endpoint takes a UUID and the listing had to resolve one anyway. Where it
+#: did, the answer is worth keeping: a page decoration needs the same id, and
+#: asking again would spend a second call to learn what this one already
+#: knows. A ContextVar and not a global because two calls can be in flight.
+_RESOLVED_PROJECT: ContextVar[str | None] = ContextVar("resolved_list_project", default=None)
+
+
+def remember_resolved_project(project_id: str | None) -> None:
+    """Record (or, with ``None``, clear) the project this call resolved."""
+    _RESOLVED_PROJECT.set(project_id)
+
+
+def resolved_project() -> str | None:
+    """The project this call resolved for itself, if it had to resolve one."""
+    return _RESOLVED_PROJECT.get()
+
+
 async def require_project_id(
     client: OpikListClient,
     *,
@@ -204,7 +226,9 @@ async def require_project_id(
         return project_id
     if project_name is None:
         raise EntityArgValidationError(f"{caller} requires project_id or project_name.")
-    return await resolve_project_id(client, project_name)
+    resolved = await resolve_project_id(client, project_name)
+    remember_resolved_project(resolved)
+    return resolved
 
 
 async def scope_of(client: OpikListClient, kw: dict[str, Any], *, caller: str) -> str:
@@ -225,9 +249,11 @@ async def scope_of(client: OpikListClient, kw: dict[str, Any], *, caller: str) -
 
 __all__ = [
     "project_rows",
+    "remember_resolved_project",
     "require_project_id",
     "reset_project_cache_for_tests",
     "resolve_project_id",
+    "resolved_project",
     "scope_of",
     "unknown_project_message",
 ]

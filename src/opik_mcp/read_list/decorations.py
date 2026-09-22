@@ -32,6 +32,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
 )
 from opik_mcp.read_list.handler import PageContext, PageNoteFn
+from opik_mcp.read_list.project_scope import resolved_project
 from opik_mcp.read_list.ui_links import row_link_template, view_link_note
 
 logger = logging.getLogger("opik_mcp.read_list.decorations")
@@ -118,7 +119,8 @@ async def _project_of(client: OpikListClient, ctx: PageContext) -> str:
     alone left the usual page linkless. Found by measuring a page rather than
     by reading the code.
 
-    Two sources, and no third: what the caller passed, and what the rows
+    Three sources, none of which costs a call: what the caller passed, what
+    this listing already resolved for its own endpoint, and what the rows
     carry. Asking the backend to turn a project name into an id would undo the
     property that makes ``project_name`` as cheap as ``project_id`` on these
     listings, and a decoration does not get to spend a call the page itself
@@ -133,6 +135,11 @@ async def _project_of(client: OpikListClient, ctx: PageContext) -> str:
         found = row.get("project_id")
         if isinstance(found, str) and found:
             return found
+    known = resolved_project()
+    if known:
+        # This listing resolved a project to call its own endpoint. Reusing
+        # that answer is free; asking again would not be.
+        return known
     # No lookup from here. A name-scoped list deliberately does not round-trip
     # the name into an id — that is what makes project_name as cheap as
     # project_id — and a decoration is not the thing that gets to spend a call

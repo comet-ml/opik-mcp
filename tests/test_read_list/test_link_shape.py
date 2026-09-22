@@ -37,6 +37,7 @@ from opik_mcp.read_list.entities.span import span_links
 from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
 from opik_mcp.read_list.handler import PageContext
+from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import _link_hint
 from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
@@ -45,6 +46,13 @@ from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_lin
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+class _ScoreNameClient:
+    """Just enough of the client for a score_name listing."""
+
+    async def list_project_score_names(self, project_id: str, /) -> dict[str, object]:
+        return {"scores": [{"name": "helpfulness"}]}
 
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
@@ -513,3 +521,41 @@ async def test_a_page_whose_rows_name_no_project_simply_carries_no_link() -> Non
         PageContext(project_id=None, project_name="checkout", rows=({"id": "t-1"},)),
     )
     assert note is None
+
+
+@pytest.mark.anyio
+async def test_a_score_name_page_scoped_by_name_keeps_its_link() -> None:
+    """The rows of this listing are bare names — no id, no project, ever — so
+    reading the project off them cannot work here, and scoping by name lost
+    the link entirely.
+
+    The listing already resolved the project to call its endpoint. That answer
+    is what the note uses, so the page costs exactly what it did before and
+    the name-scoped call is no poorer than the id-scoped one.
+    """
+    from opik_mcp.read_list.project_scope import remember_resolved_project
+
+    remember_resolved_project("p-7")
+    note = await link_note_for("score_name")(
+        cast("OpikListClient", object()),
+        _settings(),
+        PageContext(project_id=None, project_name="checkout", rows=({"name": "helpfulness"},)),
+    )
+    assert note is not None
+    assert "/projects/p-7/logs" in note
+    assert "column" in note
+
+
+@pytest.mark.anyio
+async def test_one_page_never_inherits_another_page_s_project() -> None:
+    """The reuse above is per call and must not outlive it. A project left
+    over from a previous listing would build a link into the wrong project —
+    which is the failure this whole feature exists to stop, arriving by the
+    back door."""
+    from opik_mcp.read_list.project_scope import remember_resolved_project, resolved_project
+
+    remember_resolved_project("p-from-an-earlier-call")
+    await run_list(
+        "score_name", project_id="p-7", client=cast("OpikListClient", _ScoreNameClient())
+    )
+    assert resolved_project() is None, "run_list clears it before doing anything"

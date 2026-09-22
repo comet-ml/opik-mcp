@@ -82,6 +82,7 @@ from opik_mcp.read_list.oql import (
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,
+    remember_resolved_project,
     unknown_project_message,
 )
 from opik_mcp.read_list.projection import check as check_fields
@@ -254,6 +255,11 @@ async def run_list(
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
     _PAGE_FACTS.set({})
+    # Cleared per call for the same reason the page facts are: a project a
+    # previous listing resolved is not a fact about this one, and a link
+    # built from it would point into the wrong project — the exact failure
+    # this whole feature exists to stop.
+    remember_resolved_project(None)
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
     tool_args: dict[str, Any] = {
