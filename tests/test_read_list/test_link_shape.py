@@ -34,6 +34,8 @@ from opik_mcp.read_list.entities.prompt import prompt_links
 from opik_mcp.read_list.entities.span import span_links
 from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
+from opik_mcp.read_list.read_tool import _link_hint
+from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
@@ -414,3 +416,34 @@ def test_no_template_where_the_row_cannot_fill_one() -> None:
 
 def test_no_template_without_a_project() -> None:
     assert row_link_template(_settings(), "trace", None) is None
+
+
+# --- ticket 08: the answer names its own link ----------------------------- #
+
+
+def test_the_header_says_the_answer_has_a_link_and_what_to_call_it() -> None:
+    """The rule that an id is never shown bare lives in the instructions, and
+    not every host passes those to the model. The tool result always reaches
+    it, so the header carries the same instruction where it cannot be lost —
+    without the url, which is already one line below."""
+    header = size_header("experiment", "e-1", 120, link_name="baseline-seed")
+    assert "open as a link named 'baseline-seed'" in header
+    assert "http" not in header
+
+
+def test_the_header_is_unchanged_for_an_answer_with_no_link() -> None:
+    assert size_header("dataset", "ds-1", 120) == "[read: dataset ds-1 | 120 tok]"
+
+
+def test_an_unnamed_record_gets_the_generic_link_text() -> None:
+    header = size_header("span", "s-1", 120, link_name=None, has_link=True)
+    assert "open as a link named 'Open in Opik'" in header
+
+
+def test_a_projection_that_drops_the_url_drops_the_header_promise_too() -> None:
+    """Projection runs after the links are attached, so a caller who does not
+    name `url` does not get one. The header must not say otherwise: a promise
+    of a link the payload has no url for sends the agent looking for it."""
+    record = {"id": "e-1", "name": "baseline-seed", "url": "https://opik.test/x"}
+    assert _link_hint("experiment", record)["has_link"] is True
+    assert _link_hint("experiment", {k: v for k, v in record.items() if k != "url"}) == {}

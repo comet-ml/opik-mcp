@@ -334,7 +334,7 @@ async def test_read_project_by_uuid_returns_header_and_json() -> None:
     out = await run_read("project", UUID, client=fake)
 
     assert out.startswith(f"[read: project {UUID}")
-    assert "tok]" in out, "the size is stated so a large answer is visible as one"
+    assert " tok" in out, "the size is stated so a large answer is visible as one"
     assert UUID in out
     assert "demo" in out
 
@@ -1769,7 +1769,7 @@ async def test_a_huge_record_comes_back_whole() -> None:
 
     assert "TRUNCATED" not in out
     assert out.count(payload) == 2, "both the trace's field and the span's survive"
-    assert "tok]" in out.splitlines()[0], "and the header says what it cost"
+    assert " tok" in out.splitlines()[0], "and the header says what it cost"
 
 
 # --- slim child bodies ----------------------------------------------------- #

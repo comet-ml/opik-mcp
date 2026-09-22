@@ -104,6 +104,22 @@ def _format_client_error(
     return f"Failed to fetch {entity_type} '{entity_id}': {exc}"
 
 
+def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    """What the header should say about this answer's link, if it has one.
+
+    The name is the record's own, because that is the link text a person can
+    act on: "baseline-seed", not a url and not "the experiment". A composite
+    keeps its subject under the entity's name (``{trace: {...}}``), so the
+    name is looked for there first and at the top level second.
+    """
+    if not data.get("url"):
+        return {}
+    subject = data.get(entity_type)
+    record = subject if isinstance(subject, dict) else data
+    name = record.get("name")
+    return {"has_link": True, "link_name": name if isinstance(name, str) and name else None}
+
+
 async def run_read(
     entity_type: str,
     id: str,
@@ -224,7 +240,9 @@ async def run_read(
         wanted = normalise(fields)
         if wanted is None:
             payload = compact_json(data)
-            header = size_header(entity_type, id, estimate_tokens(payload))
+            header = size_header(
+                entity_type, id, estimate_tokens(payload), **_link_hint(entity_type, data)
+            )
             return f"{header}\n{payload}"
 
         # Projection is the last thing that happens to the record, after the
@@ -239,7 +257,15 @@ async def run_read(
             # record's own paths in it, which is what makes the retry one call.
             raise ToolError(str(e)) from e
         payload = compact_json(projected)
-        header = size_header(entity_type, id, estimate_tokens(payload), projected=True)
+        header = size_header(
+            entity_type,
+            id,
+            estimate_tokens(payload),
+            projected=True,
+            # the projected record, not the whole one: a caller who did not
+            # name `url` has no link in front of them, whatever the fetch found
+            **_link_hint(entity_type, projected),
+        )
         note = marker(
             kept=kept,
             omitted=omitted,
