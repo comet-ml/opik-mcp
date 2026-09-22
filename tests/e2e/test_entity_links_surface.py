@@ -15,6 +15,29 @@ The sweep at the end is the part that does not need maintaining: it walks
 every url any of these answers contains and asserts the live-route shape, so
 an entity that starts emitting a retired address fails here even if nobody
 adds a case for it.
+
+WHAT NONE OF THIS REACHES, AND WHO DID. Whether a link arrives in front of a
+person depends on the host: whether it passes the ``initialize`` instructions
+to the model at all, and whether what the model then writes is rendered as a
+link. No test here can see either. So the manual pass is recorded here, beside
+the tests it completes, because this file is tracked and ``docs/`` is not
+(``.gitignore``: "Local-only docs, never tracked"):
+
+===================================  ==========  ====================================
+Host                                 Walked      What happened
+===================================  ==========  ====================================
+Claude Code                          2026-09-22  Instructions passed through; rendered
+                                                 as a named link; opened correctly.
+Cursor                               —           not walked
+VS Code Copilot MCP                  —           not walked
+MCP Inspector                        n/a         no model; shows the raw payload,
+                                                 which is the point of it.
+Custom agents (SDK, openai-mcp)      —           not walked
+===================================  ==========  ====================================
+
+An unwalked row is not a passing row. The failure it hides is silent: a host
+that drops ``instructions`` leaves the model with a ``url`` key among thirty
+others, and the user gets an id.
 """
 
 from __future__ import annotations
