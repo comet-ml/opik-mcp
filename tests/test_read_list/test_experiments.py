@@ -529,6 +529,11 @@ _DISPLAY_ONLY = {
     "assertion_runs",
     "prompt_version",
     "dataset_version",
+    # Not a field of the record at all: the address of the compare view this
+    # run lives on, built per row because each row names its own project and
+    # dataset. Nothing to sort or filter by, and nothing it could teach a
+    # wrong spelling of.
+    "url",
 }
 
 

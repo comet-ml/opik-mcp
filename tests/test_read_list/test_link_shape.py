@@ -559,3 +559,23 @@ async def test_one_page_never_inherits_another_page_s_project() -> None:
         "score_name", project_id="p-7", client=cast("OpikListClient", _ScoreNameClient())
     )
     assert resolved_project() is None, "run_list clears it before doing anything"
+
+
+def test_a_url_column_is_never_cut_to_fit() -> None:
+    """A truncated link is worse than no link: it looks like an address and
+    opens nothing. The table cuts wide cells at 60 characters and every Opik
+    url is longer than that, so the column has to be exempt — the cut exists
+    to keep a table scannable, and a url is not read, it is clicked."""
+    from opik_mcp.read_list.list_tool import _render_cell
+
+    url = (
+        "https://www.comet.com/opik/ws/projects/01a0c38f-4119-77ff-a0d8-0994aaa47fd1"
+        "/experiments/01a0c38f-4101-7256-a373-27ed81e31c7c/compare"
+    )
+    kept, was_cut = _render_cell("url", url, cell_limit=60)
+    assert kept == url
+    assert was_cut is False
+
+    trimmed, cut_it = _render_cell("name", "x" * 200, cell_limit=60)
+    assert trimmed.endswith("...")
+    assert cut_it is True

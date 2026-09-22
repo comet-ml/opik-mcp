@@ -473,6 +473,17 @@ async def run_list(
 
         content_raw = page_body.get("content") or []
         content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
+        if handler.list_link_fn is not None:
+            # A url per row, for the listing that cannot share one template.
+            # Attached here rather than in ``list_row_fn`` because it needs the
+            # session's settings, which a row hook is not given: where Opik
+            # lives is a fact about this connection, not about the record.
+            content = [
+                {**row, "url": url}
+                if (url := handler.list_link_fn(resolved_settings, row)) is not None
+                else row
+                for row in content
+            ]
         total_raw = page_body.get("total")
         total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
 
@@ -877,6 +888,22 @@ def _projected_columns(
     return tuple(columns)
 
 
+def _render_cell(column: str, value: Any, *, cell_limit: int) -> tuple[str, bool]:
+    """One cell, and whether the width cut took anything from it.
+
+    The cut keeps a table scannable, which is worth a lot for a long output
+    or a payload nobody reads to the end. It is worth nothing for a url: a
+    link cut to 60 characters still looks like an address and opens nothing,
+    which is the plausible-and-wrong failure this whole feature exists to
+    stop — arriving from the renderer rather than the builder. A url is not
+    read, it is clicked, so its column is exempt and no other is.
+    """
+    text = _render(column, value)
+    if column == "url" or len(text) <= cell_limit:
+        return text, False
+    return text[: cell_limit - 3] + "...", True
+
+
 def _format_table(
     entity_type: str,
     handler: EntityHandler,
@@ -968,11 +995,9 @@ def _format_table(
     for item in content:
         values: list[str] = []
         for col in columns:
-            s = _render(col, _cell(item, col))
-            if len(s) > cell_limit:
-                s = s[: cell_limit - 3] + "..."
-                cut += 1
-            values.append(s)
+            text, was_cut = _render_cell(col, _cell(item, col), cell_limit=cell_limit)
+            cut += was_cut
+            values.append(text)
         rows.append(" | ".join(values))
 
     lines = [header, "", col_header, *rows]

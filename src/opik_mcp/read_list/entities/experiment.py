@@ -70,6 +70,13 @@ _SPINE: Final = (
     "created_at",
     "trace_count",
     "feedback_scores",
+    # Last, because it is the widest column and the one nobody scans down.
+    # It is here at all because a run is the one listing whose rows cannot
+    # share a link: each names its own project and its own dataset, so there
+    # is nothing constant for a page-level template to be built from, and a
+    # listing of runs with no way to open any of them is the dead end this
+    # column costs its width to close.
+    "url",
 )
 
 #: Printed when some row on the page has one, in this order whichever subset
@@ -211,6 +218,21 @@ def _ranking_caveat(page: PageContext) -> str | None:
     )
 
 
+def row_link(settings: Settings, record: dict[str, Any]) -> str | None:
+    """The compare view one row of an experiment listing opens.
+
+    A url per row, which every other listing avoids, because this one has no
+    alternative: the address needs the run's project and its dataset, and a
+    workspace-wide page has a different pair on every row. There is nothing
+    constant for a template to be built from, and the rule this feature was
+    written to — a template where the rows share a project, a url per row
+    where they do not — names exactly this case for the expensive answer.
+    """
+    links = experiment_links(settings, record)
+    url = links.get("url")
+    return url if isinstance(url, str) else None
+
+
 def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     """The cells an experiment row needs and the record does not hand over.
 
@@ -310,12 +332,13 @@ HANDLER = EntityHandler(
     # everything that says whether a comparison between two runs is even
     # valid. All of it arrives in the same response, so dropping it bought
     # nothing and cost a read per row.
+    list_link_fn=row_link,
     list_row_fn=derive_columns,
     list_projection_fn=project_experiments,
     # The next level down from an experiment row is the prompt it ran, so a
     # projected row keeps its version whether or not it was asked for. Blank
     # for a run that linked no prompt, and then it is not added at all.
-    list_identity_fields=("prompt_version",),
+    list_identity_fields=("prompt_version", "url"),
     page_note_fn=page_note,
     # The refusal has to end the caller's problem, not restate it. The
     # backend orders experiments by id descending and the ids are time

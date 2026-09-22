@@ -81,6 +81,7 @@ class PageContext:
 
 
 PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
+LinkRowFn = Callable[[Settings, dict[str, Any]], str | None]
 RunFn = Callable[..., Awaitable[str]]
 ReferenceFn = Callable[[], dict[str, Any]]
 
@@ -140,6 +141,20 @@ class EntityHandler:
     For an entity whose record has no fixed fields to name up front. Called
     with the page's rows, never with an empty page; returns a
     :class:`ListProjection`. When set, ``list_extra_fields`` is not read.
+    """
+    list_link_fn: LinkRowFn | None = None
+    """Optional: a ``url`` for each row, for a listing whose rows cannot share one.
+
+    The cheap answer for a project-scoped page is one template with the row's
+    own columns as slots, and most listings take it. This is for the page that
+    cannot: an experiment's address needs its project *and* its dataset, both
+    of which vary down a workspace-wide page, so one template would have
+    nothing constant to be built from.
+
+    Unlike ``list_row_fn`` this is handed the session's ``Settings``, because a
+    url is a fact about the session — where Opik lives, which workspace — and
+    not about the record. Return ``None`` for a row that cannot be addressed;
+    the column then simply has no cell there.
     """
     list_row_fn: RowFn | None = None
     """Optional: derive the columns a record does not carry from the ones it
