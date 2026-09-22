@@ -821,6 +821,10 @@ def _experiment(experiment_id: str, spec: ExperimentSpec) -> dict[str, Any]:
     return {
         "id": experiment_id,
         "name": spec.name,
+        # The live API sends the project a run belongs to, and the compare
+        # view is addressed under it. The stub omitted it, so the link an
+        # experiment now carries had nothing to build from here.
+        "project_id": PROJECT_ID,
         "dataset_id": spec.dataset_id,
         "dataset_name": spec.dataset_name,
         "evaluation_method": spec.evaluation_method,
