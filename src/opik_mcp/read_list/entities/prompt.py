@@ -11,6 +11,7 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
     collection_total,
@@ -102,6 +103,7 @@ HANDLER = EntityHandler(
 VERSION_HANDLER = EntityHandler(
     entity_type="prompt_version",
     fetch_fn=unsupported_fetch,
+    page_note_fn=link_note_for("prompt_version"),
     list_fn=list_versions,
     list_extra_fields=("template", "created_at"),
     list_required_kwargs=("prompt_id",),

@@ -699,3 +699,18 @@ async def test_a_case_listing_survives_a_parent_that_cannot_be_read() -> None:
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
     )
     assert note is None
+
+
+def test_every_entity_with_a_link_has_it_wired_to_its_handler() -> None:
+    """A factory nobody calls is a feature nobody has.
+
+    The parent-page note was written, tested by calling `link_note_for`
+    directly, and never attached to the two handlers that needed it — so the
+    tests passed and the listing shipped without the link. Asserted through
+    the registry from now on, which is the only path a real call takes.
+    """
+    from opik_mcp.read_list.decorations import _PARENT_PAGE
+    from opik_mcp.read_list.registry import ENTITY_REGISTRY
+
+    unwired = [e for e in _PARENT_PAGE if ENTITY_REGISTRY[e].page_note_fn is None]
+    assert not unwired, f"link logic exists but no handler calls it: {', '.join(unwired)}"
