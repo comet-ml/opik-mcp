@@ -512,6 +512,14 @@ async def run_list(
         page_ctx = PageContext(
             project_id=kw.get("project_id"),
             project_name=kw.get("project_name"),
+            parent_id=next(
+                (
+                    value
+                    for field in handler.list_required_kwargs
+                    if field != "project_id" and isinstance(value := kw.get(field), str) and value
+                ),
+                None,
+            ),
             empty=not content,
             status=kw.get("status"),
             windowed="from_date" in kw or "to_date" in kw,

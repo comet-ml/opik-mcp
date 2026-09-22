@@ -33,7 +33,12 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.handler import PageContext, PageNoteFn
 from opik_mcp.read_list.project_scope import resolved_project
-from opik_mcp.read_list.ui_links import row_link_template, view_link_note
+from opik_mcp.read_list.ui_links import (
+    ProjectArea,
+    project_page_url,
+    row_link_template,
+    view_link_note,
+)
 
 logger = logging.getLogger("opik_mcp.read_list.decorations")
 
@@ -145,6 +150,49 @@ def _project_of(ctx: PageContext) -> str:
     return ""
 
 
+#: The two listings whose rows have no page of their own and whose parent
+#: does: which parent to read, and the area that parent lives on.
+_PARENT_PAGE: Final[dict[str, tuple[str, ProjectArea, str]]] = {
+    "dataset_item": ("get_dataset", "datasets", "items"),
+    "prompt_version": ("get_prompt", "prompts", ""),
+}
+
+
+async def _parent_page_note(
+    client: OpikListClient, settings: Settings, entity_type: str, parent_id: str
+) -> str | None:
+    """The page this listing's parent lives on, or nothing.
+
+    The one link on this server that costs a call. A case is listed under a
+    dataset and names no project; the dataset knows its own, so the dataset
+    is read. That is what the note hook is handed a client for, and the rule
+    it lives under holds: a decoration must never be the reason an answered
+    page comes back as an error, so every failure here is silence.
+
+    Silence is also the honest answer for a parent with no project: it has no
+    page either, and the parent's own read is where that is explained rather
+    than on every page of its cases.
+    """
+    reader, area, subpath = _PARENT_PAGE[entity_type]
+    try:
+        parent = await getattr(client, reader)(parent_id)
+    except Exception:
+        logger.debug("link note: could not read the %s parent %r", entity_type, parent_id)
+        return None
+    project_id = parent.get("project_id") if isinstance(parent, dict) else None
+    if not isinstance(project_id, str) or not project_id:
+        return None
+    url = project_page_url(
+        settings, project_id, area, subpath=f"{parent_id}/{subpath}" if subpath else parent_id
+    )
+    if url is None:
+        return None
+    name = parent.get("name") if isinstance(parent, dict) else None
+    named = f"{name!r}" if isinstance(name, str) and name else "its parent"
+    noun = "dataset" if entity_type == "dataset_item" else "prompt"
+    return f"Open in Opik: the {noun} {named} these belong to — {url}"
+
+
 def link_note_for(entity_type: str) -> PageNoteFn:
     """The ``page_note_fn`` that tells a page's reader how to open its rows.
 
@@ -161,6 +209,10 @@ def link_note_for(entity_type: str) -> PageNoteFn:
     """
 
     async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
+        if entity_type in _PARENT_PAGE:
+            if ctx.empty or not ctx.parent_id:
+                return None
+            return await _parent_page_note(client, settings, entity_type, ctx.parent_id)
         project_id = _project_of(ctx)
         view = view_link_note(settings, entity_type, project_id, empty=ctx.empty)
         if view is not None:

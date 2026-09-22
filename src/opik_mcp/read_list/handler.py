@@ -52,6 +52,15 @@ class PageContext:
 
     project_id: str | None = None
     project_name: str | None = None
+    parent_id: str | None = None
+    """The id this listing is scoped by, where that is not a project.
+
+    A case is listed under a dataset and a version under a prompt, and
+    neither row says which project the parent belongs to — so a note that
+    wants to link the parent's page has to be told what the parent is. The
+    list tool fills it from whichever of the entity's required kwargs is a
+    parent id.
+    """
     empty: bool = False
     status: str | None = None
     windowed: bool = False

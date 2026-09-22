@@ -644,3 +644,58 @@ async def test_an_experiment_page_that_cannot_link_prints_no_url_column() -> Non
     out = await run_list("experiment", client=cast("OpikListClient", _Experiments()))
     assert "nightly" in out
     assert "url" not in out.splitlines()[2], out.splitlines()[2]
+
+
+@pytest.mark.anyio
+async def test_a_case_listing_links_to_the_page_its_dataset_is_on() -> None:
+    """A case has no page; its dataset does. The rows name the dataset and
+    nothing names the project, so this is the one listing where the link
+    costs a call — which is what the note hook is handed a client for.
+    """
+
+    class _Client:
+        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
+            return {"id": dataset_id, "name": "cases", "project_id": "p-7"}
+
+    note = await link_note_for("dataset_item")(
+        cast("OpikListClient", _Client()),
+        _settings(),
+        PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
+    )
+    assert note is not None
+    assert "/projects/p-7/datasets/ds-1/items" in note
+    assert "Open in Opik" in note
+
+
+@pytest.mark.anyio
+async def test_a_case_listing_of_a_workspace_level_dataset_says_nothing() -> None:
+    """Its dataset has no page either, so there is nothing to point at and no
+    sentence worth spending — the parent read is where that is explained."""
+
+    class _Unscoped:
+        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
+            return {"id": dataset_id, "name": "cases"}
+
+    note = await link_note_for("dataset_item")(
+        cast("OpikListClient", _Unscoped()),
+        _settings(),
+        PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
+    )
+    assert note is None
+
+
+@pytest.mark.anyio
+async def test_a_case_listing_survives_a_parent_that_cannot_be_read() -> None:
+    """The rule every decoration lives under: it must never be the reason an
+    answered page comes back as an error."""
+
+    class _Boom:
+        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
+            raise RuntimeError("backend down")
+
+    note = await link_note_for("dataset_item")(
+        cast("OpikListClient", _Boom()),
+        _settings(),
+        PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
+    )
+    assert note is None
