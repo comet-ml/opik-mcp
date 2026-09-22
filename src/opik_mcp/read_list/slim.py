@@ -1,4 +1,4 @@
-"""Asking opik-backend for slim bodies on the children a read inlines.
+"""Slim bodies on the children a read inlines: the backend's cut, and ours.
 
 The backend's cut is the one this server relies on (for why it has none of
 its own, see :mod:`opik_mcp.read_list.size`). ``?truncate=true`` on the trace,
@@ -14,11 +14,15 @@ but the DAO spends it choosing between a parsed object and a string, and it
 never reaches the API model. So the only trace a cut leaves is a body that
 would have been JSON arriving as text — which is what :func:`was_cut` reads,
 and why the notice is ours to write.
+
+The backend's cut is per field, which bounds no answer, so this module also
+holds the one cut this server makes: :func:`drop_bodies_past`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import json
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
 #: ``ResponseFormattingConfig.truncationSize`` in opik-backend: a field this
@@ -44,6 +48,45 @@ def count_cut(children: Iterable[Mapping[str, Any]], fields: tuple[str, ...]) ->
     return sum(1 for child in children if any(was_cut(child.get(f)) for f in fields))
 
 
+def drop_bodies_past(
+    children: Sequence[Mapping[str, Any]], budget: int, fields: tuple[str, ...]
+) -> tuple[list[dict[str, Any]], int]:
+    """Bodies until ``budget`` is spent; children and their shape always survive.
+
+    Returns the children and how many lost their bodies. The first child keeps
+    its body whatever it costs. Every dropped body is one read away.
+    """
+    kept: list[dict[str, Any]] = []
+    spent = 0
+    dropped = 0
+    spending = True
+    for child in children:
+        record = dict(child)
+        # Once the budget is gone it stays gone, so the rest are not measured:
+        # serialising a body only to discard it is the one cost this function
+        # exists to avoid paying.
+        if spending:
+            cost = len(json.dumps(record, default=str))
+            if kept and spent + cost > budget:
+                spending = False
+            else:
+                spent += cost
+        if not spending:
+            for field in fields:
+                record.pop(field, None)
+            dropped += 1
+        kept.append(record)
+    return kept, dropped
+
+
+def dropped_notice(*, dropped: int, total: int, noun: str, budget: int) -> str:
+    """What the inline budget spent. Appended to :func:`slim_notice`."""
+    return (
+        f"{dropped} of {total} {noun}s past the {budget:,}-character inline budget kept "
+        f"their place and lost their bodies, which the same call returns."
+    )
+
+
 def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
     """The line a composite read carries above its inlined children.
 
@@ -63,4 +106,4 @@ def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
     )
 
 
-__all__ = ["count_cut", "slim_notice"]
+__all__ = ["count_cut", "drop_bodies_past", "dropped_notice", "slim_notice"]

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
@@ -23,11 +24,16 @@ from opik_mcp.read_list.paging import (
     page_items,
     rest_of,
 )
-from opik_mcp.read_list.slim import count_cut, slim_notice
+from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
+from opik_mcp.read_list.ui_links import trace_link_template
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
 SPANS_INLINE_LIMIT = 200
+
+#: Character ceiling on the bodies of inlined spans. The count cap alone
+#: left the read unbounded: the backend cuts each field at 10,001 chars.
+SPANS_INLINE_CHARS = 14_000
 
 #: The span fields ``truncate=true`` acts on, in the order the backend cuts
 #: them. Used to count what actually lost bytes, not to cut anything here.
@@ -60,7 +66,10 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
         )
     except Exception:
         return {"trace": trace, "spans": [], "spansTruncated": False}
-    spans = page_items(spans_page)
+    fetched = page_items(spans_page)
+    # Counted before the budget spends anything: a dropped body is not an uncut one.
+    cut = count_cut(fetched, SLIM_SPAN_FIELDS)
+    spans, dropped = drop_bodies_past(fetched, SPANS_INLINE_CHARS, SLIM_SPAN_FIELDS)
     truncated = collection_truncated(spans_page, inlined=len(spans), limit=SPANS_INLINE_LIMIT)
     result: dict[str, Any] = {"trace": trace, "spans": spans, "spansTruncated": truncated}
     if truncated:
@@ -76,13 +85,34 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             ),
         )
     if spans:
-        result["spanBodies"] = slim_notice(
-            cut=count_cut(spans, SLIM_SPAN_FIELDS),
+        notice = slim_notice(
+            cut=cut,
             total=len(spans),
             noun="span",
             whole="read('span', id)",
         )
+        if dropped:
+            spent = dropped_notice(
+                dropped=dropped,
+                total=len(spans),
+                noun="span",
+                budget=SPANS_INLINE_CHARS,
+            )
+            notice = f"{notice} {spent}"
+        result["spanBodies"] = notice
     return result
+
+
+def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The trace's UI link, via the backend redirect (needs no project_id)."""
+    trace = data.get("trace")
+    trace_id = trace.get("id") if isinstance(trace, dict) else None
+    if not isinstance(trace_id, str) or not trace_id:
+        return {}
+    template = trace_link_template(settings)
+    if template is None:
+        return {}
+    return {"url": template.replace("{trace_id}", trace_id)}
 
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -113,6 +143,7 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
 HANDLER = EntityHandler(
     entity_type="trace",
     fetch_fn=fetch,
+    link_fn=trace_links,
     list_fn=list_page,
     list_row_fn=derive_columns,
     # Triage columns: what a "which traces need attention" list needs

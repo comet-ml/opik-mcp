@@ -17,9 +17,18 @@ Recognized shapes (matching the deleted ``resources.py`` URI templates):
                                             → ("agent_insights_issue", iid, project_id=pid)
 
 Pasted Opik web links are also recognized via ``looks_like_opik_link`` +
-``parse`` so a user can drop a URL straight from the UI: a thread link
-(``https://…/projects/{pid}/…?thread={tid}``) and a Diagnostics link
-(``https://…/projects/{pid}/diagnostics…?issue={iid}``).
+``parse`` so a user can drop a URL straight from the UI:
+
+- a thread link      ``https://…/projects/{pid}/…?thread={tid}``
+- a Diagnostics link ``https://…/projects/{pid}/diagnostics…?issue={iid}``
+- a compare link     ``https://…/experiments/{dsid}/compare?experiments=["{eid}"]``
+  → ("experiment", first id), which is what the address bar holds when a
+  user says "here's my experiment": a run has no page of its own.
+- a trace link       ``…?tls_trace={tid}`` (the UI) or ``…?trace_id={tid}``
+  (this server's own redirect, so a link we handed out is one we take back)
+
+A link naming one trace wins over the compare view it sits on — that is the
+record the user is looking at.
 
 List-shaped URIs (``opik://projects``, ``opik://projects/{id}/traces``,
 ``opik://datasets/{id}/items``) are accepted only as best-effort hints
@@ -28,6 +37,7 @@ toward the ``list`` tool — ``read`` is for singletons.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import ClassVar, NamedTuple
 from urllib.parse import unquote
@@ -93,6 +103,12 @@ _ISSUE_URI_RE = re.compile(r"^opik://projects/([^/?#]+)/agent-insights-issues/([
 _WEB_PROJECT_RE = re.compile(r"/projects/([^/?#]+)")
 _WEB_THREAD_QS_RE = re.compile(r"[?&]thread=([^&#]+)")
 _WEB_ISSUE_QS_RE = re.compile(r"[?&]issue=([^&#]+)")
+# The compare route: dataset in the path, runs as a JSON array in the query.
+_WEB_COMPARE_RE = re.compile(r"/experiments/([^/?#]+)/compare")
+_WEB_EXPERIMENTS_QS_RE = re.compile(r"[?&]experiments=([^&#]+)")
+# One trace, named two ways: ``tls_trace`` by the UI, ``trace_id`` by our own
+# redirect link.
+_WEB_TRACE_QS_RE = re.compile(r"[?&](?:tls_trace|trace_id)=([^&#]+)")
 
 
 def looks_like_uri(s: str) -> bool:
@@ -112,9 +128,47 @@ def looks_like_issue_url(s: str) -> bool:
     )
 
 
+def _first_experiment_id(s: str) -> str | None:
+    """The baseline run out of a compare link's ``experiments`` array.
+
+    ``None`` unless it is a non-empty JSON array of strings, so the gate and
+    the extraction ask the same question.
+    """
+    qm = _WEB_EXPERIMENTS_QS_RE.search(s)
+    if qm is None:
+        return None
+    try:
+        runs = json.loads(unquote(qm.group(1)))
+    except ValueError:
+        return None
+    if not isinstance(runs, list) or not runs:
+        return None
+    first = runs[0]
+    return first if isinstance(first, str) and first else None
+
+
+def looks_like_compare_url(s: str) -> bool:
+    """A pasted compare link — the experiments path and a run to open."""
+    return (
+        s.startswith(("http://", "https://"))
+        and _WEB_COMPARE_RE.search(s) is not None
+        and _first_experiment_id(s) is not None
+    )
+
+
+def looks_like_trace_url(s: str) -> bool:
+    """A pasted link that names one trace."""
+    return s.startswith(("http://", "https://")) and _WEB_TRACE_QS_RE.search(s) is not None
+
+
 def looks_like_opik_link(s: str) -> bool:
-    """Any pasted Opik web link ``parse`` understands (thread or Diagnostics issue)."""
-    return looks_like_thread_url(s) or looks_like_issue_url(s)
+    """Any pasted Opik web link ``parse`` understands."""
+    return (
+        looks_like_thread_url(s)
+        or looks_like_issue_url(s)
+        or looks_like_trace_url(s)
+        or looks_like_compare_url(s)
+    )
 
 
 def looks_like_thread_url(s: str) -> bool:
@@ -158,6 +212,12 @@ def parse(uri: str) -> ParsedURI:
                 project_id=pm.group(1),
             )
 
+    # A link naming one trace beats the view it sits on.
+    if looks_like_trace_url(uri):
+        qm = _WEB_TRACE_QS_RE.search(uri)
+        if qm is not None:
+            return ParsedURI(entity_type="trace", entity_id=unquote(qm.group(1)))
+
     # Diagnostics issues — canonical URI, then the pasted Diagnostics page link.
     im = _ISSUE_URI_RE.match(uri)
     if im is not None:
@@ -173,6 +233,11 @@ def parse(uri: str) -> ParsedURI:
                 entity_id=unquote(qm.group(1)),
                 project_id=pm.group(1),
             )
+
+    if looks_like_compare_url(uri):
+        first = _first_experiment_id(uri)
+        if first is not None:
+            return ParsedURI(entity_type="experiment", entity_id=first)
 
     for pattern, entity_type in _PATTERNS:
         m = pattern.match(uri)

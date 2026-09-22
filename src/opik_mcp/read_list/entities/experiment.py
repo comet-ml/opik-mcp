@@ -12,9 +12,10 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.columns import has_value, resolve
 from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
-from opik_mcp.read_list.oql import ENUM_VALUES, PARAM_FIELDS
+from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
+from opik_mcp.read_list.ui_links import experiments_compare_url
 
 logger = logging.getLogger("opik_mcp.read_list.entities.experiment")
 
@@ -87,12 +88,13 @@ _CONDITIONAL: Final = (
     "optimization_id",
 )
 
-#: The table advertises a filter field by rendering it as a column. These
-#: two are not columns on an ordinary page — an experiment nobody optimized
-#: has no optimization id — so they are named instead. Read off the
-#: compiler's own table, so the hint cannot come to name a field that no
-#: longer compiles.
-_FILTER_HINT: Final = f"filter: {', '.join(PARAM_FIELDS['experiment'])}."
+#: Every filterable field, read off the compiler's own table so it cannot name
+#: one that no longer compiles. Not just the non-column ones: ``dataset_id`` is
+#: filterable while the column is ``dataset_name``.
+_FILTER_HINT: Final = (
+    f"filter: {', '.join(sorted(FILTERABLE_FIELDS['experiment']))}. "
+    'Operators: schema("list.experiment").'
+)
 
 #: The table's own default. Named rather than widened: an experiment's
 #: scores are no longer than a trace's, and the table states every cut it
@@ -276,9 +278,23 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
     )
 
 
+def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The compare view this run lives on — an experiment has no page of its own.
+
+    No dataset id, no link: it is the route's path segment.
+    """
+    dataset_id = data.get("dataset_id")
+    experiment_id = data.get("id")
+    if not isinstance(dataset_id, str) or not isinstance(experiment_id, str):
+        return {}
+    url = experiments_compare_url(settings, dataset_id, [experiment_id])
+    return {"url": url} if url is not None else {}
+
+
 HANDLER = EntityHandler(
     entity_type="experiment",
     fetch_fn=fetch,
+    link_fn=experiment_links,
     search_by_name_fn=search_by_name,
     list_fn=list_page,
     # The listing used to show the dataset, the date and the scores, and drop

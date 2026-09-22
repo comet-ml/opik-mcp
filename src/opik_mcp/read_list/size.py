@@ -33,9 +33,14 @@ def compact_json(obj: Any) -> str:
     return json.dumps(obj, default=str)
 
 
+#: A read's payload is JSON, not prose: measured against a host counting for
+#: real, 25,422 characters was over 10,000 tokens. Erring high is the safe way.
+_CHARS_PER_TOKEN = 2.5
+
+
 def estimate_tokens(text: str) -> int:
-    """Rough estimate: ~4 characters per token, for the header only."""
-    return len(text) // 4
+    """Rough estimate, for the header only."""
+    return int(len(text) / _CHARS_PER_TOKEN)
 
 
 def size_header(entity_type: str, entity_id: str, tokens: int, *, projected: bool = False) -> str:

@@ -28,9 +28,13 @@ from opik_mcp.read_list.paging import (
     page_items,
     rest_of,
 )
-from opik_mcp.read_list.slim import count_cut, slim_notice
+from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
 
 MESSAGES_INLINE_LIMIT = 200
+
+#: Character ceiling on inlined turn bodies — the same one a trace puts on
+#: its spans, and a thread is likelier to reach it.
+MESSAGES_INLINE_CHARS = 14_000
 
 #: ``as_messages`` projects a trace down to input and output, so those are
 #: the only cut fields a caller can see on a turn.
@@ -105,7 +109,9 @@ async def fetch(
         }
     traces = page_items(traces_page)
     truncated = collection_truncated(traces_page, inlined=len(traces), limit=MESSAGES_INLINE_LIMIT)
-    messages = as_messages(traces)
+    turns = as_messages(traces)
+    cut = count_cut(turns, SLIM_TURN_FIELDS)
+    messages, dropped = drop_bodies_past(turns, MESSAGES_INLINE_CHARS, SLIM_TURN_FIELDS)
     result: dict[str, Any] = {
         "thread": thread,
         "messages": messages,
@@ -123,12 +129,21 @@ async def fetch(
             ),
         )
     if messages:
-        result["messageBodies"] = slim_notice(
-            cut=count_cut(messages, SLIM_TURN_FIELDS),
+        notice = slim_notice(
+            cut=cut,
             total=len(messages),
             noun="turn",
             whole="read('trace', trace_id)",
         )
+        if dropped:
+            spent = dropped_notice(
+                dropped=dropped,
+                total=len(messages),
+                noun="turn",
+                budget=MESSAGES_INLINE_CHARS,
+            )
+            notice = f"{notice} {spent}"
+        result["messageBodies"] = notice
     return result
 
 

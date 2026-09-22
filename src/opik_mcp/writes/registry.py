@@ -61,6 +61,12 @@ class WriteOperation:
     # universal dispatcher codes (``batch_too_large``, ``empty_batch``,
     # ``batch_unsupported``) are always possible and not duplicated here.
     failure_modes: tuple[str, ...] = ()
+    envelope_items_key: str | None = None
+    """Where an always-envelope operation keeps its records, in the built body.
+
+    Without it ``item_count`` is the length of the top-level payload, which for
+    these operations is the envelope: a 500-case upsert reported 1.
+    """
 
     # --- what this operation does that no other one does ----------------- #
     # The dispatcher runs the same five stages for every write; these are the
@@ -199,6 +205,7 @@ _REGISTRY: dict[str, WriteOperation] = {
         # all but the first envelope, so the dispatcher rejects it via
         # supports_batch=False — items live inside the envelope.
         supports_batch=False,
+        envelope_items_key="items",
         parent_id_fields=("dataset_name", "dataset_id"),
         description=(
             "Upsert items into a dataset or test suite. Always pass the envelope "
@@ -231,6 +238,7 @@ _REGISTRY: dict[str, WriteOperation] = {
         oauth_scope=SCOPE_EXPERIMENT_CREATE,
         # Always-array shape via the {experiment_items: [...]} envelope.
         supports_batch=True,
+        envelope_items_key="experiment_items",
         parent_id_fields=("experiment_id", "dataset_item_id", "trace_id"),
         description="Attach trace + dataset_item rows to an experiment. Always the array envelope.",
         example=EXAMPLES["experiment_item.create"],

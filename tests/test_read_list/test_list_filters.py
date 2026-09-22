@@ -1345,3 +1345,95 @@ async def test_experiment_rows_summarise_feedback_scores() -> None:
         "e-1 | rerank-v2 |  |  | golden | 2026-09-01T00:00:00Z |  "
         "| accuracy=0.8125, hallucination=0.1" in out
     )
+
+
+@dataclass
+class FilterOnlyEmptyClient(FakeOpikClient):
+    """A project with traffic that the caller's own filter matched none of.
+
+    The shape the third empty-page reading exists for: the sdk default hid
+    nothing, the window holds rows, and the filter is simply the reason the
+    page is empty. Anything carrying the caller's clause answers zero; the
+    listing stripped back to the default answers ``in_scope``.
+    """
+
+    in_scope: int = 164
+
+    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        self.last_kwargs = kw
+        self.list_calls.append(kw)
+        raw = kw.get("filters")
+        clauses = json.loads(raw) if isinstance(raw, str) else []
+        if any(c != SDK_SOURCE for c in clauses):
+            return _page([])
+        return {"content": [{"id": "t-1"}], "page": 1, "size": 1, "total": self.in_scope}
+
+
+@pytest.mark.anyio
+async def test_a_filter_that_matched_none_of_a_project_with_traffic_says_so() -> None:
+    fake = FilterOnlyEmptyClient()
+    out = await run_list("trace", project_id="p-1", filters="error_info is_not_empty", client=fake)
+    assert "No traces found." in out
+    assert "Without your filter this listing has 164 traces; none of them match it." in out
+    assert "match without the default" not in out, "the source hint has nothing to say here"
+
+
+@pytest.mark.anyio
+async def test_the_unfiltered_probe_is_one_row_wide_and_keeps_only_the_default() -> None:
+    fake = FilterOnlyEmptyClient()
+    await run_list("trace", project_id="p-1", filters="duration > 5", size=50, client=fake)
+    probe = fake.list_calls[-1]
+    assert json.loads(probe["filters"]) == [SDK_SOURCE], "only the default survives"
+    assert probe["size"] == 1 and probe["page"] == 1
+
+
+@pytest.mark.anyio
+async def test_an_unfiltered_empty_page_pays_for_no_probe() -> None:
+    fake = FilterOnlyEmptyClient(in_scope=0)
+    out = await run_list("trace", project_id="p-1", client=fake)
+    assert len(fake.list_calls) == 1, "the listing, and nothing else"
+    assert "Without your filter" not in out
+
+
+@pytest.mark.anyio
+async def test_a_genuinely_empty_scope_says_nothing_about_the_filter() -> None:
+    out = await run_list(
+        "trace", project_id="p-1", filters="duration > 5", client=FilterOnlyEmptyClient(in_scope=0)
+    )
+    assert out.splitlines()[-1] == "No traces found."
+
+
+@dataclass
+class NameSearchClient(FakeOpikClient):
+    """A workspace with datasets, none of them matching the name asked for."""
+
+    stock: int = 342
+
+    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
+        self.list_calls.append(kw)
+        if kw.get("name"):
+            return _page([])
+        return {"content": [{"id": "ds-1"}], "page": 1, "size": 1, "total": self.stock}
+
+
+@pytest.mark.anyio
+async def test_a_name_search_that_finds_nothing_says_what_the_listing_holds() -> None:
+    fake = NameSearchClient()
+    out = await run_list("dataset", name="regression", client=fake)
+    assert "No datasets matching 'regression' found." in out
+    assert "Without that name this listing has 342 datasets" in out
+
+
+@pytest.mark.anyio
+async def test_a_genuinely_empty_workspace_says_nothing_extra() -> None:
+    out = await run_list("dataset", name="regression", client=NameSearchClient(stock=0))
+    assert out.splitlines()[-1] == "No datasets matching 'regression' found."
+
+
+@pytest.mark.anyio
+async def test_the_name_probe_is_one_row_wide_and_only_on_an_empty_page() -> None:
+    fake = NameSearchClient()
+    await run_list("dataset", name="regression", size=50, client=fake)
+    probe = fake.list_calls[-1]
+    assert not probe.get("name"), "the name is what gets lifted"
+    assert probe["size"] == 1 and probe["page"] == 1

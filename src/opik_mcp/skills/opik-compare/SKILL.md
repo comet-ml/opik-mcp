@@ -97,7 +97,7 @@ rows = client.get_experiments_client().find_experiment_items_for_dataset(
     suite.name, experiment_ids=["<baseline_id>", candidate_id], project_name="<project>"
 )
 ```
-`get_experiment_by_name` is deprecated — resolve names with `get_experiments_by_name` and pick by id. When the hosted MCP is connected, `list('experiment', name=…)` already renders each experiment's per-metric averages and `read('experiment', id)` gives one run's summary — use them to find and sanity-check the two runs; the item-level join above stays on the SDK.
+`get_experiment_by_name` is deprecated — resolve names with `get_experiments_by_name` and pick by id. When the MCP is connected it does the whole of this step in one call: `list('dataset_item', experiment_ids=['<baseline_id>', '<candidate_id>'])` returns the cases side by side with each run's score, the per-case delta, the worst trace to open, and a warning when the two runs covered different cases or different dataset versions. Prefer it over the SDK join above, which stays here for runs the MCP cannot reach. `list('experiment', …)` and `read('experiment', id)` still find and sanity-check the two runs.
 
 ### 5. Answer the questions, in this order
 1. **Comparable?** Same suite version (`dataset_version` / item count), same judge model, same runs-per-item. If not, say so first — the deltas below are then indicative, not measured.
