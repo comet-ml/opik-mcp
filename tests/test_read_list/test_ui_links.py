@@ -17,8 +17,8 @@ from opik_mcp.auth_context import (
 )
 from opik_mcp.config import Settings
 from opik_mcp.read_list.ui_links import (
-    compare_url,
     current_workspace,
+    experiments_compare_url,
     link_workspace,
     opik_ui_base,
     trace_link_template,
@@ -140,17 +140,20 @@ def test_trace_link_template_none_without_an_api_segment() -> None:
 # --- the compare view a pair of experiments lives on ----------------------- #
 
 
-def test_compare_url_carries_both_runs_in_the_order_given() -> None:
-    url = compare_url(_settings(), "ds-1", ["exp-a", "exp-b"])
+def test_experiments_compare_url_carries_both_runs_in_the_order_given() -> None:
+    url = experiments_compare_url(_settings(), "ds-1", ["exp-a", "exp-b"])
     assert url is not None
     assert url.startswith("https://opik.test/demo-ws/experiments/ds-1/compare?experiments=")
     assert unquote(url.split("experiments=", 1)[1]) == '["exp-a","exp-b"]'
 
 
-def test_compare_url_is_absent_rather_than_guessed() -> None:
-    assert compare_url(_settings(opik_url=None, comet_url_override=""), "ds-1", ["e"]) is None
+def test_experiments_compare_url_is_absent_rather_than_guessed() -> None:
+    assert (
+        experiments_compare_url(_settings(opik_url=None, comet_url_override=""), "ds-1", ["e"])
+        is None
+    )
 
 
-def test_compare_url_needs_a_dataset_and_a_run() -> None:
-    assert compare_url(_settings(), "", ["e"]) is None
-    assert compare_url(_settings(), "ds-1", []) is None
+def test_experiments_compare_url_needs_a_dataset_and_a_run() -> None:
+    assert experiments_compare_url(_settings(), "", ["e"]) is None
+    assert experiments_compare_url(_settings(), "ds-1", []) is None

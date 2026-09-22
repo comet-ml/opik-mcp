@@ -102,7 +102,7 @@ async def run_write(
             "path": request.path,
             "body_size": len(json.dumps(request.body)),
             "batch": is_batch,
-            "item_count": _rows_sent(op, items, request.body),
+            "item_count": _rows_sent(op=op, items=items, body=request.body),
             # Echoing the body lets the caller verify whatever the
             # operation's builder translated before committing the live call.
             "body": request.body,
@@ -121,13 +121,13 @@ async def run_write(
         request, resp = await op.retry_fn(op, http_client, request, resp)
         method = request.method or method
     out = _stage4_finalize(
-        op,
-        resp,
-        items,
+        op=op,
+        resp=resp,
+        items=items,
         is_batch=is_batch,
         method=method,
         path=request.path,
-        item_count=_rows_sent(op, items, request.body),
+        item_count=_rows_sent(op=op, items=items, body=request.body),
     )
     if op.decorate_fn is not None:
         op.decorate_fn(op, items, out, resolved_settings, prepared)
@@ -267,7 +267,7 @@ def _stage3_authorize(op: WriteOperation, scopes: frozenset[str]) -> None:
 # --- Stage 4 finalize ---------------------------------------------------- #
 
 
-def _rows_sent(op: WriteOperation, items: list[BaseModel], body: Any) -> int:
+def _rows_sent(*, op: WriteOperation, items: list[BaseModel], body: Any) -> int:
     """How many records the request carries, counting through an envelope."""
     key = op.envelope_items_key
     if key is not None and isinstance(body, dict):
@@ -278,10 +278,10 @@ def _rows_sent(op: WriteOperation, items: list[BaseModel], body: Any) -> int:
 
 
 def _stage4_finalize(
+    *,
     op: WriteOperation,
     resp: httpx.Response,
     items: list[BaseModel],
-    *,
     is_batch: bool,
     method: str,
     path: str,

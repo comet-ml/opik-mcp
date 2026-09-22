@@ -94,7 +94,9 @@ def trace_link_template(settings: Settings) -> str | None:
     return f"{base}/v1/session/redirect/projects/?trace_id={{trace_id}}&path={path}"
 
 
-def compare_url(settings: Settings, dataset_id: str, experiment_ids: Sequence[str]) -> str | None:
+def experiments_compare_url(
+    settings: Settings, dataset_id: str, experiment_ids: Sequence[str]
+) -> str | None:
     """The UI's compare view for these runs, or ``None`` when it cannot be known.
 
     One run and a pair build the same URL. Order is the caller's: the UI reads
@@ -119,8 +121,8 @@ def project_page_url(settings: Settings, project_id: str, page: str) -> str | No
 
 
 __all__ = [
-    "compare_url",
     "current_workspace",
+    "experiments_compare_url",
     "link_workspace",
     "opik_ui_base",
     "project_page_url",

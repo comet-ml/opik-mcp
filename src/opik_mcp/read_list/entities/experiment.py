@@ -15,7 +15,7 @@ from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContex
 from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
-from opik_mcp.read_list.ui_links import compare_url
+from opik_mcp.read_list.ui_links import experiments_compare_url
 
 logger = logging.getLogger("opik_mcp.read_list.entities.experiment")
 
@@ -287,7 +287,7 @@ def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]
     experiment_id = data.get("id")
     if not isinstance(dataset_id, str) or not isinstance(experiment_id, str):
         return {}
-    url = compare_url(settings, dataset_id, [experiment_id])
+    url = experiments_compare_url(settings, dataset_id, [experiment_id])
     return {"url": url} if url is not None else {}
 
 
