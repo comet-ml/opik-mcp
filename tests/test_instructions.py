@@ -54,16 +54,14 @@ def test_render_strips_api_suffix_from_opik_url() -> None:
     """OPIK_URL is the REST API base (…/opik/api); the blob must name the UI
     base (…/opik) — the verbatim ``/api`` leak is OPIK-7033's defect #2.
 
-    The REST base does appear once more, inside the trace link: that link is a
-    backend route, so ``/api`` belongs in it. The defect was the blob giving
-    the API base as the UI address, which is what this pins.
+    The REST base used to appear once more, inside the trace link the blob
+    named; that link is gone, so now it appears nowhere. The defect was the
+    blob giving the API base as the UI address, which is what this pins.
     """
     s = _settings(opik_url="https://dev.comet.com/opik/api")
     out = render_instructions(s)
     assert "The Opik UI is at https://dev.comet.com/opik." in out
-    assert out.count("https://dev.comet.com/opik/api") == 1
-    template = trace_link_template(s)
-    assert template is not None and template in out
+    assert "https://dev.comet.com/opik/api" not in out
 
 
 def test_render_prefers_resolved_workspace_over_settings() -> None:
@@ -176,16 +174,18 @@ async def test_server_advertises_instructions_blob() -> None:
     assert "Tool selection" in result.instructions
 
 
-def test_render_names_the_trace_link_template() -> None:
-    """The agent has to hand the user something clickable, and the URL shape is
-    guessable only wrongly: a plausible-looking 404 is worse than a bare id.
-    Naming the template once per session costs nothing per call."""
+def test_the_handshake_no_longer_names_a_trace_template() -> None:
+    """It used to, because list() carried no link and a trace id was a dead
+    end. list() now carries a template of its own, straight to /logs, so the
+    blob naming the redirect meant advertising a second shape — the one that
+    lands on the /traces forwarder. Deleted rather than corrected: a session
+    fact that every page now states for itself does not belong on the
+    handshake, and the blob has a size cap to live inside."""
     s = _settings(opik_url="https://dev.comet.com/opik/api")
     out = render_instructions(s)
     template = trace_link_template(s)
-    assert template is not None
-    assert template in out
-    assert "{trace_id}" in template
+    assert template is not None, "the fallback still exists in code"
+    assert template not in out
 
 
 def test_render_omits_the_trace_link_when_opik_is_unconfigured() -> None:
@@ -267,3 +267,21 @@ def test_a_quality_drop_question_routes_to_the_compare_skill() -> None:
     # And it is named in the session blob, so a host that injects instructions
     # knows the skill exists before it ever expands a tool schema.
     assert "opik-compare" in render_instructions(_settings())
+
+
+def test_the_handshake_advertises_no_address_the_ui_has_retired() -> None:
+    """The blob used to name the trace redirect, because list() carried no
+    link and a trace id was a dead end. list() carries one now — straight to
+    /logs — so naming the redirect meant advertising two shapes and telling
+    the agent to prefer the one that lands on /traces, which v2 keeps only to
+    forward. The redirect is still the fallback in code for a session that
+    cannot name its workspace; it is not something to hand out."""
+    blob = render_instructions(
+        Settings(
+            opik_api_key="k",
+            comet_workspace="demo-ws",
+            opik_url="https://opik.test/api/",
+        )
+    )
+    assert "session/redirect" not in blob
+    assert "/traces" not in blob

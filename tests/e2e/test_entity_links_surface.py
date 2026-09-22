@@ -33,8 +33,10 @@ from mcp.client.stdio import stdio_client
 
 from tests.e2e.stub_backend import (
     EXPERIMENT_A,
+    ISSUE_ID,
     PROJECT_ID,
     PROJECT_NAME,
+    PROMPT_ID,
     SPAN_ID,
     SUITE_ID,
     THREAD_ID,
@@ -126,6 +128,19 @@ _READS: list[tuple[str, dict[str, object], str]] = [
         {"id": EXPERIMENT_A},
         f"/projects/{PROJECT_ID}/experiments/{SUITE_ID}/compare",
     ),
+    (
+        "agent_insights_issue",
+        {"id": ISSUE_ID, "project_id": PROJECT_ID},
+        f"/projects/{PROJECT_ID}/diagnostics",
+    ),
+]
+
+#: Entities whose link depends on the record being project-scoped. The stub's
+#: are, so they link; the workspace-level case is unit-tested, because the
+#: stub cannot hold one record of each without saying which it is serving.
+_SCOPED_READS: list[tuple[str, dict[str, object], str]] = [
+    ("prompt", {"id": PROMPT_ID}, f"/projects/{PROJECT_ID}/prompts/{PROMPT_ID}"),
+    ("dataset", {"id": SUITE_ID}, f"/projects/{PROJECT_ID}/datasets/{SUITE_ID}"),
 ]
 
 
@@ -139,6 +154,25 @@ async def test_a_read_carries_a_link_that_opens_the_thing_it_returned(
     url = _payload(answer).get("url")
     assert isinstance(url, str), f"read({entity!r}) returned no url"
     assert url.startswith(f"http://127.0.0.1:{backend.port}/{_WORKSPACE}"), url
+    assert ends_on in url, url
+    assert live_project_url(url), url
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity", "args", "ends_on"), _SCOPED_READS, ids=[r[0] for r in _SCOPED_READS]
+)
+async def test_a_project_scoped_record_links_to_its_page(
+    backend: StubBackend, entity: str, args: dict[str, object], ends_on: str
+) -> None:
+    """These two are the entities the backend lets exist without a project.
+    The stub's carry one, so they must link — if this fails because the stub's
+    record has no project_id, the stub is what is wrong: the live API sends
+    one for a scoped record, and a workspace-level record is the other test."""
+    async with _session(backend) as session:
+        answer = await _text(session, "read", {"entity_type": entity, **args})
+    url = _payload(answer).get("url")
+    assert isinstance(url, str), f"read({entity!r}) returned no url"
     assert ends_on in url, url
     assert live_project_url(url), url
 
@@ -211,6 +245,19 @@ async def test_no_answer_anywhere_contains_a_retired_address(
                 session, "list", {"entity_type": "score_name", "project_name": PROJECT_NAME}
             )
         )
+        answers.append(
+            await _text(
+                session,
+                "list",
+                {
+                    "entity_type": "project_metric",
+                    "project_id": PROJECT_ID,
+                    "metric_type": "trace_count",
+                },
+            )
+        )
+        for entity, args, _ in _SCOPED_READS:
+            answers.append(await _text(session, "read", {"entity_type": entity, **args}))
     for answer in answers:
         for url in _URL.findall(answer):
             # A template's slots stand in for a row's columns; fill them so the

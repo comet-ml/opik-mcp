@@ -16,7 +16,8 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.handler import EntityHandler, PageContext
+from opik_mcp.read_list.decorations import link_note_for
+from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -25,7 +26,7 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
-from opik_mcp.read_list.ui_links import row_link_template, trace_link_template, trace_page_url
+from opik_mcp.read_list.ui_links import trace_link_template, trace_page_url
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -153,29 +154,9 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
-async def _row_link_note(
-    client: OpikListClient, settings: Settings, ctx: PageContext
-) -> str | None:
-    """One link for the whole page, with the row's own columns left as slots.
-
-    Not one url per row: the rows share a project, so only the columns the
-    table already prints vary, and the page pays for one link instead of a page of them.
-    """
-    if ctx.empty:
-        return None
-    note = row_link_template(settings, "trace", ctx.project_id)
-    if note is None:
-        return None
-    return (
-        "Open a row in Opik: " + note["url_template"] + " — fill the slots from "
-        "the row's own columns. Show it to the user as a link named after the "
-        "row, never as a bare URL."
-    )
-
-
 HANDLER = EntityHandler(
     entity_type="trace",
-    page_note_fn=_row_link_note,
+    page_note_fn=link_note_for("trace"),
     fetch_fn=fetch,
     link_fn=trace_links,
     list_fn=list_page,

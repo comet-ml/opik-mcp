@@ -107,7 +107,14 @@ def _fake(**kw: Any) -> Any:
 
 
 def _table(out: str) -> list[str]:
-    return out.splitlines()[1:]
+    """The rows, without the header line above them or the note below.
+
+    A series now ends with the link to the Dashboards page it is charted on,
+    separated by a blank line the way every other page's note is. These tests
+    are about the table, so the note is cut here rather than in each of them.
+    """
+    body = out.split("\n\nOpen in Opik:")[0]
+    return body.splitlines()[1:]
 
 
 # --- the answer ----------------------------------------------------------- #
@@ -154,7 +161,7 @@ async def test_an_all_zero_series_collapses_to_one_line() -> None:
     )
     assert "every bucket is zero" in out
     assert "| 0" not in out
-    assert len(out.splitlines()) == 2, "the header and one line"
+    assert len(_table(out)) == 1, "the header line, and one line instead of 31 rows"
 
 
 @pytest.mark.anyio

@@ -140,6 +140,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "score.create": WriteOperation(
         name="score.create",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_score_create,
         validate_fn=observability.validate_scores,
         pydantic_model=MODELS["score.create"],
@@ -157,6 +158,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "comment.create": WriteOperation(
         name="comment.create",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_comment_create,
         prepare_fn=threads.resolve_comment_thread_id,
         dry_run_note_fn=threads.comment_dry_run_note,

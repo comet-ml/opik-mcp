@@ -10,8 +10,9 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.handler import EntityHandler, PageContext
-from opik_mcp.read_list.ui_links import row_link_template, trace_page_url
+from opik_mcp.read_list.decorations import link_note_for
+from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.ui_links import trace_page_url
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -47,29 +48,9 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_spans(**kw)
 
 
-async def _row_link_note(
-    client: OpikListClient, settings: Settings, ctx: PageContext
-) -> str | None:
-    """One link for the whole page, with the row's own columns left as slots.
-
-    Not one url per row: the rows share a project, so only the columns the
-    table already prints vary, and the page pays for one link instead of a page of them.
-    """
-    if ctx.empty:
-        return None
-    note = row_link_template(settings, "span", ctx.project_id)
-    if note is None:
-        return None
-    return (
-        "Open a row in Opik: " + note["url_template"] + " — fill the slots from "
-        "the row's own columns. Show it to the user as a link named after the "
-        "row, never as a bare URL."
-    )
-
-
 HANDLER = EntityHandler(
     entity_type="span",
-    page_note_fn=_row_link_note,
+    page_note_fn=link_note_for("span"),
     fetch_fn=fetch,
     link_fn=span_links,
     list_fn=list_page,

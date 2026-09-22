@@ -21,22 +21,31 @@ from __future__ import annotations
 import ast
 import pathlib
 import re
-from typing import get_args
+from typing import cast, get_args
 from urllib.parse import unquote
 
 import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 from opik_mcp.config import Settings
+from opik_mcp.opik_client import OpikListClient
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.dataset import dataset_links
 from opik_mcp.read_list.entities.experiment import experiment_links
 from opik_mcp.read_list.entities.prompt import prompt_links
 from opik_mcp.read_list.entities.span import span_links
 from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
+from opik_mcp.read_list.handler import PageContext
 from opik_mcp.read_list.read_tool import _link_hint
 from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
 
@@ -447,3 +456,60 @@ def test_a_projection_that_drops_the_url_drops_the_header_promise_too() -> None:
     record = {"id": "e-1", "name": "baseline-seed", "url": "https://opik.test/x"}
     assert _link_hint("experiment", record)["has_link"] is True
     assert _link_hint("experiment", {k: v for k, v in record.items() if k != "url"}) == {}
+
+
+def test_project_metric_has_a_page_and_is_reachable_through_the_runner() -> None:
+    """A metric answers through its runner, not the collection path, and that
+    path never called page_note_fn — so the entry for it in the view table was
+    defined and dead. Both halves are asserted: the label exists, and the
+    handler declares the hook that now gets called."""
+    from opik_mcp.read_list.registry import ENTITY_REGISTRY
+
+    note = view_link_note(_settings(), "project_metric", "p-7")
+    assert note is not None
+    assert note["url"].endswith("/projects/p-7/dashboards")
+    assert ENTITY_REGISTRY["project_metric"].page_note_fn is not None
+
+
+@pytest.mark.anyio
+async def test_a_list_scoped_by_name_reads_the_project_off_its_own_rows() -> None:
+    """Found by measuring a page rather than reading the code: the note asked
+    for ctx.project_id, and a caller who scoped by project_name has none — so
+    the commoner spelling of the commonest list came back with no link.
+
+    The rows already say which project they are in, so nothing is looked up.
+    That matters: these listings take a name precisely so they do not have to
+    round-trip it into an id, and a decoration does not get to spend a call
+    the page itself declined to.
+    """
+
+    class _Client:
+        calls = 0
+
+        async def list_projects(self, **kw: object) -> dict[str, object]:
+            type(self).calls += 1
+            return {"content": [], "total": 0}
+
+    note = await link_note_for("trace")(
+        cast("OpikListClient", _Client()),
+        _settings(),
+        PageContext(
+            project_id=None,
+            project_name="checkout",
+            rows=({"id": "t-1", "project_id": "p-7"},),
+        ),
+    )
+    assert note is not None
+    assert "/projects/p-7/logs?logsType=traces&trace={id}" in note
+    assert _Client.calls == 0, "the rows had it; nothing should have been asked"
+
+
+@pytest.mark.anyio
+async def test_a_page_whose_rows_name_no_project_simply_carries_no_link() -> None:
+    """No link is the right answer here, not a looked-up one."""
+    note = await link_note_for("trace")(
+        cast("OpikListClient", object()),
+        _settings(),
+        PageContext(project_id=None, project_name="checkout", rows=({"id": "t-1"},)),
+    )
+    assert note is None

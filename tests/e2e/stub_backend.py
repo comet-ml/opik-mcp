@@ -844,6 +844,10 @@ def _dataset(dataset_id: str) -> dict[str, Any]:
     return {
         "id": dataset_id,
         "name": name,
+        # Nullable on the backend: a dataset created without project scope has
+        # none, and then the UI has no page for it. The stub's is scoped, so
+        # the link path is the one exercised here; the other is unit-tested.
+        "project_id": PROJECT_ID,
         "type": TEST_SUITE_METHOD,
         "created_at": "2026-09-01T09:00:00Z",
         "last_updated_at": "2026-09-08T09:00:00Z",
@@ -900,6 +904,8 @@ def _prompt() -> dict[str, Any]:
     return {
         "id": PROMPT_ID,
         "name": PROMPT_NAME,
+        # Nullable, as for a dataset — see ``_dataset``.
+        "project_id": PROJECT_ID,
         "description": "The refund-window answer",
         "created_at": "2026-09-01T09:00:00Z",
         "last_updated_at": "2026-09-08T09:00:00Z",

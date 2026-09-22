@@ -178,14 +178,50 @@ def validate_scores(
     )
 
 
-__all__ = [
-    "build_comment_create",
-    "build_score_create",
-    "build_span_create",
-    "build_trace_create",
-    "build_trace_update",
-    "validate_scores",
-]
+#: Which Logs view a write's change shows up on, when the link cannot name a row.
+_LOGS_VIEW: Final[dict[str, str]] = {
+    "trace.create": "logsType=traces",
+    "trace.update": "logsType=traces",
+    "span.create": "logsType=spans",
+    "thread.close": "logsType=threads",
+    "thread.open": "logsType=threads",
+}
+
+
+def _id_of(item: BaseModel, field: str) -> str | None:
+    """One id off a validated write model, as the string a URL is built from.
+
+    The models type their ids as ``UUID``, not ``str`` — which is what a
+    ``isinstance(value, str)`` guard here got wrong, silently: every real
+    write came back unlinked while the tests, whose stand-in model typed the
+    same fields as ``str``, passed. Hence one accessor rather than the check
+    repeated at each call site, where it drifted once already.
+    """
+    value = getattr(item, field, None)
+    if value is None:
+        return None
+    text = str(value)
+    return text or None
+
+
+def _annotation_url(settings: Settings, project_id: str, item: BaseModel) -> str | None:
+    """Where an annotation's target is visible.
+
+    A score or a comment names what it is attached to and what kind of thing
+    that is, so a trace or a thread is addressable outright. A span is not:
+    it is only reachable inside its trace, and the annotation names the span
+    without naming the trace. So a span annotation gets the page rather than
+    the row — the same tier a score name gets, for the same reason.
+    """
+    target = getattr(item, "target", None)
+    target_id = _id_of(item, "target_id")
+    if not target_id:
+        return None
+    if target == "trace":
+        return trace_page_url(settings, project_id, target_id)
+    if target == "thread":
+        return thread_page_url(settings, project_id, target_id)
+    return project_page_url(settings, project_id, "logs", query="logsType=spans")
 
 
 def decorate_with_page(
@@ -213,35 +249,28 @@ def decorate_with_page(
     # call, and this runs after the write has already succeeded.
     if not project_id:
         project_id = next(
-            (
-                value
-                for item in items
-                if isinstance(value := getattr(item, "project_id", None), str) and value
-            ),
+            (found for item in items if (found := _id_of(item, "project_id"))),
             None,
         )
     if not project_id:
         return
     single = items[0] if len(items) == 1 else None
     url: str | None = None
-    if op.name == "span.create" and single is not None:
-        trace_id = getattr(single, "trace_id", None)
-        span_id = getattr(single, "id", None)
-        if isinstance(trace_id, str) and trace_id:
-            url = trace_page_url(
-                settings,
-                project_id,
-                trace_id,
-                span_id=span_id if isinstance(span_id, str) else None,
-            )
-    elif op.name in {"thread.close", "thread.open"} and single is not None:
-        thread_id = getattr(single, "thread_id", None)
-        if isinstance(thread_id, str) and thread_id:
-            url = thread_page_url(settings, project_id, thread_id)
-    elif op.name in {"trace.create", "trace.update"} and single is not None:
-        trace_id = getattr(single, "id", None)
-        if isinstance(trace_id, str) and trace_id:
-            url = trace_page_url(settings, project_id, trace_id)
+    if single is not None:
+        if op.name == "span.create":
+            trace_id = _id_of(single, "trace_id")
+            if trace_id:
+                url = trace_page_url(settings, project_id, trace_id, span_id=_id_of(single, "id"))
+        elif op.name in {"thread.close", "thread.open"}:
+            thread_id = _id_of(single, "thread_id")
+            if thread_id:
+                url = thread_page_url(settings, project_id, thread_id)
+        elif op.name in {"trace.create", "trace.update"}:
+            trace_id = _id_of(single, "id")
+            if trace_id:
+                url = trace_page_url(settings, project_id, trace_id)
+        elif op.name in {"score.create", "comment.create"}:
+            url = _annotation_url(settings, project_id, single)
     if url is None:
         # A batch, or a single whose id the caller left to the backend: the
         # page is still the right answer, just not a row on it.
@@ -250,11 +279,12 @@ def decorate_with_page(
         out["url"] = url
 
 
-#: Which Logs view a write's change shows up on, when the link cannot name a row.
-_LOGS_VIEW: Final[dict[str, str]] = {
-    "trace.create": "logsType=traces",
-    "trace.update": "logsType=traces",
-    "span.create": "logsType=spans",
-    "thread.close": "logsType=threads",
-    "thread.open": "logsType=threads",
-}
+__all__ = [
+    "build_comment_create",
+    "build_score_create",
+    "build_span_create",
+    "build_trace_create",
+    "build_trace_update",
+    "decorate_with_page",
+    "validate_scores",
+]

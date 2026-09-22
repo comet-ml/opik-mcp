@@ -189,14 +189,30 @@ async def _run_whole(
     got.
     """
     run = cast("RunFn", handler.run_fn)
-    async with client_for_call(settings, client) as opik:
+    resolved_settings = settings or get_settings()
+    async with client_for_call(resolved_settings, client) as opik:
         with _as_tool_error(
             f"{handler.run_verb} {entity_type}",
             on_timeout=handler.run_timeout_hint
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
-            return await run(cast("OpikReadClient", opik), **kw)
+            answer = await run(cast("OpikReadClient", opik), **kw)
+        if handler.page_note_fn is None:
+            return answer
+        # A runner's answer is not a collection, but it is still a page someone
+        # may want to open — a metric is a chart on the Dashboards page. The
+        # note hook was reachable only from the collection path, so an entity
+        # that answers whole could declare one and never have it called.
+        note = await handler.page_note_fn(
+            opik,
+            resolved_settings,
+            PageContext(
+                project_id=kw.get("project_id"),
+                project_name=kw.get("project_name"),
+            ),
+        )
+        return f"{answer}\n\n{note}" if note else answer
 
 
 def _whole_call(handler: EntityHandler, tool_args: dict[str, Any]) -> bool:
