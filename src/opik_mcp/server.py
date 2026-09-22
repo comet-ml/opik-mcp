@@ -223,7 +223,7 @@ FIELDS_LIST_DESCRIPTION = (
 )
 
 
-@mcp.tool()
+@mcp.tool(structured_output=False)
 @instrument_tool("read", props_fn=_read_props)
 async def read(
     entity_type: Annotated[
@@ -350,7 +350,7 @@ async def read(
     )
 
 
-@mcp.tool(name="list")
+@mcp.tool(name="list", structured_output=False)
 @instrument_tool("list", props_fn=_list_props)
 async def list_entities(
     entity_type: Annotated[
@@ -605,7 +605,7 @@ async def list_entities(
 WRITE_OPERATION_ENUM: list[str] = list(WRITE_OPERATIONS)
 
 
-@mcp.tool(description=WRITE_TOOL_DESCRIPTION)
+@mcp.tool(description=WRITE_TOOL_DESCRIPTION, structured_output=False)
 @instrument_tool("write", props_fn=_write_props)
 async def write(
     operation: Annotated[
@@ -664,7 +664,7 @@ async def write(
 SCHEMA_KEY_ENUM: list[str] = list(SCHEMA_KEYS)
 
 
-@mcp.tool(description=SCHEMA_TOOL_DESCRIPTION)
+@mcp.tool(description=SCHEMA_TOOL_DESCRIPTION, structured_output=False)
 @instrument_tool("schema", props_fn=_schema_props)
 async def schema(
     operation: Annotated[
@@ -707,7 +707,7 @@ async def schema(
 # and reject valid calls at the host's schema check.
 
 
-@mcp.tool(description=read_skill_tool_description())
+@mcp.tool(description=read_skill_tool_description(), structured_output=False)
 @instrument_tool("read_skill", props_fn=_read_skill_props)
 async def read_skill(
     skill_name: Annotated[
