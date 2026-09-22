@@ -22,12 +22,28 @@ import ast
 import pathlib
 import re
 from typing import get_args
+from urllib.parse import unquote
 
 import pytest
 
+from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+from opik_mcp.config import Settings
+from opik_mcp.read_list.entities.experiment import experiment_links
+from opik_mcp.read_list.entities.trace import trace_links
 from opik_mcp.read_list.ui_links import ProjectArea
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
+
+
+def _settings(**overrides: object) -> Settings:
+    base: dict[str, object] = {
+        "opik_api_key": "k",
+        "comet_workspace": "demo-ws",
+        "opik_url": "https://opik.test/api/",
+    }
+    base.update(overrides)
+    return Settings(**base)  # type: ignore[arg-type]
+
 
 #: ``…/<workspace>/projects/<project id>/<area>`` — the one shape v2 serves.
 _PROJECT_SCOPED = re.compile(r"^https?://[^\s?#]*?/projects/[^/?#]+/(?P<area>[^?#]+)")
@@ -184,3 +200,58 @@ def test_the_guard_leaves_rest_routes_and_the_link_parser_alone() -> None:
         'DOC = "a Diagnostics link (…/projects/<pid>/diagnostics?issue=<id>)"\n'
     )
     assert ui_path_offenders(innocent, filename="innocent.py") == []
+
+
+# --- ticket 02: the links we already emit, pointed at live routes ---------- #
+
+
+def test_experiment_link_opens_the_compare_view_under_its_own_project() -> None:
+    """The project is in the record the link function is already reading."""
+    links = experiment_links(
+        _settings(),
+        {"id": "e-1", "dataset_id": "ds-1", "project_id": "p-7"},
+    )
+    assert links["url"] == (
+        "https://opik.test/demo-ws/projects/p-7/experiments/ds-1/compare"
+        "?experiments=%5B%22e-1%22%5D"
+    )
+    # The percent-encoded form is what the UI's address bar carries for a
+    # compare view, so it is what a pasted link comes back as.
+    assert unquote(links["url"].split("experiments=", 1)[1]) == '["e-1"]'
+    assert live_project_url(links["url"])
+
+
+def test_experiment_without_a_project_gets_no_link() -> None:
+    """A run whose project the backend did not send is a run we cannot
+    address: v2 has no page for it outside a project."""
+    assert experiment_links(_settings(), {"id": "e-1", "dataset_id": "ds-1"}) == {}
+
+
+def test_trace_link_opens_logs_directly_when_the_workspace_is_known() -> None:
+    """The redirect lands on /projects/{id}/traces, which v2 keeps only to
+    forward to /logs. We know the project from the record, so we can address
+    the destination instead of the forwarder."""
+    links = trace_links(_settings(), {"trace": {"id": "t-1", "project_id": "p-7"}})
+    assert links["url"] == ("https://opik.test/demo-ws/projects/p-7/logs?logsType=traces&trace=t-1")
+    assert live_project_url(links["url"])
+
+
+def test_trace_link_falls_back_to_the_redirect_when_the_workspace_is_unknown() -> None:
+    """Under an OAuth bearer introspection could not name, the direct URL
+    cannot be built — and the redirect resolves the workspace server-side, so
+    the session keeps its links instead of silently losing them."""
+    token = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
+    try:
+        links = trace_links(_settings(), {"trace": {"id": "t-1", "project_id": "p-7"}})
+        assert "/v1/session/redirect/projects/" in links["url"]
+        assert "trace_id=t-1" in links["url"]
+        assert live_project_url(links["url"])
+    finally:
+        inbound_authorization.reset(token)
+
+
+def test_trace_link_falls_back_to_the_redirect_without_a_project() -> None:
+    """list('trace', …) rows carry no project_id, and a trace read of a record
+    the backend did not scope still has an id — the redirect needs only that."""
+    links = trace_links(_settings(), {"trace": {"id": "t-1"}})
+    assert "/v1/session/redirect/projects/" in links["url"]

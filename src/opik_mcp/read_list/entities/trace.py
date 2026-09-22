@@ -25,7 +25,7 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
-from opik_mcp.read_list.ui_links import trace_link_template
+from opik_mcp.read_list.ui_links import trace_link_template, trace_page_url
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -104,11 +104,24 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
 
 
 def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
-    """The trace's UI link, via the backend redirect (needs no project_id)."""
+    """The trace's UI link: the Logs page directly, or the redirect.
+
+    The direct address is preferred because the redirect costs a hop and lands
+    on ``/traces``, which v2 keeps only to forward to ``/logs``. It needs the
+    project and the workspace, and the record carries the first — so the
+    redirect stays as the fallback for the session that cannot name its
+    workspace, which is an OAuth bearer introspection did not resolve. Losing
+    the link there would be worse than the hop.
+    """
     trace = data.get("trace")
     trace_id = trace.get("id") if isinstance(trace, dict) else None
     if not isinstance(trace_id, str) or not trace_id:
         return {}
+    project_id = trace.get("project_id") if isinstance(trace, dict) else None
+    if isinstance(project_id, str) and project_id:
+        direct = trace_page_url(settings, project_id, trace_id)
+        if direct is not None:
+            return {"url": direct}
     template = trace_link_template(settings)
     if template is None:
         return {}

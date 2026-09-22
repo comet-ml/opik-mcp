@@ -95,22 +95,6 @@ def trace_link_template(settings: Settings) -> str | None:
     return f"{base}/v1/session/redirect/projects/?trace_id={{trace_id}}&path={path}"
 
 
-def experiments_compare_url(
-    settings: Settings, dataset_id: str, experiment_ids: Sequence[str]
-) -> str | None:
-    """The UI's compare view for these runs, or ``None`` when it cannot be known.
-
-    One run and a pair build the same URL. Order is the caller's: the UI reads
-    the first as the baseline.
-    """
-    base = opik_ui_base(settings)
-    workspace = link_workspace(settings)
-    if base is None or workspace is None or not dataset_id or not experiment_ids:
-        return None
-    runs = quote(json.dumps(list(experiment_ids), separators=(",", ":")))
-    return f"{base}/{workspace}/experiments/{dataset_id}/compare?experiments={runs}"
-
-
 ProjectArea = Literal[
     "agent-playground",
     "alerts",
@@ -180,6 +164,46 @@ def project_page_url(
     if subpath:
         path = f"{path}/{subpath}"
     return f"{path}?{query}" if query else path
+
+
+def experiments_compare_url(
+    settings: Settings,
+    project_id: str,
+    dataset_id: str,
+    experiment_ids: Sequence[str],
+) -> str | None:
+    """The UI's compare view for these runs, or ``None`` when it cannot be known.
+
+    One run and a pair build the same URL. Order is the caller's: the UI reads
+    the first as the baseline.
+
+    The compare view is keyed by the *dataset*, and sits under the project the
+    runs belong to — a run has no page of its own. The project is not
+    decoration: without it the address is one v2 retired, and the compatibility
+    shim would resolve it against whatever project the reader last had open.
+    """
+    if not project_id or not dataset_id or not experiment_ids:
+        return None
+    runs = quote(json.dumps(list(experiment_ids), separators=(",", ":")))
+    return project_page_url(
+        settings,
+        project_id,
+        "experiments",
+        subpath=f"{dataset_id}/compare",
+        query=f"experiments={runs}",
+    )
+
+
+def trace_page_url(settings: Settings, project_id: str, trace_id: str) -> str | None:
+    """The Logs page with this trace open, or ``None`` when it cannot be built.
+
+    The direct address, for when the project and the workspace are both known.
+    :func:`trace_link_template` is the fallback for when they are not — it
+    costs a hop and lands on ``/traces``, which v2 keeps only to forward here.
+    """
+    if not trace_id:
+        return None
+    return project_page_url(settings, project_id, "logs", query=f"logsType=traces&trace={trace_id}")
 
 
 __all__ = [

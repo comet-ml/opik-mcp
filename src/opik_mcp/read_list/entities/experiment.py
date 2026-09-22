@@ -281,13 +281,22 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
 def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The compare view this run lives on — an experiment has no page of its own.
 
-    No dataset id, no link: it is the route's path segment.
+    Three things address it and all three are in the record: the project it
+    belongs to, the dataset the compare view is keyed by, and the run itself.
+    Any of them missing means no link — the alternative is an address the UI
+    resolves against whatever the reader last had open.
     """
+    project_id = data.get("project_id")
     dataset_id = data.get("dataset_id")
     experiment_id = data.get("id")
-    if not isinstance(dataset_id, str) or not isinstance(experiment_id, str):
+    if not all(isinstance(v, str) for v in (project_id, dataset_id, experiment_id)):
         return {}
-    url = experiments_compare_url(settings, dataset_id, [experiment_id])
+    url = experiments_compare_url(
+        settings,
+        str(project_id),
+        str(dataset_id),
+        [str(experiment_id)],
+    )
     return {"url": url} if url is not None else {}
 
 

@@ -142,22 +142,30 @@ def test_trace_link_template_none_without_an_api_segment() -> None:
 
 
 def test_experiments_compare_url_carries_both_runs_in_the_order_given() -> None:
-    url = experiments_compare_url(_settings(), "ds-1", ["exp-a", "exp-b"])
+    url = experiments_compare_url(_settings(), "p-1", "ds-1", ["exp-a", "exp-b"])
     assert url is not None
-    assert url.startswith("https://opik.test/demo-ws/experiments/ds-1/compare?experiments=")
+    assert url.startswith(
+        "https://opik.test/demo-ws/projects/p-1/experiments/ds-1/compare?experiments="
+    )
     assert unquote(url.split("experiments=", 1)[1]) == '["exp-a","exp-b"]'
 
 
 def test_experiments_compare_url_is_absent_rather_than_guessed() -> None:
     assert (
-        experiments_compare_url(_settings(opik_url=None, comet_url_override=""), "ds-1", ["e"])
+        experiments_compare_url(
+            _settings(opik_url=None, comet_url_override=""), "p-1", "ds-1", ["e"]
+        )
         is None
     )
 
 
-def test_experiments_compare_url_needs_a_dataset_and_a_run() -> None:
-    assert experiments_compare_url(_settings(), "", ["e"]) is None
-    assert experiments_compare_url(_settings(), "ds-1", []) is None
+def test_experiments_compare_url_needs_a_project_a_dataset_and_a_run() -> None:
+    """The project is the part that used to be missing. Without it the address
+    is one v2 retired, and the shim resolves it against the reader's last
+    project rather than this run's."""
+    assert experiments_compare_url(_settings(), "", "ds-1", ["e"]) is None
+    assert experiments_compare_url(_settings(), "p-1", "", ["e"]) is None
+    assert experiments_compare_url(_settings(), "p-1", "ds-1", []) is None
 
 
 # --- the project-scoped page a link opens ---------------------------------- #
