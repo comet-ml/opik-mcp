@@ -104,7 +104,7 @@ def project_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
         entry = decorated.get(kind)
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             continue
-        url = project_page_url(settings, project_id, f"{ui_page}/{entry['id']}")
+        url = project_page_url(settings, project_id, ui_page, subpath=entry["id"])
         if url is not None:
             entry["url"] = url
     if decorated != contains:

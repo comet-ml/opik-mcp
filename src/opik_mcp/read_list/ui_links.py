@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import Sequence
+from typing import Final, Literal, get_args
 from urllib.parse import quote
 
 from opik_mcp.auth_context import (
@@ -110,17 +111,79 @@ def experiments_compare_url(
     return f"{base}/{workspace}/experiments/{dataset_id}/compare?experiments={runs}"
 
 
-def project_page_url(settings: Settings, project_id: str, page: str) -> str | None:
-    """``<ui>/<workspace>/projects/<project_id>/<page>``, or ``None`` when the
-    UI base or the workspace cannot be known for this session."""
+ProjectArea = Literal[
+    "agent-playground",
+    "alerts",
+    "annotation-queues",
+    "dashboards",
+    "datasets",
+    "diagnostics",
+    "diagnostics/resolved",
+    "experiments",
+    "home",
+    "logs",
+    "ollie",
+    "online-evaluation",
+    "optimizations",
+    "playground",
+    "prompts",
+    "test-suites",
+]
+"""The areas the Opik UI serves under ``/projects/{id}/``, and only those.
+
+Closed on purpose. The UI is project-scoped and has been through one migration
+already: the paths it retired are still reachable through a compatibility shim
+that fills the project slot from whatever the reader last had open, so a link
+to one of them resolves somewhere plausible and wrong. ``traces`` is the
+subtle member of that set — it is still under ``/projects/{id}/``, but the
+router keeps it only to forward to ``logs``, so it is absent here too.
+
+Typed as a ``Literal`` rather than checked only at runtime so that a link to a
+page that does not exist fails at ``make typecheck``, where it costs nothing,
+instead of in an answer a user is reading.
+"""
+
+_LIVE_AREAS: Final[frozenset[str]] = frozenset(get_args(ProjectArea))
+
+
+def project_page_url(
+    settings: Settings,
+    project_id: str,
+    area: ProjectArea,
+    *,
+    subpath: str | None = None,
+    query: str | None = None,
+) -> str | None:
+    """``<ui>/<workspace>/projects/<project_id>/<area>[/<subpath>][?<query>]``,
+    or ``None`` when the UI base or the workspace cannot be known.
+
+    ``area`` names a page the UI serves; ``subpath`` is the id of the thing on
+    it, for the areas whose route carries one; ``query`` is an already-formed
+    query string, which the caller owns because some of them carry a template
+    slot (``trace={trace_id}``) that must survive unencoded.
+
+    The two failure modes are deliberately different. An unknown workspace is a
+    fact about the session and yields ``None`` — no link beats a wrong one. An
+    area outside the set is a bug in this repository, so it raises rather than
+    quietly dropping a link nobody then notices is missing.
+    """
+    if area not in _LIVE_AREAS:
+        raise ValueError(
+            f"{area!r} is not an area the Opik UI serves under a project; "
+            f"expected one of: {', '.join(sorted(_LIVE_AREAS))}"
+        )
     base = opik_ui_base(settings)
     workspace = link_workspace(settings)
-    if base is None or workspace is None:
+    if base is None or workspace is None or not project_id:
         return None
-    return f"{base}/{workspace}/projects/{project_id}/{page}"
+    path = f"{base}/{workspace}/projects/{project_id}/{area}"
+    if subpath:
+        path = f"{path}/{subpath}"
+    return f"{path}?{query}" if query else path
 
 
 __all__ = [
+    "ProjectArea",
     "current_workspace",
     "experiments_compare_url",
     "link_workspace",

@@ -30,7 +30,7 @@ from opik_mcp.read_list.entities.agent_insights_issue import (
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
-from opik_mcp.read_list.ui_links import project_page_url
+from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
 from opik_mcp.writes.errors import BackendError
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse, safe_body
 
@@ -158,9 +158,11 @@ def decorate(
     if op.name in ISSUE_OPS:
         # A resolved or closed issue leaves the default page, so a link to
         # "diagnostics" would land on a page the issue is no longer on.
-        view = "diagnostics" if ISSUE_STATUS[op.name] == "open" else "diagnostics/resolved"
+        view: ProjectArea = (
+            "diagnostics" if ISSUE_STATUS[op.name] == "open" else "diagnostics/resolved"
+        )
         issue_id = getattr(items[0], "issue_id", None)
-        page = project_page_url(settings, project_id, f"{view}?issue={issue_id}")
+        page = project_page_url(settings, project_id, view, query=f"issue={issue_id}")
         if page is not None:
             out["url"] = page
         return
