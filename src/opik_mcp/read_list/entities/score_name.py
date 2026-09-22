@@ -53,7 +53,7 @@ async def _page_link_note(
     A score name has no page of its own, so the note names the page it is visible
     on rather than implying otherwise — the label is the point, not the url.
     """
-    note = view_link_note(settings, "score_name", ctx.project_id or "")
+    note = view_link_note(settings, "score_name", ctx.project_id or "", empty=ctx.empty)
     if note is None:
         return None
     return f"Open in Opik: {note['url_opens']} — {note['url']}"

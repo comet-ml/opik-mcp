@@ -197,16 +197,22 @@ def experiments_compare_url(
 #: The entities that have no page of their own, the page each is visible on,
 #: and what to look for there. The label is not decoration: a link to Logs
 #: under a score name would otherwise read as a link to the score.
-_VIEW_PAGES: Final[dict[str, tuple[ProjectArea, str]]] = {
+_VIEW_PAGES: Final[dict[str, tuple[ProjectArea, str, str]]] = {
     "score_name": (
         "logs",
         "the project's Logs, where this score is a column on the rows that carry it",
+        "the project's Logs, where scores appear as columns once something is scored",
     ),
     "online_rule": (
         "online-evaluation",
         "the project's Online evaluation rules, where this rule is a row",
+        "the project's Online evaluation, where a rule can be created",
     ),
-    "project_metric": ("dashboards", "the project's Dashboards, where this metric is charted"),
+    "project_metric": (
+        "dashboards",
+        "the project's Dashboards, where this metric is charted",
+        "the project's Dashboards, where metrics are charted",
+    ),
 }
 
 
@@ -239,7 +245,13 @@ def scoped_entity_links(
     return {"url": url} if url is not None else {}
 
 
-def view_link_note(settings: Settings, entity_type: str, project_id: str) -> dict[str, str] | None:
+def view_link_note(
+    settings: Settings,
+    entity_type: str,
+    project_id: str,
+    *,
+    empty: bool = False,
+) -> dict[str, str] | None:
     """Where to go and look at something that is not a page, or ``None``.
 
     A feedback score name is a column, an automation rule is a row, a metric
@@ -254,9 +266,14 @@ def view_link_note(settings: Settings, entity_type: str, project_id: str) -> dic
     page = _VIEW_PAGES.get(entity_type)
     if page is None or not project_id:
         return None
-    area, opens = page
+    area, opens, opens_empty = page
     url = project_page_url(settings, project_id, area)
-    return None if url is None else {"url": url, "url_opens": opens}
+    if url is None:
+        return None
+    # "where this rule is a row" is false of a page with no rows. The link is
+    # still the right one — it is where the reader goes to make one — so the
+    # sentence changes rather than the link disappearing.
+    return {"url": url, "url_opens": opens_empty if empty else opens}
 
 
 def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str | None:

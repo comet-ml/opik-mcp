@@ -354,3 +354,15 @@ def test_every_view_tier_entity_has_a_page_and_a_label(entity: str, area: str) -
 
 def test_a_view_tier_link_is_absent_without_a_project() -> None:
     assert view_link_note(_settings(), "score_name", "") is None
+
+
+def test_a_view_tier_label_does_not_describe_rows_an_empty_page_has_none_of() -> None:
+    """ "where this rule is a row" is false on a page with no rows. The link is
+    still worth having — it is where the reader goes to make one — so the
+    label changes rather than the link disappearing."""
+    full = view_link_note(_settings(), "online_rule", "p-7")
+    empty = view_link_note(_settings(), "online_rule", "p-7", empty=True)
+    assert full is not None and empty is not None
+    assert full["url"] == empty["url"]
+    assert "this rule" in full["url_opens"]
+    assert "this rule" not in empty["url_opens"]
