@@ -245,6 +245,49 @@ def scoped_entity_links(
     return {"url": url} if url is not None else {}
 
 
+#: How a row of each project-scoped listing is addressed, as a query with the
+#: row's own columns left as slots. ``{id}`` is the row's id; ``{trace_id}`` is
+#: the column a span row already prints.
+_ROW_QUERIES: Final[dict[str, str]] = {
+    "trace": "logsType=traces&trace={id}",
+    "span": "logsType=traces&trace={trace_id}&span={id}",
+    "thread": "logsType=threads&thread={id}",
+}
+
+
+def row_link_template(
+    settings: Settings, entity_type: str, project_id: str | None
+) -> dict[str, str] | None:
+    """One link for a whole page of rows, or ``None`` when none can be filled.
+
+    A url per row would more than double a listing — a row is about a hundred
+    characters and a link about the same again — against a tool budget already
+    near its ceiling. A project-scoped page does not need one: every row
+    shares the project, so only the row's own columns vary, and a single
+    template with those columns as slots costs what one url would.
+
+    ``None`` where the row cannot fill a template. An experiment's address
+    needs its project and its dataset and the row prints neither — it prints
+    ``dataset_name`` — and a template nothing can fill is worse than no
+    template, so that listing points at ``read`` instead of growing two id
+    columns on every row.
+    """
+    if entity_type == "project":
+        # The row *is* the project, so the slot is the id column itself.
+        return _template_for(settings, "{id}", "logs", None)
+    query = _ROW_QUERIES.get(entity_type)
+    if query is None or not project_id:
+        return None
+    return _template_for(settings, project_id, "logs", query)
+
+
+def _template_for(
+    settings: Settings, project_id: str, area: ProjectArea, query: str | None
+) -> dict[str, str] | None:
+    url = project_page_url(settings, project_id, area, query=query)
+    return None if url is None else {"url_template": url}
+
+
 def view_link_note(
     settings: Settings,
     entity_type: str,
@@ -317,6 +360,7 @@ __all__ = [
     "link_workspace",
     "opik_ui_base",
     "project_page_url",
+    "row_link_template",
     "scoped_entity_links",
     "thread_page_url",
     "trace_link_template",

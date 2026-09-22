@@ -34,7 +34,7 @@ from opik_mcp.read_list.entities.prompt import prompt_links
 from opik_mcp.read_list.entities.span import span_links
 from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
-from opik_mcp.read_list.ui_links import ProjectArea, view_link_note
+from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
 
@@ -366,3 +366,51 @@ def test_a_view_tier_label_does_not_describe_rows_an_empty_page_has_none_of() ->
     assert full["url"] == empty["url"]
     assert "this rule" in full["url_opens"]
     assert "this rule" not in empty["url_opens"]
+
+
+# --- ticket 06: a page of rows, without a link per row -------------------- #
+
+
+@pytest.mark.parametrize(
+    ("entity", "expected"),
+    [
+        ("trace", "https://opik.test/demo-ws/projects/p-7/logs?logsType=traces&trace={id}"),
+        (
+            "span",
+            "https://opik.test/demo-ws/projects/p-7/logs"
+            "?logsType=traces&trace={trace_id}&span={id}",
+        ),
+        ("thread", "https://opik.test/demo-ws/projects/p-7/logs?logsType=threads&thread={id}"),
+    ],
+)
+def test_a_project_scoped_page_carries_one_template_for_every_row(
+    entity: str, expected: str
+) -> None:
+    """Every row shares the project, so only the id varies — one template for
+    the page costs what one url would, instead of one per row."""
+    note = row_link_template(_settings(), entity, "p-7")
+    assert note is not None
+    assert note["url_template"] == expected
+    # the template with its slots filled must be a link the UI serves
+    filled = expected.replace("{id}", "x-1").replace("{trace_id}", "t-1")
+    assert live_project_url(filled)
+
+
+def test_the_project_list_fills_its_template_from_the_row_id() -> None:
+    """A project list's rows differ by project — but the project *is* the row,
+    so one template still serves the page."""
+    note = row_link_template(_settings(), "project", None)
+    assert note is not None
+    assert note["url_template"] == "https://opik.test/demo-ws/projects/{id}/logs"
+
+
+def test_no_template_where_the_row_cannot_fill_one() -> None:
+    """An experiment's address needs its project and its dataset, and the row
+    shows neither — it shows dataset_name. A template nothing can fill is
+    worse than none, so the entity gets no template rather than two more id
+    columns on every row."""
+    assert row_link_template(_settings(), "experiment", "p-7") is None
+
+
+def test_no_template_without_a_project() -> None:
+    assert row_link_template(_settings(), "trace", None) is None

@@ -17,11 +17,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.entities.project.read import fetch_project, project_links
 from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
-from opik_mcp.read_list.handler import EntityHandler, ReadWindow
+from opik_mcp.read_list.handler import EntityHandler, PageContext, ReadWindow
 from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.ui_links import row_link_template
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
@@ -32,8 +34,29 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_projects(**kw)
 
 
+async def _row_link_note(
+    client: OpikListClient, settings: Settings, ctx: PageContext
+) -> str | None:
+    """One link for the whole page, with the row's own columns left as slots.
+
+    Not one url per row: the rows share a project, so only the columns the
+    table already prints vary, and the page pays for one link instead of a page of them.
+    """
+    if ctx.empty:
+        return None
+    note = row_link_template(settings, "project", ctx.project_id)
+    if note is None:
+        return None
+    return (
+        "Open a row in Opik: " + note["url_template"] + " — fill the slots from "
+        "the row's own columns. Show it to the user as a link named after the "
+        "row, never as a bare URL."
+    )
+
+
 HANDLER = EntityHandler(
     entity_type="project",
+    page_note_fn=_row_link_note,
     fetch_fn=fetch_project,
     search_by_name_fn=search_by_name,
     list_fn=list_page,

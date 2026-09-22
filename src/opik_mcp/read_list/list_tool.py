@@ -695,14 +695,22 @@ async def _empty_message(
 
     An entity whose empty page has its own ambiguity (a Diagnostics issue
     list: never enabled, off, unscanned, or genuinely clean) explains itself
-    through its registry ``page_note_fn``.
+    through its registry ``page_note_fn``, and its answer replaces the probes
+    below — it knows something they cannot work out.
+
+    A note of ``None`` is not that: it means the entity had nothing to add to
+    *this* page, so the probes still run. The distinction matters now that a
+    note can be about something other than emptiness — a link for opening a
+    row has nothing to say about a page with no rows, and silencing the probes
+    would have been an odd way to say so.
     """
     entity_type = handler.entity_type
     project_id, project_name = page_ctx.project_id, page_ctx.project_name
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
     if handler.page_note_fn is not None:
         note = await handler.page_note_fn(opik, settings, page_ctx)
-        return f"{empty} {note}" if note else empty
+        if note:
+            return f"{empty} {note}"
 
     async def scoped() -> str:
         """What the narrowing matched none of, when nothing else explains it."""
