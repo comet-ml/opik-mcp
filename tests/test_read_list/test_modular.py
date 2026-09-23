@@ -6,11 +6,12 @@ every entity shares; an entity's own logic lives under ``entities/``. That is
 a property of the layout, and a property nobody checks is one that erodes on
 the next ticket, so it is checked here rather than remembered.
 
-What these tests do *not* claim: that nothing entity-shaped is left at the
-root. Several shared modules are keyed by entity because the thing they
-describe is per-entity by nature — the OQL field tables, the sortable field
-lists, the URI patterns. Splitting those would scatter one grammar across
-thirteen files. The line drawn here is about *code paths*, not about tables.
+The rule covers tables too (docs/decisions/0004): per-entity OQL fields, sort
+fields, URI patterns and link builders belong with their entity, and the root
+keeps only the mechanism that reads them. Today's root modules still name
+entities, so those are pinned in an allowlist that may only shrink. A new
+entity name at the root fails; paying one off without removing it from the
+list fails too, so the list stays an honest to-do list.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import inspect
 import pathlib
 
 from opik_mcp.read_list import list_tool, registry
-from opik_mcp.read_list.registry import ENTITY_REGISTRY
+from opik_mcp.read_list.registry import ENTITY_ALIASES, ENTITY_REGISTRY
 
 READ_LIST = pathlib.Path(registry.__file__).parent
 ENTITIES = READ_LIST / "entities"
@@ -208,3 +209,79 @@ def test_the_handler_contract_imports_no_entity() -> None:
     entity, that direction has reversed."""
     for module in _imports(READ_LIST / "handler.py"):
         assert "entities" not in module, f"handler.py imports {module}"
+
+
+#: Root modules that still name an entity, and the names they use. Debt, not
+#: design: move the entity's part behind a hook on its handler, then delete it
+#: here. Refactor ticket OPIK-8496 works through this list.
+ENTITY_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
+    "decorations": frozenset({"dataset", "dataset_item", "prompt", "prompt_version"}),
+    "list_tool": frozenset({"agent_insights_issue"}),
+    "oql": frozenset(
+        {
+            "dataset",
+            "dataset_item",
+            "dataset_item_case",
+            "experiment",
+            "project",
+            "prompt",
+            "span",
+            "thread",
+            "trace",
+        }
+    ),
+    "reference": frozenset(
+        {"dataset_item", "dataset_item_case", "experiment", "span", "thread", "trace"}
+    ),
+    "sorting": frozenset(
+        {"dataset_item", "dataset_item_case", "experiment", "project", "span", "thread", "trace"}
+    ),
+    "ui_links": frozenset(
+        {"online_rule", "project", "project_metric", "score_name", "span", "thread", "trace"}
+    ),
+    "uri": frozenset(
+        {
+            "agent_insights_issue",
+            "dataset",
+            "experiment",
+            "project",
+            "prompt",
+            "span",
+            "thread",
+            "trace",
+        }
+    ),
+}
+
+#: The registry is the table itself, so naming entities is its job.
+_ROOT_EXEMPT = frozenset({"registry"})
+
+
+def _entity_literals(path: pathlib.Path) -> set[str]:
+    names = set(ENTITY_REGISTRY) | set(ENTITY_ALIASES)
+    return {
+        node.value
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
+    }
+
+
+def _root_modules() -> list[pathlib.Path]:
+    return [p for p in sorted(READ_LIST.glob("*.py")) if p.stem not in _ROOT_EXEMPT]
+
+
+def test_no_new_entity_name_at_the_root() -> None:
+    for path in _root_modules():
+        new = _entity_literals(path) - ENTITY_NAMES_AT_ROOT.get(path.stem, frozenset())
+        assert not new, (
+            f"{path.name} names {sorted(new)}. Entity logic belongs in "
+            "entities/<entity>, reached through a hook on its EntityHandler "
+            "(.claude/rules/architecture.md)."
+        )
+
+
+def test_the_entity_name_allowlist_only_shrinks() -> None:
+    for stem, allowed in ENTITY_NAMES_AT_ROOT.items():
+        path = READ_LIST / f"{stem}.py"
+        stale = allowed - (_entity_literals(path) if path.exists() else set())
+        assert not stale, f"{stem}.py no longer names {sorted(stale)}: remove it from the list"

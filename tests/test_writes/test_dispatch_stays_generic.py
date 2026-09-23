@@ -9,7 +9,9 @@ backend answers it reinterprets and what it says about its result all live in
 
 from __future__ import annotations
 
+import ast
 import inspect
+import pathlib
 
 import pytest
 
@@ -57,3 +59,69 @@ def test_every_hook_comes_from_an_operations_module(name: str) -> None:
         assert module.startswith("opik_mcp.writes.operations."), (
             f"{name} takes a hook from {module!r}"
         )
+
+
+WRITES = pathlib.Path(dispatch.__file__).parent
+
+#: Root modules of ``writes`` that still name an operation or its target. Debt,
+#: not design (docs/decisions/0004): the per-operation models and wire names
+#: belong in ``writes/operations/``. May only shrink; OPIK-8496 works through it.
+OPERATION_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
+    "models": frozenset(
+        {
+            "agent_insights_issue.close",
+            "agent_insights_issue.reopen",
+            "agent_insights_issue.resolve",
+            "agent_insights_job.enable",
+            "agent_insights_job.trigger",
+            "comment.create",
+            "dataset",
+            "dataset.create",
+            "dataset_item.upsert",
+            "experiment.create",
+            "experiment_item.create",
+            "prompt_version.save",
+            "score.create",
+            "span",
+            "span.create",
+            "thread",
+            "thread.close",
+            "thread.open",
+            "trace",
+            "trace.create",
+            "trace.update",
+        }
+    ),
+    "wire": frozenset({"dataset", "span", "thread", "trace"}),
+}
+
+#: The registry is the table itself, so naming operations is its job.
+_ROOT_EXEMPT = frozenset({"registry"})
+
+
+def _operation_literals(path: pathlib.Path) -> set[str]:
+    names = set(WRITE_OPERATIONS) | {name.split(".")[0] for name in WRITE_OPERATIONS}
+    return {
+        node.value
+        for node in ast.walk(ast.parse(path.read_text()))
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
+    }
+
+
+def test_no_new_operation_name_at_the_root() -> None:
+    for path in sorted(WRITES.glob("*.py")):
+        if path.stem in _ROOT_EXEMPT:
+            continue
+        new = _operation_literals(path) - OPERATION_NAMES_AT_ROOT.get(path.stem, frozenset())
+        assert not new, (
+            f"{path.name} names {sorted(new)}. Per-operation behaviour belongs in "
+            "writes/operations/, reached through a hook on its registry entry "
+            "(.claude/rules/architecture.md)."
+        )
+
+
+def test_the_operation_name_allowlist_only_shrinks() -> None:
+    for stem, allowed in OPERATION_NAMES_AT_ROOT.items():
+        path = WRITES / f"{stem}.py"
+        stale = allowed - (_operation_literals(path) if path.exists() else set())
+        assert not stale, f"{stem}.py no longer names {sorted(stale)}: remove it from the list"
