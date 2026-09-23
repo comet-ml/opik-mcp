@@ -29,10 +29,10 @@ TRACKED = [
     "CLAUDE.md",
     ".claude/rules/python.md",
     ".claude/agents/code-reviewer.md",
-    ".claude/commands/verify-branch.md",
+    ".claude/commands/dogfood.md",
     ".claude/settings.json",
     ".claude/hooks/protect_paths.py",
-    ".claude/verify-branch/memory/some-entry.md",
+    ".claude/dogfood/memory/some-entry.md",
 ]
 
 IGNORED = [

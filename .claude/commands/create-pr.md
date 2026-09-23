@@ -46,7 +46,7 @@ Fill `.github/pull_request_template.md`. Short bullets, plain words.
   - Scope: <full implementation | assisted | review only>
   - Human verification: <what the developer checked; ask me if unsure>
   ```
-- Testing: the three targets and their counts, plus `/verify-branch` if it
+- Testing: the three targets and their counts, plus `/dogfood` if it
   was run.
 - No customer or workspace names, internal hosts or secrets. The repo is
   public.

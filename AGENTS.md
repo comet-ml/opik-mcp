@@ -85,7 +85,7 @@ errors.
 
 - Plan locally before implementing; plans are not committed.
 - A PR that changes a feature's behaviour updates its `design-doc.md`.
-- Before the PR, run `/verify-branch`, then `/create-pr`.
+- Before a PR that changes `src/`, run `/dogfood`; then `/create-pr`.
 - Writing (commits, PRs, comments, docs) is short and plain. See
   `.claude/rules/git-workflow.md`.
 
@@ -102,6 +102,6 @@ errors.
 - Rules load by path from `.claude/rules/`: `python`, `architecture`,
   `tool-surface`, `tests`, `skills`, `docs`, `security`, `git-workflow`.
 - Subagents: `code-reviewer`, `understand`, `test-runner`.
-- Commands: `/install-branch`, `/verify-branch`, `/create-pr`,
+- Commands: `/install-branch`, `/dogfood`, `/create-pr`,
   `/address-pr-comments`.
 - Decisions: [docs/decisions/](docs/decisions/README.md).

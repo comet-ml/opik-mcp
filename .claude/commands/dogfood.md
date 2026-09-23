@@ -1,11 +1,15 @@
 ---
-description: Test this branch like a customer in the current session, compare it with main, and report bugs and regressions.
+description: Use this branch's MCP server like a customer, next to main, and report what a customer would notice changed.
 argument-hint: "[extra flows or focus]"
 ---
 
 Test this branch the way a customer would use it, through the MCP tools in
 this session, and tell me if it is ready to ship. Extra focus from me:
 $ARGUMENTS
+
+If the branch doesn't touch `src/`, both servers run the same code and no
+differences is the expected result. Say that in one line and still report
+problems found on both.
 
 ## 1. Set up two servers on the same workspace
 
@@ -28,7 +32,7 @@ $ARGUMENTS
 
 - `git diff origin/main...HEAD`, the commit messages, and the ticket
   (OPIK-<n> from the branch name, via Jira if available).
-- Every file in `.claude/verify-branch/memory/` (format in its README).
+- Every file in `.claude/dogfood/memory/` (format in its README).
 
 ## 3. Pick the flows
 

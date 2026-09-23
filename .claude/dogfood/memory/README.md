@@ -1,6 +1,6 @@
-# Verify memory
+# Dogfood memory
 
-What `/verify-branch` should remember between runs: findings a developer
+What `/dogfood` should remember between runs: findings a developer
 accepted, ideas for later, and facts that save time. One small file per entry,
 so parallel branches never conflict. This folder is committed and the repo is
 public: no customer or workspace names, keys or internal links.
