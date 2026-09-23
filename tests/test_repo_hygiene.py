@@ -13,6 +13,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
+# Private, but it is the parser pytest uses for -m, so the test reads addopts
+# exactly as pytest will.
 from _pytest.mark.expression import Expression
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -83,3 +86,17 @@ def test_marker_is_registered_and_off_by_default(marker: str, pytestconfig: pyte
 
     selected = Expression.compile(expression).evaluate(only_this_marker)
     assert not selected, f"a test marked {marker} would run in the default suite"
+
+
+@pytest.mark.parametrize(
+    ("target", "suite", "ticket"),
+    [("live", "tests/live", "OPIK-8490"), ("user-flows", "tests/user_flows", "OPIK-8491")],
+)
+def test_a_missing_suite_says_so_and_passes(target: str, suite: str, ticket: str) -> None:
+    if (REPO_ROOT / suite).exists():
+        pytest.skip(f"{suite} exists; the target runs it")
+    result = subprocess.run(
+        ["make", "-s", target], cwd=REPO_ROOT, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, "an absent suite must not fail the run"
+    assert f"not present yet ({ticket})" in result.stdout

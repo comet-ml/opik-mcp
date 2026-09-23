@@ -14,7 +14,7 @@ File name: a short slug, e.g. `archived-experiments-not-listed.md`.
 kind: accepted        # accepted | backlog | context
 flow: compare-experiments
 symptom: "list('experiment') leaves out archived runs"
-decided: 2026-09-23, Yaroslav, OPIK-8396
+decided: 2026-09-23, <developer>, OPIK-8396
 recheck_when: src/opik_mcp/read_list/entities/experiment.py
 ---
 Archived runs are hidden in the UI too, so the list matches what users see.

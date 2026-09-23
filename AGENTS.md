@@ -5,6 +5,10 @@ itself. Before adding output, a tool, a field or description text, say what it
 costs (bytes on the surface, tokens in a typical answer) and what the user gets
 for it. See [ADR 0001](docs/decisions/0001-context-budget-first.md).
 
+- The advertised surface has a hard byte budget.
+- Every answer states its size.
+- The caller can always narrow: a span, a filter, a window, `fields=[…]`.
+
 ## What this is
 
 An MCP server that lets an AI agent (Claude Code, Cursor, claude.ai) work with
@@ -44,8 +48,9 @@ How a call flows:
 | `make live` / `make user-flows` | real backend / real agent (OPIK-8490, OPIK-8491) | not yet |
 | `make install-branch` | installs this worktree as MCP server `opik-<ticket>` | no |
 
-`make` runs mypy and ruff over the whole tree. Running them on `src/` alone
-misses the test and script errors CI will catch.
+`make` runs mypy over `src/`, `tests/` and the scripts, and ruff over
+everything, as CI does. Running them on `src/` alone misses test and script
+errors.
 
 ## Invariants (a red test here is a contract, not a flake)
 

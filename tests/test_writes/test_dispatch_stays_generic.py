@@ -9,7 +9,6 @@ backend answers it reinterprets and what it says about its result all live in
 
 from __future__ import annotations
 
-import ast
 import inspect
 import pathlib
 
@@ -17,6 +16,7 @@ import pytest
 
 from opik_mcp.writes import dispatch
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
+from tests.ratchet import assert_allowlist_only_shrinks, assert_no_new_names
 
 
 def test_the_dispatcher_names_no_operation() -> None:
@@ -63,9 +63,9 @@ def test_every_hook_comes_from_an_operations_module(name: str) -> None:
 
 WRITES = pathlib.Path(dispatch.__file__).parent
 
-#: Root modules of ``writes`` that still name an operation or its target. Debt,
-#: not design (docs/decisions/0004): the per-operation models and wire names
-#: belong in ``writes/operations/``. May only shrink; OPIK-8496 works through it.
+# Root modules of ``writes`` that still name an operation or its target. Debt,
+# not design (docs/decisions/0004): the per-operation models and wire names
+# belong in ``writes/operations/``. May only shrink; OPIK-8496 works through it.
 OPERATION_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "models": frozenset(
         {
@@ -95,33 +95,23 @@ OPERATION_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "wire": frozenset({"dataset", "span", "thread", "trace"}),
 }
 
-#: The registry is the table itself, so naming operations is its job.
+# The registry is the table itself, so naming operations is its job.
 _ROOT_EXEMPT = frozenset({"registry"})
-
-
-def _operation_literals(path: pathlib.Path) -> set[str]:
-    names = set(WRITE_OPERATIONS) | {name.split(".")[0] for name in WRITE_OPERATIONS}
-    return {
-        node.value
-        for node in ast.walk(ast.parse(path.read_text()))
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
-    }
+_OPERATION_NAMES = frozenset(WRITE_OPERATIONS) | {name.split(".")[0] for name in WRITE_OPERATIONS}
 
 
 def test_no_new_operation_name_at_the_root() -> None:
-    for path in sorted(WRITES.glob("*.py")):
-        if path.stem in _ROOT_EXEMPT:
-            continue
-        new = _operation_literals(path) - OPERATION_NAMES_AT_ROOT.get(path.stem, frozenset())
-        assert not new, (
-            f"{path.name} names {sorted(new)}. Per-operation behaviour belongs in "
-            "writes/operations/, reached through a hook on its registry entry "
-            "(.claude/rules/architecture.md)."
-        )
+    assert_no_new_names(
+        WRITES,
+        OPERATION_NAMES_AT_ROOT,
+        _OPERATION_NAMES,
+        exempt=_ROOT_EXEMPT,
+        where_it_belongs=(
+            "Per-operation behaviour belongs in writes/operations/, "
+            "reached through a hook on its registry entry"
+        ),
+    )
 
 
 def test_the_operation_name_allowlist_only_shrinks() -> None:
-    for stem, allowed in OPERATION_NAMES_AT_ROOT.items():
-        path = WRITES / f"{stem}.py"
-        stale = allowed - (_operation_literals(path) if path.exists() else set())
-        assert not stale, f"{stem}.py no longer names {sorted(stale)}: remove it from the list"
+    assert_allowlist_only_shrinks(WRITES, OPERATION_NAMES_AT_ROOT, _OPERATION_NAMES)

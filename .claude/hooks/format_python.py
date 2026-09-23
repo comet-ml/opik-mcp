@@ -1,9 +1,6 @@
-"""PostToolUse hook: format and safe-fix an edited Python file.
-
-Silent on success, so it costs no context. Never blocks: lint errors are left
-for `make lint`. The fix step only sorts imports: a full `--fix` would delete
-an import the agent added one edit before the code that uses it.
-"""
+# PostToolUse hook: format an edited Python file and sort its imports.
+# Silent and never blocking; lint errors are left for `make lint`. Only imports
+# are fixed: a full `--fix` deletes an import added one edit before its use.
 
 from __future__ import annotations
 
@@ -12,6 +9,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Pinned so an edit under a skill-eval fixture with its own pyproject.toml
+# never makes uv build a venv inside that fixture.
+PROJECT = Path(__file__).resolve().parents[2]
+
 
 def main() -> int:
     try:
@@ -19,15 +20,11 @@ def main() -> int:
     except ValueError:
         return 0
     raw = (call.get("tool_input") or {}).get("file_path")
-    if not raw or not raw.endswith(".py"):
-        return 0
-    path = Path(raw)
-    if not path.is_file():
+    if not raw or not raw.endswith(".py") or not Path(raw).is_file():
         return 0
     for args in (["format"], ["check", "--select", "I", "--fix", "--quiet"]):
         subprocess.run(
-            ["uv", "run", "--quiet", "ruff", *args, str(path)],
-            cwd=path.parent,
+            ["uv", "run", "--quiet", "--project", str(PROJECT), "ruff", *args, raw],
             capture_output=True,
             check=False,
         )

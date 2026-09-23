@@ -15,6 +15,9 @@ caller pays for. See ADRs [0001](../../docs/decisions/0001-context-budget-first.
 
 - State the cost of the change in the PR: surface bytes before and after
   (the budget test prints them), and tokens in a typical answer.
+- The surface budget is 24,000 bytes (`test_tool_inventory.py`); record each
+  change in the history comment there. Input schemas change only on purpose
+  (`UPDATE_SNAPSHOTS=1`), and the PR says why.
 - A description is a contract. Every claim is true for the code and has a
   probe in `tests/e2e/test_description_claims.py`.
 - Never say more than the data supports. A ranking on a page the backend

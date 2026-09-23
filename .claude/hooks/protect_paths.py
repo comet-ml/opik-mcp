@@ -1,8 +1,6 @@
-"""PreToolUse hook: block writes to paths where a mistake is silent.
-
-Exit 2 blocks the call and shows stderr to Claude. Anything unexpected exits 0,
-because a hook that fails closed on odd input would block every edit.
-"""
+# PreToolUse hook: block writes to paths where a mistake is silent.
+# Exit 2 blocks the call and shows stderr to Claude. Odd input exits 0: a hook
+# that fails closed would block every edit.
 
 from __future__ import annotations
 
@@ -12,7 +10,6 @@ from pathlib import Path
 
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 
-#: Repo-relative prefix -> why it is blocked and where the file belongs instead.
 PROTECTED = {
     ".claude/skills/": (
         "a skill here is resolved by `npx skills add` and ships to users. "
@@ -31,7 +28,7 @@ PROTECTED = {
 
 
 def _repo_root(path: Path) -> Path | None:
-    """The nearest ancestor holding `.git` (a directory, or a worktree's file)."""
+    # `.git` is a file in a worktree, so a worktree is judged by its own root.
     for parent in path.parents:
         if (parent / ".git").exists():
             return parent
@@ -55,7 +52,7 @@ def main() -> int:
         return 0
     relative = path.relative_to(root).as_posix()
     for prefix, reason in PROTECTED.items():
-        if relative == prefix or relative.startswith(prefix):
+        if relative.startswith(prefix):
             print(f"Blocked write to {relative}: {reason}", file=sys.stderr)
             return 2
     return 0

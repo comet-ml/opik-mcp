@@ -1,9 +1,5 @@
-"""`make install-branch`: a worktree installed as its own MCP server.
-
-Driven through `--dry-run`, which prints the plan without running it. The key
-must never appear in what the script prints or in the arguments it is given:
-the plan is pasted into chats and PRs.
-"""
+# Most tests use --dry-run, which prints the plan without running it. The plan
+# gets pasted into chats and PRs, so the key must never appear in it.
 
 from __future__ import annotations
 
@@ -80,8 +76,13 @@ def test_name_and_workspace_can_be_overridden(tmp_path: Path, home: Path) -> Non
 
 def test_environment_wins_over_the_config_file(tmp_path: Path, home: Path) -> None:
     cwd = _worktree(tmp_path, "OPIK-1-x")
-    env = {"OPIK_WORKSPACE": "env-ws", "OPIK_URL": "https://dev.comet.com/opik/api"}
+    env = {
+        "OPIK_WORKSPACE": "env-ws",
+        "OPIK_URL": "https://dev.comet.com/opik/api",
+        "OPIK_API_KEY": "sk-env-key",
+    }
     result = _plan(cwd, home, "install", env=env)
+    assert result.returncode == 0, result.stderr
     assert "OPIK_WORKSPACE=env-ws" in result.stdout
     assert "OPIK_URL=https://dev.comet.com/opik/api" in result.stdout
 
@@ -132,3 +133,47 @@ def test_uninstall_removes_the_entry_and_the_venv(tmp_path: Path, home: Path) ->
     assert result.returncode == 0, result.stderr
     assert "claude mcp remove -s user opik-8480" in result.stdout
     assert "rm -rf" in result.stdout and "opik-mcp-8480" in result.stdout
+
+
+def test_the_key_comes_from_the_same_source_as_the_url(tmp_path: Path, home: Path) -> None:
+    env = {"OPIK_URL": "https://other.example.com/opik/api", "OPIK_WORKSPACE": "ws"}
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install", env=env)
+    assert result.returncode != 0
+    assert "OPIK_API_KEY" in result.stderr
+
+
+def test_a_percent_sign_in_the_config_file_is_read_as_is(tmp_path: Path, home: Path) -> None:
+    (home / ".opik.config").write_text(
+        "[opik]\nurl_override = https://www.comet.com/opik/api/\nworkspace = ws%1\n"
+        f"api_key = {KEY}\n"
+    )
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
+    assert result.returncode == 0, result.stderr
+    assert "OPIK_WORKSPACE=ws%1" in result.stdout
+
+
+def test_a_failed_registration_does_not_print_the_key(tmp_path: Path, home: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    for tool, body in {
+        "make": "exit 0",
+        "uv": "exit 0",
+        # `mcp get` and `mcp add` fail; `mcp remove` succeeds.
+        "claude": '[ "$2" = remove ] && exit 0; echo "boom: $*" >&2; exit 1',
+    }.items():
+        script = bin_dir / tool
+        script.write_text(f"#!/bin/sh\n{body}\n")
+        script.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OPIK_", "COMET_"))}
+    env |= {"HOME": str(home), "PATH": f"{bin_dir}:{env['PATH']}"}
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "install"],
+        cwd=_worktree(tmp_path, "OPIK-1-x"),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert KEY not in result.stdout + result.stderr
+    assert "claude mcp add" in result.stderr, "the failure should still say which step failed"

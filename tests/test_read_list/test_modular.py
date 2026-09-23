@@ -22,6 +22,7 @@ import pathlib
 
 from opik_mcp.read_list import list_tool, registry
 from opik_mcp.read_list.registry import ENTITY_ALIASES, ENTITY_REGISTRY
+from tests.ratchet import assert_allowlist_only_shrinks, assert_no_new_names
 
 READ_LIST = pathlib.Path(registry.__file__).parent
 ENTITIES = READ_LIST / "entities"
@@ -211,9 +212,9 @@ def test_the_handler_contract_imports_no_entity() -> None:
         assert "entities" not in module, f"handler.py imports {module}"
 
 
-#: Root modules that still name an entity, and the names they use. Debt, not
-#: design: move the entity's part behind a hook on its handler, then delete it
-#: here. Refactor ticket OPIK-8496 works through this list.
+# Root modules that still name an entity, and the names they use. Debt, not
+# design: move the entity's part behind a hook on its handler, then delete it
+# here. Refactor ticket OPIK-8496 works through this list.
 ENTITY_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "decorations": frozenset({"dataset", "dataset_item", "prompt", "prompt_version"}),
     "list_tool": frozenset({"agent_insights_issue"}),
@@ -253,35 +254,22 @@ ENTITY_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     ),
 }
 
-#: The registry is the table itself, so naming entities is its job.
+# The registry is the table itself, so naming entities is its job.
 _ROOT_EXEMPT = frozenset({"registry"})
-
-
-def _entity_literals(path: pathlib.Path) -> set[str]:
-    names = set(ENTITY_REGISTRY) | set(ENTITY_ALIASES)
-    return {
-        node.value
-        for node in ast.walk(ast.parse(path.read_text()))
-        if isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value in names
-    }
-
-
-def _root_modules() -> list[pathlib.Path]:
-    return [p for p in sorted(READ_LIST.glob("*.py")) if p.stem not in _ROOT_EXEMPT]
+_ENTITY_NAMES = frozenset(ENTITY_REGISTRY) | frozenset(ENTITY_ALIASES)
 
 
 def test_no_new_entity_name_at_the_root() -> None:
-    for path in _root_modules():
-        new = _entity_literals(path) - ENTITY_NAMES_AT_ROOT.get(path.stem, frozenset())
-        assert not new, (
-            f"{path.name} names {sorted(new)}. Entity logic belongs in "
-            "entities/<entity>, reached through a hook on its EntityHandler "
-            "(.claude/rules/architecture.md)."
-        )
+    assert_no_new_names(
+        READ_LIST,
+        ENTITY_NAMES_AT_ROOT,
+        _ENTITY_NAMES,
+        exempt=_ROOT_EXEMPT,
+        where_it_belongs=(
+            "Entity logic belongs in entities/<entity>, reached through a hook on its EntityHandler"
+        ),
+    )
 
 
 def test_the_entity_name_allowlist_only_shrinks() -> None:
-    for stem, allowed in ENTITY_NAMES_AT_ROOT.items():
-        path = READ_LIST / f"{stem}.py"
-        stale = allowed - (_entity_literals(path) if path.exists() else set())
-        assert not stale, f"{stem}.py no longer names {sorted(stale)}: remove it from the list"
+    assert_allowlist_only_shrinks(READ_LIST, ENTITY_NAMES_AT_ROOT, _ENTITY_NAMES)

@@ -1,14 +1,9 @@
-"""The Claude Code hooks committed in `.claude/hooks/`.
-
-Each hook reads the tool call as JSON on stdin, the way Claude Code sends it,
-so the tests do the same. The protect hook blocks writes where a mistake is
-silent: a skill under `.claude/skills/` or `.agents/skills/` ships to users
-through `npx skills add`, and `_version.py` and `dist/` are generated.
-"""
+# Hooks read the tool call as JSON on stdin, the way Claude Code sends it.
 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -55,7 +50,7 @@ def repo(tmp_path: Path) -> Path:
 def test_protect_blocks_with_a_reason(repo: Path, relative: str, tool: str) -> None:
     result = _run("protect_paths.py", _edit(repo / relative, tool))
     assert result.returncode == 2, "exit 2 is what makes Claude Code block the call"
-    assert relative.split("/")[0] in result.stderr or "_version.py" in result.stderr
+    assert f"Blocked write to {relative}:" in result.stderr
     assert "instead" in result.stderr, "the reason must say where the file belongs"
 
 
@@ -75,8 +70,6 @@ def test_protect_allows_ordinary_paths(repo: Path, relative: str) -> None:
 
 
 def test_protect_judges_a_worktree_by_its_own_root(repo: Path) -> None:
-    """A worktree under `.claude/worktrees/` is its own repository: a normal
-    source file there must not look like it sits under `.claude/`."""
     worktree = repo / ".claude" / "worktrees" / "some-branch"
     worktree.mkdir(parents=True)
     (worktree / ".git").write_text("gitdir: elsewhere\n")
@@ -131,14 +124,43 @@ def test_format_leaves_other_files_alone(scratch: Path) -> None:
     assert target.read_text() == "x = {  'a':1 }\n"
 
 
-def test_settings_wire_both_hooks() -> None:
+def _hook_commands(event: str) -> list[str]:
     settings = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text())
-    commands = {
-        event: [hook["command"] for entry in entries for hook in entry["hooks"]]
-        for event, entries in settings["hooks"].items()
-    }
-    assert any("protect_paths.py" in c for c in commands["PreToolUse"])
-    assert any("format_python.py" in c for c in commands["PostToolUse"])
-    deny = settings["permissions"]["deny"]
-    assert any(".env" in rule for rule in deny)
-    assert any("--force" in rule for rule in deny)
+    return [hook["command"] for entry in settings["hooks"][event] for hook in entry["hooks"]]
+
+
+def _run_as_configured(command: str, payload: Mapping[str, object]) -> int:
+    # The command string exactly as settings.json has it, the way Claude Code runs it.
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(REPO_ROOT)}
+    return subprocess.run(
+        ["/bin/sh", "-c", command],
+        input=json.dumps(payload),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).returncode
+
+
+def test_the_configured_pre_hook_blocks_a_skill_write() -> None:
+    blocked = _edit(REPO_ROOT / ".claude/skills/dev-helper/SKILL.md")
+    allowed = _edit(REPO_ROOT / "src/opik_mcp/read_list/uri.py")
+    commands = _hook_commands("PreToolUse")
+    assert any(_run_as_configured(c, blocked) == 2 for c in commands)
+    assert all(_run_as_configured(c, allowed) == 0 for c in commands)
+
+
+def test_the_configured_post_hook_formats(scratch: Path) -> None:
+    target = scratch / "messy.py"
+    target.write_text("x = {  'a':1 }\n")
+    payload = {"tool_name": "Edit", "tool_input": {"file_path": str(target)}}
+    for command in _hook_commands("PostToolUse"):
+        _run_as_configured(command, payload)
+    assert target.read_text() == 'x = {"a": 1}\n'
+
+
+def test_settings_deny_secrets_and_force_pushes() -> None:
+    deny = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text())["permissions"]["deny"]
+    assert "Read(./.env)" in deny
+    assert "Bash(git push --force*)" in deny
+    assert "Bash(git push * +*)" in deny

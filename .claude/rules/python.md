@@ -7,7 +7,7 @@ paths:
 
 - uv only (`uv run`, `uv add`). Never pip or poetry.
 - Full annotations, no `Any`. Fix a type error instead of adding
-  `type: ignore`; the codebase has two.
+  `type: ignore`; `src/` has two.
 - `from __future__ import annotations` at the top of each module. Imports at
   the top, never inside functions.
 - Frozen dataclasses for internal contracts; Pydantic models at the edges
@@ -17,7 +17,10 @@ paths:
   `compare_url`.
 - Errors: raise a typed error, chain it with `from`, give it an `error_kind`
   class variable. Analytics groups errors by class, never by message text.
-- No `print`, no `noqa`, no divider comments.
+- No `print` in `src/` (dev scripts and hooks print by design), no `noqa`,
+  no divider comments.
+- Hooks in `.claude/hooks/` and scripts in `scripts/dev/` use only the
+  standard library and run with `python3`, so they work before `uv sync`.
 - No speculative abstractions, no just-in-case error handling, no
   back-compat shims. Don't reformat code you didn't change.
 

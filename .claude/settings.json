@@ -37,8 +37,9 @@
       "Bash(git push -f*)",
       "Bash(git push * --force*)",
       "Bash(git push * -f*)",
+      "Bash(git push * +*)",
       "Bash(git push * main)",
-      "Bash(git push * HEAD:main)"
+      "Bash(git push *:main)"
     ]
   },
   "hooks": {
