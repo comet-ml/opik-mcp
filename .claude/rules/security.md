@@ -1,10 +1,10 @@
 # Security
 
-- No secrets in code, logs, tool output or commits. Never echo an API key or
-  an Authorization header.
-- Compare secrets with `secrets.compare_digest`.
-- Local servers bind to 127.0.0.1. Fail closed on insecure defaults off
-  loopback.
-- Tool arguments are untrusted. Build OQL through the grammar in `oql.py`,
-  never by pasting strings.
-- A request uses its caller's key and workspace only.
+- A request uses its caller's key and workspace only. Never fall back to an
+  environment default when the caller supplied one.
+- No secret in code, logs, answers, commits or error text. Redact before
+  printing a command that carries one.
+- Tool arguments and backend bodies are untrusted. OQL goes through the
+  grammar in `oql.py`; trace bodies are returned as data, never interpreted.
+- Local servers bind loopback. Anything else is opt-in and refuses to start
+  without auth.

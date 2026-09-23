@@ -9,8 +9,7 @@ the next ticket, so it is checked here rather than remembered.
 The rule covers tables too (docs/decisions/0004): per-entity OQL fields, sort
 fields, URI patterns and link builders belong with their entity, and the root
 keeps only the mechanism that reads them. Today's root modules still name
-entities, so those are pinned in an allowlist. It grows only by a visible
-edit with a reason in the PR, when no hook exists yet. A new
+entities, so those are pinned in an allowlist that only shrinks. A new
 entity name as a string literal at the root fails (a helper named after an
 entity is left to review); paying one off without removing it from the
 list fails too, so the list stays an honest to-do list.
@@ -216,9 +215,8 @@ def test_the_handler_contract_imports_no_entity() -> None:
 
 # Root modules that still name an entity, and the names they use. Debt, not
 # design: move the entity's part behind a hook on its handler, then delete it
-# here. Filter fields, sort fields, schema notes and URI patterns have no hook
-# yet, so a new entity that needs them adds its name here and says so in the
-# PR. Refactor ticket OPIK-8496 adds the hooks and works through this list.
+# here. A new entity that needs filter fields, sort fields, schema notes or a
+# URI pattern adds the missing hook on EntityHandler; it never grows this list.
 ENTITY_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "decorations": frozenset({"dataset", "dataset_item", "prompt", "prompt_version"}),
     "list_tool": frozenset({"agent_insights_issue"}),

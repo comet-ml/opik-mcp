@@ -1,7 +1,7 @@
 # Shared by the read_list and writes guard tests. A root module may name only
-# the entities its allowlist entry already names. Growing the list is allowed
-# when no hook exists yet, but it has to be a visible edit with a reason in the
-# PR; a paid-off entry left in the list fails. Some entity names are ordinary
+# the entities its allowlist entry already names, and the list only shrinks: a
+# change that needs a root table adds a hook instead, and a paid-off entry left
+# in the list fails. Some entity names are ordinary
 # words ("issue", "score", "comment", "project", "prompt"), so an unrelated
 # literal can trip it;
 # rename the literal or list it with a note.
@@ -36,8 +36,8 @@ def assert_no_new_names(
         new = string_literals(path, names) - allowlist.get(path.stem, frozenset())
         assert not new, (
             f"{path.name} names {sorted(new)}. {where_it_belongs} "
-            "(.claude/rules/architecture.md). If there is no hook for this yet, add "
-            f"the name to {allowlist_name} in this test and say why in the PR."
+            "(.claude/rules/architecture.md). If no hook exists for this yet, add one; "
+            f"{allowlist_name} only shrinks."
         )
 
 

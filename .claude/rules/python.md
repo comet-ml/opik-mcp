@@ -5,31 +5,36 @@ paths:
 
 # Python
 
-- uv only (`uv run`, `uv add`). Never pip or poetry.
-- Full annotations, no `Any`. Fix a type error instead of adding
-  `type: ignore`.
-- `from __future__ import annotations` at the top of each module. Imports at
-  the top, never inside functions.
-- Frozen dataclasses for internal contracts; Pydantic models at the edges
-  (tool input, backend payloads).
-- Keyword-only arguments (`*`) when positional arguments could be swapped.
-- Names say exactly what the thing is: `experiments_compare_url`, not
-  `compare_url`.
-- Errors: raise a typed error, chain it with `from`, give it an `error_kind`
-  class variable. Analytics groups errors by class, never by message text.
-- No `print` in `src/` (dev scripts and hooks print by design), no `noqa`,
-  no divider comments.
-- Hooks in `.claude/hooks/` and scripts in `scripts/dev/` use only the
-  standard library and run with `python3`, so they work before `uv sync`.
-- No speculative abstractions, no just-in-case error handling, no
-  back-compat shims. Don't reformat code you didn't change.
+`make check` enforces the mechanical rules: ruff and mypy in strict mode, with
+the configuration in `pyproject.toml`. Fix the finding, never the rule. No
+`noqa`, no `type: ignore`, no loosening of the config in a feature PR. A rule
+that is wrong changes in its own PR, with the reason.
+
+What the tools can't check:
+
+- A name says what the thing is, in full. `experiments_compare_url`, not
+  `compare_url`. `dropped_span_bodies`, not `n`. Boolean names read as a
+  question: `is_local`, `has_more`.
+- Keyword-only (`*`) when two parameters share a type. A call site should read
+  without the signature open.
+- Frozen dataclasses for values that cross a module boundary. Pydantic only
+  where data enters or leaves the process: tool input, backend payloads.
+  Exception classes are plain classes.
+- One typed error per failure mode, with an `error_kind` class variable, raised
+  with `from`. Analytics groups by class, so a new way to fail is a new class,
+  never a new message string.
+- A function that needs a comment to say what it does needs a better name or a
+  split.
+- Delete what the change makes unused. No compat shim, no just-in-case `try`,
+  no abstraction with one caller.
+- Don't reformat lines you didn't change.
+- `.claude/hooks/` and `scripts/dev/` use the standard library only and run
+  with `python3`, so they work before `uv sync`. Printing is their output.
 
 ## Comments and docstrings
 
-Write one only when the code can't say it: a non-obvious reason, a hidden
-constraint, a workaround for a backend quirk. Never restate the name, the
-signature or what the next lines do. No module docstring by default, no
-`Args:`/`Returns:` sections. Existing comments stay; new code follows this.
+A comment says what the code can't: a reason, a hidden constraint, a backend
+quirk. Never what the next lines do.
 
 Good:
 
@@ -43,3 +48,7 @@ Bad:
 ```python
 # Loop over the spans and add each one to the result.
 ```
+
+A docstring is one sentence on the part of the contract the signature doesn't
+show. No `Args:` or `Returns:` sections. A module gets a docstring only when
+its name doesn't say what it is for.

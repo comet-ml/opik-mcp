@@ -68,6 +68,9 @@ errors.
   gain entity names. `tests/test_read_list/test_modular.py`,
   `tests/test_writes/test_dispatch_stays_generic.py`
 - No telemetry from tests. `tests/test_telemetry_disabled_in_tests.py`
+- The lint and type baselines in `pyproject.toml` excuse findings that predate
+  the rules and only shrink; a new file meets the full rules.
+  `tests/test_lint_baseline.py`
 
 ## Gotchas
 
@@ -104,7 +107,8 @@ errors.
 ## Where to look next
 
 - Rules load by path from `.claude/rules/`: `python`, `architecture`,
-  `tool-surface`, `tests`, `skills`, `docs`, `security`, `git-workflow`.
+  `tool-surface`, `tests`, `skills`, `docs`, `agent-config`; `security` and
+  `git-workflow` always load.
 - Subagents: `code-reviewer`, `understand`, `test-runner`.
 - Commands: `/install-branch`, `/dogfood`, `/create-pr`,
   `/address-pr-comments`.

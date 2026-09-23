@@ -65,9 +65,8 @@ WRITES = pathlib.Path(dispatch.__file__).parent
 
 # Root modules of ``writes`` that still name an operation or its target. Debt,
 # not design (docs/decisions/0004): the per-operation models and wire names
-# belong in ``writes/operations/``. A new operation's model still lives in
-# ``models.py``, so it adds its names here and says so in the PR; OPIK-8496
-# moves the models and works through this list.
+# belong in ``writes/operations/``. A new operation puts its model there,
+# behind a registry hook; this list only shrinks.
 OPERATION_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "models": frozenset(
         {
