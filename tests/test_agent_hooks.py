@@ -66,7 +66,8 @@ def test_protect_blocks_with_a_reason(repo: Path, relative: str, tool: str) -> N
 def test_protect_allows_ordinary_paths(repo: Path, relative: str) -> None:
     result = _run("protect_paths.py", _edit(repo / relative))
     assert result.returncode == 0, result.stderr
-    assert result.stdout == "" and result.stderr == ""
+    assert result.stdout == ""
+    assert result.stderr == ""
 
 
 def test_protect_judges_a_worktree_by_its_own_root(repo: Path) -> None:
@@ -112,8 +113,13 @@ def test_format_rewrites_an_edited_python_file_silently(scratch: Path) -> None:
     }
     result = _run("format_python.py", payload)
     assert result.returncode == 0
-    assert result.stdout == "" and result.stderr == "", "output would cost context on every edit"
-    assert target.read_text() == 'import os\nimport sys\n\nx = {"a": 1}\n'
+    # Output would cost context on every edit.
+    assert result.stdout == ""
+    assert result.stderr == ""
+    # The required future import comes with the import sort.
+    assert target.read_text() == (
+        'from __future__ import annotations\n\nimport os\nimport sys\n\nx = {"a": 1}\n'
+    )
 
 
 def test_format_leaves_other_files_alone(scratch: Path) -> None:
@@ -156,7 +162,7 @@ def test_the_configured_post_hook_formats(scratch: Path) -> None:
     payload = {"tool_name": "Edit", "tool_input": {"file_path": str(target)}}
     for command in _hook_commands("PostToolUse"):
         _run_as_configured(command, payload)
-    assert target.read_text() == 'x = {"a": 1}\n'
+    assert target.read_text() == 'from __future__ import annotations\n\nx = {"a": 1}\n'
 
 
 def test_settings_deny_secrets_and_force_pushes() -> None:

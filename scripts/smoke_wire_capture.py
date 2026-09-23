@@ -27,7 +27,7 @@ OPIK_BASE = "https://opik.test"
 def _decode(content: Any) -> Any:
     if not content:
         return None
-    text = content[0].text  # type: ignore[union-attr]
+    text = content[0].text
     if text.startswith("Error executing tool ") and ": " in text:
         text = text.split(": ", 1)[1]
     try:

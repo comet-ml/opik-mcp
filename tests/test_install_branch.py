@@ -118,7 +118,8 @@ def test_missing_credentials_fail_loudly(tmp_path: Path) -> None:
     empty.mkdir()
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), empty, "install")
     assert result.returncode != 0
-    assert "OPIK_URL" in result.stderr and "~/.opik.config" in result.stderr
+    assert "OPIK_URL" in result.stderr
+    assert "~/.opik.config" in result.stderr
 
 
 def test_a_local_backend_needs_no_key(tmp_path: Path) -> None:
@@ -135,7 +136,8 @@ def test_uninstall_removes_the_entry_and_the_venv(tmp_path: Path, home: Path) ->
     assert result.returncode == 0, result.stderr
     assert "claude mcp remove -s local opik-8480" in result.stdout
     assert "claude mcp remove -s user opik-8480" in result.stdout
-    assert "rm -rf" in result.stdout and "opik-mcp-8480" in result.stdout
+    assert "rm -rf" in result.stdout
+    assert "opik-mcp-8480" in result.stdout
 
 
 def test_the_key_comes_from_the_same_source_as_the_url(tmp_path: Path, home: Path) -> None:
@@ -184,7 +186,8 @@ def test_a_failed_registration_does_not_print_the_key(tmp_path: Path, home: Path
 
 def test_the_env_key_replaces_the_config_key(home: Path) -> None:
     spec = importlib.util.spec_from_file_location("install_branch", SCRIPT)
-    assert spec and spec.loader
+    assert spec
+    assert spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module  # dataclasses look their module up here
     spec.loader.exec_module(module)
@@ -219,7 +222,8 @@ def test_dogfood_config_holds_a_reference_not_the_key(tmp_path: Path, home: Path
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "dogfood-prepare")
     assert result.returncode == 0, result.stderr
     assert KEY not in result.stdout
-    assert "worktree add --quiet --detach" in result.stdout and "origin/main" in result.stdout
+    assert "worktree add --quiet --detach" in result.stdout
+    assert "origin/main" in result.stdout
     config = json.loads(result.stdout[result.stdout.index("{") :])
     servers = config["mcpServers"]
     assert set(servers) == {"opik-branch", "opik-base"}
@@ -263,8 +267,10 @@ def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Pa
     assert "env-key=***" in result.stdout, "the child got the key, and its echo was redacted"
     argv = argv_file.read_text()
     assert KEY not in argv
-    assert "--strict-mcp-config" in argv and str(config) in argv
-    assert "mcp__opik-branch__read" in argv and "mcp__opik-base__list" in argv
+    assert "--strict-mcp-config" in argv
+    assert str(config) in argv
+    assert "mcp__opik-branch__read" in argv
+    assert "mcp__opik-base__list" in argv
     assert "mcp__opik-branch__write" not in argv, "a dogfood run must not write"
 
 
@@ -276,4 +282,5 @@ def test_dogfood_run_dry_run_runs_nothing(tmp_path: Path, home: Path) -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("would run: claude -p")
-    assert "--strict-mcp-config" in result.stdout and KEY not in result.stdout
+    assert "--strict-mcp-config" in result.stdout
+    assert KEY not in result.stdout

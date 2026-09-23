@@ -48,9 +48,13 @@ async def test_the_hints_match_what_each_tool_does() -> None:
     tools = await _tools()
     for name in READ_ONLY:
         hints = tools[name].annotations
-        assert hints and hints.readOnlyHint and not hints.destructiveHint, name
+        assert hints, name
+        assert hints.readOnlyHint, name
+        assert not hints.destructiveHint, name
     write = tools["write"].annotations
-    assert write and not write.readOnlyHint and write.destructiveHint
+    assert write
+    assert not write.readOnlyHint
+    assert write.destructiveHint
 
 
 @pytest.mark.anyio
