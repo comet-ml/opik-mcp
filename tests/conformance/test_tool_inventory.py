@@ -216,15 +216,20 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # tool list above is deferred but this text is not: every session that loads
 # the server carries it. Measured 4,750 bytes (about 1,150 tokens) with a long
 # workspace name and email, OPIK-8485. Raise it on purpose, with a note here.
+# This caps growth; the host's 2,048-character cut on the same text is pinned
+# in test_tool_annotations.py. Lower this to match once the text fits.
 INSTRUCTIONS_BUDGET_BYTES = 5_000
 
 
-def test_instructions_stay_within_budget() -> None:
-    rendered = render_instructions(
+def longest_instructions() -> str:
+    return render_instructions(
         Settings(comet_workspace="w" * 40, opik_url="https://www.comet.com/opik/api"),
         user_email="u" * 40 + "@example.com",
     )
-    size = len(rendered.encode())
+
+
+def test_instructions_stay_within_budget() -> None:
+    size = len(longest_instructions().encode())
     assert size <= INSTRUCTIONS_BUDGET_BYTES, (
         f"instructions are {size} bytes, over the {INSTRUCTIONS_BUDGET_BYTES}-byte budget. "
         "Every session that loads the server pays this; move detail into schema() or a skill."

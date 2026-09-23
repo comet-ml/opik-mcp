@@ -9,9 +9,8 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import Tool
 
-from opik_mcp.config import Settings
-from opik_mcp.instructions import render_instructions
 from opik_mcp.server import mcp
+from tests.conformance.test_tool_inventory import longest_instructions
 
 DESCRIPTION_LIMIT = 2_048
 READ_ONLY = frozenset({"read", "list", "schema", "read_skill"})
@@ -51,7 +50,6 @@ async def test_the_hints_match_what_each_tool_does() -> None:
         hints = tools[name].annotations
         assert hints and hints.readOnlyHint and not hints.destructiveHint, name
     write = tools["write"].annotations
-    # trace.update and the issue and thread state changes rewrite existing records.
     assert write and not write.readOnlyHint and write.destructiveHint
 
 
@@ -67,5 +65,4 @@ async def test_the_description_arrives_whole(name: str) -> None:
 
 @pytest.mark.xfail(strict=True, reason="instructions over 2,048 characters; follow-up to OPIK-8485")
 def test_the_instructions_arrive_whole() -> None:
-    rendered = render_instructions(Settings(comet_workspace="w" * 40), user_email="u@example.com")
-    assert len(rendered) <= DESCRIPTION_LIMIT
+    assert len(longest_instructions()) <= DESCRIPTION_LIMIT

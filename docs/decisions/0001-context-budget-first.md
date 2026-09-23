@@ -34,6 +34,8 @@ was needed costs the user money and crowds out their own work.
 
 - 2026-09-11: surface budget raised to 24,000 bytes, about 3.5 KB above the
   measurement; it guards against accidental growth, not against wording (#187).
+- 2026-09-22: token estimate set to 2.5 characters per token, because answers
+  are JSON, not prose (#199).
 - 2026-09-23: Claude Code cuts tool descriptions and the instructions at
   2,048 characters, checked live: `write` loses its last three operations,
   and `read`, `read_skill` and the instructions lose their tails. Pinned as
@@ -41,5 +43,3 @@ was needed costs the user money and crowds out their own work.
   Titles and hints added to all tools, 734 bytes on `tools/list`.
 - 2026-09-23: instructions budget added. With tool search on, they are the
   part every session still loads, about 1,150 tokens (OPIK-8485).
-- 2026-09-22: token estimate set to 2.5 characters per token, because answers
-  are JSON, not prose (#199).

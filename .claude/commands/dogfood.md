@@ -1,7 +1,5 @@
 ---
-# Commands, not skills: anything under .claude/skills/ is picked up by
-# `npx skills add` and would ship to users. Side effects, so only a person
-# can invoke it.
+# A command, not a skill, and user-only: see .claude/rules/skills.md.
 disable-model-invocation: true
 description: Use this branch's MCP server like a customer, next to main, and report what a customer would notice changed.
 argument-hint: "[extra flows or focus]"

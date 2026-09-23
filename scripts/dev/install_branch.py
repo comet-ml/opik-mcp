@@ -33,8 +33,12 @@ KEY_REFERENCE = "${OPIK_API_KEY}"
 READ_TOOLS = ("read", "list", "schema", "read_skill")
 
 
-def _share() -> Path:
+def _data_dir() -> Path:
     return Path.home() / ".local" / "share"
+
+
+def _installed(name: str) -> tuple[str, Path]:
+    return f"opik-{name}", _data_dir() / f"opik-mcp-{name}"
 
 
 @dataclass(frozen=True)
@@ -137,7 +141,7 @@ def build_venv(runner: Runner, tree: Path, venv: Path) -> Path:
 
 
 def install(root: Path, name: str, creds: Credentials, *, dry_run: bool) -> None:
-    server, venv = f"opik-{name}", _share() / f"opik-mcp-{name}"
+    server, venv = _installed(name)
     runner = Runner(dry_run=dry_run, secret=creds.api_key)
     registered = not dry_run and (
         subprocess.run(["claude", "mcp", "get", server], cwd=root, capture_output=True).returncode
@@ -160,13 +164,16 @@ def install(root: Path, name: str, creds: Credentials, *, dry_run: bool) -> None
     if dry_run:
         return
     if registered:
-        print(f"Reinstalled {server} for this repo. In Claude Code run /mcp and reconnect it.")
+        print(
+            f"Reinstalled {server} for this repo. In Claude Code run /mcp and reconnect it; "
+            "restart if it moved from user scope."
+        )
     else:
         print(f"Registered {server} for this repo. Restart Claude Code to load it.")
 
 
 def uninstall(root: Path, name: str, *, dry_run: bool) -> None:
-    server, venv = f"opik-{name}", _share() / f"opik-mcp-{name}"
+    server, venv = _installed(name)
     runner = Runner(dry_run=dry_run, secret=None)
     for scope in ("local", "user"):
         runner.run(["claude", "mcp", "remove", "-s", scope, server], cwd=root, allow_fail=True)
@@ -182,7 +189,7 @@ class Dogfood:
 
     @property
     def home(self) -> Path:
-        return _share() / f"opik-mcp-dogfood-{self.name}"
+        return _data_dir() / f"opik-mcp-dogfood-{self.name}"
 
     @property
     def config(self) -> Path:
@@ -220,8 +227,10 @@ def dogfood_prepare(dogfood: Dogfood, creds: Credentials, *, dry_run: bool) -> N
     dogfood.config.write_text(text)
 
 
-def dogfood_run(dogfood: Dogfood, creds: Credentials, prompt_file: Path, config: Path) -> None:
-    if not config.is_file():
+def dogfood_run(
+    root: Path, creds: Credentials, prompt_file: Path, config: Path, *, dry_run: bool
+) -> None:
+    if not config.is_file() and not dry_run:
         sys.exit(f"install-branch: no {config}. Run dogfood-prepare first.")
     command = [
         "claude",
@@ -237,20 +246,23 @@ def dogfood_run(dogfood: Dogfood, creds: Credentials, prompt_file: Path, config:
         "Grep",
         "Glob",
     ]
+    runner = Runner(dry_run=dry_run, secret=creds.api_key)
+    if dry_run:
+        runner.announce([*command[:2], f"<{prompt_file}>", *command[3:]])
+        return
     # The key reaches the headless session through its environment only.
     env = dict(os.environ)
     if creds.api_key:
         env["OPIK_API_KEY"] = creds.api_key
     result = subprocess.run(
         command,
-        cwd=dogfood.root,
+        cwd=root,
         env=env,
         capture_output=True,
         text=True,
         check=False,
         stdin=subprocess.DEVNULL,
     )
-    runner = Runner(dry_run=False, secret=creds.api_key)
     print(runner.redacted(result.stdout))
     if result.returncode:
         sys.exit(f"install-branch: dogfood run failed\n{runner.redacted(result.stderr.strip())}")
@@ -297,7 +309,8 @@ def main() -> None:
     else:
         if not args.prompt_file:
             sys.exit("install-branch: dogfood-run needs --prompt-file")
-        dogfood_run(dogfood, creds, args.prompt_file, args.config or dogfood.config)
+        config = args.config or dogfood.config
+        dogfood_run(root, creds, args.prompt_file, config, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":

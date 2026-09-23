@@ -197,7 +197,9 @@ def test_install_is_scoped_to_this_repo(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
     assert "claude mcp add -s local opik-1 " in result.stdout
     assert "claude mcp add -s user" not in result.stdout
-    assert "claude mcp remove -s user opik-1" in result.stdout, "an old user entry would shadow it"
+    assert "claude mcp remove -s user opik-1" in result.stdout, (
+        "an old user entry would still load in every project"
+    )
 
 
 def test_an_env_key_is_stored_as_a_reference(tmp_path: Path, home: Path) -> None:
@@ -264,3 +266,14 @@ def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Pa
     assert "--strict-mcp-config" in argv and str(config) in argv
     assert "mcp__opik-branch__read" in argv and "mcp__opik-base__list" in argv
     assert "mcp__opik-branch__write" not in argv, "a dogfood run must not write"
+
+
+def test_dogfood_run_dry_run_runs_nothing(tmp_path: Path, home: Path) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("run the flows")
+    result = _plan(
+        _worktree(tmp_path, "OPIK-1-x"), home, "dogfood-run", "--prompt-file", str(prompt)
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("would run: claude -p")
+    assert "--strict-mcp-config" in result.stdout and KEY not in result.stdout

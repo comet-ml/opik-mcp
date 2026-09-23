@@ -2,7 +2,8 @@
 # the entities its allowlist entry already names. Growing the list is allowed
 # when no hook exists yet, but it has to be a visible edit with a reason in the
 # PR; a paid-off entry left in the list fails. Some entity names are ordinary
-# words ("project", "prompt", "score"), so an unrelated literal can trip it;
+# words ("issue", "score", "comment", "project", "prompt"), so an unrelated
+# literal can trip it;
 # rename the literal or list it with a note.
 
 from __future__ import annotations
