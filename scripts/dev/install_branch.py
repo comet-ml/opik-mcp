@@ -119,9 +119,17 @@ class Runner:
 
 def install(root: Path, target: Target, creds: Credentials, *, dry_run: bool) -> None:
     runner = Runner(dry_run=dry_run, secret=creds.api_key)
-    existed = not dry_run and (
-        subprocess.run(["claude", "mcp", "get", target.server], capture_output=True).returncode == 0
-    )
+    existed = False
+    if not dry_run:
+        found = subprocess.run(
+            ["claude", "mcp", "get", target.server], capture_output=True, text=True
+        )
+        existed = found.returncode == 0 and "Scope: User" in found.stdout
+        if found.returncode == 0 and not existed:
+            print(
+                f"warning: {target.server} also exists in another scope and will shadow "
+                "this install. Remove it with `claude mcp remove`."
+            )
     python = target.venv / "bin" / "python"
     runner.run(["make", "version"], cwd=root)
     runner.run(["uv", "venv", "--quiet", "--allow-existing", "--python", "3.13", str(target.venv)])

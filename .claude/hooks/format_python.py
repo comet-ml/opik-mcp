@@ -22,6 +22,8 @@ def main() -> int:
     raw = (call.get("tool_input") or {}).get("file_path")
     if not raw or not raw.endswith(".py") or not Path(raw).is_file():
         return 0
+    if not Path(raw).resolve().is_relative_to(PROJECT):
+        return 0
     for args in (["format"], ["check", "--select", "I", "--fix", "--quiet"]):
         subprocess.run(
             ["uv", "run", "--quiet", "--project", str(PROJECT), "ruff", *args, raw],

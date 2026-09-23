@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import subprocess
 import sys
@@ -177,3 +178,14 @@ def test_a_failed_registration_does_not_print_the_key(tmp_path: Path, home: Path
     assert result.returncode != 0
     assert KEY not in result.stdout + result.stderr
     assert "claude mcp add" in result.stderr, "the failure should still say which step failed"
+
+
+def test_the_env_key_replaces_the_config_key(home: Path) -> None:
+    spec = importlib.util.spec_from_file_location("install_branch", SCRIPT)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up here
+    spec.loader.exec_module(module)
+    env = {"OPIK_URL": "https://dev.comet.com/opik/api", "OPIK_API_KEY": "sk-env-key"}
+    creds = module.resolve_credentials(env, home, "ws")
+    assert creds.api_key == "sk-env-key"

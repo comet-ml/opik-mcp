@@ -10,7 +10,8 @@ The rule covers tables too (docs/decisions/0004): per-entity OQL fields, sort
 fields, URI patterns and link builders belong with their entity, and the root
 keeps only the mechanism that reads them. Today's root modules still name
 entities, so those are pinned in an allowlist that may only shrink. A new
-entity name at the root fails; paying one off without removing it from the
+entity name as a string literal at the root fails (a helper named after an
+entity is left to review); paying one off without removing it from the
 list fails too, so the list stays an honest to-do list.
 """
 

@@ -164,3 +164,11 @@ def test_settings_deny_secrets_and_force_pushes() -> None:
     assert "Read(./.env)" in deny
     assert "Bash(git push --force*)" in deny
     assert "Bash(git push * +*)" in deny
+
+
+def test_format_leaves_files_outside_the_repo_alone(tmp_path: Path) -> None:
+    target = tmp_path / "elsewhere.py"
+    target.write_text("x = {  'a':1 }\n")
+    payload = {"tool_name": "Edit", "tool_input": {"file_path": str(target)}}
+    assert _run("format_python.py", payload).returncode == 0
+    assert target.read_text() == "x = {  'a':1 }\n"
