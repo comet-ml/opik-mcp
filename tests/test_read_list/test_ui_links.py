@@ -21,6 +21,7 @@ from opik_mcp.read_list.ui_links import (
     experiments_compare_url,
     link_workspace,
     opik_ui_base,
+    project_page_url,
     trace_link_template,
 )
 
@@ -141,19 +142,68 @@ def test_trace_link_template_none_without_an_api_segment() -> None:
 
 
 def test_experiments_compare_url_carries_both_runs_in_the_order_given() -> None:
-    url = experiments_compare_url(_settings(), "ds-1", ["exp-a", "exp-b"])
+    url = experiments_compare_url(_settings(), "p-1", "ds-1", ["exp-a", "exp-b"])
     assert url is not None
-    assert url.startswith("https://opik.test/demo-ws/experiments/ds-1/compare?experiments=")
+    assert url.startswith(
+        "https://opik.test/demo-ws/projects/p-1/experiments/ds-1/compare?experiments="
+    )
     assert unquote(url.split("experiments=", 1)[1]) == '["exp-a","exp-b"]'
 
 
 def test_experiments_compare_url_is_absent_rather_than_guessed() -> None:
     assert (
-        experiments_compare_url(_settings(opik_url=None, comet_url_override=""), "ds-1", ["e"])
+        experiments_compare_url(
+            _settings(opik_url=None, comet_url_override=""), "p-1", "ds-1", ["e"]
+        )
         is None
     )
 
 
-def test_experiments_compare_url_needs_a_dataset_and_a_run() -> None:
-    assert experiments_compare_url(_settings(), "", ["e"]) is None
-    assert experiments_compare_url(_settings(), "ds-1", []) is None
+def test_experiments_compare_url_needs_a_project_a_dataset_and_a_run() -> None:
+    """The project is the part that used to be missing. Without it the address
+    is one v2 retired, and the shim resolves it against the reader's last
+    project rather than this run's."""
+    assert experiments_compare_url(_settings(), "", "ds-1", ["e"]) is None
+    assert experiments_compare_url(_settings(), "p-1", "", ["e"]) is None
+    assert experiments_compare_url(_settings(), "p-1", "ds-1", []) is None
+
+
+# --- the project-scoped page a link opens ---------------------------------- #
+
+
+def test_project_page_url_builds_the_project_scoped_shape() -> None:
+    """The one shape v2 serves: workspace, then project, then the area."""
+    assert project_page_url(_settings(), "p-1", "logs") == (
+        "https://opik.test/demo-ws/projects/p-1/logs"
+    )
+
+
+def test_project_page_url_composes_a_subpath_and_a_query() -> None:
+    url = project_page_url(_settings(), "p-1", "datasets", subpath="ds-1", query="tab=items")
+    assert url == "https://opik.test/demo-ws/projects/p-1/datasets/ds-1?tab=items"
+
+
+def test_project_page_url_refuses_an_area_v2_serves_only_as_a_forwarder() -> None:
+    """``/traces`` is not a destination in v2 — the router keeps it to forward
+    to ``/logs`` — so building a link through it would depend on a forwarder
+    that exists to be removed."""
+    try:
+        project_page_url(_settings(), "p-1", "traces")  # type: ignore[arg-type]
+    except ValueError as e:
+        assert "traces" in str(e)
+    else:  # pragma: no cover - the assertion is the failure
+        raise AssertionError("an area v2 does not serve must not be buildable")
+
+
+def test_project_page_url_is_absent_when_the_workspace_cannot_be_known() -> None:
+    token = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
+    try:
+        assert project_page_url(_settings(), "p-1", "logs") is None
+    finally:
+        inbound_authorization.reset(token)
+
+
+def test_project_page_url_is_absent_without_a_project() -> None:
+    """The project is half the address. An empty one would build
+    ``…/projects//logs``, which is a link to the wrong thing rather than none."""
+    assert project_page_url(_settings(), "", "logs") is None

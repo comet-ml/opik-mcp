@@ -86,6 +86,11 @@ _CONDITIONAL: Final = (
     "prompt_version",
     "dataset_version",
     "optimization_id",
+    # Last: the widest column, and the one nobody scans down. Runs are the
+    # only listing that cannot share one page-level template, because each
+    # names its own project and dataset. Conditional like the rest of this
+    # tuple, so a session that cannot build links shows no empty column.
+    "url",
 )
 
 #: Every filterable field, read off the compiler's own table so it cannot name
@@ -211,6 +216,18 @@ def _ranking_caveat(page: PageContext) -> str | None:
     )
 
 
+def row_link(settings: Settings, record: dict[str, Any]) -> str | None:
+    """The compare view one row of an experiment listing opens.
+
+    A url per row, which every other listing avoids, because this one has no
+    alternative: the address needs the run's project and its dataset, and a
+    workspace-wide page has a different pair on every row.
+    """
+    links = experiment_links(settings, record)
+    url = links.get("url")
+    return url if isinstance(url, str) else None
+
+
 def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     """The cells an experiment row needs and the record does not hand over.
 
@@ -281,13 +298,21 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
 def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The compare view this run lives on — an experiment has no page of its own.
 
-    No dataset id, no link: it is the route's path segment.
+    Three things address it and all three are in the record: the project, the
+    dataset the view is keyed by, and the run. Any of them missing means no
+    link rather than a guessed one.
     """
+    project_id = data.get("project_id")
     dataset_id = data.get("dataset_id")
     experiment_id = data.get("id")
-    if not isinstance(dataset_id, str) or not isinstance(experiment_id, str):
+    if not all(isinstance(v, str) for v in (project_id, dataset_id, experiment_id)):
         return {}
-    url = experiments_compare_url(settings, dataset_id, [experiment_id])
+    url = experiments_compare_url(
+        settings,
+        str(project_id),
+        str(dataset_id),
+        [str(experiment_id)],
+    )
     return {"url": url} if url is not None else {}
 
 
@@ -301,12 +326,13 @@ HANDLER = EntityHandler(
     # everything that says whether a comparison between two runs is even
     # valid. All of it arrives in the same response, so dropping it bought
     # nothing and cost a read per row.
+    list_link_fn=row_link,
     list_row_fn=derive_columns,
     list_projection_fn=project_experiments,
     # The next level down from an experiment row is the prompt it ran, so a
     # projected row keeps its version whether or not it was asked for. Blank
     # for a run that linked no prompt, and then it is not added at all.
-    list_identity_fields=("prompt_version",),
+    list_identity_fields=("prompt_version", "url"),
     page_note_fn=page_note,
     # The refusal has to end the caller's problem, not restate it. The
     # backend orders experiments by id descending and the ids are time

@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Any
 
 from opik_mcp.opik_client import OpikListClient
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.project_scope import scope_of
 from opik_mcp.read_list.unsupported import unsupported_fetch
@@ -45,6 +46,7 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="score_name",
+    page_note_fn=link_note_for("score_name"),
     fetch_fn=unsupported_fetch,
     list_fn=list_page,
     list_required_kwargs=("project_id",),

@@ -82,6 +82,7 @@ from opik_mcp.read_list.oql import (
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,
+    remember_resolved_project,
     unknown_project_message,
 )
 from opik_mcp.read_list.projection import check as check_fields
@@ -189,14 +190,30 @@ async def _run_whole(
     got.
     """
     run = cast("RunFn", handler.run_fn)
-    async with client_for_call(settings, client) as opik:
+    resolved_settings = settings or get_settings()
+    async with client_for_call(resolved_settings, client) as opik:
         with _as_tool_error(
             f"{handler.run_verb} {entity_type}",
             on_timeout=handler.run_timeout_hint
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
-            return await run(cast("OpikReadClient", opik), **kw)
+            answer = await run(cast("OpikReadClient", opik), **kw)
+        if handler.page_note_fn is None:
+            return answer
+        # A runner's answer is not a collection, but it is still a page someone
+        # may want to open — a metric is a chart on the Dashboards page. The
+        # note hook was reachable only from the collection path, so an entity
+        # that answers whole could declare one and never have it called.
+        note = await handler.page_note_fn(
+            opik,
+            resolved_settings,
+            PageContext(
+                project_id=kw.get("project_id"),
+                project_name=kw.get("project_name"),
+            ),
+        )
+        return f"{answer}\n\n{note}" if note else answer
 
 
 def _whole_call(handler: EntityHandler, tool_args: dict[str, Any]) -> bool:
@@ -238,6 +255,11 @@ async def run_list(
 ) -> str:
     """List tool entrypoint. See ``server.py`` for the registered tool."""
     _PAGE_FACTS.set({})
+    # Cleared per call for the same reason the page facts are: a project a
+    # previous listing resolved is not a fact about this one, and a link
+    # built from it would point into the wrong project — the exact failure
+    # this whole feature exists to stop.
+    remember_resolved_project(None)
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
     tool_args: dict[str, Any] = {
@@ -451,6 +473,17 @@ async def run_list(
 
         content_raw = page_body.get("content") or []
         content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
+        if handler.list_link_fn is not None:
+            # A url per row, for the listing that cannot share one template.
+            # Attached here rather than in ``list_row_fn`` because it needs the
+            # session's settings, which a row hook is not given: where Opik
+            # lives is a fact about this connection, not about the record.
+            content = [
+                {**row, "url": url}
+                if (url := handler.list_link_fn(resolved_settings, row)) is not None
+                else row
+                for row in content
+            ]
         total_raw = page_body.get("total")
         total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(content)
 
@@ -479,6 +512,14 @@ async def run_list(
         page_ctx = PageContext(
             project_id=kw.get("project_id"),
             project_name=kw.get("project_name"),
+            parent_id=next(
+                (
+                    value
+                    for field in handler.list_required_kwargs
+                    if field != "project_id" and isinstance(value := kw.get(field), str) and value
+                ),
+                None,
+            ),
             empty=not content,
             status=kw.get("status"),
             windowed="from_date" in kw or "to_date" in kw,
@@ -695,14 +736,22 @@ async def _empty_message(
 
     An entity whose empty page has its own ambiguity (a Diagnostics issue
     list: never enabled, off, unscanned, or genuinely clean) explains itself
-    through its registry ``page_note_fn``.
+    through its registry ``page_note_fn``, and its answer replaces the probes
+    below — it knows something they cannot work out.
+
+    A note of ``None`` is not that: it means the entity had nothing to add to
+    *this* page, so the probes still run. The distinction matters now that a
+    note can be about something other than emptiness — a link for opening a
+    row has nothing to say about a page with no rows, and silencing the probes
+    would have been an odd way to say so.
     """
     entity_type = handler.entity_type
     project_id, project_name = page_ctx.project_id, page_ctx.project_name
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
     if handler.page_note_fn is not None:
         note = await handler.page_note_fn(opik, settings, page_ctx)
-        return f"{empty} {note}" if note else empty
+        if note:
+            return f"{empty} {note}"
 
     async def scoped() -> str:
         """What the narrowing matched none of, when nothing else explains it."""
@@ -847,6 +896,22 @@ def _projected_columns(
     return tuple(columns)
 
 
+def _render_cell(column: str, value: Any, *, cell_limit: int) -> tuple[str, bool]:
+    """One cell, and whether the width cut took anything from it.
+
+    The cut keeps a table scannable, which is worth a lot for a long output
+    or a payload nobody reads to the end. It is worth nothing for a url: a
+    link cut to 60 characters still looks like an address and opens nothing,
+    which is the plausible-and-wrong failure this whole feature exists to
+    stop — arriving from the renderer rather than the builder. A url is not
+    read, it is clicked, so its column is exempt and no other is.
+    """
+    text = _render(column, value)
+    if column == "url" or len(text) <= cell_limit:
+        return text, False
+    return text[: cell_limit - 3] + "...", True
+
+
 def _format_table(
     entity_type: str,
     handler: EntityHandler,
@@ -938,11 +1003,9 @@ def _format_table(
     for item in content:
         values: list[str] = []
         for col in columns:
-            s = _render(col, _cell(item, col))
-            if len(s) > cell_limit:
-                s = s[: cell_limit - 3] + "..."
-                cut += 1
-            values.append(s)
+            text, was_cut = _render_cell(col, _cell(item, col), cell_limit=cell_limit)
+            cut += was_cut
+            values.append(text)
         rows.append(" | ".join(values))
 
     lines = [header, "", col_header, *rows]

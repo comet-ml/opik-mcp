@@ -19,7 +19,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import (
     collection_total,
@@ -29,6 +31,7 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
+from opik_mcp.read_list.ui_links import thread_page_url
 
 MESSAGES_INLINE_LIMIT = 200
 
@@ -155,9 +158,29 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_threads(**kw)
 
 
+def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The Logs page on the threads view, with this thread open.
+
+    A thread read cannot happen without project scope — the tool refuses
+    otherwise — so the project is always in hand here, and the only reason
+    this could come back empty is a session that cannot name its workspace.
+    """
+    thread = data.get("thread")
+    if not isinstance(thread, dict):
+        return {}
+    thread_id = thread.get("id")
+    project_id = thread.get("project_id")
+    if not all(isinstance(v, str) and v for v in (thread_id, project_id)):
+        return {}
+    url = thread_page_url(settings, str(project_id), str(thread_id))
+    return {"url": url} if url is not None else {}
+
+
 HANDLER = EntityHandler(
     entity_type="thread",
+    page_note_fn=link_note_for("thread"),
     fetch_fn=fetch,
+    link_fn=thread_links,
     list_fn=list_page,
     # first_message stands in for the name a thread doesn't have: the
     # agent can pick the conversation without a read() per row.

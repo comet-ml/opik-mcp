@@ -27,6 +27,7 @@ from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.decorations import block
+from opik_mcp.read_list.ui_links import ProjectArea
 
 FEED_PAGE: Final = 100
 """The backend's maximum. There are seven kinds and the feed is dominated by
@@ -36,7 +37,7 @@ older kinds a chance to appear."""
 _TRACE_ROLLUP: Final = "trace_daily"
 """The kind whose ``name`` is a count. Excluded — see the module docstring."""
 
-UI_PAGE: Final[dict[str, str]] = {"optimization": "optimizations"}
+UI_PAGE: Final[dict[str, ProjectArea]] = {"optimization": "optimizations"}
 """Kinds this block can hand over to the UI, and the page that opens them.
 
 Of the six kinds the feed reports, one (``experiment``) is readable through

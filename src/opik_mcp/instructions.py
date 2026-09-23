@@ -32,7 +32,6 @@ from opik_mcp.config import Settings, get_settings
 from opik_mcp.read_list.ui_links import (
     current_workspace,
     opik_ui_base,
-    trace_link_template,
 )
 from opik_mcp.skills_catalog import skill_names
 from opik_mcp.writes.registry import WRITE_OPERATIONS
@@ -80,7 +79,7 @@ nightly run. A non-empty list dates itself ("Report covers data through …") \
 because the issues are whatever the last scan grouped; when it names an \
 uncovered tail, the requested window runs past the report, so close the gap \
 with list('trace', …, since=…) instead of answering from the issues \
-alone.{trace_link_clause}
+alone.
 - Direct writes — use when the user's intent is concrete and well-defined \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \
@@ -91,6 +90,16 @@ tools/list for what's actually advertised on this connection.
 - read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
 Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
 task — unless it's already in your context, in which case use what you have.
+
+Links: a read carries the `url` of what it returned, a list page carries \
+one `url_template` or a `url` per row, and none of them is ever guessed — a \
+record with no `url` has `url_absent` saying why, or no page at all. Put the \
+link on the thing's name, every time you name it: the record's own name, or \
+the `url_opens` phrase where the answer carries one, else "Open in Opik". \
+Never a bare address, a shortened one, or an id by itself. This holds for \
+every row you mention and not just the first few — ten rows named is ten \
+links, and dropping to raw addresses partway through is the same defect as \
+not linking at all.
 
 Today's date is {date}.\
 """
@@ -104,24 +113,6 @@ def _opik_ui_url(s: Settings) -> str:
     """
     base = opik_ui_base(s)
     return base if base is not None else "(Opik URL not configured)"
-
-
-def _render_trace_link_clause(s: Settings) -> str:
-    """Name the trace link shape once per session, or say nothing.
-
-    A trace id is not something a user can act on, and neither ``list`` nor
-    ``read`` returns a URL for one. The shape is not guessable — it goes
-    through the backend redirect with a base64 argument — and a guess yields a
-    link that looks right and 404s, which is worse than the bare id. Naming the
-    template on the handshake costs nothing per call and needs no project_id.
-    """
-    template = trace_link_template(s)
-    if template is None:
-        return ""
-    return (
-        " A trace id is not clickable: hand the user a link instead, "
-        f"{template}, with the id filled in."
-    )
 
 
 def _render_default_project_clause(s: Settings) -> str:
@@ -167,7 +158,6 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
-        trace_link_clause=_render_trace_link_clause(s),
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
         skill_names=", ".join(skill_names()),
     )

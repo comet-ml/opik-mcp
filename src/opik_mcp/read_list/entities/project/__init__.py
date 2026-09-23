@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.project.read import fetch_project, project_links
 from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow
@@ -34,6 +35,7 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="project",
+    page_note_fn=link_note_for("project"),
     fetch_fn=fetch_project,
     search_by_name_fn=search_by_name,
     list_fn=list_page,

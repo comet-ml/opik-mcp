@@ -334,7 +334,7 @@ async def test_read_project_by_uuid_returns_header_and_json() -> None:
     out = await run_read("project", UUID, client=fake)
 
     assert out.startswith(f"[read: project {UUID}")
-    assert "tok]" in out, "the size is stated so a large answer is visible as one"
+    assert " tok" in out, "the size is stated so a large answer is visible as one"
     assert UUID in out
     assert "demo" in out
 
@@ -835,7 +835,8 @@ async def test_read_issue_carries_diagnostics_page_url_and_trace_url_template() 
     body = _payload(out)
     assert body["url"] == f"https://opik.test/demo-ws/projects/p-9/diagnostics?issue={ISSUE}"
     assert (
-        body["trace_url_template"] == "https://opik.test/demo-ws/projects/p-9/logs?trace={trace_id}"
+        body["trace_url_template"]
+        == "https://opik.test/demo-ws/projects/p-9/logs?logsType=traces&trace={trace_id}"
     )
 
 
@@ -926,12 +927,15 @@ async def test_read_undeclared_entity_kwargs_dropped() -> None:
 
 
 @pytest.mark.anyio
-async def test_read_thread_has_no_link_fields() -> None:
-    """Links are an issue-read affordance; other composites are unchanged."""
+async def test_read_thread_links_to_the_threads_view() -> None:
+    """A thread read is project-scoped by construction — the tool refuses
+    without it — so the link can always be built."""
     out = await run_read(
         "thread", THREAD, project_id="p-9", client=_thread_fake(), settings=_UI_SETTINGS
     )
-    assert "url" not in _payload(out)
+    assert _payload(out)["url"] == (
+        f"https://opik.test/demo-ws/projects/p-9/logs?logsType=threads&thread={THREAD}"
+    )
 
 
 # --- exception chain assertions ------------------------------------------- #
@@ -1766,7 +1770,7 @@ async def test_a_huge_record_comes_back_whole() -> None:
 
     assert "TRUNCATED" not in out
     assert out.count(payload) == 2, "both the trace's field and the span's survive"
-    assert "tok]" in out.splitlines()[0], "and the header says what it cost"
+    assert " tok" in out.splitlines()[0], "and the header says what it cost"
 
 
 # --- slim child bodies ----------------------------------------------------- #
@@ -2120,23 +2124,28 @@ async def test_read_trace_carries_a_clickable_url() -> None:
         trace_spans={UUID: []},
     )
     out = await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS)
-    assert f"trace_id={UUID}" in out
-    assert "/v1/session/redirect/projects/" in out
+    # The record names its project, so the link addresses the Logs page the
+    # backend redirect would only have forwarded us to.
+    assert f"https://opik.test/demo-ws/projects/p-1/logs?logsType=traces&trace={UUID}" in out
 
 
 @pytest.mark.anyio
 async def test_read_experiment_links_to_its_compare_view() -> None:
     fake = FakeOpikClient(
-        experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
+        experiments_by_id={
+            UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7", "project_id": "p-1"}
+        }
     )
     out = await run_read("experiment", UUID, client=fake, settings=_UI_SETTINGS)
-    assert "https://opik.test/demo-ws/experiments/ds-7/compare?experiments=" in out
+    assert "https://opik.test/demo-ws/projects/p-1/experiments/ds-7/compare?experiments=" in out
     assert UUID in out
 
 
 @pytest.mark.anyio
 async def test_an_experiment_without_a_dataset_gets_no_link() -> None:
-    fake = FakeOpikClient(experiments_by_id={UUID: {"id": UUID, "name": "orphan"}})
+    fake = FakeOpikClient(
+        experiments_by_id={UUID: {"id": UUID, "name": "orphan", "project_id": "p-1"}}
+    )
     out = await run_read("experiment", UUID, client=fake, settings=_UI_SETTINGS)
     assert "compare?experiments=" not in out
 
@@ -2145,7 +2154,9 @@ async def test_an_experiment_without_a_dataset_gets_no_link() -> None:
 async def test_links_are_absent_when_the_ui_is_unknown() -> None:
     bare = Settings(opik_api_key="k", comet_workspace="demo-ws", comet_url_override="")
     fake = FakeOpikClient(
-        experiments_by_id={UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7"}}
+        experiments_by_id={
+            UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7", "project_id": "p-1"}
+        }
     )
     out = await run_read("experiment", UUID, client=fake, settings=bare)
     assert "compare?experiments=" not in out

@@ -7,10 +7,12 @@ encodes an id in the path.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel
 
+from opik_mcp.config import Settings
+from opik_mcp.read_list.ui_links import project_page_url, thread_page_url, trace_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 from opik_mcp.writes.wire import TARGET_PATH, BuildContext, WireRequest, dump
 
@@ -176,11 +178,115 @@ def validate_scores(
     )
 
 
+#: Which Logs view a write's change shows up on, when the link cannot name a
+#: row. The two annotation ops are absent by decision, not omission: a batch
+#: of them may name traces, spans and threads together, and no one view shows
+#: all three, so their link is the Logs page itself.
+_LOGS_VIEW: Final[dict[str, str]] = {
+    "trace.create": "logsType=traces",
+    "trace.update": "logsType=traces",
+    "span.create": "logsType=spans",
+    "thread.close": "logsType=threads",
+    "thread.open": "logsType=threads",
+}
+
+
+def _id_of(item: BaseModel, field: str) -> str | None:
+    """One id off a validated write model, as the string a URL is built from.
+
+    The models type their ids as ``UUID``, not ``str``, so an
+    ``isinstance(value, str)`` guard silently unlinked every real write while
+    tests whose stand-in typed them as ``str`` passed. One accessor rather
+    than that check repeated at each call site.
+    """
+    value = getattr(item, field, None)
+    if value is None:
+        return None
+    text = str(value)
+    return text or None
+
+
+def _annotation_url(settings: Settings, project_id: str, item: BaseModel) -> str | None:
+    """Where an annotation's target is visible.
+
+    A score or a comment names what it is attached to and what kind of thing
+    that is, so a trace or a thread is addressable outright. A span is not:
+    it is only reachable inside its trace, and the annotation names the span
+    without naming the trace. So a span annotation gets the page rather than
+    the row — the same tier a score name gets, for the same reason.
+    """
+    target = getattr(item, "target", None)
+    target_id = _id_of(item, "target_id")
+    if not target_id:
+        return None
+    if target == "trace":
+        return trace_page_url(settings, project_id, target_id)
+    if target == "thread":
+        return thread_page_url(settings, project_id, target_id)
+    return project_page_url(settings, project_id, "logs", query="logsType=spans")
+
+
+def decorate_with_page(
+    op: WriteOperation,
+    items: list[BaseModel],
+    out: dict[str, Any],
+    settings: Settings,
+    project_id: str | None,
+) -> None:
+    """Where to go and look at what this write changed.
+
+    One link per call and never one per item: a batch may have changed fifty
+    rows, and most write targets — a score, a comment, an experiment item —
+    have no page of their own. So a single write of one thing links to that
+    thing, and a batch links to the page it landed on.
+
+    The project must already be known, from the request or from what the
+    dispatcher resolved before sending. Looking one up here would mean a call
+    after the write has already succeeded, and a failure in it would turn a
+    write that worked into an error — the price of a link is never the result.
+    """
+    # ``project_id`` is what the dispatcher resolved, where an operation
+    # resolves anything; these do not, so the payload is the other source.
+    # ``project_name`` is deliberately not one: turning it into an id is a
+    # call, and this runs after the write has already succeeded.
+    if not project_id:
+        project_id = next(
+            (found for item in items if (found := _id_of(item, "project_id"))),
+            None,
+        )
+    if not project_id:
+        return
+    single = items[0] if len(items) == 1 else None
+    url: str | None = None
+    if single is not None:
+        if op.name == "span.create":
+            trace_id = _id_of(single, "trace_id")
+            if trace_id:
+                url = trace_page_url(settings, project_id, trace_id, span_id=_id_of(single, "id"))
+        elif op.name in {"thread.close", "thread.open"}:
+            thread_id = _id_of(single, "thread_id")
+            if thread_id:
+                url = thread_page_url(settings, project_id, thread_id)
+        elif op.name in {"trace.create", "trace.update"}:
+            trace_id = _id_of(single, "id")
+            if trace_id:
+                url = trace_page_url(settings, project_id, trace_id)
+        elif op.name in {"score.create", "comment.create"}:
+            url = _annotation_url(settings, project_id, single)
+    if url is None:
+        # A batch, or a single whose id the caller left to the backend: the
+        # page is still the right answer, just not a row on it.
+        url = project_page_url(settings, project_id, "logs", query=_LOGS_VIEW.get(op.name))
+    if url is not None:
+        out["url"] = url
+
+
 __all__ = [
     "build_comment_create",
     "build_score_create",
     "build_span_create",
     "build_trace_create",
     "build_trace_update",
+    "decorate_with_page",
     "validate_scores",
 ]

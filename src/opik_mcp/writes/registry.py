@@ -98,6 +98,7 @@ class WriteOperation:
 _REGISTRY: dict[str, WriteOperation] = {
     "trace.create": WriteOperation(
         name="trace.create",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_trace_create,
         pydantic_model=MODELS["trace.create"],
         endpoint="/v1/private/traces",
@@ -112,6 +113,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "trace.update": WriteOperation(
         name="trace.update",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_trace_update,
         pydantic_model=MODELS["trace.update"],
         endpoint="/v1/private/traces/{id}",
@@ -124,6 +126,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "span.create": WriteOperation(
         name="span.create",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_span_create,
         pydantic_model=MODELS["span.create"],
         endpoint="/v1/private/spans",
@@ -137,6 +140,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "score.create": WriteOperation(
         name="score.create",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_score_create,
         validate_fn=observability.validate_scores,
         pydantic_model=MODELS["score.create"],
@@ -154,6 +158,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "comment.create": WriteOperation(
         name="comment.create",
+        decorate_fn=observability.decorate_with_page,
         build_fn=observability.build_comment_create,
         prepare_fn=threads.resolve_comment_thread_id,
         dry_run_note_fn=threads.comment_dry_run_note,
@@ -245,6 +250,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "thread.close": WriteOperation(
         name="thread.close",
+        decorate_fn=observability.decorate_with_page,
         build_fn=threads.build_thread_lifecycle,
         pydantic_model=MODELS["thread.close"],
         endpoint="/v1/private/traces/threads/close",
@@ -260,6 +266,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "thread.open": WriteOperation(
         name="thread.open",
+        decorate_fn=observability.decorate_with_page,
         build_fn=threads.build_thread_lifecycle,
         pydantic_model=MODELS["thread.open"],
         endpoint="/v1/private/traces/threads/open",

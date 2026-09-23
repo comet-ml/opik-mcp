@@ -16,6 +16,7 @@ registry entry exists so the type is listable and reachable.
 
 from __future__ import annotations
 
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.project_metric.reference import reference
 from opik_mcp.read_list.entities.project_metric.runner import run_project_metric
 from opik_mcp.read_list.handler import EntityHandler
@@ -24,6 +25,7 @@ from opik_mcp.read_list.unsupported import unsupported_fetch
 HANDLER = EntityHandler(
     entity_type="project_metric",
     fetch_fn=unsupported_fetch,
+    page_note_fn=link_note_for("project_metric"),
     run_fn=run_project_metric,
     run_verb="chart",
     run_timeout_hint=(

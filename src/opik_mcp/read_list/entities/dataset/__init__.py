@@ -20,13 +20,16 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.dataset.compare import run_compare
 from opik_mcp.read_list.entities.dataset.items import fetch_item, list_items, project_items
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.ui_links import scoped_entity_links
 
-__all__ = ["HANDLER", "ITEM_HANDLER", "fetch_item", "list_items", "project_items"]
+__all__ = ["HANDLER", "ITEM_HANDLER", "dataset_links", "fetch_item", "list_items", "project_items"]
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -41,8 +44,22 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_datasets(**kw)
 
 
+def dataset_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+    """The dataset's page under its project, or why there is none.
+
+    A dataset may carry a project or may have been created at workspace level
+    with none. The first has a page. The second has no page anywhere: v2
+    serves no workspace-level route and the backend filters these listings
+    strictly on project id, so it appears in no project's list either. That is
+    a gap in the product, not a link we can synthesise, and saying so beats a
+    reader wondering why this record alone came back bare.
+    """
+    return scoped_entity_links(settings, data, area="datasets", noun="dataset")
+
+
 HANDLER = EntityHandler(
     entity_type="dataset",
+    link_fn=dataset_links,
     fetch_fn=fetch,
     search_by_name_fn=search_by_name,
     list_fn=list_page,
@@ -57,6 +74,7 @@ HANDLER = EntityHandler(
 ITEM_HANDLER = EntityHandler(
     entity_type="dataset_item",
     fetch_fn=fetch_item,
+    page_note_fn=link_note_for("dataset_item"),
     list_fn=list_items,
     list_projection_fn=project_items,
     list_required_kwargs=("dataset_id",),
