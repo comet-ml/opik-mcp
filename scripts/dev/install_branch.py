@@ -29,6 +29,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+# A name becomes part of paths this script deletes, so it can't hold a slash or dots.
+NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,40}")
 KEY_REFERENCE = "${OPIK_API_KEY}"
 READ_TOOLS = ("read", "list", "schema", "read_skill")
 
@@ -60,7 +62,13 @@ def server_name(branch: str) -> str:
     if ticket:
         return ticket.group(1)
     slug = re.sub(r"[^a-z0-9]+", "-", branch.rsplit("/", 1)[-1].lower()).strip("-")
-    return slug or "branch"
+    return slug[:40].rstrip("-") or "branch"
+
+
+def _remove_tree(path: Path, parent: Path) -> None:
+    if path.resolve().parent != parent.resolve():
+        sys.exit(f"install-branch: refusing to delete {path}: not directly under {parent}")
+    shutil.rmtree(path, ignore_errors=True)
 
 
 def _config_file(home: Path) -> dict[str, str]:
@@ -92,6 +100,11 @@ def resolve_credentials(env: dict[str, str], home: Path, workspace: str | None) 
         sys.exit(
             f"install-branch: no {', '.join(missing)}. Set the environment variables "
             "or run `opik configure` to write ~/.opik.config."
+            + (
+                " OPIK_API_KEY is set, but it is used only together with OPIK_URL."
+                if env.get("OPIK_API_KEY") and not env.get("OPIK_URL")
+                else ""
+            )
         )
     return Credentials(
         api_url=url.rstrip("/"), workspace=ws, api_key=key or None, key_in_env=key_in_env
@@ -111,7 +124,11 @@ class Runner:
         self.secret = secret
 
     def redacted(self, text: str) -> str:
-        return text.replace(self.secret, "***") if self.secret else text
+        if not self.secret:
+            return text
+        text = text.replace(f"OPIK_API_KEY={self.secret}", "OPIK_API_KEY=***")
+        # A key short enough to be an ordinary word would mangle paths and URLs.
+        return text.replace(self.secret, "***") if len(self.secret) >= 12 else text
 
     def announce(self, command: list[str]) -> None:
         prefix = "would run: " if self.dry_run else "+ "
@@ -158,8 +175,9 @@ def install(root: Path, name: str, creds: Credentials, *, dry_run: bool) -> None
     runner.run([*add, "--", str(binary)], cwd=root)
     if creds.api_key and not creds.key_in_env:
         print(
-            "note: the key came from ~/.opik.config, so it is stored in ~/.claude.json. "
-            "Export OPIK_API_KEY and reinstall to store only a reference."
+            "note: the key came from ~/.opik.config, so it is stored in ~/.claude.json and "
+            "was visible in the process list while `claude mcp add` ran. Export OPIK_URL, "
+            "OPIK_WORKSPACE and OPIK_API_KEY and reinstall to store only a reference."
         )
     if dry_run:
         return
@@ -179,7 +197,7 @@ def uninstall(root: Path, name: str, *, dry_run: bool) -> None:
         runner.run(["claude", "mcp", "remove", "-s", scope, server], cwd=root, allow_fail=True)
     runner.announce(["rm", "-rf", str(venv)])
     if not dry_run:
-        shutil.rmtree(venv, ignore_errors=True)
+        _remove_tree(venv, _data_dir())
 
 
 @dataclass(frozen=True)
@@ -232,6 +250,15 @@ def dogfood_run(
 ) -> None:
     if not config.is_file() and not dry_run:
         sys.exit(f"install-branch: no {config}. Run dogfood-prepare first.")
+    if config.is_file():
+        # The key goes only to the URL it was resolved for.
+        servers = json.loads(config.read_text()).get("mcpServers", {})
+        urls = {server.get("env", {}).get("OPIK_URL") for server in servers.values()}
+        if urls != {creds.api_url}:
+            sys.exit(
+                f"install-branch: {config} points at {sorted(u or '?' for u in urls)}, "
+                f"but the key is for {creds.api_url}. Run dogfood-prepare again."
+            )
     command = [
         "claude",
         "-p",
@@ -239,12 +266,15 @@ def dogfood_run(
         "--mcp-config",
         str(config),
         "--strict-mcp-config",
-        # Read tools only, so a flow can never write to the workspace.
+        # --restricted drops the shell and ignores every settings file, so no
+        # allow rule reaches this session; write is refused outright.
+        "--restricted",
+        "--tools",
+        "Read,Grep,Glob",
+        "--disallowedTools",
+        *(f"mcp__{s}__write" for s in ("opik-branch", "opik-base")),
         "--allowedTools",
         *(f"mcp__{s}__{t}" for s in ("opik-branch", "opik-base") for t in READ_TOOLS),
-        "Read",
-        "Grep",
-        "Glob",
     ]
     runner = Runner(dry_run=dry_run, secret=creds.api_key)
     if dry_run:
@@ -271,12 +301,14 @@ def dogfood_run(
 def dogfood_clean(dogfood: Dogfood, *, dry_run: bool) -> None:
     runner = Runner(dry_run=dry_run, secret=None)
     if dogfood.base_tree.exists():
+        if dogfood.base_tree.resolve().parent != (dogfood.root / ".claude" / "worktrees").resolve():
+            sys.exit(f"install-branch: refusing to remove {dogfood.base_tree}")
         runner.run(
             ["git", "worktree", "remove", "--force", str(dogfood.base_tree)], cwd=dogfood.root
         )
     runner.announce(["rm", "-rf", str(dogfood.home)])
     if not dry_run:
-        shutil.rmtree(dogfood.home, ignore_errors=True)
+        _remove_tree(dogfood.home, _data_dir())
 
 
 def main() -> None:
@@ -294,6 +326,8 @@ def main() -> None:
 
     root = Path(_git(Path.cwd(), "rev-parse", "--show-toplevel"))
     name = args.name or server_name(_git(root, "branch", "--show-current") or "detached")
+    if not NAME.fullmatch(name):
+        sys.exit(f"install-branch: name {name!r} must be lowercase letters, digits and dashes")
     dogfood = Dogfood(root=root, name=name)
     if args.action == "uninstall":
         uninstall(root, name, dry_run=args.dry_run)

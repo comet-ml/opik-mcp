@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Iterator, Mapping
 from pathlib import Path
 
@@ -94,12 +96,14 @@ def test_protect_ignores_other_tools_and_bad_input(repo: Path) -> None:
 @pytest.fixture
 def scratch() -> Iterator[Path]:
     # Inside the repository so ruff finds this repo's config; `.tmp` is ignored.
-    path = REPO_ROOT / ".tmp" / "hook-tests"
-    path.mkdir(parents=True, exist_ok=True)
+    # A fresh folder per test, so concurrent runs don't share files.
+    parent = REPO_ROOT / ".tmp"
+    parent.mkdir(exist_ok=True)
+    path = Path(tempfile.mkdtemp(prefix="hook-tests-", dir=parent))
     yield path
     shutil.rmtree(path, ignore_errors=True)
-    if not any(path.parent.iterdir()):
-        path.parent.rmdir()
+    with contextlib.suppress(OSError):
+        parent.rmdir()
 
 
 def test_format_rewrites_an_edited_python_file_silently(scratch: Path) -> None:
@@ -180,3 +184,31 @@ def test_format_leaves_files_outside_the_repo_alone(tmp_path: Path) -> None:
     payload = {"tool_name": "Edit", "tool_input": {"file_path": str(target)}}
     assert _run("format_python.py", payload).returncode == 0
     assert target.read_text() == "x = {  'a':1 }\n"
+
+
+@pytest.mark.parametrize(
+    "relative", [".CLAUDE/Skills/x/SKILL.md", "DIST/a.txt", "src/opik_mcp/_VERSION.py"]
+)
+def test_protect_ignores_letter_case(repo: Path, relative: str) -> None:
+    assert _run("protect_paths.py", _edit(repo / relative)).returncode == 2
+
+
+@pytest.mark.parametrize("hook", ["protect_paths.py", "format_python.py"])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [1],
+        {"tool_name": "Write", "tool_input": []},
+        {"tool_name": "Write", "tool_input": {"file_path": 5}},
+    ],
+)
+def test_hooks_pass_odd_input_quietly(hook: str, payload: object) -> None:
+    result = subprocess.run(
+        [sys.executable, str(HOOKS / hook)],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert result.stderr == ""

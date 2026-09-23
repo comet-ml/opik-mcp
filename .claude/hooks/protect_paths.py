@@ -40,19 +40,22 @@ def main() -> int:
         call = json.load(sys.stdin)
     except ValueError:
         return 0
-    if call.get("tool_name") not in WRITE_TOOLS:
+    if not isinstance(call, dict) or call.get("tool_name") not in WRITE_TOOLS:
         return 0
-    tool_input = call.get("tool_input") or {}
+    tool_input = call.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return 0
     raw = tool_input.get("file_path") or tool_input.get("notebook_path")
-    if not raw:
+    if not isinstance(raw, str) or not raw:
         return 0
     path = Path(raw).resolve()
     root = _repo_root(path)
     if root is None:
         return 0
     relative = path.relative_to(root).as_posix()
+    # macOS and Windows file systems ignore case, so `.CLAUDE/Skills` is `.claude/skills`.
     for prefix, reason in PROTECTED.items():
-        if relative.startswith(prefix):
+        if relative.casefold().startswith(prefix.casefold()):
             print(f"Blocked write to {relative}: {reason}", file=sys.stderr)
             return 2
     return 0

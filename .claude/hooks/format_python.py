@@ -19,8 +19,9 @@ def main() -> int:
         call = json.load(sys.stdin)
     except ValueError:
         return 0
-    raw = (call.get("tool_input") or {}).get("file_path")
-    if not raw or not raw.endswith(".py") or not Path(raw).is_file():
+    tool_input = call.get("tool_input") if isinstance(call, dict) else None
+    raw = tool_input.get("file_path") if isinstance(tool_input, dict) else None
+    if not isinstance(raw, str) or not raw.endswith(".py") or not Path(raw).is_file():
         return 0
     if not Path(raw).resolve().is_relative_to(PROJECT):
         return 0

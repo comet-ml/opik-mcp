@@ -111,6 +111,7 @@ def test_the_key_is_never_printed(tmp_path: Path, home: Path) -> None:
 def test_the_script_takes_no_key_argument(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install", "--api-key", KEY)
     assert result.returncode != 0, "a key on the command line lands in shell history"
+    assert "unrecognized arguments" in result.stderr
 
 
 def test_missing_credentials_fail_loudly(tmp_path: Path) -> None:
@@ -184,12 +185,12 @@ def test_a_failed_registration_does_not_print_the_key(tmp_path: Path, home: Path
     assert "claude mcp add" in result.stderr, "the failure should still say which step failed"
 
 
-def test_the_env_key_replaces_the_config_key(home: Path) -> None:
+def test_the_env_key_replaces_the_config_key(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     spec = importlib.util.spec_from_file_location("install_branch", SCRIPT)
     assert spec
     assert spec.loader
     module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module  # dataclasses look their module up here
+    monkeypatch.setitem(sys.modules, spec.name, module)  # dataclasses look their module up here
     spec.loader.exec_module(module)
     env = {"OPIK_URL": "https://dev.comet.com/opik/api", "OPIK_API_KEY": "sk-env-key"}
     creds = module.resolve_credentials(env, home, "ws")
@@ -242,7 +243,7 @@ def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Pa
     )
     claude.chmod(0o755)
     config = tmp_path / "mcp.json"
-    config.write_text("{}")
+    config.write_text(_dogfood_config("https://www.comet.com/opik/api"))
     prompt = tmp_path / "prompt.md"
     prompt.write_text("run the flows")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("OPIK_", "COMET_"))}
@@ -271,7 +272,9 @@ def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Pa
     assert str(config) in argv
     assert "mcp__opik-branch__read" in argv
     assert "mcp__opik-base__list" in argv
-    assert "mcp__opik-branch__write" not in argv, "a dogfood run must not write"
+    # No shell, no settings files, and write refused rather than just not approved.
+    assert "--restricted" in argv
+    assert "--disallowedTools\nmcp__opik-branch__write\nmcp__opik-base__write" in argv
 
 
 def test_dogfood_run_dry_run_runs_nothing(tmp_path: Path, home: Path) -> None:
@@ -284,3 +287,44 @@ def test_dogfood_run_dry_run_runs_nothing(tmp_path: Path, home: Path) -> None:
     assert result.stdout.startswith("would run: claude -p")
     assert "--strict-mcp-config" in result.stdout
     assert KEY not in result.stdout
+
+
+def _dogfood_config(url: str) -> str:
+    env = {"OPIK_URL": url, "OPIK_API_KEY": "${OPIK_API_KEY}"}
+    return json.dumps({"mcpServers": {"opik-branch": {"command": "x", "env": env}}})
+
+
+@pytest.mark.parametrize("name", ["x/../../..", "../sibling", "Upper", "a b", "-x", "a" * 60])
+def test_a_name_that_could_escape_its_folder_is_refused(
+    tmp_path: Path, home: Path, name: str
+) -> None:
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "uninstall", "--name", name)
+    assert result.returncode != 0
+    assert "rm -rf" not in result.stdout
+
+
+def test_dogfood_run_refuses_a_config_for_another_host(tmp_path: Path, home: Path) -> None:
+    config = tmp_path / "mcp.json"
+    config.write_text(_dogfood_config("https://elsewhere.example.com/opik/api"))
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("run the flows")
+    args = ("dogfood-run", "--prompt-file", str(prompt), "--config", str(config))
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, *args)
+    assert result.returncode != 0
+    assert "the key is for https://www.comet.com/opik/api" in result.stderr
+
+
+def test_redaction_replaces_the_whole_key_only(tmp_path: Path) -> None:
+    empty = tmp_path / "empty-home"
+    empty.mkdir()
+    env = {"OPIK_URL": "https://www.comet.com/opik/api", "OPIK_API_KEY": "opik"}
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), empty, "install", "--workspace", "ws", env=env)
+    assert "OPIK_URL=https://www.comet.com/opik/api" in result.stdout, "a short key mangled the URL"
+
+
+def test_an_env_key_without_a_url_is_explained(tmp_path: Path) -> None:
+    empty = tmp_path / "empty-home"
+    empty.mkdir()
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), empty, "install", env={"OPIK_API_KEY": KEY})
+    assert result.returncode != 0
+    assert "used only together with OPIK_URL" in result.stderr
