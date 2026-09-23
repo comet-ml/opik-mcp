@@ -68,9 +68,13 @@ testpaths = ["tests"]
 # the default run — `make test` stays in-process and fast. It is NOT optional
 # coverage: `make e2e` and the `e2e` CI job run it on every PR, because it is the
 # only suite that exercises `__main__`'s stdio startup path.
-addopts = "-m 'not e2e'"
+# `live` and `user_flows` need a real backend (and, for user_flows, a model key),
+# so they are deselected the same way and run only through their make targets.
+addopts = "-m 'not e2e and not live and not user_flows'"
 markers = [
     "e2e: spawns `python -m opik_mcp` over stdio; run by `make e2e` and the e2e CI job",
+    "live: drives the server against a seeded local Opik backend; run by `make live`",
+    "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
 ]
 
 [tool.ruff]
