@@ -23,7 +23,7 @@ import pathlib
 
 from opik_mcp.read_list import list_tool, registry
 from opik_mcp.read_list.registry import ENTITY_ALIASES, ENTITY_REGISTRY
-from tests.ratchet import assert_allowlist_is_current, assert_no_new_names
+from tests.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
 
 READ_LIST = pathlib.Path(registry.__file__).parent
 ENTITIES = READ_LIST / "entities"
@@ -217,44 +217,7 @@ def test_the_handler_contract_imports_no_entity() -> None:
 # design: move the entity's part behind a hook on its handler, then delete it
 # here. A new entity that needs filter fields, sort fields, schema notes or a
 # URI pattern adds the missing hook on EntityHandler; it never grows this list.
-ENTITY_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
-    "decorations": frozenset({"dataset", "dataset_item", "prompt", "prompt_version"}),
-    "list_tool": frozenset({"agent_insights_issue"}),
-    "oql": frozenset(
-        {
-            "dataset",
-            "dataset_item",
-            "dataset_item_case",
-            "experiment",
-            "project",
-            "prompt",
-            "span",
-            "thread",
-            "trace",
-        }
-    ),
-    "reference": frozenset(
-        {"dataset_item", "dataset_item_case", "experiment", "span", "thread", "trace"}
-    ),
-    "sorting": frozenset(
-        {"dataset_item", "dataset_item_case", "experiment", "project", "span", "thread", "trace"}
-    ),
-    "ui_links": frozenset(
-        {"online_rule", "project", "project_metric", "score_name", "span", "thread", "trace"}
-    ),
-    "uri": frozenset(
-        {
-            "agent_insights_issue",
-            "dataset",
-            "experiment",
-            "project",
-            "prompt",
-            "span",
-            "thread",
-            "trace",
-        }
-    ),
-}
+ENTITY_NAMES_AT_ROOT = allowlist("entity_names_at_root")
 
 # The registry is the table itself, so naming entities is its job.
 _ROOT_EXEMPT = frozenset({"registry"})

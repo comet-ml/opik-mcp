@@ -101,12 +101,6 @@ select = [
     "C4",            # comprehensions
     "PERF",          # perf anti-patterns
     "RET",           # return consistency
-    # "D2", "D4",    # docstring formatting when one exists. Enable after the
-    #                # docstring pass: today they are ~1,200 of the findings.
-]
-ignore = [
-    "D203", "D212",  # conflict with the formatter
-    "D400", "D415",  # a docstring is a sentence, punctuation is the writer's call
 ]
 
 [tool.ruff.lint.isort]
@@ -119,10 +113,10 @@ extend-allowed-calls = ["pytest.param"]
 "scripts/**" = ["T20"]          # printing is their output
 ".claude/hooks/**" = ["T20"]
 "tests/**" = ["PLC0415", "ARG001", "FBT"]  # fixtures and lazy imports are the idiom
-"src/opik_mcp/_version.py" = ["I002", "D"]  # generated
+"src/opik_mcp/_version.py" = ["I002"]  # generated
 
 # Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
-# fix a file, then delete or trim its line. tests/test_lint_baseline.py fails
+# fix a file, then delete or trim its line. tests/test_ratchets.py fails
 # on an entry that no longer matches. Never add a line here.
 "scripts/capture_bi_listener.py" = ["ARG002"]
 "scripts/smoke_live_be.py" = ["PLC0415"]
@@ -224,9 +218,6 @@ extend-allowed-calls = ["pytest.param"]
 "tests/test_writes/test_dispatch.py" = ["PT018"]
 "tests/test_writes/test_models.py" = ["PT017"]
 
-[tool.ruff.lint.pydocstyle]
-convention = "google"
-
 [tool.ruff.format]
 quote-style = "double"
 
@@ -236,7 +227,6 @@ strict = true
 warn_unreachable = true
 warn_redundant_casts = true
 disallow_any_explicit = true     # the "no Any" rule, enforced
-disallow_any_generics = true
 files = ["src", "tests", "scripts"]
 # Skill `evals/` dirs hold dev-only harnesses and fixture apps that never ship in
 # the pack; their entry points share module names mypy would reject.
@@ -257,8 +247,8 @@ module = ["opik_mcp.opik_client"]
 disallow_any_explicit = false
 
 # Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
-# shrinks: type a module, then delete its line. tests/test_lint_baseline.py
-# fails on a module that no longer imports Any. Never add a line here.
+# shrinks: type a module, then delete its line. tests/test_ratchets.py
+# fails on a module that no longer uses explicit Any. Never add a line here.
 [[tool.mypy.overrides]]
 module = [
     "opik_mcp.account_identity",

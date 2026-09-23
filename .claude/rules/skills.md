@@ -21,3 +21,7 @@ paths:
   against Opik, with the date.
 - Reference material goes in `references/`, loaded on demand. `SKILL.md` stays
   short enough to read in one go.
+
+Good, from `opik-compare`: "Run a candidate against the baseline over an Opik
+test suite and read the numbers back: which cases broke, which got fixed…".
+Bad: "Helps you work with Opik experiments."

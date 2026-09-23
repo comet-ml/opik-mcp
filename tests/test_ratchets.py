@@ -1,6 +1,8 @@
-# The lint baselines in pyproject.toml only shrink. An entry that no longer
-# matches a finding is debt already paid, so it has to go: otherwise the next
-# finding in that file would be excused without anyone deciding to.
+# Everything that ratchets only shrinks. tests/ratchets.json is the record:
+# the lint baselines in pyproject.toml must match it exactly, suppressions may
+# not appear in new files or grow, and an entry that no longer matches a
+# finding is debt already paid, so it has to go. A local test can't stop an
+# edit to both files; that growth is for the reviewer to refuse.
 
 from __future__ import annotations
 
@@ -12,6 +14,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CONFIG = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
+RATCHETS = json.loads((REPO_ROOT / "tests" / "ratchets.json").read_text())
+POLICY_GLOBS = {"scripts/**", ".claude/hooks/**", "tests/**"}
+SUPPRESSION = re.compile(r"#\s*(?:noqa|type:\s*ignore)")
 
 _POLICY = {"src/opik_mcp/_version.py"}
 RUFF_BASELINE: dict[str, list[str]] = {
@@ -31,6 +36,40 @@ MYPY_BASELINE: list[str] = next(
 def test_the_baselines_are_found() -> None:
     assert RUFF_BASELINE, "the ruff baseline stopped parsing"
     assert MYPY_BASELINE, "the mypy baseline stopped parsing"
+
+
+def test_the_ruff_baseline_matches_the_record() -> None:
+    assert RATCHETS["ruff_baseline"] == RUFF_BASELINE, (
+        "pyproject.toml's ruff baseline and tests/ratchets.json differ. "
+        "Entries only get deleted, from both."
+    )
+
+
+def test_the_mypy_baseline_matches_the_record() -> None:
+    assert sorted(MYPY_BASELINE) == RATCHETS["mypy_baseline"], (
+        "pyproject.toml's mypy baseline and tests/ratchets.json differ. "
+        "Entries only get deleted, from both."
+    )
+
+
+def test_no_new_glob_exemptions() -> None:
+    globs = {key for key in CONFIG["tool"]["ruff"]["lint"]["per-file-ignores"] if "*" in key}
+    assert globs == POLICY_GLOBS, f"a glob exemption excuses files nobody listed: {globs}"
+
+
+def test_suppressions_only_shrink() -> None:
+    found: dict[str, int] = {}
+    for root in ("src", "tests", "scripts"):
+        for path in sorted((REPO_ROOT / root).rglob("*.py")):
+            if "/evals/" in path.as_posix():
+                continue
+            count = len(SUPPRESSION.findall(path.read_text()))
+            if count:
+                found[path.relative_to(REPO_ROOT).as_posix()] = count
+    assert found == RATCHETS["suppressions"], (
+        "noqa / type: ignore counts differ from tests/ratchets.json. Fix the finding "
+        "instead of suppressing it; after removing one, lower its count there."
+    )
 
 
 def test_every_ruff_entry_still_has_its_findings() -> None:

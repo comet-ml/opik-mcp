@@ -70,7 +70,7 @@ errors.
 - No telemetry from tests. `tests/test_telemetry_disabled_in_tests.py`
 - The lint and type baselines in `pyproject.toml` excuse findings that predate
   the rules and only shrink; a new file meets the full rules.
-  `tests/test_lint_baseline.py`
+  `tests/test_ratchets.py`
 
 ## Gotchas
 

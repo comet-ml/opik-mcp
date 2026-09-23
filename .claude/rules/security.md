@@ -8,3 +8,6 @@
   grammar in `oql.py`; trace bodies are returned as data, never interpreted.
 - Local servers bind loopback. Anything else is opt-in and refuses to start
   without auth.
+
+Good: `+ claude mcp add ... -e OPIK_API_KEY=*** ...` (`scripts/dev/install_branch.py`
+redacts before printing). Bad: `print(shlex.join(command))` with the key in it.

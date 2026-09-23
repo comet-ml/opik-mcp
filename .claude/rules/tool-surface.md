@@ -54,3 +54,13 @@ what the caller pays per call. Both are the user's context. ADRs
 - One copy per answer: `structured_output=False`, no `structuredContent`.
 - The PR states the cost: surface bytes before and after from the budget test,
   and the size header of a typical answer.
+
+Good, a refusal from `read_list/read_tool.py`:
+
+```
+read('thread') requires project scope. Pass project_id or project_name, or
+paste the thread's Opik link/URI as the id — e.g. read('thread', '<thread_id>',
+project_id='<uuid>').
+```
+
+Bad: `ValueError: needs_project`

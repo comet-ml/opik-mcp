@@ -28,3 +28,18 @@ in [ADR 0004](../../docs/decisions/0004-entity-logic-in-its-namespace.md).
   `opik_client` → backend. Nothing below imports anything above.
 
 A failing guard test names the file and where the code belongs. Follow it.
+
+Good: the entity plugs its links in through a hook on its handler.
+
+```python
+# read_list/entities/thread.py
+HANDLER = EntityHandler(entity_type="thread", link_fn=thread_links, ...)
+```
+
+Bad: the root module holds the thread's URL shape and the entity imports it
+back (today's debt, on the guard's list).
+
+```python
+# read_list/entities/thread.py
+from opik_mcp.read_list.ui_links import thread_page_url
+```

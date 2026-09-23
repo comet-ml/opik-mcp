@@ -16,7 +16,7 @@ import pytest
 
 from opik_mcp.writes import dispatch
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
-from tests.ratchet import assert_allowlist_is_current, assert_no_new_names
+from tests.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
 
 
 def test_the_dispatcher_names_no_operation() -> None:
@@ -67,34 +67,7 @@ WRITES = pathlib.Path(dispatch.__file__).parent
 # not design (docs/decisions/0004): the per-operation models and wire names
 # belong in ``writes/operations/``. A new operation puts its model there,
 # behind a registry hook; this list only shrinks.
-OPERATION_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
-    "models": frozenset(
-        {
-            "agent_insights_issue.close",
-            "agent_insights_issue.reopen",
-            "agent_insights_issue.resolve",
-            "agent_insights_job.enable",
-            "agent_insights_job.trigger",
-            "comment.create",
-            "dataset",
-            "dataset.create",
-            "dataset_item.upsert",
-            "experiment.create",
-            "experiment_item.create",
-            "prompt_version.save",
-            "score.create",
-            "span",
-            "span.create",
-            "thread",
-            "thread.close",
-            "thread.open",
-            "trace",
-            "trace.create",
-            "trace.update",
-        }
-    ),
-    "wire": frozenset({"dataset", "span", "thread", "trace"}),
-}
+OPERATION_NAMES_AT_ROOT = allowlist("operation_names_at_root")
 
 # The registry is the table itself, so naming operations is its job.
 _ROOT_EXEMPT = frozenset({"registry"})

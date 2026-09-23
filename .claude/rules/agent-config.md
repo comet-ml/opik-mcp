@@ -28,3 +28,6 @@ paths:
   ships them to users. Developer procedures are commands.
 - Memory under `.claude/dogfood/memory/`: one file per entry, no workspace or
   customer names, `accepted` only after a developer says so.
+
+Good: `- The tool set is pinned … tests/conformance/test_tool_inventory.py`
+Bad: `- Exactly five tools.` (a number the test already owns, copied here)
