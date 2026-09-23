@@ -19,7 +19,7 @@ in [ADR 0004](../../docs/decisions/0004-entity-logic-in-its-namespace.md).
   to change, a hook is missing. Add the hook and say so in the PR.
 - Entities never import each other. A fact two entities need becomes a root
   mechanism that names neither.
-- A root module names no entity or operation. The guard tests hold a
+- A root module names no entity or operation. `tests/ratchets.json` holds the
   shrink-only list of today's exceptions. Touching a listed module means moving
   its entity part out and deleting the entry.
 - A fact lives in one place: skill routing in `skills_catalog`, an entity's

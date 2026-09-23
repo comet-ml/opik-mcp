@@ -95,6 +95,7 @@ def test_every_ruff_entry_still_has_its_findings() -> None:
         text=True,
         check=False,
     )
+    assert result.stdout.strip(), f"ruff did not run as expected:\n{result.stderr}"
     found: dict[str, set[str]] = {}
     for finding in json.loads(result.stdout):
         path = Path(finding["filename"]).relative_to(REPO_ROOT).as_posix()
@@ -118,11 +119,24 @@ def test_every_mypy_entry_still_uses_any(tmp_path: Path) -> None:
     strict = tmp_path / "pyproject.toml"
     strict.write_text(config[:start] + config[end:])
     result = subprocess.run(
-        ["uv", "run", "--no-sync", "mypy", "--config-file", str(strict)],
+        [
+            "uv",
+            "run",
+            "--no-sync",
+            "mypy",
+            "--config-file",
+            str(strict),
+            # Its own cache: this config differs from `make typecheck`'s.
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
+        ],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         check=False,
+    )
+    assert "Found" in result.stdout, (
+        f"mypy did not run as expected:\n{result.stdout}{result.stderr}"
     )
     flagged = {
         _module_name(match.group(1))

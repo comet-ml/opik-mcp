@@ -71,7 +71,7 @@ Write the flows from step 3 to a prompt file under the scratchpad or
 Then run it:
 
 ```bash
-python3 scripts/dev/install_branch.py dogfood-run --prompt-file <file> [--workspace <ws>]
+python3 scripts/dev/install_branch.py dogfood-run --prompt-file <file>
 ```
 
 The key reaches the headless session through its environment only.

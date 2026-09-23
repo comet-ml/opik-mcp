@@ -23,9 +23,9 @@ was needed costs the user money and crowds out their own work.
 
 ## Enforced by
 
-- `tests/conformance/test_tool_inventory.py`: surface budget (24,000 bytes)
-  and its history comment, and the `initialize` instructions budget (5,000
-  bytes), which loads even when a host defers the tool list.
+- `tests/conformance/test_tool_inventory.py`: the surface budget and its
+  history comment, and the `initialize` instructions budget, which loads even
+  when a host defers the tool list.
 - The size header on every read (`read_list/size.py`): its format in
   `tests/test_read_list/test_link_shape.py`, its presence on reads in
   `tests/test_read_list/test_read_tool.py`.
@@ -37,7 +37,8 @@ was needed costs the user money and crowds out their own work.
 - 2026-09-22: token estimate set to 2.5 characters per token, because answers
   are JSON, not prose (#199).
 - 2026-09-23: Claude Code cuts tool descriptions and the instructions at
-  2,048 characters, checked live: `write` loses its last three operations,
+  2,048 characters, checked live: `write` loses its last three operations
+  and the name of a fourth,
   and `read`, `read_skill` and the instructions lose their tails. Pinned as
   strict expected failures until they are rewritten (OPIK-8485 follow-up).
   Titles and hints added to all tools, 734 bytes on `tools/list`.

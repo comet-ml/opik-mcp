@@ -22,6 +22,7 @@ DOCS = sorted(
         *(REPO_ROOT / ".claude").glob("agents/*.md"),
         *(REPO_ROOT / ".claude").glob("commands/*.md"),
         *(REPO_ROOT / "docs").rglob("*.md"),
+        *(REPO_ROOT / ".claude" / "dogfood" / "memory").glob("*.md"),
     }
 )
 
@@ -73,3 +74,17 @@ def test_cited_test_file_exists(doc: str, name: str) -> None:
 @pytest.mark.parametrize(("doc", "name"), _citations(TEST_NAME))
 def test_cited_test_exists(doc: str, name: str) -> None:
     assert name in _test_names(), f"{doc} cites {name}, which no test defines"
+
+
+def _rule_globs() -> list[tuple[str, str]]:
+    globs: list[tuple[str, str]] = []
+    for rule in sorted((REPO_ROOT / ".claude" / "rules").glob("*.md")):
+        head = rule.read_text().split("---")[1] if rule.read_text().startswith("---") else ""
+        globs += [(rule.name, g) for g in re.findall(r'^\s*-\s*"([^"]+)"', head, re.MULTILINE)]
+    return globs
+
+
+@pytest.mark.parametrize(("rule", "glob"), _rule_globs())
+def test_rule_paths_match_a_file(rule: str, glob: str) -> None:
+    # A rule scoped to a path that no longer exists silently stops loading.
+    assert any(REPO_ROOT.glob(glob)), f"{rule} is scoped to {glob}, which matches no file"

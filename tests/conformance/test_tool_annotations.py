@@ -19,7 +19,9 @@ READ_ONLY = frozenset({"read", "list", "schema", "read_skill"})
 # failing once one fits, which is the cue to take it off this list.
 OVER_THE_LIMIT = frozenset({"read", "write", "read_skill"})
 _OVER = pytest.mark.xfail(
-    strict=True, reason="description over 2,048 characters; follow-up to OPIK-8485"
+    strict=True,
+    raises=AssertionError,
+    reason="over 2,048 characters today. Passing now? Remove it from OVER_THE_LIMIT.",
 )
 TOOLS = [
     pytest.param(name, marks=_OVER) if name in OVER_THE_LIMIT else name
@@ -67,6 +69,10 @@ async def test_the_description_arrives_whole(name: str) -> None:
     )
 
 
-@pytest.mark.xfail(strict=True, reason="instructions over 2,048 characters; follow-up to OPIK-8485")
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="instructions over 2,048 characters today. Passing now? Remove this marker.",
+)
 def test_the_instructions_arrive_whole() -> None:
     assert len(longest_instructions()) <= DESCRIPTION_LIMIT

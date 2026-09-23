@@ -34,13 +34,17 @@ def assert_no_new_names(
     names: Collection[str],
     *,
     exempt: Collection[str],
+    namespace: str,
     where_it_belongs: str,
     allowlist_name: str,
 ) -> None:
-    for path in sorted(root.glob("*.py")):
-        if path.stem in exempt:
+    # Everything under the root except the per-entity namespace itself, so a new
+    # subpackage beside it can't escape the guard. Keys are paths without `.py`.
+    for path in sorted(root.rglob("*.py")):
+        key = path.relative_to(root).with_suffix("").as_posix()
+        if key in exempt or namespace in path.relative_to(root).parts:
             continue
-        new = string_literals(path, names) - allowlist.get(path.stem, frozenset())
+        new = string_literals(path, names) - allowlist.get(key, frozenset())
         assert not new, (
             f"{path.name} names {sorted(new)}. {where_it_belongs} "
             "(.claude/rules/architecture.md). If no hook exists for this yet, add one; "

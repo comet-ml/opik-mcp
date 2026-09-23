@@ -1,5 +1,5 @@
 {
-  "_rule": "Only delete entries: pay the debt off, then remove its line here and wherever the test names. Adding an entry needs a reviewer's explicit OK in the PR. tests/test_ratchets.py",
+  "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. tests/test_ratchets.py",
   "entity_names_at_root": {
     "decorations": [
       "dataset",

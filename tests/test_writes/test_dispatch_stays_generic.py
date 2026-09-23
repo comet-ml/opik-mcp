@@ -80,6 +80,7 @@ def test_no_new_operation_name_at_the_root() -> None:
         OPERATION_NAMES_AT_ROOT,
         _OPERATION_NAMES,
         exempt=_ROOT_EXEMPT,
+        namespace="operations",
         where_it_belongs=(
             "Per-operation behaviour belongs in writes/operations/, "
             "reached through a hook on its registry entry"

@@ -27,8 +27,8 @@ to review. Raised in review of #186 and #187.
 - `tests/test_writes/test_dispatch_stays_generic.py`: the dispatcher names no
   operation, hooks come from `writes/operations/`, and no new operation name
   at the root.
-- Today's root modules that still name entities are listed in those tests. The
-  lists only shrink. A change that needs a root table adds the missing hook
+- Today's root modules that still name entities are listed in
+  `tests/ratchets.json`. The lists only shrink. A change that needs a root table adds the missing hook
   (filter and sort fields, schema notes, URI patterns, write models) instead.
 
 ## Log

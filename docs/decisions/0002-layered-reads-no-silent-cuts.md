@@ -15,8 +15,8 @@ thread) inlines its children in a slimmer form, and every child carries the id
 that fetches it whole:
 
 - the backend cuts long fields on children (`truncate=true`);
-- past a per-entity budget (14,000 characters of span bodies on a trace), the
-  server drops the remaining children's bodies but keeps the tree.
+- past a per-entity budget on the children's bodies, the server drops the
+  remaining bodies but keeps the tree.
 
 Every cut is stated in the answer, with a count and the call that gets the
 rest.

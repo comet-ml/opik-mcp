@@ -230,6 +230,7 @@ def test_no_new_entity_name_at_the_root() -> None:
         ENTITY_NAMES_AT_ROOT,
         _ENTITY_NAMES,
         exempt=_ROOT_EXEMPT,
+        namespace="entities",
         where_it_belongs=(
             "Entity logic belongs in entities/<entity>, reached through a hook on its EntityHandler"
         ),

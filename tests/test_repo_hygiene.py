@@ -9,6 +9,7 @@ checks what git does rather than what the ignore file says.
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -54,9 +55,12 @@ IGNORED = [
 
 def _is_ignored(path: str) -> bool:
     # --no-index: judge the rules alone, not whether the path is already tracked.
+    # The repo's own rules only: a developer's global ignore file would hide
+    # or excuse paths differently on each machine.
     result = subprocess.run(
-        ["git", "check-ignore", "--no-index", "--quiet", path],
+        ["git", "-c", "core.excludesFile=", "check-ignore", "--no-index", "--quiet", path],
         cwd=REPO_ROOT,
+        env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull},
         check=False,
     )
     return result.returncode == 0
@@ -77,9 +81,10 @@ def test_marker_is_registered_and_off_by_default(marker: str, pytestconfig: pyte
     registered = {line.split(":", 1)[0].strip() for line in pytestconfig.getini("markers")}
     assert marker in registered
 
-    addopts = " ".join(pytestconfig.getini("addopts"))
+    # Already split the way pytest reads it, quotes included.
+    addopts: list[str] = pytestconfig.getini("addopts")
     assert "-m" in addopts, "addopts no longer deselects the slow suites"
-    expression = addopts.split("-m", 1)[1].strip().strip("'\"")
+    expression = addopts[addopts.index("-m") + 1]
 
     def only_this_marker(name: str, /, **_: str | int | bool | None) -> bool:
         return name == marker
