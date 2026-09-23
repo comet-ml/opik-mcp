@@ -21,7 +21,9 @@ caller pays for. See ADRs [0001](../../docs/decisions/0001-context-budget-first.
   didn't sort, or a verdict that depends on which line is read last, is a bug.
 - Silence over false data: leave out what can't be built. A decoration that
   failed to load never shows as zero or empty.
-- Every cut is stated in the answer. The server never truncates on its own.
+- The record asked for comes back whole. Children inlined in a composite read
+  may be slimmed, but every cut is stated in the answer with the call that
+  gets the rest.
 - A refusal lists the valid options and shows a call to copy, in quotes:
   `read('thread', '<thread_id>', project_id='<uuid>')`. It names only what the
   caller typed, never an internal key.
