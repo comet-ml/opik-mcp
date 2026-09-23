@@ -6,7 +6,7 @@ costs (bytes on the surface, tokens in a typical answer) and what the user gets
 for it. See [ADR 0001](docs/decisions/0001-context-budget-first.md).
 
 - The advertised surface has a hard byte budget.
-- Every answer states its size.
+- Every read states its size (list answers don't yet).
 - The caller can always narrow: a span, a filter, a window, `fields=[…]`.
 
 ## What this is

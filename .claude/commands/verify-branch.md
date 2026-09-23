@@ -11,9 +11,12 @@ $ARGUMENTS
 
 - Branch server: `opik-<ticket>` from this worktree. If it is missing or older
   than the last commit, run `/install-branch`.
-- Baseline server: `opik-base`, built from a fresh `origin/main` worktree
-  (`git worktree add` under `.claude/worktrees/base`, then
-  `make install-branch NAME=base WORKSPACE=<branch server's workspace>`).
+- Baseline server: `opik-base`, built from a fresh `origin/main` worktree.
+  Create it with `git worktree add --detach .claude/worktrees/base origin/main`
+  (or `git -C .claude/worktrees/base checkout --detach origin/main` if it
+  exists), then run this branch's script from inside it, since main may not
+  have the make target:
+  `cd .claude/worktrees/base && python3 <this worktree>/scripts/dev/install_branch.py install --name base --workspace <branch server's workspace>`.
   Never reuse or change `opik-main` or other servers; they may point at
   another workspace.
 - Both must use the same workspace, or every data difference looks like a

@@ -9,7 +9,8 @@ is the main rule, and other decisions follow from it.
 
 - The advertised tool surface has a hard byte budget. It is loaded in every
   request the host makes.
-- Every answer states its size, so the caller can decide to narrow.
+- Every read states its size, so the caller can decide to narrow. List
+  answers don't yet (backlog in `.claude/verify-branch/memory/`).
 - The caller can always narrow: a span instead of its trace, a filter instead
   of a page, a window instead of all time, `fields=[…]` instead of the record.
 - A change that adds context says what it costs and what it adds, with
