@@ -28,6 +28,7 @@ TRACKED = [
     ".claude/agents/code-reviewer.md",
     ".claude/commands/verify-branch.md",
     ".claude/settings.json",
+    ".claude/hooks/protect_paths.py",
     ".claude/verify-branch/memory/some-entry.md",
 ]
 
