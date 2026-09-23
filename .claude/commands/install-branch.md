@@ -1,5 +1,9 @@
 ---
-description: Install the current worktree as its own MCP server (opik-<ticket>) so this branch can be tested in a Claude Code session.
+# Commands, not skills: anything under .claude/skills/ is picked up by
+# `npx skills add` and would ship to users. Side effects, so only a person
+# can invoke it.
+disable-model-invocation: true
+description: Install the current worktree as MCP server opik-<ticket>, for sessions in this repo only.
 argument-hint: "[NAME=main] [WORKSPACE=other-workspace]"
 ---
 
@@ -17,5 +21,10 @@ Install this worktree as an MCP server and tell me how to load it.
    - "Registered": a new server. Restart Claude Code to load it.
    - "Reinstalled": run `/mcp` and reconnect `opik-<name>`.
 
+The server is registered at local scope, so it loads only in sessions inside
+this repo; each one adds its instructions to them (budgeted in
+`tests/conformance/test_tool_inventory.py`). For a
+one-off comparison with main, use `/dogfood` instead: it registers nothing.
+
 The install is a snapshot of the tree. After changing code, run it again.
-`make uninstall-branch` removes the server and its venv.
+`make uninstall-branch` removes the server and its venv; do that when done.

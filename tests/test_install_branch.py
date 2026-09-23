@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -64,7 +65,7 @@ def test_the_server_is_named_after_the_branch(
 ) -> None:
     result = _plan(_worktree(tmp_path, branch), home, "install")
     assert result.returncode == 0, result.stderr
-    assert f"claude mcp add -s user {server} " in result.stdout
+    assert f"claude mcp add -s local {server} " in result.stdout
     assert f".local/share/opik-mcp-{server.removeprefix('opik-')}" in result.stdout
 
 
@@ -132,6 +133,7 @@ def test_a_local_backend_needs_no_key(tmp_path: Path) -> None:
 def test_uninstall_removes_the_entry_and_the_venv(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-8480-x"), home, "uninstall")
     assert result.returncode == 0, result.stderr
+    assert "claude mcp remove -s local opik-8480" in result.stdout
     assert "claude mcp remove -s user opik-8480" in result.stdout
     assert "rm -rf" in result.stdout and "opik-mcp-8480" in result.stdout
 
@@ -189,3 +191,76 @@ def test_the_env_key_replaces_the_config_key(home: Path) -> None:
     env = {"OPIK_URL": "https://dev.comet.com/opik/api", "OPIK_API_KEY": "sk-env-key"}
     creds = module.resolve_credentials(env, home, "ws")
     assert creds.api_key == "sk-env-key"
+
+
+def test_install_is_scoped_to_this_repo(tmp_path: Path, home: Path) -> None:
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
+    assert "claude mcp add -s local opik-1 " in result.stdout
+    assert "claude mcp add -s user" not in result.stdout
+    assert "claude mcp remove -s user opik-1" in result.stdout, "an old user entry would shadow it"
+
+
+def test_an_env_key_is_stored_as_a_reference(tmp_path: Path, home: Path) -> None:
+    env = {"OPIK_URL": "https://www.comet.com/opik/api", "OPIK_API_KEY": KEY}
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install", "--workspace", "ws", env=env)
+    assert "'OPIK_API_KEY=${OPIK_API_KEY}'" in result.stdout
+    assert "note:" not in result.stdout
+
+
+def test_a_config_file_key_is_stored_and_says_so(tmp_path: Path, home: Path) -> None:
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
+    assert "OPIK_API_KEY=***" in result.stdout
+    assert "stored in ~/.claude.json" in result.stdout
+
+
+def test_dogfood_config_holds_a_reference_not_the_key(tmp_path: Path, home: Path) -> None:
+    result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "dogfood-prepare")
+    assert result.returncode == 0, result.stderr
+    assert KEY not in result.stdout
+    assert "worktree add --quiet --detach" in result.stdout and "origin/main" in result.stdout
+    config = json.loads(result.stdout[result.stdout.index("{") :])
+    servers = config["mcpServers"]
+    assert set(servers) == {"opik-branch", "opik-base"}
+    for server in servers.values():
+        assert server["env"]["OPIK_API_KEY"] == "${OPIK_API_KEY}"
+        assert server["env"]["OPIK_MCP_ANALYTICS_ENABLED"] == "false"
+
+
+def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Path) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    argv_file = tmp_path / "argv.txt"
+    claude = bin_dir / "claude"
+    claude.write_text(
+        f'#!/bin/sh\nprintf "%s\\n" "$@" > {argv_file}\necho "env-key=$OPIK_API_KEY"\n'
+    )
+    claude.chmod(0o755)
+    config = tmp_path / "mcp.json"
+    config.write_text("{}")
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("run the flows")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("OPIK_", "COMET_"))}
+    env |= {"HOME": str(home), "PATH": f"{bin_dir}:{env['PATH']}"}
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "dogfood-run",
+            "--prompt-file",
+            str(prompt),
+            "--config",
+            str(config),
+        ],
+        cwd=_worktree(tmp_path, "OPIK-1-x"),
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "env-key=***" in result.stdout, "the child got the key, and its echo was redacted"
+    argv = argv_file.read_text()
+    assert KEY not in argv
+    assert "--strict-mcp-config" in argv and str(config) in argv
+    assert "mcp__opik-branch__read" in argv and "mcp__opik-base__list" in argv
+    assert "mcp__opik-branch__write" not in argv, "a dogfood run must not write"

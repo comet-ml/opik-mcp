@@ -1,32 +1,33 @@
 ---
+# Commands, not skills: anything under .claude/skills/ is picked up by
+# `npx skills add` and would ship to users. Side effects, so only a person
+# can invoke it.
+disable-model-invocation: true
 description: Use this branch's MCP server like a customer, next to main, and report what a customer would notice changed.
 argument-hint: "[extra flows or focus]"
 ---
 
-Test this branch the way a customer would use it, through the MCP tools in
-this session, and tell me if it is ready to ship. Extra focus from me:
+Test this branch the way a customer would use it, through a headless session
+that loads this branch's server next to main's, and tell me if it is ready
+to ship. Extra focus from me:
 $ARGUMENTS
 
 If the branch doesn't touch `src/`, both servers run the same code and no
 differences is the expected result. Say that in one line and still report
 problems found on both.
 
-## 1. Set up two servers on the same workspace
+## 1. Build the two servers
 
-- Branch server: `opik-<ticket>` from this worktree. If it is missing or older
-  than the last commit, run `/install-branch`.
-- Baseline server: `opik-base`, built from a fresh `origin/main` worktree.
-  Create it with `git worktree add --detach .claude/worktrees/base origin/main`
-  (or `git -C .claude/worktrees/base checkout --detach origin/main` if it
-  exists), then run this branch's script from inside it, since main may not
-  have the make target:
-  `cd .claude/worktrees/base && python3 <this worktree>/scripts/dev/install_branch.py install --name base --workspace <branch server's workspace>`.
-  Never reuse or change `opik-main` or other servers; they may point at
-  another workspace.
-- Both must use the same workspace, or every data difference looks like a
-  regression. Check with `claude mcp get`, without showing the env block.
-- New servers load only after a restart. If you installed one, stop and tell
-  me to restart, then rerun this command.
+Nothing gets registered in any Claude config, so no restart is needed and no
+other session pays for these servers.
+
+```bash
+python3 scripts/dev/install_branch.py dogfood-prepare [--workspace <ws>]
+```
+
+This builds this branch and a fresh `origin/main` into their own venvs and
+writes a private MCP config naming them `opik-branch` and `opik-base`, on the
+same workspace. The config holds `${OPIK_API_KEY}`, never the key.
 
 ## 2. Read what changed and what we already know
 
@@ -43,31 +44,39 @@ Core flows, phrased the way a customer would ask:
 3. Compare these two experiments.
 4. Find the case where the judge disagreed.
 5. Show me the traces with errors from the last hour.
-6. Close this thread. (Only on a throwaway thread you create; confirm with me first.)
-7. Explain this trace.
+6. Explain this trace.
 
-Add 2 to 4 flows aimed straight at what the diff changed. Pick real projects,
-experiments and traces from the workspace; don't invent ids.
+Add 2 to 4 flows aimed straight at what the diff changed. The servers load
+only in the headless run, so describe what to pick ("the largest recent
+trace", "two experiments on one dataset") and let that session find real ids
+with `list`. Don't invent ids.
 
-## 4. Run each flow on both servers
+## 4. Run the flows in a headless session
 
-Make the same calls with the same arguments through `opik-<ticket>` and
-`opik-base`. Answer the flow as a customer would expect, then compare:
+Write the flows from step 3 to a prompt file under the scratchpad or
+`/tmp`, with these instructions for the headless session:
 
-- Is the answer right for the data? Open the UI links and check they work.
-- What does it cost? Note the size header, and compare it with the baseline.
-- Does anything say more than the data supports, or cut without saying so?
+- Make the same calls with the same arguments through `opik-branch` and
+  `opik-base`. Answer each flow as a customer would expect, then compare:
+  is the answer right for the data, do the UI links look right, what does it
+  cost (the size header, branch vs base), does anything say more than the
+  data supports or cut without saying so?
+- Put each difference in one bucket: **intended** (matches the diff or
+  ticket), **regression** (worse on the branch), **pre-existing** (wrong on
+  both), **improvement** (better, and not the point of the change).
+- Skip these accepted findings: <paste each `accepted` entry's symptom,
+  unless a file under its `recheck_when` changed in this branch; then ask for
+  a re-check and a "same" or "changed" answer>.
+- Read only. No write operations.
+- Return the table from step 5 and candidate memory entries.
 
-Put each difference in one bucket:
+Then run it:
 
-- **intended**: matches the diff or the ticket.
-- **regression**: worse on the branch.
-- **pre-existing**: wrong on both.
-- **improvement**: better on the branch, and not the point of the change.
+```bash
+python3 scripts/dev/install_branch.py dogfood-run --prompt-file <file> [--workspace <ws>]
+```
 
-Skip anything that matches an `accepted` memory entry, unless a file under its
-`recheck_when` changed in this branch. Then re-test it and report "previously
-accepted, re-checked: same" or "changed".
+The key reaches the headless session through its environment only.
 
 ## 5. Report
 
@@ -86,5 +95,5 @@ List the entries you suggest, numbered, with kind and one line each. Write
 `backlog` and `context` entries yourself and say so. Write an `accepted` entry
 only after I reply with its number. No workspace or customer names in entries.
 
-Afterwards, offer to remove `opik-base` (`make uninstall-branch NAME=base`) and
-its worktree.
+Afterwards, offer to remove the venvs and the base worktree:
+`python3 scripts/dev/install_branch.py dogfood-clean`.
