@@ -21,6 +21,12 @@ that fetches it whole:
 Every cut is stated in the answer, with a count and the call that gets the
 rest.
 
+Open: Claude Code caps an MCP result at 25,000 tokens by default and warns
+at 10,000, so a whole record can hit the host's cap. The server can declare a
+per-tool limit with `_meta["anthropic/maxResultSizeChars"]`. Not decided yet.
+Seen live: a 250-span trace read is about 38,000 tokens with bodies slimmed,
+and the host rejects it, so the caller gets nothing (`/dogfood`, OPIK-8485).
+
 ## Why
 
 A silently short answer costs a conclusion: the user blames the MCP, not the

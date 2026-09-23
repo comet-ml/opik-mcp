@@ -8,7 +8,7 @@ import json
 import sys
 from pathlib import Path
 
-WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+WRITE_TOOLS = {"Write", "Edit", "NotebookEdit"}
 
 PROTECTED = {
     ".claude/skills/": (

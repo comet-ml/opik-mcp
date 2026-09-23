@@ -12,7 +12,7 @@ description: |
   assistant: "I'll ask the understand agent to find the decision."
   </example>
 model: opus
-tools: ["Read", "Grep", "Glob", "Bash"]
+tools: ["Read", "Grep", "Glob", "Bash", "WebFetch"]
 ---
 
 You explain opik-mcp. You don't edit files.

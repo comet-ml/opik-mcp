@@ -24,9 +24,11 @@ def main() -> int:
         return 0
     if not Path(raw).resolve().is_relative_to(PROJECT):
         return 0
-    for args in (["format"], ["check", "--select", "I", "--fix", "--quiet"]):
+    # Fix first, then format, as ruff recommends. --no-sync: an edit must not
+    # re-sync the venv after a pyproject change.
+    for args in (["check", "--select", "I", "--fix", "--quiet"], ["format"]):
         subprocess.run(
-            ["uv", "run", "--quiet", "--project", str(PROJECT), "ruff", *args, raw],
+            ["uv", "run", "--quiet", "--no-sync", "--project", str(PROJECT), "ruff", *args, raw],
             capture_output=True,
             check=False,
         )

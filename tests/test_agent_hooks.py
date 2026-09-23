@@ -46,7 +46,7 @@ def repo(tmp_path: Path) -> Path:
         "dist/opik-skills/skills/opik/SKILL.md",
     ],
 )
-@pytest.mark.parametrize("tool", ["Write", "Edit", "MultiEdit", "NotebookEdit"])
+@pytest.mark.parametrize("tool", ["Write", "Edit", "NotebookEdit"])
 def test_protect_blocks_with_a_reason(repo: Path, relative: str, tool: str) -> None:
     result = _run("protect_paths.py", _edit(repo / relative, tool))
     assert result.returncode == 2, "exit 2 is what makes Claude Code block the call"
@@ -160,6 +160,8 @@ def test_the_configured_post_hook_formats(scratch: Path) -> None:
 
 
 def test_settings_deny_secrets_and_force_pushes() -> None:
+    # A pin, not a behaviour test: Claude Code applies these rules, and a live
+    # check needs a session. It stops a rule being dropped by accident.
     deny = json.loads((REPO_ROOT / ".claude" / "settings.json").read_text())["permissions"]["deny"]
     assert "Read(./.env)" in deny
     assert "Bash(git push --force*)" in deny

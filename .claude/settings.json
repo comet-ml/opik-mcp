@@ -9,11 +9,7 @@
       "Bash(make conformance)",
       "Bash(make e2e)",
       "Bash(make e2e *)",
-      "Bash(make live)",
-      "Bash(make user-flows)",
       "Bash(make skills-verify-source)",
-      "Bash(make install-branch)",
-      "Bash(make install-branch *)",
       "Bash(uv run pytest)",
       "Bash(uv run pytest *)",
       "Bash(uv run ruff *)",
@@ -28,7 +24,8 @@
       "Bash(gh pr list*)",
       "Bash(gh pr checks*)",
       "Bash(gh pr diff*)",
-      "Bash(gh run view*)"
+      "Bash(gh run view*)",
+      "Bash(git fetch*)"
     ],
     "deny": [
       "Read(./.env)",
@@ -40,13 +37,23 @@
       "Bash(git push * -f*)",
       "Bash(git push * +*)",
       "Bash(git push * main)",
-      "Bash(git push *:main)"
+      "Bash(git push *:main)",
+      "Edit(/.claude/skills/**)",
+      "Edit(/.agents/skills/**)",
+      "Edit(/src/opik_mcp/_version.py)",
+      "Edit(/dist/**)"
+    ],
+    "ask": [
+      "Bash(make live)",
+      "Bash(make user-flows)",
+      "Bash(make install-branch)",
+      "Bash(make install-branch *)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Write|Edit|NotebookEdit",
         "hooks": [
           {
             "type": "command",
@@ -57,7 +64,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|MultiEdit",
+        "matcher": "Write|Edit",
         "hooks": [
           {
             "type": "command",

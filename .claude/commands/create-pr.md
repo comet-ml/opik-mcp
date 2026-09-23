@@ -1,4 +1,8 @@
 ---
+# Commands, not skills: anything under .claude/skills/ is picked up by
+# `npx skills add` and would ship to users. Side effects, so only a person
+# can invoke it.
+disable-model-invocation: true
 description: Run what CI runs, review the branch, and open a draft PR in comet-ml/opik-mcp with the template filled in.
 ---
 

@@ -7,7 +7,7 @@ paths:
 
 - uv only (`uv run`, `uv add`). Never pip or poetry.
 - Full annotations, no `Any`. Fix a type error instead of adding
-  `type: ignore`; `src/` has two.
+  `type: ignore`.
 - `from __future__ import annotations` at the top of each module. Imports at
   the top, never inside functions.
 - Frozen dataclasses for internal contracts; Pydantic models at the edges

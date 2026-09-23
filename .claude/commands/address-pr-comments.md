@@ -1,4 +1,8 @@
 ---
+# Commands, not skills: anything under .claude/skills/ is picked up by
+# `npx skills add` and would ship to users. Side effects, so only a person
+# can invoke it.
+disable-model-invocation: true
 description: Collect unaddressed review comments on this branch's PR, fix or answer each, and reply in the thread.
 ---
 
