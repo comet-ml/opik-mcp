@@ -106,6 +106,17 @@ user-flows:
 	@if [ -d tests/user_flows ]; then uv run pytest -m user_flows -v $(PYTEST_ARGS); \
 	else echo "user-flows suite not present yet (OPIK-8491)"; fi
 
+# Install this worktree as its own MCP server, opik-<ticket>, at user scope, so a
+# branch can be tested in any Claude Code session. See scripts/dev/install_branch.py.
+BRANCH_ARGS = $(if $(NAME),--name $(NAME),) $(if $(WORKSPACE),--workspace $(WORKSPACE),) \
+              $(if $(DRY_RUN),--dry-run,)
+
+install-branch:
+	@python3 scripts/dev/install_branch.py install $(BRANCH_ARGS)
+
+uninstall-branch:
+	@python3 scripts/dev/install_branch.py uninstall $(BRANCH_ARGS)
+
 lint:
 	uv run ruff check .
 	uv run ruff format --check .

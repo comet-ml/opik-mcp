@@ -95,7 +95,7 @@ warn_unreachable = true
 warn_redundant_casts = true
 # `scripts/` is otherwise unchecked, but the pack builder produces a public
 # artifact, so it is held to the same bar as the package.
-files = ["src", "tests", "scripts/build_skills_pack.py"]
+files = ["src", "tests", "scripts/build_skills_pack.py", "scripts/dev"]
 # Skill `evals/` dirs hold dev-only harnesses and fixture apps that never ship in
 # the pack. They are intentionally not type-checked: fixture entry points share
 # the filename `agent.py` and the harness modules (run_evals/grader/metrics)
