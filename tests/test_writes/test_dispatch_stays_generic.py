@@ -16,7 +16,7 @@ import pytest
 
 from opik_mcp.writes import dispatch
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
-from tests.ratchet import assert_allowlist_only_shrinks, assert_no_new_names
+from tests.ratchet import assert_allowlist_is_current, assert_no_new_names
 
 
 def test_the_dispatcher_names_no_operation() -> None:
@@ -65,7 +65,9 @@ WRITES = pathlib.Path(dispatch.__file__).parent
 
 # Root modules of ``writes`` that still name an operation or its target. Debt,
 # not design (docs/decisions/0004): the per-operation models and wire names
-# belong in ``writes/operations/``. May only shrink; OPIK-8496 works through it.
+# belong in ``writes/operations/``. A new operation's model still lives in
+# ``models.py``, so it adds its names here and says so in the PR; OPIK-8496
+# moves the models and works through this list.
 OPERATION_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "models": frozenset(
         {
@@ -110,8 +112,9 @@ def test_no_new_operation_name_at_the_root() -> None:
             "Per-operation behaviour belongs in writes/operations/, "
             "reached through a hook on its registry entry"
         ),
+        allowlist_name="OPERATION_NAMES_AT_ROOT",
     )
 
 
-def test_the_operation_name_allowlist_only_shrinks() -> None:
-    assert_allowlist_only_shrinks(WRITES, OPERATION_NAMES_AT_ROOT, _OPERATION_NAMES)
+def test_the_operation_name_allowlist_is_current() -> None:
+    assert_allowlist_is_current(WRITES, OPERATION_NAMES_AT_ROOT, _OPERATION_NAMES)

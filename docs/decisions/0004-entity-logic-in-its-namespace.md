@@ -28,10 +28,13 @@ to review. Raised in review of #186 and #187.
   operation, hooks come from `writes/operations/`, and no new operation name
   at the root.
 - Today's root modules that still name entities are listed in those tests. The
-  lists may only shrink. OPIK-8496 works through them.
+  lists grow only by a visible edit with a reason in the PR, while no hook
+  exists for that kind of logic (filter and sort fields, schema notes, URI
+  patterns, write models). OPIK-8496 adds the hooks and works through them.
 
 ## Log
 
 - 2026-09-10: write-operation logic moved behind registry hooks (#186).
 - 2026-09-11: read entities moved under `entities/`, one namespace each (#187).
-- 2026-09-23: the rule extended to tables, with a shrink-only allowlist (OPIK-8485).
+- 2026-09-23: the rule extended to tables, with an allowlist that grows only
+  with a stated reason until the hooks exist (OPIK-8485).

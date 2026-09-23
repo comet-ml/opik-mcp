@@ -23,7 +23,10 @@ See [ADR 0004](../../docs/decisions/0004-entity-logic-in-its-namespace.md).
   instructions or descriptions.
 
 The guard tests list today's root modules that still name entities. That list
-is debt: shrink it when you touch that code, never grow it.
+is debt: shrink it when you touch that code. Some logic has no hook yet
+(filter and sort fields, schema notes, URI patterns, write models). A new
+entity that needs it adds its name to the list and says why in the PR; that
+is expected until OPIK-8496 adds the hooks.
 
 Before (today): the thread's URL shape sits in the root module and the
 entity imports it back.

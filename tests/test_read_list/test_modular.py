@@ -9,7 +9,8 @@ the next ticket, so it is checked here rather than remembered.
 The rule covers tables too (docs/decisions/0004): per-entity OQL fields, sort
 fields, URI patterns and link builders belong with their entity, and the root
 keeps only the mechanism that reads them. Today's root modules still name
-entities, so those are pinned in an allowlist that may only shrink. A new
+entities, so those are pinned in an allowlist. It grows only by a visible
+edit with a reason in the PR, when no hook exists yet. A new
 entity name as a string literal at the root fails (a helper named after an
 entity is left to review); paying one off without removing it from the
 list fails too, so the list stays an honest to-do list.
@@ -23,7 +24,7 @@ import pathlib
 
 from opik_mcp.read_list import list_tool, registry
 from opik_mcp.read_list.registry import ENTITY_ALIASES, ENTITY_REGISTRY
-from tests.ratchet import assert_allowlist_only_shrinks, assert_no_new_names
+from tests.ratchet import assert_allowlist_is_current, assert_no_new_names
 
 READ_LIST = pathlib.Path(registry.__file__).parent
 ENTITIES = READ_LIST / "entities"
@@ -215,7 +216,9 @@ def test_the_handler_contract_imports_no_entity() -> None:
 
 # Root modules that still name an entity, and the names they use. Debt, not
 # design: move the entity's part behind a hook on its handler, then delete it
-# here. Refactor ticket OPIK-8496 works through this list.
+# here. Filter fields, sort fields, schema notes and URI patterns have no hook
+# yet, so a new entity that needs them adds its name here and says so in the
+# PR. Refactor ticket OPIK-8496 adds the hooks and works through this list.
 ENTITY_NAMES_AT_ROOT: dict[str, frozenset[str]] = {
     "decorations": frozenset({"dataset", "dataset_item", "prompt", "prompt_version"}),
     "list_tool": frozenset({"agent_insights_issue"}),
@@ -269,8 +272,9 @@ def test_no_new_entity_name_at_the_root() -> None:
         where_it_belongs=(
             "Entity logic belongs in entities/<entity>, reached through a hook on its EntityHandler"
         ),
+        allowlist_name="ENTITY_NAMES_AT_ROOT",
     )
 
 
-def test_the_entity_name_allowlist_only_shrinks() -> None:
-    assert_allowlist_only_shrinks(READ_LIST, ENTITY_NAMES_AT_ROOT, _ENTITY_NAMES)
+def test_the_entity_name_allowlist_is_current() -> None:
+    assert_allowlist_is_current(READ_LIST, ENTITY_NAMES_AT_ROOT, _ENTITY_NAMES)
