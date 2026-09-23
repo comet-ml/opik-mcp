@@ -16,6 +16,8 @@ from typing import Any
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from opik_mcp.config import Settings
+from opik_mcp.instructions import render_instructions
 from opik_mcp.server import mcp
 
 # Ceiling on everything `tools/list` advertises: names + descriptions + input
@@ -208,3 +210,22 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
     )
     lines = [line for line in report.splitlines() if line.strip()]
     assert "huge" in lines[0], report
+
+
+# The instructions a host receives on `initialize`. With tool search on, the
+# tool list above is deferred but this text is not: every session that loads
+# the server carries it. Measured 4,750 bytes (about 1,150 tokens) with a long
+# workspace name and email, OPIK-8485. Raise it on purpose, with a note here.
+INSTRUCTIONS_BUDGET_BYTES = 5_000
+
+
+def test_instructions_stay_within_budget() -> None:
+    rendered = render_instructions(
+        Settings(comet_workspace="w" * 40, opik_url="https://www.comet.com/opik/api"),
+        user_email="u" * 40 + "@example.com",
+    )
+    size = len(rendered.encode())
+    assert size <= INSTRUCTIONS_BUDGET_BYTES, (
+        f"instructions are {size} bytes, over the {INSTRUCTIONS_BUDGET_BYTES}-byte budget. "
+        "Every session that loads the server pays this; move detail into schema() or a skill."
+    )
