@@ -51,6 +51,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  # As in ci.yaml: uv refuses a stale uv.lock instead of re-resolving it, and
+  # setup-uv installs the uv version pyproject.toml pins.
+  UV_LOCKED: "1"
+
   # Telemetry off for the whole workflow, as in ci.yaml: a CI run is not usage.
   OPIK_MCP_ANALYTICS_ENABLED: "false"
   OPIK_MCP_SENTRY_ENABLED: "false"
@@ -116,12 +120,10 @@ jobs:
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
-        with:
-          version: 'latest'
       - name: Install Python
         run: uv python install 3.13
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       - name: Seed and run the live suite
         env:
@@ -198,14 +200,12 @@ jobs:
         run: make version
       - uses: astral-sh/setup-uv@v6
         if: steps.configured.outputs.ok == 'true'
-        with:
-          version: 'latest'
       - name: Install Python
         if: steps.configured.outputs.ok == 'true'
         run: uv python install 3.13
       - name: Install dependencies
         if: steps.configured.outputs.ok == 'true'
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
 
       # The key reaches this step only, not the install steps before it.
       - name: Run the live suite against the production workspace
