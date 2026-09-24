@@ -323,7 +323,7 @@ links. Those live in the entity and operation namespaces
 - `list` gets a longer timeout only for free-text search, the one call measured
   to exceed `_DEFAULT_TIMEOUT` (#185).
 - Not built: splitting `opik_client.py` into smaller modules is filed as
-  OPIK_8496.
+  OPIK-8496.
 
 ## Proven by
 

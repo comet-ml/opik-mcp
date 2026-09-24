@@ -251,7 +251,7 @@ operations as the constants `ENABLE_OP` and `TRIGGER_OP` because importing
   `src/opik_mcp/read_list/project_scope.py`).
 - An empty issue list says which state the project is in and gives the
   write that fixes it, because "no issues" otherwise reads as an all-clear
-  when Diagnostics was never on (#186, OPIK_8310).
+  when Diagnostics was never on (#186, OPIK-8310).
 - The deployment toggle is read fresh on every call, so a switch mid-session
   shows at once, and it fails open, so an older backend keeps working.
   Without it, a deployment without Ollie accepts enable and trigger and

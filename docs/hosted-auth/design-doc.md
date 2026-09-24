@@ -222,7 +222,7 @@ The OAuth and HTTP fields of `Settings` in `src/opik_mcp/config.py`:
 | `OPIK_MCP_AS_URL` | unset | Authorization server for the metadata and the proxy. Unset: both answer 503. |
 | `OPIK_MCP_RESOURCE_URI` | unset | Public URI of this server; `resource` in the metadata, the base of the challenge URL, the expected audience. |
 | `OPIK_MCP_OAUTH_INTROSPECT_TIMEOUT_S` | `5.0` | Timeout of one introspection call. |
-| `OPIK_MCP_OAUTH_VALIDATION_CACHE_TTL_S` | `30.0` | How long a `valid` answer is trusted. |
+| `OPIK_MCP_OAUTH_VALIDATION_CACHE_TTL_S` | `Settings.opik_mcp_oauth_validation_cache_ttl_s` | How long a `valid` answer is trusted. |
 | `OPIK_MCP_HOST` | `127.0.0.1` | Bind address. Loopback unless set. |
 | `OPIK_MCP_PORT` | `8080` | Bind port. |
 | `OPIK_MCP_HTTP_PATH` | `/mcp` | Path of the MCP transport. Must start with `/`. Behind a proxy that cannot rewrite paths, set it to the path of `OPIK_MCP_RESOURCE_URI`. |
@@ -291,7 +291,7 @@ show the workspace name are [tool-surface](../tool-surface/design-doc.md).
   expired token, and that 401 is the host's only signal to refresh. The
   reasoning is in the docstrings of `tests/test_http_auth.py` and
   `tests/test_oauth_token_validation.py`. No ADR covers hosted auth yet
-  (OPIK_8497).
+  (OPIK-8497).
 - An expired OAuth token gets HTTP 401 `invalid_token`. Before this, a dead
   token came back as a tool error inside HTTP 200, the host never refreshed,
   and users lost the connector about an hour after connecting (OPIK-8252,

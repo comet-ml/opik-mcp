@@ -222,7 +222,7 @@ top-level keys.
 Each skill's own `evals/run_evals.py` has its own `prepare` and `grade`
 steps; there is no shared runner.
 
-Unverified: a ticket to unify the per-skill harnesses is filed (OPIK_8494).
+Unverified: a ticket to unify the per-skill harnesses is filed (OPIK-8494).
 
 ## How it works
 
@@ -261,7 +261,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 
 - Skills are authored only in `src/opik_mcp/skills/`, and the pack and the
   MCP serve the same bytes, so a skill read over MCP matches the installed one
-  (#163, OPIK_7471).
+  (#163, OPIK-7471).
 - One tool, `read_skill`, joins `read`, `list`, `write` and `schema`
   ([ADR 0003](../decisions/0003-five-tool-surface.md), #175). Its description
   lists every readable path, which costs context in every session but lets an

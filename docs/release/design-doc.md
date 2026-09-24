@@ -261,7 +261,7 @@ Its boundaries:
   wheel contains (#176).
 - The TypeScript source left `main`; its publish workflow stays, manual only,
   so a last npm release can still be cut from the tag (#203).
-- Not built: CI installing with `--locked`, filed as OPIK_8486.
+- Not built: CI installing with `--locked`, filed as OPIK-8486.
 - Not built: tests for the workflows themselves. Nothing in `tests/` runs or
   parses `.github/workflows/`; a broken release step shows up only when a
   release runs.

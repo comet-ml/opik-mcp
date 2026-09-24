@@ -181,7 +181,7 @@ children, and the children can be slimmed:
   (`test_a_trace_counts_the_spans_that_lost_bytes`,
   `test_the_dropped_bodies_are_counted_and_one_call_away`). A longer tree adds
   `moreSpans` with the count and a `list('span', …, filters='trace_id = "…"',
-  page=…, size=100)` call that continues where the inlined part stopped
+  page=…, size=MAX_PAGE_SIZE)` call that continues where the inlined part stopped
   (`test_the_continuation_a_trace_hands_out_returns_the_same_set`). A trace
   with no `project_id`, or whose span call fails, comes back with an empty
   `spans` list and no notice (`test_read_trace_without_project_id_returns_empty_spans`,
