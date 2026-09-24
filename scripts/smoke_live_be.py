@@ -218,9 +218,9 @@ async def main() -> None:
         try:
             client = make_opik_client(get_settings())
             exps = await client.list_experiments(name=None, page=1, size=50)
-            for e in exps.get("content", []):
-                if e.get("dataset_id") == resolved_suite_id:
-                    experiment_id = e["id"]
+            for exp in exps.get("content", []):
+                if exp.get("dataset_id") == resolved_suite_id:
+                    experiment_id = exp["id"]
                     break
         except Exception as e:
             print(f"  (experiment lookup failed: {e})")

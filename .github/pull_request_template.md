@@ -10,6 +10,16 @@
 - Resolves #
 - OPIK-
 
+## AI-WATERMARK
+
+AI-WATERMARK: [yes|no]
+
+- If yes:
+  - Tools:
+  - Model(s):
+  - Scope:
+  - Human verification:
+
 ## Testing
 
 ## Documentation

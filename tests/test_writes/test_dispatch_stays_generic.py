@@ -10,11 +10,13 @@ backend answers it reinterprets and what it says about its result all live in
 from __future__ import annotations
 
 import inspect
+import pathlib
 
 import pytest
 
 from opik_mcp.writes import dispatch
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
+from tests.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
 
 
 def test_the_dispatcher_names_no_operation() -> None:
@@ -57,3 +59,35 @@ def test_every_hook_comes_from_an_operations_module(name: str) -> None:
         assert module.startswith("opik_mcp.writes.operations."), (
             f"{name} takes a hook from {module!r}"
         )
+
+
+WRITES = pathlib.Path(dispatch.__file__).parent
+
+# Root modules of ``writes`` that still name an operation or its target. Debt,
+# not design (docs/decisions/0004): the per-operation models and wire names
+# belong in ``writes/operations/``. A new operation puts its model there,
+# behind a registry hook; this list only shrinks.
+OPERATION_NAMES_AT_ROOT = allowlist("operation_names_at_root")
+
+# The registry is the table itself, so naming operations is its job.
+_ROOT_EXEMPT = frozenset({"registry"})
+_OPERATION_NAMES = frozenset(WRITE_OPERATIONS) | {name.split(".")[0] for name in WRITE_OPERATIONS}
+
+
+def test_no_new_operation_name_at_the_root() -> None:
+    assert_no_new_names(
+        WRITES,
+        OPERATION_NAMES_AT_ROOT,
+        _OPERATION_NAMES,
+        exempt=_ROOT_EXEMPT,
+        namespace="operations",
+        where_it_belongs=(
+            "Per-operation behaviour belongs in writes/operations/, "
+            "reached through a hook on its registry entry"
+        ),
+        allowlist_name="OPERATION_NAMES_AT_ROOT",
+    )
+
+
+def test_the_operation_name_allowlist_is_current() -> None:
+    assert_allowlist_is_current(WRITES, OPERATION_NAMES_AT_ROOT, _OPERATION_NAMES)

@@ -6,11 +6,13 @@ every entity shares; an entity's own logic lives under ``entities/``. That is
 a property of the layout, and a property nobody checks is one that erodes on
 the next ticket, so it is checked here rather than remembered.
 
-What these tests do *not* claim: that nothing entity-shaped is left at the
-root. Several shared modules are keyed by entity because the thing they
-describe is per-entity by nature — the OQL field tables, the sortable field
-lists, the URI patterns. Splitting those would scatter one grammar across
-thirteen files. The line drawn here is about *code paths*, not about tables.
+The rule covers tables too (docs/decisions/0004): per-entity OQL fields, sort
+fields, URI patterns and link builders belong with their entity, and the root
+keeps only the mechanism that reads them. Today's root modules still name
+entities, so those are pinned in an allowlist that only shrinks. A new
+entity name as a string literal at the root fails (a helper named after an
+entity is left to review); paying one off without removing it from the
+list fails too, so the list stays an honest to-do list.
 """
 
 from __future__ import annotations
@@ -20,7 +22,8 @@ import inspect
 import pathlib
 
 from opik_mcp.read_list import list_tool, registry
-from opik_mcp.read_list.registry import ENTITY_REGISTRY
+from opik_mcp.read_list.registry import ENTITY_ALIASES, ENTITY_REGISTRY
+from tests.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
 
 READ_LIST = pathlib.Path(registry.__file__).parent
 ENTITIES = READ_LIST / "entities"
@@ -208,3 +211,32 @@ def test_the_handler_contract_imports_no_entity() -> None:
     entity, that direction has reversed."""
     for module in _imports(READ_LIST / "handler.py"):
         assert "entities" not in module, f"handler.py imports {module}"
+
+
+# Root modules that still name an entity, and the names they use. Debt, not
+# design: move the entity's part behind a hook on its handler, then delete it
+# here. A new entity that needs filter fields, sort fields, schema notes or a
+# URI pattern adds the missing hook on EntityHandler; it never grows this list.
+ENTITY_NAMES_AT_ROOT = allowlist("entity_names_at_root")
+
+# The registry is the table itself, so naming entities is its job.
+_ROOT_EXEMPT = frozenset({"registry"})
+_ENTITY_NAMES = frozenset(ENTITY_REGISTRY) | frozenset(ENTITY_ALIASES)
+
+
+def test_no_new_entity_name_at_the_root() -> None:
+    assert_no_new_names(
+        READ_LIST,
+        ENTITY_NAMES_AT_ROOT,
+        _ENTITY_NAMES,
+        exempt=_ROOT_EXEMPT,
+        namespace="entities",
+        where_it_belongs=(
+            "Entity logic belongs in entities/<entity>, reached through a hook on its EntityHandler"
+        ),
+        allowlist_name="ENTITY_NAMES_AT_ROOT",
+    )
+
+
+def test_the_entity_name_allowlist_is_current() -> None:
+    assert_allowlist_is_current(READ_LIST, ENTITY_NAMES_AT_ROOT, _ENTITY_NAMES)

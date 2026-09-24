@@ -68,9 +68,13 @@ testpaths = ["tests"]
 # the default run — `make test` stays in-process and fast. It is NOT optional
 # coverage: `make e2e` and the `e2e` CI job run it on every PR, because it is the
 # only suite that exercises `__main__`'s stdio startup path.
-addopts = "-m 'not e2e'"
+# `live` and `user_flows` need a real backend (and, for user_flows, a model key),
+# so they are deselected the same way and run only through their make targets.
+addopts = "-m 'not e2e and not live and not user_flows'"
 markers = [
     "e2e: spawns `python -m opik_mcp` over stdio; run by `make e2e` and the e2e CI job",
+    "live: drives the server against a seeded local Opik backend; run by `make live`",
+    "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
 ]
 
 [tool.ruff]
@@ -78,8 +82,141 @@ line-length = 100
 target-version = "py313"
 src = ["src", "tests"]
 
+
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = [
+    "E", "F", "W",   # pycodestyle, pyflakes
+    "I",             # isort; I002 adds the required future import
+    "UP",            # pyupgrade
+    "B",             # bugbear; B904 = raise ... from
+    "SIM",           # simplify
+    "RUF",           # ruff rules; RUF100 = unused noqa
+    "T20",           # no print in the package
+    "PLC0415",       # imports at the top
+    "TID252",        # absolute imports only
+    "ERA",           # no commented-out code
+    "FBT",           # boolean positional args -> keyword-only
+    "PT",            # pytest style
+    "ARG",           # unused arguments
+    "C4",            # comprehensions
+    "PERF",          # perf anti-patterns
+    "RET",           # return consistency
+]
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.flake8-boolean-trap]
+extend-allowed-calls = ["pytest.param"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["T20"]          # printing is their output
+".claude/hooks/**" = ["T20"]
+"tests/**" = ["PLC0415", "ARG001", "FBT"]  # fixtures and lazy imports are the idiom
+"src/opik_mcp/_version.py" = ["I002"]  # generated
+
+# Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
+# fix a file, then delete or trim its line. tests/test_ratchets.py fails
+# on an entry that no longer matches. Never add a line here.
+"scripts/capture_bi_listener.py" = ["ARG002"]
+"scripts/smoke_live_be.py" = ["PLC0415"]
+"scripts/smoke_wire_capture.py" = ["PLC0415"]
+"src/opik_mcp/__main__.py" = ["I002", "PLC0415"]
+"src/opik_mcp/analytics/boot_props.py" = ["PLC0415"]
+"src/opik_mcp/analytics/environment.py" = ["PLC0415"]
+"src/opik_mcp/analytics/errors.py" = ["RET504"]
+"src/opik_mcp/analytics/identity.py" = ["PLC0415"]
+"src/opik_mcp/analytics/wrappers.py" = ["PLC0415"]
+"src/opik_mcp/auth_context.py" = ["I002"]
+"src/opik_mcp/config.py" = ["I002"]
+"src/opik_mcp/opik_client.py" = ["RET504"]
+"src/opik_mcp/read_list/__init__.py" = ["I002"]
+"src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
+"src/opik_mcp/read_list/entities/agent_insights_issue/state.py" = ["ARG001"]
+"src/opik_mcp/read_list/entities/dataset/layout.py" = ["PERF401"]
+"src/opik_mcp/read_list/entities/project_metric/table.py" = ["FBT001"]
+"src/opik_mcp/read_list/list_tool.py" = ["PERF403"]
+"src/opik_mcp/read_list/oql.py" = ["ARG004"]
+"src/opik_mcp/read_list/read_tool.py" = ["ARG001"]
+"src/opik_mcp/server.py" = ["FBT002", "I002", "PLC0415"]
+"src/opik_mcp/skills/opik-compare/evals/fixtures/regress/agent.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-compare/evals/fixtures/regress/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-compare/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-diagnose/evals/fixtures/seed/seed.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-diagnose/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-evaluate/evals/fixtures/support/agent.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-evaluate/evals/fixtures/support/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-evaluate/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-explain/evals/fixtures/latency/agent.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-explain/evals/fixtures/toolbug/agent.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-explain/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-instrument/evals/fixtures/clean/app.py" = ["T201"]
+"src/opik_mcp/skills/opik-instrument/evals/fixtures/missing_flush/app.py" = ["T201"]
+"src/opik_mcp/skills/opik-instrument/evals/grader.py" = ["FBT003", "PLC0415"]
+"src/opik_mcp/skills/opik-instrument/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-online-eval/evals/fixtures/traffic/seed.py" = ["I002", "PLC0415", "T201"]
+"src/opik_mcp/skills/opik-online-eval/evals/fixtures/traffic/traffic.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-online-eval/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-optimize/evals/fixtures/format/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-optimize/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-test/evals/fixtures/toolbug/agent.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-test/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-verify/evals/fixtures/gate/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-verify/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills_catalog.py" = ["FBT001", "FBT002", "PERF401"]
+"src/opik_mcp/writes/__init__.py" = ["I002"]
+"src/opik_mcp/writes/dispatch.py" = ["ARG001"]
+"src/opik_mcp/writes/operations/diagnostics.py" = ["ARG001"]
+"src/opik_mcp/writes/operations/evaluation.py" = ["ARG001"]
+"src/opik_mcp/writes/operations/observability.py" = ["ARG001", "PLC0415"]
+"src/opik_mcp/writes/operations/threads.py" = ["ARG001", "PLC0415"]
+"tests/conftest.py" = ["I002"]
+"tests/e2e/test_compare_experiments_surface.py" = ["PT018"]
+"tests/e2e/test_description_claims.py" = ["PERF401", "PT018"]
+"tests/e2e/test_project_overview_surface.py" = ["PT018"]
+"tests/test_account_identity.py" = ["C408", "PT019"]
+"tests/test_analytics_boot_props.py" = ["PT006"]
+"tests/test_analytics_client.py" = ["ARG002", "C408", "I002"]
+"tests/test_analytics_environment.py" = ["PT006", "PT018"]
+"tests/test_analytics_errors.py" = ["PT006", "PT017"]
+"tests/test_analytics_events.py" = ["I002", "PT006", "PT018"]
+"tests/test_analytics_identity.py" = ["I002", "PT019"]
+"tests/test_analytics_lifespan.py" = ["ARG002", "PT011"]
+"tests/test_analytics_server_startup.py" = ["ARG002", "ARG005", "I002", "PT011"]
+"tests/test_analytics_subprocess.py" = ["ARG002", "PT001"]
+"tests/test_analytics_wrappers.py" = ["ERA001", "I002", "PT006"]
+"tests/test_config.py" = ["I002"]
+"tests/test_connection_per_tool_call.py" = ["PT022"]
+"tests/test_credential_identity.py" = ["PT018"]
+"tests/test_error_tracking.py" = ["ARG002", "ARG005", "PT006"]
+"tests/test_health.py" = ["I002"]
+"tests/test_http_auth.py" = ["I002"]
+"tests/test_http_path_config.py" = ["I002"]
+"tests/test_instructions.py" = ["PT018"]
+"tests/test_oauth_identity.py" = ["I002"]
+"tests/test_oauth_passthrough_mode.py" = ["I002"]
+"tests/test_oauth_protected_resource.py" = ["I002"]
+"tests/test_oauth_redirect.py" = ["I002"]
+"tests/test_oauth_token_rotation.py" = ["I002", "PT022"]
+"tests/test_oauth_token_validation.py" = ["I002", "PT022"]
+"tests/test_opik_client.py" = ["I002"]
+"tests/test_opik_client_read.py" = ["I002"]
+"tests/test_read_list/test_dataset_compare.py" = ["PT018"]
+"tests/test_read_list/test_dataset_compare_figures.py" = ["PT018"]
+"tests/test_read_list/test_dataset_items.py" = ["PT018"]
+"tests/test_read_list/test_experiments.py" = ["PT018"]
+"tests/test_read_list/test_fields.py" = ["PT018"]
+"tests/test_read_list/test_link_shape.py" = ["ARG002", "PT018"]
+"tests/test_read_list/test_list_filters.py" = ["ARG002", "PT018"]
+"tests/test_read_list/test_list_tool.py" = ["PT018"]
+"tests/test_read_list/test_oql.py" = ["PT018"]
+"tests/test_read_list/test_project_metrics.py" = ["ARG002", "PT018"]
+"tests/test_read_list/test_read_tool.py" = ["ARG002", "PT018"]
+"tests/test_read_list/test_ui_links.py" = ["PT017"]
+"tests/test_resource_metadata_url.py" = ["I002"]
+"tests/test_writes/test_backend_error_oauth_hint.py" = ["I002"]
+"tests/test_writes/test_dispatch.py" = ["PT018"]
+"tests/test_writes/test_models.py" = ["PT017"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -89,21 +226,126 @@ python_version = "3.13"
 strict = true
 warn_unreachable = true
 warn_redundant_casts = true
-# `scripts/` is otherwise unchecked, but the pack builder produces a public
-# artifact, so it is held to the same bar as the package.
-files = ["src", "tests", "scripts/build_skills_pack.py"]
+disallow_any_explicit = true     # the "no Any" rule, enforced
+files = ["src", "tests", "scripts"]
 # Skill `evals/` dirs hold dev-only harnesses and fixture apps that never ship in
-# the pack. They are intentionally not type-checked: fixture entry points share
-# the filename `agent.py` and the harness modules (run_evals/grader/metrics)
-# repeat across skills, both of which mypy's module resolver rejects as duplicates.
+# the pack; their entry points share module names mypy would reject.
 exclude = ["/evals/"]
 
 [[tool.mypy.overrides]]
 module = ["mcp.shared.memory"]
 ignore_missing_imports = true
 
-# The agentskills.io reference library ships no py.typed marker. It is a
-# dev-only dependency used to validate skills and read their frontmatter.
+# The agentskills.io reference library ships no py.typed marker.
 [[tool.mypy.overrides]]
 module = ["skills_ref", "skills_ref.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Raw backend JSON is the one place Any is honest. Type it once, at the edge.
+module = ["opik_mcp.opik_client"]
+disallow_any_explicit = false
+
+# Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
+# shrinks: type a module, then delete its line. tests/test_ratchets.py
+# fails on a module that no longer uses explicit Any. Never add a line here.
+[[tool.mypy.overrides]]
+module = [
+    "opik_mcp.account_identity",
+    "opik_mcp.analytics.client",
+    "opik_mcp.analytics.errors",
+    "opik_mcp.analytics.mcp_client_info",
+    "opik_mcp.analytics.wrappers",
+    "opik_mcp.config",
+    "opik_mcp.error_tracking",
+    "opik_mcp.read_list.columns",
+    "opik_mcp.read_list.decorations",
+    "opik_mcp.read_list.entities.agent_insights_issue.availability",
+    "opik_mcp.read_list.entities.agent_insights_issue.entity",
+    "opik_mcp.read_list.entities.agent_insights_issue.state",
+    "opik_mcp.read_list.entities.dataset",
+    "opik_mcp.read_list.entities.dataset.compare",
+    "opik_mcp.read_list.entities.dataset.figures",
+    "opik_mcp.read_list.entities.dataset.items",
+    "opik_mcp.read_list.entities.dataset.layout",
+    "opik_mcp.read_list.entities.experiment",
+    "opik_mcp.read_list.entities.online_rule",
+    "opik_mcp.read_list.entities.project",
+    "opik_mcp.read_list.entities.project.contents",
+    "opik_mcp.read_list.entities.project.read",
+    "opik_mcp.read_list.entities.project.summary",
+    "opik_mcp.read_list.entities.project.vocabulary",
+    "opik_mcp.read_list.entities.project_metric.catalog",
+    "opik_mcp.read_list.entities.project_metric.reference",
+    "opik_mcp.read_list.entities.project_metric.runner",
+    "opik_mcp.read_list.entities.project_metric.table",
+    "opik_mcp.read_list.entities.prompt",
+    "opik_mcp.read_list.entities.score_name",
+    "opik_mcp.read_list.entities.span",
+    "opik_mcp.read_list.entities.thread",
+    "opik_mcp.read_list.entities.trace",
+    "opik_mcp.read_list.handler",
+    "opik_mcp.read_list.list_tool",
+    "opik_mcp.read_list.paging",
+    "opik_mcp.read_list.project_names",
+    "opik_mcp.read_list.project_scope",
+    "opik_mcp.read_list.projection",
+    "opik_mcp.read_list.read_tool",
+    "opik_mcp.read_list.reference",
+    "opik_mcp.read_list.size",
+    "opik_mcp.read_list.slim",
+    "opik_mcp.read_list.unsupported",
+    "opik_mcp.server",
+    "opik_mcp.skills_resources",
+    "opik_mcp.writes.dispatch",
+    "opik_mcp.writes.errors",
+    "opik_mcp.writes.models",
+    "opik_mcp.writes.operations.diagnostics",
+    "opik_mcp.writes.operations.evaluation",
+    "opik_mcp.writes.operations.observability",
+    "opik_mcp.writes.registry",
+    "opik_mcp.writes.schema_tool",
+    "opik_mcp.writes.wire",
+    "opik_mcp.writes.write_tool",
+    "scripts.build_skills_pack",
+    "scripts.smoke_live_be",
+    "scripts.smoke_mcp_session",
+    "scripts.smoke_wire_capture",
+    "tests.conformance.test_schema_snapshots",
+    "tests.conformance.test_skill_resources",
+    "tests.conformance.test_tool_inventory",
+    "tests.e2e.stub_backend",
+    "tests.e2e.test_compare_experiments_surface",
+    "tests.e2e.test_description_claims",
+    "tests.e2e.test_find_a_case_surface",
+    "tests.integration.test_llm_recovery",
+    "tests.test_account_identity",
+    "tests.test_analytics_auth_rejected",
+    "tests.test_analytics_call_context",
+    "tests.test_analytics_client",
+    "tests.test_analytics_client_build_event",
+    "tests.test_analytics_errors",
+    "tests.test_analytics_lifespan",
+    "tests.test_analytics_privacy",
+    "tests.test_analytics_server_startup",
+    "tests.test_analytics_subprocess",
+    "tests.test_analytics_wrappers",
+    "tests.test_connection_per_tool_call",
+    "tests.test_error_tracking",
+    "tests.test_instructions",
+    "tests.test_oauth_passthrough_mode",
+    "tests.test_opik_client_search",
+    "tests.test_read_list.test_dataset_compare",
+    "tests.test_read_list.test_dataset_compare_figures",
+    "tests.test_read_list.test_dataset_items",
+    "tests.test_read_list.test_experiments",
+    "tests.test_read_list.test_fields",
+    "tests.test_read_list.test_list_filters",
+    "tests.test_read_list.test_list_tool",
+    "tests.test_read_list.test_project_metrics",
+    "tests.test_read_list.test_read_tool",
+    "tests.test_writes.test_registry",
+    "tests.test_writes.test_write_links",
+]
+disallow_any_explicit = false
+

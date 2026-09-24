@@ -10,7 +10,7 @@ import httpx
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
 from mcp.server.transport_security import TransportSecuritySettings
-from mcp.types import CallToolRequest
+from mcp.types import CallToolRequest, ToolAnnotations
 from pydantic import Field
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
@@ -223,7 +223,18 @@ FIELDS_LIST_DESCRIPTION = (
 )
 
 
-@mcp.tool(structured_output=False)
+# Hints hosts read without the schema. Claude Code runs read-only tools in
+# parallel. `write` counts as destructive because trace.update and the issue
+# and thread state changes rewrite records that already exist.
+_READS = ToolAnnotations(
+    readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=False
+)
+_WRITES = ToolAnnotations(
+    readOnlyHint=False, destructiveHint=True, idempotentHint=False, openWorldHint=False
+)
+
+
+@mcp.tool(title="Read an Opik record", annotations=_READS, structured_output=False)
 @instrument_tool("read", props_fn=_read_props)
 async def read(
     entity_type: Annotated[
@@ -350,7 +361,7 @@ async def read(
     )
 
 
-@mcp.tool(name="list", structured_output=False)
+@mcp.tool(name="list", title="List Opik records", annotations=_READS, structured_output=False)
 @instrument_tool("list", props_fn=_list_props)
 async def list_entities(
     entity_type: Annotated[
@@ -605,7 +616,12 @@ async def list_entities(
 WRITE_OPERATION_ENUM: list[str] = list(WRITE_OPERATIONS)
 
 
-@mcp.tool(description=WRITE_TOOL_DESCRIPTION, structured_output=False)
+@mcp.tool(
+    description=WRITE_TOOL_DESCRIPTION,
+    title="Write to Opik",
+    annotations=_WRITES,
+    structured_output=False,
+)
 @instrument_tool("write", props_fn=_write_props)
 async def write(
     operation: Annotated[
@@ -664,7 +680,12 @@ async def write(
 SCHEMA_KEY_ENUM: list[str] = list(SCHEMA_KEYS)
 
 
-@mcp.tool(description=SCHEMA_TOOL_DESCRIPTION, structured_output=False)
+@mcp.tool(
+    description=SCHEMA_TOOL_DESCRIPTION,
+    title="Show a write operation's input",
+    annotations=_READS,
+    structured_output=False,
+)
 @instrument_tool("schema", props_fn=_schema_props)
 async def schema(
     operation: Annotated[
@@ -707,7 +728,12 @@ async def schema(
 # and reject valid calls at the host's schema check.
 
 
-@mcp.tool(description=read_skill_tool_description(), structured_output=False)
+@mcp.tool(
+    description=read_skill_tool_description(),
+    title="Read an Opik agent skill",
+    annotations=_READS,
+    structured_output=False,
+)
 @instrument_tool("read_skill", props_fn=_read_skill_props)
 async def read_skill(
     skill_name: Annotated[

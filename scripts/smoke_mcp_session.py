@@ -25,7 +25,7 @@ def _decode(content: Any) -> Any:
     """FastMCP returns a list of content blocks; first block is text/json."""
     if not content:
         return None
-    text = content[0].text  # type: ignore[union-attr]
+    text = content[0].text
     if text.startswith("Error executing tool ") and ": " in text:
         text = text.split(": ", 1)[1]
     try:

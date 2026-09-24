@@ -1,4 +1,5 @@
-.PHONY: help version install run run-dev dev inspect test conformance e2e lint format typecheck check \
+.PHONY: help version install run run-dev dev inspect test conformance e2e live user-flows lint format typecheck check \
+        install-branch uninstall-branch \
         skills-pack skills-verify skills-verify-source \
         docker-build docker-run \
         legacy-install legacy-build legacy-test legacy-lint legacy-start
@@ -24,6 +25,10 @@ help:
 	@echo "  make test       - pytest"
 	@echo "  make conformance- pytest tests/conformance (MCP wire contract)"
 	@echo "  make e2e        - pytest -m e2e (real stdio subprocess; not in make check)"
+	@echo "  make live       - pytest -m live (seeded local Opik backend; OPIK-8490)"
+	@echo "  make user-flows - pytest -m user_flows (real agent, judged answers; OPIK-8491)"
+	@echo "  make install-branch   - install this worktree as MCP server opik-<ticket> (NAME=, WORKSPACE=)"
+	@echo "  make uninstall-branch - remove that server and its venv"
 	@echo "  make lint       - ruff check + format check"
 	@echo "  make format     - ruff format + ruff check --fix"
 	@echo "  make typecheck  - mypy"
@@ -89,6 +94,28 @@ conformance:
 # locally cannot drift.
 e2e:
 	uv run pytest -m e2e -v $(PYTEST_ARGS)
+
+# Real-backend suites. Deselected from `make test` like e2e. Until their tickets
+# land there is nothing to run, so the targets say so instead of letting pytest
+# exit 5 on an empty selection.
+live:
+	@if [ -d tests/live ]; then uv run pytest -m live -v $(PYTEST_ARGS); \
+	else echo "live suite not present yet (OPIK-8490)"; fi
+
+user-flows:
+	@if [ -d tests/user_flows ]; then uv run pytest -m user_flows -v $(PYTEST_ARGS); \
+	else echo "user-flows suite not present yet (OPIK-8491)"; fi
+
+# Install this worktree as MCP server opik-<ticket> at local scope, which loads
+# only in sessions inside this repo. See scripts/dev/install_branch.py.
+BRANCH_ARGS = $(if $(NAME),--name $(NAME),) $(if $(WORKSPACE),--workspace $(WORKSPACE),) \
+              $(if $(DRY_RUN),--dry-run,)
+
+install-branch:
+	@python3 scripts/dev/install_branch.py install $(BRANCH_ARGS)
+
+uninstall-branch:
+	@python3 scripts/dev/install_branch.py uninstall $(BRANCH_ARGS)
 
 lint:
 	uv run ruff check .

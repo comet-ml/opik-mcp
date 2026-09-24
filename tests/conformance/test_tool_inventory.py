@@ -16,6 +16,8 @@ from typing import Any
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
+from opik_mcp.config import Settings
+from opik_mcp.instructions import render_instructions
 from opik_mcp.server import mcp
 
 # Ceiling on everything `tools/list` advertises: names + descriptions + input
@@ -80,6 +82,11 @@ from opik_mcp.server import mcp
 #           wanted, against 33 tokens for the same question asked with
 #           `fields`. A surface that buys itself back on its first use is the
 #           spend this budget exists to permit.
+#   22,811  measured at the head of OPIK-8485, before it. The 178 bytes above
+#           22,633 landed on main without a line here (#199, #201).
+#   23,495  OPIK-8485 — the report now counts each tool's title and hints,
+#           +684 bytes. Hosts read them without the schema; Claude Code runs
+#           read-only tools in parallel because of them.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -96,18 +103,24 @@ SURFACE_BUDGET_BYTES = 24_000
 
 
 def surface_report(
-    advertised: Iterable[tuple[str, str, dict[str, Any]]],
+    advertised: Iterable[tuple[str, str, dict[str, Any], dict[str, Any]]],
 ) -> tuple[int, str]:
     """Total advertised bytes, plus a per-tool breakdown biggest-first.
 
     Counts what the host actually caches for each tool — its name, its
-    description and its input schema. The frozen snapshot files cover only
-    the schemas, so they would miss growth in the descriptions, which is
-    where an added entity type mostly lands.
+    description, its input schema, and its title and hints. The frozen
+    snapshot files cover only the schemas, so they would miss growth in the
+    descriptions, which is where an added entity type mostly lands.
     """
     rows = [
-        (name, len(name) + len(description) + len(json.dumps(schema, separators=(",", ":"))))
-        for name, description, schema in advertised
+        (
+            name,
+            len(name)
+            + len(description)
+            + len(json.dumps(schema, separators=(",", ":")))
+            + (len(json.dumps(metadata, separators=(",", ":"))) if metadata else 0),
+        )
+        for name, description, schema, metadata in advertised
     ]
     rows.sort(key=lambda row: row[1], reverse=True)
     total = sum(size for _, size in rows)
@@ -169,7 +182,18 @@ async def test_advertised_tool_surface_stays_within_budget() -> None:
         await session.initialize()
         tools = await session.list_tools()
     total, report = surface_report(
-        (t.name, t.description or "", t.inputSchema) for t in tools.tools
+        (
+            t.name,
+            t.description or "",
+            t.inputSchema,
+            {
+                "title": t.title,
+                "annotations": t.annotations.model_dump(exclude_none=True)
+                if t.annotations
+                else None,
+            },
+        )
+        for t in tools.tools
     )
     assert total <= SURFACE_BUDGET_BYTES, (
         f"advertised tool surface is {total} bytes, over the "
@@ -187,12 +211,13 @@ def test_budget_report_counts_name_description_and_schema() -> None:
     which are the half that grows when an entity is added."""
     total, report = surface_report(
         [
-            ("aa", "desc", {"type": "object"}),
-            ("bbbb", "", {}),
+            ("aa", "desc", {"type": "object"}, {}),
+            ("bbbb", "", {}, {"title": "B"}),
         ]
     )
-    # names 2 + 4, descriptions 4 + 0, schemas '{"type":"object"}' + '{}'
-    assert total == 2 + 4 + 4 + 0 + 17 + 2
+    # names 2 + 4, descriptions 4 + 0, schemas '{"type":"object"}' + '{}',
+    # metadata '{"title":"B"}'
+    assert total == 2 + 4 + 4 + 0 + 17 + 2 + 13
     assert "aa" in report
     assert "bbbb" in report
 
@@ -202,9 +227,33 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
     alphabetical list they have to scan."""
     _, report = surface_report(
         [
-            ("small", "x", {}),
-            ("huge", "x" * 500, {}),
+            ("small", "x", {}, {}),
+            ("huge", "x" * 500, {}, {}),
         ]
     )
     lines = [line for line in report.splitlines() if line.strip()]
     assert "huge" in lines[0], report
+
+
+# The instructions a host receives on `initialize`. With tool search on, the
+# tool list above is deferred but this text is not: every session that loads
+# the server carries it. Measured 4,750 bytes (about 1,150 tokens) with a long
+# workspace name and email, OPIK-8485. Raise it on purpose, with a note here.
+# This caps growth; the host's 2,048-character cut on the same text is pinned
+# in test_tool_annotations.py. Lower this to match once the text fits.
+INSTRUCTIONS_BUDGET_BYTES = 5_000
+
+
+def longest_instructions() -> str:
+    return render_instructions(
+        Settings(comet_workspace="w" * 40, opik_url="https://www.comet.com/opik/api"),
+        user_email="u" * 40 + "@example.com",
+    )
+
+
+def test_instructions_stay_within_budget() -> None:
+    size = len(longest_instructions().encode())
+    assert size <= INSTRUCTIONS_BUDGET_BYTES, (
+        f"instructions are {size} bytes, over the {INSTRUCTIONS_BUDGET_BYTES}-byte budget. "
+        "Every session that loads the server pays this; move detail into schema() or a skill."
+    )
