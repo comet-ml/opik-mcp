@@ -2,372 +2,159 @@
 
 ## Purpose
 
-Runtime covers how the `opik-mcp` process starts, where its settings come from,
-and how a tool call reaches the Opik REST API. Open this doc to find out which
-client method a read calls, which headers carry the credential and the
-workspace, what a backend error turns into, and why no tool takes a workspace
-argument.
+Runtime is how the `opik-mcp` process starts, where its settings come from and
+how a tool call reaches the Opik REST API. It answers: which credential and
+workspace does a call use, what does a backend error or timeout turn into, when
+does the process refuse to start, and why does no tool take a workspace?
 
 ## What it does now
 
-### Starting the process
+### Start
 
-`python -m opik_mcp` runs `main()` in `src/opik_mcp/__main__.py`. It reads
-`Settings` once through `get_settings()` in `src/opik_mcp/config.py` (cached for
-the life of the process), configures logging to stderr at
-`OPIK_MCP_LOG_LEVEL`, and picks a transport from `OPIK_MCP_TRANSPORT`.
+- `main()` in `src/opik_mcp/__main__.py` serves stdio by default. Any other
+  `OPIK_MCP_TRANSPORT` serves Streamable HTTP through uvicorn on
+  `OPIK_MCP_HOST` (default loopback), with the access log off because OAuth
+  query strings can carry tokens.
+- The process refuses to start when a setting fails validation, when HTTP has
+  `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI`, or when the HTTP port
+  cannot be bound (`_preflight_bind_check`).
 
-- `stdio` is the default. `_run_transport` imports the `mcp` server from
-  `src/opik_mcp/server.py`, installs the `tools/list` emitter and the skill
-  resources, and calls `mcp.run(transport="stdio")`. There is no port and no
-  inbound auth: whoever spawned the process owns its stdin and stdout.
-- Any other value serves Streamable HTTP through uvicorn at `OPIK_MCP_HOST`
-  and `OPIK_MCP_PORT`. The host defaults to `127.0.0.1`, so a local server
-  listens on loopback only; binding elsewhere means setting `OPIK_MCP_HOST`
-  (`Settings.opik_mcp_host`). uvicorn runs with `access_log=False`, so query
-  strings from the OAuth flow, which can carry tokens, never reach stdout
-  (`_run_transport`). `OPIK_MCP_RELOAD` runs uvicorn with `reload=True` over
-  `src` and the `build_app` factory.
+### Credential and workspace
 
-The process refuses to start in three cases:
+`resolve_opik_config()` in `src/opik_mcp/opik_client.py` returns
+`(base_url, api_key, workspace)` for every call:
 
-- A setting fails validation, for example `COMET_WORKSPACE_ID` that is not a
-  UUID (`Settings._validate_workspace_uuid`) or `OPIK_MCP_HTTP_PATH` without a
-  leading slash (`Settings._require_leading_slash`). `main()` reports a
-  startup error and re-raises the `ValidationError`.
-- HTTP transport with `OPIK_MCP_AS_URL` set and `OPIK_MCP_RESOURCE_URI` unset.
-  `_run_transport` logs why and exits with status 1. The authorization server
-  matches the `resource` parameter exactly against its own configured URI, so
-  a guessed value would fail every authorize call.
-- HTTP transport on a port it cannot bind. `_preflight_bind_check` binds and
-  releases the socket first (resolving the address family through
-  `getaddrinfo`, so `::1` and `localhost` work), because uvicorn logs a bind
-  failure and returns normally, and the failure would otherwise go unseen.
+- Credential: the inbound `Authorization` header, else `OPIK_API_KEY`, else
+  none. A self-hosted backend with auth disabled works without a key.
+- Workspace for an OAuth bearer: only the inbound `Comet-Workspace` header,
+  which may be absent. The backend takes the workspace from the token.
+- Workspace otherwise: the inbound `Comet-Workspace` header, else
+  `OPIK_WORKSPACE` (alias `COMET_WORKSPACE`, which loses when both are set),
+  else `default`.
+- A workspace that looks like an unfilled placeholder (`looks_unsubstituted`)
+  raises `MissingConfigError` before any request, with a message that names
+  the setting or header and the value.
+- Base URL: `OPIK_URL`, else `COMET_URL_OVERRIDE` plus `/opik/api`
+  (`opik_rest_base`). An empty result raises `MissingConfigError`.
 
-The startup and shutdown events these paths emit are described in
-[analytics](../analytics/design-doc.md).
+`OpikClient._headers` sends the credential verbatim as `Authorization`: an
+inbound header (OAuth or API key) as the host sent it, usually
+`Bearer <token>`, and `OPIK_API_KEY` raw, with no `Bearer`. A missing
+credential sends no `Authorization`. A missing workspace (an OAuth bearer and
+no inbound header) sends no `Comet-Workspace`.
 
-### Settings
+Open question: a hosted request with an API key and no `Comet-Workspace` falls
+back to the process's `OPIK_WORKSPACE`. `.claude/rules/security.md` forbids an
+environment fallback when the caller supplied a value; does a missing header count?
 
-`Settings` in `src/opik_mcp/config.py` is a pydantic-settings model read from
-the environment, case-insensitive, with unknown variables ignored. The fields
-runtime uses:
+### Errors
 
-- `OPIK_API_KEY`: optional. Self-hosted backends run with auth disabled and
-  authorize on the workspace header alone.
-- `OPIK_WORKSPACE`, with `COMET_WORKSPACE` as a deprecated alias; when both are
-  set, `OPIK_WORKSPACE` wins. Left `None` when unset; the `default` fallback is
-  applied where the client is built, so analytics can still tell whether the
-  user set one.
-- `OPIK_URL`, else `COMET_URL_OVERRIDE` (default `https://www.comet.com`) plus
-  `/opik/api`. `opik_rest_base()` in `src/opik_mcp/opik_client.py` holds that
-  rule; the OAuth introspection in `src/opik_mcp/oauth_identity.py` uses the
-  same function.
-- `OPIK_DEFAULT_PROJECT_NAME`: a hint rendered into the `initialize`
-  instructions. Tools stay stateless and the agent passes a project on each
-  call (see [tool-surface](../tool-surface/design-doc.md)).
-- `OPIK_MCP_TRANSPORT`, `OPIK_MCP_HOST`, `OPIK_MCP_PORT`, `OPIK_MCP_RELOAD`,
-  `OPIK_MCP_LOG_LEVEL`.
-
-The OAuth, HTTP path and transport-security fields belong to
-[hosted-auth](../hosted-auth/design-doc.md); the analytics and Sentry fields
-belong to [analytics](../analytics/design-doc.md).
-
-### Which credential and workspace a call uses
-
-Every call builds its client through `resolve_opik_config()` in
-`src/opik_mcp/opik_client.py`, which returns `(base_url, api_key, workspace)`:
-
-- Credential: the inbound `Authorization` header of the HTTP request being
-  served, if there is one; otherwise `OPIK_API_KEY`; otherwise none. The
-  inbound value is read from the ContextVars in `src/opik_mcp/auth_context.py`,
-  which the HTTP middleware sets (see
-  [hosted-auth](../hosted-auth/design-doc.md)). Under stdio there is no inbound
-  request, so the environment key is used.
-- OAuth token: when the inbound header is `Bearer` followed by a token that
-  starts with `OAUTH_ACCESS_TOKEN_PREFIX`, the backend derives the workspace
-  from the token. The workspace is then only what the inbound `Comet-Workspace`
-  header carried, and may be `None`. The check is a prefix match, so an API
-  key that contains the marker in the middle does not skip the workspace.
-- Anything else: the inbound `Comet-Workspace` header, else `OPIK_WORKSPACE`,
-  else `default`. `default` mirrors the Opik SDK and is right for a local
-  install with one workspace. On cloud the backend reads it as the account's
-  default workspace, which may not be the one the user meant (comment on
-  `DEFAULT_WORKSPACE`).
-- A workspace that looks like an unfilled config placeholder (`${…}`, `<…>`,
-  `{{…}}`, `%…%`, or a bare `$UPPER_CASE` or `$(UPPER_CASE)`) raises
-  `MissingConfigError` before any request goes out. The message names the
-  setting or the header, shows the value and says what to put there
-  (`unfilled_workspace_error`). The match is narrow on purpose: workspace names
-  have no charset limit, so `$acme` passes (`looks_unsubstituted`).
-- An empty base URL raises `MissingConfigError`, so a request never goes to a
-  relative `/opik/api`.
-
-`MissingConfigError` carries `error_kind = "validation"`, so it is counted as a
-setup problem the user can fix.
-
-Unverified: whether a hosted request that sends an API key and no
-`Comet-Workspace` header should use the process's `OPIK_WORKSPACE`. The code
-does. `.claude/rules/security.md` says never to fall back to an environment
-default when the caller supplied one; that covers the key, and whether it
-covers a missing workspace header is open (the same point is in
-[hosted-auth](../hosted-auth/design-doc.md#two-kinds-of-bearer)).
-
-### Why tools take no workspace argument
-
-The workspace is bound when `OpikClient` is constructed and sent on every
-request (`OpikClient._headers`). No tool on the surface takes a workspace. The
-workspace belongs to the credential and the session: the environment under
-stdio, the inbound request under HTTP, the token row for OAuth. A tool argument
-would let the model point a call at a workspace the session was not set up for,
-which `.claude/rules/security.md` forbids, and every tool schema would carry
-the field in the host's context on every request
-([ADR 0001](../decisions/0001-context-budget-first.md)).
-
-### Headers on every request
-
-`OpikClient._headers()` sends:
-
-- `Content-Type` and `Accept`: `application/json`.
-- `Authorization`: the credential exactly as resolved (an API key, or the
-  inbound `Bearer` value). It is omitted when there is none.
-- `Comet-Workspace`: the resolved workspace. It is omitted when there is none,
-  which happens only for an OAuth token.
-- `Idempotency-Key`: on writes only, when the dispatcher passes one
-  (`OpikClient.write_json`).
-
-### How a read reaches the backend
-
-Take `read('trace', id)`. `run_read` in `src/opik_mcp/read_list/read_tool.py`
-opens `client_for_call()`, which creates one `httpx.AsyncClient` and wraps it in
-an `OpikClient` from `make_opik_client()`. The entity's fetcher then calls
-`OpikClient.get_trace`, which sends `GET {base}/v1/private/traces/{id}`
-through `_get_json`. The spans are a second call, `list_spans`, on the same
-connection. `list` goes through `client_for_call()` the same way in
-`src/opik_mcp/read_list/list_tool.py`.
-
-Each read method on `OpikClient` maps onto one REST endpoint under
-`/v1/private/`. Most are `GET` through `_get_json`. Endpoints that the backend
-models as a POST with a body (the KPI cards, a project metric, a thread
-retrieve) go through `_post_json`. Both expect exactly 200 and a JSON object.
-The protocols `OpikListClient` and `OpikReadClient` list the methods the read
-and list registry depends on, so test fakes need not subclass the client.
-
-Query parameters are sent only when set. The backend treats an empty
-`filters=` as malformed JSON and answers 400 (`_search_params`). A few wire
-details are handled once in the client:
-
-- `truncate` goes out as the lowercase literal `true` or `false`.
-- On the experiment comparison endpoints, `experiment_ids` is a JSON array, not a comma-joined list (`_ids_param`).
-- A project's score names take the project id as a JSON array
-  (`list_project_score_names`).
-- The online-rules path keeps its trailing slash, without which the backend
-  answers 404 (`list_automation_rules`).
-- `list_traces` and `list_spans` refuse to run without a project id or name.
-
-The entity modules that call these methods are described in
-[tool-surface](../tool-surface/design-doc.md) and the feature docs.
-
-### How a write reaches the backend
-
-Writes do not use per-endpoint methods. `dispatch` in
-`src/opik_mcp/writes/dispatch.py` builds a path from the operation's template
-and a body, then calls `OpikClient.write_json(method, path, body,
-idempotency_key=…)`. `write_json` serialises the body with no fallback encoder,
-so a value that is not plain JSON fails here instead of reaching the backend in
-the wrong shape. It returns the raw response without raising on 4xx or 5xx;
-the dispatcher turns those into its own error envelope (see
-[writes](../writes/design-doc.md)). A dry run builds no client at all.
-
-`OpikClient` still has per-endpoint score and comment methods
-(`add_trace_feedback_score`, `add_trace_comment` and their span and thread
-versions). Only `tests/test_opik_client.py` calls them.
-
-### Connections
-
-A read or list call owns one `httpx.AsyncClient` for the length of the call
-(`client_for_call`). A composite read (a trace and its spans, a project and its
-decorations) reuses one connection instead of paying a TCP and TLS handshake
-per backend request. The client is closed when the call ends, including on an
-error, so nothing carries into the next call. A client passed in by the caller
-is used as it is and never closed.
-
-A write builds its client with `make_opik_client()` and no shared connection,
-so each backend request in a write opens its own `httpx.AsyncClient`
-(`OpikClient._http`, `dispatch`).
-
-### Timeouts
-
-The client's default timeout per request is `_DEFAULT_TIMEOUT` in
-`src/opik_mcp/opik_client.py`. `list` passes the longer `_SEARCH_TIMEOUT_S`
-(`src/opik_mcp/read_list/list_tool.py`) when the call has a free-text
-`search`, because the backend's search can outlast the default on a cold
-cache. The code carries no host-side
-timeouts.
-
-### Backend errors
-
-`_raise_for_status` maps every non-2xx answer on the read path to a typed
-error. The message includes an entity hint (for example `trace 'abc'`) and a
-truncated copy of the backend's `message`, `errors` or `error` field
-(`_error_detail` in `src/opik_mcp/opik_client.py`):
+Reads and lists map a non-2xx answer to a typed error in `_raise_for_status`,
+with an entity hint and an excerpt of the backend's message.
 
 | Status | Error | `error_kind` |
 |---|---|---|
 | 401 | `OpikAuthError` | `auth` |
-| 403 | `OpikPermissionError` (a subclass of `OpikAuthError`) | `permission` |
+| 403 | `OpikPermissionError` (subclass of `OpikAuthError`) | `permission` |
 | 404 | `OpikNotFoundError` | `not_found` |
 | 400, 422 | `OpikValidationError` | `validation` |
 | 5xx, other | `OpikServerError` | `upstream_5xx` |
 
-Each class carries `error_kind` and `http_status` as ClassVars, which
-[analytics](../analytics/design-doc.md) reads. A 200 with a non-JSON body, or
-with JSON that is not an object, is also an `OpikServerError`.
+A 2xx other than 200, or a body that is not a JSON object, is also
+`OpikServerError`. Writes get the raw response from `OpikClient.write_json`,
+which never raises on status; [writes](../writes/design-doc.md) builds the
+error.
 
-On a 401, `note_backend_401()` checks the inbound bearer. For an OAuth token it
-drops the cached validation, so the next MCP request gets the `invalid_token`
-401 that makes the host refresh, and the message says the token expired. For an
-API key the message says to check `OPIK_API_KEY` and `OPIK_WORKSPACE`. The
-write dispatcher calls the same function on its 401s.
+Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
+into a tool error that says how to narrow the call, and any other
+`httpx.HTTPError` into "Could not reach Opik" (`_as_tool_error`). `read`
+catches only the typed errors around its main fetch. The optional blocks of a
+composite read also catch `httpx.HTTPError` and give up after
+`DEADLINE_SECONDS` (`src/opik_mcp/read_list/decorations.py`).
 
-Transport errors (timeouts, refused connections) are not translated by the
-client and propagate as `httpx` exceptions. `list` turns a timeout into a tool
-error that says how to narrow the query, and any other `httpx.HTTPError` into
-"Could not reach Opik" (`_as_tool_error`). `read` turns the typed errors into
-a status-specific message (`_format_client_error`) and does not catch `httpx`
-errors.
+### Timeouts and connections
 
-### Wiring in server.py
-
-Importing `src/opik_mcp/server.py` builds the `FastMCP` instance with the
-instructions rendered once, and registers the tools. The two transports then
-add different things:
-
-- stdio (`_run_transport`): the `tools/list` emitter and the skill resources.
-- HTTP (`build_app`): the same two, plus per-session instructions and
-  per-request auth rebinding (see
-  [hosted-auth](../hosted-auth/design-doc.md)), then the Starlette app.
-
-`build_app` replaces the app's lifespan with `_make_composed_lifespan`, which
-wraps FastMCP's own lifespan. The inner lifespan starts the streamable-HTTP
-session manager, without which every MCP request hangs. The wrapper emits
-start and shutdown events only when `main()` has not claimed them: `main()`
-sets an environment sentinel (`boot_props.mark_lifecycle_owned_by_main`) before
-`build_app` can run, so a boot is counted once whether the process started
-from `main()` or from `uvicorn … --factory`.
+- Each backend request has the client timeout `_DEFAULT_TIMEOUT`. A `list`
+  call with free-text `search` uses `_SEARCH_TIMEOUT_S`, since a cold backend
+  search was measured to outlast the default (#185).
+- A read or list opens one `httpx.AsyncClient` for the whole call
+  (`client_for_call`) and closes it when the call ends, also on error. A client
+  passed in by the caller is never closed.
+- A write builds its client with `make_opik_client()` and no shared
+  connection, so each request opens its own. A dry run builds no client.
 
 ## How it works
 
-Call path for a read or list:
+```
+read/list -> client_for_call -> make_opik_client -> resolve_opik_config
+          -> OpikClient.get_* / list_* -> _get_json | _post_json -> _raise_for_status
+write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
+```
 
-`server.py` tool → `read_list/read_tool.py` `run_read` or
-`read_list/list_tool.py` `run_list` → `opik_client.client_for_call` →
-`make_opik_client` → `resolve_opik_config` → `OpikClient(base_url, api_key,
-workspace, client=…)` → an entity fetcher calls `OpikClient.get_*` or
-`list_*` → `_get_json` or `_post_json` → `_raise_for_status`.
+- To add a read endpoint, add an `OpikClient` method on `_get_json` (as
+  `get_project` does for `read('project')`) or on `_post_json` for a POST read.
+  Add it to the `OpikListClient` or `OpikReadClient` protocol so test fakes see
+  it, and test it in `tests/test_opik_client_read.py`.
+- To change where the credential or workspace comes from, start in
+  `resolve_opik_config`. For startup and its refusals, `_run_transport`.
 
-Call path for a write:
-
-`writes/dispatch.py` `dispatch` → `make_opik_client` → operation hooks →
-`OpikClient.write_json` → raw `httpx.Response` back to the dispatcher.
-
-Modules this doc owns:
-
-- `src/opik_mcp/__main__.py`: `main`, `_run_transport`,
-  `_preflight_bind_check`, the OAuth resource-URI guard. The event emitters in
-  it are [analytics](../analytics/design-doc.md).
-- `src/opik_mcp/config.py`: `Settings` except its OAuth, HTTP and analytics
-  fields; `get_settings`, `DEFAULT_WORKSPACE`, `looks_unsubstituted`,
-  `MissingConfigError`, `unfilled_workspace_error`, `installation_type`.
-- `src/opik_mcp/opik_client.py`: the whole module.
-- `src/opik_mcp/server.py`: the `mcp` instance, `_make_composed_lifespan`, and
-  the order of the `install_*` calls. The tool registrations are
-  [tool-surface](../tool-surface/design-doc.md),
-  [writes](../writes/design-doc.md) and [skills](../skills/design-doc.md); the
-  middleware and routes are [hosted-auth](../hosted-auth/design-doc.md).
-
-Boundaries: `opik_client.py` knows endpoints and wire formats, not entities or
-operations. It does not shape answers, resolve project names or build UI
-links. Those live in the entity and operation namespaces
-([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md)).
+- `opik_client.py` knows endpoints and wire formats. Answer shaping, project
+  names and UI links live in the entity namespaces ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md)).
+- Bearer kinds, the middleware and the 401 cache drop (`note_backend_401`):
+  [hosted-auth](../hosted-auth/design-doc.md).
+- Startup events and the lifecycle sentinel: [analytics](../analytics/design-doc.md).
+- The tools and composite-read blocks that call the client:
+  [tool-surface](../tool-surface/design-doc.md).
 
 ## Decisions
 
-- Workspace is bound at client construction and sent in `Comet-Workspace`; no
-  tool takes a workspace argument. Reason: the workspace belongs to the
-  credential and the session (`.claude/rules/security.md`), and a field on
-  every tool costs surface bytes
+- No tool takes a workspace; it is bound when the client is built. The
+  workspace belongs to the credential and the session
+  (`.claude/rules/security.md`), and a field on every tool costs surface bytes
   ([ADR 0001](../decisions/0001-context-budget-first.md)).
-- One HTTP connection per read or list call, closed at the end of the call.
-  Against the cloud backend, each extra request with its own client paid a
-  new handshake (measured in the `client_for_call` docstring). A process-wide
-  client would also save the handshake between calls, but was left out so
-  that no client outlives the request that made it (#187).
-- Read methods map one to one onto endpoints; writes go through one generic
-  `write_json` with templated paths, so a new write operation needs no client
-  change ([ADR 0003](../decisions/0003-five-tool-surface.md),
-  [ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md)).
-- `OPIK_API_KEY` is optional, so a self-hosted backend with auth disabled works
-  on the workspace header alone.
 - An unset workspace falls back to `default`, as the Opik SDK does, so a local
-  install runs without one (#141).
-- An unfilled workspace placeholder fails before the request with a message
-  that names the setting, instead of an upstream auth error that names
-  neither. The detector stays narrow because a false positive breaks a working
-  install (#162).
-- The process refuses to start on a bind failure or on OAuth without a
-  resource URI, because uvicorn hides bind failures and a missing resource URI
-  fails every authorize call.
-- `main()` owns the lifecycle events and `build_app` defers to it through an
-  environment sentinel, so a boot is counted once (#148).
-- `list` gets a longer timeout only for free-text search, the one call measured
-  to exceed `_DEFAULT_TIMEOUT` (#185).
-- Not built: splitting `opik_client.py` into smaller modules is filed as
-  OPIK-8496.
+  install runs without one. On cloud the backend reads it as the account's
+  default workspace, which may not be the one meant (comment on
+  `DEFAULT_WORKSPACE`) (#141).
+- The placeholder detector stays narrow because workspace names have no
+  charset limit and a false positive breaks a working install (#162).
+- One connection per read or list call, since a composite read paid a
+  handshake per backend request (measured in the `client_for_call`
+  docstring). A process-wide client was left out so no client outlives its
+  call (#187).
+- Writes share `write_json` with templated paths, so a new write operation
+  needs no client change ([ADR 0003](../decisions/0003-five-tool-surface.md)).
+
+### Traps
+
+- The settings field is `Settings.comet_workspace`. `OPIK_WORKSPACE` reaches
+  it through `AliasChoices`, so grepping `opik_workspace` finds no field.
+- `get_settings()` is `lru_cache`d for the life of the process. A test that
+  changes the environment must call `get_settings.cache_clear()`.
+- `list_traces`, `list_spans`, `list_threads` and `get_thread` raise a plain
+  `ValueError` without a project id or name, before any request. The tool
+  layers do not translate it, so resolve the project first.
+- Wire quirks are handled once each: `_search_params` (unset values are not
+  sent, since an empty `filters=` is a 400), `_ids_param` (a JSON array) and
+  the trailing slash in `list_automation_rules`.
 
 ## Proven by
 
-- `tests/test_opik_client_read.py`: each read method's path, query and body;
-  status-to-error mapping on reads (`test_get_maps_status_to_typed_error`);
-  non-JSON and non-object bodies become server errors.
-- `tests/test_opik_client_search.py`: filter, sort, search and window
-  parameters go out only when set; spans list project-wide without a trace id.
-- `tests/test_opik_client.py`: `resolve_opik_config` base URL, optional key,
-  `default` workspace, OAuth prefix detection, the OAuth client omitting
-  `Comet-Workspace`, the placeholder detector's hits and misses; a keyless
-  request against an authenticated backend surfaces a 401
-  (`test_no_api_key_against_authenticated_backend_surfaces_401`); an injected
-  `httpx` client is used.
-- `tests/test_config.py`: `OPIK_WORKSPACE` wins over `COMET_WORKSPACE`;
-  defaults and environment loading.
-- `tests/test_connection_per_tool_call.py`: a composite read and a list each
-  build one client, an injected client is left open, the connection does not
-  outlive the call.
-- `tests/test_analytics_server_startup.py`: the OAuth resource-URI guard
-  (`test_startup_error_when_oauth_enabled_without_resource_uri`,
-  `test_no_startup_error_when_resource_uri_set`); `main()` claims the
-  lifecycle before `build_app` and turns off the access log
-  (`test_http_main_owns_lifecycle_and_disables_access_log`,
-  `test_reload_http_disables_access_log`); invalid settings stop the start
-  (`test_startup_error_on_invalid_workspace_uuid`).
-- `tests/test_analytics_subprocess.py`: the bind preflight in a real process
-  (`test_preflight_handles_ipv6_loopback_via_getaddrinfo`,
-  `test_port_in_use_emits_transport_crash_in_subprocess`).
-- `tests/test_analytics_lifespan.py`: the composed lifespan emits only when
-  `main()` does not own the lifecycle
-  (`test_lifespan_skips_emit_when_owned_by_main`).
-- `tests/e2e/test_stdio_session.py`: the stdio process starts and completes a
-  handshake (`test_the_server_starts_and_completes_a_handshake`).
+- Credential, workspace, base URL and placeholders: `tests/test_opik_client.py`.
+- Settings and alias precedence: `tests/test_config.py`.
+- Read paths, queries and the error mapping: `tests/test_opik_client_read.py`, `tests/test_opik_client_search.py`.
+- One connection per call: `tests/test_connection_per_tool_call.py`.
+- Timeout and unreachable messages in `list`: `tests/test_read_list/test_list_filters.py`.
+- The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
+- Startup refusals: `tests/test_analytics_server_startup.py`, `tests/test_analytics_subprocess.py`.
+- A real stdio handshake: `tests/e2e/test_stdio_session.py`.
 
 ## Log
 
-- 2026-09-11: one HTTP connection per read or list call (`client_for_call`), so no client outlives its request (#187).
+- 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
 - 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).
-- 2026-09-04: a backend 401 on an OAuth token drops its cached validation, so the host refreshes (#182).
-- 2026-09-03: `ask_ollie` and `run_experiment` removed, with the settings only they used (#181).
-- 2026-08-14: an unfilled workspace placeholder fails with a message that names the setting, not an upstream auth error (#162).
-- 2026-06-24: `OPIK_API_KEY` made optional, so a self-hosted backend with auth disabled works (#150).
-- 2026-06-08: `build_app` lifespan emits lifecycle events unless `main()` owns them, so a boot counts once (#148).
-- 2026-06-04: `OPIK_WORKSPACE` added, `COMET_WORKSPACE` kept as an alias, `default` when unset, as the SDK does (#141).
-- 2026-06-03: HTTP start refused with `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI`, which fails every authorize (#139).
+- 2026-08-14: an unfilled workspace placeholder fails with a message that names the setting (#162).
+- 2026-06-24: `OPIK_API_KEY` made optional for self-hosted backends with auth disabled (#150).
+- 2026-06-04: `OPIK_WORKSPACE` added, `COMET_WORKSPACE` kept as an alias, `default` when unset (#141).
+- 2026-06-03: HTTP start refused with `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI` (#139).
 - 2026-05-22: bind preflight before uvicorn, since uvicorn hides a taken port (#117).
