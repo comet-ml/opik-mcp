@@ -16,7 +16,7 @@ SKILLS_CLI_VERSION := 1.5.22
 
 help:
 	@echo "Python (root):"
-	@echo "  make install    - uv sync --extra dev"
+	@echo "  make install    - uv sync --locked --extra dev"
 	@echo "  make run        - run the MCP server (stdio by default)"
 	@echo "  make run-dev    - run with DEBUG logging + uvicorn reload"
 	@echo "  make dev        - run via mcp inspector dev"
@@ -51,7 +51,7 @@ version:
 	@echo "wrote $(VERSION_FILE): $$(cat $(VERSION_FILE))"
 
 install: version
-	uv sync --extra dev
+	uv sync --locked --extra dev
 
 run:
 	uv run opik-mcp
