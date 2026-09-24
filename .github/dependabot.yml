@@ -4,8 +4,11 @@ updates:
   # `uv sync --extra dev` in CI stays consistent with the manifest.
   - package-ecosystem: "uv"
     directory: "/"
+    # Only uv.lock moves; the floors in pyproject.toml are edited by hand.
+    versioning-strategy: lockfile-only
     schedule:
       interval: "weekly"
+      day: "monday"
     # A release gets a week to be yanked before we take it.
     cooldown:
       default-days: 7
@@ -18,11 +21,18 @@ updates:
     labels:
       - "dependencies"
 
-  # GitHub Actions workflows
+  # GitHub Actions workflows. One PR for all minor and patch bumps; a major
+  # bump gets its own.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions-minor:
+        update-types:
+          - "minor"
+          - "patch"
+    open-pull-requests-limit: 5
     labels:
       - "dependencies"
       - "infrastructure"

@@ -28,6 +28,7 @@ Before evaluating, make your agent's behavior transparent.
 ```python
 import opik
 
+
 # ✅ CORRECT: @track on the entry point captures the original input
 @opik.track(name="research_agent")
 def agent(query: str) -> str:
@@ -35,6 +36,7 @@ def agent(query: str) -> str:
     plan = plan_action(query)
     results = execute_tool(plan)
     return generate_response(query, results)
+
 
 # ❌ WRONG: Starting trace after preprocessing loses original input
 def agent(query: str) -> str:
@@ -54,7 +56,7 @@ def agent(query: str, config: dict = None) -> str:
         metadata={
             "config": config,
             "feature_flags": get_feature_flags(),
-            "model_version": MODEL_VERSION
+            "model_version": MODEL_VERSION,
         }
     )
     # Now the trace has everything needed for replay
@@ -66,10 +68,12 @@ def agent(query: str, config: dict = None) -> str:
 ```python
 import opik
 
+
 @opik.track
 def plan_action(query: str) -> dict:
     """Agent planning step"""
     return {"action": "search", "params": {"query": query}}
+
 
 @opik.track(type="tool")
 def execute_tool(action: dict) -> str:
@@ -77,10 +81,12 @@ def execute_tool(action: dict) -> str:
     if action["action"] == "search":
         return search_web(action["params"]["query"])
 
+
 @opik.track
 def generate_response(query: str, tool_results: str) -> str:
     """Final response generation"""
     return llm_call(f"Query: {query}\nResults: {tool_results}")
+
 
 @opik.track(name="research_agent")
 def agent(query: str) -> str:
@@ -111,18 +117,17 @@ Evaluate the final response quality:
 from opik.evaluation import evaluate
 from opik.evaluation.metrics import AnswerRelevance, Hallucination
 
+
 def agent_task(dataset_item):
     response = agent(dataset_item["input"])
     return {"output": response}
+
 
 results = evaluate(
     experiment_name="agent-e2e-v1",
     dataset=dataset,
     task=agent_task,
-    scoring_metrics=[
-        AnswerRelevance(),
-        Hallucination()
-    ]
+    scoring_metrics=[AnswerRelevance(), Hallucination()],
 )
 ```
 
@@ -135,6 +140,7 @@ Evaluate individual agent decisions:
 ```python
 from opik.evaluation.metrics import BaseMetric, ScoreResult
 
+
 class ToolSelectionQuality(BaseMetric):
     def __init__(self):
         self.name = "tool_selection_quality"
@@ -144,16 +150,8 @@ class ToolSelectionQuality(BaseMetric):
         expected = expected_tool_calls[0]["function_name"] if expected_tool_calls else None
 
         if actual == expected:
-            return ScoreResult(
-                name=self.name,
-                value=1.0,
-                reason=f"Correct tool: {actual}"
-            )
-        return ScoreResult(
-            name=self.name,
-            value=0.0,
-            reason=f"Expected {expected}, got {actual}"
-        )
+            return ScoreResult(name=self.name, value=1.0, reason=f"Correct tool: {actual}")
+        return ScoreResult(name=self.name, value=0.0, reason=f"Expected {expected}, got {actual}")
 ```
 
 #### Trajectory Evaluation
@@ -163,6 +161,7 @@ Use `task_span` parameter for trajectory access:
 ```python
 from opik.evaluation.metrics import BaseMetric, ScoreResult
 from opik.message_processing.emulation.models import SpanModel
+
 
 class StrictToolAdherenceMetric(BaseMetric):
     def __init__(self):
@@ -187,15 +186,9 @@ class StrictToolAdherenceMetric(BaseMetric):
         actual = self.find_tools(task_span)
 
         if actual == expected_tool:
-            return ScoreResult(
-                name=self.name,
-                value=1.0,
-                reason=f"Correct trajectory: {actual}"
-            )
+            return ScoreResult(name=self.name, value=1.0, reason=f"Correct trajectory: {actual}")
         return ScoreResult(
-            name=self.name,
-            value=0.0,
-            reason=f"Expected {expected_tool}, got {actual}"
+            name=self.name, value=0.0, reason=f"Expected {expected_tool}, got {actual}"
         )
 ```
 
@@ -212,36 +205,34 @@ class StrictToolAdherenceMetric(BaseMetric):
 ### Tool Selection Dataset
 
 ```python
-dataset.insert([
-    {
-        "input": "What is 25 * 17?",
-        "expected_tool": ["calculator"]
-    },
-    {
-        "input": "What's the weather in Paris?",
-        "expected_tool": ["weather_api"]
-    },
-    {
-        "input": "Tell me a joke",
-        "expected_tool": []  # No tool needed
-    }
-])
+dataset.insert(
+    [
+        {"input": "What is 25 * 17?", "expected_tool": ["calculator"]},
+        {"input": "What's the weather in Paris?", "expected_tool": ["weather_api"]},
+        {
+            "input": "Tell me a joke",
+            "expected_tool": [],  # No tool needed
+        },
+    ]
+)
 ```
 
 ### Multi-Step Dataset
 
 ```python
-dataset.insert([
-    {
-        "input": "Book a flight and hotel for NYC",
-        "expected_trajectory": [
-            {"tool": "search_flights", "params": {"destination": "NYC"}},
-            {"tool": "search_hotels", "params": {"city": "NYC"}},
-            {"tool": "book_flight"},
-            {"tool": "book_hotel"}
-        ]
-    }
-])
+dataset.insert(
+    [
+        {
+            "input": "Book a flight and hotel for NYC",
+            "expected_trajectory": [
+                {"tool": "search_flights", "params": {"destination": "NYC"}},
+                {"tool": "search_hotels", "params": {"city": "NYC"}},
+                {"tool": "book_flight"},
+                {"tool": "book_hotel"},
+            ],
+        }
+    ]
+)
 ```
 
 ## Evaluating Different Components
@@ -263,7 +254,7 @@ router_results = evaluate(
     experiment_name="router-v1",
     dataset=router_dataset,
     task=router_task,
-    scoring_metrics=[ToolSelectionQuality()]
+    scoring_metrics=[ToolSelectionQuality()],
 )
 
 # Tool evaluation
@@ -271,7 +262,7 @@ tool_results = evaluate(
     experiment_name="tools-v1",
     dataset=tool_dataset,
     task=tool_task,
-    scoring_metrics=[ExactMatch(), ErrorRate()]
+    scoring_metrics=[ExactMatch(), ErrorRate()],
 )
 
 # End-to-end evaluation
@@ -279,11 +270,7 @@ e2e_results = evaluate(
     experiment_name="agent-v1",
     dataset=e2e_dataset,
     task=agent_task,
-    scoring_metrics=[
-        AnswerRelevance(),
-        AgentTaskCompletion(),
-        TrajectoryAccuracy()
-    ]
+    scoring_metrics=[AnswerRelevance(), AgentTaskCompletion(), TrajectoryAccuracy()],
 )
 ```
 
@@ -293,6 +280,7 @@ e2e_results = evaluate(
 
 ```python
 import opik
+
 
 @opik.track(name="orchestrator")
 def orchestrator(query: str) -> str:
@@ -306,10 +294,12 @@ def orchestrator(query: str) -> str:
     else:
         return general_agent(query)
 
+
 @opik.track(name="research_agent")
 def research_agent(query: str) -> str:
     # Research-specific logic
     pass
+
 
 @opik.track(name="code_agent")
 def code_agent(query: str) -> str:
@@ -327,14 +317,12 @@ class RoutingAccuracy(BaseMetric):
     def score(self, selected_agent, expected_agent, **kwargs):
         if selected_agent == expected_agent:
             return ScoreResult(
-                name=self.name,
-                value=1.0,
-                reason=f"Correctly routed to {selected_agent}"
+                name=self.name, value=1.0, reason=f"Correctly routed to {selected_agent}"
             )
         return ScoreResult(
             name=self.name,
             value=0.0,
-            reason=f"Routed to {selected_agent}, expected {expected_agent}"
+            reason=f"Routed to {selected_agent}, expected {expected_agent}",
         )
 ```
 
@@ -366,6 +354,7 @@ def create_order(order_data: dict, idempotency_key: str) -> dict:
 import time
 import random
 
+
 def retry_with_backoff(func, max_attempts=3, base_delay=1.0):
     """Exponential backoff with jitter"""
     for attempt in range(max_attempts):
@@ -374,7 +363,7 @@ def retry_with_backoff(func, max_attempts=3, base_delay=1.0):
         except TransientError as e:
             if attempt == max_attempts - 1:
                 raise
-            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
+            delay = base_delay * (2**attempt) + random.uniform(0, 1)
             time.sleep(delay)
 ```
 
@@ -427,6 +416,7 @@ def agent(query: str) -> str:
 
     return generate_response(query, sanitized_context)
 
+
 def sanitize_external_content(content: str) -> str:
     """Remove potential prompt injection from retrieved content"""
     # Strip instruction-like patterns from external data
@@ -443,8 +433,9 @@ def sanitize_external_content(content: str) -> str:
 TOOL_PERMISSIONS = {
     "read_only": ["search", "get_info", "list_items"],
     "write": ["search", "get_info", "list_items", "create", "update"],
-    "admin": ["search", "get_info", "list_items", "create", "update", "delete"]
+    "admin": ["search", "get_info", "list_items", "create", "update", "delete"],
 }
+
 
 @opik.track(name="permission_aware_agent")
 def agent(query: str, permission_level: str = "read_only") -> str:
@@ -471,9 +462,7 @@ def agent(query: str, max_tokens: int = 10000) -> str:
             # Approaching limit, wrap up
             return generate_summary(partial_results)
 
-    opik.opik_context.update_current_trace(
-        metadata={"tokens_used": tokens_used}
-    )
+    opik.opik_context.update_current_trace(metadata={"tokens_used": tokens_used})
     return final_response
 ```
 
@@ -482,6 +471,7 @@ def agent(query: str, max_tokens: int = 10000) -> str:
 ```python
 MAX_STEPS = 20
 MAX_TOOL_CALLS = 10
+
 
 @opik.track(name="bounded_agent")
 def agent(query: str) -> str:
@@ -545,19 +535,15 @@ class LoopDetection(BaseMetric):
 
         # Check for repeated consecutive tools
         for i in range(len(tools) - self.max_repeats + 1):
-            window = tools[i:i + self.max_repeats]
+            window = tools[i : i + self.max_repeats]
             if len(set(window)) == 1:  # All same tool
                 return ScoreResult(
                     name=self.name,
                     value=0.0,
-                    reason=f"Detected loop: {window[0]} repeated {self.max_repeats} times"
+                    reason=f"Detected loop: {window[0]} repeated {self.max_repeats} times",
                 )
 
-        return ScoreResult(
-            name=self.name,
-            value=1.0,
-            reason="No loops detected"
-        )
+        return ScoreResult(name=self.name, value=1.0, reason="No loops detected")
 ```
 
 ## Iterative Improvement

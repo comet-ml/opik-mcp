@@ -48,16 +48,15 @@ client = Opik()
 dataset = client.get_or_create_dataset(name="my-evaluation-dataset", project_name="my-project")
 
 # Insert items
-dataset.insert([
-    {
-        "input": "What is the capital of France?",
-        "expected_output": "Paris"
-    },
-    {
-        "input": "Explain quantum computing in simple terms",
-        "expected_output": "Quantum computing uses quantum mechanics..."
-    }
-])
+dataset.insert(
+    [
+        {"input": "What is the capital of France?", "expected_output": "Paris"},
+        {
+            "input": "Explain quantum computing in simple terms",
+            "expected_output": "Quantum computing uses quantum mechanics...",
+        },
+    ]
+)
 ```
 
 ### From Production Traces
@@ -80,10 +79,12 @@ from opik import Opik
 client = Opik()
 dataset = client.get_or_create_dataset(name="from-pandas", project_name="my-project")
 
-df = pd.DataFrame({
-    "input": ["What is ML?", "Explain AI"],
-    "expected_output": ["Machine learning is...", "AI is..."]
-})
+df = pd.DataFrame(
+    {
+        "input": ["What is ML?", "Explain AI"],
+        "expected_output": ["Machine learning is...", "AI is..."],
+    }
+)
 
 dataset.insert_from_pandas(df)
 ```
@@ -200,14 +201,11 @@ score > 0.9 OR model = "gpt-4"
 ```python
 # Filter traces
 traces = client.search_traces(
-    project_name="production",
-    filter_string='score > 0.7 AND metadata.user_type = "premium"'
+    project_name="production", filter_string='score > 0.7 AND metadata.user_type = "premium"'
 )
 
 # Filter dataset items
-items = dataset.get_items(
-    filter_string='input contains "error" AND expected_output exists'
-)
+items = dataset.get_items(filter_string='input contains "error" AND expected_output exists')
 ```
 
 ## Annotation Queues
@@ -253,7 +251,7 @@ thread_queue = client.create_threads_annotation_queue(
 )
 
 # Add traces to a queue by searching
-traces = client.search_traces(project_name="production", filter_string='score < 0.5')
+traces = client.search_traces(project_name="production", filter_string="score < 0.5")
 queue.add_traces(traces=traces)
 
 # Or add individual traces by ID
@@ -288,11 +286,13 @@ from opik.evaluation.metrics import Equals, AnswerRelevance
 client = Opik()
 dataset = client.get_dataset(name="my-dataset", project_name="my-project")
 
+
 # Define the task (how to process each item)
 def evaluation_task(dataset_item):
     # Your LLM application logic
     response = my_llm_call(dataset_item["input"])
     return {"output": response}
+
 
 # Run evaluation
 results = evaluate(
@@ -300,8 +300,8 @@ results = evaluate(
     dataset=dataset,
     task=evaluation_task,
     scoring_metrics=[
-        Equals(),              # Exact match
-        AnswerRelevance()      # LLM-as-Judge
+        Equals(),  # Exact match
+        AnswerRelevance(),  # LLM-as-Judge
     ],
     project_name="my-project",
 )
@@ -323,18 +323,15 @@ def evaluation_task(dataset_item):
 
     return {
         "output": response,
-        "context": context  # Pass to metrics
+        "context": context,  # Pass to metrics
     }
+
 
 results = evaluate(
     experiment_name="rag-v1",
     dataset=dataset,
     task=evaluation_task,
-    scoring_metrics=[
-        ContextPrecision(),
-        ContextRecall(),
-        Hallucination()
-    ],
+    scoring_metrics=[ContextPrecision(), ContextRecall(), Hallucination()],
     project_name="my-project",
 )
 ```
@@ -442,10 +439,10 @@ metric = Hallucination()
 result = metric.score(
     input="What is the capital of France?",
     output="The capital of France is Paris. It has the Eiffel Tower.",
-    context=["Paris is the capital of France."]
+    context=["Paris is the capital of France."],
 )
 
-print(result.value)   # 0.0 (no hallucination)
+print(result.value)  # 0.0 (no hallucination)
 print(result.reason)  # Explanation
 ```
 
@@ -472,7 +469,7 @@ metric = GEval(
     2. Are explanations factually accurate?
     3. Is the complexity appropriate for the audience?
     """,
-    model="gpt-4"
+    model="gpt-4",
 )
 ```
 
@@ -482,6 +479,7 @@ Create your own metrics:
 
 ```python
 from opik.evaluation.metrics import BaseMetric, ScoreResult
+
 
 class ResponseLengthMetric(BaseMetric):
     def __init__(self, min_length: int = 50, max_length: int = 500):
@@ -494,15 +492,13 @@ class ResponseLengthMetric(BaseMetric):
 
         if self.min_length <= length <= self.max_length:
             return ScoreResult(
-                name=self.name,
-                value=1.0,
-                reason=f"Length {length} is within acceptable range"
+                name=self.name, value=1.0, reason=f"Length {length} is within acceptable range"
             )
         else:
             return ScoreResult(
                 name=self.name,
                 value=0.0,
-                reason=f"Length {length} outside range [{self.min_length}, {self.max_length}]"
+                reason=f"Length {length} outside range [{self.min_length}, {self.max_length}]",
             )
 ```
 
@@ -516,8 +512,9 @@ def compute_experiment_scores(test_results):
     return {
         "mean_accuracy": sum(scores) / len(scores),
         "min_accuracy": min(scores),
-        "pass_rate": sum(1 for s in scores if s > 0.8) / len(scores)
+        "pass_rate": sum(1 for s in scores if s > 0.8) / len(scores),
     }
+
 
 results = evaluate(
     experiment_name="with-aggregates",

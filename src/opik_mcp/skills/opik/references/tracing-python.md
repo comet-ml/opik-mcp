@@ -23,6 +23,7 @@ The `@opik.track` decorator is the simplest way to add tracing:
 ```python
 import opik
 
+
 @opik.track
 def my_function(input_text: str) -> str:
     # Your logic here
@@ -34,14 +35,15 @@ def my_function(input_text: str) -> str:
 ```python
 import opik
 
+
 @opik.track(
     name="custom_operation_name",  # Override function name
-    type="llm",                    # Span type: general, llm, tool, guardrail
-    project_name="my-project",     # Override project
-    tags=["production", "v2"],     # Add tags
-    metadata={"version": "1.0"},   # Add metadata
-    flush=True,                    # Flush immediately (for scripts)
-    entrypoint=True,               # Mark as agent entry point (enables Local Runner)
+    type="llm",  # Span type: general, llm, tool, guardrail
+    project_name="my-project",  # Override project
+    tags=["production", "v2"],  # Add tags
+    metadata={"version": "1.0"},  # Add metadata
+    flush=True,  # Flush immediately (for scripts)
+    entrypoint=True,  # Mark as agent entry point (enables Local Runner)
 )
 def my_function():
     pass
@@ -84,6 +86,7 @@ import opik
 
 client = opik.Opik()
 
+
 @opik.track(entrypoint=True, project_name="my-agent")
 def run_agent(question: str) -> str:
     # Fetch inside @track so the prompt version is recorded in the trace
@@ -99,8 +102,10 @@ def run_agent(question: str) -> str:
         model=prompt.metadata["model"],
         temperature=prompt.metadata["temperature"],
         max_tokens=prompt.metadata["max_tokens"],
-        messages=[{"role": "system", "content": system_message},
-                  {"role": "user", "content": question}],
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": question},
+        ],
     )
     return response.choices[0].message.content
 ```
@@ -154,20 +159,24 @@ Decorated functions automatically create nested spans:
 ```python
 import opik
 
+
 @opik.track
 def retrieve_context(query: str) -> list:
     return ["doc1", "doc2"]
+
 
 @opik.track
 def call_llm(prompt: str) -> str:
     return "LLM response"
 
+
 @opik.track(name="rag_pipeline")
 def rag_agent(query: str) -> str:
-    context = retrieve_context(query)    # Creates child span
+    context = retrieve_context(query)  # Creates child span
     prompt = f"Context: {context}\nQuery: {query}"
-    response = call_llm(prompt)          # Creates child span
+    response = call_llm(prompt)  # Creates child span
     return response
+
 
 # Creates trace with two nested spans
 result = rag_agent("What is ML?")
@@ -179,6 +188,7 @@ Use `opik.opik_context` to update trace/span data dynamically:
 
 ```python
 import opik
+
 
 @opik.track
 def my_agent(query: str):
@@ -195,13 +205,11 @@ def my_agent(query: str):
                 "value": 1.0,
                 "reason": "User clicked thumbs up",
             }
-        ]
+        ],
     )
 
     # Update the current span
-    opik.opik_context.update_current_span(
-        metadata={"model": "gpt-4", "temperature": 0.7}
-    )
+    opik.opik_context.update_current_span(metadata={"model": "gpt-4", "temperature": 0.7})
 
     return response
 ```
@@ -227,23 +235,19 @@ Pass trace/span configuration through function calls:
 ```python
 import opik
 
+
 @opik.track
 def my_function(text: str) -> str:
     return f"Processed: {text}"
+
 
 # Call with additional tracing configuration
 result = my_function(
     "hello world",
     opik_args={
-        "span": {
-            "tags": ["important"],
-            "metadata": {"priority": "high"}
-        },
-        "trace": {
-            "thread_id": "session-123",
-            "tags": ["production"]
-        }
-    }
+        "span": {"tags": ["important"], "metadata": {"priority": "high"}},
+        "trace": {"thread_id": "session-123", "tags": ["production"]},
+    },
 )
 ```
 
@@ -312,11 +316,7 @@ with opik.start_as_current_trace("my-trace") as trace:
         span.output = {"response": "Hi there!"}
         span.model = "gpt-4"
         span.provider = "openai"
-        span.usage = {
-            "prompt_tokens": 5,
-            "completion_tokens": 3,
-            "total_tokens": 8
-        }
+        span.usage = {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
 
     trace.output = {"response": "Hi there!"}
 ```
@@ -346,11 +346,7 @@ client = Opik(project_name="my-project")
 #     thread_id: Optional[str] = None,
 # ) -> Trace
 
-trace = client.trace(
-    name="my_trace",
-    input={"query": "Hello"},
-    metadata={"user_id": "123"}
-)
+trace = client.trace(name="my_trace", input={"query": "Hello"}, metadata={"user_id": "123"})
 
 # Signature:
 # trace.span(
@@ -371,10 +367,7 @@ trace = client.trace(
 #     total_cost: Optional[float] = None,
 # ) -> Span
 
-span1 = trace.span(
-    name="preprocessing",
-    input={"text": "Hello"}
-)
+span1 = trace.span(name="preprocessing", input={"text": "Hello"})
 # Signature:
 # span.end(
 #     end_time: Optional[datetime] = None,
@@ -390,11 +383,7 @@ span1 = trace.span(
 # ) -> None
 span1.end(output={"processed": "HELLO"})
 
-span2 = trace.span(
-    name="llm_call",
-    type="llm",
-    input={"prompt": "Respond to: HELLO"}
-)
+span2 = trace.span(name="llm_call", type="llm", input={"prompt": "Respond to: HELLO"})
 span2.end(output={"response": "Hi!"})
 
 # Signature:
@@ -423,16 +412,13 @@ For microservices architectures, propagate trace context across service boundari
 import opik
 import httpx
 
+
 @opik.track
 def call_microservice(data: dict):
     # Get trace headers for propagation
     headers = opik.opik_context.get_distributed_trace_headers()
 
-    response = httpx.post(
-        "https://service-b/api/process",
-        json=data,
-        headers=headers
-    )
+    response = httpx.post("https://service-b/api/process", json=data, headers=headers)
     return response.json()
 ```
 
@@ -457,19 +443,14 @@ from fastapi import FastAPI, Request
 
 app = FastAPI()
 
+
 @app.post("/api/process")
 async def process(request: Request):
     # Extract Opik headers
-    dist_headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower().startswith("opik-")
-    }
+    dist_headers = {k: v for k, v in request.headers.items() if k.lower().startswith("opik-")}
 
     # Link to parent trace
-    with opik.start_as_current_trace(
-        "process-request",
-        distributed_headers=dist_headers
-    ) as trace:
+    with opik.start_as_current_trace("process-request", distributed_headers=dist_headers) as trace:
         result = await do_processing(await request.json())
         trace.output = result
 
@@ -486,19 +467,14 @@ Attach images, audio, video, and documents to your traces.
 import opik
 import base64
 
+
 @opik.track
 def analyze_image(image_path: str):
     with open(image_path, "rb") as f:
         image_b64 = base64.b64encode(f.read()).decode()
 
     opik.opik_context.update_current_span(
-        metadata={
-            "input_image": {
-                "type": "image",
-                "data": image_b64,
-                "media_type": "image/png"
-            }
-        }
+        metadata={"input_image": {"type": "image", "data": image_b64, "media_type": "image/png"}}
     )
 
     result = vision_model.analyze(image_path)
@@ -514,7 +490,7 @@ def process_media(url: str):
         metadata={
             "media": {
                 "type": "image",  # or "video", "audio", "pdf"
-                "url": url
+                "url": url,
             }
         }
     )
@@ -530,13 +506,7 @@ def transcribe_audio(audio_path: str):
         audio_b64 = base64.b64encode(f.read()).decode()
 
     opik.opik_context.update_current_span(
-        metadata={
-            "audio_file": {
-                "type": "audio",
-                "data": audio_b64,
-                "media_type": "audio/mp3"
-            }
-        }
+        metadata={"audio_file": {"type": "audio", "data": audio_b64, "media_type": "audio/mp3"}}
     )
 
     transcript = whisper.transcribe(audio_path)
@@ -555,8 +525,7 @@ client = track_openai(OpenAI())
 
 # All calls are automatically traced
 response = client.chat.completions.create(
-    model="gpt-4",
-    messages=[{"role": "user", "content": "Hello!"}]
+    model="gpt-4", messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
 
@@ -569,10 +538,7 @@ from langchain_openai import ChatOpenAI
 tracer = OpikTracer()
 
 llm = ChatOpenAI()
-response = llm.invoke(
-    "Hello!",
-    config={"callbacks": [tracer]}
-)
+response = llm.invoke("Hello!", config={"callbacks": [tracer]})
 ```
 
 ### LangGraph
@@ -587,10 +553,7 @@ app = graph.compile()
 # Create tracer with graph visualization
 tracer = OpikTracer(graph=app.get_graph(xray=True))
 
-result = app.invoke(
-    {"messages": [HumanMessage(content="Hello")]},
-    config={"callbacks": [tracer]}
-)
+result = app.invoke({"messages": [HumanMessage(content="Hello")]}, config={"callbacks": [tracer]})
 ```
 
 ### Anthropic
@@ -602,9 +565,7 @@ import anthropic
 client = track_anthropic(anthropic.Anthropic())
 
 response = client.messages.create(
-    model="claude-3-sonnet",
-    max_tokens=1024,
-    messages=[{"role": "user", "content": "Hello!"}]
+    model="claude-3-sonnet", max_tokens=1024, messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
 
@@ -645,9 +606,7 @@ from opik.integrations.llama_index import LlamaIndexCallbackHandler
 from llama_index.core import Settings
 
 # Set up global callback
-Settings.callback_manager.add_handler(
-    LlamaIndexCallbackHandler()
-)
+Settings.callback_manager.add_handler(LlamaIndexCallbackHandler())
 
 # All LlamaIndex operations are now traced
 ```
@@ -674,6 +633,7 @@ logfire.configure(send_to_logfire=False)
 logfire.instrument_pydantic_ai()
 
 from pydantic_ai import Agent
+
 agent = Agent("openai:gpt-4")
 # Agent runs are now traced via OTLP to Opik
 ```
@@ -688,8 +648,7 @@ bedrock = boto3.client("bedrock-runtime")
 tracked_client = track_bedrock(bedrock)
 
 response = tracked_client.invoke_model(
-    modelId="anthropic.claude-3-sonnet",
-    body=json.dumps({"prompt": "Hello"})
+    modelId="anthropic.claude-3-sonnet", body=json.dumps({"prompt": "Hello"})
 )
 ```
 
@@ -702,14 +661,12 @@ from opik.integrations.openai import track_openai
 from openai import OpenAI
 import os
 
-client = track_openai(OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=os.environ["GROQ_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://api.groq.com/openai/v1", api_key=os.environ["GROQ_API_KEY"])
+)
 
 response = client.chat.completions.create(
-    model="llama-3.1-70b-versatile",
-    messages=[{"role": "user", "content": "Hello"}]
+    model="llama-3.1-70b-versatile", messages=[{"role": "user", "content": "Hello"}]
 )
 ```
 
@@ -721,14 +678,10 @@ response = client.chat.completions.create(
 from opik.integrations.openai import track_openai
 from openai import OpenAI
 
-client = track_openai(OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama"
-))
+client = track_openai(OpenAI(base_url="http://localhost:11434/v1", api_key="ollama"))
 
 response = client.chat.completions.create(
-    model="llama3",
-    messages=[{"role": "user", "content": "Hello"}]
+    model="llama3", messages=[{"role": "user", "content": "Hello"}]
 )
 ```
 
@@ -738,16 +691,11 @@ response = client.chat.completions.create(
 import opik
 import ollama
 
+
 @opik.track(type="llm")
 def chat_with_ollama(prompt: str) -> str:
-    response = ollama.chat(
-        model="llama3",
-        messages=[{"role": "user", "content": prompt}]
-    )
-    opik.opik_context.update_current_span(
-        model="llama3",
-        provider="ollama"
-    )
+    response = ollama.chat(model="llama3", messages=[{"role": "user", "content": prompt}])
+    opik.opik_context.update_current_span(model="llama3", provider="ollama")
     return response["message"]["content"]
 ```
 
@@ -763,10 +711,7 @@ import litellm
 
 litellm.callbacks = [OpikLogger()]
 
-response = litellm.completion(
-    model="gpt-4",
-    messages=[{"role": "user", "content": "Hello"}]
-)
+response = litellm.completion(model="gpt-4", messages=[{"role": "user", "content": "Hello"}])
 ```
 
 **Inside `@opik.track`** — pass `current_span_data` via metadata so the `OpikLogger` callback nests under the active trace instead of creating a standalone trace:
@@ -778,6 +723,7 @@ from litellm.integrations.opik.opik import OpikLogger
 import litellm
 
 litellm.callbacks = [OpikLogger()]
+
 
 @track
 def call_llm(messages, model="gpt-4"):
@@ -791,6 +737,7 @@ def call_llm(messages, model="gpt-4"):
             },
         },
     )
+
 
 @track(entrypoint=True)
 def agent(query: str) -> str:
@@ -807,6 +754,7 @@ The SDK fully supports async functions:
 
 ```python
 import opik
+
 
 @opik.track
 async def async_agent(query: str) -> str:
@@ -835,10 +783,12 @@ For `@opik.track` decorator usage, use `flush_tracker()`:
 ```python
 import opik
 
+
 @opik.track
 def my_pipeline():
     # Your traced operations
     pass
+
 
 my_pipeline()
 opik.flush_tracker()  # Flush data from @opik.track decorator usage
@@ -848,6 +798,7 @@ Or use `flush=True` on the decorator for automatic flush on completion:
 
 ```python
 import opik
+
 
 @opik.track(flush=True)
 def my_script():
@@ -869,7 +820,7 @@ Or programmatically:
 import opik
 
 opik.set_tracing_active(False)  # Disable
-opik.set_tracing_active(True)   # Re-enable
+opik.set_tracing_active(True)  # Re-enable
 
 print(opik.is_tracing_active())  # Check status
 ```
@@ -881,6 +832,7 @@ Traces automatically capture errors:
 ```python
 import opik
 
+
 @opik.track
 def risky_operation():
     try:
@@ -891,6 +843,7 @@ def risky_operation():
             error_info={"error": str(e), "type": type(e).__name__}
         )
         raise
+
 
 # Error info is captured in the trace
 ```

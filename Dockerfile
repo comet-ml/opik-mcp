@@ -31,9 +31,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     uv sync --locked --no-install-project --no-dev
 
-COPY pyproject.toml uv.lock README.md ./
-# src includes the build-generated src/opik_mcp/_version.py (CI writes it before
-# the build), which is the project's version source — no version.txt needed here.
+COPY pyproject.toml uv.lock README.md version.txt ./
+# hatch computes the build version from scripts/_build_version.py and
+# version.txt. src carries the generated src/opik_mcp/_version.py (CI writes it
+# before the build), which is what the running server reports.
+COPY scripts/_build_version.py ./scripts/
 COPY src ./src
 
 # Install the project itself into the venv; --no-editable so the runtime

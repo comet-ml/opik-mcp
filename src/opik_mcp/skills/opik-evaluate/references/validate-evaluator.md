@@ -42,11 +42,11 @@ from sklearn.model_selection import train_test_split
 
 # First split: separate test set
 train_dev, test = train_test_split(
-    labeled_data, test_size=0.4, stratify=labeled_data['label'], random_state=42
+    labeled_data, test_size=0.4, stratify=labeled_data["label"], random_state=42
 )
 # Second split: separate training examples from dev set
 train, dev = train_test_split(
-    train_dev, test_size=0.75, stratify=train_dev['label'], random_state=42
+    train_dev, test_size=0.75, stratify=train_dev["label"], random_state=42
 )
 # Result: ~15% train, ~45% dev, ~40% test
 ```
@@ -72,8 +72,7 @@ TNR = (judge says Fail AND human says Fail) / (human says Fail)
 ```python
 from sklearn.metrics import confusion_matrix
 
-tn, fp, fn, tp = confusion_matrix(human_labels, evaluator_labels,
-                                   labels=['Fail', 'Pass']).ravel()
+tn, fp, fn, tp = confusion_matrix(human_labels, evaluator_labels, labels=["Fail", "Pass"]).ravel()
 tpr = tp / (tp + fn)
 tnr = tn / (tn + fp)
 ```
@@ -147,6 +146,7 @@ Compute a bootstrap confidence interval. A point estimate alone is not enough.
 ```python
 import numpy as np
 
+
 def bootstrap_ci(human_labels, eval_labels, p_obs, n_bootstrap=2000):
     """Bootstrap 95% CI for corrected success rate."""
     n = len(human_labels)
@@ -156,10 +156,10 @@ def bootstrap_ci(human_labels, eval_labels, p_obs, n_bootstrap=2000):
         h = np.array(human_labels)[idx]
         e = np.array(eval_labels)[idx]
 
-        tp = ((h == 'Pass') & (e == 'Pass')).sum()
-        fn = ((h == 'Pass') & (e == 'Fail')).sum()
-        tn = ((h == 'Fail') & (e == 'Fail')).sum()
-        fp = ((h == 'Fail') & (e == 'Pass')).sum()
+        tp = ((h == "Pass") & (e == "Pass")).sum()
+        fn = ((h == "Pass") & (e == "Fail")).sum()
+        tn = ((h == "Fail") & (e == "Fail")).sum()
+        fp = ((h == "Fail") & (e == "Pass")).sum()
 
         tpr_b = tp / (tp + fn) if (tp + fn) > 0 else 0
         tnr_b = tn / (tn + fp) if (tn + fp) > 0 else 0
@@ -171,6 +171,7 @@ def bootstrap_ci(human_labels, eval_labels, p_obs, n_bootstrap=2000):
         estimates.append(np.clip(theta, 0, 1))
 
     return np.percentile(estimates, 2.5), np.percentile(estimates, 97.5)
+
 
 lower, upper = bootstrap_ci(test_human, test_eval, p_obs=0.80)
 print(f"95% CI: [{lower:.2f}, {upper:.2f}]")

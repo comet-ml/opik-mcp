@@ -50,16 +50,23 @@ Prefer the test suite for agents; it is what `/opik-test` and `/opik-compare` op
 ### 4. Build the cases
 ```python
 import opik
+
 client = opik.Opik()
 
 suite = client.get_or_create_test_suite(
-    name="<project>-eval", project_name="<project>",
-    global_assertions=["<one behavior every answer must show>"],   # optional
+    name="<project>-eval",
+    project_name="<project>",
+    global_assertions=["<one behavior every answer must show>"],  # optional
 )
-suite.insert([
-    {"data": {"input": t.input, "source_trace_id": t.id}, "assertions": ["<what a correct output does>"]}
-    for t in sampled_traces
-])
+suite.insert(
+    [
+        {
+            "data": {"input": t.input, "source_trace_id": t.id},
+            "assertions": ["<what a correct output does>"],
+        }
+        for t in sampled_traces
+    ]
+)
 ```
 For the dataset path: `client.get_or_create_dataset(name, project_name)` then `dataset.insert([{"input": …, "expected_output": …}])`. Store inputs verbatim; keep `source_trace_id` so cases trace back to production.
 
@@ -73,13 +80,23 @@ For the dataset path: `client.get_or_create_dataset(name, project_name)` then `d
 Write the task adapter as a temp file **outside the repo** (needs the app's provider credentials — absent → **Blocker**). Never run a production entrypoint that writes, sends, or spends.
 ```python
 # Test suite
-results = opik.run_tests(test_suite=suite, task=lambda item: {"input": item["input"], "output": str(app(item["input"]))},
-                         experiment_name="baseline-<sha>", model="<judge model>",
-                         generate_report=False)   # default True writes opik_test_suite_reports/ into cwd — keep the repo clean
+results = opik.run_tests(
+    test_suite=suite,
+    task=lambda item: {"input": item["input"], "output": str(app(item["input"]))},
+    experiment_name="baseline-<sha>",
+    model="<judge model>",
+    generate_report=False,
+)  # default True writes opik_test_suite_reports/ into cwd — keep the repo clean
 # Dataset
 from opik.evaluation import evaluate
-res = evaluate(dataset=dataset, task=task, scoring_metrics=[...], experiment_name="baseline-<sha>",
-               scoring_key_mapping={"reference": "expected_output"})   # map dataset keys onto metric args
+
+res = evaluate(
+    dataset=dataset,
+    task=task,
+    scoring_metrics=[...],
+    experiment_name="baseline-<sha>",
+    scoring_key_mapping={"reference": "expected_output"},
+)  # map dataset keys onto metric args
 ```
 `project_name` matters: datasets, suites, prompts, and experiments are project-scoped, and it must match the tracing project if the app uses `@track`. Set it when **creating** the dataset or suite — `evaluate()` inherits the dataset's project, and its own `project_name` kwarg is deprecated (the SDK warns and ignores it).
 
@@ -87,8 +104,8 @@ res = evaluate(dataset=dataset, task=task, scoring_metrics=[...], experiment_nam
 
 ### 7. Read the scores back
 ```python
-exp = client.get_experiment_by_id(results.experiment_id)     # or res.experiment_id
-items = exp.get_items()   # dataset_item_data, evaluation_task_output, feedback_scores [{name,value,reason}], assertion_results [{passed,reason}], trace_id
+exp = client.get_experiment_by_id(results.experiment_id)  # or res.experiment_id
+items = exp.get_items()  # dataset_item_data, evaluation_task_output, feedback_scores [{name,value,reason}], assertion_results [{passed,reason}], trace_id
 # aggregate: mean per score name; pass rate = items where every assertion passed / items with assertions
 ```
 On the dataset path `res.aggregate_evaluation_scores().aggregated_scores` gives per-metric statistics directly. Name the worst items and the failure mode each hit — that is the actionable part. (`get_experiment_by_name` is deprecated; use `get_experiments_by_name` / `get_experiment_by_id`.)

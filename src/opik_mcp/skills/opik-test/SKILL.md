@@ -37,12 +37,17 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 ### 2. Read the trace (SDK-first)
 ```python
 import opik
+
 client = opik.Opik()
 
 tid = "<trace_id>"
-trace = client.get_trace_content(tid)       # TracePublic: .input, .output, .project_id — NOT .project_name (accessing it raises)
+trace = client.get_trace_content(
+    tid
+)  # TracePublic: .input, .output, .project_id — NOT .project_name (accessing it raises)
 project = client.rest_client.projects.get_project_by_id(trace.project_id).name
-spans = client.search_spans(project_name=project, trace_id=tid)   # root span (no parent_span_id) names the entrypoint the compare skill will call
+spans = client.search_spans(
+    project_name=project, trace_id=tid
+)  # root span (no parent_span_id) names the entrypoint the compare skill will call
 # Pass project_name: without it search_spans looks in the configured default project and returns nothing.
 ```
 Take the **input** exactly as the trace recorded it (the root span / trace `input`), the **actual output** (what went wrong), and the **root span name** (the entrypoint). When the MCP is connected, `read('trace', id)` is an equivalent path — a convenience, not a requirement.
@@ -69,15 +74,19 @@ suite = client.get_or_create_test_suite(
 # Dedupe on the source trace before inserting.
 existing = suite.get_items(filter_string=f'data.source_trace_id = "{tid}"')
 if not existing:
-    suite.insert([{
-        "data": {
-            "input": trace.input,                 # verbatim from the trace
-            "source_trace_id": tid,
-            # "expected_output": "...",           # only when the correct answer is exact
-        },
-        "assertions": ["<positive assertion>", "<optional negative assertion>"],
-        "description": "Regression from trace <tid>: <one-line failure>. Entrypoint: <root span name>",
-    }])
+    suite.insert(
+        [
+            {
+                "data": {
+                    "input": trace.input,  # verbatim from the trace
+                    "source_trace_id": tid,
+                    # "expected_output": "...",           # only when the correct answer is exact
+                },
+                "assertions": ["<positive assertion>", "<optional negative assertion>"],
+                "description": "Regression from trace <tid>: <one-line failure>. Entrypoint: <root span name>",
+            }
+        ]
+    )
 ```
 
 The `description` carries the **entrypoint** (root span name) because `/opik-compare` needs to know which function to call to run the item; the `source_trace_id` key is what keeps a second `/opik-test` on the same trace from duplicating it.

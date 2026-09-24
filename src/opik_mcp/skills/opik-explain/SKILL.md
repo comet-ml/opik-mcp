@@ -43,12 +43,17 @@ Either way, read every span's input/output/error/duration.
 
 ```python
 import opik
+
 client = opik.Opik()
 
 tid = "<trace_id>"
-trace = client.get_trace_content(tid)       # TracePublic: exposes project_id, input, output, error info — NOT project_name (accessing .project_name raises)
+trace = client.get_trace_content(
+    tid
+)  # TracePublic: exposes project_id, input, output, error info — NOT project_name (accessing .project_name raises)
 project = client.rest_client.projects.get_project_by_id(trace.project_id).name
-spans = client.search_spans(project_name=project, trace_id=tid)   # spans come from a SEPARATE call, not from the trace object
+spans = client.search_spans(
+    project_name=project, trace_id=tid
+)  # spans come from a SEPARATE call, not from the trace object
 # ALWAYS pass project_name: without it the SDK searches the configured default project, which
 # returns an empty list (or a 404 if that project doesn't exist) even for a valid trace id.
 # Reconstruct the tree via each span's parent_span_id (the root span has none).
