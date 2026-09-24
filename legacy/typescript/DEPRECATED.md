@@ -6,17 +6,15 @@ This implementation is in maintenance-only mode. The Python implementation at th
 - **Security-patch policy:** critical CVEs only, until **2026-11-15**
 - **End of life:** **2026-11-15**
 - **Migration:** install via `uvx opik-mcp` instead of `npx -y opik-mcp`. Tools, transports, and config env vars are renamed/restructured — see the root [`README.md`](../../README.md) and `docs/` for the new surface.
-- **Release tag prefix:** patches to this package are published from tags matching `npm-v*` (e.g. `npm-v2.0.2`); the Python package uses `py-v*`. Plain `v*` tags do **not** trigger any release workflow.
+- **Releases:** publish by dispatching `.github/workflows/legacy-ts-deploy.yml` from an `npm-v*` tag (e.g. `npm-v2.0.2`) on a branch off `legacy-typescript-final`. The workflow stays on `main` until the end of life so the dispatch exists.
 
-The TypeScript code remains buildable and testable in place:
+The TypeScript source was removed from `main` on 2026-09-24. It lives at the
+git tag `legacy-typescript-final`. To work on a sunset release:
 
 ```bash
+git checkout -b ts-sunset legacy-typescript-final
 cd legacy/typescript
 npm install
 npm run build
 npm test
 ```
-
-Or from the repo root via `make legacy-install`, `make legacy-build`, etc.
-
-The body of `legacy/typescript/README.md` is preserved from the v2.0.1 release; a deprecation banner has been prepended on top. This file (`DEPRECATED.md`) and [`MIGRATION.md`](./MIGRATION.md) remain the authoritative deprecation notice and migration guide respectively.

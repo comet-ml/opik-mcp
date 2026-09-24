@@ -533,6 +533,8 @@ backend response.
 | `dataset_item.upsert` | Upsert items into a dataset (always the envelope shape). |
 | `experiment.create` | Create an experiment scoped to a dataset. |
 | `experiment_item.create` | Attach trace + dataset_item rows to an experiment. |
+| `thread.close` | Close a thread (mark it inactive). Pass `thread_id` and the project. |
+| `thread.open` | Reopen a closed thread. Pass `thread_id` and the project. |
 | `agent_insights_job.enable` | Turn Diagnostics on for a project (daily scans, safe to repeat). |
 | `agent_insights_job.trigger` | Run a Diagnostics scan now, over the last 24 hours. |
 | `agent_insights_issue.resolve` | Mark a Diagnostics issue dealt with (ask the user first). |
@@ -704,7 +706,7 @@ opik-mcp/
 ├── src/opik_mcp/        ← server, tools, analytics
 ├── tests/               ← pytest suites
 ├── scripts/             ← live-BE smoke + MCP-session smoke
-├── legacy/typescript/   ← deprecated v2 TS server
+├── legacy/typescript/   ← migration guide for the deprecated v2 TS server (source: tag `legacy-typescript-final`)
 ├── pyproject.toml
 └── Makefile
 ```
@@ -720,8 +722,8 @@ opik-mcp/
 ---
 
 > **Upgrading from v2?** The legacy TypeScript server still ships on npm as
-> `opik-mcp@^2` (`npx -y opik-mcp`); source is preserved under
-> [`legacy/typescript/`](./legacy/typescript/). See
+> `opik-mcp@^2` (`npx -y opik-mcp`); its source is at the git tag
+> `legacy-typescript-final`. See
 > [`legacy/typescript/DEPRECATED.md`](./legacy/typescript/DEPRECATED.md) for
 > the support policy.
 

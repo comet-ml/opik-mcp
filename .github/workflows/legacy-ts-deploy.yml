@@ -1,8 +1,10 @@
 name: Publish Release (Legacy TS)
 
 on:
-  # Tag auto-trigger (npm-v*) disabled — manual-only.
-  # Deprecated TS package; dispatch from an npm-v* tag ref to publish.
+  # Manual-only. The TypeScript source left main in OPIK-8489; it lives at the
+  # tag legacy-typescript-final. To publish: branch off that tag, tag the
+  # branch npm-v<version>, and dispatch this workflow from that tag ref. This
+  # file stays on main so the dispatch exists; delete it after 2026-11-15.
   workflow_dispatch:
 
 jobs:

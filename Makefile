@@ -1,8 +1,7 @@
 .PHONY: help version install run run-dev dev inspect test conformance e2e live user-flows lint format typecheck check \
         install-branch uninstall-branch \
         skills-pack skills-verify skills-verify-source \
-        docker-build docker-run \
-        legacy-install legacy-build legacy-test legacy-lint legacy-start
+        docker-build docker-run
 
 # The skills recipes use `set -o pipefail`, which is a bash builtin. Make defaults
 # to /bin/sh, which is dash on Ubuntu runners (and bash on macOS) — so without this
@@ -42,13 +41,6 @@ help:
 	@echo "Docker:"
 	@echo "  make docker-build - build opik-mcp:dev image"
 	@echo "  make docker-run   - run opik-mcp:dev on :8080 (loopback)"
-	@echo ""
-	@echo "Legacy TypeScript (legacy/typescript/, deprecated):"
-	@echo "  make legacy-install - npm install in legacy/typescript"
-	@echo "  make legacy-build   - tsc build in legacy/typescript"
-	@echo "  make legacy-test    - jest in legacy/typescript"
-	@echo "  make legacy-lint    - eslint in legacy/typescript"
-	@echo "  make legacy-start   - node build/index.js in legacy/typescript"
 
 # Generate the git-ignored version file. The release passes VERSION=<x.y.z>;
 # every other build falls back to `<version.txt>.dev0` — version.txt holds the
@@ -199,20 +191,3 @@ docker-run:
 	docker run --rm -p 127.0.0.1:8080:8080 \
 	  -e COMET_URL_OVERRIDE=$${COMET_URL_OVERRIDE:-https://www.comet.com} \
 	  --name opik-mcp opik-mcp:dev
-
-# --- Legacy TypeScript server (deprecated, kept under legacy/typescript/) ---
-
-legacy-install:
-	$(MAKE) -C legacy/typescript install
-
-legacy-build:
-	$(MAKE) -C legacy/typescript build
-
-legacy-test:
-	$(MAKE) -C legacy/typescript test
-
-legacy-lint:
-	$(MAKE) -C legacy/typescript lint
-
-legacy-start:
-	$(MAKE) -C legacy/typescript start
