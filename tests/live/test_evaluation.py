@@ -25,22 +25,28 @@ async def test_a_datasets_items_are_all_listed(mcp: Live, manifest: Manifest) ->
     assert set(answer.column("id")) == set(dataset.item_ids)
 
 
-async def test_a_comparison_finds_exactly_the_regressed_cases(
-    mcp: Live, manifest: Manifest
+@pytest.mark.parametrize("baseline_first", [True, False], ids=["baseline-first", "candidate-first"])
+async def test_a_comparison_measures_every_case_against_the_first_experiment(
+    mcp: Live, manifest: Manifest, baseline_first: bool
 ) -> None:
+    # Both orders, so one of them never matches the ids' sorted order: a server
+    # that reordered them would then compare against the wrong baseline.
+    pair = [manifest.baseline.id, manifest.candidate.id]
     answer = await mcp.list(
         "dataset_item",
         dataset_id=manifest.small_dataset.id,
-        experiment_ids=[manifest.baseline.id, manifest.candidate.id],
+        experiment_ids=pair if baseline_first else pair[::-1],
         size=100,
     )
-    regressed: set[str] = set()
+    moved: set[str] = set()
     for row in answer.rows():
         cell = next(v for k, v in row.items() if k.startswith("correctness"))
-        before, after = (float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", cell)[:2])
-        if after < before:
-            regressed.add(row["id"])
-    assert regressed == set(manifest.regressed_item_ids)
+        first, second = (float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", cell)[:2])
+        # Baseline first, the regressed cases get worse; candidate first, the
+        # same cases read as getting better.
+        if (second < first) if baseline_first else (second > first):
+            moved.add(row["id"])
+    assert moved == set(manifest.regressed_item_ids)
 
 
 async def test_an_experiment_reads_by_name_with_its_run_count(
