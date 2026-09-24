@@ -164,23 +164,21 @@ default. What the health endpoints check is in
 
 ### The legacy TypeScript package
 
-`legacy/typescript/` is the old TypeScript server, published to npm under the
-same name, `opik-mcp`. Both of its workflows run only on manual dispatch:
-`legacy-ts-ci.yml` builds and lints it, and `legacy-ts-deploy.yml` publishes
-to npm with provenance (OIDC, no token) and to the MCP Registry. The deploy
-must be dispatched from an `npm-v*` tag ref, and it skips npm if that version
-already exists. These tags are separate from the Python `x.y.z` tags.
+The old TypeScript server, published to npm under the same name, `opik-mcp`,
+left `main` in #203 and lives at the tag `legacy-typescript-final`. Only
+`.github/workflows/legacy-ts-deploy.yml` remains, run by manual dispatch: to
+publish, branch off that tag, tag the branch `npm-v<version>` and dispatch from
+that tag ref. It publishes to npm with provenance (OIDC, no token). The file's
+comment says to delete it after 2026-11-15. The `npm-v*` tags are separate from
+the Python `x.y.z` tags.
 
 ### Dependency updates and labels
 
-`.github/dependabot.yml` opens weekly updates for `legacy/typescript` (npm) and
-for GitHub Actions. The Python (`pip`) entry is commented out; the file gives
-the reason as Dependabot not updating `uv.lock` together with
-`pyproject.toml`. The CI jobs install with `uv sync --extra dev`, without
-`--locked`; only the `Dockerfile` uses `--locked`.
-
-`.github/labeler.yml` defines path-based labels, but no workflow in
-`.github/workflows/` runs a labeler, so nothing applies them.
+`.github/dependabot.yml` opens weekly updates for Python through the `uv`
+ecosystem, which updates `uv.lock` in the same PR, with a cooldown before a new
+release is taken, and for GitHub Actions. The CI jobs install with
+`uv sync --extra dev`, without `--locked`; only the `Dockerfile` uses
+`--locked`.
 
 ### Installing a branch for local testing
 
@@ -218,7 +216,7 @@ manual dispatch of release.yaml
 ```
 
 This feature owns `.github/workflows/`, `.github/release-drafter.yml`,
-`.github/dependabot.yml`, `.github/labeler.yml`, `Dockerfile`, `.dockerignore`,
+`.github/dependabot.yml`, `Dockerfile`, `.dockerignore`,
 `helm/opik-mcp/`, the `version`, `install`, `docker-*` and `install-branch`
 targets in `Makefile`, `version.txt`, `src/opik_mcp/_version.py`, the
 `[tool.hatch.*]` blocks in `pyproject.toml`, and `scripts/dev/install_branch.py`.
@@ -261,11 +259,9 @@ Its boundaries:
 - Skill `evals/` are excluded from the wheel, and a test builds a real wheel to
   prove it, since the editable install used by other tests cannot show what a
   wheel contains (#176).
-- The legacy TypeScript workflows are manual only. Retiring the package is
-  filed as OPIK_8489.
-- Not built: Dependabot for Python dependencies, disabled until it can update
-  `uv.lock` (`.github/dependabot.yml`), filed as OPIK_8487. CI installing
-  without `--locked` is filed as OPIK_8486.
+- The TypeScript source left `main`; its publish workflow stays, manual only,
+  so a last npm release can still be cut from the tag (#203).
+- Not built: CI installing with `--locked`, filed as OPIK_8486.
 - Not built: tests for the workflows themselves. Nothing in `tests/` runs or
   parses `.github/workflows/`; a broken release step shows up only when a
   release runs.
@@ -301,11 +297,11 @@ Its boundaries:
     point a delete outside its folder.
 - The CI jobs `helm-lint` (chart renders) and `build-image` (image builds for
   both platforms) run on every PR in `.github/workflows/ci.yaml`.
-- No test covers `release.yaml`, `release-drafter.yml`, the legacy TypeScript
-  workflows or `Dockerfile` beyond the CI build.
+- No test covers `release.yaml`, `release-drafter.yml`, `legacy-ts-deploy.yml` or `Dockerfile` beyond the CI build.
 
 ## Log
 
+- 2026-09-24: TypeScript tree removed, Dependabot moved to uv, labeler dropped, to stop maintaining the old server (#203).
 - 2026-09-24: `make install-branch` runs a worktree as a local MCP server, to try a branch in a real host (#202).
 - 2026-09-23: skill `evals/` excluded from the wheel, with a test that builds one, so eval fixtures do not ship (#176).
 - 2026-09-01: `main` images stamped `x.y.z` instead of `.dev0`, since the release promotes them unchanged (#179).
