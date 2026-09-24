@@ -69,11 +69,3 @@ skills-lock.json
 .claude/settings.local.json
 /demo/
 /presentation/
-
-# Legacy TypeScript (scoped paths)
-legacy/typescript/node_modules/
-legacy/typescript/build/
-legacy/typescript/dist/
-legacy/typescript/*.tsbuildinfo
-legacy/typescript/coverage/
-legacy/typescript/.cursor/mcp.json
