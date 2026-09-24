@@ -230,9 +230,9 @@ Window and interval:
 
 - The window defaults to the last `DEFAULT_WINDOW_DAYS` days
   (`test_the_window_defaults_to_the_last_seven_days`).
-- With no `interval`, it follows the window as the UI's Metrics tab does:
-  hourly up to 3 days, daily up to 30, weekly beyond
-  (`interval_for_window`, `test_the_interval_is_the_one_the_ui_would_pick`).
+- With no `interval`, it uses the interval the UI's Metrics tab would pick
+  for the window (`interval_for_window`,
+  `test_the_interval_is_the_one_the_ui_would_pick`).
 - An explicit interval is sent as given, however many rows it makes; there is
   no bucket cap (`test_an_explicit_interval_is_taken_as_given_whatever_the_window`,
   `test_a_wide_hourly_request_reaches_the_backend`).
@@ -452,8 +452,8 @@ Namespaces owned: `src/opik_mcp/read_list/entities/project/`,
 ## Log
 
 - 2026-09-23: list pages of all four entities carry a UI link note; optimization links use the shared URL builder (#201).
-- 2026-09-21: `list('project_metric')` refuses `fields=[…]` (#197).
-- 2026-09-21: grouped column names escaped so a pipe in a group name stays one column (#195).
-- 2026-09-21: vocabulary adds `experiment_metadata_keys`, sampled from recent experiments (#192).
+- 2026-09-21: `list('project_metric')` refuses `fields=[…]`, since an ignored projection reads as one that found nothing (#197).
+- 2026-09-21: grouped column names escaped, so a pipe in a group name stays one column (#195).
+- 2026-09-21: vocabulary adds `experiment_metadata_keys`, sampled from recent experiments, to filter experiments on (#192).
 - 2026-09-17: `list('project_metric')` gets a timeout hint and drops collection arguments it does not use (#190).
-- 2026-09-11: `read('project')` gives summary, vocabulary and contents; `list('project_metric')`, `list('score_name')` and `list('online_rule')` added (#187).
+- 2026-09-11: `read('project')` overview and `list('project_metric')`, `score_name`, `online_rule`, for "how is it doing" (#187).

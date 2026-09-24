@@ -306,12 +306,12 @@ Its boundaries:
 
 ## Log
 
-- 2026-09-24: `make install-branch` and `scripts/dev/install_branch.py` added to run a worktree as a local MCP server (#202).
-- 2026-09-23: skill `evals/` excluded from the wheel, with a test that builds one (#176).
+- 2026-09-24: `make install-branch` runs a worktree as a local MCP server, to try a branch in a real host (#202).
+- 2026-09-23: skill `evals/` excluded from the wheel, with a test that builds one, so eval fixtures do not ship (#176).
 - 2026-09-01: `main` images stamped `x.y.z` instead of `.dev0`, since the release promotes them unchanged (#179).
-- 2026-09-01: release made replayable: `reuse_existing_tag`, PyPI `skip-existing`, waiting for the commit's image (#178).
+- 2026-09-01: release made replayable after a partial failure: `reuse_existing_tag`, PyPI `skip-existing` (#178).
 - 2026-09-01: the release workflow creates the tag and bumps `version.txt`; CI stops tagging every merge (#177).
-- 2026-09-01: e2e job added to `ci.yaml` and telemetry turned off for the whole workflow (#175).
-- 2026-06-04: image runs as numeric user 1000 for Kubernetes `runAsNonRoot` (#143).
-- 2026-06-01: image, chart and PyPI release pipeline and the Helm chart added (#138).
-- 2026-05-25: `Dockerfile` and health probes added for hosting (#122).
+- 2026-09-01: e2e job added to `ci.yaml` and telemetry turned off for the whole workflow, so CI sends no events (#175).
+- 2026-06-04: image runs as numeric user 1000, for Kubernetes `runAsNonRoot` (#143).
+- 2026-06-01: image, chart and PyPI release pipeline and the Helm chart added, to host the server (#138).
+- 2026-05-25: `Dockerfile` and health probes added, for hosting (#122).

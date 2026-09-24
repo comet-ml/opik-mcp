@@ -51,7 +51,7 @@ job:
 | The project has no job (the job read returns 404) | Diagnostics is not enabled for this project, with a `write('agent_insights_job.enable', {"project_id": …})` call to copy, and a trigger call for the first scan. |
 | The job's status is `disabled` | Diagnostics is turned off for this project, with the same two calls. No switch-off date is given, because the job's `last_updated_at` changes on any scan or trigger. |
 | Enabled, no `last_scan_at` | No completed scan yet. A scan started in the last few minutes may still be running; otherwise trigger one. |
-| Enabled, last scan older than `STALE_AFTER` before the window end (`test_empty_issues_stale_boundary_is_24_hours`) | The scan is stale. It offers a trigger if the window is still open. If the window has already closed, it gives a bounded `list('trace', project_id=…, since=…, until=…)` call instead, because a trigger only rescans the last 24 hours from now. |
+| Enabled, last scan older than `STALE_AFTER` before the window end (`test_empty_issues_stale_boundary_is_24_hours`) | The scan is stale. It offers a trigger if the window is still open. If the window has already closed, it gives a bounded `list('trace', project_id=…, since=…, until=…)` call instead, because a trigger only rescans the `TRIGGER_COVERS` window back from now (`test_no_trigger_is_offered_for_a_window_that_already_ended`). |
 | Enabled and scanned recently | No open (or resolved, or closed) issues, with the last scan time. "In the requested window" is added when the caller passed a window. |
 
 Staleness is measured back from the end of the requested window (`until`,
@@ -74,16 +74,18 @@ A non-empty page ends with "Report covers data through <last scan>."
 what the last scan grouped. If the requested window runs more than an hour
 past that scan (`COVERAGE_GRACE`), the note names the uncovered stretch:
 
-- a gap of up to 24 hours while the window is still open gets a trigger call
+- a gap no wider than `TRIGGER_COVERS` while the window is still open gets a trigger call
   and a bounded `list('trace', …)` call;
 - a larger gap gets only the `list('trace', …)` call, since a trigger cannot
-  cover it;
+  cover it (`test_issue_list_does_not_offer_a_trigger_that_cannot_close_the_gap`);
 - a window that has already closed gets the gap named in absolute times and
   the `list('trace', …)` call.
 
 This path does not check the deployment toggle, because the issues on the
-page show that Diagnostics runs. If the job cannot be read or has no scan
-time, the page is returned without a note.
+page show that Diagnostics runs (`diagnostics_coverage_note` docstring). If
+the job cannot be read or has no scan time, the page is returned without a
+note (`test_issue_list_coverage_note_is_dropped_when_the_job_cannot_be_read`,
+`test_issue_list_coverage_note_survives_a_job_without_a_scan_time`).
 
 ### Reading one issue
 
@@ -150,7 +152,7 @@ accepts a batch.
 | Operation | Backend call | Behaviour |
 |---|---|---|
 | `agent_insights_job.enable` | `POST /v1/private/agent-insights/jobs/{project_id}` | Creates the job. On a 409 (job exists) it sends `PATCH` with `{"status": "enabled"}`, so repeating enable is safe. |
-| `agent_insights_job.trigger` | `POST …/jobs/{project_id}/trigger` | Starts a scan over the last 24 hours. A 404 is refused as `diagnostics_not_enabled` with "enable it first". The result carries a note that the scan takes a few minutes and says where to read the issues. |
+| `agent_insights_job.trigger` | `POST …/jobs/{project_id}/trigger` | Starts a scan over the backend's rescan window, which `TRIGGER_COVERS` in `state.py` mirrors (`test_job_trigger_starts_a_scan_and_reports_where_to_watch_it`). A 404 is refused as `diagnostics_not_enabled` with "enable it first". The result carries a note that the scan takes a few minutes and says where to read the issues. |
 | `agent_insights_issue.resolve` | `PATCH /v1/private/agent-insights/issues/{issue_id}` | Body `{"project_id": …, "status": "resolved"}`. |
 | `agent_insights_issue.close` | same | `status: "closed"`. |
 | `agent_insights_issue.reopen` | same | `status: "open"`. |
@@ -173,8 +175,10 @@ accepts a batch.
   name is resolved at execution, and for job operations that the
   deployment check is not run (`dry_run_note`).
 - The operation descriptions tell the agent to resolve or close an issue only
-  when the user asks. The instructions tell it to ask the user before
-  enabling, because enabling creates a standing daily scan.
+  when the user asks (`agent_insights_issue.resolve` and `.close` in
+  `src/opik_mcp/writes/registry.py`). The instructions tell it to ask the user
+  before enabling, because enabling creates a standing daily scan
+  (`src/opik_mcp/instructions.py`). No test pins either sentence.
 - All five need the `project_data_view` OAuth scope, the permission the
   backend already requires to read issues (`SCOPE_PROJECT_DATA_VIEW` in
   `src/opik_mcp/writes/scopes.py`).
@@ -254,8 +258,8 @@ operations as the constants `ENABLE_OP` and `TRIGGER_OP` because importing
   never scans (#186).
 - A non-empty list states the date its report covers, because issues from
   an old scan otherwise read as the current state (#186).
-- A trigger is offered only when it can cover the gap. It rescans the last
-  24 hours from now, so for a window that has closed the server points to
+- A trigger is offered only when it can cover the gap. It rescans the
+  `TRIGGER_COVERS` window back from now, so for a window that has closed the server points to
   raw traces (`_trigger_reaches` in `state.py`).
 - Open issues by default and all-time counts, which is what the Diagnostics
   page shows and what "what is broken" asks for (#184).
@@ -303,14 +307,8 @@ operations as the constants `ENABLE_OP` and `TRIGGER_OP` because importing
 
 ## Log
 
-- 2026-09-23: the issue's trace link template names the traces view, so a
-  handed-out link opens on it (#201).
-- 2026-09-11: Diagnostics read modules moved to
-  `read_list/entities/agent_insights_issue/`; `scope_of` shared with the
-  project entities (#187).
-- 2026-09-10: empty issue lists explain the project's state and non-empty
-  lists date their report; the deployment toggle is checked; the enable,
-  trigger, resolve, close and reopen writes added behind registry hooks
-  (#186).
-- 2026-09-08: issues exposed through `read` and `list`; project names
-  resolved to ids by whole-name match, with a per-credential cache (#184).
+- 2026-09-23: the issue's trace link template names the traces view, so a handed-out link opens on it (#201).
+- 2026-09-11: Diagnostics read modules moved to `read_list/entities/agent_insights_issue/`, one namespace per entity (#187).
+- 2026-09-10: empty lists say why and full lists date their report, so neither reads as an all-clear (#186).
+- 2026-09-10: enable, trigger, resolve, close and reopen writes added, so the agent can act on issues (#186).
+- 2026-09-08: issues exposed through `read` and `list`; project names resolved to ids, which the backend needs (#184).

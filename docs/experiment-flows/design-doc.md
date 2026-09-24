@@ -144,7 +144,8 @@ the order given, and the header shows the legend with names and ids
 record lacks:
 
 - The runs used different dataset versions, so a dash may mean the case did
-  not exist yet. The call still runs.
+  not exist yet. The call still runs
+  (`test_runs_over_different_dataset_versions_are_compared_with_a_warning`).
 - A run is still running, so its scores will change.
 - The runs covered different numbers of cases. If the smallest count is
   thin (`is_thin`), the warning says it is too few to compare.
@@ -392,19 +393,14 @@ and these reads (see [skills](../skills/design-doc.md), `opik-evaluate` and
 
 ## Log
 
-- 2026-09-23: experiment rows and dataset reads carry a working UI link (#201).
-- 2026-09-22: the experiment footer names every filterable field (#199).
-- 2026-09-21: `fields=[…]` on a comparison, with `worst_trace` always kept
-  (#197).
-- 2026-09-21: find a case by keys, payload, id, tag or source trace, and
-  read one case uncut (#196).
-- 2026-09-21: `direction unknown` marker, `errored` cells and tally, cell and
-  header escaping (#195).
-- 2026-09-21: full experiment record in `list('experiment')`, plus figures
-  per experiment and label counts on the comparison (#192).
-- 2026-09-17: compare experiments case by case in `list('dataset_item')`;
-  the suite write operations became `dataset.create` (with a `type`) and
-  `dataset_item.upsert` (#190).
-- 2026-09-11: experiment and dataset handlers moved under `entities/` (#187).
-- 2026-09-10: evaluation write hooks moved into `writes/operations/` (#186).
-- 2026-09-03: `run_experiment` tool removed (#181).
+- 2026-09-23: experiment rows and dataset reads carry a working UI link, so the user can open them (#201).
+- 2026-09-22: the experiment footer names every filterable field, so the agent can narrow without guessing (#199).
+- 2026-09-21: `fields=[…]` on a comparison, with `worst_trace` always kept so a row still opens its trace (#197).
+- 2026-09-21: find a case by keys, payload, id, tag or source trace, and read one case uncut, without knowing its id (#196).
+- 2026-09-21: `direction unknown` marker, `errored` cells and cell escaping, so the table does not mislead (#195).
+- 2026-09-21: full experiment record in `list('experiment')`, with figures and label counts, so no read per row is needed (#192).
+- 2026-09-17: experiments compared case by case in `list('dataset_item')`, so a regression is found in one call (#190).
+- 2026-09-17: suite writes became `dataset.create` (with a `type`) and `dataset_item.upsert`, since a suite is a dataset (#190).
+- 2026-09-11: experiment and dataset handlers moved under `entities/`, one namespace per entity (#187).
+- 2026-09-10: evaluation write hooks moved into `writes/operations/`, out of the generic dispatcher (#186).
+- 2026-09-03: `run_experiment` tool removed; running an evaluation became the skills' job (#181).

@@ -108,8 +108,10 @@ setup problem the user can fix.
 
 Unverified: whether a hosted request that sends an API key and no
 `Comet-Workspace` header should use the process's `OPIK_WORKSPACE`. The code
-does; `.claude/rules/security.md` says a request uses its caller's workspace
-only.
+does. `.claude/rules/security.md` says never to fall back to an environment
+default when the caller supplied one; that covers the key, and whether it
+covers a missing workspace header is open (the same point is in
+[hosted-auth](../hosted-auth/design-doc.md#two-kinds-of-bearer)).
 
 ### Why tools take no workspace argument
 
@@ -196,18 +198,19 @@ so each backend request in a write opens its own `httpx.AsyncClient`
 
 ### Timeouts
 
-The client's default timeout is 30 seconds per request (`_DEFAULT_TIMEOUT`).
-`list` passes 60 seconds when the call has a free-text `search`, because the
-backend's search can take over 30 seconds on a cold cache (`_SEARCH_TIMEOUT_S`
-in `src/opik_mcp/read_list/list_tool.py`). The code carries no host-side
+The client's default timeout per request is `_DEFAULT_TIMEOUT` in
+`src/opik_mcp/opik_client.py`. `list` passes the longer `_SEARCH_TIMEOUT_S`
+(`src/opik_mcp/read_list/list_tool.py`) when the call has a free-text
+`search`, because the backend's search can outlast the default on a cold
+cache. The code carries no host-side
 timeouts.
 
 ### Backend errors
 
 `_raise_for_status` maps every non-2xx answer on the read path to a typed
-error. The message includes an entity hint (for example `trace 'abc'`) and up
-to 200 characters of the backend's `message`, `errors` or `error` field
-(`_error_detail`):
+error. The message includes an entity hint (for example `trace 'abc'`) and a
+truncated copy of the backend's `message`, `errors` or `error` field
+(`_error_detail` in `src/opik_mcp/opik_client.py`):
 
 | Status | Error | `error_kind` |
 |---|---|---|
@@ -296,10 +299,10 @@ links. Those live in the entity and operation namespaces
   every tool costs surface bytes
   ([ADR 0001](../decisions/0001-context-budget-first.md)).
 - One HTTP connection per read or list call, closed at the end of the call.
-  Measured against the cloud backend, each extra request with its own client
-  cost about 259 ms. A process-wide client would also save the handshake
-  between calls, but was left out so that no client outlives the request that
-  made it (`client_for_call` docstring, #187).
+  Against the cloud backend, each extra request with its own client paid a
+  new handshake (measured in the `client_for_call` docstring). A process-wide
+  client would also save the handshake between calls, but was left out so
+  that no client outlives the request that made it (#187).
 - Read methods map one to one onto endpoints; writes go through one generic
   `write_json` with templated paths, so a new write operation needs no client
   change ([ADR 0003](../decisions/0003-five-tool-surface.md),
@@ -318,7 +321,7 @@ links. Those live in the entity and operation namespaces
 - `main()` owns the lifecycle events and `build_app` defers to it through an
   environment sentinel, so a boot is counted once (#148).
 - `list` gets a longer timeout only for free-text search, the one call measured
-  to exceed 30 seconds (#185).
+  to exceed `_DEFAULT_TIMEOUT` (#185).
 - Not built: splitting `opik_client.py` into smaller modules is filed as
   OPIK_8496.
 
@@ -358,13 +361,13 @@ links. Those live in the entity and operation namespaces
 
 ## Log
 
-- 2026-09-11: one HTTP connection per read or list call (`client_for_call`) (#187).
-- 2026-09-08: `list` search takes a 60 s timeout; searchable list endpoints forward filter, sort, search and window (#185).
-- 2026-09-04: a backend 401 on an OAuth token drops its cached validation so the host refreshes (#182).
+- 2026-09-11: one HTTP connection per read or list call (`client_for_call`), so no client outlives its request (#187).
+- 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).
+- 2026-09-04: a backend 401 on an OAuth token drops its cached validation, so the host refreshes (#182).
 - 2026-09-03: `ask_ollie` and `run_experiment` removed, with the settings only they used (#181).
-- 2026-08-14: an unfilled workspace placeholder fails with a message that names the setting (#162).
-- 2026-06-24: `OPIK_API_KEY` made optional for self-hosted backends.
-- 2026-06-08: `build_app` lifespan emits lifecycle events unless `main()` owns them (#148).
-- 2026-06-04: `OPIK_WORKSPACE` added, `COMET_WORKSPACE` kept as an alias, workspace optional with `default` (#141).
-- 2026-06-03: HTTP start refused when `OPIK_MCP_AS_URL` is set without `OPIK_MCP_RESOURCE_URI` (#139).
-- 2026-05-22: bind preflight before uvicorn, so a taken port is reported.
+- 2026-08-14: an unfilled workspace placeholder fails with a message that names the setting, not an upstream auth error (#162).
+- 2026-06-24: `OPIK_API_KEY` made optional, so a self-hosted backend with auth disabled works (#150).
+- 2026-06-08: `build_app` lifespan emits lifecycle events unless `main()` owns them, so a boot counts once (#148).
+- 2026-06-04: `OPIK_WORKSPACE` added, `COMET_WORKSPACE` kept as an alias, `default` when unset, as the SDK does (#141).
+- 2026-06-03: HTTP start refused with `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI`, which fails every authorize (#139).
+- 2026-05-22: bind preflight before uvicorn, since uvicorn hides a taken port (#117).

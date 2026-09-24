@@ -381,9 +381,9 @@ Smoke scripts, run by hand and not by CI:
 
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).
 - 2026-09-22: `item_count` counts the records inside an envelope; a large upsert had reported 1 (#199).
-- 2026-09-17: `test_suite.create` and `test_suite_item.upsert` became `dataset.create` (with a type) and `dataset_item.upsert` (#190).
+- 2026-09-17: `test_suite.*` writes became `dataset.create` (with a type) and `dataset_item.upsert`; a suite is a dataset (#190).
 - 2026-09-10: operation logic moved from the dispatcher into registry hooks; Diagnostics job and issue operations added (#186).
-- 2026-09-04: a 401 under OAuth carries the token-expired hint and clears the cached validation so hosts refresh (#182).
+- 2026-09-04: a 401 under OAuth carries the token-expired hint and clears the cached validation, so hosts refresh (#182).
 - 2026-07-24: `thread.close` and `thread.open` added with full thread support (#152).
 - 2026-05-26: `WriteError` subclasses bucketed for analytics through `ClassVar`s; before, every write failure was unknown (#130).
 - 2026-05-18: one `write` tool and `schema` replaced the narrow score and comment tools (#99).

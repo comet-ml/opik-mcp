@@ -333,14 +333,15 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 
 ## Log
 
-- 2026-09-24: hook and `Edit` deny rules added to block writes to `.claude/skills/` and `.agents/skills/` (#202).
+- 2026-09-24: a hook and deny rules block writes to `.claude/skills/` and `.agents/skills/`, which would ship to users (#202).
 - 2026-09-23: `opik-instrument` checks span coverage and warns about common ingestion traps (#173).
-- 2026-09-23: skill `evals/` excluded from the wheel, with a test on the built wheel (#176).
+- 2026-09-23: skill `evals/` excluded from the wheel, with a test on the built wheel, so eval fixtures do not ship (#176).
 - 2026-09-21: eval fixtures for `opik-evaluate`, `opik-online-eval` and `opik-optimize`, and the fleet trigger eval (#200).
-- 2026-09-21: `opik-verify` added (#193).
+- 2026-09-21: `opik-verify` added, for a ship or hold verdict against a release policy (#193).
 - 2026-09-21: quality-drop questions routed to `opik-compare`; descriptions made to match behaviour (#198).
-- 2026-09-17: `opik-test`, `opik-compare`, `opik-online-eval` and `opik-optimize` added; `opik-evaluate` made task-shaped (#191).
-- 2026-09-01: skills served over MCP as resources and through `read_skill` (#175).
-- 2026-08-28: `opik-diagnose` and `opik-explain` added (#167, #168); published skills renamed with the `opik-` prefix.
+- 2026-09-17: `opik-test`, `opik-compare`, `opik-online-eval`, `opik-optimize` added; `opik-evaluate` made task-shaped (#191).
+- 2026-09-01: skills served over MCP as resources and through `read_skill`, so a host without the pack can read them (#175).
+- 2026-08-28: `opik-diagnose` and `opik-explain` added (#167, #168).
+- 2026-08-28: published skills renamed with the `opik-` prefix, to namespace them (#171).
 - 2026-08-25: the instrument skill added (#156).
-- 2026-08-19: pack generated from this repo and published for `comet-ml/opik-skills` (#163).
+- 2026-08-19: pack generated from this repo and published for `comet-ml/opik-skills`, one source of truth (#163).

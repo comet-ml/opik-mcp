@@ -12,8 +12,8 @@ property, or when you need to explain a number on a dashboard.
 
 ### Channels and switches
 
-Product events go by HTTP POST to `OPIK_MCP_ANALYTICS_URL`, by default
-`https://stats.comet.com/notify/event/` (`Settings` in `src/opik_mcp/config.py`).
+Product events go by HTTP POST to `OPIK_MCP_ANALYTICS_URL`, whose default is
+`Settings.opik_mcp_analytics_url` in `src/opik_mcp/config.py`.
 `OPIK_MCP_ANALYTICS_ENABLED=false` turns them off: `track_event` returns at
 once and no worker thread starts (`AnalyticsClient` in
 `src/opik_mcp/analytics/client.py`; `test_disabled_skips_post`). Sentry has its
@@ -410,15 +410,16 @@ Boundaries:
 
 ## Log
 
-- 2026-09-21: list events carry `empty` and `source_defaulted` (#192).
-- 2026-09-08: list events record the search shape (filter field names, sort field, window, search) without values (#185).
-- 2026-09-01: `read_skill` props added; both telemetry switches set in the test environment and CI (#175).
-- 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).
-- 2026-08-21: `mcp_session_sha256` reaches tool events on the hosted server (#166).
-- 2026-08-21: `host_process`, `launcher`, `mcp_client`, `env_id_sha256` and the session digest added beside the frozen fields (#165).
-- 2026-08-14: `workspace_kind` and the workspace precedence (#162).
-- 2026-08-13: `user_id` becomes the caller's Comet login, with `user_id_kind` (#161).
-- 2026-06-08: `opik_mcp_auth_rejected`, and lifecycle events from the `build_app()` lifespan (#148).
-- 2026-06-02: failed POSTs are retried so `server_started` arrives (#140).
-- 2026-05-27: per-call context block on `tool_called` (#132).
-- 2026-05-25: Sentry error tracking (#125); environment fingerprint and lifecycle events (#123).
+- 2026-09-21: list events carry `empty` and `source_defaulted`, so empty list answers can be counted (#192).
+- 2026-09-08: list events record the search shape without values, to see which filters are used without sending data (#185).
+- 2026-09-01: `read_skill` props added; both telemetry switches set in tests and CI, which the pytest guard did not reach (#175).
+- 2026-08-25: `install_id_kind` and `identity_lookup` added, so hosted identity failures can be counted (#169).
+- 2026-08-21: `mcp_session_sha256` reaches tool events on the hosted server, so they group by session (#166).
+- 2026-08-21: `host_process`, `launcher`, `mcp_client`, `env_id_sha256` added beside the frozen fields, so no series moves (#165).
+- 2026-08-14: `workspace_kind` and the workspace precedence, to close the workspace gaps 0.2.16 showed (#162).
+- 2026-08-13: `user_id` becomes the caller's Comet login, with `user_id_kind`, so events join the warehouse user key (#161).
+- 2026-06-08: `opik_mcp_auth_rejected` and `build_app()` lifecycle events, since hosted boots skip `main()` (#148).
+- 2026-06-02: failed POSTs are retried, since a cold first POST often lost `server_started` (#140).
+- 2026-05-27: per-call context block on `tool_called`, so each call carries its host and environment (#132).
+- 2026-05-25: Sentry error tracking, for failures that need a stack trace (#125).
+- 2026-05-25: environment fingerprint and lifecycle events, so boots and shutdowns can be counted (#123).

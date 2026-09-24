@@ -34,11 +34,12 @@ raise and who spent the bytes. Input schemas are frozen as JSON files in
 `tests/conformance/snapshots/`, and changing one needs `UPDATE_SNAPSHOTS=1`
 (`test_tool_schema_matches_snapshot`). The frozen schemas include every argument
 description, but the tool-level docstrings of `read` and `list` are not in
-them. Those two docstrings are held only by the budget and by the 2,048
-character check below.
+them. Those two docstrings are held only by the budget and by the
+description-limit check below.
 
-Claude Code cuts a tool description and the server instructions at 2,048
-characters without warning ([ADR 0001](../decisions/0001-context-budget-first.md) log,
+Claude Code cuts a tool description and the server instructions at its
+description limit (`DESCRIPTION_LIMIT` in
+`tests/conformance/test_tool_annotations.py`) without warning ([ADR 0001](../decisions/0001-context-budget-first.md) log,
 checked live). `tests/conformance/test_tool_annotations.py` records this.
 `test_the_description_arrives_whole` runs for each tool, and the tools over
 the limit today are listed in `OVER_THE_LIMIT` as strict expected failures,
@@ -112,7 +113,7 @@ returns one line of header and then the record as JSON:
 ```
 
 The header gives the entity type, the id as passed, and an estimated token
-count at 2.5 characters per token (`size_header` and `estimate_tokens` in
+count, the character count divided by `_CHARS_PER_TOKEN` (`size_header` and `estimate_tokens` in
 `src/opik_mcp/read_list/size.py`). When the answer carries a `url`, the header
 names the link text: the record's own `name`, or "Open in Opik" when it has
 none (`_link_hint` in `src/opik_mcp/read_list/read_tool.py`,
@@ -148,7 +149,7 @@ The dispatch order in `run_read`:
    implied end cannot drift apart.
 6. For a nameable entity (project, experiment, prompt, dataset) whose id is
    not a UUID, search by name. One match is used, several are refused with the
-   candidates listed (at most ten, then a count), and none falls through to
+   candidates listed (a capped list, then a count of the rest), and none falls through to
    the fetch, which returns a 404 if the name does not exist
    (`_fetch_with_name_lookup`; `test_read_project_by_ambiguous_name_lists_candidates`,
    `test_more_than_ten_matches_say_how_many_more`). Entities marked `id_only`
@@ -213,7 +214,8 @@ id is always kept, as `id` or `<block>.id` for a composite
 refused with the valid paths listed
 (`test_read_refuses_an_unknown_field_and_names_the_valid_ones`). A projected
 answer is marked twice: `| projected` in the header, and a line under it
-giving the kept and total counts, up to eight omitted names and the call
+giving the kept and total counts, up to `NAMED_OMISSIONS` omitted names
+(`src/opik_mcp/read_list/projection.py`) and the call
 without `fields` (`marker`;
 `test_a_projected_read_says_so_in_the_header_and_under_it`). The header only
 names a link when the projected record still has a `url`
@@ -552,7 +554,7 @@ Boundaries:
 - `tests/conformance/test_schema_snapshots.py`: each tool's input schema
   matches its frozen snapshot.
 - `tests/conformance/test_tool_annotations.py`: titles and hints on every
-  tool, and the 2,048-character cut on descriptions and instructions, pinned
+  tool, and Claude Code's description limit (`DESCRIPTION_LIMIT`) on descriptions and instructions, pinned
   as strict expected failures where the text is over.
 - `tests/conformance/test_no_duplicate_payload.py`: no output schema, one copy
   per answer.
@@ -595,20 +597,14 @@ Boundaries:
 
 ## Log
 
-- 2026-09-24: agent docs, rules and the 2,048-character conformance check
-  added; titles and hints counted in the surface budget (#202).
-- 2026-09-23: every read, list page and write result carries a UI link; the
-  duplicate `structuredContent` copy removed (#201).
-- 2026-09-22: inline budget on children's bodies, declared in the answer;
-  token estimate set to 2.5 characters per token (#199).
-- 2026-09-21: `fields=[…]` on `read` and `list` (#197).
-- 2026-09-11: server-side compression tiers removed; read entities moved under
-  `entities/`, one namespace each (#187).
-- 2026-09-08: `filters`, `sort`, `since`/`until` and `search` on `list`, with
-  OQL compiled locally (#185).
+- 2026-09-24: agent docs, rules and the description-limit check added; titles and hints counted in the surface budget (#202).
+- 2026-09-23: every answer carries a UI link; the duplicate `structuredContent` copy removed, one copy per answer (#201).
+- 2026-09-22: inline budget on children's bodies, declared in the answer; token estimate uses `_CHARS_PER_TOKEN` (#199).
+- 2026-09-21: `fields=[…]` on `read` and `list`, so the caller names what it gets back (#197).
+- 2026-09-11: compression tiers removed, since they cut answers the caller could not get back (#187).
+- 2026-09-11: read entities moved under `entities/`, one namespace each, so root modules stay generic (#187).
+- 2026-09-08: `filters`, `sort`, `since`/`until` and `search` on `list`, so one call answers most questions (#185).
 - 2026-09-03: `ask_ollie` and `run_experiment` removed from the surface (#181).
-- 2026-09-01: `read_skill` added; the instructions stopped describing a tool
-  that was not advertised (#175).
+- 2026-09-01: `read_skill` added; the instructions stopped describing a tool that was not advertised (#175).
 - 2026-07-24: thread read and list, with project scope and pasted links (#152).
-- 2026-06-25: instructions rendered per session to name the OAuth workspace
-  (#151).
+- 2026-06-25: instructions rendered per session, to name the OAuth workspace (#151).

@@ -34,6 +34,13 @@ The workspace rules are in `resolve_opik_config` in
 [runtime](../runtime/design-doc.md); this doc covers only how the values it
 reads get set.
 
+Unverified: whether a hosted request that sends an API key and no
+`Comet-Workspace` header should use the process's `OPIK_WORKSPACE`. The code
+does. `.claude/rules/security.md` says never to fall back to an environment
+default when the caller supplied one; that covers the key, and whether it
+covers a missing workspace header is open (the same point is in
+[runtime](../runtime/design-doc.md#which-credential-and-workspace-a-call-uses)).
+
 ### What a host sees at the HTTP layer
 
 `BearerAuthMiddleware.dispatch` in `src/opik_mcp/server.py` answers, in order:
@@ -172,8 +179,12 @@ missing caller credential.
 
 ### Who the caller is
 
-Identity is used for analytics and for naming the workspace. It never
-decides access. Three modules resolve it:
+Identity is used for analytics and for naming the workspace: the middleware
+sets `resolved_workspace_name` from it, which the instructions and UI links
+read (`BearerAuthMiddleware.dispatch` in `src/opik_mcp/server.py`,
+`src/opik_mcp/read_list/ui_links.py`). It never decides access: the OAuth 401
+comes from token validation, and an API key is checked by the backend only
+(the comment in `BearerAuthMiddleware.dispatch`). Three modules resolve it:
 
 - `src/opik_mcp/oauth_identity.py` reads it from the introspection answer.
   The middleware stores it against the token (`remember_identity`), so later
@@ -350,20 +361,14 @@ show the workspace name are [tool-surface](../tool-surface/design-doc.md).
 
 ## Log
 
-- 2026-09-23: the introspected workspace name also feeds UI links; a link is
-  omitted when an OAuth caller's workspace is unknown (#201).
-- 2026-09-04: expired OAuth tokens get 401 `invalid_token`, with a validation
-  cache and per-call credential rebinding, so hosts refresh (#182).
-- 2026-08-26: hosted identity failures are reported as misses instead of
-  anonymous (#169).
-- 2026-08-21: the MCP session id is paired with the credential so hosted
-  events group by session (#166).
-- 2026-08-13: caller identity resolved for OAuth tokens and API keys (#161).
-- 2026-06-25: the per-session instructions name the OAuth workspace (#151).
-- 2026-06-18: OAuth detection matches the backend's token prefix (#149).
-- 2026-06-08: auth rejection events and the outer rejection middleware (#148).
-- 2026-06-04: configurable transport path and Host and Origin allow-lists
-  (#143, #147).
-- 2026-06-03: OAuth passthrough, RFC 9728 metadata and the AS proxy; dev-token
-  mode removed (#139).
-- 2026-05-25: `/health` and `/health/ready` for the hosted image (#122).
+- 2026-09-23: the introspected workspace name also feeds UI links; no link when an OAuth caller's workspace is unknown (#201).
+- 2026-09-04: expired OAuth tokens get 401 `invalid_token`, with a validation cache, so hosts refresh (#182).
+- 2026-08-26: hosted identity failures reported as misses instead of anonymous, so they can be counted (#169).
+- 2026-08-21: the MCP session id is paired with the credential, so hosted events group by session (#166).
+- 2026-08-13: caller identity resolved for OAuth tokens and API keys, so events name the user (#161).
+- 2026-06-25: the per-session instructions name the OAuth workspace, which no header carries (#151).
+- 2026-06-18: OAuth detection matches the backend's token prefix, so real OAuth tokens take the OAuth path (#149).
+- 2026-06-08: auth rejection events and the outer rejection middleware, so rejected requests are counted (#148).
+- 2026-06-04: configurable transport path and Host and Origin allow-lists, for the hosted deployment (#143, #147).
+- 2026-06-03: OAuth passthrough, RFC 9728 metadata and the AS proxy; dev-token mode removed, for hosted OAuth (#139).
+- 2026-05-25: `/health` and `/health/ready` added, for the hosted image's probes (#122).
