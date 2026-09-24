@@ -38,12 +38,16 @@ dev = [
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
 
-# Version comes from a generated, git-ignored file (`make version` writes it from
-# version.txt, which holds the next unreleased x.y.z). `artifacts` force-includes
-# it in the sdist/wheel despite .gitignore, so building from an sdist resolves
-# the version.
+# The build version is computed, not read from a generated file:
+# `scripts/_build_version.py` returns `$VERSION` when the release sets it, else
+# `<version.txt>.dev0`, the same rule as `make version`. Reading the git-ignored
+# `src/opik_mcp/_version.py` here made `uv lock` fail on a clean checkout, which
+# is what Dependabot runs. The runtime still imports `_version.py`; `artifacts`
+# keeps it in the wheel despite .gitignore once `make version` has written it.
 [tool.hatch.version]
-path = "src/opik_mcp/_version.py"
+source = "code"
+path = "scripts/_build_version.py"
+expression = "get_version()"
 
 [tool.hatch.build]
 artifacts = ["src/opik_mcp/_version.py"]
@@ -60,7 +64,7 @@ exclude = ["src/opik_mcp/skills/*/evals"]
 packages = ["src/opik_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/README.md"]
+include = ["/src", "/README.md", "/version.txt", "/scripts/_build_version.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
