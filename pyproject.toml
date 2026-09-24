@@ -38,6 +38,11 @@ dev = [
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
 
+# The exact uv that CI runs. `setup-uv` reads this when no `version` is given,
+# so the resolver in CI is the one the lockfile was written with.
+[tool.uv]
+required-version = "==0.11.7"
+
 # Version comes from a generated, git-ignored file (`make version` writes it from
 # version.txt, which holds the next unreleased x.y.z). `artifacts` force-includes
 # it in the sdist/wheel despite .gitignore, so building from an sdist resolves

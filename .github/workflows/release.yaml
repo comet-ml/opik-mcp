@@ -34,6 +34,8 @@ permissions:
 
 env:
   IMAGE: ghcr.io/comet-ml/opik-mcp
+  # `uv build` in the pypi job refuses a stale uv.lock.
+  UV_LOCKED: "1"
 
 jobs:
 
