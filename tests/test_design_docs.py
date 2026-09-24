@@ -47,7 +47,7 @@ def test_a_design_doc_has_the_six_sections_in_order(path: Path) -> None:
     headings = _h2_headings(path.read_text())
     assert headings == SECTIONS, (
         f"{path.relative_to(REPO_ROOT)} has H2 sections {headings}; "
-        f"the fixed skeleton is {SECTIONS} (see .claude/rules/docs.md)"
+        f"the fixed skeleton is SECTIONS in tests/test_design_docs.py: {SECTIONS}"
     )
 
 
@@ -64,12 +64,13 @@ def test_a_design_doc_opens_with_its_feature_as_the_title(path: Path) -> None:
 def test_every_design_doc_has_a_row_in_the_index(feature: str) -> None:
     assert feature in _index_links(), (
         f"docs/{feature}/design-doc.md exists but docs/README.md does not link it; "
-        f"add a row: feature, the question it answers, the paths it owns"
+        f"every design doc needs a row there (feature, the question it answers, the paths it owns)"
     )
 
 
 @pytest.mark.parametrize("feature", sorted(set(_index_links())))
 def test_every_index_row_points_at_a_design_doc(feature: str) -> None:
     assert (DOCS_DIR / feature / "design-doc.md").exists(), (
-        f"docs/README.md links docs/{feature}/design-doc.md, which does not exist"
+        f"docs/README.md links docs/{feature}/design-doc.md, which does not exist; "
+        f"add the doc or remove the row, since every index row must open a design doc"
     )
