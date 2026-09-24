@@ -74,3 +74,40 @@ def test_every_index_row_points_at_a_design_doc(feature: str) -> None:
         f"docs/README.md links docs/{feature}/design-doc.md, which does not exist; "
         f"add the doc or remove the row, since every index row must open a design doc"
     )
+
+
+LINK = re.compile(r"\]\(((?!https?:|mailto:)[^)\s#]*\.md)?(?:#([^)\s]+))?\)")
+
+
+def _slug(heading: str) -> str:
+    # GitHub's anchor rule: lowercase, drop punctuation except hyphens and
+    # spaces, then spaces become hyphens.
+    text = re.sub(r"[^\w\- ]", "", heading.strip().lower())
+    return text.replace(" ", "-")
+
+
+def _anchors(path: Path) -> set[str]:
+    return {_slug(h) for h in re.findall(r"^#{1,6} (.+?)\s*$", path.read_text(), re.MULTILINE)}
+
+
+def _doc_links() -> list[tuple[str, str, str]]:
+    links = []
+    for doc in sorted(DOCS_DIR.rglob("*.md")):
+        for target, anchor in LINK.findall(doc.read_text()):
+            if target or anchor:
+                links.append((doc.relative_to(REPO_ROOT).as_posix(), target, anchor))
+    return links
+
+
+@pytest.mark.parametrize(("doc", "target", "anchor"), _doc_links())
+def test_a_link_between_docs_opens_an_existing_file_and_heading(
+    doc: str, target: str, anchor: str
+) -> None:
+    source = REPO_ROOT / doc
+    path = (source.parent / target).resolve() if target else source
+    assert path.exists(), f"{doc} links {target}, which does not exist"
+    if anchor:
+        assert anchor in _anchors(path), (
+            f"{doc} links {target}#{anchor}, but {path.relative_to(REPO_ROOT)} has no heading "
+            f"with that anchor; link a heading that exists or drop the anchor"
+        )
