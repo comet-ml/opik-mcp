@@ -7,7 +7,7 @@ import re
 import pytest
 from scripts.seed_e2e_backend import Manifest
 
-from tests.live.conftest import Live
+from tests.live.conftest import Live, continuation
 
 pytestmark = [pytest.mark.live, pytest.mark.anyio]
 
@@ -59,3 +59,35 @@ async def test_a_scored_thread_carries_its_score(mcp: Live, manifest: Manifest) 
     scores = thread.get("feedback_scores")
     assert isinstance(scores, list)
     assert manifest.thread_score_name in {s.get("name") for s in scores if isinstance(s, dict)}
+
+
+async def test_the_call_a_long_thread_names_returns_exactly_the_turns_it_left_out(
+    mcp: Live, manifest: Manifest
+) -> None:
+    thread = manifest.long_thread
+    record = (await mcp.read("thread", thread.id, project_name=manifest.project_name)).record()
+    messages, more = record["messages"], record.get("moreMessages")
+    assert isinstance(messages, list)
+    assert isinstance(more, str), "a long thread must say it was cut"
+    inlined = {m["trace_id"] for m in messages if isinstance(m, dict)}
+    rest = await mcp.list(
+        "trace",
+        project_name=manifest.project_name,
+        filters=f'thread_id = "{thread.id}"',
+        **continuation(more),
+    )
+    shown = set(rest.column("id"))
+    assert (shown & inlined, len(inlined) + len(shown)) == (set(), thread.turns)
+
+
+async def test_every_turn_of_a_thread_carries_its_own_scores(mcp: Live, manifest: Manifest) -> None:
+    thread = manifest.short_threads[0]
+    record = (await mcp.read("thread", thread.id, project_name=manifest.project_name)).record()
+    messages = record["messages"]
+    assert isinstance(messages, list)
+    scored = [
+        {s.get("name") for s in m.get("feedback_scores") or [] if isinstance(s, dict)}
+        for m in messages
+        if isinstance(m, dict)
+    ]
+    assert scored == [{"correctness", "hallucination"}] * thread.turns

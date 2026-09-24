@@ -30,10 +30,10 @@ import re
 import sys
 import time
 import uuid
+import warnings
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 
 import anyio
@@ -42,6 +42,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from scripts.seed_e2e_backend import (
     RUN_PREFIX,
+    STALE_RUN,
     Backend,
     Manifest,
     SeedError,
@@ -59,9 +60,6 @@ _TIMEOUT_S = 120
 #: largest answer that is known to reach the model. A test contract, not a
 #: server constant: when ADR 0002 decides the per-tool limit, this follows it.
 HOST_CEILING_CHARS = 25_000 * 5 // 2
-
-#: A run older than this that left records behind has died; a live one has not.
-_STALE_RUN = timedelta(hours=2)
 
 _SHOWING = re.compile(r"showing (\d+) of (\d+)")
 
@@ -113,10 +111,17 @@ def run_prefix(backend: Backend, manifest: Manifest) -> Iterator[str]:
     asserts is, so writes never touch the fixture. Before the run, leftovers of
     runs that died before cleaning up are swept; after it, this run's go.
     """
-    sweep_runs(backend, older_than=_STALE_RUN)
+    try:
+        sweep_runs(backend, older_than=STALE_RUN)
+    except SeedError as err:
+        # Leftovers are a nuisance, not a reason to fail every write test.
+        warnings.warn(f"could not sweep old runs: {err}", stacklevel=1)
     prefix = f"{RUN_PREFIX}{os.getpid()}-{os.urandom(3).hex()}"
     yield prefix
-    delete_named(backend, prefix)
+    try:
+        delete_named(backend, prefix)
+    except SeedError as err:
+        warnings.warn(f"could not delete this run's records ({prefix}): {err}", stacklevel=1)
 
 
 def continuation(note: str) -> dict[str, int]:

@@ -41,7 +41,8 @@ it ages, and the window tests run on both backends.
 the record's key. The anchor and the fixture version are stored in the project
 description. Seeding a backend that already holds the fixture rebuilds the same
 manifest from the anchor, verifies it and writes nothing. `--wipe` deletes
-everything with the prefix. A fixture from another version is refused.
+the fixture and any run's records older than two hours, never a run that may
+still be going. A fixture from another version is refused.
 
 **Tests go in through the host's door only.** Nothing under `tests/live/`
 imports `opik_mcp`. The suite depends on the tool names, their arguments and

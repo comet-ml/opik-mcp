@@ -32,13 +32,32 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+#: How long a write may take to show. Cloud applies writes asynchronously and
+#: builds threads from an async listener; a local backend is near instant.
+_SETTLE_S = 60
+
+
 async def _eventually(check: Callable[[], Awaitable[bool]], what: str) -> None:
     """Derived state (a thread, its status) lands a moment after the write."""
-    for _ in range(30):
-        if await check():
-            return
-        await anyio.sleep(0.5)
-    pytest.fail(f"{what} did not happen within 15s")
+    with anyio.move_on_after(_SETTLE_S):
+        while not await check():
+            await anyio.sleep(0.5)
+        return
+    pytest.fail(f"{what} did not happen within {_SETTLE_S}s")
+
+
+async def _settled[T](fetch: Callable[[], Awaitable[T]], done: Callable[[T], bool]) -> T:
+    """The first read that shows the write landed, or the last one tried.
+
+    The test then asserts on what it got, so a write that never lands fails
+    on the property it broke, with the value the backend returned.
+    """
+    value = await fetch()
+    with anyio.move_on_after(_SETTLE_S):
+        while not done(value):
+            await anyio.sleep(0.5)
+            value = await fetch()
+    return value
 
 
 def _body(answer: Answer, key: str) -> dict[str, object]:
@@ -68,6 +87,20 @@ async def _trace(mcp: Live, project: str, name: str, thread_id: str | None = Non
 
     await _eventually(readable, f"trace {trace_id} becoming readable")
     return trace_id
+
+
+async def _read_trace(mcp: Live, trace_id: str) -> dict[str, object]:
+    return _body(await mcp.read("trace", trace_id), "trace")
+
+
+async def _span_ids(mcp: Live, trace_id: str) -> list[object]:
+    spans = (await mcp.read("trace", trace_id)).record()["spans"]
+    assert isinstance(spans, list)
+    return [s.get("id") for s in spans if isinstance(s, dict)]
+
+
+async def _experiment_runs(mcp: Live, name: str) -> object:
+    return (await mcp.read("experiment", name)).record()["trace_count"]
 
 
 async def _project_id(mcp: Live, project: str) -> str:
@@ -106,7 +139,9 @@ async def test_an_updated_trace_reads_back_changed(mcp: Live, run_prefix: str) -
         "trace.update",
         {"id": trace_id, "project_name": run_prefix, "tags": [f"{run_prefix}-tag"]},
     )
-    trace = _body(await mcp.read("trace", trace_id), "trace")
+    trace = await _settled(
+        lambda: _read_trace(mcp, trace_id), lambda t: t.get("tags") == [f"{run_prefix}-tag"]
+    )
     assert trace["tags"] == [f"{run_prefix}-tag"]
 
 
@@ -124,9 +159,8 @@ async def test_a_created_span_hangs_under_its_trace(mcp: Live, run_prefix: str) 
             "type": "tool",
         },
     )
-    spans = (await mcp.read("trace", trace_id)).record()["spans"]
-    assert isinstance(spans, list)
-    assert [s.get("id") for s in spans if isinstance(s, dict)] == [span_id]
+    ids = await _settled(lambda: _span_ids(mcp, trace_id), lambda found: bool(found))
+    assert ids == [span_id]
 
 
 async def test_a_score_lands_on_its_trace(mcp: Live, run_prefix: str) -> None:
@@ -141,7 +175,10 @@ async def test_a_score_lands_on_its_trace(mcp: Live, run_prefix: str) -> None:
             "project_name": run_prefix,
         },
     )
-    scores = _body(await mcp.read("trace", trace_id), "trace").get("feedback_scores")
+    trace = await _settled(
+        lambda: _read_trace(mcp, trace_id), lambda t: bool(t.get("feedback_scores"))
+    )
+    scores = trace.get("feedback_scores")
     assert isinstance(scores, list)
     assert [(s.get("name"), s.get("value")) for s in scores if isinstance(s, dict)] == [
         ("live_suite", 0.5)
@@ -153,7 +190,8 @@ async def test_a_comment_lands_on_its_trace(mcp: Live, run_prefix: str) -> None:
     await mcp.write(
         "comment.create", {"target": "trace", "target_id": trace_id, "text": run_prefix}
     )
-    comments = _body(await mcp.read("trace", trace_id), "trace").get("comments")
+    trace = await _settled(lambda: _read_trace(mcp, trace_id), lambda t: bool(t.get("comments")))
+    comments = trace.get("comments")
     assert isinstance(comments, list)
     assert [c.get("text") for c in comments if isinstance(c, dict)] == [run_prefix]
 
@@ -198,19 +236,20 @@ async def test_an_experiment_and_its_item_are_created(mcp: Live, run_prefix: str
             ]
         },
     )
-    assert (await mcp.read("experiment", name)).record()["trace_count"] == 1
+    runs = await _settled(lambda: _experiment_runs(mcp, name), lambda count: count == 1)
+    assert runs == 1
 
 
-async def test_saved_prompt_versions_read_back_newest_last(mcp: Live, run_prefix: str) -> None:
+async def test_saved_prompt_versions_read_back_newest_first(mcp: Live, run_prefix: str) -> None:
     name = f"{run_prefix}-prompt"
     for template in ("first {{q}}", "second {{q}}"):
         await mcp.write("prompt_version.save", {"name": name, "template": template})
-    record = (await mcp.read("prompt", name)).record()
-    prompt = record["prompt"]
-    assert isinstance(prompt, dict)
-    latest = prompt["latest_version"]
-    assert isinstance(latest, dict)
-    assert (prompt["version_count"], latest["template"]) == (2, "second {{q}}")
+    versions = (await mcp.read("prompt", name)).record()["versions"]
+    assert isinstance(versions, list)
+    assert [v.get("template") for v in versions if isinstance(v, dict)] == [
+        "second {{q}}",
+        "first {{q}}",
+    ]
 
 
 async def test_closing_a_thread_makes_it_inactive_and_opening_it_active(
@@ -243,8 +282,12 @@ async def test_closing_a_thread_makes_it_inactive_and_opening_it_active(
     await _eventually(active, "the thread reopening")
 
 
+#: The status each lifecycle operation leaves an issue in.
+STATUS = {"resolve": "resolved", "close": "closed"}
+
+
 @pytest.mark.parametrize("operation", ["resolve", "close"])
-async def test_an_issue_leaves_the_open_list_and_reopen_brings_it_back(
+async def test_an_issue_moves_to_its_new_status_and_reopen_brings_it_back(
     mcp: Live, backend: Backend, run_prefix: str, operation: str
 ) -> None:
     await _trace(mcp, run_prefix, f"{run_prefix}-issue-host")
@@ -278,7 +321,8 @@ async def test_an_issue_leaves_the_open_list_and_reopen_brings_it_back(
 
     assert issue_id in await open_ids()
     await mcp.write(f"agent_insights_issue.{operation}", issue)
-    assert issue_id not in await open_ids()
+    moved = await mcp.list("agent_insights_issue", project_id=project_id, status=STATUS[operation])
+    assert (issue_id in await open_ids(), issue_id in moved.column("id")) == (False, True)
     await mcp.write("agent_insights_issue.reopen", issue)
     assert issue_id in await open_ids()
 
@@ -296,3 +340,106 @@ async def test_a_diagnostics_job_operation_is_accepted_where_ollie_runs(
         await mcp.write("agent_insights_job.enable", target)
     result = await mcp.write(f"agent_insights_job.{operation}", target)
     assert isinstance(result.get("url"), str), f"no link in {result}"
+
+
+async def _span(mcp: Live, project: str, trace_id: str, name: str) -> str:
+    span_id = new_id()
+    await mcp.write(
+        "span.create",
+        {
+            "id": span_id,
+            "trace_id": trace_id,
+            "name": name,
+            "project_name": project,
+            "start_time": _now(),
+            "type": "tool",
+        },
+    )
+    await _settled(lambda: _span_ids(mcp, trace_id), lambda found: span_id in found)
+    return span_id
+
+
+async def _read_span(mcp: Live, span_id: str) -> dict[str, object]:
+    return _body(await mcp.read("span", span_id), "span")
+
+
+async def test_a_span_created_by_project_id_links_to_that_span(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-span-parent")
+    span_id = new_id()
+    result = await mcp.write(
+        "span.create",
+        {
+            "id": span_id,
+            "trace_id": trace_id,
+            "name": f"{run_prefix}-linked-span",
+            "project_id": await _project_id(mcp, run_prefix),
+            "start_time": _now(),
+            "type": "tool",
+        },
+    )
+    url = result.get("url")
+    assert isinstance(url, str), f"no link in {result}"
+    assert (trace_id in url, span_id in url) == (True, True)
+
+
+async def test_a_score_on_a_span_lands_on_that_span(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-span-scored")
+    span_id = await _span(mcp, run_prefix, trace_id, f"{run_prefix}-scored-span")
+    await mcp.write(
+        "score.create",
+        {
+            "target": "span",
+            "target_id": span_id,
+            "name": "span_check",
+            "value": 1.0,
+            "project_name": run_prefix,
+        },
+    )
+    span = await _settled(
+        lambda: _read_span(mcp, span_id), lambda sp: bool(sp.get("feedback_scores"))
+    )
+    scores = span.get("feedback_scores")
+    assert isinstance(scores, list)
+    assert [(s.get("name"), s.get("value")) for s in scores if isinstance(s, dict)] == [
+        ("span_check", 1.0)
+    ]
+
+
+async def test_a_comment_on_a_span_lands_on_that_span(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-span-commented")
+    span_id = await _span(mcp, run_prefix, trace_id, f"{run_prefix}-commented-span")
+    await mcp.write("comment.create", {"target": "span", "target_id": span_id, "text": run_prefix})
+    span = await _settled(lambda: _read_span(mcp, span_id), lambda sp: bool(sp.get("comments")))
+    comments = span.get("comments")
+    assert isinstance(comments, list)
+    assert [c.get("text") for c in comments if isinstance(c, dict)] == [run_prefix]
+
+
+async def test_a_score_on_a_thread_lands_on_that_thread(mcp: Live, run_prefix: str) -> None:
+    thread_id = f"{run_prefix}-scored-thread"
+    await _trace(mcp, run_prefix, f"{run_prefix}-thread-turn", thread_id=thread_id)
+
+    async def thread() -> dict[str, object]:
+        answer = await mcp.read("thread", thread_id, project_name=run_prefix)
+        return {} if answer.is_error else _body(answer, "thread")
+
+    await _settled(thread, bool)
+    # Thread scores go through the batch route, so the write takes a list.
+    await mcp.write(
+        "score.create",
+        [
+            {
+                "target": "thread",
+                "target_id": thread_id,
+                "name": "thread_check",
+                "value": 1.0,
+                "project_name": run_prefix,
+            }
+        ],
+    )
+    found = await _settled(thread, lambda t: bool(t.get("feedback_scores")))
+    scores = found.get("feedback_scores")
+    assert isinstance(scores, list)
+    assert [(s.get("name"), s.get("value")) for s in scores if isinstance(s, dict)] == [
+        ("thread_check", 1.0)
+    ]

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import pytest
 from scripts.seed_e2e_backend import Manifest
 
@@ -52,10 +54,11 @@ async def test_the_summary_counts_every_score_name_and_rule_it_names(
         len(manifest.score_names),
         len(manifest.rule_names),
     )
-    for part in (scores, rules):
+    wanted = (set(manifest.score_names), set(manifest.rule_names))
+    for part, known in zip((scores, rules), wanted, strict=True):
         names = part["names"]
         assert isinstance(names, list)
-        assert len(names) <= int(str(part["total"]))
+        assert set(names) <= known, f"names the project does not have: {set(names) - known}"
 
 
 async def test_a_daily_metric_adds_up_to_the_window(mcp: Live, manifest: Manifest) -> None:
@@ -95,3 +98,21 @@ async def test_a_diagnostics_issue_reads_with_its_name_and_severity(
     ).record()
     body = _part(record, "issue")
     assert (body["name"], body["severity"]) == (issue.name, issue.severity)
+
+
+async def test_the_summary_states_the_window_it_compared_against(
+    mcp: Live, manifest: Manifest
+) -> None:
+    m = manifest
+    record = (
+        await mcp.read("project", m.project_name, since=m.recent_since, until=m.anchor)
+    ).record()
+    compared = _part(record, "summary", "window", "compared_to")
+
+    def instant(value: object) -> datetime:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).replace(microsecond=0)
+
+    assert (instant(compared["since"]), instant(compared["until"])) == (
+        instant(m.previous_since),
+        instant(m.recent_since),
+    )

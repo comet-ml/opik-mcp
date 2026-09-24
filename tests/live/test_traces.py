@@ -127,3 +127,37 @@ async def test_a_span_filter_on_type_selects_only_that_type(mcp: Live, manifest:
         size=50,
     )
     assert answer.column("type") == ["llm"]
+
+
+async def test_sorting_ascending_puts_the_fastest_trace_first(
+    mcp: Live, manifest: Manifest
+) -> None:
+    answer = await mcp.list(
+        "trace", project_name=manifest.project_name, sort="duration asc", size=3
+    )
+    assert answer.column("id")[0] == manifest.tiny.id
+
+
+async def test_fields_wins_over_the_columns_a_filter_and_sort_would_add(
+    mcp: Live, manifest: Manifest
+) -> None:
+    answer = await mcp.list(
+        "trace",
+        project_name=manifest.project_name,
+        fields=["name"],
+        filters="error_info is_not_empty",
+        sort="duration desc",
+        size=20,
+    )
+    assert {tuple(sorted(row)) for row in answer.rows()} == {("id", "name")}
+
+
+async def test_a_traces_own_spans_are_listed_whatever_their_source(
+    mcp: Live, manifest: Manifest
+) -> None:
+    # A project list defaults to sdk traffic; a drill-in by trace id must not.
+    trace = manifest.experiment_trace
+    answer = await mcp.list(
+        "span", project_name=manifest.project_name, filters=f'trace_id = "{trace.id}"'
+    )
+    assert len(answer.rows()) == trace.span_count

@@ -44,8 +44,10 @@ on:
 permissions:
   contents: read
 
+# One run per PR, superseded ones cancelled. On main the event is part of the
+# key, so a push never replaces a nightly run that is still waiting.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.event_name) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

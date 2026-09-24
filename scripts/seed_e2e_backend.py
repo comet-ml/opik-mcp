@@ -53,7 +53,7 @@ import httpx
 
 #: Bumped whenever the plan below changes shape. A backend seeded by another
 #: version is refused rather than half-matched: rerun with ``--wipe``.
-FIXTURE_VERSION = 3
+FIXTURE_VERSION = 4
 
 #: Every name this fixture and the suite's writes create starts with this, so
 #: ``--wipe`` can find them all in a shared workspace.
@@ -65,6 +65,13 @@ PROJECT = f"{PREFIX}e2e"
 #: prefix the shared cloud workspace's own cleanup already sweeps, so a run
 #: that dies before it cleans up is swept anyway.
 RUN_PREFIX = "e2e-cuj-mcp-live-"
+
+#: A run older than this that left records behind has died; a live one has not.
+STALE_RUN = timedelta(hours=2)
+
+#: Opik cloud refuses an id more than about a day old, and the oldest record
+#: sits almost two windows back, so this is the longest window cloud takes.
+CLOUD_MAX_WINDOW = timedelta(hours=12)
 
 RECENT_REGULAR = 120
 PREVIOUS_REGULAR = 80
@@ -164,6 +171,7 @@ class Manifest:
     typical: TraceCase
     heavy: TraceCase
     wide: TraceCase
+    experiment_trace: TraceCase
     short_threads: tuple[ThreadCase, ...]
     long_thread: ThreadCase
     scored_thread: ThreadCase
@@ -235,6 +243,8 @@ class Plan:
     rules: list[str] = field(default_factory=list)
     issues: list[JsonObject] = field(default_factory=list)
     all_trace_count: int = 0
+    all_span_count: int = 0
+    scored_trace_count: int = 0
 
 
 class _Builder:
@@ -294,6 +304,7 @@ class _Builder:
         kind: str,
         duration_ms: int,
         chars: int = 40,
+        source: str = "sdk",
     ) -> None:
         record: JsonObject = {
             "id": self.id(when, f"span/{key}"),
@@ -305,7 +316,7 @@ class _Builder:
             "end_time": _iso(when + timedelta(milliseconds=duration_ms)),
             "input": {"text": _text(f"{key}/in", chars)},
             "output": {"text": _text(f"{key}/out", chars)},
-            "source": "sdk",
+            "source": source,
         }
         if kind == "llm":
             record |= {
@@ -511,6 +522,19 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
                 duration_ms=500,
                 source="experiment",
             )
+            if exp is candidate and n == 0:
+                # One experiment trace with a span: listing a trace's own spans
+                # must show them whatever their source, unlike a project list.
+                b.span(
+                    trace_id,
+                    f"{exp.name}/{n}/task",
+                    when,
+                    name="task",
+                    kind="general",
+                    duration_ms=200,
+                    source="experiment",
+                )
+                experiment_trace = TraceCase("evaluation_task", trace_id, 1)
             failed = exp is candidate and n in REGRESSED_ITEMS
             b.score(trace_id, "correctness", 0.0 if failed else 1.0)
             if failed:
@@ -579,6 +603,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
         typical=TraceCase("typical", typical_id, TYPICAL_TRACE_SPANS),
         heavy=TraceCase("heavy", heavy_id, HEAVY_SPANS),
         wide=TraceCase("wide", wide_id, WIDE_TRACE_SPANS),
+        experiment_trace=experiment_trace,
         short_threads=tuple(short_threads),
         long_thread=long_thread,
         scored_thread=scored_thread,
@@ -607,6 +632,8 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
         rules=rules,
         issues=issues,
         all_trace_count=len(b.traces),
+        all_span_count=len(b.spans),
+        scored_trace_count=len({s["id"] for s in b.trace_scores if s["name"] == "correctness"}),
     )
 
 
@@ -830,6 +857,15 @@ def verify(backend: Backend, plan: Plan) -> list[str]:
 
     _, traces = backend.page("/traces", project_id=m.project_id, size="1")
     expect("traces in the project", traces, wanted=plan.all_trace_count)
+    _, spans = backend.page("/spans", project_id=m.project_id, size="1")
+    expect("spans in the project", spans, wanted=plan.all_span_count)
+    scored_filter = [
+        {"field": "feedback_scores", "key": "correctness", "operator": "is_not_empty", "value": ""}
+    ]
+    _, scored_total = backend.page(
+        "/traces", project_id=m.project_id, size="1", filters=json.dumps(scored_filter)
+    )
+    expect("traces scored for correctness", scored_total, wanted=plan.scored_trace_count)
     wide = _as_object(backend.call("GET", f"/traces/{m.wide.id}"))
     expect("spans on the wide trace", wide.get("span_count"), wanted=m.wide.span_count)
     long_thread = _thread(backend, m.long_thread.id) or {}
@@ -933,7 +969,16 @@ def seed(backend: Backend, *, window: timedelta = WINDOW, now: datetime | None =
 def _named(
     backend: Backend, path: str, prefix: str, older_than: datetime | None
 ) -> list[JsonObject]:
-    rows, _ = backend.page(path, name=prefix, size="100")
+    # The name search is a substring match, so other names can fill a page:
+    # read every page, then keep only what starts with the prefix.
+    rows: list[JsonObject] = []
+    page = 1
+    while True:
+        batch, total = backend.page(path, name=prefix, size="100", page=str(page))
+        rows += batch
+        if not batch or page * 100 >= total:
+            break
+        page += 1
     return [
         r
         for r in rows
@@ -965,10 +1010,8 @@ def delete_named(backend: Backend, prefix: str, *, older_than: datetime | None =
             for rules in _pages(
                 functools.partial(_rules, backend, str(project["id"])), what="online rules"
             ):
-                backend.call(
-                    "POST", "/automations/evaluators/delete", {"ids": [r["id"] for r in rules]}
-                )
-            backend.call("DELETE", f"/projects/{project['id']}")
+                _delete(backend, "POST", "/automations/evaluators/delete", [r["id"] for r in rules])
+            _delete(backend, "DELETE", f"/projects/{project['id']}")
             gone.append(f"project {project['name']}")
     for kind, path, delete_path in (
         ("experiment", "/experiments", "/experiments/delete"),
@@ -977,14 +1020,31 @@ def delete_named(backend: Backend, prefix: str, *, older_than: datetime | None =
     ):
         named = functools.partial(_named, backend, path, prefix, older_than)
         for mine in _pages(named, what=f"{kind}s"):
-            backend.call("POST", delete_path, {"ids": [r["id"] for r in mine]})
+            _delete(backend, "POST", delete_path, [r["id"] for r in mine])
             gone += [f"{kind} {r['name']}" for r in mine]
     return gone
 
 
+def _delete(backend: Backend, method: str, path: str, ids: list[object] | None = None) -> None:
+    """A delete that treats "already gone" as done.
+
+    On a shared workspace another run's sweep, or the workspace's own
+    cleanup, can delete the same record a moment earlier.
+    """
+    try:
+        backend.call(method, path, {"ids": ids} if ids is not None else None)
+    except SeedError as err:
+        if err.status != 404:
+            raise
+
+
 def wipe(backend: Backend) -> list[str]:
-    """Delete the fixture and every run's writes."""
-    return delete_named(backend, PREFIX) + delete_named(backend, RUN_PREFIX)
+    """Delete the fixture, and what finished or dead runs left behind.
+
+    A run's own records are kept while it may still be going (``STALE_RUN``),
+    so a wipe on a shared workspace never pulls data from under a live run.
+    """
+    return delete_named(backend, PREFIX) + sweep_runs(backend, older_than=STALE_RUN)
 
 
 def sweep_runs(backend: Backend, *, older_than: timedelta) -> list[str]:
@@ -1027,7 +1087,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             for line in wipe(backend):
                 print(f"deleted {line}", file=sys.stderr)
             return 0
-        manifest = seed(backend, window=timedelta(hours=args.window_hours))
+        window = timedelta(hours=args.window_hours)
+        local = any(h in backend.base_url for h in ("localhost", "127.0.0.1"))
+        if not local and window > CLOUD_MAX_WINDOW:
+            print(
+                f"seed failed: a {window} window puts ids older than Opik cloud accepts; "
+                f"use --window-hours {int(CLOUD_MAX_WINDOW.total_seconds() // 3600)} or less",
+                file=sys.stderr,
+            )
+            return 1
+        manifest = seed(backend, window=window)
     except SeedError as err:
         print(f"seed failed: {err}", file=sys.stderr)
         return 1
