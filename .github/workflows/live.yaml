@@ -10,9 +10,11 @@ run-name: "Live ${{ github.ref_name }} by @${{ github.actor }}"
 #     GHCR images, seeded by scripts/seed_e2e_backend.py, then `make live`.
 #     Runs on every PR, on main and nightly. Needs no secrets, so fork PRs run
 #     it too.
-#   live-prod: the read tests against a dedicated workspace on Opik cloud, to
-#     catch version skew and cloud-only paths. Read-only; the fixture there was
-#     seeded once by hand. Nightly and on dispatch only, since it needs secrets.
+#   live-prod: the whole suite against a shared workspace on Opik cloud, to
+#     catch version skew and cloud-only paths. The read fixture there was
+#     seeded once by hand and is never written to; each run's writes carry
+#     their own prefix and are deleted when it ends. Nightly and on dispatch
+#     only, since it needs secrets.
 #
 # ADVISORY. Neither job is a required check. Make it required only after it
 # has a record of green runs on main.
@@ -163,7 +165,7 @@ jobs:
       failed: ${{ steps.failures.outputs.failed }}
     env:
       OPIK_URL: https://www.comet.com/opik/api
-      OPIK_LIVE_READ_ONLY: "1"
+      OPIK_LIVE_SHARED: "1"
     steps:
       # Until the dedicated workspace and its secrets exist, say so and pass.
       - name: Check the production workspace is configured
@@ -204,7 +206,7 @@ jobs:
         run: uv sync --extra dev
 
       # The key reaches this step only, not the install steps before it.
-      - name: Run the read tests against the production workspace
+      - name: Run the live suite against the production workspace
         if: steps.configured.outputs.ok == 'true'
         env:
           OPIK_API_KEY: ${{ secrets.OPIK_E2E_API_KEY }}

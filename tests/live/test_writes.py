@@ -1,9 +1,13 @@
 """Every write operation a real backend accepts, read back through the server.
 
-Additive writes create records under this run's prefix in their own project,
-so the seeded fixture's counts never move and a rerun on the same backend
-still verifies. The two state changes, thread close/open and issue
-resolve/close/reopen, act on records seeded for them and put them back.
+Every record a write creates is named with this run's prefix and lives in
+this run's own project, so no write touches what the read tests assert, and
+the run deletes it all when it ends (``run_prefix`` in the conftest). That is
+what lets the writes run against a shared cloud workspace too.
+
+The thread and issue lifecycles act on a thread and an issue made for the
+test. A Diagnostics issue has no write that creates one, so the test posts it
+to the backend directly, the way the seed does.
 
 The Diagnostics job operations are not here: they need Ollie, which an open
 source backend does not run, and the server refuses them there by design.
@@ -16,13 +20,11 @@ from datetime import UTC, datetime
 
 import anyio
 import pytest
-from scripts.seed_e2e_backend import PREFIX, Manifest
+from scripts.seed_e2e_backend import Backend
 
 from tests.live.conftest import Answer, Live, new_id
 
 pytestmark = [pytest.mark.live, pytest.mark.anyio]
-
-WRITES_PROJECT = f"{PREFIX}writes"
 
 
 def _now() -> str:
@@ -30,7 +32,7 @@ def _now() -> str:
 
 
 async def _eventually(check: Callable[[], Awaitable[bool]], what: str) -> None:
-    """Derived state (a thread's status) lands a moment after the write."""
+    """Derived state (a thread, its status) lands a moment after the write."""
     for _ in range(30):
         if await check():
             return
@@ -45,42 +47,43 @@ def _body(answer: Answer, key: str) -> dict[str, object]:
     return {str(k): v for k, v in body.items()}
 
 
-async def _trace(mcp: Live, name: str) -> str:
+async def _trace(mcp: Live, project: str, name: str, thread_id: str | None = None) -> str:
     trace_id = new_id()
-    await mcp.write(
-        "trace.create",
-        {
-            "id": trace_id,
-            "name": name,
-            "project_name": WRITES_PROJECT,
-            "start_time": _now(),
-            "input": {"question": "written by the live suite"},
-        },
-    )
+    data: dict[str, object] = {
+        "id": trace_id,
+        "name": name,
+        "project_name": project,
+        "start_time": _now(),
+        "input": {"question": "written by the live suite"},
+    }
+    if thread_id is not None:
+        data["thread_id"] = thread_id
+    await mcp.write("trace.create", data)
     return trace_id
 
 
-async def test_a_created_trace_reads_back_with_its_name(
-    mcp: Live, writable: Manifest, run_prefix: str
-) -> None:
-    trace_id = await _trace(mcp, f"{run_prefix}-trace")
+async def _project_id(mcp: Live, project: str) -> str:
+    return (await mcp.list("project", name=project)).column("id")[0]
+
+
+async def test_a_created_trace_reads_back_with_its_name(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-trace")
     trace = _body(await mcp.read("trace", trace_id), "trace")
     assert trace["name"] == f"{run_prefix}-trace"
 
 
 async def test_a_trace_created_by_project_id_carries_a_link_to_its_page(
-    mcp: Live, writable: Manifest, run_prefix: str
+    mcp: Live, run_prefix: str
 ) -> None:
     # By id: a project name is not resolved to an id just to build a link.
-    await _trace(mcp, f"{run_prefix}-first")
-    project_id = (await mcp.list("project", name=WRITES_PROJECT)).column("id")[0]
+    await _trace(mcp, run_prefix, f"{run_prefix}-first")
     trace_id = new_id()
     result = await mcp.write(
         "trace.create",
         {
             "id": trace_id,
             "name": f"{run_prefix}-linked",
-            "project_id": project_id,
+            "project_id": await _project_id(mcp, run_prefix),
             "start_time": _now(),
         },
     )
@@ -89,22 +92,18 @@ async def test_a_trace_created_by_project_id_carries_a_link_to_its_page(
     assert trace_id in url
 
 
-async def test_an_updated_trace_reads_back_changed(
-    mcp: Live, writable: Manifest, run_prefix: str
-) -> None:
-    trace_id = await _trace(mcp, f"{run_prefix}-before")
+async def test_an_updated_trace_reads_back_changed(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-before")
     await mcp.write(
         "trace.update",
-        {"id": trace_id, "project_name": WRITES_PROJECT, "tags": [f"{run_prefix}-tag"]},
+        {"id": trace_id, "project_name": run_prefix, "tags": [f"{run_prefix}-tag"]},
     )
     trace = _body(await mcp.read("trace", trace_id), "trace")
     assert trace["tags"] == [f"{run_prefix}-tag"]
 
 
-async def test_a_created_span_hangs_under_its_trace(
-    mcp: Live, writable: Manifest, run_prefix: str
-) -> None:
-    trace_id = await _trace(mcp, f"{run_prefix}-parent")
+async def test_a_created_span_hangs_under_its_trace(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-parent")
     span_id = new_id()
     await mcp.write(
         "span.create",
@@ -112,7 +111,7 @@ async def test_a_created_span_hangs_under_its_trace(
             "id": span_id,
             "trace_id": trace_id,
             "name": f"{run_prefix}-span",
-            "project_name": WRITES_PROJECT,
+            "project_name": run_prefix,
             "start_time": _now(),
             "type": "tool",
         },
@@ -122,8 +121,8 @@ async def test_a_created_span_hangs_under_its_trace(
     assert [s.get("id") for s in spans if isinstance(s, dict)] == [span_id]
 
 
-async def test_a_score_lands_on_its_trace(mcp: Live, writable: Manifest, run_prefix: str) -> None:
-    trace_id = await _trace(mcp, f"{run_prefix}-scored")
+async def test_a_score_lands_on_its_trace(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-scored")
     await mcp.write(
         "score.create",
         {
@@ -131,7 +130,7 @@ async def test_a_score_lands_on_its_trace(mcp: Live, writable: Manifest, run_pre
             "target_id": trace_id,
             "name": "live_suite",
             "value": 0.5,
-            "project_name": WRITES_PROJECT,
+            "project_name": run_prefix,
         },
     )
     scores = _body(await mcp.read("trace", trace_id), "trace").get("feedback_scores")
@@ -141,8 +140,8 @@ async def test_a_score_lands_on_its_trace(mcp: Live, writable: Manifest, run_pre
     ]
 
 
-async def test_a_comment_lands_on_its_trace(mcp: Live, writable: Manifest, run_prefix: str) -> None:
-    trace_id = await _trace(mcp, f"{run_prefix}-commented")
+async def test_a_comment_lands_on_its_trace(mcp: Live, run_prefix: str) -> None:
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-commented")
     await mcp.write(
         "comment.create", {"target": "trace", "target_id": trace_id, "text": run_prefix}
     )
@@ -151,35 +150,41 @@ async def test_a_comment_lands_on_its_trace(mcp: Live, writable: Manifest, run_p
     assert [c.get("text") for c in comments if isinstance(c, dict)] == [run_prefix]
 
 
-async def test_a_dataset_and_its_items_are_created(
-    mcp: Live, writable: Manifest, run_prefix: str
-) -> None:
-    name = f"{run_prefix}-dataset"
+async def _dataset_with_items(mcp: Live, name: str, questions: list[str]) -> str:
     await mcp.write("dataset.create", {"name": name})
     await mcp.write(
         "dataset_item.upsert",
-        {"dataset_name": name, "items": [{"data": {"q": "one"}}, {"data": {"q": "two"}}]},
+        {"dataset_name": name, "items": [{"data": {"q": q}} for q in questions]},
     )
-    dataset = _body(await mcp.read("dataset", name), "dataset")
-    items = await mcp.list("dataset_item", dataset_id=dataset["id"])
+    dataset_id = _body(await mcp.read("dataset", name), "dataset")["id"]
+    assert isinstance(dataset_id, str)
+    return dataset_id
+
+
+async def test_a_dataset_and_its_items_are_created(mcp: Live, run_prefix: str) -> None:
+    dataset_id = await _dataset_with_items(mcp, f"{run_prefix}-dataset", ["one", "two"])
+    items = await mcp.list("dataset_item", dataset_id=dataset_id)
     assert sorted(items.column("data.q")) == ["one", "two"]
 
 
-async def test_an_experiment_and_its_item_are_created(
-    mcp: Live, writable: Manifest, run_prefix: str
-) -> None:
-    dataset = writable.small_dataset
+async def test_an_experiment_and_its_item_are_created(mcp: Live, run_prefix: str) -> None:
+    dataset = f"{run_prefix}-experiment-dataset"
+    dataset_id = await _dataset_with_items(mcp, dataset, ["only"])
+    item_id = (await mcp.list("dataset_item", dataset_id=dataset_id)).column("id")[0]
     name = f"{run_prefix}-experiment"
-    await mcp.write("experiment.create", {"name": name, "dataset_name": dataset.name})
+    await mcp.write(
+        "experiment.create",
+        {"name": name, "dataset_name": dataset},
+    )
     experiment = (await mcp.read("experiment", name)).record()
-    trace_id = await _trace(mcp, f"{run_prefix}-run")
+    trace_id = await _trace(mcp, run_prefix, f"{run_prefix}-run")
     await mcp.write(
         "experiment_item.create",
         {
             "experiment_items": [
                 {
                     "experiment_id": experiment["id"],
-                    "dataset_item_id": dataset.item_ids[0],
+                    "dataset_item_id": item_id,
                     "trace_id": trace_id,
                 }
             ]
@@ -188,9 +193,7 @@ async def test_an_experiment_and_its_item_are_created(
     assert (await mcp.read("experiment", name)).record()["trace_count"] == 1
 
 
-async def test_saved_prompt_versions_read_back_newest_last(
-    mcp: Live, writable: Manifest, run_prefix: str
-) -> None:
+async def test_saved_prompt_versions_read_back_newest_last(mcp: Live, run_prefix: str) -> None:
     name = f"{run_prefix}-prompt"
     for template in ("first {{q}}", "second {{q}}"):
         await mcp.write("prompt_version.save", {"name": name, "template": template})
@@ -202,50 +205,71 @@ async def test_saved_prompt_versions_read_back_newest_last(
     assert (prompt["version_count"], latest["template"]) == (2, "second {{q}}")
 
 
-async def _thread_status(mcp: Live, m: Manifest) -> object:
-    thread = _body(
-        await mcp.read("thread", m.lifecycle_thread.id, project_name=m.project_name), "thread"
-    )
-    return thread["status"]
-
-
 async def test_closing_a_thread_makes_it_inactive_and_opening_it_active(
-    mcp: Live, writable: Manifest
+    mcp: Live, run_prefix: str
 ) -> None:
-    m = writable
-    target = {"thread_id": m.lifecycle_thread.id, "project_name": m.project_name}
+    thread_id = f"{run_prefix}-thread"
+    for turn in range(2):
+        await _trace(mcp, run_prefix, f"{run_prefix}-turn-{turn}", thread_id=thread_id)
+    target = {"thread_id": thread_id, "project_name": run_prefix}
+
+    async def status() -> object:
+        answer = await mcp.read("thread", thread_id, project_name=run_prefix)
+        return None if answer.is_error else _body(answer, "thread").get("status")
+
+    async def exists() -> bool:
+        return await status() is not None
+
+    await _eventually(exists, "the thread appearing")
     await mcp.write("thread.close", target)
-    # Reopened only once the close landed, so a refused close is the failure
-    # reported, not a refused reopen.
-    try:
 
-        async def inactive() -> bool:
-            return await _thread_status(mcp, m) == "inactive"
+    async def inactive() -> bool:
+        return await status() == "inactive"
 
-        await _eventually(inactive, "the thread closing")
-    finally:
-        await mcp.write("thread.open", target)
+    await _eventually(inactive, "the thread closing")
+    await mcp.write("thread.open", target)
 
     async def active() -> bool:
-        return await _thread_status(mcp, m) == "active"
+        return await status() == "active"
 
     await _eventually(active, "the thread reopening")
 
 
 @pytest.mark.parametrize("operation", ["resolve", "close"])
 async def test_an_issue_leaves_the_open_list_and_reopen_brings_it_back(
-    mcp: Live, writable: Manifest, operation: str
+    mcp: Live, backend: Backend, run_prefix: str, operation: str
 ) -> None:
-    m = writable
-    issue = {"issue_id": m.lifecycle_issue.id, "project_name": m.project_name}
+    await _trace(mcp, run_prefix, f"{run_prefix}-issue-host")
+    project_id = await _project_id(mcp, run_prefix)
+    issue_id = new_id()
+    backend.call(
+        "POST",
+        "/agent-insights/issues",
+        {
+            "project_id": project_id,
+            "report_day": _now()[:10],
+            "issues": [
+                {
+                    "id": issue_id,
+                    "name": f"{run_prefix}-issue-{operation}",
+                    "severity": "low",
+                    "count": 1,
+                    "total_count": 1,
+                    "users_impacted": 1,
+                    "total_users": 1,
+                }
+            ],
+        },
+    )
+    issue = {"issue_id": issue_id, "project_id": project_id}
 
     async def open_ids() -> set[str]:
-        answer = await mcp.list("agent_insights_issue", project_name=m.project_name)
-        return set(answer.column("id")) if answer.total() else set()
+        answer = await mcp.list("agent_insights_issue", project_id=project_id)
+        # An empty list has no table to read, only a sentence saying so.
+        return set(answer.column("id")) if "Found " in answer.text else set()
 
+    assert issue_id in await open_ids()
     await mcp.write(f"agent_insights_issue.{operation}", issue)
-    try:
-        assert m.lifecycle_issue.id not in await open_ids()
-    finally:
-        await mcp.write("agent_insights_issue.reopen", issue)
-    assert m.lifecycle_issue.id in await open_ids()
+    assert issue_id not in await open_ids()
+    await mcp.write("agent_insights_issue.reopen", issue)
+    assert issue_id in await open_ids()

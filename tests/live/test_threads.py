@@ -15,7 +15,7 @@ pytestmark = [pytest.mark.live, pytest.mark.anyio]
 async def test_a_thread_list_holds_every_seeded_thread(mcp: Live, manifest: Manifest) -> None:
     answer = await mcp.list("thread", project_name=manifest.project_name, size=100)
     seeded = {t.id for t in manifest.short_threads}
-    seeded |= {manifest.long_thread.id, manifest.lifecycle_thread.id}
+    seeded.add(manifest.long_thread.id)
     assert seeded <= set(answer.column("id"))
 
 

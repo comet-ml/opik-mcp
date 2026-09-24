@@ -51,12 +51,18 @@ import httpx
 
 #: Bumped whenever the plan below changes shape. A backend seeded by another
 #: version is refused rather than half-matched: rerun with ``--wipe``.
-FIXTURE_VERSION = 1
+FIXTURE_VERSION = 2
 
 #: Every name this fixture and the suite's writes create starts with this, so
 #: ``--wipe`` can find them all in a shared workspace.
 PREFIX = "mcp-live-"
 PROJECT = f"{PREFIX}e2e"
+
+#: What the suite's writes are named with, one run each: never the fixture's
+#: prefix, so a write cannot touch what the reads assert. ``e2e-cuj-`` is the
+#: prefix the shared cloud workspace's own cleanup already sweeps, so a run
+#: that dies before it cleans up is swept anyway.
+RUN_PREFIX = "e2e-cuj-mcp-live-"
 
 RECENT_REGULAR = 120
 PREVIOUS_REGULAR = 80
@@ -157,7 +163,6 @@ class Manifest:
     wide: TraceCase
     short_threads: tuple[ThreadCase, ...]
     long_thread: ThreadCase
-    lifecycle_thread: ThreadCase
     scored_thread: ThreadCase
     thread_score_name: str
     rule_names: tuple[str, ...]
@@ -169,7 +174,6 @@ class Manifest:
     answer_prompt: PromptCase
     churn_prompt: PromptCase
     open_issue: IssueCase
-    lifecycle_issue: IssueCase
 
     def to_json(self) -> str:
         return json.dumps(dataclasses.asdict(self), indent=2)
@@ -441,16 +445,6 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
             thread_id=long_thread.id,
         )
 
-    lifecycle_thread = ThreadCase(f"{PREFIX}thread-lifecycle", 2)
-    for k in range(lifecycle_thread.turns):
-        b.trace(
-            f"lifecycle/{k}",
-            anchor - timedelta(hours=3, seconds=-k),
-            name="chat_turn",
-            duration_ms=400,
-            thread_id=lifecycle_thread.id,
-        )
-
     # More score names than the project summary lists, on one trace.
     vocabulary = tuple(f"vocab_{n:02d}" for n in range(VOCABULARY_SCORE_NAMES))
     for n, name in enumerate(vocabulary):
@@ -468,7 +462,7 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
         }
     ]
 
-    recent_sdk = RECENT_REGULAR + 4 + LONG_THREAD_TURNS + lifecycle_thread.turns
+    recent_sdk = RECENT_REGULAR + 4 + LONG_THREAD_TURNS
 
     # Evaluation: a small dataset run by two experiments, the second worse on
     # known items; and a wide dataset past a page and past the column cut.
@@ -546,9 +540,6 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
     open_issue = IssueCase(
         b.id(anchor, "issue/open"), "Refund answers cite a policy that does not exist", "high"
     )
-    lifecycle_issue = IssueCase(
-        b.id(anchor, "issue/lifecycle"), "Retrieval times out on long orders", "medium"
-    )
     issues: list[JsonObject] = [
         {
             "id": case.id,
@@ -562,7 +553,7 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
             "users_impacted": count // 2,
             "total_users": 40,
         }
-        for case, count in ((open_issue, 12), (lifecycle_issue, 4))
+        for case, count in ((open_issue, 12),)
     ]
 
     manifest = Manifest(
@@ -586,7 +577,6 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
         wide=TraceCase("wide", wide_id, WIDE_TRACE_SPANS),
         short_threads=tuple(short_threads),
         long_thread=long_thread,
-        lifecycle_thread=lifecycle_thread,
         scored_thread=scored_thread,
         thread_score_name=thread_score_name,
         rule_names=tuple(rules),
@@ -600,7 +590,6 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
         answer_prompt=answer_prompt,
         churn_prompt=churn_prompt,
         open_issue=open_issue,
-        lifecycle_issue=lifecycle_issue,
     )
     return Plan(
         manifest=manifest,
@@ -737,7 +726,7 @@ def _write(backend: Backend, plan: Plan) -> None:
         backend.call("PUT", "/traces/feedback-scores", {"scores": batch})
     # Threads are built by an async listener: wait for every one verify reads,
     # and for the long one to hold all its turns.
-    for thread in (m.scored_thread, m.lifecycle_thread):
+    for thread in (m.scored_thread,):
         _wait(f"thread {thread.id}", functools.partial(_thread_exists, backend, thread.id))
     _wait(
         f"all turns of {m.long_thread.id}",
@@ -866,15 +855,13 @@ def verify(backend: Backend, plan: Plan) -> list[str]:
     expect(
         "Diagnostics issues",
         sorted(str(i.get("id")) for i in issues),
-        wanted=sorted((m.open_issue.id, m.lifecycle_issue.id)),
+        wanted=[m.open_issue.id],
     )
     expect(
         "status of the Diagnostics issues",
         sorted(str(i.get("status")) for i in issues),
-        wanted=["open", "open"],
+        wanted=["open"],
     )
-    # No check on the lifecycle thread's status: Opik marks every thread
-    # inactive 15 minutes after its last turn, so either state is normal.
     for exp in (m.baseline, m.candidate):
         row = _as_object(backend.call("GET", f"/experiments/{exp.id}"))
         expect(f"items in {exp.name}", row.get("trace_count"), wanted=m.small_dataset.item_count)
@@ -904,8 +891,8 @@ def _finish(backend: Backend, plan: Plan) -> Manifest:
 def load(backend: Backend) -> Manifest | None:
     """The fixture already on the backend, verified; None when there is none.
 
-    Never writes, so it is what a read-only run against a shared workspace
-    calls.
+    Never writes, so it is what a run against a shared workspace calls: the
+    fixture there is seeded once by hand and never touched again.
     """
     existing = _find_project(backend)
     if existing is None:
@@ -941,37 +928,66 @@ def seed(backend: Backend, *, ids_carry_time: bool = True, now: datetime | None 
 # --- wiping --------------------------------------------------------------------
 
 
-def _prefixed(backend: Backend, path: str) -> list[JsonObject]:
-    rows, _ = backend.page(path, name=PREFIX, size="100")
-    return [r for r in rows if str(r.get("name", "")).startswith(PREFIX)]
+def _named(
+    backend: Backend, path: str, prefix: str, older_than: datetime | None
+) -> list[JsonObject]:
+    rows, _ = backend.page(path, name=prefix, size="100")
+    return [
+        r
+        for r in rows
+        if str(r.get("name", "")).startswith(prefix)
+        and (older_than is None or _created(r) < older_than)
+    ]
 
 
-def wipe(backend: Backend) -> list[str]:
-    """Delete everything named with the fixture's prefix. Returns what went.
+def _created(row: JsonObject) -> datetime:
+    raw = str(row.get("created_at") or "")
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.max.replace(tzinfo=UTC)
 
-    Each pass deletes one page and asks again, until a page holds nothing with
-    the prefix: the suite's writes add records every run, so there can be more
-    than a page of them.
+
+def delete_named(backend: Backend, prefix: str, *, older_than: datetime | None = None) -> list[str]:
+    """Delete every project, experiment, dataset and prompt named with ``prefix``.
+
+    ``older_than`` keeps what was created after it, so a sweep for a crashed
+    run's leftovers never takes a run that is still going. Each pass deletes
+    one page and asks again, until nothing named with the prefix is left.
+    Returns what went.
     """
     gone: list[str] = []
-    for project in _drain(backend, "/projects"):
-        for rules in _pages(
-            functools.partial(_rules, backend, str(project["id"])), what="online rules"
-        ):
-            backend.call(
-                "POST", "/automations/evaluators/delete", {"ids": [r["id"] for r in rules]}
-            )
-        backend.call("DELETE", f"/projects/{project['id']}")
-        gone.append(f"project {project['name']}")
+    projects = functools.partial(_named, backend, "/projects", prefix, older_than)
+    for page in _pages(projects, what="projects"):
+        for project in page:
+            for rules in _pages(
+                functools.partial(_rules, backend, str(project["id"])), what="online rules"
+            ):
+                backend.call(
+                    "POST", "/automations/evaluators/delete", {"ids": [r["id"] for r in rules]}
+                )
+            backend.call("DELETE", f"/projects/{project['id']}")
+            gone.append(f"project {project['name']}")
     for kind, path, delete_path in (
         ("experiment", "/experiments", "/experiments/delete"),
         ("dataset", "/datasets", "/datasets/delete-batch"),
         ("prompt", "/prompts", "/prompts/delete"),
     ):
-        for mine in _pages(functools.partial(_prefixed, backend, path), what=f"{kind}s"):
+        named = functools.partial(_named, backend, path, prefix, older_than)
+        for mine in _pages(named, what=f"{kind}s"):
             backend.call("POST", delete_path, {"ids": [r["id"] for r in mine]})
             gone += [f"{kind} {r['name']}" for r in mine]
     return gone
+
+
+def wipe(backend: Backend) -> list[str]:
+    """Delete the fixture and every run's writes."""
+    return delete_named(backend, PREFIX) + delete_named(backend, RUN_PREFIX)
+
+
+def sweep_runs(backend: Backend, *, older_than: timedelta) -> list[str]:
+    """Delete what runs that died before cleaning up left behind."""
+    return delete_named(backend, RUN_PREFIX, older_than=datetime.now(UTC) - older_than)
 
 
 def _rules(backend: Backend, project_id: str) -> list[JsonObject]:
@@ -991,11 +1007,6 @@ def _pages(fetch: Callable[[], list[JsonObject]], *, what: str) -> Iterator[list
             raise SeedError(f"the backend still lists {len(ids)} {what} after deleting them")
         seen |= ids
         yield rows
-
-
-def _drain(backend: Backend, path: str) -> Iterator[JsonObject]:
-    for rows in _pages(lambda: _prefixed(backend, path), what=path.strip("/")):
-        yield from rows
 
 
 def main(argv: Sequence[str] | None = None) -> int:

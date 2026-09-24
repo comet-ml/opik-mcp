@@ -81,9 +81,9 @@ async def test_every_online_rule_is_listed(mcp: Live, manifest: Manifest) -> Non
     assert set(answer.column("name")) == set(manifest.rule_names)
 
 
-async def test_the_open_diagnostics_issues_are_listed(mcp: Live, manifest: Manifest) -> None:
+async def test_the_open_diagnostics_issue_is_listed(mcp: Live, manifest: Manifest) -> None:
     answer = await mcp.list("agent_insights_issue", project_name=manifest.project_name)
-    assert set(answer.column("id")) == {manifest.open_issue.id, manifest.lifecycle_issue.id}
+    assert answer.column("id") == [manifest.open_issue.id]
 
 
 async def test_a_diagnostics_issue_reads_with_its_name_and_severity(

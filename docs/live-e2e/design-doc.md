@@ -46,10 +46,13 @@ imports `opik_mcp`. The suite depends on the tool names, their arguments and
 the answer shapes, which the conformance snapshots pin, so moving modules
 inside `src/` does not touch it.
 
-**Writes never move the fixture.** Additive writes go to their own project and
-carry a per-run prefix. The two state changes, closing a thread and resolving
-an issue, act on records seeded for them and put them back. A second run on the
-same backend therefore verifies the fixture again.
+**Writes never touch the fixture.** Every record a write test creates,
+including the thread it closes and the issue it resolves, lives in the run's
+own project and carries the run's prefix, `e2e-cuj-mcp-live-<run>`. The run
+deletes all of it when it ends, and sweeps what a crashed run left behind
+before it starts. The `e2e-cuj-` prefix is also swept by the shared cloud
+workspace's own cleanup. A second run on the same backend therefore verifies
+the fixture again.
 
 **Sizes.** Every answer's size goes to the job summary. The size tests assert
 that each answer stays under what Claude Code accepts, the ceiling defined in
@@ -58,9 +61,10 @@ gets the rest.
 
 **Two jobs.** `live-local` starts an open source Opik at its latest release
 from GHCR images with `opik.sh --backend --port-mapping`, seeds it and runs the
-suite. `live-prod` runs the read tests against a dedicated cloud workspace
-seeded once by hand, with `OPIK_LIVE_READ_ONLY=1`, and prints the cloud
-version next to the open source one. It skips with a notice until
+suite. `live-prod` runs the whole suite against a shared cloud workspace,
+with `OPIK_LIVE_SHARED=1`: it loads the fixture seeded there once by hand and
+never seeds or wipes it, and prints the cloud version next to the open source
+one. It skips with a notice until
 `OPIK_E2E_API_KEY` and `OPIK_E2E_WORKSPACE` exist.
 
 ## Running it locally

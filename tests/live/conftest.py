@@ -15,8 +15,9 @@ Environment:
 - ``OPIK_URL``: the REST base of the backend, e.g. ``http://localhost:8080``.
   Required; the suite fails in one line when nothing answers there.
 - ``OPIK_API_KEY``, ``OPIK_WORKSPACE``: passed to the server and the seed as is.
-- ``OPIK_LIVE_READ_ONLY=1``: a shared workspace. The session never seeds, it
-  loads the fixture someone seeded by hand, and every write test skips.
+- ``OPIK_LIVE_SHARED=1``: a shared workspace. The session never seeds or
+  wipes the fixture, it loads the one seeded there by hand. Writes still run:
+  they touch only their own run's records.
 - ``OPIK_LIVE_SIZES``: a file to append each answer's size to, as markdown
   table rows. CI points it at the job summary.
 """
@@ -32,13 +33,23 @@ import uuid
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 
 import anyio
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from scripts.seed_e2e_backend import Backend, Manifest, SeedError, load, seed
+from scripts.seed_e2e_backend import (
+    RUN_PREFIX,
+    Backend,
+    Manifest,
+    SeedError,
+    delete_named,
+    load,
+    seed,
+    sweep_runs,
+)
 
 #: A hung server must fail the test, not the job.
 _TIMEOUT_S = 120
@@ -49,14 +60,17 @@ _TIMEOUT_S = 120
 #: server constant: when ADR 0002 decides the per-tool limit, this follows it.
 HOST_CEILING_CHARS = 25_000 * 5 // 2
 
+#: A run older than this that left records behind has died; a live one has not.
+_STALE_RUN = timedelta(hours=2)
+
 _SHOWING = re.compile(r"showing (\d+) of (\d+)")
 
 
 # --- the backend and its fixture ----------------------------------------------
 
 
-def _read_only() -> bool:
-    return os.environ.get("OPIK_LIVE_READ_ONLY") == "1"
+def _shared() -> bool:
+    return os.environ.get("OPIK_LIVE_SHARED") == "1"
 
 
 @pytest.fixture(scope="session")
@@ -65,7 +79,7 @@ def backend() -> Iterator[Backend]:
         client = Backend.from_env()
     except SeedError as err:
         pytest.fail(f"{err} Start one: see docs/live-e2e/design-doc.md.", pytrace=False)
-    if not _read_only() and not client.ready():
+    if not _shared() and not client.ready():
         client.close()
         pytest.fail(
             f"no Opik backend is ready at {client.base_url}. "
@@ -79,12 +93,12 @@ def backend() -> Iterator[Backend]:
 @pytest.fixture(scope="session")
 def manifest(backend: Backend) -> Manifest:
     try:
-        found = load(backend) if _read_only() else seed(backend)
+        found = load(backend) if _shared() else seed(backend)
     except SeedError as err:
         pytest.fail(f"the fixture is not usable: {err}", pytrace=False)
     if found is None:
         pytest.fail(
-            "the read-only workspace holds no fixture; seed it once with "
+            "the shared workspace holds no fixture; seed it once with "
             "scripts/seed_e2e_backend.py --ids-at-seed-time",
             pytrace=False,
         )
@@ -99,18 +113,18 @@ def windowed(manifest: Manifest) -> Manifest:
     return manifest
 
 
-@pytest.fixture
-def writable(manifest: Manifest) -> Manifest:
-    """The manifest, for a test that writes."""
-    if _read_only():
-        pytest.skip("OPIK_LIVE_READ_ONLY: this workspace is not written to")
-    return manifest
-
-
 @pytest.fixture(scope="session")
-def run_prefix() -> str:
-    """Names this run's writes carry, so a rerun never meets them and --wipe does."""
-    return f"mcp-live-run-{os.getpid()}-{os.urandom(3).hex()}"
+def run_prefix(backend: Backend, manifest: Manifest) -> Iterator[str]:
+    """The name this run's writes carry, and their cleanup.
+
+    Every record a write test creates is named with it, and nothing a read
+    asserts is, so writes never touch the fixture. Before the run, leftovers of
+    runs that died before cleaning up are swept; after it, this run's go.
+    """
+    sweep_runs(backend, older_than=_STALE_RUN)
+    prefix = f"{RUN_PREFIX}{os.getpid()}-{os.urandom(3).hex()}"
+    yield prefix
+    delete_named(backend, prefix)
 
 
 def continuation(note: str) -> dict[str, int]:
