@@ -255,10 +255,13 @@ advertised and new code should use the new ones.
 
 ```python
 read(entity_type="trace", id="7f2e3c8a-…")
-read(entity_type="project", id="demo")          # name lookup
+read(entity_type="project", id="demo")  # name lookup
 read(entity_type="trace", id="opik://traces/7f2e3c8a-…")
 read(entity_type="agent_insights_issue", id="<issue-uuid>", project_id="<project-uuid>")
-read(entity_type="agent_insights_issue", id="https://www.comet.com/opik/<ws>/projects/<pid>/diagnostics?issue=<id>")
+read(
+    entity_type="agent_insights_issue",
+    id="https://www.comet.com/opik/<ws>/projects/<pid>/diagnostics?issue=<id>",
+)
 ```
 
 A link copied from the Opik UI works as the `id`: a thread link or a
@@ -313,18 +316,24 @@ need their parent: a project UUID or name, a dataset UUID, or a prompt UUID.
 
 ```python
 list(entity_type="experiment", page=1, size=25)
-list(entity_type="experiment", name="rerank")          # name substring filter
-list(entity_type="agent_insights_issue", project_name="demo")             # open Diagnostics issues
+list(entity_type="experiment", name="rerank")  # name substring filter
+list(entity_type="agent_insights_issue", project_name="demo")  # open Diagnostics issues
 list(entity_type="agent_insights_issue", project_id="<uuid>", status="resolved")
-list(entity_type="trace", project_name="demo")         # latest traces of one project
-list(entity_type="trace", project_name="demo",
-     filters='error_info is_not_empty AND duration > 5000')
-list(entity_type="span", project_name="demo",          # spans across the whole project
-     filters='type = "llm" AND usage.total_tokens > 10000')
-list(entity_type="thread", project_name="demo",
-     filters='number_of_messages > 20 AND feedback_scores.helpfulness < 0.5')
-list(entity_type="experiment",
-     filters='dataset_id = "<dataset-uuid>" AND tags contains "baseline"')
+list(entity_type="trace", project_name="demo")  # latest traces of one project
+list(
+    entity_type="trace", project_name="demo", filters="error_info is_not_empty AND duration > 5000"
+)
+list(
+    entity_type="span",
+    project_name="demo",  # spans across the whole project
+    filters='type = "llm" AND usage.total_tokens > 10000',
+)
+list(
+    entity_type="thread",
+    project_name="demo",
+    filters="number_of_messages > 20 AND feedback_scores.helpfulness < 0.5",
+)
+list(entity_type="experiment", filters='dataset_id = "<dataset-uuid>" AND tags contains "baseline"')
 ```
 
 **Filters.** `trace`, `span`, `thread`, `experiment` and `dataset_item` take an
@@ -368,11 +377,11 @@ rather than dropped. `read(entity_type="dataset_item", id=…)` returns one case
 whole, which is how a value the table cut is read back.
 
 ```python
-list(entity_type="dataset_item", dataset_id="<uuid>",
-     filters='data.question contains "install"')
-list(entity_type="dataset_item", dataset_id="<uuid>",
-     filters='trace_id = "<trace-uuid>"')                 # the case made from that trace
-read(entity_type="dataset_item", id="<item-uuid>")        # the case, uncut
+list(entity_type="dataset_item", dataset_id="<uuid>", filters='data.question contains "install"')
+list(
+    entity_type="dataset_item", dataset_id="<uuid>", filters='trace_id = "<trace-uuid>"'
+)  # the case made from that trace
+read(entity_type="dataset_item", id="<item-uuid>")  # the case, uncut
 ```
 
 With `experiment_ids` the same list is the comparison instead — the cases with
@@ -414,8 +423,13 @@ default `source = "sdk"` says how to see the other sources. A misspelled
 `project_name` comes back with the closest existing name.
 
 ```python
-list(entity_type="trace", project_name="demo", since="1h",
-     filters="error_info is_not_empty", sort="duration desc")
+list(
+    entity_type="trace",
+    project_name="demo",
+    since="1h",
+    filters="error_info is_not_empty",
+    sort="duration desc",
+)
 list(entity_type="trace", project_name="demo", search="order-42")
 ```
 
@@ -467,12 +481,23 @@ the overview, which is when something changed.
 
 ```python
 list(entity_type="project_metric", project_name="demo", metric_type="trace_count")
-list(entity_type="project_metric", project_name="demo", metric_type="trace_error_rate",
-     since="14d", interval="daily")
-list(entity_type="project_metric", project_name="demo", metric_type="span_count",
-     breakdown="model")                      # one column per model
-list(entity_type="project_metric", project_name="demo", metric_type="span_duration",
-     breakdown="model", series="p99")        # the p99 of each model
+list(
+    entity_type="project_metric",
+    project_name="demo",
+    metric_type="trace_error_rate",
+    since="14d",
+    interval="daily",
+)
+list(
+    entity_type="project_metric", project_name="demo", metric_type="span_count", breakdown="model"
+)  # one column per model
+list(
+    entity_type="project_metric",
+    project_name="demo",
+    metric_type="span_duration",
+    breakdown="model",
+    series="p99",
+)  # the p99 of each model
 ```
 
 Rows are time buckets, not records, so `page`, `size` and `sort` are refused
@@ -542,13 +567,16 @@ backend response.
 | `agent_insights_issue.reopen` | Put a resolved or closed Diagnostics issue back on the open list. |
 
 ```python
-write(operation="score.create", data={
-  "target": "trace",
-  "target_id": "7f2e3c8a-…",
-  "name": "helpfulness",
-  "value": 0.9,
-  "reason": "great recovery"
-})
+write(
+    operation="score.create",
+    data={
+        "target": "trace",
+        "target_id": "7f2e3c8a-…",
+        "name": "helpfulness",
+        "value": 0.9,
+        "reason": "great recovery",
+    },
+)
 ```
 
 ### `schema`

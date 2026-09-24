@@ -108,27 +108,31 @@ Items are plain dicts with a required `data` field (typed as `TestSuiteItem` Typ
 
 ```python
 # Insert items (item-level assertions are optional and add to global ones)
-suite.insert([
-    {
-        "data": {"input": "What is the capital of France?"},
-        "assertions": ["Response correctly identifies Paris as the capital"],
-        "description": "Basic geography question",
-    },
-    {
-        "data": {"input": "Explain quantum computing simply"},
-        # No item-level assertions — global assertions still apply
-    },
-])
+suite.insert(
+    [
+        {
+            "data": {"input": "What is the capital of France?"},
+            "assertions": ["Response correctly identifies Paris as the capital"],
+            "description": "Basic geography question",
+        },
+        {
+            "data": {"input": "Explain quantum computing simply"},
+            # No item-level assertions — global assertions still apply
+        },
+    ]
+)
 
 # Update existing items (must include 'id')
 items = suite.get_items()
-suite.update([
-    {
-        "id": items[0]["id"],
-        "data": items[0]["data"],
-        "assertions": ["Updated assertion for this item"],
-    },
-])
+suite.update(
+    [
+        {
+            "id": items[0]["id"],
+            "data": items[0]["data"],
+            "assertions": ["Updated assertion for this item"],
+        },
+    ]
+)
 
 # Delete specific items
 suite.delete(items_ids=[items[0]["id"]])
@@ -196,13 +200,15 @@ Override the suite-level policy for high-stakes items:
 **Python:**
 
 ```python
-suite.insert([
-    {
-        "data": {"input": "Calculate the dosage for a 70kg patient"},
-        "assertions": ["Dosage calculation is mathematically correct"],
-        "execution_policy": {"runs_per_item": 5, "pass_threshold": 5},  # Must pass all 5
-    },
-])
+suite.insert(
+    [
+        {
+            "data": {"input": "Calculate the dosage for a 70kg patient"},
+            "assertions": ["Dosage calculation is mathematically correct"],
+            "execution_policy": {"runs_per_item": 5, "pass_threshold": 5},  # Must pass all 5
+        },
+    ]
+)
 ```
 
 **TypeScript:**
@@ -340,16 +346,16 @@ if (!results.allItemsPassed) {
 
 ```python
 results = opik.run_tests(
-    test_suite=suite,                          # or a TestSuiteVersion for pinned runs
+    test_suite=suite,  # or a TestSuiteVersion for pinned runs
     task=my_evaluation_task,
-    experiment_name="regression-v2.1",         # auto-generated if omitted
-    experiment_name_prefix="nightly-",         # prefix for auto-generated names
+    experiment_name="regression-v2.1",  # auto-generated if omitted
+    experiment_name_prefix="nightly-",  # prefix for auto-generated names
     experiment_config={"model": "gpt-4o", "temperature": 0.1},
-    prompts=[my_prompt],                       # link prompt versions to experiment
+    prompts=[my_prompt],  # link prompt versions to experiment
     experiment_tags=["nightly", "v2.1"],
-    model="gpt-4o",                            # model for assertion checking (LLM judge)
-    blueprint_id="agent-config-uuid",          # link experiment to an Agent Configuration version
-    verbose=2,                                 # 0=silent, 1=summary, 2=detailed
+    model="gpt-4o",  # model for assertion checking (LLM judge)
+    blueprint_id="agent-config-uuid",  # link experiment to an Agent Configuration version
+    verbose=2,  # 0=silent, 1=summary, 2=detailed
     worker_threads=16,
     generate_report=True,
     report_output_path="./test-report.json",
@@ -515,7 +521,9 @@ results = opik.run_tests(
 )
 
 if not results.all_items_passed:
-    print(f"FAILED: {results.items_total - results.items_passed}/{results.items_total} items failed")
+    print(
+        f"FAILED: {results.items_total - results.items_passed}/{results.items_total} items failed"
+    )
     sys.exit(1)
 
 print(f"All {results.items_total} items passed ({results.pass_rate:.0%} pass rate)")
