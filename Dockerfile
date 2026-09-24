@@ -75,5 +75,5 @@ STOPSIGNAL SIGTERM
 # _OPIK_MCP_LIFECYCLE_OWNED_BY_MAIN sentinel, so boots are never double-counted.
 # Transport/host/port come from the ENV above; single worker by design (SSE is
 # async-IO-bound and multiple workers would fragment in-memory session state —
-# scale with replicas + Redis, see docs/phase-2.md).
+# scale with replicas + Redis, see docs/hosted-auth/design-doc.md).
 ENTRYPOINT ["tini", "--", "python", "-m", "opik_mcp"]

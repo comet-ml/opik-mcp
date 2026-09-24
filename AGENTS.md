@@ -115,4 +115,5 @@ errors.
 - Subagents: `code-reviewer`, `understand`, `test-runner`.
 - Commands: `/install-branch`, `/dogfood`, `/create-pr`,
   `/address-pr-comments`.
+- Design docs: [docs/README.md](docs/README.md), one per feature.
 - Decisions: [docs/decisions/](docs/decisions/README.md).
