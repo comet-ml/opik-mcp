@@ -165,7 +165,7 @@ def test_tool_description_stays_within_a_sane_budget() -> None:
 # of "OpikTracer"). A check that passes for the wrong reason is worse than none —
 # it reads as coverage while proving nothing. Whether these lines route well is a
 # review question, and ultimately an eval question: `evals/` already exists under
-# two of the skills, and the `skill` / `had_reference` BI labels on `read_skill`
+# most of the skills, and the `skill` / `had_reference` BI labels on `read_skill`
 # show which skills actually get fetched.
 
 
