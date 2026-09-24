@@ -31,9 +31,11 @@ large case crosses the limit a read has for it.
 
 **Ids carry time.** `since` and `until` filter on the time inside a record's
 UUIDv7 id, not on `start_time`. The seed mints each id from its record's own
-instant, so traces backdated into last week are found by a window on last week.
-Opik cloud rejects ids more than a day old; there the seed takes
-`--ids-at-seed-time`, and the manifest says the window tests must skip.
+instant across two windows of one length, 7 days by default. Opik cloud
+refuses an id more than about a day old, so there the seed takes
+`--window-hours 10`: every id is inside a day when it is written. The tests
+ask for the manifest's exact instants, so the windows still hold the data as
+it ages, and the window tests run on both backends.
 
 **Deterministic and reusable.** Every id is derived from one anchor instant and
 the record's key. The anchor and the fixture version are stored in the project
@@ -103,7 +105,7 @@ To seed the production workspace once:
 
 ```bash
 OPIK_URL=https://www.comet.com/opik/api OPIK_API_KEY=*** OPIK_WORKSPACE=<workspace> \
-  uv run python scripts/seed_e2e_backend.py --ids-at-seed-time
+  uv run python scripts/seed_e2e_backend.py --window-hours 10
 ```
 
 ## Key decisions
@@ -129,6 +131,6 @@ OPIK_URL=https://www.comet.com/opik/api OPIK_API_KEY=*** OPIK_WORKSPACE=<workspa
 
 ## Open questions
 
-- The Diagnostics job operations need Ollie, which an open source backend does
-  not run, so they have no live test.
+- The Diagnostics job operations need Ollie, so their tests skip on an open
+  source backend and run only against cloud.
 - Whether `live-local` becomes a required check, once it has a record on main.

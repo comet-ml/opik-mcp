@@ -9,8 +9,9 @@ The thread and issue lifecycles act on a thread and an issue made for the
 test. A Diagnostics issue has no write that creates one, so the test posts it
 to the backend directly, the way the seed does.
 
-The Diagnostics job operations are not here: they need Ollie, which an open
-source backend does not run, and the server refuses them there by design.
+The Diagnostics job operations need Ollie, which Opik cloud runs and an open
+source backend does not; there they skip, since the server refuses them by
+design.
 """
 
 from __future__ import annotations
@@ -59,6 +60,13 @@ async def _trace(mcp: Live, project: str, name: str, thread_id: str | None = Non
     if thread_id is not None:
         data["thread_id"] = thread_id
     await mcp.write("trace.create", data)
+
+    # Cloud makes a new trace visible a moment after the write returns; a
+    # score or comment sent before then is refused as not found.
+    async def readable() -> bool:
+        return not (await mcp.read("trace", trace_id)).is_error
+
+    await _eventually(readable, f"trace {trace_id} becoming readable")
     return trace_id
 
 
@@ -273,3 +281,18 @@ async def test_an_issue_leaves_the_open_list_and_reopen_brings_it_back(
     assert issue_id not in await open_ids()
     await mcp.write("agent_insights_issue.reopen", issue)
     assert issue_id in await open_ids()
+
+
+@pytest.mark.parametrize("operation", ["enable", "trigger"])
+async def test_a_diagnostics_job_operation_is_accepted_where_ollie_runs(
+    mcp: Live, backend: Backend, run_prefix: str, operation: str
+) -> None:
+    toggles = backend.call("GET", "/toggles/")
+    if not (isinstance(toggles, dict) and toggles.get("ollie_enabled") is True):
+        pytest.skip("this backend does not run Ollie, so Diagnostics jobs cannot run")
+    await _trace(mcp, run_prefix, f"{run_prefix}-diagnosed")
+    target = {"project_name": run_prefix}
+    if operation == "trigger":
+        await mcp.write("agent_insights_job.enable", target)
+    result = await mcp.write(f"agent_insights_job.{operation}", target)
+    assert isinstance(result.get("url"), str), f"no link in {result}"

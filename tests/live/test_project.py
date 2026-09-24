@@ -25,9 +25,9 @@ async def test_a_project_is_found_by_its_name(mcp: Live, manifest: Manifest) -> 
 
 
 async def test_the_summary_compares_the_window_with_the_one_before(
-    mcp: Live, windowed: Manifest
+    mcp: Live, manifest: Manifest
 ) -> None:
-    m = windowed
+    m = manifest
     record = (
         await mcp.read("project", m.project_name, since=m.recent_since, until=m.anchor)
     ).record()
@@ -58,8 +58,8 @@ async def test_the_summary_counts_every_score_name_and_rule_it_names(
         assert len(names) <= int(str(part["total"]))
 
 
-async def test_a_daily_metric_adds_up_to_the_window(mcp: Live, windowed: Manifest) -> None:
-    m = windowed
+async def test_a_daily_metric_adds_up_to_the_window(mcp: Live, manifest: Manifest) -> None:
+    m = manifest
     answer = await mcp.list(
         "project_metric",
         project_name=m.project_name,

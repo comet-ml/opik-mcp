@@ -11,9 +11,9 @@ pytestmark = [pytest.mark.live, pytest.mark.anyio]
 
 
 async def test_a_window_returns_exactly_the_traces_logged_in_it(
-    mcp: Live, windowed: Manifest
+    mcp: Live, manifest: Manifest
 ) -> None:
-    m = windowed
+    m = manifest
     recent = await mcp.list(
         "trace", project_name=m.project_name, since=m.recent_since, until=m.anchor, size=1
     )
@@ -24,9 +24,9 @@ async def test_a_window_returns_exactly_the_traces_logged_in_it(
 
 
 async def test_an_error_filter_returns_exactly_the_errored_traces(
-    mcp: Live, windowed: Manifest
+    mcp: Live, manifest: Manifest
 ) -> None:
-    m = windowed
+    m = manifest
     answer = await mcp.list(
         "trace",
         project_name=m.project_name,
@@ -59,8 +59,8 @@ async def test_sorting_by_duration_puts_the_slowest_trace_first(
     assert answer.column("id")[0] == manifest.heavy.id
 
 
-async def test_two_pages_are_disjoint_and_together_hold_both(mcp: Live, windowed: Manifest) -> None:
-    m = windowed
+async def test_two_pages_are_disjoint_and_together_hold_both(mcp: Live, manifest: Manifest) -> None:
+    m = manifest
     window = {"project_name": m.project_name, "since": m.recent_since, "until": m.anchor}
     first = await mcp.list("trace", **window, size=100, page=1)
     second = await mcp.list("trace", **window, size=100, page=2)

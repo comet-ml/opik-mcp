@@ -99,18 +99,10 @@ def manifest(backend: Backend) -> Manifest:
     if found is None:
         pytest.fail(
             "the shared workspace holds no fixture; seed it once with "
-            "scripts/seed_e2e_backend.py --ids-at-seed-time",
+            "scripts/seed_e2e_backend.py --window-hours 10",
             pytrace=False,
         )
     return found
-
-
-@pytest.fixture
-def windowed(manifest: Manifest) -> Manifest:
-    """The manifest, for a test that needs ids that carry their record's time."""
-    if not manifest.ids_carry_time:
-        pytest.skip("the fixture's ids were minted at seeding time, so windows cannot see it")
-    return manifest
 
 
 @pytest.fixture(scope="session")

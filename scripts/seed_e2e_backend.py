@@ -12,12 +12,14 @@ finds the project, rebuilds the same plan from the stored anchor, verifies the
 backend still holds it, and writes nothing. ``--wipe`` deletes every record
 this fixture and the suite's writes create, for a clean re-seed.
 
-Time layout. The project summary compares a 7-day window with the 7 days
-before it, and ``since``/``until`` filter on the time embedded in a UUIDv7 id,
-not on ``start_time``. So each record's id is minted from its own instant. A
-backend that validates id timestamps (Opik cloud does, within 24 hours) takes
-``--ids-at-seed-time`` instead; the manifest then says the ids carry no time
-and the window tests skip.
+Time layout. The fixture spans two windows of one length: the recent one and
+the one before it, which the project summary compares. ``since``/``until``
+filter on the time embedded in a UUIDv7 id, not on ``start_time``, so each
+record's id is minted from its own instant. The window is 7 days by default.
+Opik cloud refuses an id more than about a day old, so there the seed takes
+``--window-hours 10``: every id is inside a day when it is written, and the
+tests ask for the manifest's exact instants, so the windows still hold them
+as the data ages.
 
 The fixture has a size axis as well as a content axis: a tiny, a typical, a
 heavy and a wide trace, a short and a long thread, a small and a wide dataset,
@@ -29,7 +31,7 @@ Environment, the same the server reads: ``OPIK_URL`` (REST base, e.g.
 ``http://localhost:8080``), ``OPIK_API_KEY`` (optional for a local backend),
 ``OPIK_WORKSPACE`` (defaults to ``default``).
 
-Run: ``uv run python scripts/seed_e2e_backend.py [--wipe] [--ids-at-seed-time]``
+Run: ``uv run python scripts/seed_e2e_backend.py [--wipe] [--window-hours N]``
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ import httpx
 
 #: Bumped whenever the plan below changes shape. A backend seeded by another
 #: version is refused rather than half-matched: rerun with ``--wipe``.
-FIXTURE_VERSION = 2
+FIXTURE_VERSION = 3
 
 #: Every name this fixture and the suite's writes create starts with this, so
 #: ``--wipe`` can find them all in a shared workspace.
@@ -66,6 +68,7 @@ RUN_PREFIX = "e2e-cuj-mcp-live-"
 
 RECENT_REGULAR = 120
 PREVIOUS_REGULAR = 80
+#: The default window; the summary's own default compares a week with the one before.
 WINDOW = timedelta(days=7)
 SHORT_THREADS = 10
 TURNS_PER_SHORT_THREAD = 3
@@ -145,7 +148,7 @@ class Manifest:
 
     fixture_version: int
     anchor: str
-    ids_carry_time: bool
+    window_seconds: int
     project_name: str
     project_id: str
     recent_since: str
@@ -235,16 +238,15 @@ class Plan:
 
 
 class _Builder:
-    def __init__(self, anchor: datetime, *, ids_carry_time: bool) -> None:
+    def __init__(self, anchor: datetime) -> None:
         self.anchor = anchor
         self.anchor_key = _iso(anchor)
-        self.ids_carry_time = ids_carry_time
         self.traces: list[JsonObject] = []
         self.spans: list[JsonObject] = []
         self.trace_scores: list[JsonObject] = []
 
     def id(self, when: datetime, key: str) -> str:
-        return _uuid7(when if self.ids_carry_time else self.anchor, self.anchor_key, key)
+        return _uuid7(when, self.anchor_key, key)
 
     def trace(
         self,
@@ -348,15 +350,17 @@ class _Builder:
         )
 
 
-def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Plan:
+def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
     """The whole fixture as data. Pure: the same anchor gives the same plan."""
-    b = _Builder(anchor, ids_carry_time=ids_carry_time)
-    step = timedelta(minutes=80)
+    b = _Builder(anchor)
+    # Every offset is a share of the window, so a short window keeps the shape.
+    hour = window / 168
+    step = window * 0.9 / RECENT_REGULAR
 
     recent_errors: list[str] = []
     low_correctness: list[str] = []
     for i in range(RECENT_REGULAR):
-        when = anchor - timedelta(hours=1) - i * step
+        when = anchor - hour - i * step
         thread = None
         if i < SHORT_THREADS * TURNS_PER_SHORT_THREAD:
             thread = f"{PREFIX}thread-short-{i // TURNS_PER_SHORT_THREAD:02d}"
@@ -378,14 +382,14 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
 
     previous_errors = 0
     for i in range(PREVIOUS_REGULAR):
-        when = anchor - WINDOW - timedelta(hours=1) - i * step
+        when = anchor - window - hour - i * window * 0.9 / PREVIOUS_REGULAR
         error = i % 20 == 0
         previous_errors += error
         b.turn(f"previous/{i}", when, duration_ms=300 + (i % 50) * 10, error=error)
 
     # The size axis. Each case is recent and sdk-sourced, so it counts in the
     # window like any other trace; the manifest's counts include them.
-    t0 = anchor - timedelta(minutes=30)
+    t0 = anchor - hour / 2
     tiny_id = b.trace(
         "tiny",
         t0,
@@ -435,7 +439,7 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
         )
 
     long_thread = ThreadCase(f"{PREFIX}thread-long", LONG_THREAD_TURNS)
-    t_long = anchor - timedelta(hours=20)
+    t_long = anchor - 20 * hour
     for k in range(LONG_THREAD_TURNS):
         b.trace(
             f"long/{k}",
@@ -499,7 +503,7 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
     regressed: list[str] = []
     for exp in (baseline, candidate):
         for n, item_id in enumerate(small_ids):
-            when = anchor - timedelta(hours=2, seconds=-n)
+            when = anchor - 2 * hour + timedelta(seconds=n)
             trace_id = b.trace(
                 f"{exp.name}/{n}",
                 when,
@@ -559,11 +563,11 @@ def build_plan(anchor: datetime, *, ids_carry_time: bool, project_id: str) -> Pl
     manifest = Manifest(
         fixture_version=FIXTURE_VERSION,
         anchor=_iso(anchor),
-        ids_carry_time=ids_carry_time,
+        window_seconds=int(window.total_seconds()),
         project_name=PROJECT,
         project_id=project_id,
-        recent_since=_iso(anchor - WINDOW),
-        previous_since=_iso(anchor - 2 * WINDOW),
+        recent_since=_iso(anchor - window),
+        previous_since=_iso(anchor - 2 * window),
         recent_sdk_traces=recent_sdk,
         previous_sdk_traces=PREVIOUS_REGULAR,
         recent_errors=len(recent_errors),
@@ -686,18 +690,18 @@ def _wait(what: str, check: Callable[[], bool], timeout: float = DERIVED_TIMEOUT
         time.sleep(1.0)
 
 
-def _description(anchor: str, *, ids_carry_time: bool) -> str:
-    ids = "record" if ids_carry_time else "seed"
-    return f"opik-mcp live fixture v{FIXTURE_VERSION} anchor={anchor} ids={ids}"
+def _description(anchor: str, *, window: timedelta) -> str:
+    seconds = int(window.total_seconds())
+    return f"opik-mcp live fixture v{FIXTURE_VERSION} anchor={anchor} window={seconds}"
 
 
-def _parse_description(text: str) -> tuple[int, datetime, bool] | None:
+def _parse_description(text: str) -> tuple[int, datetime, timedelta] | None:
     parts = dict(p.split("=", 1) for p in text.split() if "=" in p)
     version = text.split(" v", 1)[1].split()[0] if " v" in text else ""
-    if not version.isdigit() or "anchor" not in parts or "ids" not in parts:
+    if not version.isdigit() or "anchor" not in parts or not parts.get("window", "").isdigit():
         return None
     anchor = datetime.fromisoformat(parts["anchor"].replace("Z", "+00:00"))
-    return int(version), anchor, parts["ids"] == "record"
+    return int(version), anchor, timedelta(seconds=int(parts["window"]))
 
 
 def _find_project(backend: Backend) -> JsonObject | None:
@@ -903,24 +907,22 @@ def load(backend: Backend) -> Manifest | None:
             f"project {PROJECT!r} exists but was not seeded by fixture "
             f"v{FIXTURE_VERSION}; rerun with --wipe"
         )
-    _, anchor, carry = stored
-    return _finish(
-        backend, build_plan(anchor, ids_carry_time=carry, project_id=str(existing["id"]))
-    )
+    _, anchor, window = stored
+    return _finish(backend, build_plan(anchor, window=window, project_id=str(existing["id"])))
 
 
-def seed(backend: Backend, *, ids_carry_time: bool = True, now: datetime | None = None) -> Manifest:
+def seed(backend: Backend, *, window: timedelta = WINDOW, now: datetime | None = None) -> Manifest:
     """Find the fixture or write it, then prove the backend holds it."""
     found = load(backend)
     if found is not None:
         return found
     anchor = (now or datetime.now(UTC)).replace(microsecond=0)
-    description = _description(_iso(anchor), ids_carry_time=ids_carry_time)
+    description = _description(_iso(anchor), window=window)
     backend.call("POST", "/projects", {"name": PROJECT, "description": description})
     project = _find_project(backend)
     if project is None:
         raise SeedError(f"created project {PROJECT!r} but cannot find it")
-    plan = build_plan(anchor, ids_carry_time=ids_carry_time, project_id=str(project["id"]))
+    plan = build_plan(anchor, window=window, project_id=str(project["id"]))
     _write(backend, plan)
     return _finish(backend, plan)
 
@@ -1013,9 +1015,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
     parser.add_argument("--wipe", action="store_true", help="delete the fixture, then exit")
     parser.add_argument(
-        "--ids-at-seed-time",
-        action="store_true",
-        help="mint every id at seeding time, for a backend that validates id timestamps",
+        "--window-hours",
+        type=float,
+        default=WINDOW.total_seconds() / 3600,
+        help="length of each of the two windows; 10 for Opik cloud, which refuses old ids",
     )
     args = parser.parse_args(argv)
     backend = Backend.from_env()
@@ -1024,7 +1027,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for line in wipe(backend):
                 print(f"deleted {line}", file=sys.stderr)
             return 0
-        manifest = seed(backend, ids_carry_time=not args.ids_at_seed_time)
+        manifest = seed(backend, window=timedelta(hours=args.window_hours))
     except SeedError as err:
         print(f"seed failed: {err}", file=sys.stderr)
         return 1
