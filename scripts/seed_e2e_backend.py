@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import functools
 import hashlib
 import json
 import os
@@ -734,7 +735,17 @@ def _write(backend: Backend, plan: Plan) -> None:
         backend.call("POST", "/spans/batch", {"spans": batch})
     for batch in _chunks(plan.trace_scores, 500):
         backend.call("PUT", "/traces/feedback-scores", {"scores": batch})
-    _wait("the scored thread", lambda: _thread(backend, m.scored_thread.id) is not None)
+    # Threads are built by an async listener: wait for every one verify reads,
+    # and for the long one to hold all its turns.
+    for thread in (m.scored_thread, m.lifecycle_thread):
+        _wait(f"thread {thread.id}", functools.partial(_thread_exists, backend, thread.id))
+    _wait(
+        f"all turns of {m.long_thread.id}",
+        lambda: (
+            (_thread(backend, m.long_thread.id) or {}).get("number_of_messages")
+            == 2 * m.long_thread.turns
+        ),
+    )
     backend.call("PUT", "/traces/threads/feedback-scores", {"scores": plan.thread_scores})
 
     for dataset, items in plan.dataset_items.items():
@@ -800,6 +811,10 @@ def _thread(backend: Backend, thread_id: str) -> JsonObject | None:
     return _as_object(found)
 
 
+def _thread_exists(backend: Backend, thread_id: str) -> bool:
+    return _thread(backend, thread_id) is not None
+
+
 def _resolve_ids(backend: Backend, manifest: Manifest) -> Manifest:
     """Fill in the ids the backend assigns itself: the datasets'."""
     small = _by_name(backend, "/datasets", manifest.small_dataset.name)
@@ -858,10 +873,8 @@ def verify(backend: Backend, plan: Plan) -> list[str]:
         sorted(str(i.get("status")) for i in issues),
         wanted=["open", "open"],
     )
-    lifecycle = _thread(backend, m.lifecycle_thread.id) or {}
-    # The write tests close this thread and open it again; a run that died in
-    # between would leave it closed, and the next run should say so here.
-    expect("status of the lifecycle thread", lifecycle.get("status"), wanted="active")
+    # No check on the lifecycle thread's status: Opik marks every thread
+    # inactive 15 minutes after its last turn, so either state is normal.
     for exp in (m.baseline, m.candidate):
         row = _as_object(backend.call("GET", f"/experiments/{exp.id}"))
         expect(f"items in {exp.name}", row.get("trace_count"), wanted=m.small_dataset.item_count)
@@ -941,25 +954,48 @@ def wipe(backend: Backend) -> list[str]:
     than a page of them.
     """
     gone: list[str] = []
-    while projects := _prefixed(backend, "/projects"):
-        for project in projects:
-            while rules := backend.page(
-                "/automations/evaluators/", project_id=str(project["id"]), size="100"
-            )[0]:
-                backend.call(
-                    "POST", "/automations/evaluators/delete", {"ids": [r["id"] for r in rules]}
-                )
-            backend.call("DELETE", f"/projects/{project['id']}")
-            gone.append(f"project {project['name']}")
+    for project in _drain(backend, "/projects"):
+        for rules in _pages(
+            functools.partial(_rules, backend, str(project["id"])), what="online rules"
+        ):
+            backend.call(
+                "POST", "/automations/evaluators/delete", {"ids": [r["id"] for r in rules]}
+            )
+        backend.call("DELETE", f"/projects/{project['id']}")
+        gone.append(f"project {project['name']}")
     for kind, path, delete_path in (
         ("experiment", "/experiments", "/experiments/delete"),
         ("dataset", "/datasets", "/datasets/delete-batch"),
         ("prompt", "/prompts", "/prompts/delete"),
     ):
-        while mine := _prefixed(backend, path):
+        for mine in _pages(functools.partial(_prefixed, backend, path), what=f"{kind}s"):
             backend.call("POST", delete_path, {"ids": [r["id"] for r in mine]})
             gone += [f"{kind} {r['name']}" for r in mine]
     return gone
+
+
+def _rules(backend: Backend, project_id: str) -> list[JsonObject]:
+    return backend.page("/automations/evaluators/", project_id=project_id, size="100")[0]
+
+
+def _pages(fetch: Callable[[], list[JsonObject]], *, what: str) -> Iterator[list[JsonObject]]:
+    """Pages to delete, until one comes back empty.
+
+    Refuses to go round again on the same ids: a delete the backend accepted
+    but did not apply would otherwise loop forever on a shared workspace.
+    """
+    seen: set[str] = set()
+    while rows := fetch():
+        ids = {str(r.get("id")) for r in rows}
+        if ids <= seen:
+            raise SeedError(f"the backend still lists {len(ids)} {what} after deleting them")
+        seen |= ids
+        yield rows
+
+
+def _drain(backend: Backend, path: str) -> Iterator[JsonObject]:
+    for rows in _pages(lambda: _prefixed(backend, path), what=path.strip("/")):
+        yield from rows
 
 
 def main(argv: Sequence[str] | None = None) -> int:

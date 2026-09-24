@@ -214,8 +214,10 @@ async def test_closing_a_thread_makes_it_inactive_and_opening_it_active(
 ) -> None:
     m = writable
     target = {"thread_id": m.lifecycle_thread.id, "project_name": m.project_name}
+    await mcp.write("thread.close", target)
+    # Reopened only once the close landed, so a refused close is the failure
+    # reported, not a refused reopen.
     try:
-        await mcp.write("thread.close", target)
 
         async def inactive() -> bool:
             return await _thread_status(mcp, m) == "inactive"
@@ -241,8 +243,8 @@ async def test_an_issue_leaves_the_open_list_and_reopen_brings_it_back(
         answer = await mcp.list("agent_insights_issue", project_name=m.project_name)
         return set(answer.column("id")) if answer.total() else set()
 
+    await mcp.write(f"agent_insights_issue.{operation}", issue)
     try:
-        await mcp.write(f"agent_insights_issue.{operation}", issue)
         assert m.lifecycle_issue.id not in await open_ids()
     finally:
         await mcp.write("agent_insights_issue.reopen", issue)
