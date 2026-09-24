@@ -706,7 +706,7 @@ server configured and whether its config has drifted.
 ```bash
 git clone git@github.com:comet-ml/opik-mcp.git
 cd opik-mcp
-make install        # uv sync --extra dev
+make install        # uv sync --locked --extra dev
 make check          # lint + typecheck + test
 make run-dev        # uvicorn with --reload + DEBUG logs
 make inspect        # MCP Inspector against the running server
@@ -716,7 +716,7 @@ Common targets:
 
 | Target | What it does |
 |---|---|
-| `make install` | `uv sync --extra dev` |
+| `make install` | `uv sync --locked --extra dev` |
 | `make run` | Run the MCP server (stdio by default). |
 | `make run-dev` | Run with DEBUG logging + uvicorn `--reload`. |
 | `make dev` | Run via `mcp dev` (Inspector dev-mode wrapper). |
