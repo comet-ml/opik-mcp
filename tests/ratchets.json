@@ -106,18 +106,11 @@
     "tests/test_read_list/test_dataset_compare.py": 2,
     "tests/test_read_list/test_link_shape.py": 1,
     "tests/test_read_list/test_ui_links.py": 2,
-    "tests/test_resource_metadata_url.py": 1,
-    "scripts/smoke_wire_capture.py": 1
+    "tests/test_resource_metadata_url.py": 1
   },
   "ruff_baseline": {
     "scripts/capture_bi_listener.py": [
       "ARG002"
-    ],
-    "scripts/smoke_live_be.py": [
-      "PLC0415"
-    ],
-    "scripts/smoke_wire_capture.py": [
-      "PLC0415"
     ],
     "src/opik_mcp/__main__.py": [
       "I002",
@@ -524,9 +517,6 @@
     "opik_mcp.writes.wire",
     "opik_mcp.writes.write_tool",
     "scripts.build_skills_pack",
-    "scripts.smoke_live_be",
-    "scripts.smoke_mcp_session",
-    "scripts.smoke_wire_capture",
     "tests.conformance.test_schema_snapshots",
     "tests.conformance.test_skill_resources",
     "tests.conformance.test_tool_inventory",

@@ -119,8 +119,6 @@ extend-allowed-calls = ["pytest.param"]
 # fix a file, then delete or trim its line. tests/test_ratchets.py fails
 # on an entry that no longer matches. Never add a line here.
 "scripts/capture_bi_listener.py" = ["ARG002"]
-"scripts/smoke_live_be.py" = ["PLC0415"]
-"scripts/smoke_wire_capture.py" = ["PLC0415"]
 "src/opik_mcp/__main__.py" = ["I002", "PLC0415"]
 "src/opik_mcp/analytics/boot_props.py" = ["PLC0415"]
 "src/opik_mcp/analytics/environment.py" = ["PLC0415"]
@@ -308,9 +306,6 @@ module = [
     "opik_mcp.writes.wire",
     "opik_mcp.writes.write_tool",
     "scripts.build_skills_pack",
-    "scripts.smoke_live_be",
-    "scripts.smoke_mcp_session",
-    "scripts.smoke_wire_capture",
     "tests.conformance.test_schema_snapshots",
     "tests.conformance.test_skill_resources",
     "tests.conformance.test_tool_inventory",
