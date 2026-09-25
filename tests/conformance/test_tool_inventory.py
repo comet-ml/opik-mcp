@@ -128,18 +128,51 @@ def surface_report(
     return total, report
 
 
-EXPECTED_TOOLS: frozenset[str] = frozenset(
-    {
-        "read",
-        "list",
-        "write",
-        "schema",
-        # OPIK-7472. Resources carry the same skills, but resource browsing is a
-        # host capability rather than a model one — on hosts that never surface
-        # resources to the LLM, this tool is the only way an agent reaches them.
-        "read_skill",
-    }
+# In the order `tools/list` sends them. Hosts show tools in list order, so a
+# reorder is a surface change too.
+EXPECTED_TOOL_ORDER: tuple[str, ...] = (
+    "read",
+    "list",
+    "write",
+    "schema",
+    # OPIK-7472. Resources carry the same skills, but resource browsing is a
+    # host capability rather than a model one — on hosts that never surface
+    # resources to the LLM, this tool is the only way an agent reaches them.
+    "read_skill",
 )
+EXPECTED_TOOLS: frozenset[str] = frozenset(EXPECTED_TOOL_ORDER)
+
+# The entity types `read` and `list` advertise in their `entity_type` enum, in
+# the order sent. Each one is a name an agent can call; adding, dropping or
+# renaming one changes what every host offers.
+EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
+    "read": (
+        "agent_insights_issue",
+        "dataset",
+        "dataset_item",
+        "experiment",
+        "project",
+        "prompt",
+        "span",
+        "thread",
+        "trace",
+    ),
+    "list": (
+        "agent_insights_issue",
+        "dataset",
+        "dataset_item",
+        "experiment",
+        "online_rule",
+        "project",
+        "project_metric",
+        "prompt",
+        "prompt_version",
+        "score_name",
+        "span",
+        "thread",
+        "trace",
+    ),
+}
 
 
 @pytest.fixture
@@ -157,6 +190,56 @@ async def test_tools_list_advertises_exactly_the_phase_one_surface() -> None:
     advertised = {t.name for t in tools.tools}
     assert advertised == EXPECTED_TOOLS, (
         f"tool surface drift: advertised={sorted(advertised)} expected={sorted(EXPECTED_TOOLS)}"
+    )
+
+
+@pytest.mark.anyio
+async def test_tools_list_sends_the_tools_in_the_pinned_order() -> None:
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+    sent = [t.name for t in tools.tools]
+    assert sent == list(EXPECTED_TOOL_ORDER), (
+        f"tools/list order changed: sent={sent} pinned={list(EXPECTED_TOOL_ORDER)}. "
+        "Order follows @mcp.tool registration in src/opik_mcp/server.py; change "
+        "EXPECTED_TOOL_ORDER here only on purpose."
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("tool", sorted(EXPECTED_ENTITY_ENUM))
+async def test_the_entity_enum_is_the_pinned_set_in_the_pinned_order(tool: str) -> None:
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+    schema = next(t.inputSchema for t in tools.tools if t.name == tool)
+    sent = list(schema["properties"]["entity_type"]["enum"])
+    pinned = list(EXPECTED_ENTITY_ENUM[tool])
+    assert sent == pinned, (
+        f"{tool}'s entity_type enum changed: added={sorted(set(sent) - set(pinned))} "
+        f"removed={sorted(set(pinned) - set(sent))} sent={sent}. The enums are built in "
+        "src/opik_mcp/server.py from the entity registry; change EXPECTED_ENTITY_ENUM "
+        "here only on purpose."
+    )
+
+
+@pytest.mark.anyio
+async def test_the_instructions_arrive_before_the_tool_list_is_asked_for() -> None:
+    """A host with tool search defers `tools/list`, so `initialize` is all the
+    model gets up front; the instructions have to be on it and name every
+    tool the model can go on to load."""
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        result = await session.initialize()
+    instructions = result.instructions or ""
+    unnamed = sorted(name for name in EXPECTED_TOOLS if name not in instructions)
+    assert instructions.strip(), (
+        "initialize carried no instructions. They are set in src/opik_mcp/server.py "
+        "(FastMCP(instructions=...) and install_session_instructions) and must load "
+        "even when a host defers tools (AGENTS.md invariants)."
+    )
+    assert not unnamed, (
+        f"the initialize instructions never name {unnamed}; a host that defers "
+        "tools/list learns the tool names only from them (src/opik_mcp/instructions.py)."
     )
 
 
