@@ -17,10 +17,11 @@ exists.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar, Final
+from uuid import UUID
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikClient
@@ -32,10 +33,88 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
 from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
 from opik_mcp.writes.errors import BackendError
+from opik_mcp.writes.models import _RequiredProjectMixin, _StrictBase
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse, safe_body
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
+
+
+class AgentInsightsJobAction(_StrictBase, _RequiredProjectMixin):
+    """Shared shape for the Diagnostics (Agent Insights) job actions.
+
+    The backend keys the job by project and takes the project in the path, so
+    the payload is project scope and nothing else. ``project_name`` is resolved
+    to the UUID by the dispatcher (the jobs endpoints take an id only), which
+    is why one of the two fields is required here rather than letting the
+    backend answer a 400 that names neither.
+    """
+
+    _missing_project_error: ClassVar[str] = (
+        "project_scope_missing: pass `project_id` or `project_name` to "
+        "identify the project whose Diagnostics job to act on."
+    )
+
+
+class AgentInsightsJobEnable(AgentInsightsJobAction):
+    """``POST /v1/private/agent-insights/jobs/{projectId}`` (or a ``PATCH`` to
+    ``status=enabled`` when the job already exists) — turn Diagnostics on."""
+
+
+class AgentInsightsJobTrigger(AgentInsightsJobAction):
+    """``POST /v1/private/agent-insights/jobs/{projectId}/trigger`` — scan now."""
+
+
+class AgentInsightsIssueAction(_StrictBase, _RequiredProjectMixin):
+    """Shared shape for a Diagnostics (Agent Insights) issue's lifecycle moves.
+
+    ``PATCH /v1/private/agent-insights/issues/{issue_id}`` takes the issue in
+    the path and ``{project_id, status}`` in the body, and the backend requires
+    the project even though the issue id is unique — the same scope reading an
+    issue needs. ``project_name`` is resolved to the UUID by the dispatcher.
+    """
+
+    issue_id: UUID = Field(
+        description="The Diagnostics issue to move, as listed by list('agent_insights_issue', …)."
+    )
+
+    _missing_project_error: ClassVar[str] = (
+        "project_scope_missing: pass `project_id` or `project_name` to "
+        "identify the project the issue belongs to."
+    )
+
+
+class AgentInsightsIssueResolve(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=resolved`` — dealt with."""
+
+
+class AgentInsightsIssueClose(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=closed`` — not worth acting on."""
+
+
+class AgentInsightsIssueReopen(AgentInsightsIssueAction):
+    """``PATCH …/issues/{issue_id}`` with ``status=open`` — back on the list."""
+
+
+AGENT_INSIGHTS_JOB_ENABLE_EXAMPLE: Final[dict[str, str]] = {"project_name": "demo"}
+
+AGENT_INSIGHTS_ISSUE_RESOLVE_EXAMPLE: Final[dict[str, str]] = {
+    "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+    "project_name": "demo",
+}
+
+AGENT_INSIGHTS_ISSUE_CLOSE_EXAMPLE: Final[dict[str, str]] = {
+    "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+    "project_name": "demo",
+}
+
+AGENT_INSIGHTS_ISSUE_REOPEN_EXAMPLE: Final[dict[str, str]] = {
+    "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
+    "project_name": "demo",
+}
+
+AGENT_INSIGHTS_JOB_TRIGGER_EXAMPLE: Final[dict[str, str]] = {"project_name": "demo"}
+
 
 #: The job operations. Both take the project in the path as a UUID and are
 #: pointless where the deployment has no Ollie, so they are treated alike

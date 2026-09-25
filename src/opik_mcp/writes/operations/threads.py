@@ -18,6 +18,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
 )
 from opik_mcp.writes.errors import BackendError
+from opik_mcp.writes.operations.observability import CommentCreate
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -47,8 +48,6 @@ async def resolve_comment_thread_id(
     scoring and reading (one uniform contract). Resolve it via ``get_thread``
     so the asymmetry never surfaces. A no-op for non-thread comments.
     """
-    from opik_mcp.writes.models import CommentCreate
-
     model = items[0]
     if not isinstance(model, CommentCreate) or model.target != "thread":
         return None

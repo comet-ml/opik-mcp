@@ -21,7 +21,6 @@ from opik_mcp.writes import (
     WRITE_REGISTRY,
     WRITE_TOOL_DESCRIPTION,
 )
-from opik_mcp.writes.models import EXAMPLES, MODELS
 
 # --- enum agreement ------------------------------------------------------ #
 
@@ -43,15 +42,10 @@ def test_registry_keys_match_server_enum() -> None:
     assert set(WRITE_OPERATION_ENUM) == set(WRITE_OPERATIONS)
 
 
-def test_registry_keys_match_models_table() -> None:
-    """Every registry entry's pydantic model must come from MODELS."""
+def test_every_model_comes_from_an_operations_module() -> None:
     for name in WRITE_OPERATIONS:
-        assert WRITE_REGISTRY[name].pydantic_model is MODELS[name]
-
-
-def test_registry_keys_match_examples_table() -> None:
-    for name in WRITE_OPERATIONS:
-        assert WRITE_REGISTRY[name].example == EXAMPLES[name]
+        module = WRITE_REGISTRY[name].pydantic_model.__module__
+        assert module.startswith("opik_mcp.writes.operations."), f"{name}: model from {module!r}"
 
 
 # --- per-entry sanity --------------------------------------------------- #

@@ -58,31 +58,7 @@
       "trace"
     ]
   },
-  "operation_names_at_root": {
-    "models": [
-      "agent_insights_issue.close",
-      "agent_insights_issue.reopen",
-      "agent_insights_issue.resolve",
-      "agent_insights_job.enable",
-      "agent_insights_job.trigger",
-      "comment.create",
-      "dataset",
-      "dataset.create",
-      "dataset_item.upsert",
-      "experiment.create",
-      "experiment_item.create",
-      "prompt_version.save",
-      "score.create",
-      "span",
-      "span.create",
-      "thread",
-      "thread.close",
-      "thread.open",
-      "trace",
-      "trace.create",
-      "trace.update"
-    ]
-  },
+  "operation_names_at_root": {},
   "suppressions": {
     "src/opik_mcp/analytics/errors.py": 1,
     "src/opik_mcp/server.py": 1,
@@ -280,12 +256,10 @@
       "ARG001"
     ],
     "src/opik_mcp/writes/operations/observability.py": [
-      "ARG001",
-      "PLC0415"
+      "ARG001"
     ],
     "src/opik_mcp/writes/operations/threads.py": [
-      "ARG001",
-      "PLC0415"
+      "ARG001"
     ],
     "tests/conftest.py": [
       "I002"
