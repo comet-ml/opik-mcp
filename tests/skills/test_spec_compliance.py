@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 from skills_ref import read_properties, validate
 
-SKILLS_ROOT = Path(__file__).resolve().parent.parent / "src" / "opik_mcp" / "skills"
+SKILLS_ROOT = Path(__file__).resolve().parents[2] / "src" / "opik_mcp" / "skills"
 
 
 def _skill_dirs() -> list[Path]:

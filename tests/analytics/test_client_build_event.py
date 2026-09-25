@@ -2,7 +2,7 @@
 
 These call ``_build_event`` directly on a real (analytics-disabled, no worker)
 client. This is the ONLY layer that can catch a raw-value leak INSIDE
-``_build_event`` — the recorder-based tests in test_analytics_privacy.py
+``_build_event`` — the recorder-based tests in analytics/test_privacy.py
 intercept at ``track_event`` and never see what ``_build_event`` builds.
 
 ``_build_event`` runs synchronously in the calling task (track_event builds then

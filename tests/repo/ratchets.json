@@ -1,5 +1,5 @@
 {
-  "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. tests/test_ratchets.py",
+  "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. tests/repo/test_ratchets.py",
   "entity_names_at_root": {
     "decorations": [
       "dataset",
@@ -92,21 +92,21 @@
   "suppressions": {
     "src/opik_mcp/analytics/errors.py": 1,
     "src/opik_mcp/server.py": 1,
-    "tests/integration/test_llm_recovery.py": 2,
-    "tests/test_analytics_auth_rejected.py": 1,
-    "tests/test_analytics_boot_props.py": 1,
-    "tests/test_analytics_client.py": 2,
-    "tests/test_analytics_client_build_event.py": 1,
-    "tests/test_analytics_errors.py": 3,
-    "tests/test_analytics_privacy.py": 2,
-    "tests/test_analytics_tools_listed.py": 2,
-    "tests/test_oauth_identity.py": 1,
-    "tests/test_oauth_passthrough_mode.py": 1,
-    "tests/test_oauth_token_rotation.py": 3,
-    "tests/test_read_list/test_dataset_compare.py": 2,
-    "tests/test_read_list/test_link_shape.py": 1,
-    "tests/test_read_list/test_ui_links.py": 2,
-    "tests/test_resource_metadata_url.py": 1,
+    "tests/writes/test_recovery_envelope.py": 2,
+    "tests/analytics/test_auth_rejected.py": 1,
+    "tests/analytics/test_boot_props.py": 1,
+    "tests/analytics/test_client.py": 2,
+    "tests/analytics/test_client_build_event.py": 1,
+    "tests/analytics/test_errors.py": 3,
+    "tests/analytics/test_privacy.py": 2,
+    "tests/analytics/test_tools_listed.py": 2,
+    "tests/identity/test_oauth_identity.py": 1,
+    "tests/identity/test_oauth_passthrough_mode.py": 1,
+    "tests/identity/test_oauth_token_rotation.py": 3,
+    "tests/read_list/test_dataset_compare.py": 2,
+    "tests/read_list/test_link_shape.py": 1,
+    "tests/read_list/test_ui_links.py": 2,
+    "tests/identity/test_resource_metadata_url.py": 1,
     "scripts/smoke_wire_capture.py": 1
   },
   "ruff_baseline": {
@@ -313,156 +313,156 @@
     "tests/e2e/test_project_overview_surface.py": [
       "PT018"
     ],
-    "tests/test_account_identity.py": [
+    "tests/identity/test_account_identity.py": [
       "C408",
       "PT019"
     ],
-    "tests/test_analytics_boot_props.py": [
+    "tests/analytics/test_boot_props.py": [
       "PT006"
     ],
-    "tests/test_analytics_client.py": [
+    "tests/analytics/test_client.py": [
       "ARG002",
       "C408",
       "I002"
     ],
-    "tests/test_analytics_environment.py": [
+    "tests/analytics/test_environment.py": [
       "PT006",
       "PT018"
     ],
-    "tests/test_analytics_errors.py": [
+    "tests/analytics/test_errors.py": [
       "PT006",
       "PT017"
     ],
-    "tests/test_analytics_events.py": [
+    "tests/analytics/test_events.py": [
       "I002",
       "PT006",
       "PT018"
     ],
-    "tests/test_analytics_identity.py": [
+    "tests/analytics/test_identity.py": [
       "I002",
       "PT019"
     ],
-    "tests/test_analytics_lifespan.py": [
+    "tests/analytics/test_lifespan.py": [
       "ARG002",
       "PT011"
     ],
-    "tests/test_analytics_server_startup.py": [
+    "tests/analytics/test_server_startup.py": [
       "ARG002",
       "ARG005",
       "I002",
       "PT011"
     ],
-    "tests/test_analytics_subprocess.py": [
+    "tests/analytics/test_subprocess.py": [
       "ARG002",
       "PT001"
     ],
-    "tests/test_analytics_wrappers.py": [
+    "tests/analytics/test_wrappers.py": [
       "ERA001",
       "I002",
       "PT006"
     ],
-    "tests/test_config.py": [
+    "tests/server/test_config.py": [
       "I002"
     ],
-    "tests/test_connection_per_tool_call.py": [
+    "tests/client/test_connection_per_tool_call.py": [
       "PT022"
     ],
-    "tests/test_credential_identity.py": [
+    "tests/identity/test_credential_identity.py": [
       "PT018"
     ],
-    "tests/test_error_tracking.py": [
+    "tests/server/test_error_tracking.py": [
       "ARG002",
       "ARG005",
       "PT006"
     ],
-    "tests/test_health.py": [
+    "tests/server/test_health.py": [
       "I002"
     ],
-    "tests/test_http_auth.py": [
+    "tests/identity/test_http_auth.py": [
       "I002"
     ],
-    "tests/test_http_path_config.py": [
+    "tests/server/test_http_path_config.py": [
       "I002"
     ],
-    "tests/test_instructions.py": [
+    "tests/server/test_instructions.py": [
       "PT018"
     ],
-    "tests/test_oauth_identity.py": [
+    "tests/identity/test_oauth_identity.py": [
       "I002"
     ],
-    "tests/test_oauth_passthrough_mode.py": [
+    "tests/identity/test_oauth_passthrough_mode.py": [
       "I002"
     ],
-    "tests/test_oauth_protected_resource.py": [
+    "tests/identity/test_oauth_protected_resource.py": [
       "I002"
     ],
-    "tests/test_oauth_redirect.py": [
+    "tests/identity/test_oauth_redirect.py": [
       "I002"
     ],
-    "tests/test_oauth_token_rotation.py": [
+    "tests/identity/test_oauth_token_rotation.py": [
       "I002",
       "PT022"
     ],
-    "tests/test_oauth_token_validation.py": [
+    "tests/identity/test_oauth_token_validation.py": [
       "I002",
       "PT022"
     ],
-    "tests/test_opik_client.py": [
+    "tests/client/test_client.py": [
       "I002"
     ],
-    "tests/test_opik_client_read.py": [
+    "tests/client/test_read.py": [
       "I002"
     ],
-    "tests/test_read_list/test_dataset_compare.py": [
+    "tests/read_list/test_dataset_compare.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_dataset_compare_figures.py": [
+    "tests/read_list/test_dataset_compare_figures.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_dataset_items.py": [
+    "tests/read_list/test_dataset_items.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_experiments.py": [
+    "tests/read_list/test_experiments.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_fields.py": [
+    "tests/read_list/test_fields.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_link_shape.py": [
+    "tests/read_list/test_link_shape.py": [
       "ARG002",
       "PT018"
     ],
-    "tests/test_read_list/test_list_filters.py": [
+    "tests/read_list/test_list_filters.py": [
       "ARG002",
       "PT018"
     ],
-    "tests/test_read_list/test_list_tool.py": [
+    "tests/read_list/test_list_tool.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_oql.py": [
+    "tests/read_list/test_oql.py": [
       "PT018"
     ],
-    "tests/test_read_list/test_project_metrics.py": [
+    "tests/read_list/test_project_metrics.py": [
       "ARG002",
       "PT018"
     ],
-    "tests/test_read_list/test_read_tool.py": [
+    "tests/read_list/test_read_tool.py": [
       "ARG002",
       "PT018"
     ],
-    "tests/test_read_list/test_ui_links.py": [
+    "tests/read_list/test_ui_links.py": [
       "PT017"
     ],
-    "tests/test_resource_metadata_url.py": [
+    "tests/identity/test_resource_metadata_url.py": [
       "I002"
     ],
-    "tests/test_writes/test_backend_error_oauth_hint.py": [
+    "tests/writes/test_backend_error_oauth_hint.py": [
       "I002"
     ],
-    "tests/test_writes/test_dispatch.py": [
+    "tests/writes/test_dispatch.py": [
       "PT018"
     ],
-    "tests/test_writes/test_models.py": [
+    "tests/writes/test_models.py": [
       "PT017"
     ]
   },
@@ -527,6 +527,18 @@
     "scripts.smoke_live_be",
     "scripts.smoke_mcp_session",
     "scripts.smoke_wire_capture",
+    "tests.analytics.test_auth_rejected",
+    "tests.analytics.test_call_context",
+    "tests.analytics.test_client",
+    "tests.analytics.test_client_build_event",
+    "tests.analytics.test_errors",
+    "tests.analytics.test_lifespan",
+    "tests.analytics.test_privacy",
+    "tests.analytics.test_server_startup",
+    "tests.analytics.test_subprocess",
+    "tests.analytics.test_wrappers",
+    "tests.client.test_connection_per_tool_call",
+    "tests.client.test_search",
     "tests.conformance.test_schema_snapshots",
     "tests.conformance.test_skill_resources",
     "tests.conformance.test_tool_inventory",
@@ -534,33 +546,21 @@
     "tests.e2e.test_compare_experiments_surface",
     "tests.e2e.test_description_claims",
     "tests.e2e.test_find_a_case_surface",
-    "tests.integration.test_llm_recovery",
-    "tests.test_account_identity",
-    "tests.test_analytics_auth_rejected",
-    "tests.test_analytics_call_context",
-    "tests.test_analytics_client",
-    "tests.test_analytics_client_build_event",
-    "tests.test_analytics_errors",
-    "tests.test_analytics_lifespan",
-    "tests.test_analytics_privacy",
-    "tests.test_analytics_server_startup",
-    "tests.test_analytics_subprocess",
-    "tests.test_analytics_wrappers",
-    "tests.test_connection_per_tool_call",
-    "tests.test_error_tracking",
-    "tests.test_instructions",
-    "tests.test_oauth_passthrough_mode",
-    "tests.test_opik_client_search",
-    "tests.test_read_list.test_dataset_compare",
-    "tests.test_read_list.test_dataset_compare_figures",
-    "tests.test_read_list.test_dataset_items",
-    "tests.test_read_list.test_experiments",
-    "tests.test_read_list.test_fields",
-    "tests.test_read_list.test_list_filters",
-    "tests.test_read_list.test_list_tool",
-    "tests.test_read_list.test_project_metrics",
-    "tests.test_read_list.test_read_tool",
-    "tests.test_writes.test_registry",
-    "tests.test_writes.test_write_links"
+    "tests.identity.test_account_identity",
+    "tests.identity.test_oauth_passthrough_mode",
+    "tests.read_list.test_dataset_compare",
+    "tests.read_list.test_dataset_compare_figures",
+    "tests.read_list.test_dataset_items",
+    "tests.read_list.test_experiments",
+    "tests.read_list.test_fields",
+    "tests.read_list.test_list_filters",
+    "tests.read_list.test_list_tool",
+    "tests.read_list.test_project_metrics",
+    "tests.read_list.test_read_tool",
+    "tests.server.test_error_tracking",
+    "tests.server.test_instructions",
+    "tests.writes.test_recovery_envelope",
+    "tests.writes.test_registry",
+    "tests.writes.test_write_links"
   ]
 }

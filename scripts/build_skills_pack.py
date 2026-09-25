@@ -6,10 +6,10 @@ in Opik's onboarding UI, so it cannot move. This script is the bridge: it turns 
 authored skills into a standards-compliant pack that is published as an artifact and
 pulled by the public repository.
 
-Three properties matter, and the tests in `tests/test_skills_pack_build.py` pin them:
+Three properties matter, and the tests in `tests/skills/test_pack_build.py` pin them:
 
 *Verbatim.* Skill files are copied byte for byte. Frontmatter is made spec-compliant at
-the source (see `tests/test_skills_spec_compliance.py`), never rewritten here, so
+the source (see `tests/skills/test_spec_compliance.py`), never rewritten here, so
 "published equals authored" is literally true and drift questions have a crisp answer.
 The offline export path (OPIK-7592) copies from the installed package and never runs
 this script, so normalising here would fix one distribution path and leave the other.

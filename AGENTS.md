@@ -65,12 +65,12 @@ errors.
 - One copy of each answer, no `structuredContent`.
   `tests/conformance/test_no_duplicate_payload.py`
 - Entity and operation logic stays in its namespace; root modules may not
-  gain entity names. `tests/test_read_list/test_modular.py`,
-  `tests/test_writes/test_dispatch_stays_generic.py`
-- No telemetry from tests. `tests/test_telemetry_disabled_in_tests.py`
+  gain entity names. `tests/read_list/test_modular.py`,
+  `tests/writes/test_dispatch_stays_generic.py`
+- No telemetry from tests. `tests/repo/test_telemetry_disabled_in_tests.py`
 - The lint and type baselines in `pyproject.toml` excuse findings that predate
   the rules and only shrink; a new file meets the full rules.
-  `tests/test_ratchets.py`
+  `tests/repo/test_ratchets.py`
 
 ## Gotchas
 
