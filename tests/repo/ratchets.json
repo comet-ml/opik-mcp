@@ -113,29 +113,10 @@
       "ARG002"
     ],
     "src/opik_mcp/__main__.py": [
-      "I002",
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/boot_props.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/environment.py": [
       "PLC0415"
     ],
     "src/opik_mcp/analytics/errors.py": [
       "RET504"
-    ],
-    "src/opik_mcp/analytics/identity.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/wrappers.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/auth_context.py": [
-      "I002"
-    ],
-    "src/opik_mcp/config.py": [
-      "I002"
     ],
     "src/opik_mcp/opik_client.py": [
       "RET504"

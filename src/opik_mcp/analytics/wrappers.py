@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 from weakref import WeakSet
 
 import anyio
+from mcp.server.lowlevel.server import request_ctx
 from mcp.types import ListToolsRequest
 
 from opik_mcp import error_tracking
@@ -336,11 +337,9 @@ def _maybe_emit_tools_listed(result: Any) -> None:
 
     session = None
     try:
-        from mcp.server.lowlevel.server import request_ctx
-
         ctx = request_ctx.get()
         session = getattr(ctx, "session", None)
-    except (ImportError, LookupError, AttributeError):
+    except (LookupError, AttributeError):
         session = None
 
     if session is not None:
