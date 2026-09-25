@@ -159,3 +159,46 @@ async def test_excluded_directories_are_not_reachable_over_the_wire() -> None:
                 AnyUrl(f"{catalog.SKILLS_URI_PREFIX}opik-diagnose/evals/metrics.py")
             )
     assert not [r for r in listed.resources if "/evals/" in str(r.uri)]
+
+
+@pytest.mark.anyio
+async def test_read_skill_serves_a_reference_its_description_does_not_list() -> None:
+    """The description names skills only; an unlisted reference must still come
+    back by the path the SKILL.md footer shows and by the short form."""
+    on_disk = (SKILLS_SRC / "opik-evaluate" / "references" / "write-judge-prompt.md").read_text(
+        encoding="utf-8"
+    )
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+        results = [
+            await session.call_tool("read_skill", {"skill_name": form})
+            for form in (
+                "opik-evaluate/write-judge-prompt",
+                "opik-evaluate/references/write-judge-prompt.md",
+            )
+        ]
+    assert "write-judge-prompt" not in (tools["read_skill"].description or "")
+    for result in results:
+        assert not result.isError, result.content
+        text = getattr(result.content[0], "text", "")
+        assert text.startswith(
+            "[read_skill: opik-evaluate path=references/write-judge-prompt.md bytes="
+        ), text[:120]
+        assert on_disk in text
+
+
+@pytest.mark.anyio
+async def test_every_skill_md_footer_lists_its_references() -> None:
+    """With the description naming skills only, the SKILL.md footer is where an
+    agent learns a reference's name, so every reference must be on it."""
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        answers = {
+            name: await session.call_tool("read_skill", {"skill_name": name})
+            for name in catalog.skill_names()
+        }
+    for name, result in answers.items():
+        text = getattr(result.content[0], "text", "")
+        for path in catalog.readable_paths(name)[1:]:
+            assert f"- {name}/{path}" in text, f"{name}/SKILL.md footer does not list {path}"

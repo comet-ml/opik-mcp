@@ -422,8 +422,7 @@ def read_skill_tool_description() -> str:
     """The `read_skill` tool description, rendered from the bundled skills.
 
     Rendered rather than hand-written so a skill can never be bundled and left
-    unmentioned — both the routing list and the document inventory are generated
-    from the same tree the tool serves.
+    unmentioned — the routing list is generated from the same tree the tool serves.
 
     Frames the tool around what the agent can see rather than around how the user
     installs things: the question at call time is whether the skill is already in
@@ -431,15 +430,14 @@ def read_skill_tool_description() -> str:
     agent can take mid-task. It also spent tokens on every session to say
     something most sessions could not act on.
 
-    The inventory is the expensive part — every path is charged to every session's
-    context — and it is here deliberately: a caller that can see
-    `opik/references/tracing-python.md` fetches it directly, where a caller that
-    cannot has to read the 5 KB `SKILL.md` first to learn the name.
+    It names skills, not their references (OPIK-8496). A per-file inventory was
+    charged to every session and grew with every reference file; the SKILL.md
+    that cites a reference ends with a footer listing its paths, so the caller
+    learns the name from the document that tells it to read one.
     """
     catalog = "\n".join(
         f"- {name}: {SKILL_SUMMARIES[name]}" for name in skill_names() if name in SKILL_SUMMARIES
     )
-    inventory = "\n".join(f"- {name}: {', '.join(readable_paths(name))}" for name in skill_names())
     return (
         "Load one Opik agent skill — the same skills Opik publishes for coding "
         "agents. Use it when the skill you need is not already in your context.\n\n"
@@ -452,8 +450,8 @@ def read_skill_tool_description() -> str:
         f"Match the user's task to a skill:\n{catalog}\n\n"
         "`skill_name` accepts any of these forms:\n"
         "- `opik` — the skill itself\n"
-        "- `opik/references/tracing-python.md` — one document inside a skill\n"
-        f"- `{SKILLS_URI_PREFIX}opik/SKILL.md` — the same document by its resource "
-        "URI, as listed by resources/list\n\n"
-        f"Readable paths, prefixed with the skill name as above:\n{inventory}"
+        "- `<skill>/references/<file>.md` — one document inside a skill; a "
+        "SKILL.md ends with the list of its references\n"
+        f"- `{SKILLS_URI_PREFIX}opik/SKILL.md` — a document by its resource "
+        "URI, as listed by resources/list"
     )

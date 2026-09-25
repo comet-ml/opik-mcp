@@ -95,6 +95,11 @@ from opik_mcp.server import mcp
 #           line say what happens instead of what to prefer. -116 bytes.
 #   23,258  OPIK-8496 — `list.project_name` drops "so you don't need to";
 #           the one input-schema change in the ticket. -22 bytes.
+#   22,488  OPIK-8496 — `read_skill` names skills only. -770 bytes: the
+#           per-file inventory of `references/` paths leaves the description,
+#           which drops from 2,900 to 2,130 characters. Each SKILL.md footer
+#           already lists its references, so the name is one read away, and
+#           adding a reference file no longer costs every session.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the

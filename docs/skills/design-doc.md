@@ -44,7 +44,11 @@ An unknown skill raises `UnknownSkillError` (kind `validation`) listing every
 skill; an unknown document lists that skill's documents, in the caller's form.
 
 `read_skill_tool_description` renders the tool description: a routing line
-per skill from `SKILL_SUMMARIES`, the accepted forms, every readable path.
+per skill from `SKILL_SUMMARIES` and the accepted forms. It names no
+reference file; an agent learns a reference's path from the footer of the
+`SKILL.md` that cites it, so adding a reference costs no session anything
+until that skill is read (`test_tool_description_names_no_reference_path`,
+`test_every_skill_md_footer_lists_its_references`).
 
 ### Resources
 
@@ -109,9 +113,10 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   show resources to the user and never to the model (#175).
 - `skill_name` has no `enum` because it accepts paths and URIs; an enum would
   reject valid calls at the host's schema check (#175).
-- The description lists every readable path so an agent can fetch a reference
-  without reading the `SKILL.md` first. That costs context in every session
-  ([ADR 0001](../decisions/0001-context-budget-first.md)).
+- The description names skills, not reference files. A path inventory cost
+  context in every session and grew with each reference file
+  ([ADR 0001](../decisions/0001-context-budget-first.md)); the `SKILL.md`
+  footer lists the paths to the agent that is about to need one (OPIK-8496).
 - Names resolve by lookup in the enumerated file set, never by a path join, so
   `..` and absolute paths find nothing. `read_skill_file` rechecks the set.
 - Exclusion is by rule, so a new `scripts/` folder ships without editing an
@@ -127,7 +132,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - `SKILL_SUMMARIES` may differ from the frontmatter on purpose. No test ties
   them; see the comment in `tests/skills/test_catalog.py` for why.
 - The `read_skill` description is over the host cut-off, so some hosts drop
-  the tail, which is the path inventory (`test_the_description_arrives_whole`).
+  the tail, which is the list of accepted forms (`test_the_description_arrives_whole`).
 - `install_skill_resources` catches only a missing `_mcp_server`; other errors
   while installing raise. A second install is a no-op.
 - `npx skills add` run against this repo resolves `.claude/skills/` and
