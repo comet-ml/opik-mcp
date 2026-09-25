@@ -21,8 +21,9 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.entities import SOURCE_VALUES
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.oql import TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -31,7 +32,8 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
-from opik_mcp.read_list.ui_links import thread_page_url
+from opik_mcp.read_list.ui_links import logs_page_url
+from opik_mcp.read_list.uri import opik_uri, web_link
 
 MESSAGES_INLINE_LIMIT = 200
 
@@ -158,6 +160,19 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_threads(**kw)
 
 
+def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str | None:
+    """The Logs page on the threads view, with this thread open."""
+    if not thread_id:
+        return None
+    return logs_page_url(settings, project_id=project_id, logs_type="threads", thread=thread_id)
+
+
+def row_link_template(settings: Settings, project_id: str | None) -> str | None:
+    if not project_id:
+        return None
+    return logs_page_url(settings, project_id=project_id, logs_type="threads", thread="{id}")
+
+
 def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The Logs page on the threads view, with this thread open.
 
@@ -176,9 +191,60 @@ def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     return {"url": url} if url is not None else {}
 
 
+VOCABULARY = Vocabulary(
+    name="thread",
+    filter_fields={
+        "id": "string",
+        "first_message": "string",
+        "last_message": "string",
+        "number_of_messages": "number",
+        "duration": "number",
+        **TIMING_FIELDS,
+        "feedback_scores": "feedback_scores",
+        "status": "enum",
+        "tags": "list",
+        "annotation_queue_ids": "list",
+        "source": "enum_legacy",
+        "environment": "enum",
+    },
+    enum_values={
+        "source": SOURCE_VALUES,
+        "status": ("active", "inactive"),
+    },
+    is_source_defaulted=True,
+    filter_examples=(
+        'status = "active" AND number_of_messages > 20',
+        "feedback_scores.helpfulness < 0.5 AND duration > 60000",
+    ),
+    sort_fields=(
+        "id",
+        "start_time",
+        "end_time",
+        "duration",
+        "number_of_messages",
+        "last_updated_at",
+        "created_by",
+        "created_at",
+        "usage.*",
+        "total_estimated_cost",
+        "feedback_scores.*",
+        "status",
+        "tags",
+        "environment",
+    ),
+)
+
+
 HANDLER = EntityHandler(
     entity_type="thread",
-    page_note_fn=link_note_for("thread"),
+    is_windowed=True,
+    uri_patterns=(
+        opik_uri("projects/{project}/threads/{id}"),
+        web_link("thread", is_project_scoped=True),
+    ),
+    uri_precedence=4,
+    vocabularies=(VOCABULARY,),
+    row_link_template=row_link_template,
     fetch_fn=fetch,
     link_fn=thread_links,
     list_fn=list_page,

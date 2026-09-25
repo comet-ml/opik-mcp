@@ -62,18 +62,13 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
+from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
+from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn, Vocabulary
 from opik_mcp.read_list.oql import (
-    FILTERABLE_FIELDS,
-    NAME_SEARCHABLE_ENTITIES,
     PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
-    SOURCE_DEFAULTED_ENTITIES,
-    SOURCE_VALUES,
-    WINDOWED_ENTITIES,
     OQLError,
-    called,
     compile_filters,
     operand_values,
     render_filters,
@@ -96,7 +91,11 @@ from opik_mcp.read_list.projection import (
 )
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
+    FILTERABLE_TYPES,
     LISTABLE_TYPES,
+    SORTABLE_TYPES,
+    VOCABULARIES,
+    WINDOWED_TYPES,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -140,6 +139,14 @@ def page_facts() -> dict[str, str]:
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
 
+#: The entities whose backend takes a window as whole UTC days, named in the
+#: refusal beside the instant-windowed ones.
+_DAY_WINDOWED_TYPES: tuple[str, ...] = tuple(
+    entity_type
+    for entity_type, handler in ENTITY_REGISTRY.items()
+    if "from_date" in handler.list_optional_kwargs
+)
+
 
 @contextmanager
 def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
@@ -176,7 +183,7 @@ async def _run_whole(
     *,
     settings: Settings | None,
     client: OpikListClient | None,
-    **kw: Any,
+    **tool_args: Any,
 ) -> str:
     """Own the connection, then hand the whole call to the entity's runner.
 
@@ -198,19 +205,20 @@ async def _run_whole(
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
-            answer = await run(cast("OpikReadClient", opik), **kw)
-        if handler.page_note_fn is None:
+            answer = await run(cast("OpikReadClient", opik), vocabularies=VOCABULARIES, **tool_args)
+        page_note = page_note_of(handler)
+        if page_note is None:
             return answer
         # A runner's answer is not a collection, but it is still a page someone
         # may want to open — a metric is a chart on the Dashboards page. The
         # note hook was reachable only from the collection path, so an entity
         # that answers whole could declare one and never have it called.
-        note = await handler.page_note_fn(
+        note = await page_note(
             opik,
             resolved_settings,
             PageContext(
-                project_id=kw.get("project_id"),
-                project_name=kw.get("project_name"),
+                project_id=tool_args.get("project_id"),
+                project_name=tool_args.get("project_name"),
             ),
         )
         return f"{answer}\n\n{note}" if note else answer
@@ -308,9 +316,9 @@ async def run_list(
     size = clamp_size(size)
     page = max(1, page)
 
-    kw: dict[str, Any] = {"page": page, "size": size}
+    list_kwargs: dict[str, Any] = {"page": page, "size": size}
     if name:
-        kw["name"] = name
+        list_kwargs["name"] = name
     # Entity-specific kwargs are forwarded only when the registry entry declares
     # them (required or optional). A parent id meant for another entity, or
     # project scope on a workspace-wide list, would otherwise reach the client
@@ -326,16 +334,16 @@ async def run_list(
         "prompt_id": prompt_id,
         "status": status,
     }
-    for key, value in candidates.items():
-        if value is not None and key in accepted:
-            kw[key] = value
+    list_kwargs.update(
+        {key: value for key, value in candidates.items() if value is not None and key in accepted}
+    )
 
     for required in handler.list_required_kwargs:
-        if kw.get(required) is None:
+        if list_kwargs.get(required) is None:
             # project_name is an accepted alternative to project_id for the
             # project-scoped lists (trace, span, thread) — the client methods
             # take either, so don't force the UUID when a name was given.
-            if required == "project_id" and kw.get("project_name"):
+            if required == "project_id" and list_kwargs.get("project_name"):
                 continue
             hint = f"{required} (or project_name)" if required == "project_id" else required
             err = EntityArgValidationError(
@@ -349,17 +357,17 @@ async def run_list(
     # its dataset is filtered on the case, and listed with experiments on the
     # runs, and the two endpoints share no field but ``id``. The registry row
     # says which, so this stays a lookup rather than a branch on a name.
-    vocabulary = handler.list_vocabulary or entity_type
+    vocabulary = _vocabulary(handler.list_vocabulary or entity_type)
 
     applied: list[str] = []
     clauses: list[dict[str, str]] = []
     source_defaulted = False
-    if vocabulary in FILTERABLE_FIELDS or filters:
+    if vocabulary.filter_fields or filters:
         try:
-            clauses = compile_filters(vocabulary, filters or "")
+            clauses = compile_filters(vocabulary, filters or "", filterable_types=FILTERABLE_TYPES)
         except OQLError as err:
             raise ToolError(str(err)) from err
-        if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
+        if vocabulary.is_source_defaulted and not any(
             c["field"] in ("source", *PARENT_ID_FIELDS) for c in clauses
         ):
             # The SDK default is for triage — "which traces need attention" —
@@ -379,13 +387,13 @@ async def run_list(
                 sent, params = split_param_clauses(vocabulary, clauses)
             except OQLError as err:
                 raise ToolError(str(err)) from err
-            kw.update(params)
+            list_kwargs.update(params)
             if sent:
-                kw["filters"] = json.dumps(sent, separators=(",", ":"))
+                list_kwargs["filters"] = json.dumps(sent, separators=(",", ":"))
             applied.append(f"filters: {render_filters(vocabulary, clauses)}")
-    if entity_type in WINDOWED_ENTITIES:
+    if handler.is_windowed:
         # Bodies never reach the table, so let the backend trim them.
-        kw["truncate"] = True
+        list_kwargs["truncate"] = True
     # The sort label is filled in after the response (the backend may have
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)
@@ -393,52 +401,52 @@ async def run_list(
     to_time: str | None = None
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
-        if entity_type not in WINDOWED_ENTITIES and not day_windowed:
-            windowed = ", ".join((*WINDOWED_ENTITIES, "agent_insights_issue"))
+        if not handler.is_windowed and not day_windowed:
+            windowed = ", ".join((*WINDOWED_TYPES, *_DAY_WINDOWED_TYPES))
             why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
         try:
-            from_time, to_time = resolve_window(since, until)
+            from_time, to_time = resolve_window(since=since, until=until)
         except WindowError as err:
             raise ToolError(str(err)) from err
         if day_windowed:
             # Diagnostics aggregates per report day, so the backend takes
             # dates; the instant window is truncated to its UTC days.
             if since is not None and from_time is not None:
-                kw["from_date"] = from_time[:10]
-                applied.append(f"since: {kw['from_date']}")
+                list_kwargs["from_date"] = from_time[:10]
+                applied.append(f"since: {list_kwargs['from_date']}")
             if until is not None and to_time is not None:
-                kw["to_date"] = to_time[:10]
-                applied.append(f"until: {kw['to_date']}")
+                list_kwargs["to_date"] = to_time[:10]
+                applied.append(f"until: {list_kwargs['to_date']}")
         else:
             if since is not None and from_time is not None:
-                kw["from_time"] = from_time
+                list_kwargs["from_time"] = from_time
                 applied.append(f"since: {_window_echo(since, from_time)}")
             if until is not None and to_time is not None:
-                kw["to_time"] = to_time
+                list_kwargs["to_time"] = to_time
                 applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
-        if entity_type not in WINDOWED_ENTITIES:
+        if not handler.is_windowed:
             # Refused, not dropped. This used to return the whole unfiltered
             # page under a header saying "search ignored" — and an agent that
             # skims the header reads thirty-two rows as the result of the
             # search it asked for. A page that is not what was asked for is
             # worse than an error, and the error can name what would work.
-            refusal = EntityArgValidationError(_search_refusal(vocabulary))
+            refusal = EntityArgValidationError(_search_refusal(handler, vocabulary))
             raise ToolError(str(refusal)) from refusal
-        kw["search"] = search
+        list_kwargs["search"] = search
         applied.append(f'search: "{search}"')
 
     sort_label: str | None = None
     sort_field: str | None = None
     if sort is not None:
         try:
-            sort_field, direction = compile_sort(vocabulary, sort)
+            sort_field, direction = compile_sort(vocabulary, sort, sortable_types=SORTABLE_TYPES)
         except SortError as err:
             raise ToolError(str(err)) from err
-        kw["sorting"] = json.dumps(
+        list_kwargs["sorting"] = json.dumps(
             [{"field": sort_field, "direction": direction}], separators=(",", ":")
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
@@ -451,7 +459,7 @@ async def run_list(
     # Free-text search can take the backend >30 s on a cold cache (seen live:
     # 32 s); give only those calls a longer leash.
     resolved_settings = settings or get_settings()
-    search_timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
+    search_timeout = _SEARCH_TIMEOUT_S if "search" in list_kwargs else None
     async with client_for_call(settings, client, timeout=search_timeout) as opik:
         with _as_tool_error(
             f"list {entity_type}s",
@@ -462,13 +470,15 @@ async def run_list(
             ),
         ):
             try:
-                page_body = await handler.list_fn(opik, **kw)
+                page_body = await handler.list_fn(opik, **list_kwargs)
             except OpikNotFoundError as e:
                 # The backend's 404 for a misspelled project names it ("Project
                 # name: X not found"); only that case gets the did-you-mean
                 # recovery, and the rest fall through to the mapping above.
-                if kw.get("project_name") and kw["project_name"] in str(e):
-                    raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
+                if list_kwargs.get("project_name") and list_kwargs["project_name"] in str(e):
+                    raise ToolError(
+                        await unknown_project_message(opik, list_kwargs["project_name"])
+                    ) from e
                 raise
 
         content_raw = page_body.get("content") or []
@@ -506,27 +516,29 @@ async def run_list(
             applied.append(f"fields: {', '.join(wanted)}")
         header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
         # What the page knows about itself, for an entity whose registry entry
-        # has something to add. ``windowed``: Diagnostics issues take a
+        # has something to add. ``is_windowed``: Diagnostics issues take a
         # report-day window, so a page under one says nothing about the
         # project outside it.
         page_ctx = PageContext(
-            project_id=kw.get("project_id"),
-            project_name=kw.get("project_name"),
+            project_id=list_kwargs.get("project_id"),
+            project_name=list_kwargs.get("project_name"),
             parent_id=next(
                 (
                     value
                     for field in handler.list_required_kwargs
-                    if field != "project_id" and isinstance(value := kw.get(field), str) and value
+                    if field != "project_id"
+                    and isinstance(value := list_kwargs.get(field), str)
+                    and value
                 ),
                 None,
             ),
-            empty=not content,
-            status=kw.get("status"),
-            windowed="from_date" in kw or "to_date" in kw,
+            is_empty=not content,
+            status=list_kwargs.get("status"),
+            is_windowed="from_date" in list_kwargs or "to_date" in list_kwargs,
             window_end=parse_instant(to_time) if to_time else None,
             page=page,
             total=total,
-            filtered=bool(filters and filters.strip()),
+            is_filtered=bool(filters and filters.strip()),
             sort_field=sort_field,
             rows=tuple(content),
         )
@@ -539,21 +551,21 @@ async def run_list(
             # widening it would find anything. Only when the page's own total
             # is zero: a slice past the last page has rows, on an earlier page.
             widened = (
-                _without_default(entity_type, opik, handler.list_fn, kw, clauses)
+                _without_default(vocabulary, opik, handler.list_fn, list_kwargs, clauses)
                 if source_defaulted and total == 0
                 else None
             )
             unfiltered = (
-                _without_filters(entity_type, opik, handler.list_fn, kw, clauses)
-                if page_ctx.filtered and total == 0
+                _without_filters(vocabulary, opik, handler.list_fn, list_kwargs, clauses)
+                if page_ctx.is_filtered and total == 0
                 else None
             )
             unnamed = (
                 _probe(
-                    entity_type,
+                    vocabulary,
                     opik,
                     handler.list_fn,
-                    {k: v for k, v in kw.items() if k != "name"},
+                    {k: v for k, v in list_kwargs.items() if k != "name"},
                     [],
                 )
                 if name and total == 0
@@ -563,12 +575,13 @@ async def run_list(
                 opik,
                 handler,
                 name=name,
-                from_time=kw.get("from_time"),
+                from_time=list_kwargs.get("from_time"),
                 widened=widened,
                 unfiltered=unfiltered,
                 unnamed=unnamed,
                 settings=resolved_settings,
                 page_ctx=page_ctx,
+                source_values=vocabulary.enum_values.get("source", ()),
             )
             return f"{header}\n{empty}" if header else empty
 
@@ -594,14 +607,21 @@ async def run_list(
             # can only refuse it here: which names are valid is a fact about
             # the page, so the check cannot run before the page exists.
             raise ToolError(str(err)) from err
-        if handler.page_note_fn is not None:
-            note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
+        page_note = page_note_of(handler)
+        if page_note is not None:
+            note = await page_note(opik, resolved_settings, page_ctx)
             if note is not None:
                 table = f"{table}\n\n{note}"
         return f"{header}\n{table}" if header else table
 
 
-def _search_refusal(entity_type: str) -> str:
+def _vocabulary(name: str) -> Vocabulary:
+    """The field table ``name`` names, or an empty one: a table-less entity
+    refuses filters and sort in the same words as any other."""
+    return VOCABULARIES.get(name) or Vocabulary(name=name)
+
+
+def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary) -> str:
     """Why free text does not apply here, and the nearest thing that does.
 
     Every workspace-wide list takes a ``name`` substring, and the filterable
@@ -609,35 +629,37 @@ def _search_refusal(entity_type: str) -> str:
     a query that works one keyword away.
     """
     alternatives: list[str] = []
-    if entity_type in NAME_SEARCHABLE_ENTITIES:
+    if handler.is_name_searchable:
         alternatives.append("match a name with name=<substring>")
-    if entity_type in FILTERABLE_FIELDS:
+    if vocabulary.filter_fields:
         # The nearest thing to free text the entity has: one ilike over a whole
         # payload where there is one, a key of one otherwise.
-        fields = FILTERABLE_FIELDS[entity_type]
+        fields = vocabulary.filter_fields
         if "full_data" in fields:
             example = 'full_data contains "…"'
         elif "metadata" in fields:
             example = 'metadata.<key> = "…"'
         else:
             example = 'a field = "…"'
-        alternatives.append(f'narrow with filters (e.g. {example}; schema("list.{entity_type}"))')
+        alternatives.append(
+            f'narrow with filters (e.g. {example}; schema("list.{vocabulary.name}"))'
+        )
     joined = "; or ".join(alternatives)
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
-        f"search is not supported for {called(entity_type)!r}: "
-        f"only {', '.join(WINDOWED_ENTITIES)} take free text.{how}"
+        f"search is not supported for {vocabulary.entity_type!r}: "
+        f"only {', '.join(WINDOWED_TYPES)} take free text.{how}"
     )
 
 
-def _source_hint(entity_type: str, hidden: int) -> str:
+def _source_hint(entity_type: str, source_values: tuple[str, ...], hidden: int) -> str:
     """What the ``sdk`` default hid, in numbers, and how to see it.
 
     Names every source the backend writes, ``optimization`` included: the
     optimizer's traces were the ones a caller went looking for and were not
     told about.
     """
-    named = [v for v in SOURCE_VALUES if v not in ("sdk", "unknown")]
+    named = [v for v in source_values if v not in ("sdk", "unknown")]
     choices = ", ".join(f'"{v}"' for v in named[:-1]) + f' or "{named[-1]}"'
     return (
         f"{hidden} {entity_type}{'s' if hidden != 1 else ''} match without the default "
@@ -647,10 +669,10 @@ def _source_hint(entity_type: str, hidden: int) -> str:
 
 
 def _without_default(
-    entity_type: str,
+    vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
-    kw: dict[str, Any],
+    list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """The same listing again, one row wide, with the ``sdk`` default lifted.
@@ -667,14 +689,16 @@ def _without_default(
     the caller already has, and must never turn it into an error.
     """
 
-    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
+    return _probe(
+        vocabulary, opik, list_fn, list_kwargs, [c for c in clauses if c != SDK_SOURCE_CLAUSE]
+    )
 
 
 def _without_filters(
-    entity_type: str,
+    vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
-    kw: dict[str, Any],
+    list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """The same listing again, one row wide, with the caller's filters lifted.
@@ -682,25 +706,27 @@ def _without_filters(
     Keeps the ``sdk`` default when the page applied it, so the count is of the
     rows the caller would otherwise have seen.
     """
-    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
+    return _probe(
+        vocabulary, opik, list_fn, list_kwargs, [c for c in clauses if c == SDK_SOURCE_CLAUSE]
+    )
 
 
 def _probe(
-    entity_type: str,
+    vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
-    kw: dict[str, Any],
+    list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """One-row count of ``clauses``, or ``None`` when it cannot be had."""
 
     async def count() -> int | None:
-        probe = {**kw, "page": 1, "size": 1}
+        probe = {**list_kwargs, "page": 1, "size": 1}
         probe.pop("filters", None)
         try:
             # The same split the page went through: a clause that is a query
             # parameter must not turn back into a filter entry on the probe.
-            sent, params = split_param_clauses(entity_type, clauses)
+            sent, params = split_param_clauses(vocabulary, clauses)
             probe.update(params)
             if sent:
                 probe["filters"] = json.dumps(sent, separators=(",", ":"))
@@ -725,6 +751,7 @@ async def _empty_message(
     unnamed: Callable[[], Awaitable[int | None]] | None,
     settings: Settings,
     page_ctx: PageContext,
+    source_values: tuple[str, ...],
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
@@ -748,8 +775,9 @@ async def _empty_message(
     entity_type = handler.entity_type
     project_id, project_name = page_ctx.project_id, page_ctx.project_name
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
-    if handler.page_note_fn is not None:
-        note = await handler.page_note_fn(opik, settings, page_ctx)
+    page_note = page_note_of(handler)
+    if page_note is not None:
+        note = await page_note(opik, settings, page_ctx)
         if note:
             return f"{empty} {note}"
 
@@ -769,7 +797,11 @@ async def _empty_message(
 
     async def hinted() -> str:
         hidden = await widened() if widened is not None else None
-        return f"{empty} {_source_hint(entity_type, hidden)}" if hidden else await scoped()
+        return (
+            f"{empty} {_source_hint(entity_type, source_values, hidden)}"
+            if hidden
+            else await scoped()
+        )
 
     if from_time is None:
         return await hinted()
@@ -1134,10 +1166,10 @@ def _compact(col: str, val: Any) -> str:
             return format(Decimal(text), "f")
         return text
     if isinstance(val, str):
-        m = _ISO_WITH_FRACTION.match(val)
-        if m:
-            tz = "Z" if m.group(2) in ("Z", "+00:00") else m.group(2)
-            return m.group(1) + tz
+        iso = _ISO_WITH_FRACTION.match(val)
+        if iso:
+            offset = "Z" if iso.group(2) in ("Z", "+00:00") else iso.group(2)
+            return iso.group(1) + offset
     if isinstance(val, dict | list):
         # Compact JSON, not Python's repr: a nested value is still the value,
         # readable and pasteable, rather than a hint that one was there.

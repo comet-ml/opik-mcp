@@ -49,12 +49,12 @@ from opik_mcp.credential_identity import (
 )
 from opik_mcp.instructions import render_instructions
 from opik_mcp.oauth_identity import introspect_oauth_token
-from opik_mcp.read_list import run_list, run_read
 from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
-from opik_mcp.read_list.list_tool import page_facts
+from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import filter_field_names
-from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.read_tool import run_read
+from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES, URI_PATTERNS, VOCABULARIES
 from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.skills_catalog import (
@@ -94,7 +94,7 @@ def _looks_like_uuid(s: str) -> bool:
 
 def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     raw_id = str(kwargs.get("id", ""))
-    if raw_id.startswith("opik://") or looks_like_opik_link(raw_id):
+    if raw_id.startswith("opik://") or looks_like_opik_link(raw_id, URI_PATTERNS):
         id_kind = "uri"
     elif _looks_like_uuid(raw_id):
         id_kind = "uuid"
@@ -134,9 +134,11 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "page": str(kwargs.get("page", 1)),
         "size": str(kwargs.get("size", 25)),
         "has_filters": str(bool(filters)).lower(),
-        "filter_fields": ",".join(filter_field_names(kwargs.get("entity_type", ""), filters)),
+        "filter_fields": ",".join(
+            filter_field_names(kwargs.get("entity_type", ""), filters, VOCABULARIES.values())
+        ),
         "has_sort": str(bool(sort)).lower(),
-        "sort_field": sort_field_label(sort),
+        "sort_field": sort_field_label(sort, VOCABULARIES.values()),
         "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),
         "has_search": str(bool(kwargs.get("search"))).lower(),
         # Count only — a column name here is a dataset's data key or a score

@@ -37,8 +37,9 @@ toward the ``list`` tool — ``read`` is for singletons.
 
 from __future__ import annotations
 
-import json
 import re
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import ClassVar, NamedTuple
 from urllib.parse import unquote
 
@@ -80,172 +81,122 @@ class ParsedURI(NamedTuple):
     scope the fetch. ``None`` for every other entity (globally-unique ids)."""
 
 
-# Canonical singleton URI patterns.
-_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"^opik://projects/([^/?#]+)$"), "project"),
-    (re.compile(r"^opik://traces/([^/?#]+)$"), "trace"),
-    (re.compile(r"^opik://spans/([^/?#]+)$"), "span"),
-    (re.compile(r"^opik://datasets/([^/?#]+)$"), "dataset"),
-    # Legacy spelling: the entity was called test_suite before the rename, and
-    # URIs handed out then still have to resolve.
-    (re.compile(r"^opik://test-suites/([^/?#]+)$"), "dataset"),
-    (re.compile(r"^opik://experiments/([^/?#]+)$"), "experiment"),
-    (re.compile(r"^opik://prompts/([^/?#]+)$"), "prompt"),
-]
+#: What an address yields: the record's id, and its project where the address
+#: carries one.
+UriMatch = tuple[str, str | None]
 
-# Threads carry a project id AND a thread id, so they need two capture groups —
-# handled ahead of the single-id ``_PATTERNS`` in ``parse``.
-_THREAD_URI_RE = re.compile(r"^opik://projects/([^/?#]+)/threads/([^/?#]+)$")
-# Same for Diagnostics issues: the backend wants project_id on the detail call.
-_ISSUE_URI_RE = re.compile(r"^opik://projects/([^/?#]+)/agent-insights-issues/([^/?#]+)$")
-# A pasted Opik web link: /projects/<projectId>/... with ?thread=<threadId>
-# (thread panel) or ?issue=<issueId> (Diagnostics page, open or resolved view).
+
+@dataclass(frozen=True)
+class UriPattern:
+    """One address shape that names a record: an ``opik://`` URI or a pasted
+    Opik web link."""
+
+    match: Callable[[str], UriMatch | None]
+    """The id (and project) this address names, or ``None`` when it is not
+    this shape. Matching and extracting are one call, so passing the gate
+    guarantees the extraction."""
+    is_web_link: bool = False
+    """A pasted http(s) link rather than an ``opik://`` URI."""
+
+
+_SEGMENT = "([^/?#]+)"
 _WEB_PROJECT_RE = re.compile(r"/projects/([^/?#]+)")
-_WEB_THREAD_QS_RE = re.compile(r"[?&]thread=([^&#]+)")
-_WEB_ISSUE_QS_RE = re.compile(r"[?&]issue=([^&#]+)")
-# The compare route: dataset in the path, runs as a JSON array in the query.
-_WEB_COMPARE_RE = re.compile(r"/experiments/([^/?#]+)/compare")
-_WEB_EXPERIMENTS_QS_RE = re.compile(r"[?&]experiments=([^&#]+)")
-# One trace, named two ways: ``tls_trace`` by the UI, ``trace_id`` by our own
-# redirect link.
-_WEB_TRACE_QS_RE = re.compile(r"[?&](?:tls_trace|trace_id)=([^&#]+)")
+
+
+def is_web_link(s: str) -> bool:
+    return s.startswith(("http://", "https://"))
+
+
+def opik_uri(path: str) -> UriPattern:
+    """``opik://<path>``, where ``path`` names its segments ``{project}`` and ``{id}``.
+
+    ``projects/{project}/threads/{id}`` matches ``opik://projects/p-1/threads/t-1``.
+    """
+    groups = [slot for slot in ("{project}", "{id}") if slot in path]
+    groups.sort(key=path.index)
+    regex = re.compile(
+        "^opik://"
+        + re.escape(path).replace(r"\{project\}", _SEGMENT).replace(r"\{id\}", _SEGMENT)
+        + "$"
+    )
+
+    def match(uri: str) -> UriMatch | None:
+        found = regex.match(uri)
+        if found is None:
+            return None
+        values = dict(zip(groups, found.groups(), strict=True))
+        return values["{id}"], values.get("{project}")
+
+    return UriPattern(match=match)
+
+
+def web_link(*query_keys: str, is_project_scoped: bool) -> UriPattern:
+    """A pasted link that names its record in the query, as any of ``query_keys``.
+
+    A project-scoped record also needs the ``/projects/<id>`` path segment the
+    link was copied from, or it names nothing the read can scope.
+    """
+    query = re.compile(r"[?&](?:" + "|".join(map(re.escape, query_keys)) + r")=([^&#]+)")
+
+    def match(url: str) -> UriMatch | None:
+        if not is_web_link(url):
+            return None
+        found = query.search(url)
+        if found is None:
+            return None
+        if not is_project_scoped:
+            return unquote(found.group(1)), None
+        project = _WEB_PROJECT_RE.search(url)
+        if project is None:
+            return None
+        return unquote(found.group(1)), project.group(1)
+
+    return UriPattern(match=match, is_web_link=True)
 
 
 def looks_like_uri(s: str) -> bool:
     return s.startswith("opik://")
 
 
-def looks_like_issue_url(s: str) -> bool:
-    """A pasted http(s) Diagnostics link — has a project path and an ``issue`` qs.
-
-    Same gate discipline as ``looks_like_thread_url``: the regexes here are the
-    ones ``parse`` extracts with, so passing the gate guarantees extraction.
-    """
-    return (
-        s.startswith(("http://", "https://"))
-        and _WEB_PROJECT_RE.search(s) is not None
-        and _WEB_ISSUE_QS_RE.search(s) is not None
-    )
-
-
-def _first_experiment_id(s: str) -> str | None:
-    """The baseline run out of a compare link's ``experiments`` array.
-
-    ``None`` unless it is a non-empty JSON array of strings, so the gate and
-    the extraction ask the same question.
-    """
-    qm = _WEB_EXPERIMENTS_QS_RE.search(s)
-    if qm is None:
-        return None
-    try:
-        runs = json.loads(unquote(qm.group(1)))
-    except ValueError:
-        return None
-    if not isinstance(runs, list) or not runs:
-        return None
-    first = runs[0]
-    return first if isinstance(first, str) and first else None
-
-
-def looks_like_compare_url(s: str) -> bool:
-    """A pasted compare link — the experiments path and a run to open."""
-    return (
-        s.startswith(("http://", "https://"))
-        and _WEB_COMPARE_RE.search(s) is not None
-        and _first_experiment_id(s) is not None
-    )
-
-
-def looks_like_trace_url(s: str) -> bool:
-    """A pasted link that names one trace."""
-    return s.startswith(("http://", "https://")) and _WEB_TRACE_QS_RE.search(s) is not None
-
-
-def looks_like_opik_link(s: str) -> bool:
+def looks_like_opik_link(s: str, patterns: Iterable[tuple[str, UriPattern]]) -> bool:
     """Any pasted Opik web link ``parse`` understands."""
-    return (
-        looks_like_thread_url(s)
-        or looks_like_issue_url(s)
-        or looks_like_trace_url(s)
-        or looks_like_compare_url(s)
-    )
+    return any(pattern.is_web_link and pattern.match(s) is not None for _, pattern in patterns)
 
 
-def looks_like_thread_url(s: str) -> bool:
-    """A pasted http(s) Opik thread link — has a project path and a ``thread`` qs.
+def parse(uri: str, patterns: Iterable[tuple[str, UriPattern]]) -> ParsedURI:
+    """Parse ``opik://...`` or a pasted link → (entity_type, id).
 
-    ``looks_like_uri`` only matches ``opik://``; a user usually pastes the web
-    URL from the Opik UI instead. The read tool routes anything matching this
-    through ``parse`` so the project + thread id are extracted; a plain http URL
-    that isn't a thread link fails this check and falls through to raw-id handling.
-
-    The gate uses the SAME regexes ``parse`` extracts with, so a match here
-    guarantees extraction succeeds — a stray ``?other_thread=x`` (substring of
-    ``thread=``) or a project-less path won't pass the gate only to fail parsing.
-    """
-    return (
-        s.startswith(("http://", "https://"))
-        and _WEB_PROJECT_RE.search(s) is not None
-        and _WEB_THREAD_QS_RE.search(s) is not None
-    )
-
-
-def parse(uri: str) -> ParsedURI:
-    """Parse ``opik://...`` → (entity_type, id).
+    ``patterns`` are tried in order, each with the entity it names: a link can
+    name two records (a trace open over the compare view it sits on), and the
+    first pattern that matches is the record the user is looking at.
 
     Raises ``InvalidURI`` if the prefix matches but no pattern fits — that
     way callers can distinguish "user passed a UUID" (no prefix, no error)
     from "user passed a malformed URI" (prefix but unrecognized).
     """
-    # Threads first — both the canonical opik:// shape and a pasted web link
-    # carry a project id alongside the thread id.
-    tm = _THREAD_URI_RE.match(uri)
-    if tm is not None:
-        return ParsedURI(entity_type="thread", entity_id=tm.group(2), project_id=tm.group(1))
-    if looks_like_thread_url(uri):
-        pm = _WEB_PROJECT_RE.search(uri)
-        qm = _WEB_THREAD_QS_RE.search(uri)
-        if pm is not None and qm is not None:
-            return ParsedURI(
-                entity_type="thread",
-                entity_id=unquote(qm.group(1)),
-                project_id=pm.group(1),
-            )
-
-    # A link naming one trace beats the view it sits on.
-    if looks_like_trace_url(uri):
-        qm = _WEB_TRACE_QS_RE.search(uri)
-        if qm is not None:
-            return ParsedURI(entity_type="trace", entity_id=unquote(qm.group(1)))
-
-    # Diagnostics issues — canonical URI, then the pasted Diagnostics page link.
-    im = _ISSUE_URI_RE.match(uri)
-    if im is not None:
-        return ParsedURI(
-            entity_type="agent_insights_issue", entity_id=im.group(2), project_id=im.group(1)
-        )
-    if looks_like_issue_url(uri):
-        pm = _WEB_PROJECT_RE.search(uri)
-        qm = _WEB_ISSUE_QS_RE.search(uri)
-        if pm is not None and qm is not None:
-            return ParsedURI(
-                entity_type="agent_insights_issue",
-                entity_id=unquote(qm.group(1)),
-                project_id=pm.group(1),
-            )
-
-    if looks_like_compare_url(uri):
-        first = _first_experiment_id(uri)
-        if first is not None:
-            return ParsedURI(entity_type="experiment", entity_id=first)
-
-    for pattern, entity_type in _PATTERNS:
-        m = pattern.match(uri)
-        if m is not None:
-            return ParsedURI(entity_type=entity_type, entity_id=m.group(1))
+    for entity_type, pattern in patterns:
+        found = pattern.match(uri)
+        if found is not None:
+            entity_id, project_id = found
+            return ParsedURI(entity_type=entity_type, entity_id=entity_id, project_id=project_id)
     raise InvalidURI(
         f"URI {uri!r} starts with opik:// but matches no known entity shape. "
         "Expected e.g. opik://traces/<uuid>, opik://projects/<uuid>, "
         "opik://projects/<projectId>/threads/<threadId>, or "
         "opik://projects/<projectId>/agent-insights-issues/<issueId>."
     )
+
+
+__all__ = [
+    "InvalidURI",
+    "ParsedURI",
+    "UriMatch",
+    "UriPattern",
+    "is_uuid",
+    "is_web_link",
+    "looks_like_opik_link",
+    "looks_like_uri",
+    "opik_uri",
+    "parse",
+    "web_link",
+]

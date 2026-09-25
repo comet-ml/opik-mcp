@@ -25,9 +25,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.oql import (
-    SOURCE_DEFAULTED_ENTITIES,
-)
+from opik_mcp.read_list.handler import Vocabulary
 from opik_mcp.read_list.window import (
     closed_window,
     parse_bound,
@@ -403,7 +401,7 @@ def interval_for_window(since: str, until: str) -> str:
 
 
 def resolve_window(
-    since: str | None, until: str | None, *, now: datetime | None = None
+    *, since: str | None, until: str | None, now: datetime | None = None
 ) -> tuple[str, str]:
     """``(since, until)`` instants from the caller's forms, closed and ordered.
 
@@ -414,7 +412,7 @@ def resolve_window(
     30-day window its day count once already (see ``project_summary.window``).
     """
     anchor = now or datetime.now(UTC)
-    resolved_since, resolved_until = window_bounds(since, until, now=anchor)
+    resolved_since, resolved_until = window_bounds(since=since, until=until, now=anchor)
     start, end = closed_window(resolved_since, resolved_until, days=DEFAULT_WINDOW_DAYS, now=anchor)
     return second_precision(start), second_precision(end)
 
@@ -431,9 +429,12 @@ def resolve_window(
 # than quietly given the unfiltered answer. Trace and span metrics use
 # strategies that do carry both.
 
-SOURCE_FILTERED_METRIC_ENTITIES: Final = tuple(
-    entity for entity in SOURCE_DEFAULTED_ENTITIES if entity != "thread"
-)
+
+def is_source_filtered(metric: Metric, vocabulary: Vocabulary) -> bool:
+    """Does the SDK default apply to this metric? Its entity's lists default
+    to it, and its strategy is not the thread one that drops ``source``."""
+    return vocabulary.is_source_defaulted and metric.entity != "thread"
+
 
 _DROPPED_BY_THREAD_METRICS: Final = ("source", "environment")
 

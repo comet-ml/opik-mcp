@@ -1,63 +1,6 @@
 {
   "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. tests/repo/test_ratchets.py",
-  "entity_names_at_root": {
-    "decorations": [
-      "dataset",
-      "dataset_item",
-      "prompt",
-      "prompt_version"
-    ],
-    "list_tool": [
-      "agent_insights_issue"
-    ],
-    "oql": [
-      "dataset",
-      "dataset_item",
-      "dataset_item_case",
-      "experiment",
-      "project",
-      "prompt",
-      "span",
-      "thread",
-      "trace"
-    ],
-    "reference": [
-      "dataset_item",
-      "dataset_item_case",
-      "experiment",
-      "span",
-      "thread",
-      "trace"
-    ],
-    "sorting": [
-      "dataset_item",
-      "dataset_item_case",
-      "experiment",
-      "project",
-      "span",
-      "thread",
-      "trace"
-    ],
-    "ui_links": [
-      "online_rule",
-      "project",
-      "project_metric",
-      "score_name",
-      "span",
-      "thread",
-      "trace"
-    ],
-    "uri": [
-      "agent_insights_issue",
-      "dataset",
-      "experiment",
-      "project",
-      "prompt",
-      "span",
-      "thread",
-      "trace"
-    ]
-  },
+  "entity_names_at_root": {},
   "operation_names_at_root": {
     "models": [
       "agent_insights_issue.close",
@@ -134,26 +77,11 @@
     "src/opik_mcp/opik_client.py": [
       "RET504"
     ],
-    "src/opik_mcp/read_list/__init__.py": [
-      "I002"
-    ],
     "src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py": [
       "I002"
     ],
     "src/opik_mcp/read_list/entities/agent_insights_issue/state.py": [
       "ARG001"
-    ],
-    "src/opik_mcp/read_list/entities/dataset/layout.py": [
-      "PERF401"
-    ],
-    "src/opik_mcp/read_list/entities/project_metric/table.py": [
-      "FBT001"
-    ],
-    "src/opik_mcp/read_list/list_tool.py": [
-      "PERF403"
-    ],
-    "src/opik_mcp/read_list/oql.py": [
-      "ARG004"
     ],
     "src/opik_mcp/read_list/read_tool.py": [
       "ARG001"

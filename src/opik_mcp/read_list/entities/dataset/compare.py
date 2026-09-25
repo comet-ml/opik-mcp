@@ -41,6 +41,7 @@ from opik_mcp.read_list.entities.dataset.layout import (
     ScoreKinds,
     render,
 )
+from opik_mcp.read_list.entities.dataset.vocabulary import COMPARED
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
 from opik_mcp.read_list.paging import clamp_size
@@ -100,7 +101,7 @@ async def run_compare(
     experiments = await _resolve(client, ids)
     ran_dataset_id = _dataset_of(experiments, dataset_id)
 
-    clauses = compile_filters(_ENTITY, filters) if filters else []
+    clauses = compile_filters(COMPARED, filters) if filters else []
     stripping = _strips_runs(clauses, experiment_count=len(ids))
     if stripping and size > REFETCH_ROW_CAP:
         raise EntityArgValidationError(
@@ -165,7 +166,7 @@ async def run_compare(
 
     applied = [f"compare: {_legend(experiments)}"]
     if clauses:
-        applied.append(f"filters: {render_filters(_ENTITY, clauses)}")
+        applied.append(f"filters: {render_filters(COMPARED, clauses)}")
     if sort_label is not None:
         applied.append(sort_label)
     if search:
@@ -212,9 +213,9 @@ async def run_compare(
         # An empty page still says what could be asked next: the keys, the
         # search semantics and the legend are what turn it into a second call.
         reason = _empty(
-            stripping=stripping,
-            filtered=bool(clauses),
-            searched=bool(search),
+            strips_runs=stripping,
+            is_filtered=bool(clauses),
+            is_searched=bool(search),
             page=page,
             total=total,
         )
@@ -458,7 +459,7 @@ def _sorting(sort: str | None) -> tuple[str | None, str | None, str | None]:
     """
     if sort is None:
         return None, None, None
-    field, direction = compile_sort(_ENTITY, sort)
+    field, direction = compile_sort(COMPARED, sort)
     return (
         json.dumps([{"field": field, "direction": direction}], separators=(",", ":")),
         f"sort: {field} {direction.lower()}",
@@ -673,7 +674,9 @@ def _how_to_read(experiments: list[Experiment], *, assertion_columns: bool) -> s
     )
 
 
-def _empty(*, stripping: bool, filtered: bool, searched: bool, page: int, total: int) -> str:
+def _empty(
+    *, strips_runs: bool, is_filtered: bool, is_searched: bool, page: int, total: int
+) -> str:
     """Why this page is empty — which is four different things.
 
     Answering "no items in common" to a page past the end, or explaining
@@ -685,13 +688,13 @@ def _empty(*, stripping: bool, filtered: bool, searched: bool, page: int, total:
             f"Page {page} is past the end: the comparison has {total} "
             f"case{'s' if total != 1 else ''}. Ask for an earlier page."
         )
-    if stripping:
+    if strips_runs:
         return (
             "No case matched. A filter on the runs matches a case when any of its "
             "experiments matches, so nothing here scored or ran the way you asked."
         )
-    if filtered:
+    if is_filtered:
         return "No case matched the filter."
-    if searched:
+    if is_searched:
         return "No case matched the search. Search matches the case data, not the runs' output."
     return "No cases found: these experiments have no items in common."

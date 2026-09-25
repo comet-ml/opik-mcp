@@ -22,12 +22,13 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.dataset.compare import run_compare
 from opik_mcp.read_list.entities.dataset.items import fetch_item, list_items, project_items
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.entities.dataset.vocabulary import CASES, COMPARED
+from opik_mcp.read_list.handler import EntityHandler, ParentPage
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.ui_links import scoped_entity_links
+from opik_mcp.read_list.uri import opik_uri
 
 __all__ = ["HANDLER", "ITEM_HANDLER", "dataset_links", "fetch_item", "list_items", "project_items"]
 
@@ -59,6 +60,10 @@ def dataset_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="dataset",
+    is_name_searchable=True,
+    # Legacy spelling: the entity was called test_suite before the rename, and
+    # URIs handed out then still have to resolve.
+    uri_patterns=(opik_uri("datasets/{id}"), opik_uri("test-suites/{id}")),
     link_fn=dataset_links,
     fetch_fn=fetch,
     search_by_name_fn=search_by_name,
@@ -74,11 +79,12 @@ HANDLER = EntityHandler(
 ITEM_HANDLER = EntityHandler(
     entity_type="dataset_item",
     fetch_fn=fetch_item,
-    page_note_fn=link_note_for("dataset_item"),
+    parent_page=ParentPage(fetch=fetch, area="datasets", subpath="items", noun="dataset"),
     list_fn=list_items,
     list_projection_fn=project_items,
     list_required_kwargs=("dataset_id",),
-    list_vocabulary="dataset_item_case",
+    vocabularies=(COMPARED, CASES),
+    list_vocabulary=CASES.name,
     # "case to trace" is the first hop the ``fields`` ticket names: a case
     # built from a traced run carries the trace it came from, and a projected
     # row without it is a question and an answer with no way back to the call

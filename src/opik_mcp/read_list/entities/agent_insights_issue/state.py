@@ -283,13 +283,13 @@ async def issue_page_note(
     if project_id is None:
         return None
     try:
-        if ctx.empty:
+        if ctx.is_empty:
             return await diagnostics_state_hint(
                 client,
                 settings,
                 project_id,
                 issue_status=ctx.status,
-                windowed=ctx.windowed,
+                windowed=ctx.is_windowed,
                 window_end=ctx.window_end,
             )
         return await diagnostics_coverage_note(

@@ -12,7 +12,9 @@ from typing import TYPE_CHECKING, Any, Final
 from pydantic import BaseModel
 
 from opik_mcp.config import Settings
-from opik_mcp.read_list.ui_links import project_page_url, thread_page_url, trace_page_url
+from opik_mcp.read_list.entities.thread import thread_page_url
+from opik_mcp.read_list.entities.trace import trace_page_url
+from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 from opik_mcp.writes.wire import TARGET_PATH, BuildContext, WireRequest, dump
 
