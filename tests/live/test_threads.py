@@ -16,7 +16,7 @@ async def test_a_thread_list_holds_every_seeded_thread(mcp: Live, manifest: Mani
     answer = await mcp.list("thread", project_name=manifest.project_name, size=100)
     seeded = {t.id for t in manifest.short_threads}
     seeded.add(manifest.long_thread.id)
-    assert seeded <= set(answer.column("id"))
+    assert set(answer.column("id")) == seeded
 
 
 async def test_a_filter_on_message_count_returns_only_the_long_thread(

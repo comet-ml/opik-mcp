@@ -52,7 +52,9 @@ from scripts.seed_e2e_backend import (
 )
 
 #: A hung server must fail the test, not the job.
-_TIMEOUT_S = 120
+#: Above the write tests' longest chain of waits (up to four at 60 s), so a slow
+#: cloud fails on the wait that names the missing state, not on this limit.
+_TIMEOUT_S = 300
 
 #: Claude Code rejects an MCP result above 25,000 tokens by default (ADR 0002).
 #: The server estimates 2.5 characters per token, erring high, so this is the

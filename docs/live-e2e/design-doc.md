@@ -121,7 +121,8 @@ OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --pref
 - Reads and lists per entity: `tests/live/test_traces.py`,
   `tests/live/test_threads.py`, `tests/live/test_project.py`,
   `tests/live/test_evaluation.py`.
-- Every write operation an open source backend accepts:
+- Every write operation, on both backends; the Diagnostics jobs only where
+  Ollie runs:
   `tests/live/test_writes.py`.
 - Answer sizes and declared cuts: `tests/live/test_sizes.py`, including
   `test_an_answer_fits_what_the_host_accepts` and

@@ -29,13 +29,25 @@ list_failed() {
   fi
 }
 
+# What a job's result says, in the message. "cancelled" on a nightly is a job
+# that hit its time limit, which is as much a failure as a red test.
+verdict() {
+  case "$1" in
+    failure) echo "failed" ;;
+    cancelled) echo "timed out or was cancelled" ;;
+    *) echo "" ;;
+  esac
+}
+
 body=""
-if [ "${LOCAL_RESULT:-}" = "failure" ]; then
-  body+="*live-local* failed against Opik ${OPIK_VERSION:-unknown}"$'\n'
+local_verdict=$(verdict "${LOCAL_RESULT:-}")
+if [ -n "$local_verdict" ]; then
+  body+="*live-local* ${local_verdict} against Opik ${OPIK_VERSION:-unknown}"$'\n'
   body+="$(list_failed "${LOCAL_FAILED:-}")"$'\n'
 fi
-if [ "${PROD_RESULT:-}" = "failure" ]; then
-  body+="*live-prod* failed against Opik cloud ${CLOUD_VERSION:-unknown}"$'\n'
+prod_verdict=$(verdict "${PROD_RESULT:-}")
+if [ -n "$prod_verdict" ]; then
+  body+="*live-prod* ${prod_verdict} against Opik cloud ${CLOUD_VERSION:-unknown}"$'\n'
   body+="$(list_failed "${PROD_FAILED:-}")"$'\n'
 fi
 

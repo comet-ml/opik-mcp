@@ -200,9 +200,8 @@ def _iso(when: datetime) -> str:
 def _uuid7(when: datetime, anchor: str, key: str) -> str:
     """A UUIDv7 stamped with ``when``, its random bits fixed by anchor and key.
 
-    Deterministic so a reseed-free rerun can rebuild every id from the anchor;
-    distinct across anchors so a wipe and reseed never collides with rows the
-    backend still holds in a deleted state.
+    Deterministic, so a plan can be rebuilt and checked offline; distinct
+    across anchors, so two runs never mint the same id.
     """
     ms = int(when.timestamp() * 1000) & 0xFFFFFFFFFFFF
     digest = int.from_bytes(hashlib.sha256(f"{anchor}/{key}".encode()).digest()[:10], "big")
@@ -923,7 +922,13 @@ def _experiment_scores_ready(backend: Backend, manifest: Manifest) -> bool:
 def _finish(backend: Backend, plan: Plan) -> Manifest:
     plan.manifest = _resolve_ids(backend, plan.manifest)
     _wait("experiment scores", lambda: _experiment_scores_ready(backend, plan.manifest))
+    # Cloud applies writes asynchronously, so read back until everything shows,
+    # and report what still did not when the time is up.
     problems = verify(backend, plan)
+    deadline = time.monotonic() + DERIVED_TIMEOUT_S
+    while problems and time.monotonic() < deadline:
+        time.sleep(2.0)
+        problems = verify(backend, plan)
     if problems:
         raise SeedError("the backend does not hold the fixture:\n- " + "\n- ".join(problems))
     return plan.manifest

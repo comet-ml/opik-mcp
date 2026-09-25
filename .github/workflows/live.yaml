@@ -227,9 +227,14 @@ jobs:
   # checks are the notification there.
   notify:
     needs: [live-local, live-prod]
+    # A job that hits its time limit ends "cancelled", not "failure", so a hung
+    # nightly or dispatch posts too. Not a push: a push run that a newer one
+    # replaced is also "cancelled", and that is not news.
     if: >-
       always() && github.event_name != 'pull_request' &&
-      (needs.live-local.result == 'failure' || needs.live-prod.result == 'failure')
+      (needs.live-local.result == 'failure' || needs.live-prod.result == 'failure' ||
+       ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+        (needs.live-local.result == 'cancelled' || needs.live-prod.result == 'cancelled')))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6

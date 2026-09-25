@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 
 import anyio
 import pytest
-from scripts.seed_e2e_backend import Backend
+from scripts.seed_e2e_backend import Backend, is_local
 
 from tests.live.conftest import Answer, Live, new_id
 
@@ -332,7 +332,12 @@ async def test_a_diagnostics_job_operation_is_accepted_where_ollie_runs(
     mcp: Live, backend: Backend, run_prefix: str, operation: str
 ) -> None:
     toggles = backend.call("GET", "/toggles/")
-    if not (isinstance(toggles, dict) and toggles.get("ollie_enabled") is True):
+    flags = toggles if isinstance(toggles, dict) else {}
+    # Both spellings: the server's own availability check accepts either.
+    ollie = flags.get("ollie_enabled", flags.get("ollieEnabled"))
+    if ollie is None and not is_local(backend.base_url):
+        pytest.fail(f"cloud reports no Ollie toggle, so this test cannot tell: {sorted(flags)}")
+    if ollie is not True:
         pytest.skip("this backend does not run Ollie, so Diagnostics jobs cannot run")
     await _trace(mcp, run_prefix, f"{run_prefix}-diagnosed")
     target = {"project_name": run_prefix}
