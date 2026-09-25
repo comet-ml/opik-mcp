@@ -246,8 +246,6 @@
       "T201"
     ],
     "src/opik_mcp/skills_catalog.py": [
-      "FBT001",
-      "FBT002",
       "PERF401"
     ],
     "src/opik_mcp/writes/__init__.py": [
