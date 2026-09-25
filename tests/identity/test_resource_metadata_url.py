@@ -12,7 +12,7 @@ breaking the host's discovery chain.
 """
 
 from opik_mcp.config import Settings
-from opik_mcp.server import _resource_metadata_url
+from opik_mcp.server.http.oauth import _resource_metadata_url
 from tests.factories import make_settings
 
 

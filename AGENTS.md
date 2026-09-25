@@ -26,7 +26,7 @@ Stack: Python 3.13, uv, the official MCP python-sdk (`FastMCP`, pinned
 
 How a call flows:
 
-- `read` / `list`: `server.py` → `read_list/read_tool.py` or `list_tool.py`
+- `read` / `list`: `server/tools/` → `read_list/read_tool.py` or `list_tool.py`
   → the entity's `EntityHandler` from `read_list/registry.py` → its module in
   `read_list/entities/` → `client/` → Opik backend.
 - `write`: `writes/write_tool.py` → `writes/dispatch.py`, which runs the

@@ -30,8 +30,10 @@ def _install_server_recorder(monkeypatch: pytest.MonkeyPatch) -> _RecorderClient
     """Redirect the analytics calls the build_app() lifespan makes (it uses the
     module-level track_event / get_analytics in opik_mcp.server)."""
     r = _RecorderClient()
-    monkeypatch.setattr("opik_mcp.server.track_event", lambda et, p: r.track_event(et, p))
-    monkeypatch.setattr("opik_mcp.server.get_analytics", lambda: r)
+    monkeypatch.setattr(
+        "opik_mcp.server.app.lifespan.track_event", lambda et, p: r.track_event(et, p)
+    )
+    monkeypatch.setattr("opik_mcp.server.app.lifespan.get_analytics", lambda: r)
     return r
 
 
@@ -280,15 +282,15 @@ def test_lifespan_emits_started_and_shutdown_when_not_owned_by_main(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    from opik_mcp import server
     from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
     from opik_mcp.config import get_settings
+    from opik_mcp.server.app.lifespan import _make_composed_lifespan
 
     monkeypatch.delenv(LIFECYCLE_SENTINEL, raising=False)
     recorder = _install_server_recorder(monkeypatch)
     settings = get_settings()
 
-    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+    composed = _make_composed_lifespan(_noop_inner, settings, {})
 
     async def _drive() -> None:
         async with composed(None):
@@ -310,15 +312,15 @@ def test_lifespan_emits_started_and_shutdown_when_not_owned_by_main(
 
 def test_lifespan_skips_emit_when_owned_by_main(monkeypatch: pytest.MonkeyPatch) -> None:
 
-    from opik_mcp import server
     from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
     from opik_mcp.config import get_settings
+    from opik_mcp.server.app.lifespan import _make_composed_lifespan
 
     monkeypatch.setenv(LIFECYCLE_SENTINEL, "1")
     recorder = _install_server_recorder(monkeypatch)
     settings = get_settings()
 
-    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+    composed = _make_composed_lifespan(_noop_inner, settings, {})
 
     async def _drive() -> None:
         async with composed(None):
@@ -335,15 +337,15 @@ def test_lifespan_shutdown_reason_transport_error_on_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    from opik_mcp import server
     from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
     from opik_mcp.config import get_settings
+    from opik_mcp.server.app.lifespan import _make_composed_lifespan
 
     monkeypatch.delenv(LIFECYCLE_SENTINEL, raising=False)
     recorder = _install_server_recorder(monkeypatch)
     settings = get_settings()
 
-    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+    composed = _make_composed_lifespan(_noop_inner, settings, {})
 
     async def _drive() -> None:
         async with composed(None):
@@ -361,9 +363,9 @@ def test_lifespan_started_pure_oauth_reports_auth_mode_oauth(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    from opik_mcp import server
     from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
     from opik_mcp.config import get_settings
+    from opik_mcp.server.app.lifespan import _make_composed_lifespan
 
     monkeypatch.delenv(LIFECYCLE_SENTINEL, raising=False)
     monkeypatch.delenv("OPIK_API_KEY", raising=False)
@@ -371,7 +373,7 @@ def test_lifespan_started_pure_oauth_reports_auth_mode_oauth(
     recorder = _install_server_recorder(monkeypatch)
     settings = get_settings()
 
-    composed = server._make_composed_lifespan(_noop_inner, settings, {})
+    composed = _make_composed_lifespan(_noop_inner, settings, {})
 
     async def _drive() -> None:
         async with composed(None):

@@ -261,7 +261,7 @@ async def run_list(
     settings: Settings | None = None,
     client: OpikListClient | None = None,
 ) -> str:
-    """List tool entrypoint. See ``server.py`` for the registered tool."""
+    """List tool entrypoint. See ``server/tools/list.py`` for the registered tool."""
     _PAGE_FACTS.set({})
     # Cleared per call for the same reason the page facts are: a project a
     # previous listing resolved is not a fact about this one, and a link

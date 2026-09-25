@@ -14,8 +14,8 @@ a read or a list promises, what is refused, and which test holds each promise.
 ### The advertised surface
 
 - Exactly `read`, `list`, `write`, `schema` and `read_skill`, each with a
-  title and all four hints. Only `write` is destructive (`_READS`, `_WRITES`
-  in `src/opik_mcp/server.py`).
+  title and all four hints. Only `write` is destructive (`READS`, `WRITES`
+  in `src/opik_mcp/server/tools/hints.py`).
 - `structured_output=False` everywhere: one text copy per answer.
 - The surface and the instructions have byte ceilings (`SURFACE_BUDGET_BYTES`,
   `INSTRUCTIONS_BUDGET_BYTES` in `tests/conformance/test_tool_inventory.py`),
@@ -134,7 +134,7 @@ declares a `view_page`, and a case or prompt version a `parent_page`.
 ## How it works
 
 ```
-server.py read / list (FastMCP tool, instrument_tool wrapper)
+server/tools/ read / list (FastMCP tool, instrument_tool wrapper)
   -> read_list/read_tool.py run_read  |  read_list/list_tool.py run_list
   -> read_list/registry.py ENTITY_REGISTRY[entity_type]  (an EntityHandler)
   -> read_list/entities/<entity>.py  fetch_fn / list_fn / run_fn / link_fn / page_note_fn

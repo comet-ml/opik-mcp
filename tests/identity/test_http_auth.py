@@ -87,7 +87,7 @@ async def test_initialize_names_oauth_workspace(
             ),
         )
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", fake_resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", fake_resolve)
     r = await http_client.post(
         "/mcp",
         json=INITIALIZE,

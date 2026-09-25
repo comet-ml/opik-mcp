@@ -51,7 +51,8 @@ def _introspection_url() -> str:
 def _live_introspection(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Undo conftest's no-op stub so the real introspection runs against respx."""
     monkeypatch.setattr(
-        "opik_mcp.server.introspect_oauth_token", oauth_identity.introspect_oauth_token
+        "opik_mcp.server.http.middleware.introspect_oauth_token",
+        oauth_identity.introspect_oauth_token,
     )
     yield
 

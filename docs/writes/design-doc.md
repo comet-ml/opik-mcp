@@ -88,13 +88,13 @@ whose `args` rebuild it when pickled or copied. Other codes: `unknown_operation`
 ### Scopes
 
 Each operation declares a scope, and the dispatcher compares it with the
-scopes it is given. The `write` tool in `src/opik_mcp/server.py` gives none, so
+scopes it is given. The `write` tool in `src/opik_mcp/server/tools/write.py` gives none, so
 the default `ALL_WRITE_SCOPES` applies and every call passes today.
 
 ## How it works
 
 ```
-server.write                  src/opik_mcp/server.py
+server.write                  src/opik_mcp/server/tools/write.py
   -> write_tool.run_write     src/opik_mcp/writes/write_tool.py  (WriteError -> ToolError)
   -> dispatch.run_write       src/opik_mcp/writes/dispatch.py
      lookup, validate, authorize, prepare, build, send, retry, finalize, decorate

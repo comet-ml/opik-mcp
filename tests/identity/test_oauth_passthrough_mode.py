@@ -25,7 +25,7 @@ from opik_mcp.identity.store import (
     lookup_session_digest,
     reset_identities_for_tests,
 )
-from opik_mcp.server import BearerAuthMiddleware
+from opik_mcp.server.http.middleware import BearerAuthMiddleware
 
 
 def _make_request(headers: dict[str, str], path: str = "/mcp") -> Request:
@@ -126,7 +126,7 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
             ),
         )
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", fake_resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", fake_resolve)
     mw = _build_middleware()
     request = _make_request({"authorization": f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc"})
 
@@ -159,7 +159,7 @@ async def test_validates_requests_that_already_carry_a_session(
         calls.append(auth)
         return Introspection(status="valid")
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", spy_resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", spy_resolve)
     mw = _build_middleware()
     request = _make_request(
         {
@@ -190,7 +190,7 @@ async def test_skips_resolution_for_api_key_bearer(monkeypatch: pytest.MonkeyPat
         calls.append(auth)
         return Introspection(status="valid")
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", spy_resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", spy_resolve)
     mw = _build_middleware()
     request = _make_request({"authorization": "Bearer some-static-api-key"})
 
@@ -323,7 +323,7 @@ async def test_handshake_stores_the_resolved_identity_against_the_token(
     async def _resolve(*_a: object, **_k: object) -> Introspection:
         return Introspection(status="valid", identity=resolved)
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", _resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", _resolve)
 
     mw = _build_middleware()
     request = _make_request({"authorization": f"Bearer {token}"})
@@ -354,7 +354,7 @@ async def test_tool_call_on_a_dead_token_is_answered_401(
     async def _resolve(*_a: object, **_k: object) -> Introspection:
         return Introspection(status="invalid")
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", _resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", _resolve)
 
     mw = _build_middleware()
     request = _make_request(
@@ -387,7 +387,7 @@ async def test_failed_introspection_leaves_the_handshake_working(
     async def _resolve(*_a: object, **_k: object) -> Introspection:
         return Introspection(status="unknown")
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", _resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", _resolve)
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}unresolvable"
     mw = _build_middleware()

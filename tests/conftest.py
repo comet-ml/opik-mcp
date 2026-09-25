@@ -127,7 +127,7 @@ def _disable_workspace_introspection() -> Generator[None]:
         return Introspection(status="unknown")
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.server.introspect_oauth_token", _unknown)
+    mp.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", _unknown)
     try:
         yield
     finally:

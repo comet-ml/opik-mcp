@@ -135,7 +135,6 @@ extend-allowed-calls = ["pytest.param"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/state.py" = ["ARG001"]
 "src/opik_mcp/read_list/read_tool.py" = ["ARG001"]
-"src/opik_mcp/server.py" = ["FBT002", "I002", "PLC0415"]
 "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/agent.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/seed.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-compare/evals/run_evals.py" = ["PLC0415", "T201"]
@@ -276,7 +275,13 @@ module = [
     "opik_mcp.read_list.size",
     "opik_mcp.read_list.slim",
     "opik_mcp.read_list.unsupported",
-    "opik_mcp.server",
+    "opik_mcp.server.app.lifespan",
+    "opik_mcp.server.app.session",
+    "opik_mcp.server.tools.list",
+    "opik_mcp.server.tools.read",
+    "opik_mcp.server.tools.read_skill",
+    "opik_mcp.server.tools.schema",
+    "opik_mcp.server.tools.write",
     "opik_mcp.skills_resources",
     "opik_mcp.writes.dispatch",
     "opik_mcp.writes.errors",

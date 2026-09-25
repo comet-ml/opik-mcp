@@ -44,7 +44,8 @@ INITIALIZE = {
 @pytest.fixture(autouse=True)
 def _live_introspection(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setattr(
-        "opik_mcp.server.introspect_oauth_token", oauth_identity.introspect_oauth_token
+        "opik_mcp.server.http.middleware.introspect_oauth_token",
+        oauth_identity.introspect_oauth_token,
     )
     yield
 
@@ -115,7 +116,7 @@ async def test_rebinding_is_a_no_op_without_an_http_request() -> None:
     from mcp.types import CallToolRequest
 
     from opik_mcp.identity.context import inbound_authorization, inbound_workspace
-    from opik_mcp.server import install_request_auth_rebinding
+    from opik_mcp.server.app.session import install_request_auth_rebinding
 
     seen: list[tuple[str | None, str | None]] = []
 
@@ -143,7 +144,7 @@ async def test_rebinding_uses_the_current_request_and_resets_after() -> None:
     from starlette.requests import Request
 
     from opik_mcp.identity.context import inbound_authorization, inbound_workspace
-    from opik_mcp.server import install_request_auth_rebinding
+    from opik_mcp.server.app.session import install_request_auth_rebinding
 
     seen: list[tuple[str | None, str | None]] = []
 

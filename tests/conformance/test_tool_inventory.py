@@ -211,7 +211,7 @@ async def test_tools_list_sends_the_tools_in_the_pinned_order() -> None:
     sent = [t.name for t in tools.tools]
     assert sent == list(EXPECTED_TOOL_ORDER), (
         f"tools/list order changed: sent={sent} pinned={list(EXPECTED_TOOL_ORDER)}. "
-        "Order follows @mcp.tool registration in src/opik_mcp/server.py; change "
+        "Order follows register_tools in src/opik_mcp/server/tools/__init__.py; change "
         "EXPECTED_TOOL_ORDER here only on purpose."
     )
 
@@ -228,7 +228,7 @@ async def test_the_entity_enum_is_the_pinned_set_in_the_pinned_order(tool: str) 
     assert sent == pinned, (
         f"{tool}'s entity_type enum changed: added={sorted(set(sent) - set(pinned))} "
         f"removed={sorted(set(pinned) - set(sent))} sent={sent}. The enums are built in "
-        "src/opik_mcp/server.py from the entity registry; change EXPECTED_ENTITY_ENUM "
+        "src/opik_mcp/server/tools/ from the entity registry; change EXPECTED_ENTITY_ENUM "
         "here only on purpose."
     )
 
@@ -255,7 +255,7 @@ async def test_the_instructions_arrive_before_the_tool_list_is_asked_for() -> No
     instructions = result.instructions or ""
     unnamed = unnamed_tools(instructions)
     assert instructions.strip(), (
-        "initialize carried no instructions. They are set in src/opik_mcp/server.py "
+        "initialize carried no instructions. They are set in src/opik_mcp/server/app/ "
         "(FastMCP(instructions=...) and install_session_instructions) and must load "
         "even when a host defers tools (AGENTS.md invariants)."
     )

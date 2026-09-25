@@ -113,7 +113,7 @@ async def run_read(
     client: OpikReadClient | None = None,
     **entity_kwargs: Any,
 ) -> str:
-    """Read tool entrypoint. See ``server.py`` for the registered tool.
+    """Read tool entrypoint. See ``server/tools/read.py`` for the registered tool.
 
     Dispatch order: URI parse → registry lookup → project gate → UUID-vs-name
     branch → fetch → serialise. Each branch surfaces errors as ``ToolError`` so

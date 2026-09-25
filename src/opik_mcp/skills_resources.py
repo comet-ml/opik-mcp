@@ -13,7 +13,7 @@ Two implementation facts drive the shape of this module.
 there is no seam to attach top-level cache fields to. We swap the registered
 handler in place instead — the same in-place swap
 `analytics.wrappers.install_tools_listed_emitter` and
-`server.install_session_instructions` use.
+`server.app.session.install_session_instructions` use.
 
 *The cache fields ride as model extras.* `mcp` 1.27 does not yet declare
 `ttlMs` / `cacheScope` on the result types, but every MCP result model is
@@ -90,7 +90,7 @@ def _resource(entry: SkillFile) -> types.Resource:
 def install_skill_resources(mcp: Any) -> None:
     """Add the skill resources to a FastMCP instance's `resources/*` handlers.
 
-    Idempotent: safe to call from every startup path (see `server.build_app` and
+    Idempotent: safe to call from every startup path (see `server.app.factory.build_app` and
     `__main__`) and from more than one test module. Non-fatal — a server that
     cannot serve skills must still serve tools, so every failure path here logs
     and leaves the original handler in place.

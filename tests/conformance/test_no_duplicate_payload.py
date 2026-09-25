@@ -40,7 +40,7 @@ async def test_no_tool_advertises_an_output_schema() -> None:
     from the text block, and declaring it is what obliges the duplicate."""
     offenders = [t.name for t in await mcp.list_tools() if t.outputSchema is not None]
     assert not offenders, (
-        f"src/opik_mcp/server.py: {', '.join(offenders)} declare an outputSchema, so "
+        f"src/opik_mcp/server/tools/: {', '.join(offenders)} declare an outputSchema, so "
         "every call sends the answer twice. Register each tool with "
         "@mcp.tool(..., structured_output=False): one copy of each answer "
         "(AGENTS.md invariants, OPIK-8500)."
@@ -90,5 +90,5 @@ async def test_a_call_returns_one_copy_of_its_answer(
     )
     assert result.structuredContent is None, (
         f"{tool} sent structuredContent, a second copy of its answer. Register it in "
-        "src/opik_mcp/server.py with structured_output=False (AGENTS.md invariants)."
+        "src/opik_mcp/server/tools/ with structured_output=False (AGENTS.md invariants)."
     )

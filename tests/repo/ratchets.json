@@ -3,7 +3,7 @@
   "entity_names_at_root": {},
   "operation_names_at_root": {},
   "suppressions": {
-    "src/opik_mcp/server.py": 1,
+    "src/opik_mcp/server/app/session.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
     "tests/analytics/test_client.py": 2,
     "tests/analytics/test_errors.py": 2,
@@ -26,11 +26,6 @@
     ],
     "src/opik_mcp/read_list/read_tool.py": [
       "ARG001"
-    ],
-    "src/opik_mcp/server.py": [
-      "FBT002",
-      "I002",
-      "PLC0415"
     ],
     "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/agent.py": [
       "I002",
@@ -309,7 +304,13 @@
     "opik_mcp.read_list.size",
     "opik_mcp.read_list.slim",
     "opik_mcp.read_list.unsupported",
-    "opik_mcp.server",
+    "opik_mcp.server.app.lifespan",
+    "opik_mcp.server.app.session",
+    "opik_mcp.server.tools.list",
+    "opik_mcp.server.tools.read",
+    "opik_mcp.server.tools.read_skill",
+    "opik_mcp.server.tools.schema",
+    "opik_mcp.server.tools.write",
     "opik_mcp.skills_resources",
     "opik_mcp.writes.dispatch",
     "opik_mcp.writes.errors",

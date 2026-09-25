@@ -87,7 +87,7 @@ host -> AuthRejectionMiddleware -> BearerAuthMiddleware
      -> tool -> resolve_opik_config -> OpikClient -> opik-backend
 ```
 
-- Assembly of the app and settings: `build_app` in `src/opik_mcp/server.py`,
+- Assembly of the app and settings: `build_app` in `src/opik_mcp/server/app/factory.py`,
   the OAuth and HTTP fields of `Settings` in `src/opik_mcp/config.py`.
 - Order of checks and the 401 bodies: `BearerAuthMiddleware.dispatch`.
 - Validation and the cache: `_validate_oauth_bearer`, then the two modules above.

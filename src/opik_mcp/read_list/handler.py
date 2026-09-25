@@ -271,7 +271,7 @@ class EntityHandler:
     description: str
     """What this entity is, for whoever reads the registry.
 
-    Nothing advertises it: the tool descriptions in ``server.py`` and the
+    Nothing advertises it: the tool descriptions in ``server/tools/`` and the
     payloads of ``schema()`` are written by hand, and no consumer reads this
     field. So it is a comment with a colon in it — keep it to a line or two,
     and never let it be the only place a rule is written down. Two of these

@@ -38,7 +38,7 @@ def test_registry_keys_match_server_enum() -> None:
     """
     # Import lazily so we don't pay server-init cost when this module is
     # imported by other tests for fixtures.
-    from opik_mcp.server import WRITE_OPERATION_ENUM
+    from opik_mcp.server.tools.write import WRITE_OPERATION_ENUM
 
     assert set(WRITE_OPERATION_ENUM) == set(WRITE_OPERATIONS)
 

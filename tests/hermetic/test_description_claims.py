@@ -23,7 +23,7 @@ fails it too, and a phrase that is not verbatim in its description fails it
 loudest of all, because a claim table that has drifted from the descriptions
 is worse than none.
 
-Scope: the registry's own descriptions. The tool descriptions in ``server.py``
+Scope: the registry's own descriptions. The tool descriptions in ``server/tools/``
 are already pinned byte-for-byte by ``tests/conformance/test_schema_snapshots``
 and measured by the surface budget, so what they need is a reviewer, not a
 probe; where one of them makes an entity-specific promise it is the entity's

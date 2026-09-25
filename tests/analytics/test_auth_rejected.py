@@ -62,11 +62,13 @@ def _drive(mw: Any, *, path: str = "/mcp", auth: bytes | None = None) -> None:
 def _make(
     monkeypatch: pytest.MonkeyPatch, status: int, settings: Settings | None = None
 ) -> tuple[_Recorder, Any]:
-    from opik_mcp import server
+    from opik_mcp.server.http.middleware import AuthRejectionMiddleware
 
     recorder = _Recorder()
-    monkeypatch.setattr("opik_mcp.server.track_event", lambda et, p: recorder.track_event(et, p))
-    mw = server.AuthRejectionMiddleware(_app_returning(status), settings=settings or _settings())
+    monkeypatch.setattr(
+        "opik_mcp.server.http.middleware.track_event", lambda et, p: recorder.track_event(et, p)
+    )
+    mw = AuthRejectionMiddleware(_app_returning(status), settings=settings or _settings())
     return recorder, mw
 
 
@@ -199,15 +201,17 @@ def test_oauth_only_deploy_missing_header_reports_oauth(monkeypatch: pytest.Monk
 def test_app_exception_propagates_without_emitting(monkeypatch: pytest.MonkeyPatch) -> None:
     # If the inner app raises before sending a response, the exception must
     # propagate and no auth_rejected event is emitted.
-    from opik_mcp import server
+    from opik_mcp.server.http.middleware import AuthRejectionMiddleware
 
     recorder = _Recorder()
-    monkeypatch.setattr("opik_mcp.server.track_event", lambda et, p: recorder.track_event(et, p))
+    monkeypatch.setattr(
+        "opik_mcp.server.http.middleware.track_event", lambda et, p: recorder.track_event(et, p)
+    )
 
     async def _boom(scope: Any, receive: Any, send: Any) -> None:
         raise RuntimeError("inner app blew up")
 
-    mw = server.AuthRejectionMiddleware(_boom, settings=_settings())
+    mw = AuthRejectionMiddleware(_boom, settings=_settings())
     with pytest.raises(RuntimeError):
         _drive(mw, path="/mcp", auth=None)
     assert not recorder.events
@@ -223,14 +227,14 @@ def test_path_bucket_honours_custom_http_path(monkeypatch: pytest.MonkeyPatch) -
 def test_lifespan_scope_passes_through(monkeypatch: pytest.MonkeyPatch) -> None:
     # Non-http scopes (lifespan/websocket) must pass straight through so the
     # composed lifespan still runs when AuthRejectionMiddleware is outermost.
-    from opik_mcp import server
+    from opik_mcp.server.http.middleware import AuthRejectionMiddleware
 
     seen: list[str] = []
 
     async def inner(scope: Any, receive: Any, send: Any) -> None:
         seen.append(scope["type"])
 
-    mw = server.AuthRejectionMiddleware(inner, settings=_settings())
+    mw = AuthRejectionMiddleware(inner, settings=_settings())
 
     async def receive() -> Any:
         return {"type": "lifespan.startup"}

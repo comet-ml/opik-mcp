@@ -377,7 +377,7 @@ EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
 # reaching a tool: 401 from BearerAuthMiddleware (missing/malformed bearer) or
 # 421/403 from the SDK transport-security guard (Host/Origin). The key HTTPS
 # health signal — without it auth failures are invisible. See
-# ``AuthRejectionMiddleware`` in server.py.
+# ``AuthRejectionMiddleware`` in server/http/middleware.py.
 EVENT_AUTH_REJECTED = "opik_mcp_auth_rejected"
 
 
