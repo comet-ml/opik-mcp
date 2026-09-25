@@ -136,27 +136,6 @@ PAYLOAD_FIELDS: Final[dict[str, FieldType]] = {
     "environment": "enum",
 }
 
-# Closed enum values come from opik-backend's own enums (Source, SpanType,
-# TraceThreadStatus, VisibilityMode), confirmed against a live backend rather
-# than read off the Java alone. Each entity declares its own; this is the one
-# they share.
-#
-# ``source`` is the one the backend itself validates: it deserializes the
-# filter value into the enum and throws on a miss, which reaches the caller as
-# a 500, not a 400, so `source = "SDK"` is an opaque server error for a
-# capital letter. The others are compared as strings in ClickHouse and answer
-# 200 with nothing — a silent empty page that reads like "no matches" when it
-# really means "no such value". Both are worth refusing here, with the set.
-#
-# ``unknown`` is included where the column can actually hold it: Source and
-# SpanType both define it as a stored value that cannot be ingested (rows that
-# predate the field), so filtering for it is a real question. VisibilityMode
-# and TraceThreadStatus define no such sentinel.
-#
-# Only genuinely closed sets appear. ``environment`` is an enum to the operator
-# map but a free string in the data — any deployment names its own — so listing
-# values would reject valid filters.
-SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
 
 NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
 
@@ -838,7 +817,6 @@ __all__ = [
     "PARENT_ID_FIELDS",
     "PAYLOAD_FIELDS",
     "SDK_SOURCE_CLAUSE",
-    "SOURCE_VALUES",
     "TIMING_FIELDS",
     "USAGE_FIELDS",
     "IssueKind",

@@ -16,8 +16,9 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.oql import PAYLOAD_FIELDS, SOURCE_VALUES, TIMING_FIELDS
+from opik_mcp.read_list.oql import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,

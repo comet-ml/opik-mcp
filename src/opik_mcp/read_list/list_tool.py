@@ -68,7 +68,6 @@ from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
 from opik_mcp.read_list.oql import (
     PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
-    SOURCE_VALUES,
     OQLError,
     compile_filters,
     operand_values,
@@ -582,6 +581,7 @@ async def run_list(
                 unnamed=unnamed,
                 settings=resolved_settings,
                 page_ctx=page_ctx,
+                source_values=vocabulary.enum_values.get("source", ()),
             )
             return f"{header}\n{empty}" if header else empty
 
@@ -652,14 +652,14 @@ def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary) -> str:
     )
 
 
-def _source_hint(entity_type: str, hidden: int) -> str:
+def _source_hint(entity_type: str, source_values: tuple[str, ...], hidden: int) -> str:
     """What the ``sdk`` default hid, in numbers, and how to see it.
 
     Names every source the backend writes, ``optimization`` included: the
     optimizer's traces were the ones a caller went looking for and were not
     told about.
     """
-    named = [v for v in SOURCE_VALUES if v not in ("sdk", "unknown")]
+    named = [v for v in source_values if v not in ("sdk", "unknown")]
     choices = ", ".join(f'"{v}"' for v in named[:-1]) + f' or "{named[-1]}"'
     return (
         f"{hidden} {entity_type}{'s' if hidden != 1 else ''} match without the default "
@@ -751,6 +751,7 @@ async def _empty_message(
     unnamed: Callable[[], Awaitable[int | None]] | None,
     settings: Settings,
     page_ctx: PageContext,
+    source_values: tuple[str, ...],
 ) -> str:
     """The empty-page reply, with the one hint that explains it when we can.
 
@@ -796,7 +797,11 @@ async def _empty_message(
 
     async def hinted() -> str:
         hidden = await widened() if widened is not None else None
-        return f"{empty} {_source_hint(entity_type, hidden)}" if hidden else await scoped()
+        return (
+            f"{empty} {_source_hint(entity_type, source_values, hidden)}"
+            if hidden
+            else await scoped()
+        )
 
     if from_time is None:
         return await hinted()
