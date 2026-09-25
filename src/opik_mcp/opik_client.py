@@ -1252,17 +1252,15 @@ class OpikClient:
         _raise_for_status(resp, entity_hint)
         if resp.status_code != 200:
             raise OpikServerError(
-                f"Unexpected status {resp.status_code} from GET {path} (expected 200)"
+                f"Unexpected status {resp.status_code} for {entity_hint} (expected 200)."
             )
         try:
             body = resp.json()
         except ValueError as exc:
-            raise OpikServerError(
-                f"Opik returned non-JSON body for GET {path}: {resp.text[:200]!r}"
-            ) from exc
+            raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
         if not isinstance(body, dict):
             raise OpikServerError(
-                f"Opik returned non-object JSON for GET {path}: {type(body).__name__}"
+                f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
             )
         return body
 
@@ -1286,17 +1284,15 @@ class OpikClient:
         _raise_for_status(resp, entity_hint)
         if resp.status_code != 200:
             raise OpikServerError(
-                f"Unexpected status {resp.status_code} from POST {path} (expected 200)"
+                f"Unexpected status {resp.status_code} for {entity_hint} (expected 200)."
             )
         try:
             body = resp.json()
         except ValueError as exc:
-            raise OpikServerError(
-                f"Opik returned non-JSON body for POST {path}: {resp.text[:200]!r}"
-            ) from exc
+            raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
         if not isinstance(body, dict):
             raise OpikServerError(
-                f"Opik returned non-object JSON for POST {path}: {type(body).__name__}"
+                f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
             )
         return body
 
@@ -1321,8 +1317,8 @@ class OpikClient:
             # Body present but wrong code (e.g. 200 instead of 204) — not fatal
             # by itself, but it means the contract changed; surface it.
             raise OpikServerError(
-                f"Unexpected status {resp.status_code} from {method} {path} "
-                f"(expected {expected_status})"
+                f"Unexpected status {resp.status_code} for {entity_hint} "
+                f"(expected {expected_status})."
             )
         return resp
 
@@ -1526,40 +1522,35 @@ def note_backend_401() -> str | None:
 
 
 def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
+    """One sentence per status: what was asked and what to change.
+
+    The backend's body and the REST path stay out: the body is untrusted text
+    that can carry anything the request did, and the path is not a name the
+    caller can use.
+    """
     status = resp.status_code
     if 200 <= status < 300:
         return
-    detail = _error_detail(resp)
-    suffix = f" — {detail}" if detail else ""
     if status == 401:
         hint = note_backend_401() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
-        raise OpikAuthError(f"Opik rejected the request (401). {hint}{suffix}")
+        raise OpikAuthError(f"Opik rejected the credential for {entity_hint} (401). {hint}")
     if status == 403:
         raise OpikPermissionError(
-            f"Opik rejected the request (403). The API key is valid but lacks "
-            f"permission for {entity_hint}. Check OPIK_WORKSPACE access.{suffix}"
+            f"Permission denied for {entity_hint} (403). Use a credential for the "
+            "workspace that owns it."
         )
     if status == 404:
-        raise OpikNotFoundError(f"{entity_hint} not found (404).{suffix}")
+        raise OpikNotFoundError(
+            f"{entity_hint} not found (404). Check the id or name and the workspace."
+        )
     if status in (400, 422):
         raise OpikValidationError(
-            f"Opik rejected the request body ({status}) for {entity_hint}.{suffix}"
+            f"Opik rejected the request for {entity_hint} ({status}). Check the ids, "
+            "filters and window passed."
         )
     if status >= 500:
-        raise OpikServerError(f"Opik server error ({status}) for {entity_hint}.{suffix}")
+        raise OpikServerError(
+            f"Opik server error ({status}) for {entity_hint}. Retry the same call."
+        )
     # 3xx / unexpected 2xx are already handled by the caller.
-    raise OpikServerError(f"Unexpected status {status} for {entity_hint}.{suffix}")
-
-
-def _error_detail(resp: httpx.Response) -> str:
-    """Best-effort extraction of an error message from an Opik response body."""
-    try:
-        body = resp.json()
-    except ValueError:
-        text = resp.text[:200].replace("\n", " ").strip()
-        return text
-    if isinstance(body, dict):
-        for key in ("message", "errors", "error"):
-            if body.get(key):
-                return str(body[key])[:200]
-    return str(body)[:200]
+    raise OpikServerError(f"Unexpected status {status} for {entity_hint}.")

@@ -284,7 +284,7 @@ async def test_list_agent_insights_issues_maps_400_to_validation_error() -> None
                 400, json={"errors": ["Parameter 'from_date' must not be after 'to_date'"]}
             ),
         )
-        with pytest.raises(OpikValidationError, match="from_date"):
+        with pytest.raises(OpikValidationError, match="agent insights issues"):
             await _client().list_agent_insights_issues(
                 project_id="p-1", from_date="2026-09-09", to_date="2026-09-01"
             )
@@ -477,6 +477,35 @@ async def test_get_maps_status_to_typed_error(status: int, expected_exc: type[Ex
         )
         with pytest.raises(expected_exc):
             await _client().get_project("p-x")
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 500, 503])
+@pytest.mark.anyio
+async def test_a_backend_error_is_one_sentence_without_the_body_or_path(status: int) -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-x").mock(
+            return_value=httpx.Response(status, json={"message": "token sk-live-123 rejected"}),
+        )
+        with pytest.raises(
+            (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError)
+        ) as err:
+            await _client().get_project("p-x")
+    message = str(err.value)
+    assert "sk-live-123" not in message
+    assert "/v1/" not in message
+    assert "project 'p-x'" in message
+
+
+@pytest.mark.anyio
+async def test_a_non_json_answer_is_not_echoed() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-1").mock(
+            return_value=httpx.Response(200, text="<html>secret proxy page</html>"),
+        )
+        with pytest.raises(OpikServerError) as err:
+            await _client().get_project("p-1")
+    assert "secret" not in str(err.value)
+    assert "/v1/" not in str(err.value)
 
 
 @pytest.mark.anyio

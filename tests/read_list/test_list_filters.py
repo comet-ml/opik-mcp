@@ -455,13 +455,17 @@ async def test_half_milliseconds_round_up_and_non_finite_values_render_empty() -
 
 
 @pytest.mark.anyio
-async def test_a_404_that_is_not_about_the_project_keeps_the_backend_message() -> None:
+async def test_a_404_for_a_project_that_exists_is_not_called_a_typo() -> None:
+    """The 404 no longer carries the backend's text, so whether the project is
+    the missing thing is asked of the projects endpoint instead."""
+
     class SomethingElseMissing(FakeOpikClient):
         async def list_traces(self, **kw: Any) -> dict[str, Any]:
-            raise OpikNotFoundError("traces not found (404). — Workspace 'ws' not found")
+            raise OpikNotFoundError("traces not found (404).")
 
-    with pytest.raises(ToolError, match=r"Failed to list traces: .*Workspace 'ws' not found"):
-        await run_list("trace", project_name="demo", client=SomethingElseMissing())
+    fake = SomethingElseMissing(projects=_page([{"id": "p-1", "name": "demo"}]))
+    with pytest.raises(ToolError, match=r"^Failed to list traces: traces not found \(404\)\.$"):
+        await run_list("trace", project_name="demo", client=fake)
 
 
 @pytest.mark.anyio
@@ -624,9 +628,7 @@ async def test_empty_windowed_page_with_traffic_inside_the_window_adds_nothing()
 async def test_unknown_project_name_suggests_the_closest_one() -> None:
     class NoSuchProject(FakeOpikClient):
         async def list_traces(self, **kw: Any) -> dict[str, Any]:
-            raise OpikNotFoundError(
-                "traces not found (404). — Project name: Defualt Project not found"
-            )
+            raise OpikNotFoundError("traces not found (404).")
 
     fake = NoSuchProject(
         projects=_page([{"id": "p-1", "name": "Default Project"}, {"id": "p-2", "name": "probe"}])
