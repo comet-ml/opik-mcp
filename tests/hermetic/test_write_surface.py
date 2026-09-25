@@ -38,7 +38,8 @@ from tests.hermetic.servers import (
     stdio_session,
     stub_with_http_server,
 )
-from tests.hermetic.stub_backend import (
+from tests.hermetic.stub_backend import StubBackend
+from tests.hermetic.stub_records import (
     EXPERIMENT_A,
     ISSUE_ID,
     PROJECT_ID,
@@ -48,7 +49,6 @@ from tests.hermetic.stub_backend import (
     THREAD_ID,
     THREAD_MODEL_ID,
     TRACE_ID,
-    StubBackend,
 )
 from tests.read_list.test_link_shape import live_project_url
 

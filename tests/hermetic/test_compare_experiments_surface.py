@@ -29,15 +29,14 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.hermetic.stub_backend import (
+from tests.hermetic.stub_backend import StubBackend
+from tests.hermetic.stub_compare import CompareSuite, ExperimentSpec
+from tests.hermetic.stub_records import (
     EXPERIMENT_A,
     EXPERIMENT_B,
     EXPERIMENT_OTHER_SUITE,
     OTHER_SUITE_ID,
     SUITE_ID,
-    CompareSuite,
-    ExperimentSpec,
-    StubBackend,
 )
 
 _TIMEOUT_S = 60

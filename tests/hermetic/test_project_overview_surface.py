@@ -29,7 +29,8 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.hermetic.stub_backend import PROJECT_ID, PROJECT_NAME, TRACE_ID, StubBackend
+from tests.hermetic.stub_backend import StubBackend
+from tests.hermetic.stub_records import PROJECT_ID, PROJECT_NAME, TRACE_ID
 
 _TIMEOUT_S = 60
 

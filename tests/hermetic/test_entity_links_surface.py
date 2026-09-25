@@ -54,7 +54,8 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.hermetic.stub_backend import (
+from tests.hermetic.stub_backend import StubBackend
+from tests.hermetic.stub_records import (
     EXPERIMENT_A,
     ISSUE_ID,
     PROJECT_ID,
@@ -64,7 +65,6 @@ from tests.hermetic.stub_backend import (
     SUITE_ID,
     THREAD_ID,
     TRACE_ID,
-    StubBackend,
 )
 from tests.read_list.test_link_shape import live_project_url
 
