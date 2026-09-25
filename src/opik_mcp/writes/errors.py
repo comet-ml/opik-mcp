@@ -43,6 +43,10 @@ class ValidationIssue:
     code: str
 
     def to_dict(self) -> dict[str, Any]:
+        # A precondition's issue has no message of its own: its sentence is
+        # the envelope's lead, and a copy here would say it twice.
+        if not self.message:
+            return {"field": self.field, "code": self.code}
         return {"field": self.field, "message": self.message, "code": self.code}
 
 

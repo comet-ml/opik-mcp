@@ -55,7 +55,8 @@ promises, what comes back on success and failure, and where to change or add an 
   names `schema(operation)`, which returns it. A check made before sending,
   such as a thread that is not found, returns the same `validation_failed`
   shape (`refuse` in `wire.py`), but its `message` is the check's own sentence
-  and fix, repeated in the issue, rather than the schema-mismatch one.
+  and fix rather than the schema-mismatch one, and its issue carries only
+  `field` and `code`, so the sentence is said once.
 
 ```json
 {"error": "backend_error", "operation": "trace.create",

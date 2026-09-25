@@ -98,12 +98,12 @@ TARGET_PATH: Final[dict[str, str]] = {
 def refuse(op: WriteOperation, field: str, message: str, code: str) -> ValidationFailedError:
     """A ``validation_failed`` for a precondition the payload cannot express.
 
-    ``message`` is the one sentence that says what to do, and leads the
-    envelope as well as filling the issue.
+    ``message`` is the one sentence that says what to do. It leads the
+    envelope and is not repeated in the issue, which keeps the field and code.
     """
     return ValidationFailedError.build(
         op.name,
-        [ValidationIssue(field, message, code)],
+        [ValidationIssue(field, "", code)],
         example=op.example,
         message=message,
     )

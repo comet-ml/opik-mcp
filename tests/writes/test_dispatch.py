@@ -693,6 +693,9 @@ async def test_job_trigger_on_a_project_without_a_job_says_enable_first() -> Non
     # A precondition leads with its own fix, not the schema-mismatch sentence.
     assert "does not fit" not in body["message"]
     assert "write('agent_insights_job.enable', …)" in body["message"]
+    # Said once: the issue keeps its code and field, not a copy of the lead.
+    assert exc_info.value.to_json().count("Diagnostics is not enabled") == 1
+    assert body["issues"] == [{"field": "", "code": "diagnostics_not_enabled"}]
     assert "agent_insights_job.enable" in json.dumps(body)
 
 
@@ -1005,6 +1008,7 @@ async def test_a_validation_failure_points_at_schema_instead_of_inlining_it() ->
     body = json.loads(envelope)
     assert "expected_schema" not in body
     assert "does not fit 'span.create'" in body["message"]
+    assert body["issues"][0]["message"], "a schema mismatch keeps its per-field message"
     assert "schema('span.create')" in body["message"]
     assert "write('span.create'" in body["message"]
     assert "example" in body
