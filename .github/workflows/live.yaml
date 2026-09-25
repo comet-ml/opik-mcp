@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 30
     outputs:
       opik_version: ${{ steps.release.outputs.version }}
-      failed: ${{ steps.failures.outputs.failed }}
+      report: ${{ steps.report.outputs.report }}
     steps:
       - uses: actions/checkout@v6
 
@@ -130,15 +130,12 @@ jobs:
         # Every answer's size goes into this job's summary.
         run: OPIK_LIVE_SIZES="$GITHUB_STEP_SUMMARY" make live PYTEST_ARGS="--junitxml=${RUNNER_TEMP}/live-local.xml"
 
-      - name: Name the failing tests
-        id: failures
-        if: failure()
-        run: |
-          {
-            echo "failed<<EOF"
-            python3 .github/scripts/live_failures.py "${RUNNER_TEMP}/live-local.xml"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+      # Counts and failures for the Slack alert, whatever the outcome, so the
+      # alert can say how the other job went too. "null" when no test ran.
+      - name: Summarise the test results
+        id: report
+        if: always()
+        run: echo "report=$(python3 scripts/live_alert.py report "${RUNNER_TEMP}/live-local.xml")" >> "$GITHUB_OUTPUT"
 
       - name: Save the backend log
         if: failure()
@@ -165,7 +162,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       cloud_version: ${{ steps.cloud.outputs.version }}
-      failed: ${{ steps.failures.outputs.failed }}
+      report: ${{ steps.report.outputs.report }}
     env:
       OPIK_URL: https://www.comet.com/opik/api
     steps:
@@ -213,15 +210,12 @@ jobs:
           OPIK_WORKSPACE: ${{ secrets.OPIK_E2E_WORKSPACE }}
         run: OPIK_LIVE_SIZES="$GITHUB_STEP_SUMMARY" make live PYTEST_ARGS="--junitxml=${RUNNER_TEMP}/live-prod.xml"
 
-      - name: Name the failing tests
-        id: failures
-        if: failure()
-        run: |
-          {
-            echo "failed<<EOF"
-            python3 .github/scripts/live_failures.py "${RUNNER_TEMP}/live-prod.xml"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+      # Counts and failures for the Slack alert, whatever the outcome, so the
+      # alert can say how the other job went too. "null" when no test ran.
+      - name: Summarise the test results
+        id: report
+        if: always() && steps.configured.outputs.ok == 'true'
+        run: echo "report=$(python3 scripts/live_alert.py report "${RUNNER_TEMP}/live-prod.xml")" >> "$GITHUB_OUTPUT"
 
   # Slack on a failed run of main, nightly or dispatched. Not on a PR: its own
   # checks are the notification there.
@@ -236,18 +230,23 @@ jobs:
        ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
         (needs.live-local.result == 'cancelled' || needs.live-prod.result == 'cancelled')))
     runs-on: ubuntu-latest
+    # actions: read, to link each failing job's log from the message.
+    permissions:
+      contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v6
         with:
-          sparse-checkout: .github/scripts
+          sparse-checkout: scripts/live_alert.py
           sparse-checkout-cone-mode: false
       - name: Post the failure to Slack
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LOCAL_RESULT: ${{ needs.live-local.result }}
           PROD_RESULT: ${{ needs.live-prod.result }}
-          OPIK_VERSION: ${{ needs.live-local.outputs.opik_version }}
-          CLOUD_VERSION: ${{ needs.live-prod.outputs.cloud_version }}
-          LOCAL_FAILED: ${{ needs.live-local.outputs.failed }}
-          PROD_FAILED: ${{ needs.live-prod.outputs.failed }}
-        run: .github/scripts/notify_slack_live.sh
+          LOCAL_VERSION: ${{ needs.live-local.outputs.opik_version }}
+          PROD_VERSION: ${{ needs.live-prod.outputs.cloud_version }}
+          LOCAL_REPORT: ${{ needs.live-local.outputs.report }}
+          PROD_REPORT: ${{ needs.live-prod.outputs.report }}
+        run: python3 scripts/live_alert.py notify

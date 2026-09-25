@@ -18,6 +18,11 @@ says whether the tool or the model was wrong.
   and asserts exact values from the manifest. Marker `live`, run by `make live`.
 - `.github/workflows/live.yaml` runs it on every pull request, on main and
   nightly, and posts failures on main, nightly and dispatched runs to Slack.
+- `scripts/live_alert.py` builds that Slack message: the trigger and commit,
+  each backend's version and counts, every failing test once with its file and
+  assertion, the likely cause, what to do next with a rerun command for exactly
+  those tests, and links to the run and each failing job's log. What it says in
+  each case is checked in `tests/test_live_alert.py`.
 
 ## Architecture
 
