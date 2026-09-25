@@ -256,7 +256,7 @@ def decorate(
         )
 
 
-def dry_run_note(op: WriteOperation, items: list[BaseModel], prepared: str | None) -> str | None:
+def dry_run_note(op: WriteOperation, items: list[BaseModel], _prepared: str | None) -> str | None:
     """What a preview cannot show, and only when the caller passed a name:
     with a UUID in hand the preview is the real request, and saying otherwise
     would undersell it."""

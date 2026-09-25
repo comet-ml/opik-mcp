@@ -246,21 +246,6 @@
     "src/opik_mcp/writes/__init__.py": [
       "I002"
     ],
-    "src/opik_mcp/writes/dispatch.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/diagnostics.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/evaluation.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/observability.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/threads.py": [
-      "ARG001"
-    ],
     "tests/conftest.py": [
       "I002"
     ],

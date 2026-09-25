@@ -26,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 def build_thread_lifecycle(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
     """Fixed endpoint, generic body.
 
@@ -88,7 +88,7 @@ async def resolve_comment_thread_id(
 
 
 def comment_dry_run_note(
-    op: WriteOperation, items: list[BaseModel], prepared: str | None
+    _op: WriteOperation, items: list[BaseModel], _prepared: str | None
 ) -> str | None:
     """A dry run skips the live resolve, so a thread comment's previewed path
     still shows the thread_id string. Say so rather than imply the preview is

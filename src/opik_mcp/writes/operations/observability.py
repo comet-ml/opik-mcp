@@ -301,7 +301,7 @@ def _score_batch_item(item: dict[str, Any], target: str) -> dict[str, Any]:
 
 
 def build_score_create(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    _op: WriteOperation, items: list[BaseModel], ctx: BuildContext
 ) -> WireRequest:
     # All items share a target (enforced in Stage 2) so we read from item 0.
     first = items[0]
@@ -325,7 +325,7 @@ def build_score_create(
 
 
 def build_comment_create(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    _op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
     single = dump(items[0])
     target = single.pop("target")

@@ -123,7 +123,6 @@ async def run_write(
     out = _stage4_finalize(
         op=op,
         resp=resp,
-        items=items,
         is_batch=is_batch,
         method=method,
         path=request.path,
@@ -281,7 +280,6 @@ def _stage4_finalize(
     *,
     op: WriteOperation,
     resp: httpx.Response,
-    items: list[BaseModel],
     is_batch: bool,
     method: str,
     path: str,

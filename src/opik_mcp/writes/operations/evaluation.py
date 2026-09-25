@@ -216,7 +216,7 @@ DATASET_TYPE_TO_WIRE: Final[dict[str, str]] = {
 
 
 def build_prompt_version_save(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
     d = dump(items[0])
     version_keys = ("template", "commit", "tags", "metadata")
@@ -228,7 +228,7 @@ def build_prompt_version_save(
 
 
 def build_dataset_create(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
     """One endpoint, two flavors: /v1/private/datasets creates a plain dataset
     or a test suite, and ``type`` is the discriminator. Ours is spelled
@@ -243,7 +243,7 @@ def build_dataset_create(
 
 
 def build_dataset_item_upsert(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
     """Single-envelope shape (``supports_batch=False`` enforces this in Stage
     2). Re-shape each item into the BE's
