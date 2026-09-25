@@ -22,8 +22,7 @@ help:
 	@echo "  make dev        - run via mcp inspector dev"
 	@echo "  make inspect    - launch MCP Inspector against running server"
 	@echo "  make test       - pytest"
-	@echo "  make slow       - only the tests marked slow (subprocesses); make test runs them too."
-	@echo "                    To skip them: uv run pytest -m 'not slow and not e2e and not live and not user_flows'"
+	@echo "  make slow       - pytest -m slow (tests that spawn a subprocess; not in make check, run by CI)"
 	@echo "  make conformance- pytest tests/conformance (MCP wire contract)"
 	@echo "  make e2e        - pytest -m e2e (real stdio subprocess; not in make check)"
 	@echo "  make live       - pytest -m live (seeded local Opik backend; OPIK-8490)"
@@ -70,8 +69,9 @@ inspect:
 test:
 	uv run pytest -q
 
-# Tests that spawn a subprocess. They stay in `make test` / `make check`, so CI
-# runs them; the marker only lets a developer run or skip them as a group.
+# Tests that spawn a subprocess: hooks, scripts, git, make, ruff and mypy.
+# `addopts` deselects them from `make test` / `make check`; this target and the
+# step after `make check` in ci.yaml are what run them.
 slow:
 	uv run pytest -m slow -v $(PYTEST_ARGS)
 

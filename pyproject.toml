@@ -79,12 +79,14 @@ testpaths = ["tests"]
 # only suite that exercises `__main__`'s stdio startup path.
 # `live` and `user_flows` need a real backend (and, for user_flows, a model key),
 # so they are deselected the same way and run only through their make targets.
-addopts = "-m 'not e2e and not live and not user_flows'"
+# `slow` tests spawn a subprocess each; they are deselected too and run by
+# `make slow`, which CI runs in python-checks right after `make check`.
+addopts = "-m 'not e2e and not live and not user_flows and not slow'"
 markers = [
     "e2e: spawns `python -m opik_mcp` over stdio; run by `make e2e` and the e2e CI job",
     "live: drives the server against a seeded local Opik backend; run by `make live`",
     "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
-    "slow: spawns a subprocess (hooks, scripts, git, make, ruff, mypy); stays in the default run, `make slow` runs only these",
+    "slow: spawns a subprocess (hooks, scripts, git, make, ruff, mypy); run by `make slow` and its CI step",
 ]
 
 [tool.ruff]
