@@ -178,6 +178,10 @@ def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 VOCABULARY = Vocabulary(
     name="thread",
+    filter_examples=(
+        'status = "active" AND number_of_messages > 20',
+        "feedback_scores.helpfulness < 0.5 AND duration > 60000",
+    ),
     sort_fields=(
         "id",
         "start_time",

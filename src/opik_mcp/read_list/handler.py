@@ -9,8 +9,8 @@ rather than against the collection.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -143,6 +143,22 @@ class Vocabulary:
     unsortable_why: str | None = None
     """Why ``sort_fields`` is empty, in the refusal's voice, for an endpoint
     that orders by nothing: whose limit it is and what orders the same rows."""
+    filter_examples: tuple[str, ...] = ()
+    """Filters ``schema("list.<name>")`` shows as examples."""
+    filter_requirement: str | None = None
+    """What these filters cannot be used without, when the call must name
+    something first for the fields to exist."""
+    vocabulary_pointer: str | None = None
+    """For an entity with two tables, where the other one is and when it
+    applies. A ``{<vocabulary>}`` slot is filled with that table's field
+    names, so the pointer cannot promise a field the table does not have: an
+    agent asks for one of the two references and has to learn from it that
+    the other call exists and what it could ask there."""
+    field_notes: Mapping[str, str] = field(default_factory=dict)
+    """Caveats per field, for a field whose name promises more than it
+    matches. The reference is where a caller looks before writing the filter;
+    a refusal cannot carry it, because the filter is accepted and answers
+    200."""
 
 
 @dataclass(frozen=True)

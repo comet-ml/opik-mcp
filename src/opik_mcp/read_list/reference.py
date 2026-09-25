@@ -34,106 +34,11 @@ LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     # under its dataset and the same item filtered with runs attached are two
     # field tables, and each has to be answerable on its own.
     *(f"list.{e}" for e in FILTERABLE_FIELDS),
-    # Not an OQL entity of its own — a time series over one of them — but it
-    # has a reference of its own to answer, and it is the reference that keeps
-    # the metric table out of the tool description.
-    "list.project_metric",
+    # An entity whose reference is not a field table (a metric is a time
+    # series over one) answers its own, and that reference is what keeps its
+    # catalog out of the tool description.
+    *(f"list.{t}" for t, h in ENTITY_REGISTRY.items() if h.reference_fn is not None),
 )
-
-FILTER_EXAMPLES: Final[dict[str, tuple[str, str]]] = {
-    "trace": (
-        "error_info is_not_empty AND duration > 5000",
-        'feedback_scores.accuracy < 0.5 AND start_time >= "2026-09-08T00:00:00Z"',
-    ),
-    "span": (
-        'type = "llm" AND usage.total_tokens > 10000',
-        'name = "search_docs" AND error_info is_not_empty',
-    ),
-    "thread": (
-        'status = "active" AND number_of_messages > 20',
-        "feedback_scores.helpfulness < 0.5 AND duration > 60000",
-    ),
-    "experiment": (
-        'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
-        'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
-    ),
-    "dataset_item": (
-        "feedback_scores.correctness < 0.5",
-        'data.question contains "refund" AND output contains "sorry"',
-    ),
-    "dataset_item_case": (
-        'data.question contains "install"',
-        'trace_id = "<trace-uuid>"',
-    ),
-}
-
-
-#: What an entity's filters cannot be used without. Only the compared items
-#: have such a condition: every one of their filter fields reads the runs,
-#: which exist only when the call names the experiments to compare.
-FILTER_REQUIREMENTS: Final[dict[str, str]] = {
-    "dataset_item": "experiment_ids: these filters, the sort and search apply to the runs",
-}
-
-
-#: The other field table of an entity that has two, named from each. An agent
-#: reaches for ``schema("list.dataset_item")`` whichever of the two calls it
-#: means, and the fields it finds there are the ones the other call refuses —
-#: so each reference says where the rest of them are.
-VOCABULARY_POINTERS: Final[dict[str, str]] = {
-    "dataset_item": (
-        "without experiment_ids the same list is the dataset's own cases, filtered on the "
-        "case itself ({dataset_item_case}) — operators in "
-        'schema("list.dataset_item_case")'
-    ),
-    "dataset_item_case": (
-        "with experiment_ids the same list is those experiments' runs case by case, filtered "
-        'on the runs ({dataset_item}) — operators in schema("list.dataset_item")'
-    ),
-}
-"""``{vocabulary}`` is filled in with that vocabulary's field names, so the
-pointer cannot promise a field the table does not have. The names are worth
-the bytes: an agent asks for one of these two references and has to learn from
-it that the other call exists *and* what it would be able to ask there."""
-
-
-#: Per-field caveats, keyed by entity then field. For a field whose name
-#: promises more than it matches: the reference is where a caller looks
-#: before writing the filter, so it is where the gap has to be stated. A
-#: refusal cannot carry it — the filter is accepted and answers 200.
-FIELD_NOTES: Final[dict[str, dict[str, str]]] = {
-    "dataset_item_case": {
-        "full_data": (
-            "the whole payload as one string, matched case-insensitively: a full scan of the "
-            "dataset, with no index behind it. It is the free-text search this endpoint does "
-            "not have; a key you can name (data.<key>) is the cheaper question."
-        ),
-        "source": (
-            "how the case was created: manual, trace, span or sdk. Use contains — it is the "
-            "only operator that answers. The column is a ClickHouse Enum8 while "
-            "opik-backend declares the filter field as a string, so = and starts_with "
-            "compile to lower(source), which ClickHouse cannot apply to an enum and which "
-            "fails the request with a 500; contains compiles to ilike, which converts. "
-            "Measured against two unrelated datasets, on a valid value as well as an "
-            "unknown one. Fixed backend-side by typing the field as the enum it is, the way "
-            "TraceField.SOURCE already is — at which point = works and contains stops."
-        ),
-        "data": (
-            "the case's own keys, one per column of the dataset — data.question, "
-            "data.expected_output. No comparisons: the column is a ClickHouse Map, and "
-            "opik-backend's operator map has no > or < for that type (it answers 400). The "
-            "comparison's data.<key> does take them — there the key becomes a field the "
-            "backend types as a string."
-        ),
-    },
-    "experiment": {
-        "prompt_ids": (
-            "matches prompt ids, not prompt version ids: the backend compares against the "
-            "experiment's prompt ids, so this narrows to a prompt and not to one version of "
-            "it. No prompt-version filter exists on the backend."
-        ),
-    },
-}
 
 
 def list_reference(entity_type: str) -> dict[str, Any]:
@@ -144,6 +49,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         # metrics, intervals and limits, not a table of OQL fields. It lives
         # beside the data it describes.
         return handler.reference_fn()
+    vocabulary = VOCABULARIES[entity_type]
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in FILTERABLE_FIELDS[entity_type].items():
         # A field the backend takes as a query parameter accepts less than its
@@ -164,7 +70,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             spec["unit"] = "milliseconds"
         if ftype == "date_time":
             spec["format"] = 'ISO-8601 instant with timezone, e.g. "2026-09-08T10:00:00Z"'
-        note = FIELD_NOTES.get(entity_type, {}).get(name)
+        note = vocabulary.field_notes.get(name)
         if note is not None:
             spec["note"] = note
         values = ENUM_VALUES.get(entity_type, {}).get(name)
@@ -177,21 +83,24 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     filters: dict[str, Any] = {
         "grammar": GRAMMAR_LINE,
         "fields": fields,
-        "examples": list(FILTER_EXAMPLES[entity_type]),
+        "examples": list(vocabulary.filter_examples),
     }
     if entity_type in SOURCE_DEFAULTED_ENTITIES:
         filters["default"] = 'source = "sdk" unless you name source'
-    requires = FILTER_REQUIREMENTS.get(entity_type)
+    requires = vocabulary.filter_requirement
     if requires is not None:
         filters["requires"] = requires
 
-    pointer = VOCABULARY_POINTERS.get(entity_type)
+    pointer = vocabulary.vocabulary_pointer
     if pointer is not None:
         filters["see_also"] = pointer.format(
-            **{name: ", ".join(FILTERABLE_FIELDS[name]) for name in VOCABULARY_POINTERS}
+            **{
+                other.name: ", ".join(FILTERABLE_FIELDS[other.name])
+                for other in VOCABULARIES.values()
+                if other.vocabulary_pointer is not None
+            }
         )
 
-    vocabulary = VOCABULARIES[entity_type]
     sort: dict[str, Any] = {"form": SORT_FORM, "fields": sortable_names(vocabulary)}
     why = vocabulary.unsortable_why
     if why is not None:
@@ -213,10 +122,6 @@ def list_reference(entity_type: str) -> dict[str, Any]:
 
 
 __all__ = [
-    "FIELD_NOTES",
-    "FILTER_EXAMPLES",
-    "FILTER_REQUIREMENTS",
     "LIST_SCHEMA_KEYS",
-    "VOCABULARY_POINTERS",
     "list_reference",
 ]

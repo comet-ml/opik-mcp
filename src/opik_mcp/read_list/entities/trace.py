@@ -156,6 +156,10 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
 
 VOCABULARY = Vocabulary(
     name="trace",
+    filter_examples=(
+        "error_info is_not_empty AND duration > 5000",
+        'feedback_scores.accuracy < 0.5 AND start_time >= "2026-09-08T00:00:00Z"',
+    ),
     sort_fields=(
         "id",
         "name",

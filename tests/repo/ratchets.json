@@ -12,14 +12,6 @@
       "thread",
       "trace"
     ],
-    "reference": [
-      "dataset_item",
-      "dataset_item_case",
-      "experiment",
-      "span",
-      "thread",
-      "trace"
-    ],
     "ui_links": [
       "online_rule",
       "project",

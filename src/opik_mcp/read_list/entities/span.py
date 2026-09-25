@@ -50,6 +50,10 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 VOCABULARY = Vocabulary(
     name="span",
+    filter_examples=(
+        'type = "llm" AND usage.total_tokens > 10000',
+        'name = "search_docs" AND error_info is_not_empty',
+    ),
     sort_fields=(
         "id",
         "name",

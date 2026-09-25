@@ -318,6 +318,17 @@ def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]
 
 VOCABULARY = Vocabulary(
     name="experiment",
+    filter_examples=(
+        'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
+        'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
+    ),
+    field_notes={
+        "prompt_ids": (
+            "matches prompt ids, not prompt version ids: the backend compares against the "
+            "experiment's prompt ids, so this narrows to a prompt and not to one version of "
+            "it. No prompt-version filter exists on the backend."
+        ),
+    },
     sort_fields=(
         "id",
         "name",
