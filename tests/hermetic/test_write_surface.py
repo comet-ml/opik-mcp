@@ -28,7 +28,7 @@ import pytest
 from mcp import ClientSession
 
 from opik_mcp.writes.registry import WRITE_OPERATIONS
-from tests.e2e.servers import (
+from tests.hermetic.servers import (
     API_KEY,
     WORKSPACE,
     HttpServer,
@@ -38,7 +38,7 @@ from tests.e2e.servers import (
     stdio_session,
     stub_with_http_server,
 )
-from tests.e2e.stub_backend import (
+from tests.hermetic.stub_backend import (
     EXPERIMENT_A,
     ISSUE_ID,
     PROJECT_ID,
@@ -52,7 +52,7 @@ from tests.e2e.stub_backend import (
 )
 from tests.test_read_list.test_link_shape import live_project_url
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.hermetic
 
 #: Ids the caller chooses for what it creates, so the url can name them.
 NEW_TRACE_ID = "0199c6a4-3a4c-7f1e-9d2b-0000000000a1"
@@ -557,8 +557,8 @@ def test_every_write_operation_has_an_end_to_end_case() -> None:
     covered = {case.operation for case in CASES}
     missing = sorted(set(WRITE_OPERATIONS) - covered)
     assert not missing, (
-        f"write operations with no e2e case: {missing}. "
-        "Add a WriteCase to CASES in tests/e2e/test_write_surface.py."
+        f"write operations with no hermetic case: {missing}. "
+        "Add a WriteCase to CASES in tests/hermetic/test_write_surface.py."
     )
 
 

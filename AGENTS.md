@@ -42,7 +42,7 @@ How a call flows:
 | Command | Proves | Run by CI |
 |---|---|---|
 | `make check` | lint + mypy + unit and conformance tests | yes |
-| `make e2e` | the real stdio startup; not part of `make check` | yes, own job |
+| `make hermetic` | the real server process over stdio and HTTP, against a stub backend; not part of `make check` | yes, own job |
 | `make skills-verify-source` | installing from this repo resolves exactly the authored skills | yes |
 | `make conformance` | the MCP wire contract only, for fast iteration | inside `check` |
 | `make live` / `make user-flows` | real backend / real agent (OPIK-8490, OPIK-8491) | not yet |
@@ -61,7 +61,7 @@ errors.
 - Input schemas change only on purpose: `UPDATE_SNAPSHOTS=1`, and the PR says
   why. `tests/conformance/test_schema_snapshots.py`
 - Every sentence of an entity description has a probe.
-  `tests/e2e/test_description_claims.py`
+  `tests/hermetic/test_description_claims.py`
 - One copy of each answer, no `structuredContent`.
   `tests/conformance/test_no_duplicate_payload.py`
 - Entity and operation logic stays in its namespace; root modules may not

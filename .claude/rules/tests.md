@@ -12,8 +12,8 @@ paths:
   registry for an entity, the dispatcher for a write. Call a helper directly
   only to test the helper.
 - A stub shapes only what the test reads. A stub longer than a screen is a
-  fixture file. A fixture longer than two screens belongs in the e2e or live
-  suite with real data.
+  fixture file. A fixture longer than two screens belongs in the hermetic or
+  live suite with real data.
 - A guard test proves it is guarding: it asserts the default it protects is
   still on, and its failure message names the file, where the code belongs and
   the rule.

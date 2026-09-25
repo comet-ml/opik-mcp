@@ -47,7 +47,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
-from tests.e2e.stub_backend import (
+from tests.hermetic.stub_backend import (
     CASE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
@@ -725,7 +725,7 @@ async def _issue_fields(drive: Driver) -> None:
 
 @probe("issue_list_defaults_to_open")
 async def _issue_list_status(drive: Driver) -> None:
-    from tests.e2e.stub_backend import _issue
+    from tests.hermetic.stub_backend import _issue
 
     closed = {**_issue(), "id": ISSUE_ID.replace("50", "51"), "status": "closed"}
     drive.backend.issues = [_issue(), closed]
@@ -783,7 +783,7 @@ async def _issue_links(drive: Driver) -> None:
     assert f"/projects/{PROJECT_ID}/diagnostics?issue={ISSUE_ID}" in payload["url"]
     # The "omitted when …" half is a unit-level claim about an unconfigured
     # install: this session has a URL and a workspace by construction, so
-    # what the e2e stub can show is that a configured one carries both links.
+    # what the stub can show is that a configured one carries both links.
     assert payload["trace_url_template"].startswith("http")
 
 
@@ -936,7 +936,7 @@ async def _session(stub: StubBackend) -> AsyncIterator[ClientSession]:
             yield session
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 @pytest.mark.parametrize("entity", sorted(ENTITY_REGISTRY))
 async def test_the_entitys_description_holds(entity: str, backend: StubBackend) -> None:

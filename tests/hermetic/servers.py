@@ -28,7 +28,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.types import CallToolResult
 
-from tests.e2e.stub_backend import StubBackend
+from tests.hermetic.stub_backend import StubBackend
 
 #: A hung server must fail the job, not hang the runner.
 SESSION_TIMEOUT_S = 60
@@ -194,7 +194,7 @@ async def post_initialize(server: HttpServer, *, headers: dict[str, str]) -> htt
         "params": {
             "protocolVersion": "2025-06-18",
             "capabilities": {},
-            "clientInfo": {"name": "e2e", "version": "0"},
+            "clientInfo": {"name": "hermetic", "version": "0"},
         },
     }
     async with httpx.AsyncClient(timeout=30) as client:

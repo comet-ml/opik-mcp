@@ -21,7 +21,7 @@ from collections.abc import Iterator
 import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, OAUTH_TOKEN_EXPIRED_HINT
-from tests.e2e.servers import (
+from tests.hermetic.servers import (
     WORKSPACE,
     HttpServer,
     http_session,
@@ -30,9 +30,9 @@ from tests.e2e.servers import (
     result_text,
     stub_with_http_server,
 )
-from tests.e2e.stub_backend import PROJECT_NAME, StubBackend
+from tests.hermetic.stub_backend import PROJECT_NAME, StubBackend
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.hermetic
 
 _INTROSPECT = "/opik/auth-oauth"
 

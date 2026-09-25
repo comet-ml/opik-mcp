@@ -1,6 +1,6 @@
 """A stand-in for opik-backend, good enough to answer the project overview.
 
-The e2e suite runs the server as a real subprocess over stdio, which is how a
+The hermetic suite runs the server as a real subprocess over stdio, which is how a
 host launches it. What it could not reach was anything that talks to Opik, so
 the whole read surface stopped at "needs credentials" and the features this
 ticket added had no end-to-end cover at all.
