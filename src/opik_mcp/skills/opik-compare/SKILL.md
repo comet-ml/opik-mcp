@@ -31,16 +31,7 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 ## Activation — the only in-scope work
 
 ### 1. Resolve the suite and the baseline
-```python
-import opik
-
-client = opik.Opik()
-
-suite = client.get_test_suite(name="<suite>", project_name="<project>")
-prior = client.get_test_suite_experiments(
-    name="<suite>", project_name="<project>"
-)  # newest first is not guaranteed — sort by created_at yourself
-```
+The SDK calls: `references/sdk-snippets.md` (**Resolve the suite and the baseline**).
 Baseline = the most recent prior experiment on this suite, unless the user names one. **No prior experiment → this run *is* the baseline** (step 3 still runs; status `baseline_created`). Two explicit experiments → skip step 3, go to step 4.
 
 Confirm Opik is reachable: if `~/.opik.config` exists or `OPIK_API_KEY` is set, use it. Otherwise → **Blocker**.
@@ -54,63 +45,15 @@ def task(item: dict) -> dict:
 ```
 Write the runner as a **temp file outside the repo** (or a scratch path the user names) — never into the codebase, never committed. It needs the app's provider credentials; if they're absent → **Blocker** (the app can't answer the items). Never point the runner at a production entrypoint that writes, sends, or spends.
 
-**Prompt candidates** (the change is a prompt version, not code): there is no adapter — run server-side instead:
-```python
-client.rest_client.experiments.execute_experiment(
-    dataset_name=suite.name,
-    dataset_id=suite.id,
-    prompts=[
-        {
-            "model": "<model>",
-            "messages": [...],
-            "configs": {},
-            "prompt_versions": [{"id": "<prompt_version_id>"}],
-        }
-    ],
-    project_name="<project>",
-)  # 202 Accepted; one experiment per prompt variant, processed asynchronously — poll get_experiment_by_id until items fill
-```
+**Prompt candidates** (the change is a prompt version, not code): there is no adapter — run server-side instead: `references/sdk-snippets.md` (**Prompt candidates**).
 
 ### 3. Run the candidate
 Same suite, same version, same judge model, same runs-per-item as the baseline — vary **only** the thing under test.
-```python
-result = opik.run_tests(
-    test_suite=suite,  # or suite.get_version_view("<baseline's version>") to pin
-    task=task,
-    experiment_name="candidate-<sha>",
-    experiment_tags=["compare", "<sha>"],
-    model="<same judge model as baseline>",
-    generate_report=False,  # default True writes opik_test_suite_reports/ into cwd — the repo stays untouched
-)
-candidate_id = result.experiment_id  # result.experiment_url is the single-run link
-
-# GUARD: a missing judge credential does NOT raise — every item comes back failed with
-# scoring_failed=True and a "Missing credentials" reason, and the experiment is still created.
-# Treat that as a Blocker, not as a regression; do not compare against that run.
-judge_failed = [
-    r
-    for ir in result.item_results.values()
-    for t in ir.test_results
-    for r in t.score_results
-    if getattr(r, "scoring_failed", False)
-]
-```
+The `run_tests` call, and the guard for a judge that fails without raising: `references/sdk-snippets.md` (**Run the candidate**).
 Do not read scores off `result` and stop — step 4 reads both runs from Opik so baseline and candidate go through the same path.
 
 ### 4. Read both runs back (SDK-first, MCP when connected)
-```python
-base = client.get_experiment_by_id("<baseline_id>")
-cand = client.get_experiment_by_id(candidate_id)
-b_items = {i.dataset_item_id: i for i in base.get_items()}
-c_items = {i.dataset_item_id: i for i in cand.get_items()}
-# each item: dataset_item_data, evaluation_task_output, feedback_scores [{name, value, reason}],
-#            assertion_results [{value, passed, reason}], trace_id
-
-# Side by side, one call, both experiments:
-rows = client.get_experiments_client().find_experiment_items_for_dataset(
-    suite.name, experiment_ids=["<baseline_id>", candidate_id], project_name="<project>"
-)
-```
+The SDK read of both runs, and the side-by-side join: `references/sdk-snippets.md` (**Read both runs back**).
 `get_experiment_by_name` is deprecated — resolve names with `get_experiments_by_name` and pick by id. When the MCP is connected it does the whole of this step in one call: `list('dataset_item', experiment_ids=['<baseline_id>', '<candidate_id>'])` returns the cases side by side with each run's score, the per-case delta, the worst trace to open, and a warning when the two runs covered different cases or different dataset versions. Prefer it over the SDK join above, which stays here for runs the MCP cannot reach. `list('experiment', …)` and `read('experiment', id)` still find and sanity-check the two runs.
 
 ### 5. Answer the questions, in this order
@@ -153,30 +96,11 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 **User-facing:** a short human message — comparability note (if any), regressions first (case, assertion, why), then fixes, then the per-metric table (`baseline → candidate (delta)`), the compare link, and the single next step. No verdict. Not a raw dump of every item.
 
-**Underneath** (for composition / evals), one shape:
-- `status`: `compared` | `baseline_created` | `blocked`
-- `suite`: `name`, `id`, `version`
-- `baseline` / `candidate`: `experiment_id`, `name`, `url`, `items`, `pass_rate`
-- `comparable`: `true|false`, `note`
-- `deltas`: list of `{metric, baseline, candidate, delta}` (pass rate included)
-- `regressions`: list of `{dataset_item_id, input, assertion, reason, trace_url}`
-- `fixes`: same shape
-- `attribution`: `{app: [...ids], judge: [...ids]}` when a flip could be attributed
-- `compare_url`
-- `next_step`: exactly one
-- `verdict`: **never present**
-
-Invariants: `compared` carries both experiments, a non-empty `deltas`, and a `compare_url` with both ids; `baseline_created` carries `baseline` only and a `next_step` of "rerun after the change"; `blocked` carries exactly one `next_step`; no path writes into the codebase; no path emits a ship/hold decision.
+**Underneath** (for composition / evals), one shape, with its invariants: `references/output-shape.md`.
 
 ## Examples
 
-**Fix verified.** `/opik-compare support-bot-regressions` after fixing `retrieve()`. Baseline = yesterday's run (3/5 passed). Runner built from `Entrypoint: answer`; candidate 5/5. Read back: 2 fixes (the refund and shipping items), 0 regressions, `pass_rate 0.60 → 1.00 (+0.40)`, same suite version, same judge. → **`compared`**; next step = "run `/opik-online-eval` to watch the refund assertion in production" or "merge — the decision is yours".
-
-**Regression surfaced.** Candidate fixes the refund case but the "does not give legal advice" item flips to fail; its `reason` quotes the new output offering legal steps. Attribution: app. → **`compared`** with one regression named first, the delta table after; next step = "`/opik-explain <candidate trace>` for the legal-advice item".
-
-**First run.** No prior experiments on the suite. Run once; report 3/5 with the failing items. → **`baseline_created`**: "This is the baseline — rerun `/opik-compare` after your change."
-
-**Two existing runs, no code.** `/opik-compare nightly-2026-09-14 nightly-2026-09-15`. Resolve by `get_experiments_by_name`, join items, report. → **`compared`** (no runner built).
+Worked runs (fix verified, regression surfaced, first run, two existing runs): `references/examples.md`.
 
 ## Anti-patterns
 Reading scores from the run's console output instead of from Opik; comparing runs on different suite versions or judge models without saying so; reporting only aggregates ("accuracy 0.82 → 0.85") without naming the cases that flipped; writing the runner into the repo or committing it; changing app code to make the suite pass; trusting a single run on a flaky item; **issuing a ship/no-ship verdict** (out of scope by design); using deprecated `get_experiment_by_name`; building the compare link with one id.
