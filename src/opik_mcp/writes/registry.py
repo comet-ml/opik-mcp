@@ -213,7 +213,7 @@ _REGISTRY: dict[str, WriteOperation] = {
         envelope_items_key="items",
         parent_id_fields=("dataset_name", "dataset_id"),
         description=(
-            "Upsert items into a dataset or test suite. Always pass the envelope "
+            "Upsert items into a dataset or test suite; data is the envelope "
             "{dataset_name|dataset_id, items: [...]}."
         ),
         example=EXAMPLES["dataset_item.upsert"],

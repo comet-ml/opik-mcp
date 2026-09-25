@@ -90,6 +90,8 @@ from opik_mcp.server import mcp
 #   23,396  OPIK-8496 — `write`'s note on `validation_failed` stops promising
 #           the inlined JSON Schema, which the envelope no longer carries.
 #           -99 bytes.
+#   23,280  OPIK-8496 — `read`'s name-lookup lines and the upsert operation's
+#           line say what happens instead of what to prefer. -116 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -241,7 +243,9 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # The instructions a host receives on `initialize`. With tool search on, the
 # tool list above is deferred but this text is not: every session that loads
 # the server carries it. Measured 4,750 bytes (about 1,150 tokens) with a long
-# workspace name and email, OPIK-8485. Raise it on purpose, with a note here.
+# workspace name and email, OPIK-8485. 4,759 at the head of OPIK-8496, then
+# 4,711 after it reworded three imperatives as statements (-48). Raise it on
+# purpose, with a note here.
 # This caps growth; the host's 2,048-character cut on the same text is pinned
 # in test_tool_annotations.py. Lower this to match once the text fits.
 INSTRUCTIONS_BUDGET_BYTES = 5_000

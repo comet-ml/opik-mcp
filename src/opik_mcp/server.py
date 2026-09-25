@@ -303,11 +303,9 @@ async def read(
 ) -> str:
     """Read any Opik entity by ID, name, or opik:// URI.
 
-    Prefer a UUID for `id` — it's faster (single API call) and unambiguous.
-    Name lookup is available for: project, experiment, prompt, dataset —
-    name lookup is slower (two API calls) and may return multiple matches,
-    in which case the tool lists the candidates so you can retry with the
-    correct ID.
+    A UUID `id` costs one API call. A name also works for project,
+    experiment, prompt and dataset: two calls, and a name several records
+    share returns them as candidates to retry by id.
 
     Special shapes:
     - project: returns {project, summary, vocabulary, contains, url} — the
