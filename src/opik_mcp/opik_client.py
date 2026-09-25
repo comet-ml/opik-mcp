@@ -1519,7 +1519,8 @@ def note_backend_401() -> str | None:
     tool-error hint for that bearer (``None`` for an API key); see
     ``auth_context.oauth_token_expired_hint``. Called from every place a backend
     401 is turned into an error: here for reads/lists, ``writes.dispatch`` for
-    writes.
+    writes, and the Diagnostics follow-up PATCH in
+    ``writes.operations.diagnostics``.
     """
     auth = inbound_authorization.get()
     if auth:

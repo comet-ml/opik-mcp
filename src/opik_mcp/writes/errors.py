@@ -175,7 +175,7 @@ class BackendError(WriteError):
         # The backend's body is untrusted text and the REST path is not a name
         # the caller can use, so neither is carried; the status is, for the
         # analytics bucket. ``backend_message`` is the backend's own capped
-        # reason on a 400 or 422 (``opik_client.backend_reason``), kept in its
+        # reason on a 400, 409 or 422 (``opik_client.backend_reason``), kept in its
         # own field so it is never read as ours.
         extra: dict[str, Any] = {"backend_error": {"status": status}}
         if backend_message:
