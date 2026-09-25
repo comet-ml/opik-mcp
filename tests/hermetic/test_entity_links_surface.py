@@ -54,7 +54,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.e2e.stub_backend import (
+from tests.hermetic.stub_backend import (
     EXPERIMENT_A,
     ISSUE_ID,
     PROJECT_ID,
@@ -72,7 +72,7 @@ _TIMEOUT_S = 60
 _WORKSPACE = "stub-workspace"
 _URL = re.compile(r"https?://[^\s\"',)]+")
 
-pytestmark = pytest.mark.e2e
+pytestmark = pytest.mark.hermetic
 
 
 @pytest.fixture

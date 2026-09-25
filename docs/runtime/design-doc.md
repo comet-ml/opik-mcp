@@ -147,7 +147,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - Timeout and unreachable messages in `list`: `tests/read_list/test_list_filters.py`.
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
-- A real stdio handshake: `tests/e2e/test_stdio_session.py`.
+- A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
 
 ## Log
 

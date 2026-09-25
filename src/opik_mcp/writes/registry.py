@@ -157,7 +157,7 @@ _REGISTRY: dict[str, WriteOperation] = {
     ),
     "comment.create": WriteOperation(
         name="comment.create",
-        decorate_fn=observability.decorate_with_page,
+        decorate_fn=observability.decorate_comment,
         build_fn=observability.build_comment_create,
         prepare_fn=threads.resolve_comment_thread_id,
         dry_run_note_fn=threads.comment_dry_run_note,
