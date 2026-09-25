@@ -255,8 +255,8 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
         [json.dumps([EXPERIMENT_A]), json.dumps([EXPERIMENT_B])]
     )
 
-    assert answer.startswith(
-        "[list: dataset_item | compare: "
+    assert answer.splitlines()[0].endswith(
+        " tok | compare: "
         f"E1 = baseline rerank-v1 ({EXPERIMENT_A}), E2 = rerank-v3 ({EXPERIMENT_B})]"
     )
     assert "Found 8 dataset_items (page 1, showing 4 of 8):" in answer

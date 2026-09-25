@@ -8,6 +8,7 @@ delegates it whole rather than growing special cases.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -24,6 +25,7 @@ from opik_mcp.read_list.entities.project_metric.catalog import (
     interval_for_window,
 )
 from opik_mcp.read_list.list_tool import run_list
+from opik_mcp.read_list.size import estimate_tokens
 from opik_mcp.writes.schema_tool import run_schema
 
 PROJECT = "01a08666-e863-76e8-809c-057f4aa151bc"
@@ -232,11 +234,25 @@ async def test_the_first_line_echoes_metric_interval_window_and_source() -> None
         "project_metric", project_id=PROJECT, metric_type="trace_count", client=_fake()
     )
     header = out.splitlines()[0]
-    assert header.startswith("[list: project_metric | trace_count | daily (from the window) | ")
+    assert re.match(
+        r"\[list: project_metric \| [\d,]+ tok \| trace_count \| daily \(from the window\) \| ",
+        header,
+    )
     # The defaulted source shows up as part of the filter, once — not also as
     # a separate "source defaulted" clause the agent has to reconcile with it.
     assert header.count("sdk") == 1
     assert 'filters: source = "sdk"' in header
+
+
+@pytest.mark.anyio
+async def test_a_series_states_its_size_on_the_first_line() -> None:
+    """A runner writes its own header; the list tool puts the size in it, so
+    every list answer carries one, whichever path produced it."""
+    out = await run_list(
+        "project_metric", project_id=PROJECT, metric_type="trace_count", client=_fake()
+    )
+    header, _, body = out.partition("\n")
+    assert header.startswith(f"[list: project_metric | {estimate_tokens(body):,} tok | ")
 
 
 @pytest.mark.anyio

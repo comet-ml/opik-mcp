@@ -159,9 +159,8 @@ async def test_a_case_key_reaches_the_backend_as_the_maps_wire_form(
         {"field": "data", "key": "question", "operator": "contains", "value": "install"},
         {"field": "tags", "key": "", "operator": "contains", "value": "regression"},
     ]
-    assert out.splitlines()[0] == (
-        '[list: dataset_item | filters: data.question contains "install" '
-        'AND tags contains "regression"]'
+    assert out.splitlines()[0].endswith(
+        ' tok | filters: data.question contains "install" AND tags contains "regression"]'
     )
     assert "Found 2000 dataset_items (page 1, showing 5 of 2000)" in out
 

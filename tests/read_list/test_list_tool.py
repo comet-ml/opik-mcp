@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,6 +13,7 @@ from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
+from opik_mcp.read_list.size import estimate_tokens
 
 
 @pytest.fixture
@@ -260,6 +262,31 @@ async def test_list_says_nothing_about_cuts_when_nothing_was_cut() -> None:
     fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "short"}], "total": 1})
     out = await run_list("project", client=fake)
     assert "cut at" not in out
+
+
+@pytest.mark.anyio
+async def test_a_page_states_its_size_on_the_first_line() -> None:
+    """A caller deciding whether to fetch the next page sees what this one
+    cost, the way a read says it (ADR 0001)."""
+    fake = FakeOpikClient(projects={"content": [{"id": "p-1", "name": "demo"}], "total": 1})
+    out = await run_list("project", client=fake)
+    header, _, body = out.partition("\n")
+    assert header == f"[list: project | {estimate_tokens(body):,} tok]"
+
+
+@pytest.mark.anyio
+async def test_an_empty_page_states_its_size_too() -> None:
+    out = await run_list("project", client=FakeOpikClient())
+    assert re.fullmatch(r"\[list: project \| \d+ tok\]", out.splitlines()[0])
+
+
+@pytest.mark.anyio
+async def test_the_size_comes_before_what_the_call_applied() -> None:
+    fake = FakeOpikClient(traces={"content": [{"id": "t-1", "name": "a"}], "total": 1})
+    out = await run_list("trace", project_id="p-1", client=fake)
+    assert re.fullmatch(
+        r'\[list: trace \| \d+ tok \| filters: source = "sdk"\]', out.splitlines()[0]
+    )
 
 
 # --- required kwargs ----------------------------------------------------- #
@@ -743,7 +770,7 @@ async def test_empty_issues_hint_degrades_when_job_lookup_fails() -> None:
     """The hint decorates the answer; it must never replace it with an error."""
     fake = FakeOpikClient(job_error=OpikServerError("boom"))
     out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
-    assert out.strip() == "No agent_insights_issues found."
+    assert out.splitlines()[1:] == ["No agent_insights_issues found."]
 
 
 @pytest.mark.anyio
@@ -1131,7 +1158,7 @@ async def test_list_score_names_has_no_id_column() -> None:
     column would be a column of nothing on every row."""
     fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}]})
     out = await run_list("score_name", project_id="p-1", client=fake)
-    columns = out.splitlines()[2]
+    columns = out.splitlines()[3]
     assert columns.strip() == "name"
 
 
@@ -1151,7 +1178,7 @@ async def test_list_score_names_does_not_invent_a_type() -> None:
     empty on every row, and filling it would be a guess."""
     fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}]})
     out = await run_list("score_name", project_id="p-1", client=fake)
-    assert "type" not in out.splitlines()[2]
+    assert "type" not in out.splitlines()[3]
 
 
 @pytest.mark.anyio

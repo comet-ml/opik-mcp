@@ -9,8 +9,7 @@ is the main rule, and other decisions follow from it.
 
 - The advertised tool surface has a hard byte budget. It is loaded in every
   request the host makes.
-- Every read states its size, so the caller can decide to narrow. List
-  answers don't yet (backlog in `.claude/dogfood/memory/`).
+- Every read states its size, so the caller can decide to narrow.
 - The caller can always narrow: a span instead of its trace, a filter instead
   of a page, a window instead of all time, `fields=[…]` instead of the record.
 - A change that adds context says what it costs and what it adds, with
@@ -28,7 +27,8 @@ was needed costs the user money and crowds out their own work.
   when a host defers the tool list.
 - The size header on every read (`read_list/size.py`): its format in
   `tests/read_list/test_link_shape.py`, its presence on reads in
-  `tests/read_list/test_read_tool.py`.
+  `tests/read_list/test_read_tool.py` and on lists in
+  `tests/read_list/test_list_tool.py`.
 
 ## Log
 
@@ -44,3 +44,5 @@ was needed costs the user money and crowds out their own work.
   Titles and hints added to all tools, 734 bytes on `tools/list`.
 - 2026-09-23: instructions budget added. With tool search on, they are the
   part every session still loads, about 1,150 tokens (OPIK-8485).
+- 2026-09-25: list answers state their size too, as `N tok` on their first
+  line (OPIK-8496).

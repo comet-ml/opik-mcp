@@ -10,6 +10,7 @@ that rendered twenty rows of nothing for a ``question``/``answer`` dataset.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import pytest
@@ -162,13 +163,13 @@ async def test_list_renders_the_items_content_for_every_row() -> None:
     out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
     assert fake.last_kwargs["dataset_id"] == DATASET
     lines = out.splitlines()
-    assert lines[2] == "id | data.answer | data.expected_behavior | data.question"
+    assert lines[3] == "id | data.answer | data.expected_behavior | data.question"
     assert (
-        lines[3] == "i-1 | Use evaluate(). | answer | How can I evaluate my LLM outputs using Opik?"
+        lines[4] == "i-1 | Use evaluate(). | answer | How can I evaluate my LLM outputs using Opik?"
     )
-    assert lines[4] == "i-2 | I focus on Opik. | decline | Tell me a joke"
+    assert lines[5] == "i-2 | I focus on Opik. | decline | Tell me a joke"
     # No always-empty ``name`` column, and no phantom input/expected_output.
-    assert "name" not in lines[2]
+    assert "name" not in lines[3]
     assert "expected_output" not in out
     assert "Columns after id are the items' data keys (all 3 on this page)." in out
 
@@ -230,7 +231,7 @@ async def test_list_declares_the_column_cut_under_the_table() -> None:
     keys = {f"k{i:02d}": "v" for i in range(_MAX_DATA_COLUMNS + 2)}
     fake = FakeOpikClient(dataset_items=_page(_item("i-1", **keys)))
     out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
-    header = out.splitlines()[2]
+    header = out.splitlines()[3]
     assert header.count(" | ") == _MAX_DATA_COLUMNS  # id + capped data columns
     assert f"showing {_MAX_DATA_COLUMNS} of {_MAX_DATA_COLUMNS + 2} by fill rate" in out
     assert f"omitted: k{_MAX_DATA_COLUMNS:02d}, k{_MAX_DATA_COLUMNS + 1:02d}." in out
@@ -239,7 +240,7 @@ async def test_list_declares_the_column_cut_under_the_table() -> None:
 @pytest.mark.anyio
 async def test_list_empty_page_is_the_plain_empty_message() -> None:
     out = await run_list("dataset_item", dataset_id=DATASET, client=FakeOpikClient())
-    assert out == "No dataset_items found."
+    assert out.splitlines()[1:] == ["No dataset_items found."]
 
 
 # --- the registry row --------------------------------------------------- #
@@ -299,7 +300,10 @@ async def test_a_case_key_travels_as_the_backends_map_filter() -> None:
     assert _clauses(fake) == [
         {"field": "data", "operator": "contains", "key": "question", "value": "install"}
     ]
-    assert out.splitlines()[0] == '[list: dataset_item | filters: data.question contains "install"]'
+    assert re.fullmatch(
+        r'\[list: dataset_item \| [\d,]+ tok \| filters: data.question contains "install"\]',
+        out.splitlines()[0],
+    )
     assert "i-1 | How do I install?" in out
 
 

@@ -211,7 +211,7 @@ async def test_a_metric_series_renders_as_a_table_and_echoes_what_applied(
         )
 
     header, *rows = answer.splitlines()
-    assert "project_metric | trace_count | daily |" in header
+    assert " tok | trace_count | daily |" in header
     assert 'filters: source = "sdk"' in header
     assert rows[0] == "time | traces"
     assert rows[1:3] == ["2026-09-01 | 0", "2026-09-02 | 4"]

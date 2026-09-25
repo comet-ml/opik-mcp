@@ -76,4 +76,29 @@ def size_header(
     return f"[read: {entity_type} {entity_id} | {tokens:,} tok{tag}{link}]"
 
 
-__all__ = ["compact_json", "estimate_tokens", "size_header"]
+def list_size_header(entity_type: str, body: str, applied: list[str]) -> str:
+    """The line above every list page: its size, then what the call applied."""
+    parts = [f"{estimate_tokens(body):,} tok", *applied]
+    return f"[list: {entity_type} | {' | '.join(parts)}]"
+
+
+def with_list_size(entity_type: str, answer: str) -> str:
+    """A runner's answer, with its size in the ``[list: …]`` line it wrote.
+
+    A runner that wrote no such line gets one, so no list answer is unsized.
+    """
+    opener = f"[list: {entity_type}"
+    first, _, rest = answer.partition("\n")
+    if first.startswith(f"{opener} | ") and first.endswith("]"):
+        applied = first[len(opener) + 3 : -1]
+        return f"{list_size_header(entity_type, rest, [applied])}\n{rest}"
+    return f"{list_size_header(entity_type, answer, [])}\n{answer}"
+
+
+__all__ = [
+    "compact_json",
+    "estimate_tokens",
+    "list_size_header",
+    "size_header",
+    "with_list_size",
+]
