@@ -75,11 +75,13 @@ def _is_ignored(path: str) -> bool:
     return result.returncode == 0
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("path", TRACKED)
 def test_path_is_trackable(path: str) -> None:
     assert not _is_ignored(path), f"{path} is ignored, but it belongs in the repository"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("path", IGNORED)
 def test_path_is_ignored(path: str) -> None:
     assert _is_ignored(path), f"{path} would be committed, but it must stay local"
@@ -102,6 +104,23 @@ def test_marker_is_registered_and_off_by_default(marker: str, pytestconfig: pyte
     assert not selected, f"a test marked {marker} would run in the default suite"
 
 
+def test_slow_is_registered_and_stays_in_the_default_run(pytestconfig: pytest.Config) -> None:
+    """`slow` only groups tests; deselecting it by default would drop them from CI."""
+    registered = {line.split(":", 1)[0].strip() for line in pytestconfig.getini("markers")}
+    assert "slow" in registered, "pyproject.toml [tool.pytest.ini_options] markers lost `slow`"
+    addopts: list[str] = pytestconfig.getini("addopts")
+    expression = addopts[addopts.index("-m") + 1]
+
+    def only_slow(name: str, /, **_: str | int | bool | None) -> bool:
+        return name == "slow"
+
+    assert Expression.compile(expression).evaluate(only_slow), (
+        "pyproject.toml addopts now deselects `slow`, so `make check` and CI skip "
+        "those tests. Keep them in the default run; `make slow` is for running them alone."
+    )
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("target", "suite", "ticket"),
     [("live", "tests/live", "OPIK-8490"), ("user-flows", "tests/user_flows", "OPIK-8491")],

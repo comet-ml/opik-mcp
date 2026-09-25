@@ -88,6 +88,21 @@ def _await_resolution(settings: Settings, timeout_s: float = 3.0) -> Any:
     return None
 
 
+def _settle(timeout_s: float = 3.0) -> None:
+    """Wait for every background refresh started so far to finish.
+
+    For tests asserting that something did NOT happen: once the threads are
+    done, a call they would have made has been made.
+    """
+    import opik_mcp.account_identity as mod
+
+    deadline = time.monotonic() + timeout_s
+    for thread in list(mod._REFRESH_THREADS):
+        thread.join(timeout=max(0.0, deadline - time.monotonic()))
+    alive = [t.name for t in mod._REFRESH_THREADS if t.is_alive()]
+    assert not alive, f"refresh threads still running after {timeout_s}s: {alive}"
+
+
 # --- the endpoint is only called where it can answer --------------------- #
 
 
@@ -98,7 +113,7 @@ def test_self_hosted_never_asks() -> None:
     route = respx.get(ACCOUNT_URL).mock(return_value=httpx.Response(200))
     settings = _cloud_settings(opik_url="https://opik.acme-internal.example/api")
     assert resolve_api_key_identity(settings) is None
-    time.sleep(0.1)  # give a stray thread the chance to prove us wrong
+    _settle()
     assert not route.called
 
 
@@ -106,7 +121,7 @@ def test_self_hosted_never_asks() -> None:
 def test_no_api_key_means_nothing_to_resolve() -> None:
     route = respx.get(ACCOUNT_URL).mock(return_value=httpx.Response(200))
     assert resolve_api_key_identity(_cloud_settings(opik_api_key=None)) is None
-    time.sleep(0.1)
+    _settle()
     assert not route.called
 
 
@@ -149,7 +164,7 @@ def test_a_warm_cache_answers_with_no_network_call(_fresh_home: Path) -> None:
     identity = resolve_api_key_identity(_cloud_settings())
     assert identity is not None
     assert identity.user_name == "cached-user"
-    time.sleep(0.1)
+    _settle()
     assert not route.called
 
 
@@ -224,7 +239,7 @@ def test_rotating_the_key_does_not_report_the_previous_user(_fresh_home: Path) -
 def test_a_useless_response_leaves_us_anonymous(response: httpx.Response) -> None:
     respx.get(ACCOUNT_URL).mock(return_value=response)
     assert resolve_api_key_identity(_cloud_settings()) is None
-    time.sleep(0.2)
+    _settle()
     assert resolve_api_key_identity(_cloud_settings()) is None
 
 
@@ -232,7 +247,7 @@ def test_a_useless_response_leaves_us_anonymous(response: httpx.Response) -> Non
 def test_an_unreachable_host_leaves_us_anonymous() -> None:
     respx.get(ACCOUNT_URL).mock(side_effect=httpx.ConnectError("nope"))
     assert resolve_api_key_identity(_cloud_settings()) is None
-    time.sleep(0.2)
+    _settle()
     assert resolve_api_key_identity(_cloud_settings()) is None
 
 
@@ -293,7 +308,7 @@ def test_an_unwritable_cache_does_not_refetch_on_every_event(_fresh_home: Path) 
 
     for _ in range(25):
         resolve_api_key_identity(settings)
-    time.sleep(0.2)
+    _settle()
 
     assert route.call_count == calls_after_first, (
         f"expected no further lookups, saw {route.call_count - calls_after_first}"
@@ -308,7 +323,7 @@ def test_a_rejected_key_is_not_retried_on_every_event(_fresh_home: Path) -> None
 
     for _ in range(25):
         resolve_api_key_identity(settings)
-    time.sleep(0.3)
+    _settle()
 
     assert route.call_count <= 1, f"a rejected key was retried {route.call_count} times"
 

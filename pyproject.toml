@@ -84,6 +84,7 @@ markers = [
     "e2e: spawns `python -m opik_mcp` over stdio; run by `make e2e` and the e2e CI job",
     "live: drives the server against a seeded local Opik backend; run by `make live`",
     "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
+    "slow: spawns a subprocess (hooks, scripts, git, make, ruff, mypy); stays in the default run, `make slow` runs only these",
 ]
 
 [tool.ruff]

@@ -1,4 +1,4 @@
-.PHONY: help version install run run-dev dev inspect test conformance e2e live user-flows lint format typecheck check \
+.PHONY: help version install run run-dev dev inspect test slow conformance e2e live user-flows lint format typecheck check \
         install-branch uninstall-branch \
         skills-pack skills-verify skills-verify-source \
         docker-build docker-run
@@ -22,6 +22,8 @@ help:
 	@echo "  make dev        - run via mcp inspector dev"
 	@echo "  make inspect    - launch MCP Inspector against running server"
 	@echo "  make test       - pytest"
+	@echo "  make slow       - only the tests marked slow (subprocesses); make test runs them too."
+	@echo "                    To skip them: uv run pytest -m 'not slow and not e2e and not live and not user_flows'"
 	@echo "  make conformance- pytest tests/conformance (MCP wire contract)"
 	@echo "  make e2e        - pytest -m e2e (real stdio subprocess; not in make check)"
 	@echo "  make live       - pytest -m live (seeded local Opik backend; OPIK-8490)"
@@ -67,6 +69,11 @@ inspect:
 
 test:
 	uv run pytest -q
+
+# Tests that spawn a subprocess. They stay in `make test` / `make check`, so CI
+# runs them; the marker only lets a developer run or skip them as a group.
+slow:
+	uv run pytest -m slow -v $(PYTEST_ARGS)
 
 # Wire-contract suite. The whole-suite `make check` already runs these
 # (test target is `pytest -q`), this is the focused entrypoint for when

@@ -51,6 +51,7 @@ def _plan(
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("branch", "server"),
     [
@@ -69,6 +70,7 @@ def test_the_server_is_named_after_the_branch(
     assert f".local/share/opik-mcp-{server.removeprefix('opik-')}" in result.stdout
 
 
+@pytest.mark.slow
 def test_name_and_workspace_can_be_overridden(tmp_path: Path, home: Path) -> None:
     cwd = _worktree(tmp_path, "OPIK-1-x")
     result = _plan(cwd, home, "install", "--name", "main", "--workspace", "other-ws")
@@ -76,6 +78,7 @@ def test_name_and_workspace_can_be_overridden(tmp_path: Path, home: Path) -> Non
     assert "OPIK_WORKSPACE=other-ws" in result.stdout
 
 
+@pytest.mark.slow
 def test_environment_wins_over_the_config_file(tmp_path: Path, home: Path) -> None:
     cwd = _worktree(tmp_path, "OPIK-1-x")
     env = {
@@ -89,18 +92,21 @@ def test_environment_wins_over_the_config_file(tmp_path: Path, home: Path) -> No
     assert "OPIK_URL=https://dev.comet.com/opik/api" in result.stdout
 
 
+@pytest.mark.slow
 def test_config_file_supplies_what_the_environment_does_not(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
     assert "OPIK_WORKSPACE=config-ws" in result.stdout
     assert "OPIK_URL=https://www.comet.com/opik/api" in result.stdout
 
 
+@pytest.mark.slow
 def test_telemetry_is_always_off(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
     assert "OPIK_MCP_ANALYTICS_ENABLED=false" in result.stdout
     assert "OPIK_MCP_SENTRY_ENABLED=false" in result.stdout
 
 
+@pytest.mark.slow
 def test_the_key_is_never_printed(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
     assert result.returncode == 0
@@ -108,12 +114,14 @@ def test_the_key_is_never_printed(tmp_path: Path, home: Path) -> None:
     assert "OPIK_API_KEY=***" in result.stdout
 
 
+@pytest.mark.slow
 def test_the_script_takes_no_key_argument(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install", "--api-key", KEY)
     assert result.returncode != 0, "a key on the command line lands in shell history"
     assert "unrecognized arguments" in result.stderr
 
 
+@pytest.mark.slow
 def test_missing_credentials_fail_loudly(tmp_path: Path) -> None:
     empty = tmp_path / "empty-home"
     empty.mkdir()
@@ -123,6 +131,7 @@ def test_missing_credentials_fail_loudly(tmp_path: Path) -> None:
     assert "~/.opik.config" in result.stderr
 
 
+@pytest.mark.slow
 def test_a_local_backend_needs_no_key(tmp_path: Path) -> None:
     empty = tmp_path / "empty-home"
     empty.mkdir()
@@ -132,6 +141,7 @@ def test_a_local_backend_needs_no_key(tmp_path: Path) -> None:
     assert "OPIK_API_KEY" not in result.stdout
 
 
+@pytest.mark.slow
 def test_uninstall_removes_the_entry_and_the_venv(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-8480-x"), home, "uninstall")
     assert result.returncode == 0, result.stderr
@@ -141,6 +151,7 @@ def test_uninstall_removes_the_entry_and_the_venv(tmp_path: Path, home: Path) ->
     assert "opik-mcp-8480" in result.stdout
 
 
+@pytest.mark.slow
 def test_the_key_comes_from_the_same_source_as_the_url(tmp_path: Path, home: Path) -> None:
     env = {"OPIK_URL": "https://other.example.com/opik/api", "OPIK_WORKSPACE": "ws"}
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install", env=env)
@@ -148,6 +159,7 @@ def test_the_key_comes_from_the_same_source_as_the_url(tmp_path: Path, home: Pat
     assert "OPIK_API_KEY" in result.stderr
 
 
+@pytest.mark.slow
 def test_a_percent_sign_in_the_config_file_is_read_as_is(tmp_path: Path, home: Path) -> None:
     (home / ".opik.config").write_text(
         "[opik]\nurl_override = https://www.comet.com/opik/api/\nworkspace = ws%1\n"
@@ -158,6 +170,7 @@ def test_a_percent_sign_in_the_config_file_is_read_as_is(tmp_path: Path, home: P
     assert "OPIK_WORKSPACE=ws%1" in result.stdout
 
 
+@pytest.mark.slow
 def test_a_failed_registration_does_not_print_the_key(tmp_path: Path, home: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -197,6 +210,7 @@ def test_the_env_key_replaces_the_config_key(home: Path, monkeypatch: pytest.Mon
     assert creds.api_key == "sk-env-key"
 
 
+@pytest.mark.slow
 def test_install_is_scoped_to_this_repo(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
     assert "claude mcp add -s local opik-1 " in result.stdout
@@ -206,6 +220,7 @@ def test_install_is_scoped_to_this_repo(tmp_path: Path, home: Path) -> None:
     )
 
 
+@pytest.mark.slow
 def test_an_env_key_is_stored_as_a_reference(tmp_path: Path, home: Path) -> None:
     env = {"OPIK_URL": "https://www.comet.com/opik/api", "OPIK_API_KEY": KEY}
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install", "--workspace", "ws", env=env)
@@ -213,12 +228,14 @@ def test_an_env_key_is_stored_as_a_reference(tmp_path: Path, home: Path) -> None
     assert "note:" not in result.stdout
 
 
+@pytest.mark.slow
 def test_a_config_file_key_is_stored_and_says_so(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "install")
     assert "OPIK_API_KEY=***" in result.stdout
     assert "stored in ~/.claude.json" in result.stdout
 
 
+@pytest.mark.slow
 def test_dogfood_config_holds_a_reference_not_the_key(tmp_path: Path, home: Path) -> None:
     result = _plan(_worktree(tmp_path, "OPIK-1-x"), home, "dogfood-prepare")
     assert result.returncode == 0, result.stderr
@@ -233,6 +250,7 @@ def test_dogfood_config_holds_a_reference_not_the_key(tmp_path: Path, home: Path
         assert server["env"]["OPIK_MCP_ANALYTICS_ENABLED"] == "false"
 
 
+@pytest.mark.slow
 def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Path) -> None:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -277,6 +295,7 @@ def test_dogfood_run_passes_the_key_by_environment_only(tmp_path: Path, home: Pa
     assert "--disallowedTools\nmcp__opik-branch__write\nmcp__opik-base__write" in argv
 
 
+@pytest.mark.slow
 def test_dogfood_run_dry_run_runs_nothing(tmp_path: Path, home: Path) -> None:
     prompt = tmp_path / "prompt.md"
     prompt.write_text("run the flows")
@@ -294,6 +313,7 @@ def _dogfood_config(url: str) -> str:
     return json.dumps({"mcpServers": {"opik-branch": {"command": "x", "env": env}}})
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("name", ["x/../../..", "../sibling", "Upper", "a b", "-x", "a" * 60])
 def test_a_name_that_could_escape_its_folder_is_refused(
     tmp_path: Path, home: Path, name: str
@@ -303,6 +323,7 @@ def test_a_name_that_could_escape_its_folder_is_refused(
     assert "rm -rf" not in result.stdout
 
 
+@pytest.mark.slow
 def test_dogfood_run_refuses_a_config_for_another_host(tmp_path: Path, home: Path) -> None:
     config = tmp_path / "mcp.json"
     config.write_text(_dogfood_config("https://elsewhere.example.com/opik/api"))
@@ -314,6 +335,7 @@ def test_dogfood_run_refuses_a_config_for_another_host(tmp_path: Path, home: Pat
     assert "the key is for https://www.comet.com/opik/api" in result.stderr
 
 
+@pytest.mark.slow
 def test_redaction_replaces_the_whole_key_only(tmp_path: Path) -> None:
     empty = tmp_path / "empty-home"
     empty.mkdir()
@@ -322,6 +344,7 @@ def test_redaction_replaces_the_whole_key_only(tmp_path: Path) -> None:
     assert "OPIK_URL=https://www.comet.com/opik/api" in result.stdout, "a short key mangled the URL"
 
 
+@pytest.mark.slow
 def test_an_env_key_without_a_url_is_explained(tmp_path: Path) -> None:
     empty = tmp_path / "empty-home"
     empty.mkdir()
