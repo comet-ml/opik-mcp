@@ -23,7 +23,7 @@ import pathlib
 
 from opik_mcp.read_list import list_tool, registry
 from opik_mcp.read_list.registry import ENTITY_ALIASES, ENTITY_REGISTRY
-from tests.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
+from tests.repo.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
 
 READ_LIST = pathlib.Path(registry.__file__).parent
 ENTITIES = READ_LIST / "entities"

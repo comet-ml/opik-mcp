@@ -1,4 +1,4 @@
-# Everything that ratchets only shrinks. tests/ratchets.json is the record:
+# Everything that ratchets only shrinks. tests/repo/ratchets.json is the record:
 # the lint baselines in pyproject.toml must match it exactly, suppressions may
 # not appear in new files or grow, and an entry that no longer matches a
 # finding is debt already paid, so it has to go. A local test can't stop an
@@ -12,9 +12,9 @@ import subprocess
 import tomllib
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
-RATCHETS = json.loads((REPO_ROOT / "tests" / "ratchets.json").read_text())
+RATCHETS = json.loads((REPO_ROOT / "tests" / "repo" / "ratchets.json").read_text())
 POLICY_GLOBS = {"scripts/**", ".claude/hooks/**", "tests/**"}
 SUPPRESSION = re.compile(r"#\s*(?:noqa|type:\s*ignore)")
 
@@ -40,14 +40,14 @@ def test_the_baselines_are_found() -> None:
 
 def test_the_ruff_baseline_matches_the_record() -> None:
     assert RATCHETS["ruff_baseline"] == RUFF_BASELINE, (
-        "pyproject.toml's ruff baseline and tests/ratchets.json differ. "
+        "pyproject.toml's ruff baseline and tests/repo/ratchets.json differ. "
         "Entries only get deleted, from both."
     )
 
 
 def test_the_mypy_baseline_matches_the_record() -> None:
     assert sorted(MYPY_BASELINE) == RATCHETS["mypy_baseline"], (
-        "pyproject.toml's mypy baseline and tests/ratchets.json differ. "
+        "pyproject.toml's mypy baseline and tests/repo/ratchets.json differ. "
         "Entries only get deleted, from both."
     )
 
@@ -67,7 +67,7 @@ def test_suppressions_only_shrink() -> None:
             if count:
                 found[path.relative_to(REPO_ROOT).as_posix()] = count
     assert found == RATCHETS["suppressions"], (
-        "noqa / type: ignore counts differ from tests/ratchets.json. Fix the finding "
+        "noqa / type: ignore counts differ from tests/repo/ratchets.json. Fix the finding "
         "instead of suppressing it; after removing one, lower its count there."
     )
 

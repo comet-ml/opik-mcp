@@ -21,7 +21,7 @@ from skills_ref import validate
 
 from opik_mcp import skills_catalog as catalog
 
-SKILLS_SRC = Path(__file__).resolve().parent.parent / "src" / "opik_mcp" / "skills"
+SKILLS_SRC = Path(__file__).resolve().parents[2] / "src" / "opik_mcp" / "skills"
 
 
 # --- listing ------------------------------------------------------------- #

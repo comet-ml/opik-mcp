@@ -49,7 +49,7 @@ MCP contracts (see AGENTS.md and `.claude/rules/tool-surface.md`):
 Architecture (`.claude/rules/architecture.md`):
 
 - Entity or operation logic added to a root module instead of its namespace.
-- A ratchet grew: a new entry in `tests/ratchets.json`, a new baseline line in
+- A ratchet grew: a new entry in `tests/repo/ratchets.json`, a new baseline line in
   `pyproject.toml`, or a new `noqa` / `type: ignore`. That is High unless the PR
   explains why no hook or fix was possible.
 

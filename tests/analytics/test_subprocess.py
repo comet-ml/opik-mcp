@@ -2,7 +2,7 @@
 
 These spawn a fresh ``python -m opik_mcp`` process so the entire import chain
 runs with the broken env in place. They exist because respx-based tests in
-``test_analytics_server_startup.py`` cannot catch bugs where the failure
+``analytics/test_server_startup.py`` cannot catch bugs where the failure
 happens at module-import time — by the time ``monkeypatch.setenv`` runs in
 the test process, ``opik_mcp`` is already imported and any import-time
 ``get_settings()`` calls have already succeeded with whatever env the test
@@ -31,7 +31,7 @@ from typing import Any
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class _CaptureServer:

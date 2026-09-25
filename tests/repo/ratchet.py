@@ -48,7 +48,7 @@ def assert_no_new_names(
         assert not new, (
             f"{path.name} names {sorted(new)}. {where_it_belongs} "
             "(.claude/rules/architecture.md). If no hook exists for this yet, add one; "
-            f"{allowlist_name} in tests/ratchets.json only shrinks."
+            f"{allowlist_name} in tests/repo/ratchets.json only shrinks."
         )
 
 

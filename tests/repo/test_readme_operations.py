@@ -16,7 +16,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from opik_mcp.server import mcp
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
-README = Path(__file__).resolve().parent.parent / "README.md"
+README = Path(__file__).resolve().parents[2] / "README.md"
 
 
 def _first_column_of_table_under(heading: str) -> set[str]:

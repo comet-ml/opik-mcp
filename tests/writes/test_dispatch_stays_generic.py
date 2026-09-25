@@ -16,7 +16,7 @@ import pytest
 
 from opik_mcp.writes import dispatch
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
-from tests.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
+from tests.repo.ratchet import allowlist, assert_allowlist_is_current, assert_no_new_names
 
 
 def test_the_dispatcher_names_no_operation() -> None:

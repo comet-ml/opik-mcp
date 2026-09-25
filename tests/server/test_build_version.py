@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from scripts._build_version import get_version
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_the_release_version_from_the_environment_is_returned_verbatim(

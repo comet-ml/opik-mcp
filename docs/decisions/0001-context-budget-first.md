@@ -27,8 +27,8 @@ was needed costs the user money and crowds out their own work.
   history comment, and the `initialize` instructions budget, which loads even
   when a host defers the tool list.
 - The size header on every read (`read_list/size.py`): its format in
-  `tests/test_read_list/test_link_shape.py`, its presence on reads in
-  `tests/test_read_list/test_read_tool.py`.
+  `tests/read_list/test_link_shape.py`, its presence on reads in
+  `tests/read_list/test_read_tool.py`.
 
 ## Log
 

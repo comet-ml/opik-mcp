@@ -1,6 +1,6 @@
 """What the published wheel actually contains — built, not assumed.
 
-`tests/test_skills_packaged.py` resolves the skills through `importlib.resources`,
+`tests/skills/test_packaged.py` resolves the skills through `importlib.resources`,
 which in a dev checkout reads the EDITABLE install: it points at `src/`, so it
 passes whatever the build backend would or would not put in a wheel. Nothing else
 in the suite looks at a built artifact at all.

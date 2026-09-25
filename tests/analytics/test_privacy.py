@@ -4,7 +4,7 @@ SCOPE: this suite intercepts at ``track_event``, so it sees the properties the
 call sites supply and NOT the common block ``_build_event`` stamps on top. The
 one personal identifier the contract sanctions — the caller's plaintext login in
 the top-level ``user_id`` — is therefore invisible here by construction, and is
-pinned in ``tests/test_analytics_client_build_event.py`` instead, which calls
+pinned in ``tests/analytics/test_client_build_event.py`` instead, which calls
 ``_build_event`` directly. Asserting it here would pass vacuously.
 
 Drives the *real* MCP tool entry points (server.read, server.list_entities,
