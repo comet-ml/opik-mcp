@@ -179,6 +179,9 @@ class StubBackend:
     #: Paths that should answer 500, to prove a failing part does not take the
     #: whole read down with it.
     failing: set[str] = field(default_factory=set)
+    #: Paths that should answer 400 with an ``ErrorMessage`` and a key that is
+    #: not one, to prove only the error strings reach the caller.
+    rejecting: set[str] = field(default_factory=set)
     #: Score names the project has recorded.
     score_names: list[str] = field(default_factory=lambda: ["Hallucination", "Answer Relevance"])
     #: Usage keys the project has recorded.
@@ -475,6 +478,8 @@ class StubBackend:
             return 401, {"code": 401, "message": "User not allowed to access workspace"}
         if any(fragment in path for fragment in self.failing):
             return 500, {"message": "stub failure"}
+        if any(fragment in path for fragment in self.rejecting):
+            return 400, {"errors": ["name must be unique"], "trace": "stub internals"}
         if method == "POST" and path == "/opik/auth-oauth":
             return 200, {
                 "workspace_name": self.oauth_workspace,

@@ -32,6 +32,11 @@ def _page(items: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
     return {"content": items, "page": 1, "size": len(items), "total": len(items), **extra}
 
 
+def _applied(out: str) -> str:
+    """The first line without its size, which every list answer carries."""
+    return re.sub(r" \| [\d,]+ tok", "", out.splitlines()[0], count=1)
+
+
 @dataclass
 class FakeOpikClient:
     """Captures the kwargs each searchable list endpoint receives."""
@@ -210,7 +215,7 @@ async def test_empty_result_under_the_default_source_says_how_to_widen_it() -> N
     and how many it is missing."""
     fake = SourceAwareClient(hidden=20)
     out = await run_list("trace", project_id="p-1", client=fake)
-    assert out.splitlines()[0] == '[list: trace | filters: source = "sdk"]'
+    assert _applied(out) == '[list: trace | filters: source = "sdk"]'
     assert "No traces found." in out
     assert "20 traces match without the default" in out
     assert 'source = "experiment"' in out
@@ -299,7 +304,7 @@ async def test_window_with_traffic_inside_it_points_at_the_source_default() -> N
 async def test_header_echoes_the_applied_filter_including_the_default() -> None:
     fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
     out = await run_list("trace", project_id="p-1", filters="duration > 5000", client=fake)
-    first_line = out.splitlines()[0]
+    first_line = _applied(out)
     assert first_line == '[list: trace | filters: duration > 5000 AND source = "sdk"]'
 
 
@@ -307,7 +312,7 @@ async def test_header_echoes_the_applied_filter_including_the_default() -> None:
 async def test_header_shows_the_default_source_alone_when_nothing_was_asked() -> None:
     fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
     out = await run_list("trace", project_id="p-1", client=fake)
-    assert out.splitlines()[0] == '[list: trace | filters: source = "sdk"]'
+    assert _applied(out) == '[list: trace | filters: source = "sdk"]'
 
 
 # --- errors -------------------------------------------------------------- #
@@ -333,7 +338,7 @@ async def test_empty_filters_on_an_unsupported_type_is_the_same_as_none() -> Non
     out = await run_list("project", filters="", client=fake)
     assert "filters" not in fake.project_kwargs
     assert "truncate" not in fake.project_kwargs
-    assert out.startswith("Found 1 projects")
+    assert out.splitlines()[1].startswith("Found 1 projects")
 
 
 @pytest.mark.anyio
@@ -456,13 +461,17 @@ async def test_half_milliseconds_round_up_and_non_finite_values_render_empty() -
 
 
 @pytest.mark.anyio
-async def test_a_404_that_is_not_about_the_project_keeps_the_backend_message() -> None:
+async def test_a_404_for_a_project_that_exists_is_not_called_a_typo() -> None:
+    """The 404 no longer carries the backend's text, so whether the project is
+    the missing thing is asked of the projects endpoint instead."""
+
     class SomethingElseMissing(FakeOpikClient):
         async def list_traces(self, **kw: Any) -> dict[str, Any]:
-            raise OpikNotFoundError("traces not found (404). — Workspace 'ws' not found")
+            raise OpikNotFoundError("traces not found (404).")
 
-    with pytest.raises(ToolError, match=r"Failed to list traces: .*Workspace 'ws' not found"):
-        await run_list("trace", project_name="demo", client=SomethingElseMissing())
+    fake = SomethingElseMissing(projects=_page([{"id": "p-1", "name": "demo"}]))
+    with pytest.raises(ToolError, match=r"^Failed to list traces: traces not found \(404\)\.$"):
+        await run_list("trace", project_name="demo", client=fake)
 
 
 @pytest.mark.anyio
@@ -626,9 +635,7 @@ async def test_empty_windowed_page_with_traffic_inside_the_window_adds_nothing()
 async def test_unknown_project_name_suggests_the_closest_one() -> None:
     class NoSuchProject(FakeOpikClient):
         async def list_traces(self, **kw: Any) -> dict[str, Any]:
-            raise OpikNotFoundError(
-                "traces not found (404). — Project name: Defualt Project not found"
-            )
+            raise OpikNotFoundError("traces not found (404).")
 
     fake = NoSuchProject(
         projects=_page([{"id": "p-1", "name": "Default Project"}, {"id": "p-2", "name": "probe"}])
@@ -674,7 +681,7 @@ async def test_iso_window_passes_through_and_is_echoed() -> None:
     )
     assert fake.last_kwargs["from_time"] == "2026-09-08T00:00:00Z"
     assert fake.last_kwargs["to_time"] == "2026-09-08T12:00:00Z"
-    assert out.splitlines()[0] == (
+    assert _applied(out) == (
         '[list: trace | filters: source = "sdk" | since: 2026-09-08T00:00Z'
         " | until: 2026-09-08T12:00Z]"
     )
@@ -768,7 +775,7 @@ async def test_a_diverted_clause_still_shows_in_the_applied_filters_header() -> 
     out = await run_list(
         "experiment", filters='type = "trial" AND tags contains "baseline"', client=fake
     )
-    assert out.splitlines()[0] == (
+    assert _applied(out) == (
         '[list: experiment | filters: type = "trial" AND tags contains "baseline"]'
     )
 
@@ -802,7 +809,7 @@ async def test_an_optimization_run_narrows_to_its_own_trials() -> None:
     assert fake.last_kwargs["optimization_id"] == run
     assert fake.last_kwargs["types"] == '["trial"]'
     assert "filters" not in fake.last_kwargs
-    assert out.splitlines()[0] == (
+    assert _applied(out) == (
         f'[list: experiment | filters: optimization_id = "{run}" AND type = "trial"]'
     )
 
@@ -818,7 +825,7 @@ async def test_a_set_of_experiment_ids_fetches_exactly_those_runs_in_one_call() 
     out = await run_list("experiment", filters=f'experiment_ids in ("{a}", "{b}")', client=fake)
     assert fake.last_kwargs["experiment_ids"] == f'["{a}","{b}"]'
     assert "filters" not in fake.last_kwargs
-    assert out.splitlines()[0] == f'[list: experiment | filters: experiment_ids in ("{a}", "{b}")]'
+    assert _applied(out) == f'[list: experiment | filters: experiment_ids in ("{a}", "{b}")]'
     # The selector names the rows, which the id column already does; seen
     # live as a blank column on every row it selected.
     column_header = out.splitlines()[3]
@@ -1003,7 +1010,7 @@ async def test_search_is_forwarded_for_spans_and_echoed() -> None:
     fake = FakeOpikClient(spans=_page([{"id": "s-1", "name": "tool"}]))
     out = await run_list("span", project_id="p-1", search="order-42", client=fake)
     assert fake.last_kwargs["search"] == "order-42"
-    assert out.splitlines()[0] == '[list: span | filters: source = "sdk" | search: "order-42"]'
+    assert _applied(out) == '[list: span | filters: source = "sdk" | search: "order-42"]'
 
 
 @pytest.mark.anyio
@@ -1105,7 +1112,7 @@ async def test_projects_sort_by_the_column_that_says_which_one_is_live() -> None
     fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
     out = await run_list("project", sort="last_updated_trace_at", client=fake)
 
-    assert out.splitlines()[0] == "[list: project | sort: last_updated_trace_at desc]"
+    assert _applied(out) == "[list: project | sort: last_updated_trace_at desc]"
     assert fake.project_kwargs["sorting"] == (
         '[{"field":"last_updated_trace_at","direction":"DESC"}]'
     )
@@ -1123,7 +1130,7 @@ async def test_header_echoes_the_sort_and_flags_a_dropped_one() -> None:
         traces=_page([{"id": "t-1", "name": "chat"}], sortable_by=["duration", "start_time"])
     )
     out = await run_list("trace", project_id="p-1", sort="duration", client=honoured)
-    assert out.splitlines()[0] == '[list: trace | filters: source = "sdk" | sort: duration desc]'
+    assert _applied(out) == '[list: trace | filters: source = "sdk" | sort: duration desc]'
 
     dropped = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}], sortable_by=[]))
     out = await run_list("trace", project_id="p-1", sort="duration", client=dropped)
@@ -1144,7 +1151,7 @@ async def test_header_lists_filters_sort_window_search_in_that_order() -> None:
         search="order-42",
         client=fake,
     )
-    assert out.splitlines()[0] == (
+    assert _applied(out) == (
         '[list: trace | filters: duration > 5000 AND source = "sdk" | sort: duration desc'
         ' | since: 2026-09-08T00:00Z | search: "order-42"]'
     )
@@ -1288,7 +1295,7 @@ async def test_experiment_list_without_filters_sends_none() -> None:
     fake = FakeOpikClient()
     out = await run_list("experiment", client=fake)
     assert "filters" not in fake.last_kwargs
-    assert not out.startswith("[list:")
+    assert "filters:" not in out.splitlines()[0]
 
 
 @pytest.mark.anyio
@@ -1323,11 +1330,8 @@ async def test_thread_rows_carry_duration() -> None:
         )
     )
     out = await run_list("thread", project_id="p-1", client=fake)
-    assert "id | first_message | status | number_of_messages | duration_ms | last_updated_at" in out
-    assert (
-        "th-1 | Hi, my order #4411 never arrived and support is not answe... | inactive | 12"
-        " | 91000 | 2026-09-08T09:00:00Z"
-    ) in out
+    assert "id | status | number_of_messages | duration_ms | last_updated_at" in out
+    assert "th-1 | inactive | 12 | 91000 | 2026-09-08T09:00:00Z" in out
 
 
 @pytest.mark.anyio

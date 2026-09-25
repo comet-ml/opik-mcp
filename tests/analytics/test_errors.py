@@ -500,13 +500,7 @@ def test_bucket_exception_unwrap_does_not_read_message() -> None:
 
 def _backend_error(status: int) -> BackendError:
     """Build a real BackendError instance with the given upstream status."""
-    return BackendError.build(
-        operation="trace.create",
-        status=status,
-        body={"detail": "synthetic"},
-        method="POST",
-        path="/v1/private/traces",
-    )
+    return BackendError.build(operation="trace.create", status=status)
 
 
 @pytest.mark.parametrize(

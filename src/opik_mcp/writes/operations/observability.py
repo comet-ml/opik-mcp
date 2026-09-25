@@ -118,7 +118,6 @@ def validate_scores(
     items: list[BaseModel],
     *,
     is_batch: bool,
-    schema: dict[str, Any],
     example: dict[str, Any],
 ) -> None:
     """The two rules the score model cannot express on its own.
@@ -146,7 +145,6 @@ def validate_scores(
                         "heterogeneous_targets",
                     )
                 ],
-                expected_schema=schema,
                 example=[example],
             )
         return
@@ -177,7 +175,6 @@ def validate_scores(
                 "thread_requires_batch",
             )
         ],
-        expected_schema=schema,
         example=[thread_example],
     )
 

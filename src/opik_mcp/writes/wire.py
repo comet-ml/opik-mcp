@@ -98,14 +98,14 @@ TARGET_PATH: Final[dict[str, str]] = {
 def refuse(op: WriteOperation, field: str, message: str, code: str) -> ValidationFailedError:
     """A ``validation_failed`` for a precondition the payload cannot express.
 
-    The same three arguments plus the operation's schema and example, which is
-    what every one of these needs and none of them varies.
+    ``message`` is the one sentence that says what to do. It leads the
+    envelope and is not repeated in the issue, which keeps the field and code.
     """
     return ValidationFailedError.build(
         op.name,
-        [ValidationIssue(field, message, code)],
-        expected_schema=op.pydantic_model.model_json_schema(),
+        [ValidationIssue(field, "", code)],
         example=op.example,
+        message=message,
     )
 
 

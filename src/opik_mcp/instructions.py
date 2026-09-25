@@ -80,13 +80,12 @@ because the issues are whatever the last scan grouped; when it names an \
 uncovered tail, the requested window runs past the report, so close the gap \
 with list('trace', …, since=…) instead of answering from the issues \
 alone.
-- Direct writes — use when the user's intent is concrete and well-defined \
+- Direct writes — for a concrete, well-defined intent \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \
 operation + data; pass a list for batch) and schema (returns an op's JSON \
 Schema + bundled example). Operations covered by Phase 1: \
-{write_operations}. Always consult \
-tools/list for what's actually advertised on this connection.
+{write_operations}. tools/list has what this connection advertises.
 - read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
 Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
 task — unless it's already in your context, in which case use what you have.
@@ -96,7 +95,7 @@ one `url_template` or a `url` per row, and none of them is ever guessed — a \
 record with no `url` has `url_absent` saying why, or no page at all. Put the \
 link on the thing's name, every time you name it: the record's own name, or \
 the `url_opens` phrase where the answer carries one, else "Open in Opik". \
-Never a bare address, a shortened one, or an id by itself. This holds for \
+A bare or shortened address, or an id alone, is not a link. This holds for \
 every row you mention and not just the first few — ten rows named is ten \
 links, and dropping to raw addresses partway through is the same defect as \
 not linking at all.

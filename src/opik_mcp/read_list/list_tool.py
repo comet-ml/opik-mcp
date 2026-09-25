@@ -83,7 +83,7 @@ from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,
     remember_resolved_project,
-    unknown_project_message,
+    resolve_project_id,
 )
 from opik_mcp.read_list.projection import check as check_fields
 from opik_mcp.read_list.projection import (
@@ -99,6 +99,7 @@ from opik_mcp.read_list.registry import (
     LISTABLE_TYPES,
     resolve_entity_type,
 )
+from opik_mcp.read_list.size import list_size_header, with_list_size
 from opik_mcp.read_list.sorting import SortError, compile_sort
 from opik_mcp.read_list.window import (
     WindowError,
@@ -200,7 +201,7 @@ async def _run_whole(
         ):
             answer = await run(cast("OpikReadClient", opik), **kw)
         if handler.page_note_fn is None:
-            return answer
+            return with_list_size(entity_type, answer)
         # A runner's answer is not a collection, but it is still a page someone
         # may want to open — a metric is a chart on the Dashboards page. The
         # note hook was reachable only from the collection path, so an entity
@@ -213,7 +214,7 @@ async def _run_whole(
                 project_name=kw.get("project_name"),
             ),
         )
-        return f"{answer}\n\n{note}" if note else answer
+        return with_list_size(entity_type, f"{answer}\n\n{note}" if note else answer)
 
 
 def _whole_call(handler: EntityHandler, tool_args: dict[str, Any]) -> bool:
@@ -464,11 +465,12 @@ async def run_list(
             try:
                 page_body = await handler.list_fn(opik, **kw)
             except OpikNotFoundError as e:
-                # The backend's 404 for a misspelled project names it ("Project
-                # name: X not found"); only that case gets the did-you-mean
-                # recovery, and the rest fall through to the mapping above.
-                if kw.get("project_name") and kw["project_name"] in str(e):
-                    raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
+                # A misspelled project is the common 404 here. The error no
+                # longer carries the backend's text, so the projects endpoint
+                # is asked; only a name it does not know gets the did-you-mean,
+                # and every other 404 falls through to the mapping above.
+                if kw.get("project_name"):
+                    await _refuse_unknown_project(opik, kw["project_name"], cause=e)
                 raise
 
         content_raw = page_body.get("content") or []
@@ -504,7 +506,6 @@ async def run_list(
             # of fact: something the caller asked for that the page in front of
             # them does not otherwise state.
             applied.append(f"fields: {', '.join(wanted)}")
-        header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
         # What the page knows about itself, for an entity whose registry entry
         # has something to add. ``windowed``: Diagnostics issues take a
         # report-day window, so a page under one says nothing about the
@@ -570,7 +571,7 @@ async def run_list(
                 settings=resolved_settings,
                 page_ctx=page_ctx,
             )
-            return f"{header}\n{empty}" if header else empty
+            return f"{list_size_header(entity_type, empty, applied)}\n{empty}"
 
         # A caller who named their columns did not ask for the sort and filter
         # fields to be appended to them; ``fields`` is the whole answer to
@@ -598,7 +599,25 @@ async def run_list(
             note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
             if note is not None:
                 table = f"{table}\n\n{note}"
-        return f"{header}\n{table}" if header else table
+        return f"{list_size_header(entity_type, table, applied)}\n{table}"
+
+
+async def _refuse_unknown_project(
+    opik: OpikListClient, project_name: str, *, cause: OpikNotFoundError
+) -> None:
+    """Raise the did-you-mean refusal when no project carries this name."""
+    try:
+        await resolve_project_id(opik, project_name)
+    except EntityArgValidationError as unknown:
+        raise ToolError(str(unknown)) from cause
+    except (
+        OpikAuthError,
+        OpikNotFoundError,
+        OpikValidationError,
+        OpikServerError,
+        httpx.HTTPError,
+    ):
+        logger.debug("project lookup after a 404 failed", exc_info=True)
 
 
 def _search_refusal(entity_type: str) -> str:

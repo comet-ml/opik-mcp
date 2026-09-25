@@ -131,9 +131,6 @@
     "src/opik_mcp/config.py": [
       "I002"
     ],
-    "src/opik_mcp/opik_client.py": [
-      "RET504"
-    ],
     "src/opik_mcp/read_list/__init__.py": [
       "I002"
     ],

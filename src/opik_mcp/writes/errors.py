@@ -43,6 +43,10 @@ class ValidationIssue:
     code: str
 
     def to_dict(self) -> dict[str, Any]:
+        # A precondition's issue has no message of its own: its sentence is
+        # the envelope's lead, and a copy here would say it twice.
+        if not self.message:
+            return {"field": self.field, "code": self.code}
         return {"field": self.field, "message": self.message, "code": self.code}
 
 
@@ -112,14 +116,22 @@ class ValidationFailedError(WriteError):
         operation: str,
         issues: list[ValidationIssue],
         *,
-        expected_schema: dict[str, Any],
         example: dict[str, Any] | list[Any],
+        message: str | None = None,
     ) -> ValidationFailedError:
+        # The JSON Schema is not inlined: it is one schema() call away, and
+        # inlining it made a failed write cost up to 3,219 characters. The
+        # lead sentence is for a schema mismatch; a precondition passes its
+        # own, since "shaped like example" is the wrong fix for it.
         return cls(
             operation=operation,
+            message=message
+            or (
+                f"data does not fit {operation!r}; retry write({operation!r}, data=…) "
+                f"shaped like example, and schema({operation!r}) returns the full schema."
+            ),
             extra={
                 "issues": [i.to_dict() for i in issues],
-                "expected_schema": expected_schema,
                 "example": example,
             },
         )
@@ -158,29 +170,46 @@ class BackendError(WriteError):
 
     @classmethod
     def build(
-        cls,
-        operation: str,
-        status: int,
-        body: Any,
-        *,
-        method: str,
-        path: str,
+        cls, operation: str, status: int, *, backend_message: str | None = None
     ) -> BackendError:
-        message = f"Backend rejected {method} {path} with status {status}."
-        if status == 401 and (hint := oauth_token_expired_hint()):
-            message = f"{message} {hint}"
+        # The backend's body is untrusted text and the REST path is not a name
+        # the caller can use, so neither is carried; the status is, for the
+        # analytics bucket. ``backend_message`` is the backend's own capped
+        # reason on a 400, 409 or 422 (``opik_client.backend_reason``), kept in its
+        # own field so it is never read as ours.
+        extra: dict[str, Any] = {"backend_error": {"status": status}}
+        if backend_message:
+            extra["backend_message"] = backend_message
         return cls(
             operation=operation,
-            message=message,
-            extra={
-                "backend_error": {
-                    "status": status,
-                    "body": body,
-                    "method": method,
-                    "path": path,
-                }
-            },
+            message=_backend_sentence(operation, status),
+            extra=extra,
         )
+
+
+def _backend_sentence(operation: str, status: int) -> str:
+    """What the status means for this write, and the call to retry."""
+    retry = f"write({operation!r}, data=…)"
+    if status == 401:
+        hint = oauth_token_expired_hint() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+        return f"Opik rejected the credential for {operation!r} (401). {hint}"
+    if status == 403:
+        return (
+            f"Permission denied for {operation!r} (403); retry {retry} with a credential "
+            "for the workspace that owns the target."
+        )
+    if status == 404:
+        return f"The target of {operation!r} was not found (404); check its ids and retry {retry}."
+    if status == 409:
+        return (
+            f"{operation!r} conflicts with the record's current state (409); check its "
+            f"ids and project, then retry {retry}."
+        )
+    if status in (400, 422):
+        return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."
+    if status >= 500:
+        return f"Opik server error ({status}) on {operation!r}; retry the same {retry}."
+    return f"Opik answered {status} to {operation!r}; check the data and retry {retry}."
 
 
 @dataclass

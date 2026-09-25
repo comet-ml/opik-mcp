@@ -9,8 +9,7 @@ is the main rule, and other decisions follow from it.
 
 - The advertised tool surface has a hard byte budget. It is loaded in every
   request the host makes.
-- Every read states its size, so the caller can decide to narrow. List
-  answers don't yet (backlog in `.claude/dogfood/memory/`).
+- Every read states its size, so the caller can decide to narrow.
 - The caller can always narrow: a span instead of its trace, a filter instead
   of a page, a window instead of all time, `fields=[…]` instead of the record.
 - A change that adds context says what it costs and what it adds, with
@@ -28,7 +27,8 @@ was needed costs the user money and crowds out their own work.
   when a host defers the tool list.
 - The size header on every read (`read_list/size.py`): its format in
   `tests/read_list/test_link_shape.py`, its presence on reads in
-  `tests/read_list/test_read_tool.py`.
+  `tests/read_list/test_read_tool.py` and on lists in
+  `tests/read_list/test_list_tool.py`.
 - `tests/conformance/test_tool_annotations.py`: checks each description and
   the instructions against the host's cut (`DESCRIPTION_LIMIT`), and pins the
   ones over it as strict expected failures.
@@ -51,3 +51,5 @@ was needed costs the user money and crowds out their own work.
   `INSTRUCTIONS_BUDGET_BYTES` in `tests/conformance/test_tool_inventory.py`,
   `DESCRIPTION_LIMIT` in `tests/conformance/test_tool_annotations.py`. The
   surface headroom has fallen to about 505 bytes since 2026-09-11 (OPIK-8496).
+- 2026-09-25: list answers state their size too, as `N tok` on their first
+  line (OPIK-8496).
