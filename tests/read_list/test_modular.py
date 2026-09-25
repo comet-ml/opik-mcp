@@ -48,6 +48,11 @@ SHARED: frozenset[str] = frozenset(
         "sample",
         "errors",
         "handler",
+        # The list tool and its parts: the arguments, the empty page, the
+        # table. Each is the one place the tool does that step.
+        "list_args",
+        "list_empty_page",
+        "list_table",
         "list_tool",
         "oql",
         # The grammar and the backend's field and operator tables, which ``oql``

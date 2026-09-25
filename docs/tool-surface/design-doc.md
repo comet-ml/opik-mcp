@@ -117,10 +117,11 @@ project if set, tool selection, the link rule, and today's UTC date.
   `fields=[…]` picks the columns and lifts the cut.
 - No default column is a trace body: `list('thread')` leaves out
   `first_message`, and `fields=["first_message"]` still returns it.
-- The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`).
+- The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`);
+  the argument checks are in `resolve_list_args` (`src/opik_mcp/read_list/list_args.py`).
 
 An empty page with a zero total carries at most one hint, picked by
-`_empty_message` in this order: the entity's `page_note_fn` note
+`empty_message` (`src/opik_mcp/read_list/list_empty_page.py`) in this order: the entity's `page_note_fn` note
 (Diagnostics); with `since`, the project's last trace when it is before the
 window; under the `sdk` default, the rows other sources hold; with `name`, the
 rows without it; with `filters`, the rows without them. A failed probe is
@@ -155,7 +156,9 @@ Where to start:
   and the `schema` reference follows by itself.
 - An entity: a `HANDLER` (`EntityHandler` in `src/opik_mcp/read_list/handler.py`)
   in `read_list/entities/`, registered in `src/opik_mcp/read_list/registry.py`.
-- A column or an empty-page hint: `src/opik_mcp/read_list/list_tool.py`.
+- A column: `src/opik_mcp/read_list/list_table.py`. An empty-page hint:
+  `src/opik_mcp/read_list/list_empty_page.py`. An argument check:
+  `src/opik_mcp/read_list/list_args.py`.
 
 Root modules stay generic ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md));
 `entity_names_at_root` in `tests/repo/ratchets.json` is empty and stays so: a root table
