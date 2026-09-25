@@ -54,7 +54,8 @@ promises, what comes back on success and failure, and where to change or add an 
   a working payload. A check made before sending, such as a thread that is not
   found, returns the same `validation_failed` shape (`refuse` in `wire.py`).
 
-Other codes (`src/opik_mcp/writes/errors.py`): `unknown_operation` (with
+Each code is a plain exception class in `src/opik_mcp/writes/errors.py`,
+whose `args` rebuild it when pickled or copied. Other codes: `unknown_operation` (with
 `valid_operations`, `did_you_mean`), `batch_too_large` (over `BATCH_LIMIT`),
 `authorization_denied` (`required_scope`) and `backend_error` (status and body as
 received; the OAuth 401 hint is in [hosted-auth](../hosted-auth/design-doc.md)).
@@ -81,8 +82,12 @@ server.write                  src/opik_mcp/server.py
 - finalize: a non-2xx status becomes `backend_error`, a 2xx the success result.
 
 - To change an operation's endpoint, method, scope or batch support, start at
-  `src/opik_mcp/writes/registry.py`. Models and `EXAMPLES` are in
-  `src/opik_mcp/writes/models.py`.
+  `src/opik_mcp/writes/registry.py`. Each operation's model and example sit
+  beside its builder in `src/opik_mcp/writes/operations/`, and the registry
+  entry points at both. The thread lifecycle models are in `observability.py`
+  instead of `threads.py`: mypy reads a Pydantic model as explicit `Any`, and
+  `threads.py` is outside the `Any` baseline. `src/opik_mcp/writes/models.py`
+  keeps only the shared mixins, field types and example helpers.
 - To change what one operation sends or resolves, start at its hook in
   `src/opik_mcp/writes/operations/`. Hook types are in
   `src/opik_mcp/writes/wire.py`. Without a `build_fn` the request is the
@@ -100,7 +105,8 @@ Diagnostics hooks: [diagnostics](../diagnostics/design-doc.md). `write_json`:
 
 ### Adding an operation
 
-Add a model, an example in `EXAMPLES` and a registry entry; the enum,
+Add a model and an example in its `writes/operations/` module, and a
+registry entry that names both; the enum,
 description and `schema` follow. Also:
 
 - Regenerate the `write` input snapshot with `UPDATE_SNAPSHOTS=1`
@@ -132,7 +138,7 @@ description and `schema` follow. Also:
   top-level array of envelopes the default builder sends only `items[0]` and
   drops the rest without an error. Known bug, not fixed here.
 - `BatchPartialFailureError` is defined but never raised; each batch is one
-  request. It inherits the base error kind `unknown`.
+  request. Its error kind is `validation`, with no HTTP status.
 - A `trace.update` batch goes out as a POST to the batch route, overriding
   the registry's PATCH (`test_trace_update_batch_coerces_patch_to_post`).
 - Unverified: a live thread comment's link may carry the thread's model UUID,
@@ -153,6 +159,7 @@ description and `schema` follow. Also:
 
 ## Log
 
+- 2026-09-25: operation models and examples moved from `models.py` into `writes/operations/`; write errors became plain classes (OPIK-8496).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).
 - 2026-09-22: `item_count` counts records inside an envelope; a large upsert had reported 1 (#199).
 - 2026-09-17: `test_suite.*` writes became `dataset.create` and `dataset_item.upsert`; a suite is a dataset (#190).

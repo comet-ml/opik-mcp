@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import difflib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
 from opik_mcp.auth_context import oauth_token_expired_hint
@@ -46,7 +46,6 @@ class ValidationIssue:
         return {"field": self.field, "message": self.message, "code": self.code}
 
 
-@dataclass
 class WriteError(Exception):
     """Base for all structured write errors. Renders as the JSON body."""
 
@@ -55,11 +54,20 @@ class WriteError(Exception):
     # "unknown" since concrete code never raises bare WriteError.
     error_kind: ClassVar[ErrorKind] = "unknown"
     http_status: ClassVar[int | None] = None
+    error: ClassVar[ErrorCode]
 
-    error: ErrorCode
-    operation: str | None = None
-    message: str = ""
-    extra: dict[str, Any] = field(default_factory=dict)
+    def __init__(
+        self,
+        operation: str | None = None,
+        message: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        # ``args`` mirrors the signature so pickling and copying rebuild the
+        # same error.
+        self.operation = operation
+        self.message = message
+        self.extra: dict[str, Any] = {} if extra is None else extra
+        super().__init__(operation, message, self.extra)
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"error": self.error}
@@ -78,11 +86,10 @@ class WriteError(Exception):
         return self.to_json()
 
 
-@dataclass
 class UnknownOperationError(WriteError):
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
-    error: ErrorCode = field(default=CODE_UNKNOWN_OPERATION, init=False)
+    error: ClassVar[ErrorCode] = CODE_UNKNOWN_OPERATION
 
     @classmethod
     def build(cls, operation: str, valid: tuple[str, ...]) -> UnknownOperationError:
@@ -100,11 +107,10 @@ class UnknownOperationError(WriteError):
         )
 
 
-@dataclass
 class ValidationFailedError(WriteError):
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
-    error: ErrorCode = field(default=CODE_VALIDATION_FAILED, init=False)
+    error: ClassVar[ErrorCode] = CODE_VALIDATION_FAILED
 
     @classmethod
     def build(
@@ -125,11 +131,10 @@ class ValidationFailedError(WriteError):
         )
 
 
-@dataclass
 class AuthorizationDeniedError(WriteError):
     error_kind: ClassVar[ErrorKind] = "permission"
     http_status: ClassVar[int | None] = 403
-    error: ErrorCode = field(default=CODE_AUTHORIZATION_DENIED, init=False)
+    error: ClassVar[ErrorCode] = CODE_AUTHORIZATION_DENIED
 
     @classmethod
     def build(cls, operation: str, required_scope: str) -> AuthorizationDeniedError:
@@ -144,7 +149,6 @@ class AuthorizationDeniedError(WriteError):
         )
 
 
-@dataclass
 class BackendError(WriteError):
     # ClassVar defaults are intentional fallbacks — the real bucket comes from
     # the upstream HTTP status carried on ``instance.extra["backend_error"]
@@ -154,7 +158,7 @@ class BackendError(WriteError):
     # collapses safely into "unknown" instead of crashing the classifier.
     error_kind: ClassVar[ErrorKind] = "unknown"
     http_status: ClassVar[int | None] = None
-    error: ErrorCode = field(default=CODE_BACKEND_ERROR, init=False)
+    error: ClassVar[ErrorCode] = CODE_BACKEND_ERROR
 
     @classmethod
     def build(
@@ -183,11 +187,10 @@ class BackendError(WriteError):
         )
 
 
-@dataclass
 class BatchTooLargeError(WriteError):
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
-    error: ErrorCode = field(default=CODE_BATCH_TOO_LARGE, init=False)
+    error: ClassVar[ErrorCode] = CODE_BATCH_TOO_LARGE
 
     @classmethod
     def build(cls, operation: str, size: int, limit: int) -> BatchTooLargeError:
@@ -198,9 +201,12 @@ class BatchTooLargeError(WriteError):
         )
 
 
-@dataclass
 class BatchPartialFailureError(WriteError):
-    error: ErrorCode = field(default=CODE_BATCH_PARTIAL_FAILURE, init=False)
+    # The failed items are rows the backend refused. There is no single HTTP
+    # status for a batch that partly succeeded.
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = None
+    error: ClassVar[ErrorCode] = CODE_BATCH_PARTIAL_FAILURE
 
     @classmethod
     def build(

@@ -33,6 +33,7 @@ from opik_mcp.read_list.uri import InvalidURI
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
     BackendError,
+    BatchPartialFailureError,
     BatchTooLargeError,
     UnknownOperationError,
     ValidationFailedError,
@@ -221,12 +222,9 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     # instance.extra status — covered by a dedicated test block in Task 2.
     (BackendError, "unknown", None),
     (BatchTooLargeError, "validation", 400),
+    (BatchPartialFailureError, "validation", None),
     (InvalidURI, "validation", 400),
     (EntityArgValidationError, "validation", 400),
-    # NOTE: BatchPartialFailureError intentionally omitted — never raised in
-    # the codebase. Adding a ClassVar would expose us to a Sentry-firing edge
-    # case ("unknown" is not in _USER_SIDE_ERROR_KINDS) for a class that
-    # currently produces zero events. Revisit when the first raise site lands.
 )
 
 

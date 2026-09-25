@@ -18,6 +18,7 @@ from opik_mcp.opik_client import (
     OpikValidationError,
 )
 from opik_mcp.writes.errors import BackendError
+from opik_mcp.writes.operations.observability import CommentCreate
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -25,7 +26,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 
 def build_thread_lifecycle(
-    op: WriteOperation, items: list[BaseModel], ctx: BuildContext
+    op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
     """Fixed endpoint, generic body.
 
@@ -49,8 +50,6 @@ async def resolve_comment_thread_id(
     ``thread_id``: the link to the thread is built from it after the write,
     and the UI opens a thread by that string, not by the model UUID.
     """
-    from opik_mcp.writes.models import CommentCreate
-
     model = items[0]
     if not isinstance(model, CommentCreate) or model.target != "thread":
         return None
@@ -90,7 +89,7 @@ async def resolve_comment_thread_id(
 
 
 def comment_dry_run_note(
-    op: WriteOperation, items: list[BaseModel], prepared: str | None
+    _op: WriteOperation, items: list[BaseModel], _prepared: str | None
 ) -> str | None:
     """A dry run skips the live resolve, so a thread comment's previewed path
     still shows the thread_id string. Say so rather than imply the preview is
