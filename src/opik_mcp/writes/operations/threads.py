@@ -40,12 +40,14 @@ def build_thread_lifecycle(
 async def resolve_comment_thread_id(
     op: WriteOperation, items: list[BaseModel], client: OpikClient
 ) -> str | None:
-    """Swap a thread-comment's ``thread_id`` string for the thread's model UUID.
+    """The thread's model UUID, for a comment on a thread; ``None`` otherwise.
 
     The BE's ``POST /threads/{id}/comments`` takes the thread *model* UUID as
     the path id, but the caller passes the same ``thread_id`` string used for
     scoring and reading (one uniform contract). Resolve it via ``get_thread``
-    so the asymmetry never surfaces. A no-op for non-thread comments.
+    so the asymmetry never surfaces. The item keeps the caller's
+    ``thread_id``: the link to the thread is built from it after the write,
+    and the UI opens a thread by that string, not by the model UUID.
     """
     from opik_mcp.writes.models import CommentCreate
 
@@ -84,8 +86,7 @@ async def resolve_comment_thread_id(
     model_id = thread.get("thread_model_id")
     if not isinstance(model_id, str) or not model_id:
         raise refuse(op, "target_id", "thread has no resolvable model id.", "thread_not_found")
-    items[0] = model.model_copy(update={"target_id": model_id})
-    return None
+    return model_id
 
 
 def comment_dry_run_note(
