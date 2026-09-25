@@ -113,12 +113,16 @@ class ValidationFailedError(WriteError):
         issues: list[ValidationIssue],
         *,
         example: dict[str, Any] | list[Any],
+        message: str | None = None,
     ) -> ValidationFailedError:
         # The JSON Schema is not inlined: it is one schema() call away, and
-        # inlining it made a failed write cost up to 3,219 characters.
+        # inlining it made a failed write cost up to 3,219 characters. The
+        # lead sentence is for a schema mismatch; a precondition passes its
+        # own, since "shaped like example" is the wrong fix for it.
         return cls(
             operation=operation,
-            message=(
+            message=message
+            or (
                 f"data does not fit {operation!r}; retry write({operation!r}, data=…) "
                 f"shaped like example, and schema({operation!r}) returns the full schema."
             ),
@@ -192,7 +196,12 @@ def _backend_sentence(operation: str, status: int) -> str:
         )
     if status == 404:
         return f"The target of {operation!r} was not found (404); check its ids and retry {retry}."
-    if status in (400, 409, 422):
+    if status == 409:
+        return (
+            f"{operation!r} conflicts with an existing record (409); change the id or "
+            f"update that record instead, then retry {retry}."
+        )
+    if status in (400, 422):
         return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."
     if status >= 500:
         return f"Opik server error ({status}) on {operation!r}; retry the same {retry}."

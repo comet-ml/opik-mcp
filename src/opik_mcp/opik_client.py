@@ -1577,8 +1577,8 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
         reason = backend_reason(resp)
         said = f' Backend said: "{reason}"' if reason else ""
         raise OpikValidationError(
-            f"Opik rejected the request for {entity_hint} ({status}). Check the ids, "
-            f"filters and window passed.{said}"
+            f"Opik rejected the request for {entity_hint} ({status}). Check the "
+            f"arguments passed.{said}"
         )
     if status >= 500:
         raise OpikServerError(

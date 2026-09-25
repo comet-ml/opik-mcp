@@ -23,7 +23,7 @@ import httpx
 from pydantic import BaseModel
 
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient
+from opik_mcp.opik_client import OpikClient, backend_reason
 from opik_mcp.read_list.entities.agent_insights_issue import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,
@@ -121,9 +121,9 @@ async def retry(
     on": flip its status instead, so a repeated enable is safe. The follow-up
     is a different method and body, so it gets no idempotency key — replaying
     the create's key could hand back the stored 409 and report it as the
-    PATCH's result. If the follow-up fails, the error reports the create's
-    409, so a 409 that meant something else is not lost behind a PATCH
-    failure.
+    PATCH's result. If the follow-up fails, the error reports the PATCH's
+    own status, since that is the call whose failure needs fixing: a 401 is
+    a credential, a 5xx a retry.
 
     A 404 on trigger means the project has no job: a missing prerequisite, not
     a lost resource, so name the fix.
@@ -132,7 +132,9 @@ async def retry(
         request = WireRequest(request.path, {"status": "enabled"}, method="PATCH")
         resp = await client.write_json(request.method or op.method, request.path, request.body)
         if not (200 <= resp.status_code < 300):
-            raise BackendError.build(op.name, 409)
+            raise BackendError.build(
+                op.name, resp.status_code, backend_message=backend_reason(resp)
+            )
     if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
         raise refuse(op, "", _NOT_ENABLED, "diagnostics_not_enabled")
     return request, resp
