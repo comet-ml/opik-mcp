@@ -13,16 +13,23 @@ path needs its trailing slash, a grouped metric comes back unfilled). It
 records every request, so a test can assert what we sent and not only what we
 rendered.
 
-It is deliberately dumb: no auth, no paging beyond what a caller passes, no
-state. A stub that grows logic starts to disagree with the backend it stands
-for, and then the tests pass for the wrong reason.
+The write routes answer with the status opik-backend declares for them (201
+for a create, 204 for most of the rest) and record the body, which is what a
+write test asserts on. They store nothing: a trace created here cannot be read
+back.
+
+It is deliberately dumb: no auth beyond the bearers a test declares dead, no
+paging beyond what a caller passes, no state. A stub that grows logic starts
+to disagree with the backend it stands for, and then the tests pass for the
+wrong reason.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -51,6 +58,10 @@ THREAD_TRACE_IDS = (
     "0199c6a4-3a4c-7f1e-9d2b-000000000030",
     "0199c6a4-3a4c-7f1e-9d2b-000000000031",
 )
+#: The thread's model id. The comment route takes this, not ``THREAD_ID``:
+#: ``POST /traces/threads/{id}/comments`` wants the UUID that
+#: ``threads/retrieve`` returns as ``thread_model_id``.
+THREAD_MODEL_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000032"
 PROMPT_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000040"
 PROMPT_NAME = "refund-answer"
 ISSUE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000050"
@@ -69,6 +80,11 @@ class Request:
     path: str
     query: dict[str, list[str]]
     body: dict[str, Any] | None
+    #: Header names lower-cased, so a test does not depend on how httpx
+    #: spells them.
+    headers: dict[str, str] = field(default_factory=dict)
+    #: The body when it is a JSON array, which ``body`` leaves out.
+    json_body: Any = None
 
     @property
     def payload(self) -> dict[str, Any]:
@@ -196,6 +212,12 @@ class StubBackend:
     #: Diagnostics issues the project has, newest-seen first. Keyed by status
     #: so a probe can ask for the closed ones the default page leaves out.
     issues: list[dict[str, Any]] = field(default_factory=lambda: [_issue()])
+    #: Bearer tokens the backend no longer accepts. Every route, token
+    #: introspection included, answers 401 to a request that carries one. A
+    #: test adds a token here partway through a session to expire it.
+    dead_bearers: set[str] = field(default_factory=set)
+    #: The workspace token introspection names for a live OAuth token.
+    oauth_workspace: str = "stub-oauth-workspace"
 
     port: int = 0
     _httpd: ThreadingHTTPServer | None = None
@@ -230,6 +252,21 @@ class StubBackend:
 
     def called(self, path_fragment: str) -> bool:
         return bool(self.sent(path_fragment))
+
+    def writes(self) -> list[Request]:
+        """The requests that went to a write route, in the order sent."""
+        return [r for r in self.requests if self._write(r.method, r.path) is not None]
+
+    def reset(self) -> None:
+        """Back to the defaults, keeping the socket.
+
+        For a server process that outlives one test: it was started pointing
+        at this port, so the stub has to be the same object for the next test.
+        """
+        defaults = StubBackend()
+        for spec in fields(self):
+            if spec.name not in {"port", "_httpd", "_thread"}:
+                setattr(self, spec.name, getattr(defaults, spec.name))
 
     def _metric_results(self, body: dict[str, Any]) -> list[dict[str, Any]]:
         """Series shaped by what was asked for, including the quirks.
@@ -431,9 +468,23 @@ class StubBackend:
         path: str,
         body: dict[str, Any] | None,
         query: dict[str, list[str]] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> tuple[int, Any]:
+        if _bearer(headers or {}) in self.dead_bearers:
+            # opik-backend's AuthFilter, which runs before any resource.
+            return 401, {"code": 401, "message": "User not allowed to access workspace"}
         if any(fragment in path for fragment in self.failing):
             return 500, {"message": "stub failure"}
+        if method == "POST" and path == "/opik/auth-oauth":
+            return 200, {
+                "workspace_name": self.oauth_workspace,
+                "workspace_id": "0199c6a4-3a4c-7f1e-9d2b-000000000090",
+                "user_name": "stub-user",
+                "expires_at": "2099-01-01T00:00:00Z",
+            }
+        written = self._write(method, path)
+        if written is not None:
+            return written
 
         try:
             if path.endswith("/items/experiments/items/output/columns"):
@@ -535,6 +586,49 @@ class StubBackend:
         if path.startswith("/v1/private/agent-insights/issues/"):
             return 200, _issue_details(path.rsplit("/", 1)[-1], self.issues)
         return 404, {"message": f"stub has no route for {method} {path}"}
+
+    # --- the write routes ------------------------------------------------- #
+
+    def _write(self, method: str, path: str) -> tuple[int, Any] | None:
+        """A write route's answer, or ``None`` when this is not one.
+
+        Statuses are the ones opik-backend's OpenAPI spec declares for each
+        route. A create answers 201 with no body and most of the rest 204, so
+        a success envelope's ``backend_body`` is empty for all of them except
+        a prompt version, which echoes what was stored.
+
+        Two routes answer by what the stub holds rather than always
+        succeeding, because the server does something different on each
+        answer. A Diagnostics job that exists turns ``enable`` into a 409,
+        which the server follows with a PATCH. A project with no job turns
+        ``trigger`` into a 404, which the server reports as "enable it first".
+        """
+        for verb, pattern, status in _WRITE_ROUTES:
+            if verb == method and pattern.fullmatch(path):
+                return status, None
+        if method == "POST" and _THREAD_COMMENT.fullmatch(path):
+            if path.split("/")[-2] != THREAD_MODEL_ID:
+                return 404, {"errors": ["Thread not found"]}
+            return 201, None
+        if method == "POST" and path == "/v1/private/prompts/versions":
+            return 200, _prompt_version(self.prompt_version_count)
+        job = _JOB.fullmatch(path)
+        if job is None:
+            return None
+        trigger = job.group("trigger") is not None
+        if method == "POST" and trigger:
+            if self.agent_insights_job is None:
+                return 404, {"errors": ["Job not found"]}
+            return 202, None
+        if method == "POST":
+            if self.agent_insights_job is not None:
+                return 409, {"errors": ["Job already exists"]}
+            return 201, {"project_id": job.group("project_id"), "status": "enabled"}
+        if method == "PATCH" and not trigger:
+            if self.agent_insights_job is None:
+                return 404, {"errors": ["Job not found"]}
+            return 200, {**self.agent_insights_job, "status": "enabled"}
+        return None
 
     # --- the routes that read what was asked for --------------------------- #
 
@@ -864,6 +958,7 @@ def _thread_record() -> dict[str, Any]:
     return {
         "id": THREAD_ID,
         "thread_id": THREAD_ID,
+        "thread_model_id": THREAD_MODEL_ID,
         "project_id": PROJECT_ID,
         "status": "inactive",
         "start_time": "2026-09-02T10:00:00Z",
@@ -1067,6 +1162,43 @@ def _span(index: int = 0) -> dict[str, Any]:
 # --- the HTTP plumbing ----------------------------------------------------- #
 
 
+_UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+#: The write routes that always succeed, with the status each one declares.
+#: A score or a comment can target traces, spans or threads; each has its
+#: own route.
+_WRITE_ROUTES: tuple[tuple[str, re.Pattern[str], int], ...] = tuple(
+    (verb, re.compile(pattern), status)
+    for verb, pattern, status in (
+        ("POST", "/v1/private/traces", 201),
+        ("PATCH", f"/v1/private/traces/{_UUID}", 204),
+        ("POST", "/v1/private/traces/batch", 204),
+        ("POST", "/v1/private/spans", 201),
+        ("POST", "/v1/private/spans/batch", 204),
+        ("PUT", f"/v1/private/(traces|spans)/{_UUID}/feedback-scores", 204),
+        ("PUT", "/v1/private/(traces|spans|traces/threads)/feedback-scores", 204),
+        ("POST", f"/v1/private/(traces|spans)/{_UUID}/comments", 201),
+        ("POST", "/v1/private/datasets", 201),
+        ("PUT", "/v1/private/datasets/items", 204),
+        ("POST", "/v1/private/experiments", 201),
+        ("POST", "/v1/private/experiments/items", 204),
+        ("PUT", "/v1/private/traces/threads/(close|open)", 204),
+        ("PATCH", f"/v1/private/agent-insights/issues/{_UUID}", 204),
+    )
+)
+_THREAD_COMMENT = re.compile("/v1/private/traces/threads/[^/]+/comments")
+_JOB = re.compile(f"/v1/private/agent-insights/jobs/(?P<project_id>{_UUID})(?P<trigger>/trigger)?")
+
+
+def _bearer(headers: dict[str, str]) -> str | None:
+    """The token of a ``Bearer`` header, or the bare header opik-backend
+    also accepts for an API key; ``None`` when there is none."""
+    raw = headers.get("authorization")
+    if not raw:
+        return None
+    return raw.removeprefix("Bearer ").strip()
+
+
 def _handler_for(stub: StubBackend) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -1083,18 +1215,30 @@ def _handler_for(stub: StubBackend) -> type[BaseHTTPRequestHandler]:
             length = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(length) if length else b""
             body = json.loads(raw) if raw else None
+            headers = {name.lower(): value for name, value in self.headers.items()}
             stub.requests.append(
                 Request(
                     method=method,
                     path=path,
                     query=parse_qs(parsed.query),
                     body=body if isinstance(body, dict) else None,
+                    headers=headers,
+                    json_body=body,
                 )
             )
-            status, payload = stub.answer(method, path, body, parse_qs(parsed.query))
-            encoded = json.dumps(payload).encode()
+            status, payload = stub.answer(
+                method,
+                path,
+                body if isinstance(body, dict) else None,
+                parse_qs(parsed.query),
+                headers,
+            )
+            # A 201 or a 204 from opik-backend carries no body, and the server
+            # reads an empty one differently from ``null``.
+            encoded = b"" if payload is None else json.dumps(payload).encode()
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            if encoded:
+                self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(encoded)))
             self.end_headers()
             self.wfile.write(encoded)
@@ -1106,5 +1250,11 @@ def _handler_for(stub: StubBackend) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             self._serve("POST")
+
+        def do_PUT(self) -> None:
+            self._serve("PUT")
+
+        def do_PATCH(self) -> None:
+            self._serve("PATCH")
 
     return Handler

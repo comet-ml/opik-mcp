@@ -81,7 +81,7 @@ testpaths = ["tests"]
 # so they are deselected the same way and run only through their make targets.
 addopts = "-m 'not e2e and not live and not user_flows'"
 markers = [
-    "e2e: spawns `python -m opik_mcp` over stdio; run by `make e2e` and the e2e CI job",
+    "e2e: spawns `python -m opik_mcp` over stdio or HTTP; run by `make e2e` and the e2e CI job",
     "live: drives the server against a seeded local Opik backend; run by `make live`",
     "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
 ]

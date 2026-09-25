@@ -75,11 +75,11 @@ conformance:
 	uv run pytest tests/conformance -v
 
 # End-to-end: spawns `python -m opik_mcp` as a real subprocess and drives it over
-# stdio. NOT part of `make test` / `make check` — `addopts` deselects the marker so
+# stdio and Streamable HTTP. NOT part of `make test` / `make check` — `addopts` deselects the marker so
 # the default suite stays in-process — so this target and the e2e_tests workflow
 # are the only things that run it. It is the only suite that exercises
-# `__main__`'s stdio startup path, which every MCP host actually uses. Needs no
-# credentials and no backend.
+# `__main__`'s startup path, which every MCP host actually uses. Needs no
+# credentials: the backend is `tests/e2e/stub_backend.py`.
 #
 # PYTEST_ARGS is how CI adds `--junitxml` without forking the command: the
 # workflow runs this exact target, so what CI does and what you can reproduce
