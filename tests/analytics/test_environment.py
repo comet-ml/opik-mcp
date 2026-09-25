@@ -496,7 +496,8 @@ def test_fingerprint_new_fields_are_allowlisted(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(env, "_PLATFORM", "linux")
     out = env.collect_environment_fingerprint()
     assert out["launcher"] in {"uv", "none", "unknown"}
-    assert isinstance(out["host_process"], str) and out["host_process"]
+    assert isinstance(out["host_process"], str)
+    assert out["host_process"]
 
 
 def test_posix_launch_method_is_unaffected_by_the_windows_table(

@@ -656,7 +656,8 @@ async def test_a_metric_that_fans_out_per_score_name_returns_every_series() -> N
 
     columns = _table(out)[0].split(" | ")
     assert len(columns) == 31, "time plus every series"
-    assert "score-00" in columns and "score-29" in columns, "the narrow ones too"
+    assert "score-00" in columns, "the narrow ones too"
+    assert "score-29" in columns, "the narrow ones too"
     assert "largest of" not in out
 
 

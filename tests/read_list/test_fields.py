@@ -92,7 +92,9 @@ def test_offered_never_lets_one_container_crowd_out_the_flat_keys() -> None:
     wide = {f"k{i:03d}": i for i in range(200)}
     names = projection.row_fields([{"id": "t-1", "start_time": "x", "metadata": wide}])
     shown = projection.offered(names)
-    assert "id" in shown and "start_time" in shown and "metadata" in shown
+    assert "id" in shown
+    assert "start_time" in shown
+    assert "metadata" in shown
 
 
 def test_covers_reads_a_container_as_keeping_its_children() -> None:
@@ -278,7 +280,9 @@ async def test_every_list_page_names_the_fields_its_records_carry() -> None:
     )
     out = await run_list("project", client=fake)
     line = next(one for one in out.splitlines() if one.startswith("fields:"))
-    assert "created_at" in line and "id" in line and "name" in line
+    assert "created_at" in line
+    assert "id" in line
+    assert "name" in line
     assert "fields=[" in line
 
 
@@ -294,7 +298,8 @@ async def test_the_fields_line_names_nested_paths_the_columns_never_show() -> No
     )
     out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
     line = next(one for one in out.splitlines() if one.startswith("fields:"))
-    assert "data.question" in line and "data.answer" in line
+    assert "data.question" in line
+    assert "data.answer" in line
 
 
 @pytest.mark.anyio
@@ -419,7 +424,8 @@ async def test_projected_columns_keep_the_order_the_caller_named() -> None:
 async def test_a_projected_list_page_says_so_and_names_what_it_left_out() -> None:
     out = await run_list("trace", project_id=PROJECT, fields=["name"], client=_trace_page())
     marker = next(one for one in out.splitlines() if one.startswith("projected:"))
-    assert " of " in marker and "fields" in marker
+    assert " of " in marker
+    assert "fields" in marker
     assert "start_time" in marker
     # The marker accounts for every field, so the page does not also carry the
     # offer line an unprojected page ends with.
@@ -440,7 +446,8 @@ async def test_projection_lifts_the_cell_cut_on_the_columns_it_keeps() -> None:
     long = "y" * 500
     fake = FakeOpikClient(traces={"content": [{"id": "t-1", "name": long}], "total": 1})
     cut = await run_list("trace", project_id=PROJECT, client=fake)
-    assert "..." in cut and "1 value cut at 60 chars." in cut
+    assert "..." in cut
+    assert "1 value cut at 60 chars." in cut
 
     whole = await run_list("trace", project_id=PROJECT, fields=["name"], client=fake)
     assert long in whole

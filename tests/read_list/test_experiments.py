@@ -157,7 +157,8 @@ def test_conditional_columns_keep_their_order_whichever_subset_shows() -> None:
 def test_the_note_names_what_was_left_out_and_why() -> None:
     note = _project(_experiment("nightly")).note
     assert note is not None
-    assert "assertion_runs" in note and "prompt_version" in note
+    assert "assertion_runs" in note
+    assert "prompt_version" in note
     assert "no row" in note
 
 
@@ -175,7 +176,9 @@ def test_the_note_carries_the_filter_vocabulary_even_with_nothing_omitted() -> N
     ).note
     assert note is not None
     # The three that are query parameters rather than OQL fields...
-    assert "type" in note and "optimization_id" in note and "experiment_ids" in note
+    assert "type" in note
+    assert "optimization_id" in note
+    assert "experiment_ids" in note
     # ...and the ones a column never advertised: dataset_id is filterable
     # while the column is dataset_name, and these are not columns at all.
     for hidden in ("dataset_id", "metadata", "project_id", "prompt_ids", "tags"):
@@ -426,9 +429,8 @@ async def test_a_full_page_pays_for_no_second_note() -> None:
     print the same advice twice."""
     fake = FakeOpikClient(experiments=_page(_experiment("nightly")))
     out = await run_list("experiment", client=fake)
-    assert "dataset_id" in out and 'schema("list.experiment")' in out, (
-        "the projection note still carries the hint"
-    )
+    assert "dataset_id" in out, "the projection note still carries the hint"
+    assert 'schema("list.experiment")' in out, "the projection note still carries the hint"
     assert "type accepts" not in out, "and the page note stayed silent"
     assert "none match" not in out
 

@@ -488,9 +488,11 @@ def test_each_reference_names_the_fields_of_the_other_call() -> None:
     compared = list_reference("dataset_item")["filters"]["see_also"]
     case = list_reference("dataset_item_case")["filters"]["see_also"]
 
-    assert "full_data" in compared and "trace_id" in compared
+    assert "full_data" in compared
+    assert "trace_id" in compared
     assert 'schema("list.dataset_item_case")' in compared
-    assert "feedback_scores" in case and "duration" in case
+    assert "feedback_scores" in case
+    assert "duration" in case
     assert 'schema("list.dataset_item")' in case
 
 

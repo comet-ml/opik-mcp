@@ -383,7 +383,8 @@ def test_a_view_tier_label_does_not_describe_rows_an_empty_page_has_none_of() ->
     label changes rather than the link disappearing."""
     full = view_link_note(_settings(), "online_rule", "p-7")
     empty = view_link_note(_settings(), "online_rule", "p-7", empty=True)
-    assert full is not None and empty is not None
+    assert full is not None
+    assert empty is not None
     assert full["url"] == empty["url"]
     assert "this rule" in full["url_opens"]
     assert "this rule" not in empty["url_opens"]

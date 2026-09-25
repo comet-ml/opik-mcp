@@ -295,7 +295,8 @@ async def test_experiments_of_different_datasets_are_refused_naming_both() -> No
         await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     message = str(refusal.value)
-    assert "support-qa" in message and "billing-qa" in message
+    assert "support-qa" in message
+    assert "billing-qa" in message
     assert fake.compare_calls == []
 
 
@@ -316,7 +317,8 @@ async def test_runs_over_different_dataset_versions_are_compared_with_a_warning(
     fake.experiment_records[B] = _experiment(B, "rerank-v3", version=("dv-2", "v2"))
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
     assert "different versions of the dataset" in out
-    assert "E1 ran v1" in out and "E2 ran v2" in out
+    assert "E1 ran v1" in out
+    assert "E2 ran v2" in out
     assert "case-1" in out, "the table still renders"
     assert out.index("different versions") < out.index("E1 is the baseline"), (
         "the warning comes before the explanation of how to read the cells"
@@ -1219,7 +1221,8 @@ async def test_a_run_that_scored_nothing_beside_one_that_did_reads_errored() -> 
     assert "0.9 / errored" in row
     assert "unscored" not in row, "a crash is not the same as a judge that scored nothing"
     assert "Δ" not in row, "there is nothing to subtract from an error"
-    assert "0.9 / errored |" in row and " 0 " not in row, "an error is never a zero"
+    assert "0.9 / errored |" in row, "an error is never a zero"
+    assert " 0 " not in row, "an error is never a zero"
     assert "tr-b (E2)" in row, "the errored run is the one to open"
 
 
