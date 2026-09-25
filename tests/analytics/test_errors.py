@@ -327,17 +327,14 @@ def test_unwrap_follows_context_when_no_explicit_cause() -> None:
     """A bare ``raise ToolError(...)`` inside an ``except OpikAuthError`` block
     sets ``__context__`` (not ``__cause__``). Python's traceback display
     still surfaces the implicit chain — so must we."""
-    try:
-        try:
-            raise OpikNotFoundError("404")
-        except OpikNotFoundError:
-            # Deliberately omitting ``from …`` — that's the whole point of
-            # this test: verify the unwrap still finds the cause via the
-            # implicit ``__context__`` slot Python sets.
-            raise ToolError("not found")  # noqa: B904
-    except ToolError as e:
-        real = unwrap_to_real_cause(e)
-        assert isinstance(real, OpikNotFoundError)
+    # The slot a bare raise inside ``except`` fills, set by hand: no
+    # ``__cause__``, context not suppressed.
+    wrapper = ToolError("not found")
+    wrapper.__context__ = OpikNotFoundError("404")
+    assert wrapper.__cause__ is None
+    assert not wrapper.__suppress_context__
+    real = unwrap_to_real_cause(wrapper)
+    assert isinstance(real, OpikNotFoundError)
 
 
 def test_unwrap_respects_suppress_context() -> None:

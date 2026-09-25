@@ -80,11 +80,14 @@ testpaths = ["tests"]
 # startup path.
 # `live` and `user_flows` need a real backend (and, for user_flows, a model key),
 # so they are deselected the same way and run only through their make targets.
-addopts = "-m 'not hermetic and not live and not user_flows'"
+# `slow` tests spawn a subprocess each; they are deselected too and run by
+# `make slow`, which CI runs in python-checks right after `make check`.
+addopts = "-m 'not hermetic and not live and not user_flows and not slow'"
 markers = [
     "hermetic: `python -m opik_mcp` over stdio or HTTP against a stub backend; run by `make hermetic`",
     "live: drives the server against a seeded local Opik backend; run by `make live`",
     "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
+    "slow: spawns a subprocess (hooks, scripts, git, make, ruff, mypy); run by `make slow` and its CI step",
 ]
 
 [tool.ruff]
@@ -178,10 +181,10 @@ extend-allowed-calls = ["pytest.param"]
 "src/opik_mcp/writes/operations/observability.py" = ["ARG001", "PLC0415"]
 "src/opik_mcp/writes/operations/threads.py" = ["ARG001", "PLC0415"]
 "tests/analytics/test_boot_props.py" = ["PT006"]
-"tests/analytics/test_client.py" = ["ARG002", "C408", "I002"]
-"tests/analytics/test_environment.py" = ["PT006", "PT018"]
+"tests/analytics/test_client.py" = ["ARG002", "I002"]
+"tests/analytics/test_environment.py" = ["PT006"]
 "tests/analytics/test_errors.py" = ["PT006", "PT017"]
-"tests/analytics/test_events.py" = ["I002", "PT006", "PT018"]
+"tests/analytics/test_events.py" = ["I002", "PT006"]
 "tests/analytics/test_identity.py" = ["I002", "PT019"]
 "tests/analytics/test_lifespan.py" = ["ARG002", "PT011"]
 "tests/analytics/test_server_startup.py" = ["ARG002", "ARG005", "I002", "PT011"]
@@ -194,8 +197,7 @@ extend-allowed-calls = ["pytest.param"]
 "tests/hermetic/test_compare_experiments_surface.py" = ["PT018"]
 "tests/hermetic/test_description_claims.py" = ["PERF401", "PT018"]
 "tests/hermetic/test_project_overview_surface.py" = ["PT018"]
-"tests/identity/test_account_identity.py" = ["C408", "PT019"]
-"tests/identity/test_credential_identity.py" = ["PT018"]
+"tests/identity/test_account_identity.py" = ["PT019"]
 "tests/identity/test_http_auth.py" = ["I002"]
 "tests/identity/test_oauth_identity.py" = ["I002"]
 "tests/identity/test_oauth_passthrough_mode.py" = ["I002"]
@@ -204,25 +206,16 @@ extend-allowed-calls = ["pytest.param"]
 "tests/identity/test_oauth_token_rotation.py" = ["I002", "PT022"]
 "tests/identity/test_oauth_token_validation.py" = ["I002", "PT022"]
 "tests/identity/test_resource_metadata_url.py" = ["I002"]
-"tests/read_list/test_dataset_compare.py" = ["PT018"]
-"tests/read_list/test_dataset_compare_figures.py" = ["PT018"]
-"tests/read_list/test_dataset_items.py" = ["PT018"]
-"tests/read_list/test_experiments.py" = ["PT018"]
-"tests/read_list/test_fields.py" = ["PT018"]
-"tests/read_list/test_link_shape.py" = ["ARG002", "PT018"]
-"tests/read_list/test_list_filters.py" = ["ARG002", "PT018"]
-"tests/read_list/test_list_tool.py" = ["PT018"]
-"tests/read_list/test_oql.py" = ["PT018"]
-"tests/read_list/test_project_metrics.py" = ["ARG002", "PT018"]
-"tests/read_list/test_read_tool.py" = ["ARG002", "PT018"]
+"tests/read_list/test_link_shape.py" = ["ARG002"]
+"tests/read_list/test_list_filters.py" = ["ARG002"]
+"tests/read_list/test_project_metrics.py" = ["ARG002"]
+"tests/read_list/test_read_tool.py" = ["ARG002"]
 "tests/read_list/test_ui_links.py" = ["PT017"]
 "tests/server/test_config.py" = ["I002"]
 "tests/server/test_error_tracking.py" = ["ARG002", "ARG005", "PT006"]
 "tests/server/test_health.py" = ["I002"]
 "tests/server/test_http_path_config.py" = ["I002"]
-"tests/server/test_instructions.py" = ["PT018"]
 "tests/writes/test_backend_error_oauth_hint.py" = ["I002"]
-"tests/writes/test_dispatch.py" = ["PT018"]
 "tests/writes/test_models.py" = ["PT017"]
 
 [tool.ruff.format]
@@ -346,7 +339,6 @@ module = [
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
     "tests.server.test_error_tracking",
-    "tests.server.test_instructions",
     "tests.writes.test_recovery_envelope",
     "tests.writes.test_registry",
     "tests.writes.test_write_links",

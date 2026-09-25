@@ -12,7 +12,7 @@ the version comes from, and how to finish a release that failed halfway.
 
 `version.txt` holds the next unreleased version, `x.y.z`. `bump-version` in
 `release.yaml` increments its patch after a release; edit it by hand to choose
-another. `make version` generates the git-ignored `src/opik_mcp/_version.py`,
+another. `make version` generates the package's git-ignored `_version.py`,
 which `pyproject.toml` reads and packs into the wheel. Every build runs it
 first. The stamp depends on where the build runs:
 

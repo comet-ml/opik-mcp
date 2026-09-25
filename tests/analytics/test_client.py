@@ -10,20 +10,21 @@ import respx
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.identity import get_install_id
 from opik_mcp.config import Settings
+from tests.factories import make_settings
 
 URL = "https://stats.comet.com/notify/event/"
 
 
-def _settings(**overrides: Any) -> Settings:
+def _settings(**overrides: object) -> Settings:
     # Explicit None defaults so a stray OPIK_API_KEY / COMET_WORKSPACE_ID in the
     # developer's shell can't change which branch of `_build_event` the test hits.
-    base: dict[str, Any] = dict(
-        opik_mcp_analytics_enabled=True,
-        comet_workspace="ws-1",
-        opik_api_key=None,
-        comet_workspace_id=None,
-    )
-    return Settings(**{**base, **overrides})
+    base: dict[str, object] = {
+        "opik_mcp_analytics_enabled": True,
+        "comet_workspace": "ws-1",
+        "opik_api_key": None,
+        "comet_workspace_id": None,
+    }
+    return make_settings(**{**base, **overrides})
 
 
 def _drain(client: AnalyticsClient, deadline_s: float = 2.0) -> None:

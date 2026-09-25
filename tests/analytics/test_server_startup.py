@@ -259,7 +259,7 @@ def test_transport_crash_propagates_full_context_to_sentry(
         "error_kind": "transport_crash",
         "exception_type": "OSError",
         "transport": "stdio",
-    }
+    }, f"the startup-crash Sentry tags changed: {call['tags']}"
     # Transaction puts ``startup`` next to the exception type in Sentry's
     # issue listing, alongside ``read`` / ``write`` for
     # tool failures.

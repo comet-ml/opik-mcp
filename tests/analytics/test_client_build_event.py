@@ -27,13 +27,13 @@ from opik_mcp.auth_context import (
     inbound_mcp_session_id,
     inbound_workspace,
 )
-from opik_mcp.config import Settings
 from opik_mcp.credential_identity import (
     ResolvedIdentity,
     credential_digest,
     remember_identity,
     remember_session,
 )
+from tests.factories import make_settings
 
 # Canaries: unique, greppable values that must never appear raw in an event.
 RAW_OAUTH_TOKEN = f"{OAUTH_ACCESS_TOKEN_PREFIX}BEARER-CANARY-TOKEN-UNIQUE-7a3b2c1d"
@@ -53,10 +53,9 @@ def make_client() -> Iterator[Any]:
             "opik_mcp_analytics_enabled": False,
             "opik_api_key": None,
             "opik_mcp_as_url": None,
-            "_env_file": None,
         }
         base.update(kwargs)
-        client = AnalyticsClient(Settings(**base))  # type: ignore[arg-type]
+        client = AnalyticsClient(make_settings(**base))
         created.append(client)
         return client
 

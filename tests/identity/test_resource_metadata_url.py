@@ -13,10 +13,11 @@ breaking the host's discovery chain.
 
 from opik_mcp.config import Settings
 from opik_mcp.server import _resource_metadata_url
+from tests.factories import make_settings
 
 
 def _settings(resource_uri: str | None) -> Settings:
-    return Settings(opik_mcp_resource_uri=resource_uri, _env_file=None)  # type: ignore[call-arg]
+    return make_settings(opik_mcp_resource_uri=resource_uri)
 
 
 def test_resource_uri_with_path_strips_to_host_root() -> None:

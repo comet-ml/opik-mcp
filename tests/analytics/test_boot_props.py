@@ -15,13 +15,11 @@ import pytest
 from opik_mcp.analytics import boot_props
 from opik_mcp.analytics.events import AuthMode, InstallationType, ResourceUriScheme
 from opik_mcp.config import Settings
+from tests.factories import make_settings
 
 
 def _settings(**kwargs: object) -> Settings:
-    # _env_file=None: ignore any developer .env so these stay deterministic.
-    base: dict[str, object] = {"_env_file": None}
-    base.update(kwargs)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**kwargs)
 
 
 def test_default_allowed_hosts_schema_parity() -> None:
@@ -130,7 +128,7 @@ def test_collect_boot_props_keys_and_literal_membership() -> None:
         "dns_rebinding_protection",
         "allowed_hosts_is_default",
         "auth_mode",
-    }
+    }, f"boot props changed: {sorted(props)}"
     assert props["auth_mode"] in get_args(AuthMode)
     assert props["resource_uri_scheme"] in get_args(ResourceUriScheme)
     for key in ("oauth_configured", "dns_rebinding_protection", "allowed_hosts_is_default"):

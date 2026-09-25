@@ -268,7 +268,7 @@ async def test_the_dataset_comes_from_the_experiments_not_from_the_caller() -> N
             "page": 1,
             "size": DEFAULT_PAGE_SIZE,
         }
-    ]
+    ], f"the compare call differs: {fake.compare_calls}"
 
 
 @pytest.mark.anyio
@@ -295,7 +295,8 @@ async def test_experiments_of_different_datasets_are_refused_naming_both() -> No
         await run_list("dataset_item", experiment_ids=[A, B], client=fake)
 
     message = str(refusal.value)
-    assert "support-qa" in message and "billing-qa" in message
+    assert "support-qa" in message
+    assert "billing-qa" in message
     assert fake.compare_calls == []
 
 
@@ -316,7 +317,8 @@ async def test_runs_over_different_dataset_versions_are_compared_with_a_warning(
     fake.experiment_records[B] = _experiment(B, "rerank-v3", version=("dv-2", "v2"))
     out = await run_list("dataset_item", experiment_ids=[A, B], client=fake)
     assert "different versions of the dataset" in out
-    assert "E1 ran v1" in out and "E2 ran v2" in out
+    assert "E1 ran v1" in out
+    assert "E2 ran v2" in out
     assert "case-1" in out, "the table still renders"
     assert out.index("different versions") < out.index("E1 is the baseline"), (
         "the warning comes before the explanation of how to read the cells"
@@ -728,7 +730,7 @@ async def test_a_filter_on_the_case_needs_no_second_call() -> None:
             "key": "",
             "value": "Capital",
         }
-    ]
+    ], f"the compiled compare filter differs: {fake.compare_calls[0]['filters']}"
     assert "matches a case when any" not in out
 
 
@@ -844,7 +846,7 @@ def test_the_schema_publishes_the_fields_a_comparison_can_filter_and_sort_on() -
         "feedback_scores",
         "id",
         "output",
-    ]
+    ], f"compare filter fields changed: {sorted(reference['filters']['fields'])}"
     assert reference["filters"]["fields"]["data"]["key"] == "required"
     assert reference["filters"]["fields"]["output"]["key"] == "optional"
     assert "status" not in reference["sort"]["fields"]
@@ -1219,7 +1221,8 @@ async def test_a_run_that_scored_nothing_beside_one_that_did_reads_errored() -> 
     assert "0.9 / errored" in row
     assert "unscored" not in row, "a crash is not the same as a judge that scored nothing"
     assert "Δ" not in row, "there is nothing to subtract from an error"
-    assert "0.9 / errored |" in row and " 0 " not in row, "an error is never a zero"
+    assert "0.9 / errored |" in row, "an error is never a zero"
+    assert " 0 " not in row, "an error is never a zero"
     assert "tr-b (E2)" in row, "the errored run is the one to open"
 
 

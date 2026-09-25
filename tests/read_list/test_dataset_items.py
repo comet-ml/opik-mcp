@@ -492,9 +492,11 @@ def test_each_reference_names_the_fields_of_the_other_call() -> None:
     compared = list_reference("dataset_item")["filters"]["see_also"]
     case = list_reference("dataset_item_case")["filters"]["see_also"]
 
-    assert "full_data" in compared and "trace_id" in compared
+    assert "full_data" in compared
+    assert "trace_id" in compared
     assert 'schema("list.dataset_item_case")' in compared
-    assert "feedback_scores" in case and "duration" in case
+    assert "feedback_scores" in case
+    assert "duration" in case
     assert 'schema("list.dataset_item")' in case
 
 
@@ -514,7 +516,7 @@ def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> Non
         "span_id",
         "tags",
         "trace_id",
-    ]
+    ], f"case filter fields changed: {sorted(fields)}"
     assert fields["data"]["type"] == "map"
     assert fields["data"]["operators"] == [
         "=",
@@ -523,7 +525,7 @@ def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> Non
         "not_contains",
         "starts_with",
         "ends_with",
-    ]
+    ], f"operators on data changed: {fields['data']['operators']}"
     assert fields["data"]["key"] == "required"
     # The one field that costs a full scan says so where it is chosen, not
     # after it has been run on a 100,000-case dataset.

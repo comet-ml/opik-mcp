@@ -10,6 +10,7 @@ checks what git does rather than what the ignore file says.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -75,17 +76,19 @@ def _is_ignored(path: str) -> bool:
     return result.returncode == 0
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("path", TRACKED)
 def test_path_is_trackable(path: str) -> None:
     assert not _is_ignored(path), f"{path} is ignored, but it belongs in the repository"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("path", IGNORED)
 def test_path_is_ignored(path: str) -> None:
     assert _is_ignored(path), f"{path} would be committed, but it must stay local"
 
 
-@pytest.mark.parametrize("marker", ["hermetic", "live", "user_flows"])
+@pytest.mark.parametrize("marker", ["hermetic", "live", "user_flows", "slow"])
 def test_marker_is_registered_and_off_by_default(marker: str, pytestconfig: pytest.Config) -> None:
     registered = {line.split(":", 1)[0].strip() for line in pytestconfig.getini("markers")}
     assert marker in registered
@@ -102,6 +105,17 @@ def test_marker_is_registered_and_off_by_default(marker: str, pytestconfig: pyte
     assert not selected, f"a test marked {marker} would run in the default suite"
 
 
+def test_ci_runs_the_slow_tests() -> None:
+    """`addopts` deselects `slow`, so without this step CI would never run them."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yaml").read_text()
+    assert re.search(r"^\s+run: make slow\b", workflow, re.MULTILINE), (
+        ".github/workflows/ci.yaml has no `run: make slow` step. The slow tests are "
+        "deselected from `make check` (pyproject.toml addopts); a CI step runs them "
+        "(.claude/rules/tests.md)."
+    )
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("target", "suite", "ticket"),
     [("live", "tests/live", "OPIK-8490"), ("user-flows", "tests/user_flows", "OPIK-8491")],

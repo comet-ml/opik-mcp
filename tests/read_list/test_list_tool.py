@@ -536,7 +536,8 @@ async def test_list_issues_accept_relative_window() -> None:
     fake = FakeOpikClient()
     await run_list("agent_insights_issue", project_id="p-1", since="7d", client=fake)
     from_date = fake.last_kwargs.get("from_date")
-    assert isinstance(from_date, str) and len(from_date) == 10
+    assert isinstance(from_date, str)
+    assert len(from_date) == 10
     assert "to_date" not in fake.last_kwargs
 
 
@@ -909,7 +910,8 @@ async def test_issue_list_routes_to_traces_when_the_window_outruns_the_last_scan
         "agent_insights_issue", project_id="p-1", since="7d", client=fake, settings=_UI
     )
     assert "Report covers data through" in out
-    assert "20h" in out and "not in it" in out
+    assert "20h" in out
+    assert "not in it" in out
     assert "agent_insights_job.trigger" in out
     assert "list('trace'" in out
 
@@ -922,7 +924,8 @@ async def test_issue_list_does_not_offer_a_trigger_that_cannot_close_the_gap() -
         issues={"content": [ISSUE_ROW], "total": 1}, job=_job(last_scan_at=_ago(96))
     )
     out = await run_list("agent_insights_issue", project_id="p-1", client=fake, settings=_UI)
-    assert "4d" in out and "not in it" in out
+    assert "4d" in out
+    assert "not in it" in out
     assert "list('trace'" in out
     assert "rescans the last 24 hours, so it cannot close this gap" in out
 
@@ -1025,7 +1028,8 @@ async def test_list_issues_ambiguous_case_insensitive_match_lists_candidates() -
     with pytest.raises(ToolError) as exc:
         await run_list("agent_insights_issue", project_name="DEMO", client=fake)
     msg = str(exc.value)
-    assert "p-upper" in msg and "p-lower" in msg
+    assert "p-upper" in msg
+    assert "p-lower" in msg
     assert isinstance(exc.value.__cause__, EntityArgValidationError)
 
 
@@ -1195,7 +1199,9 @@ async def test_list_score_names_says_the_names_span_every_entity_kind() -> None:
     Saying so beats letting the agent assume they are all trace scores."""
     fake = FakeOpikClient(score_names={"scores": [{"name": "Hallucination"}]})
     out = await run_list("score_name", project_id="p-1", client=fake)
-    assert "trace" in out and "span" in out and "thread" in out
+    assert "trace" in out
+    assert "span" in out
+    assert "thread" in out
 
 
 @pytest.mark.anyio
@@ -1324,7 +1330,8 @@ async def test_coverage_gap_in_a_past_window_is_named_absolutely() -> None:
     assert "Report covers data through" in out
     # Not "the last 24h": the uncovered day sits nine days back.
     assert "The last 24h" not in out
-    assert "until=" in out and "since=" in out
+    assert "until=" in out
+    assert "since=" in out
 
 
 @pytest.mark.anyio

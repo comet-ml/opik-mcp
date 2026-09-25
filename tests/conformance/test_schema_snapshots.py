@@ -26,6 +26,7 @@ import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from opik_mcp.server import mcp
+from tests.asserts import assert_answer_equals
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
 
@@ -69,7 +70,7 @@ def _canonicalize(value: Any) -> str:
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("tool", TOOLS)
-async def test_tool_schema_matches_snapshot(tool: str) -> None:
+async def test_tool_schema_matches_snapshot(tool: str, tmp_path: Path) -> None:
     """Each tool's `inputSchema` MUST match the on-disk snapshot byte-for-byte.
 
     A failure here means the wire schema has changed — either accept it
@@ -91,9 +92,12 @@ async def test_tool_schema_matches_snapshot(tool: str) -> None:
         )
 
     expected = json.loads(path.read_text(encoding="utf-8"))
-    assert actual == expected, (
-        f"{tool}: inputSchema drift vs. snapshot — "
-        f"diff visible in `git diff {path.relative_to(Path.cwd())}` "
-        "after running with UPDATE_SNAPSHOTS=1. If the change is "
-        "intentional, commit the snapshot in the same PR."
+    assert_answer_equals(
+        actual,
+        expected,
+        artefact=tmp_path / f"{tool}.schema.diff",
+        hint=(
+            f"{tool}'s inputSchema differs from {path.name}. If the change is intentional, "
+            "rerun with UPDATE_SNAPSHOTS=1 and commit the snapshot in the same PR."
+        ),
     )

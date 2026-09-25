@@ -121,7 +121,8 @@ def test_the_raw_session_id_is_never_stored() -> None:
 
     stored = lookup_session_digest(RAW_TOKEN)
     assert stored == hashlib.sha256(RAW_SESSION.encode("utf-8")).hexdigest()
-    assert stored is not None and RAW_SESSION not in stored
+    assert stored is not None
+    assert RAW_SESSION not in stored
 
     from opik_mcp.credential_identity import _SESSIONS
 

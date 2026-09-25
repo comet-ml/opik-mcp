@@ -557,7 +557,8 @@ async def test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path
         with pytest.raises(ToolError) as refusal:
             await run_read("trace", UUID, client=client)
     message = str(refusal.value)
-    assert "sk-live-123" not in message and "violates" not in message
+    assert "sk-live-123" not in message
+    assert "violates" not in message
     assert "/v1/" not in message
     assert "Detail" not in message
 
@@ -655,7 +656,8 @@ async def test_read_issue_accepts_relative_window() -> None:
     fake = _issue_fake()
     await run_read("agent_insights_issue", ISSUE, project_id="p-9", since="7d", client=fake)
     from_date = fake.last_issue_kwargs["from_date"]
-    assert isinstance(from_date, str) and len(from_date) == 10
+    assert isinstance(from_date, str)
+    assert len(from_date) == 10
     assert fake.last_issue_kwargs["to_date"] is None
 
 
@@ -759,7 +761,8 @@ async def test_read_issue_ambiguous_project_name_lists_candidates() -> None:
     with pytest.raises(ToolError) as exc:
         await run_read("agent_insights_issue", ISSUE, project_name="demo", client=fake)
     msg = str(exc.value)
-    assert "p-1" in msg and "p-2" in msg
+    assert "p-1" in msg
+    assert "p-2" in msg
     assert isinstance(exc.value.__cause__, EntityArgValidationError)
 
 
@@ -1222,7 +1225,8 @@ async def test_read_project_names_the_metadata_keys_its_experiments_carry() -> N
     )
     assert keys["total"] == 3
     assert keys["sampled_from"] == 3, "the basis is stated, not implied"
-    assert "list('experiment'" in keys["filter"] and "metadata.<key>" in keys["filter"]
+    assert "list('experiment'" in keys["filter"]
+    assert "metadata.<key>" in keys["filter"]
 
 
 @pytest.mark.anyio
@@ -2047,7 +2051,8 @@ async def test_more_than_ten_matches_say_how_many_more() -> None:
         await run_read("project", "demo", client=fake)
 
     message = str(exc.value)
-    assert "p-9" in message and "p-10" not in message, "ten are listed"
+    assert "p-9" in message, "ten are listed"
+    assert "p-10" not in message, "ten are listed"
     assert "… and 4 more" in message
 
 
@@ -2101,7 +2106,8 @@ async def test_the_continuation_a_trace_hands_out_returns_the_same_set() -> None
     sent = json.loads(fake.last_list_spans_kwargs["filters"])
     assert [c["field"] for c in sent] == ["trace_id"], "no source default on a drill-in"
     assert fake.last_list_spans_kwargs["page"] == 3
-    assert "sp-200" in out and "sp-249" in out, "exactly the spans the read left out"
+    assert "sp-200" in out, "exactly the spans the read left out"
+    assert "sp-249" in out, "exactly the spans the read left out"
     assert "sp-199" not in out
     assert 'source = "sdk"' not in out.splitlines()[0]
 
@@ -2203,7 +2209,8 @@ async def test_a_pasted_compare_link_reads_the_experiment_it_names() -> None:
     )
     url = f"https://opik.test/ws/experiments/ds-7/compare?experiments=%5B%22{UUID}%22%5D"
     out = await run_read("experiment", url, client=fake, settings=_UI_SETTINGS)
-    assert "nightly" in out and UUID in out
+    assert "nightly" in out
+    assert UUID in out
 
 
 # --- what a composite read spends on the children it inlines --------------- #
@@ -2236,7 +2243,8 @@ async def test_the_dropped_bodies_are_counted_and_one_call_away() -> None:
     )
     out = _payload(await run_read("trace", UUID, client=fake, settings=_UI_SETTINGS))
     note = out["spanBodies"]
-    assert "inline budget" in note and f"{SPANS_INLINE_CHARS:,}" in note
+    assert "inline budget" in note
+    assert f"{SPANS_INLINE_CHARS:,}" in note
     assert "read('span', id)" in note, "and how to get one back whole"
 
 

@@ -126,6 +126,10 @@ jobs:
         run: uv sync --locked --extra dev
       - name: Run lint + typecheck + tests
         run: make check
+      # Deselected from `make check` by `addopts`; they spawn hooks, scripts,
+      # git, make, ruff and mypy, and this step is what keeps them in CI.
+      - name: Run the tests that spawn subprocesses
+        run: make slow
 
   # Hermetic (OPIK-7472): the server as a REAL SUBPROCESS, against the stub
   # backend in `tests/hermetic/stub_backend.py`. The real-backend suite is
