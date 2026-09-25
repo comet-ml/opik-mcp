@@ -26,7 +26,7 @@ step each time; never skip one because an earlier run passed.
 ## 3. Checks
 
 - Use the `test-runner` subagent to run all three CI targets: `make check`,
-  `make e2e`, `make skills-verify-source`. If one fails, show the failures and
+  `make hermetic`, `make skills-verify-source`. If one fails, show the failures and
   ask whether to stop or open the PR anyway, marked in the Testing section.
 - Use the `code-reviewer` subagent on the branch. Show me Critical and High
   findings and ask before continuing.

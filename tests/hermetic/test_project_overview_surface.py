@@ -13,7 +13,7 @@ stub backend on a real socket (``stub_backend``), and checks both halves of
 each feature: the answer the agent reads, and the request the backend saw.
 
 Still hermetic — the stub is in-process and needs no credentials — so it runs
-on every PR with the rest of the e2e job.
+on every PR with the rest of the hermetic job.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.e2e.stub_backend import PROJECT_ID, PROJECT_NAME, TRACE_ID, StubBackend
+from tests.hermetic.stub_backend import PROJECT_ID, PROJECT_NAME, TRACE_ID, StubBackend
 
 _TIMEOUT_S = 60
 
@@ -90,7 +90,7 @@ async def _refuse(session: ClientSession, tool: str, **args: object) -> str:
 # --- read('project') ------------------------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_project_read_is_assembled_from_every_part(backend: StubBackend) -> None:
     """One call, five endpoints, one payload — and each part in it."""
@@ -123,7 +123,7 @@ async def test_a_project_read_is_assembled_from_every_part(backend: StubBackend)
         assert backend.called(endpoint), f"{endpoint} was never called"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_summary_asks_for_sdk_traffic_as_a_json_string(backend: StubBackend) -> None:
     """``kpi-cards`` declares ``filters`` as a String where every other
@@ -138,7 +138,7 @@ async def test_the_summary_asks_for_sdk_traffic_as_a_json_string(backend: StubBa
     assert sent.payload["entity_type"] == "traces"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_window_reaches_the_backend_and_comes_back_stated(backend: StubBackend) -> None:
     async with _session(backend) as session:
@@ -164,7 +164,7 @@ async def test_a_window_reaches_the_backend_and_comes_back_stated(backend: StubB
     assert sent.payload["interval_end"] == "2026-08-31T00:00:00Z"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_one_failing_part_does_not_take_the_read_down(backend: StubBackend) -> None:
     """Every decoration is optional; the record is not. A backend that fails
@@ -181,7 +181,7 @@ async def test_one_failing_part_does_not_take_the_read_down(backend: StubBackend
     assert payload["vocabulary"]["usage_keys"]["names"], "its siblings still answered"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_project_is_readable_by_name(backend: StubBackend) -> None:
     async with _session(backend) as session:
@@ -193,7 +193,7 @@ async def test_a_project_is_readable_by_name(backend: StubBackend) -> None:
 # --- list('project_metric') ------------------------------------------------ #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_metric_series_renders_as_a_table_and_echoes_what_applied(
     backend: StubBackend,
@@ -224,7 +224,7 @@ async def test_a_metric_series_renders_as_a_table_and_echoes_what_applied(
     ]
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_grouped_series_is_keyed_by_time_and_says_what_others_is(
     backend: StubBackend,
@@ -255,7 +255,7 @@ async def test_a_grouped_series_is_keyed_by_time_and_says_what_others_is(
     assert backend.one("/metrics").payload["breakdown"] == {"field": "MODEL"}
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_grouping_a_token_metric_sends_the_sub_metric_the_backend_needs(
     backend: StubBackend,
@@ -279,7 +279,7 @@ async def test_grouping_a_token_metric_sends_the_sub_metric_the_backend_needs(
     }
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_named_series_travels_verbatim(backend: StubBackend) -> None:
     async with _session(backend) as session:
@@ -296,7 +296,7 @@ async def test_a_named_series_travels_verbatim(backend: StubBackend) -> None:
     assert backend.one("/metrics").payload["breakdown"]["sub_metric"] == "Answer Relevance"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_rate_is_charted_against_the_count_of_what_it_measures(
     backend: StubBackend,
@@ -330,7 +330,7 @@ async def test_a_rate_is_charted_against_the_count_of_what_it_measures(
     assert kinds == ["TRACE_COUNT", "TRACE_ERROR_RATE"], "the companion count went with it"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_sub_cent_cost_survives_the_table(backend: StubBackend) -> None:
     async with _session(backend) as session:
@@ -348,7 +348,7 @@ async def test_a_sub_cent_cost_survives_the_table(backend: StubBackend) -> None:
     assert "2026-09-02 | 3.2e-05" in answer, "rounding it to 0 would read as no cost"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_null_buckets_are_left_out_and_counted(backend: StubBackend) -> None:
     async with _session(backend) as session:
@@ -372,7 +372,7 @@ async def test_null_buckets_are_left_out_and_counted(backend: StubBackend) -> No
 # --- the refusals that cost nothing ---------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_refusals_never_reach_the_backend(backend: StubBackend) -> None:
     """Each of these is decidable from the catalog, and each names what to do
@@ -424,7 +424,7 @@ async def test_the_refusals_never_reach_the_backend(backend: StubBackend) -> Non
     assert not backend.called("/metrics"), "not one of them was worth a call"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_an_unrecorded_series_is_named_against_the_project(backend: StubBackend) -> None:
     """The one refusal that is worth a call, and only when the answer came
@@ -450,7 +450,7 @@ async def test_an_unrecorded_series_is_named_against_the_project(backend: StubBa
 # --- the two name lists ---------------------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_name_lists_answer_under_a_project(backend: StubBackend) -> None:
     async with _session(backend) as session:
@@ -463,7 +463,7 @@ async def test_the_name_lists_answer_under_a_project(backend: StubBackend) -> No
     assert "llm_as_judge" in rules and "0.5" in rules
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_score_name_page_is_cut_here_and_says_so(backend: StubBackend) -> None:
     """The endpoint has no paging of its own, so returning everything with a
@@ -484,7 +484,7 @@ async def test_a_score_name_page_is_cut_here_and_says_so(backend: StubBackend) -
 # --- the reference, and the rest of the surface still standing ------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_schema_reference_answers_without_touching_the_backend(
     backend: StubBackend,
@@ -498,7 +498,7 @@ async def test_the_schema_reference_answers_without_touching_the_backend(
     assert not backend.requests, "a reference is a lookup, not a query"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_entities_the_split_moved_still_answer(backend: StubBackend) -> None:
     """The refactor gave every entity its own namespace. A handler that fell
@@ -513,7 +513,7 @@ async def test_the_entities_the_split_moved_still_answer(backend: StubBackend) -
     assert PROJECT_NAME in projects
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_trace_read_asks_for_slim_spans_and_a_whole_trace(
     backend: StubBackend,
@@ -531,7 +531,7 @@ async def test_a_trace_read_asks_for_slim_spans_and_a_whole_trace(
     assert "1 of 1 spans had a field cut" in answer, "counted from what arrived"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_wide_hourly_request_reaches_the_backend(backend: StubBackend) -> None:
     """The one refusal that was ours alone is gone. An hourly month is 721

@@ -1,4 +1,4 @@
-.PHONY: help version install run run-dev dev inspect test conformance e2e live user-flows lint format typecheck check \
+.PHONY: help version install run run-dev dev inspect test conformance hermetic live user-flows lint format typecheck check \
         install-branch uninstall-branch \
         skills-pack skills-verify skills-verify-source \
         docker-build docker-run
@@ -23,7 +23,7 @@ help:
 	@echo "  make inspect    - launch MCP Inspector against running server"
 	@echo "  make test       - pytest"
 	@echo "  make conformance- pytest tests/conformance (MCP wire contract)"
-	@echo "  make e2e        - pytest -m e2e (real stdio subprocess; not in make check)"
+	@echo "  make hermetic   - pytest -m hermetic (real server subprocess, stub backend; not in make check)"
 	@echo "  make live       - pytest -m live (seeded local Opik backend; OPIK-8490)"
 	@echo "  make user-flows - pytest -m user_flows (real agent, judged answers; OPIK-8491)"
 	@echo "  make install-branch   - install this worktree as MCP server opik-<ticket> (NAME=, WORKSPACE=)"
@@ -74,22 +74,22 @@ test:
 conformance:
 	uv run pytest tests/conformance -v
 
-# End-to-end: spawns `python -m opik_mcp` as a real subprocess and drives it over
-# stdio. NOT part of `make test` / `make check` — `addopts` deselects the marker so
-# the default suite stays in-process — so this target and the e2e_tests workflow
-# are the only things that run it. It is the only suite that exercises
-# `__main__`'s stdio startup path, which every MCP host actually uses. Needs no
-# credentials and no backend.
+# Hermetic: spawns `python -m opik_mcp` as a real subprocess and drives it over
+# stdio and Streamable HTTP, against `tests/hermetic/stub_backend.py`. NOT part
+# of `make test` / `make check` — `addopts` deselects the marker so the default
+# suite stays in-process — so this target and the hermetic CI job are the only
+# things that run it. It is the only per-PR suite that exercises `__main__`'s
+# startup path, which every MCP host actually uses. Needs no credentials.
 #
 # PYTEST_ARGS is how CI adds `--junitxml` without forking the command: the
 # workflow runs this exact target, so what CI does and what you can reproduce
 # locally cannot drift.
-e2e:
-	uv run pytest -m e2e -v $(PYTEST_ARGS)
+hermetic:
+	uv run pytest -m hermetic -v $(PYTEST_ARGS)
 
-# Real-backend suites. Deselected from `make test` like e2e. Until their tickets
-# land there is nothing to run, so the targets say so instead of letting pytest
-# exit 5 on an empty selection.
+# Real-backend suites. Deselected from `make test` like hermetic. Until their
+# tickets land there is nothing to run, so the targets say so instead of letting
+# pytest exit 5 on an empty selection.
 live:
 	@if [ -d tests/live ]; then uv run pytest -m live -v $(PYTEST_ARGS); \
 	else echo "live suite not present yet (OPIK-8490)"; fi

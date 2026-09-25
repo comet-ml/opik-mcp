@@ -148,7 +148,7 @@ write dispatch.py -> hooks in src/opik_mcp/writes/operations/diagnostics.py
 - Read and links: `tests/read_list/test_read_tool.py`, `tests/read_list/test_uri.py`.
 - Writes, 409 follow-up, refusals, dry runs: `tests/writes/test_dispatch.py`.
 - Client paths: `tests/client/test_read.py`. Over stdio:
-  `tests/e2e/test_description_claims.py`, `tests/e2e/test_entity_links_surface.py`.
+  `tests/hermetic/test_description_claims.py`, `tests/hermetic/test_entity_links_surface.py`.
 - Instructions: `test_render_names_every_diagnostics_state`.
 
 ## Log

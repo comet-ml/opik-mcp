@@ -97,7 +97,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   `src/opik_mcp/skills_resources.py`. HTTP installs it in `build_app`, stdio in
   `_run_transport` in `src/opik_mcp/__main__.py`.
 - The pack: `scripts/build_skills_pack.py` and the `skills-*` targets in
-  `Makefile`. `tests/e2e/test_stdio_session.py` checks the forms over stdio.
+  `Makefile`. `tests/hermetic/test_stdio_session.py` checks the forms over stdio.
 - Budgets: [tool-surface](../tool-surface/design-doc.md). Analytics:
   [analytics](../analytics/design-doc.md). Evaluation reads: [experiment-flows](../experiment-flows/design-doc.md).
 
@@ -142,7 +142,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - Resolution, errors, header and footer, ordering, the description and the
   summaries: `tests/skills/test_catalog.py`.
 - Resources over a real session, and over stdio:
-  `tests/conformance/test_skill_resources.py`, `tests/e2e/test_stdio_session.py`.
+  `tests/conformance/test_skill_resources.py`, `tests/hermetic/test_stdio_session.py`.
 - The pack is verbatim, excludes evals, fails on bad references and has a
   stable digest: `tests/skills/test_pack_build.py`. Each skill passes the
   reference validator: `tests/skills/test_spec_compliance.py`.

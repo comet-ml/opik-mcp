@@ -296,14 +296,14 @@
     "tests/conftest.py": [
       "I002"
     ],
-    "tests/e2e/test_compare_experiments_surface.py": [
+    "tests/hermetic/test_compare_experiments_surface.py": [
       "PT018"
     ],
-    "tests/e2e/test_description_claims.py": [
+    "tests/hermetic/test_description_claims.py": [
       "PERF401",
       "PT018"
     ],
-    "tests/e2e/test_project_overview_surface.py": [
+    "tests/hermetic/test_project_overview_surface.py": [
       "PT018"
     ],
     "tests/identity/test_account_identity.py": [
@@ -532,10 +532,10 @@
     "tests.conformance.test_schema_snapshots",
     "tests.conformance.test_skill_resources",
     "tests.conformance.test_tool_inventory",
-    "tests.e2e.stub_backend",
-    "tests.e2e.test_compare_experiments_surface",
-    "tests.e2e.test_description_claims",
-    "tests.e2e.test_find_a_case_surface",
+    "tests.hermetic.stub_backend",
+    "tests.hermetic.test_compare_experiments_surface",
+    "tests.hermetic.test_description_claims",
+    "tests.hermetic.test_find_a_case_surface",
     "tests.identity.test_account_identity",
     "tests.identity.test_oauth_passthrough_mode",
     "tests.read_list.test_dataset_compare",
