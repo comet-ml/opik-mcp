@@ -14,6 +14,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 from scripts.seed_e2e_backend import (
+    DEFAULT_PREFIX,
     RUN_PREFIX,
     WINDOW,
     Plan,
@@ -23,7 +24,7 @@ from scripts.seed_e2e_backend import (
 )
 
 ANCHOR = datetime(2026, 9, 25, 12, 0, tzinfo=UTC)
-PREFIX = "e2e-cuj-mcp-live-test-fx"
+PREFIX = "mcp-live-run-test-fx"
 
 
 def _plan(window: timedelta = WINDOW) -> Plan:
@@ -96,5 +97,18 @@ def test_a_prefix_owns_whole_names_only() -> None:
 
 
 def test_the_run_prefix_owns_every_run_and_nothing_else() -> None:
-    names = [f"{RUN_PREFIX}123-abcdef-fx", f"{RUN_PREFIX}9-000000-w", "e2e-cuj-other-suite"]
+    names = [f"{RUN_PREFIX}123-abcdef-fx", f"{RUN_PREFIX}9-000000-w", "mcp-live-fixture-qa"]
     assert [n for n in names if owns(RUN_PREFIX, n)] == names[:2]
+
+
+def test_a_wipe_of_the_default_fixture_never_takes_a_run() -> None:
+    assert not owns(DEFAULT_PREFIX, f"{RUN_PREFIX}123-abcdef-fx")
+
+
+def test_runs_are_not_named_for_the_shared_workspaces_own_cleanup() -> None:
+    # That cleanup deletes e2e-cuj-* projects on its own schedule; one taken
+    # mid-run would fail the run for nothing it did.
+    assert not RUN_PREFIX.startswith("e2e-cuj-"), (
+        "scripts/seed_e2e_backend.py: RUN_PREFIX must not start with e2e-cuj-, "
+        "which the shared cloud workspace's cleanup sweeps"
+    )

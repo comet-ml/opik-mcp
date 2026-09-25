@@ -12,7 +12,7 @@ run-name: "Live ${{ github.ref_name }} by @${{ github.actor }}"
 #     it too.
 #   live-prod: the whole suite against a shared workspace on Opik cloud, to
 #     catch version skew and cloud-only paths. Each run seeds its own fixture
-#     and writes under its own e2e-cuj-mcp-live-<run> names and deletes them
+#     and writes under its own mcp-live-run-<run> names and deletes them
 #     when it ends. Nightly and on dispatch only, since it needs secrets.
 #
 # ADVISORY. Neither job is a required check. Make it required only after it

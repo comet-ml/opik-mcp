@@ -54,14 +54,15 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 #: What the CLI seeds into when no ``--prefix`` is given: a fixture to explore
-#: by hand, or for another harness to reuse, until ``--wipe`` removes it.
-DEFAULT_PREFIX = "mcp-live"
+#: by hand, or for another harness to reuse, until ``--wipe`` removes it. Not a
+#: prefix of ``RUN_PREFIX``, so wiping it never takes a run.
+DEFAULT_PREFIX = "mcp-live-fixture"
 
 #: What every test run is named with: its fixture and its writes, created at
-#: the start and deleted at the end. ``e2e-cuj-`` is the prefix the shared
-#: cloud workspace's own cleanup already sweeps, so a run that dies before it
-#: cleans up is swept anyway.
-RUN_PREFIX = "e2e-cuj-mcp-live-"
+#: the start and deleted at the end. Deliberately not ``e2e-cuj-``, which the
+#: shared cloud workspace's own cleanup sweeps on its own schedule and could
+#: take mid-run; a run that dies is swept by the next one (``STALE_RUN``).
+RUN_PREFIX = "mcp-live-run-"
 
 #: A run older than this that left records behind has died; a live one has not.
 STALE_RUN = timedelta(hours=2)

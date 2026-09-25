@@ -23,7 +23,7 @@ says whether the tool or the model was wrong.
 
 **A fresh fixture per run.** Every run seeds its own fixture: one project named
 after the run, plus datasets, experiments, prompts and rules carrying the same
-name, all under `e2e-cuj-mcp-live-<run>`. It takes seconds locally and under a
+name, all under `mcp-live-run-<run>`. It takes seconds locally and under a
 minute on cloud, and the run deletes it at the end with everything its writes
 created. No fixture outlives a run, so none can go stale or drift in a shared
 workspace. The online rules are created disabled, so cloud never runs the
@@ -50,10 +50,11 @@ inside `src/` does not touch it.
 
 **Writes never touch the fixture.** Every record a write test creates,
 including the thread it closes and the issue it resolves, lives in a sibling
-project of the fixture, `e2e-cuj-mcp-live-<run>-w`, so no write moves a count a
+project of the fixture, `mcp-live-run-<run>-w`, so no write moves a count a
 read asserts. Before it starts, a run sweeps what a crashed run left behind
-more than two hours ago; the `e2e-cuj-` prefix is also swept by the shared
-cloud workspace's own cleanup.
+more than two hours ago. Runs do not use the `e2e-cuj-` prefix, which the
+shared cloud workspace's own cleanup sweeps on its own schedule and could take
+mid-run.
 
 **Sizes.** Every answer's size goes to the job summary. The size tests assert
 that each answer stays under what Claude Code accepts, the ceiling defined in
@@ -131,6 +132,3 @@ OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --pref
 - The Diagnostics job operations need Ollie, so their tests skip on an open
   source backend and run only against cloud.
 - Whether `live-local` becomes a required check, once it has a record on main.
-- How old a project must be before the shared cloud workspace's own
-  `e2e-cuj-` cleanup deletes it. A run's fixture carries that prefix too, so a
-  cleanup that took projects younger than a run would delete one mid-run.
