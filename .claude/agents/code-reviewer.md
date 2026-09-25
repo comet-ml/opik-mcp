@@ -40,7 +40,7 @@ MCP contracts (see AGENTS.md and `.claude/rules/tool-surface.md`):
   the history comment of `test_tool_inventory.py`.
 - Schema snapshots changed only with a reason.
 - Every new or changed description claim has a probe in
-  `tests/e2e/test_description_claims.py`.
+  `tests/hermetic/test_description_claims.py`.
 - Answers: no claim the data doesn't support, no silent cut, no failed
   decoration shown as data, UI links instead of bare ids, refusals with a call
   to copy.

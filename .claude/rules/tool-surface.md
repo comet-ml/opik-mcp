@@ -24,7 +24,7 @@ what the caller pays per call. Both are the user's context. ADRs
 - A description is a contract. It says what the tool does and returns, in the
   caller's words, and never how the model should behave.
 - Every sentence of an entity description has a probe in
-  `tests/e2e/test_description_claims.py`. If you can't write a probe that
+  `tests/hermetic/test_description_claims.py`. If you can't write a probe that
   would fail, delete the sentence. Tool descriptions have no probes: the
   budget test measures them, `tests/conformance/test_schema_snapshots.py`
   pins their argument descriptions, and a reviewer reads them. An

@@ -85,7 +85,7 @@ def test_path_is_ignored(path: str) -> None:
     assert _is_ignored(path), f"{path} would be committed, but it must stay local"
 
 
-@pytest.mark.parametrize("marker", ["e2e", "live", "user_flows"])
+@pytest.mark.parametrize("marker", ["hermetic", "live", "user_flows"])
 def test_marker_is_registered_and_off_by_default(marker: str, pytestconfig: pytest.Config) -> None:
     registered = {line.split(":", 1)[0].strip() for line in pytestconfig.getini("markers")}
     assert marker in registered

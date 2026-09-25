@@ -14,7 +14,7 @@ predates those two skills, so the next release would have been the first to put
 every user's site-packages.
 
 These tests build a real wheel with the real backend and read it back. Marked
-`e2e` because they shell out to `uv build` (a few seconds) and because, like the
+`hermetic` because they shell out to `uv build` (a few seconds) and because, like the
 stdio suite, the thing under test only exists once something is really executed.
 """
 
@@ -70,7 +70,7 @@ def _skill_entries(wheel: zipfile.ZipFile) -> list[str]:
     return [n for n in wheel.namelist() if "/skills/" in n]
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_every_served_skill_document_is_in_the_wheel(wheel: zipfile.ZipFile) -> None:
     """The tool and the resource surface both read through `importlib.resources`,
     so a document missing from the wheel is a document the released server cannot
@@ -82,7 +82,7 @@ def test_every_served_skill_document_is_in_the_wheel(wheel: zipfile.ZipFile) -> 
         assert expected in packaged, f"{expected} is served but not in the wheel"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_the_wheel_carries_nothing_the_server_will_not_serve(wheel: zipfile.ZipFile) -> None:
     """The other direction, which is the one that regressed. Anything under
     `skills/` that `EXCLUDED_DIRS` filters is dead weight in site-packages —
@@ -95,7 +95,7 @@ def test_the_wheel_carries_nothing_the_server_will_not_serve(wheel: zipfile.ZipF
     )
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.parametrize("excluded", sorted(EXCLUDED_DIRS))
 def test_excluded_directories_never_reach_the_wheel(wheel: zipfile.ZipFile, excluded: str) -> None:
     """Named per directory so a failure says which rule broke."""
@@ -103,7 +103,7 @@ def test_excluded_directories_never_reach_the_wheel(wheel: zipfile.ZipFile, excl
     assert not leaked, f"{excluded}/ leaked into the wheel: {sorted(leaked)[:5]}"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_the_wheel_is_importable_and_serves_skills_from_it(
     wheel: zipfile.ZipFile, tmp_path: Path
 ) -> None:

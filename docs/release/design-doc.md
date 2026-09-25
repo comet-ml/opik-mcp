@@ -33,7 +33,7 @@ unchanged, so its stamp is what production reports.
 - Runs on `main` are not cancelled in progress, since each builds an image a
   release may promote. A queued run can still be dropped; see Traps. PR runs
   cancel older ones.
-- `addopts` in `pyproject.toml` keeps the e2e marker out of `make check`.
+- `addopts` in `pyproject.toml` keeps the hermetic marker out of `make check`.
 
 ### What a release run does
 
@@ -83,7 +83,7 @@ a config-file key is stored, with a note. Telemetry is off in that server.
 ```
 merge to main
   ci.yaml: version -> build-image => opik-mcp:sha-<commit>, :main
-           python-checks, e2e, helm-lint, skills-pack (in parallel)
+           python-checks, hermetic, helm-lint, skills-pack (in parallel)
 
 manual dispatch of release.yaml
   validate -> create-git-tag -> promote-image  => :<version>, :latest
@@ -112,7 +112,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
   analytics cohorts that filter dev builds (#179).
 - Replay from the existing tag exists since 0.2.28 reached PyPI but lost the
   race for its image (#178).
-- e2e is a job in `ci.yaml`: a separate workflow needs a `paths:` filter,
+- hermetic is a job in `ci.yaml`: a separate workflow needs a `paths:` filter,
   which can leave a required check pending (#175).
 - A test builds a real wheel to prove skill `evals/` stay out, since the
   editable install cannot show what a wheel holds (#176).
@@ -139,11 +139,11 @@ No ADR covers release; the reasons come from workflow comments and PRs.
   is overridden.
 - With no `OPIK_URL`, an environment `OPIK_WORKSPACE` overrides the config
   file's (`test_config_file_supplies_what_the_environment_does_not`).
-- `tests/e2e/test_wheel_contents.py` skips silently when `uv` is not on PATH.
+- `tests/hermetic/test_wheel_contents.py` skips silently when `uv` is not on PATH.
 
 ## Proven by
 
-- The wheel holds exactly the served skills: `tests/e2e/test_wheel_contents.py`.
+- The wheel holds exactly the served skills: `tests/hermetic/test_wheel_contents.py`.
 - Install-branch naming, credentials and redaction: `tests/repo/test_install_branch.py`.
 - Chart render and image build: `helm-lint` and `build-image` in `ci.yaml`.
 - No test runs or parses `.github/workflows/`; a broken release step shows up
