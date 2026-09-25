@@ -6,18 +6,17 @@ imports ``opik_mcp``. The suite depends on the five tool names, their argument
 names and the answer shapes, which the conformance snapshots already pin, so a
 refactor that moves modules around leaves it untouched.
 
-What the backend holds comes from ``scripts/seed_e2e_backend.py``: the session
-fixture finds the fixture or seeds it, and hands every test its manifest. A
-test asserts exact values from the manifest, never a hardcoded id.
+Every session seeds its own fixture with ``scripts/seed_e2e_backend.py``,
+under the run's own name, hands every test its manifest, and deletes it all at
+the end. A test asserts exact values from the manifest, never a hardcoded id.
+The same happens against a local backend and against a shared cloud
+workspace: nothing a run reads or writes is anyone else's.
 
 Environment:
 
 - ``OPIK_URL``: the REST base of the backend, e.g. ``http://localhost:8080``.
   Required; the suite fails in one line when nothing answers there.
 - ``OPIK_API_KEY``, ``OPIK_WORKSPACE``: passed to the server and the seed as is.
-- ``OPIK_LIVE_SHARED=1``: a shared workspace. The session never seeds or
-  wipes the fixture, it loads the one seeded there by hand. Writes still run:
-  they touch only their own run's records.
 - ``OPIK_LIVE_SIZES``: a file to append each answer's size to, as markdown
   table rows. CI points it at the job summary.
 """
@@ -47,7 +46,7 @@ from scripts.seed_e2e_backend import (
     Manifest,
     SeedError,
     delete_named,
-    load,
+    is_local,
     seed,
     sweep_runs,
 )
@@ -67,17 +66,15 @@ _SHOWING = re.compile(r"showing (\d+) of (\d+)")
 # --- the backend and its fixture ----------------------------------------------
 
 
-def _shared() -> bool:
-    return os.environ.get("OPIK_LIVE_SHARED") == "1"
-
-
 @pytest.fixture(scope="session")
 def backend() -> Iterator[Backend]:
     try:
         client = Backend.from_env()
     except SeedError as err:
         pytest.fail(f"{err} Start one: see docs/live-e2e/design-doc.md.", pytrace=False)
-    if not _shared() and not client.ready():
+    # A hosted backend has no health route under its REST base; its first call
+    # says whether it answers.
+    if is_local(client.base_url) and not client.ready():
         client.close()
         pytest.fail(
             f"no Opik backend is ready at {client.base_url}. "
@@ -89,39 +86,42 @@ def backend() -> Iterator[Backend]:
 
 
 @pytest.fixture(scope="session")
-def manifest(backend: Backend) -> Manifest:
-    try:
-        found = load(backend) if _shared() else seed(backend)
-    except SeedError as err:
-        pytest.fail(f"the fixture is not usable: {err}", pytrace=False)
-    if found is None:
-        pytest.fail(
-            "the shared workspace holds no fixture; seed it once with "
-            "scripts/seed_e2e_backend.py --window-hours 10",
-            pytrace=False,
-        )
-    return found
+def run_id(backend: Backend) -> Iterator[str]:
+    """This run's name, which everything it creates carries, and the cleanup.
 
-
-@pytest.fixture(scope="session")
-def run_prefix(backend: Backend, manifest: Manifest) -> Iterator[str]:
-    """The name this run's writes carry, and their cleanup.
-
-    Every record a write test creates is named with it, and nothing a read
-    asserts is, so writes never touch the fixture. Before the run, leftovers of
-    runs that died before cleaning up are swept; after it, this run's go.
+    Before the run, leftovers of runs that died before cleaning up are swept;
+    after it, everything with this run's name goes, fixture and writes alike.
     """
     try:
         sweep_runs(backend, older_than=STALE_RUN)
     except SeedError as err:
-        # Leftovers are a nuisance, not a reason to fail every write test.
+        # Leftovers are a nuisance, not a reason to fail the run.
         warnings.warn(f"could not sweep old runs: {err}", stacklevel=1)
-    prefix = f"{RUN_PREFIX}{os.getpid()}-{os.urandom(3).hex()}"
-    yield prefix
+    run = f"{RUN_PREFIX}{os.getpid()}-{os.urandom(3).hex()}"
+    yield run
     try:
-        delete_named(backend, prefix)
+        delete_named(backend, run)
     except SeedError as err:
-        warnings.warn(f"could not delete this run's records ({prefix}): {err}", stacklevel=1)
+        warnings.warn(f"could not delete this run's records ({run}): {err}", stacklevel=1)
+
+
+@pytest.fixture(scope="session")
+def manifest(backend: Backend, run_id: str) -> Manifest:
+    """The fixture this run seeded, verified."""
+    try:
+        return seed(backend, prefix=f"{run_id}-fx")
+    except SeedError as err:
+        pytest.fail(f"could not seed the fixture: {err}", pytrace=False)
+
+
+@pytest.fixture(scope="session")
+def run_prefix(run_id: str, manifest: Manifest) -> str:
+    """The name this run's writes carry.
+
+    A sibling of the fixture's name, never the same, so no write lands in the
+    project the reads count; the run's cleanup deletes both.
+    """
+    return f"{run_id}-w"
 
 
 def continuation(note: str) -> dict[str, int]:

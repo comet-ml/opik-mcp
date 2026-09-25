@@ -6,20 +6,21 @@ talks to the REST API with plain httpx and imports nothing from ``opik_mcp``:
 the suite tests our read and write paths, and a seed that went through them
 would fail with them, making a tool bug look like a fixture bug.
 
-Every id is derived from one anchor instant and the record's key, and the
-anchor is stored in the project's description. Seeding the same backend again
-finds the project, rebuilds the same plan from the stored anchor, verifies the
-backend still holds it, and writes nothing. ``--wipe`` deletes every record
-this fixture and the suite's writes create, for a clean re-seed.
+Every record is named under one prefix: the project is the prefix, and the
+datasets, experiments, prompts and rules carry it. The suite seeds a fresh
+fixture under its run's name at the start of every run and deletes it at the
+end, so a run never reads or writes anyone else's data, even in a shared
+workspace. After writing, the seed reads back what it wrote and refuses a
+fixture the backend does not fully hold. Every id is derived from one anchor
+instant and the record's key, so a plan can be rebuilt and checked offline
+(``tests/test_seed_e2e_backend.py``).
 
 Time layout. The fixture spans two windows of one length: the recent one and
 the one before it, which the project summary compares. ``since``/``until``
 filter on the time embedded in a UUIDv7 id, not on ``start_time``, so each
-record's id is minted from its own instant. The window is 7 days by default.
-Opik cloud refuses an id more than about a day old, so there the seed takes
-``--window-hours 10``: every id is inside a day when it is written, and the
-tests ask for the manifest's exact instants, so the windows still hold them
-as the data ages.
+record's id is minted from its own instant. The window is 7 days against a
+local backend. Opik cloud refuses an id more than about a day old, so against
+any other backend it is 10 hours, and every id is inside a day when written.
 
 The fixture has a size axis as well as a content axis: a tiny, a typical, a
 heavy and a wide trace, a short and a long thread, a small and a wide dataset,
@@ -31,7 +32,8 @@ Environment, the same the server reads: ``OPIK_URL`` (REST base, e.g.
 ``http://localhost:8080``), ``OPIK_API_KEY`` (optional for a local backend),
 ``OPIK_WORKSPACE`` (defaults to ``default``).
 
-Run: ``uv run python scripts/seed_e2e_backend.py [--wipe] [--window-hours N]``
+Run by hand, to explore or for another harness to reuse:
+``uv run python scripts/seed_e2e_backend.py [--prefix NAME] [--wipe] [--window-hours N]``
 """
 
 from __future__ import annotations
@@ -51,19 +53,14 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
-#: Bumped whenever the plan below changes shape. A backend seeded by another
-#: version is refused rather than half-matched: rerun with ``--wipe``.
-FIXTURE_VERSION = 4
+#: What the CLI seeds into when no ``--prefix`` is given: a fixture to explore
+#: by hand, or for another harness to reuse, until ``--wipe`` removes it.
+DEFAULT_PREFIX = "mcp-live"
 
-#: Every name this fixture and the suite's writes create starts with this, so
-#: ``--wipe`` can find them all in a shared workspace.
-PREFIX = "mcp-live-"
-PROJECT = f"{PREFIX}e2e"
-
-#: What the suite's writes are named with, one run each: never the fixture's
-#: prefix, so a write cannot touch what the reads assert. ``e2e-cuj-`` is the
-#: prefix the shared cloud workspace's own cleanup already sweeps, so a run
-#: that dies before it cleans up is swept anyway.
+#: What every test run is named with: its fixture and its writes, created at
+#: the start and deleted at the end. ``e2e-cuj-`` is the prefix the shared
+#: cloud workspace's own cleanup already sweeps, so a run that dies before it
+#: cleans up is swept anyway.
 RUN_PREFIX = "e2e-cuj-mcp-live-"
 
 #: A run older than this that left records behind has died; a live one has not.
@@ -72,6 +69,9 @@ STALE_RUN = timedelta(hours=2)
 #: Opik cloud refuses an id more than about a day old, and the oldest record
 #: sits almost two windows back, so this is the longest window cloud takes.
 CLOUD_MAX_WINDOW = timedelta(hours=12)
+
+#: The window a run uses against cloud: inside the maximum, with room to spare.
+CLOUD_WINDOW = timedelta(hours=10)
 
 RECENT_REGULAR = 120
 PREVIOUS_REGULAR = 80
@@ -151,9 +151,8 @@ class IssueCase:
 
 @dataclass(frozen=True)
 class Manifest:
-    """Everything the suite may assert, derived from the anchor alone."""
+    """Everything the suite may assert about one seeded fixture."""
 
-    fixture_version: int
     anchor: str
     window_seconds: int
     project_name: str
@@ -240,7 +239,7 @@ class Plan:
     dataset_items: dict[str, list[JsonObject]] = field(default_factory=dict)
     experiment_items: list[JsonObject] = field(default_factory=list)
     prompt_versions: list[tuple[str, str]] = field(default_factory=list)
-    rules: list[str] = field(default_factory=list)
+    rules: list[JsonObject] = field(default_factory=list)
     issues: list[JsonObject] = field(default_factory=list)
     all_trace_count: int = 0
     all_span_count: int = 0
@@ -248,8 +247,9 @@ class Plan:
 
 
 class _Builder:
-    def __init__(self, anchor: datetime) -> None:
+    def __init__(self, anchor: datetime, project: str) -> None:
         self.anchor = anchor
+        self.project = project
         self.anchor_key = _iso(anchor)
         self.traces: list[JsonObject] = []
         self.spans: list[JsonObject] = []
@@ -273,7 +273,7 @@ class _Builder:
         trace_id = self.id(when, f"trace/{key}")
         record: JsonObject = {
             "id": trace_id,
-            "project_name": PROJECT,
+            "project_name": self.project,
             "name": name,
             "start_time": _iso(when),
             "end_time": _iso(when + timedelta(milliseconds=duration_ms)),
@@ -309,7 +309,7 @@ class _Builder:
         record: JsonObject = {
             "id": self.id(when, f"span/{key}"),
             "trace_id": trace_id,
-            "project_name": PROJECT,
+            "project_name": self.project,
             "name": name,
             "type": kind,
             "start_time": _iso(when),
@@ -357,13 +357,23 @@ class _Builder:
 
     def score(self, trace_id: str, name: str, value: float) -> None:
         self.trace_scores.append(
-            {"id": trace_id, "project_name": PROJECT, "name": name, "value": value, "source": "sdk"}
+            {
+                "id": trace_id,
+                "project_name": self.project,
+                "name": name,
+                "value": value,
+                "source": "sdk",
+            }
         )
 
 
-def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
-    """The whole fixture as data. Pure: the same anchor gives the same plan."""
-    b = _Builder(anchor)
+def build_plan(anchor: datetime, *, window: timedelta, project_id: str, prefix: str) -> Plan:
+    """The whole fixture as data, every name under ``prefix``.
+
+    Pure: the same arguments give the same plan, which is what lets
+    ``tests/test_seed_e2e_backend.py`` check it without a backend.
+    """
+    b = _Builder(anchor, prefix)
     # Every offset is a share of the window, so a short window keeps the shape.
     hour = window / 168
     step = window * 0.9 / RECENT_REGULAR
@@ -374,7 +384,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
         when = anchor - hour - i * step
         thread = None
         if i < SHORT_THREADS * TURNS_PER_SHORT_THREAD:
-            thread = f"{PREFIX}thread-short-{i // TURNS_PER_SHORT_THREAD:02d}"
+            thread = f"{prefix}-thread-short-{i // TURNS_PER_SHORT_THREAD:02d}"
         error = i % 10 == 0
         trace_id = b.turn(
             f"recent/{i}", when, duration_ms=200 + (i % 50) * 10, thread_id=thread, error=error
@@ -387,7 +397,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
         if correctness < 0.5:
             low_correctness.append(trace_id)
     short_threads = [
-        ThreadCase(f"{PREFIX}thread-short-{n:02d}", TURNS_PER_SHORT_THREAD)
+        ThreadCase(f"{prefix}-thread-short-{n:02d}", TURNS_PER_SHORT_THREAD)
         for n in range(SHORT_THREADS)
     ]
 
@@ -449,7 +459,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
             duration_ms=50,
         )
 
-    long_thread = ThreadCase(f"{PREFIX}thread-long", LONG_THREAD_TURNS)
+    long_thread = ThreadCase(f"{prefix}-thread-long", LONG_THREAD_TURNS)
     t_long = anchor - 20 * hour
     for k in range(LONG_THREAD_TURNS):
         b.trace(
@@ -470,7 +480,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
     thread_scores: list[JsonObject] = [
         {
             "thread_id": scored_thread.id,
-            "project_name": PROJECT,
+            "project_name": prefix,
             "name": thread_score_name,
             "value": 1.0,
             "source": "sdk",
@@ -481,7 +491,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
 
     # Evaluation: a small dataset run by two experiments, the second worse on
     # known items; and a wide dataset past a page and past the column cut.
-    small_name = f"{PREFIX}qa"
+    small_name = f"{prefix}-qa"
     small_items: list[JsonObject] = []
     small_ids: list[str] = []
     for n in range(SMALL_DATASET_ITEMS):
@@ -497,7 +507,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
                 },
             }
         )
-    wide_name = f"{PREFIX}wide"
+    wide_name = f"{prefix}-wide"
     wide_columns = tuple(f"col_{c:02d}" for c in range(WIDE_DATASET_COLUMNS))
     wide_items: list[JsonObject] = []
     wide_ids: list[str] = []
@@ -508,8 +518,8 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
             {"id": item_id, "source": "sdk", "data": {c: f"{c} value {n}" for c in wide_columns}}
         )
 
-    baseline = ExperimentCase(f"{PREFIX}baseline", b.id(anchor, "experiment/baseline"))
-    candidate = ExperimentCase(f"{PREFIX}candidate", b.id(anchor, "experiment/candidate"))
+    baseline = ExperimentCase(f"{prefix}-baseline", b.id(anchor, "experiment/baseline"))
+    candidate = ExperimentCase(f"{prefix}-candidate", b.id(anchor, "experiment/candidate"))
     experiment_items: list[JsonObject] = []
     regressed: list[str] = []
     for exp in (baseline, candidate):
@@ -548,9 +558,9 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
                 }
             )
 
-    answer_prompt = PromptCase(f"{PREFIX}answer", 2, "Answer {{question}} using {{policy}}.")
+    answer_prompt = PromptCase(f"{prefix}-answer", 2, "Answer {{question}} using {{policy}}.")
     churn_prompt = PromptCase(
-        f"{PREFIX}churn",
+        f"{prefix}-churn",
         CHURN_PROMPT_VERSIONS,
         f"Revision {CHURN_PROMPT_VERSIONS - 1}: answer {{{{question}}}}.",
     )
@@ -563,7 +573,25 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
         for n in range(CHURN_PROMPT_VERSIONS)
     ]
 
-    rules = [f"{PREFIX}judge-{n:02d}" for n in range(RULES)]
+    rules: list[JsonObject] = [
+        {
+            "name": f"{prefix}-judge-{n:02d}",
+            "type": "llm_as_judge",
+            "action": "evaluator",
+            "project_ids": [project_id],
+            "sampling_rate": 1.0,
+            # Disabled: listed like any rule, and never runs an LLM judge on
+            # the seeded traces, which on cloud would cost money and add scores.
+            "enabled": False,
+            "code": {
+                "model": {"name": MODEL, "temperature": 0.0},
+                "messages": [{"role": "USER", "content": "Is {{output}} correct?"}],
+                "variables": {"output": "output"},
+                "schema": [{"name": "judged", "type": "BOOLEAN", "description": "correct"}],
+            },
+        }
+        for n in range(RULES)
+    ]
 
     open_issue = IssueCase(
         b.id(anchor, "issue/open"), "Refund answers cite a policy that does not exist", "high"
@@ -585,10 +613,9 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
     ]
 
     manifest = Manifest(
-        fixture_version=FIXTURE_VERSION,
         anchor=_iso(anchor),
         window_seconds=int(window.total_seconds()),
-        project_name=PROJECT,
+        project_name=prefix,
         project_id=project_id,
         recent_since=_iso(anchor - window),
         previous_since=_iso(anchor - 2 * window),
@@ -608,7 +635,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str) -> Plan:
         long_thread=long_thread,
         scored_thread=scored_thread,
         thread_score_name=thread_score_name,
-        rule_names=tuple(rules),
+        rule_names=tuple(str(rule["name"]) for rule in rules),
         small_dataset=DatasetCase(
             small_name, "", SMALL_DATASET_ITEMS, tuple(small_ids), ("question", "expected")
         ),
@@ -670,9 +697,12 @@ class Backend:
         self._http.close()
 
     def call(self, method: str, path: str, body: object = None, **params: str) -> object:
-        response = self._http.request(
-            method, f"/v1/private{path}", json=body, params=params or None
-        )
+        try:
+            response = self._http.request(
+                method, f"/v1/private{path}", json=body, params=params or None
+            )
+        except httpx.HTTPError as err:
+            raise SeedError(f"{method} {path} did not reach {self.base_url}: {err}") from err
         if response.status_code >= 400:
             raise SeedError(
                 f"{method} {path} answered {response.status_code}: {response.text[:500]}",
@@ -717,30 +747,16 @@ def _wait(what: str, check: Callable[[], bool], timeout: float = DERIVED_TIMEOUT
         time.sleep(1.0)
 
 
-def _description(anchor: str, *, window: timedelta) -> str:
-    seconds = int(window.total_seconds())
-    return f"opik-mcp live fixture v{FIXTURE_VERSION} anchor={anchor} window={seconds}"
-
-
-def _parse_description(text: str) -> tuple[int, datetime, timedelta] | None:
-    parts = dict(p.split("=", 1) for p in text.split() if "=" in p)
-    version = text.split(" v", 1)[1].split()[0] if " v" in text else ""
-    if not version.isdigit() or "anchor" not in parts or not parts.get("window", "").isdigit():
-        return None
-    anchor = datetime.fromisoformat(parts["anchor"].replace("Z", "+00:00"))
-    return int(version), anchor, timedelta(seconds=int(parts["window"]))
-
-
-def _find_project(backend: Backend) -> JsonObject | None:
-    rows, _ = backend.page("/projects", name=PROJECT, size="100")
-    return next((row for row in rows if row.get("name") == PROJECT), None)
+def _find_project(backend: Backend, name: str) -> JsonObject | None:
+    rows, _ = backend.page("/projects", name=name, size="100")
+    return next((row for row in rows if row.get("name") == name), None)
 
 
 def _by_name(backend: Backend, path: str, name: str) -> JsonObject:
     rows, _ = backend.page(path, name=name, size="100")
     row = next((r for r in rows if r.get("name") == name), None)
     if row is None:
-        raise SeedError(f"{path} holds no record named {name!r}; rerun with --wipe")
+        raise SeedError(f"{path} holds no record named {name!r}")
     return row
 
 
@@ -758,11 +774,14 @@ def _write(backend: Backend, plan: Plan) -> None:
     # Threads are built by an async listener: wait for every one verify reads,
     # and for the long one to hold all its turns.
     for thread in (m.scored_thread,):
-        _wait(f"thread {thread.id}", functools.partial(_thread_exists, backend, thread.id))
+        _wait(
+            f"thread {thread.id}",
+            functools.partial(_thread_exists, backend, m.project_name, thread.id),
+        )
     _wait(
         f"all turns of {m.long_thread.id}",
         lambda: (
-            (_thread(backend, m.long_thread.id) or {}).get("number_of_messages")
+            (_thread(backend, m.project_name, m.long_thread.id) or {}).get("number_of_messages")
             == 2 * m.long_thread.turns
         ),
     )
@@ -780,7 +799,7 @@ def _write(backend: Backend, plan: Plan) -> None:
                 "id": exp.id,
                 "name": exp.name,
                 "dataset_name": m.small_dataset.name,
-                "project_name": PROJECT,
+                "project_name": m.project_name,
             },
         )
     backend.call("POST", "/experiments/items", {"experiment_items": plan.experiment_items})
@@ -789,24 +808,7 @@ def _write(backend: Backend, plan: Plan) -> None:
         backend.call("POST", "/prompts/versions", {"name": name, "version": {"template": template}})
 
     for rule in plan.rules:
-        backend.call(
-            "POST",
-            "/automations/evaluators/",
-            {
-                "name": rule,
-                "type": "llm_as_judge",
-                "action": "evaluator",
-                "project_ids": [m.project_id],
-                "sampling_rate": 1.0,
-                "enabled": True,
-                "code": {
-                    "model": {"name": MODEL, "temperature": 0.0},
-                    "messages": [{"role": "USER", "content": "Is {{output}} correct?"}],
-                    "variables": {"output": "output"},
-                    "schema": [{"name": "judged", "type": "BOOLEAN", "description": "correct"}],
-                },
-            },
-        )
+        backend.call("POST", "/automations/evaluators/", rule)
     backend.call(
         "POST",
         "/agent-insights/issues",
@@ -818,10 +820,10 @@ def _write(backend: Backend, plan: Plan) -> None:
     )
 
 
-def _thread(backend: Backend, thread_id: str) -> JsonObject | None:
+def _thread(backend: Backend, project: str, thread_id: str) -> JsonObject | None:
     try:
         found = backend.call(
-            "POST", "/traces/threads/retrieve", {"project_name": PROJECT, "thread_id": thread_id}
+            "POST", "/traces/threads/retrieve", {"project_name": project, "thread_id": thread_id}
         )
     except SeedError as err:
         # Not there yet is a 404; anything else is a real failure, said now.
@@ -831,8 +833,8 @@ def _thread(backend: Backend, thread_id: str) -> JsonObject | None:
     return _as_object(found)
 
 
-def _thread_exists(backend: Backend, thread_id: str) -> bool:
-    return _thread(backend, thread_id) is not None
+def _thread_exists(backend: Backend, project: str, thread_id: str) -> bool:
+    return _thread(backend, project, thread_id) is not None
 
 
 def _resolve_ids(backend: Backend, manifest: Manifest) -> Manifest:
@@ -868,13 +870,13 @@ def verify(backend: Backend, plan: Plan) -> list[str]:
     expect("traces scored for correctness", scored_total, wanted=plan.scored_trace_count)
     wide = _as_object(backend.call("GET", f"/traces/{m.wide.id}"))
     expect("spans on the wide trace", wide.get("span_count"), wanted=m.wide.span_count)
-    long_thread = _thread(backend, m.long_thread.id) or {}
+    long_thread = _thread(backend, m.project_name, m.long_thread.id) or {}
     expect(
         "messages in the long thread",
         long_thread.get("number_of_messages"),
         wanted=2 * m.long_thread.turns,
     )
-    scored = _thread(backend, m.scored_thread.id) or {}
+    scored = _thread(backend, m.project_name, m.scored_thread.id) or {}
     scores = scored.get("feedback_scores")
     names = (
         {s.get("name") for s in scores if isinstance(s, dict)}
@@ -922,43 +924,65 @@ def _finish(backend: Backend, plan: Plan) -> Manifest:
     _wait("experiment scores", lambda: _experiment_scores_ready(backend, plan.manifest))
     problems = verify(backend, plan)
     if problems:
-        raise SeedError(
-            "the backend does not hold the fixture (rerun with --wipe):\n- " + "\n- ".join(problems)
-        )
+        raise SeedError("the backend does not hold the fixture:\n- " + "\n- ".join(problems))
     return plan.manifest
 
 
-def load(backend: Backend) -> Manifest | None:
-    """The fixture already on the backend, verified; None when there is none.
+def is_local(base_url: str) -> bool:
+    """A backend on this machine, started for the run, rather than a hosted one."""
+    return any(host in base_url for host in ("://localhost", "://127.0.0.1"))
 
-    Never writes, so it is what a run against a shared workspace calls: the
-    fixture there is seeded once by hand and never touched again.
+
+def _taken(backend: Backend, plan: Plan) -> list[str]:
+    """The names the plan would create that the backend already holds."""
+    m = plan.manifest
+    wanted = [
+        ("/projects", m.project_name),
+        ("/datasets", m.small_dataset.name),
+        ("/datasets", m.wide_dataset.name),
+        ("/experiments", m.baseline.name),
+        ("/experiments", m.candidate.name),
+        ("/prompts", m.answer_prompt.name),
+        ("/prompts", m.churn_prompt.name),
+    ]
+    taken: list[str] = []
+    for path, name in wanted:
+        rows, _ = backend.page(path, name=name, size="100")
+        if any(row.get("name") == name for row in rows):
+            taken.append(name)
+    return taken
+
+
+def default_window(base_url: str) -> timedelta:
+    """A week on a local backend; less on any other, which may be Opik cloud."""
+    return WINDOW if is_local(base_url) else CLOUD_WINDOW
+
+
+def seed(
+    backend: Backend,
+    *,
+    prefix: str,
+    window: timedelta | None = None,
+    now: datetime | None = None,
+) -> Manifest:
+    """Write a fresh fixture named ``prefix``, then prove the backend holds it.
+
+    Refuses a prefix any of whose names is already taken, rather than writing
+    into records it does not own and that a later wipe would delete.
     """
-    existing = _find_project(backend)
-    if existing is None:
-        return None
-    stored = _parse_description(str(existing.get("description") or ""))
-    if stored is None or stored[0] != FIXTURE_VERSION:
-        raise SeedError(
-            f"project {PROJECT!r} exists but was not seeded by fixture "
-            f"v{FIXTURE_VERSION}; rerun with --wipe"
-        )
-    _, anchor, window = stored
-    return _finish(backend, build_plan(anchor, window=window, project_id=str(existing["id"])))
-
-
-def seed(backend: Backend, *, window: timedelta = WINDOW, now: datetime | None = None) -> Manifest:
-    """Find the fixture or write it, then prove the backend holds it."""
-    found = load(backend)
-    if found is not None:
-        return found
+    window = window or default_window(backend.base_url)
     anchor = (now or datetime.now(UTC)).replace(microsecond=0)
-    description = _description(_iso(anchor), window=window)
-    backend.call("POST", "/projects", {"name": PROJECT, "description": description})
-    project = _find_project(backend)
+    taken = _taken(backend, build_plan(anchor, window=window, project_id="", prefix=prefix))
+    if taken:
+        raise SeedError(
+            f"these names already exist, so {prefix!r} would write into someone else's "
+            f"records: {', '.join(taken)}; --wipe that prefix or pick another"
+        )
+    backend.call("POST", "/projects", {"name": prefix, "description": "opik-mcp live fixture"})
+    project = _find_project(backend, prefix)
     if project is None:
-        raise SeedError(f"created project {PROJECT!r} but cannot find it")
-    plan = build_plan(anchor, window=window, project_id=str(project["id"]))
+        raise SeedError(f"created project {prefix!r} but cannot find it")
+    plan = build_plan(anchor, window=window, project_id=str(project["id"]), prefix=prefix)
     _write(backend, plan)
     return _finish(backend, plan)
 
@@ -982,9 +1006,20 @@ def _named(
     return [
         r
         for r in rows
-        if str(r.get("name", "")).startswith(prefix)
-        and (older_than is None or _created(r) < older_than)
+        if owns(prefix, str(r.get("name", ""))) and (older_than is None or _created(r) < older_than)
     ]
+
+
+def owns(prefix: str, name: str) -> bool:
+    """Whether ``name`` belongs to ``prefix``: the prefix itself, or under it.
+
+    Whole names only, so wiping ``my-fixture`` never takes ``my-fixture2``. A
+    prefix that ends in a separator, like ``RUN_PREFIX``, owns every name
+    that starts with it.
+    """
+    if prefix.endswith("-"):
+        return name.startswith(prefix)
+    return name == prefix or name.startswith(f"{prefix}-")
 
 
 def _created(row: JsonObject) -> datetime:
@@ -1038,13 +1073,13 @@ def _delete(backend: Backend, method: str, path: str, ids: list[object] | None =
             raise
 
 
-def wipe(backend: Backend) -> list[str]:
-    """Delete the fixture, and what finished or dead runs left behind.
+def wipe(backend: Backend, prefix: str) -> list[str]:
+    """Delete a fixture seeded by hand, and what dead runs left behind.
 
     A run's own records are kept while it may still be going (``STALE_RUN``),
     so a wipe on a shared workspace never pulls data from under a live run.
     """
-    return delete_named(backend, PREFIX) + sweep_runs(backend, older_than=STALE_RUN)
+    return delete_named(backend, prefix) + sweep_runs(backend, older_than=STALE_RUN)
 
 
 def sweep_runs(backend: Backend, *, older_than: timedelta) -> list[str]:
@@ -1073,30 +1108,32 @@ def _pages(fetch: Callable[[], list[JsonObject]], *, what: str) -> Iterator[list
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0] if __doc__ else None)
-    parser.add_argument("--wipe", action="store_true", help="delete the fixture, then exit")
+    parser.add_argument(
+        "--prefix", default=DEFAULT_PREFIX, help="name of the fixture's project and records"
+    )
+    parser.add_argument("--wipe", action="store_true", help="delete that fixture, then exit")
     parser.add_argument(
         "--window-hours",
         type=float,
-        default=WINDOW.total_seconds() / 3600,
-        help="length of each of the two windows; 10 for Opik cloud, which refuses old ids",
+        default=None,
+        help="length of each of the two windows; defaults to 7 days locally, 10 hours elsewhere",
     )
     args = parser.parse_args(argv)
     backend = Backend.from_env()
     try:
         if args.wipe:
-            for line in wipe(backend):
+            for line in wipe(backend, args.prefix):
                 print(f"deleted {line}", file=sys.stderr)
             return 0
-        window = timedelta(hours=args.window_hours)
-        local = any(h in backend.base_url for h in ("localhost", "127.0.0.1"))
-        if not local and window > CLOUD_MAX_WINDOW:
+        window = timedelta(hours=args.window_hours) if args.window_hours else None
+        if window and not is_local(backend.base_url) and window > CLOUD_MAX_WINDOW:
             print(
                 f"seed failed: a {window} window puts ids older than Opik cloud accepts; "
                 f"use --window-hours {int(CLOUD_MAX_WINDOW.total_seconds() // 3600)} or less",
                 file=sys.stderr,
             )
             return 1
-        manifest = seed(backend, window=window)
+        manifest = seed(backend, prefix=args.prefix, window=window)
     except SeedError as err:
         print(f"seed failed: {err}", file=sys.stderr)
         return 1

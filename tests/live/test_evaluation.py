@@ -91,17 +91,16 @@ async def test_a_name_substring_keeps_the_datasets_that_match_and_only_those(
     mcp: Live, manifest: Manifest
 ) -> None:
     wide, small = manifest.wide_dataset, manifest.small_dataset
-    # Specific enough that a shared workspace's other datasets do not crowd it out.
-    ids = set(
-        (await mcp.list("dataset", name=wide.name.removeprefix("mcp-"), size=100)).column("id")
-    )
+    # The run's own name makes the match unique in a shared workspace; the
+    # small dataset shares its prefix, so a filter that did nothing keeps it.
+    ids = set((await mcp.list("dataset", name=wide.name, size=100)).column("id"))
     assert (wide.id in ids, small.id in ids) == (True, False)
 
 
 async def test_a_name_substring_keeps_the_experiments_that_match_and_only_those(
     mcp: Live, manifest: Manifest
 ) -> None:
-    name = manifest.candidate.name.removeprefix("mcp-")
+    name = manifest.candidate.name
     ids = set((await mcp.list("experiment", name=name, size=100)).column("id"))
     assert (manifest.candidate.id in ids, manifest.baseline.id in ids) == (True, False)
 

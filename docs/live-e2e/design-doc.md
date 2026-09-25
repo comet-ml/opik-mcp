@@ -21,8 +21,15 @@ says whether the tool or the model was wrong.
 
 ## Architecture
 
-**The fixture.** One project, `mcp-live-e2e`, plus datasets, experiments,
-prompts and rules named with the prefix `mcp-live-`. It has a content axis
+**A fresh fixture per run.** Every run seeds its own fixture: one project named
+after the run, plus datasets, experiments, prompts and rules carrying the same
+name, all under `e2e-cuj-mcp-live-<run>`. It takes seconds locally and under a
+minute on cloud, and the run deletes it at the end with everything its writes
+created. No fixture outlives a run, so none can go stale or drift in a shared
+workspace. The online rules are created disabled, so cloud never runs the
+seeded LLM judges. `tests/test_seed_e2e_backend.py` checks the plan offline:
+every record stays under its prefix, and a cloud window keeps every id less
+than a day old. The fixture has a content axis
 (errored traces, threads, scores, two experiments with known regressions,
 Diagnostics issues) and a size axis: a tiny, a typical, a heavy and a wide
 trace, a short and a long thread, a small and a wide dataset, a prompt with a
@@ -31,18 +38,10 @@ large case crosses the limit a read has for it.
 
 **Ids carry time.** `since` and `until` filter on the time inside a record's
 UUIDv7 id, not on `start_time`. The seed mints each id from its record's own
-instant across two windows of one length, 7 days by default. Opik cloud
-refuses an id more than about a day old, so there the seed takes
-`--window-hours 10`: every id is inside a day when it is written. The tests
-ask for the manifest's exact instants, so the windows still hold the data as
-it ages, and the window tests run on both backends.
-
-**Deterministic and reusable.** Every id is derived from one anchor instant and
-the record's key. The anchor and the fixture version are stored in the project
-description. Seeding a backend that already holds the fixture rebuilds the same
-manifest from the anchor, verifies it and writes nothing. `--wipe` deletes
-the fixture and any run's records older than two hours, never a run that may
-still be going. A fixture from another version is refused.
+instant across two windows of one length: 7 days against a local backend,
+10 hours against any other, because Opik cloud refuses an id more than about a
+day old. The tests ask for the manifest's exact instants, so the window tests
+run on both backends.
 
 **Tests go in through the host's door only.** Nothing under `tests/live/`
 imports `opik_mcp`. The suite depends on the tool names, their arguments and
@@ -50,12 +49,11 @@ the answer shapes, which the conformance snapshots pin, so moving modules
 inside `src/` does not touch it.
 
 **Writes never touch the fixture.** Every record a write test creates,
-including the thread it closes and the issue it resolves, lives in the run's
-own project and carries the run's prefix, `e2e-cuj-mcp-live-<run>`. The run
-deletes all of it when it ends, and sweeps what a crashed run left behind
-before it starts. The `e2e-cuj-` prefix is also swept by the shared cloud
-workspace's own cleanup. A second run on the same backend therefore verifies
-the fixture again.
+including the thread it closes and the issue it resolves, lives in a sibling
+project of the fixture, `e2e-cuj-mcp-live-<run>-w`, so no write moves a count a
+read asserts. Before it starts, a run sweeps what a crashed run left behind
+more than two hours ago; the `e2e-cuj-` prefix is also swept by the shared
+cloud workspace's own cleanup.
 
 **Sizes.** Every answer's size goes to the job summary. The size tests assert
 that each answer stays under what Claude Code accepts, the ceiling defined in
@@ -64,11 +62,9 @@ gets the rest.
 
 **Two jobs.** `live-local` starts an open source Opik at its latest release
 from GHCR images with `opik.sh --backend --port-mapping`, seeds it and runs the
-suite. `live-prod` runs the whole suite against a shared cloud workspace,
-with `OPIK_LIVE_SHARED=1`: it loads the fixture seeded there once by hand and
-never seeds or wipes it, and prints the cloud version next to the open source
-one. It skips with a notice until
-`OPIK_E2E_API_KEY` and `OPIK_E2E_WORKSPACE` exist.
+suite. `live-prod` runs the same suite against a shared cloud workspace and
+prints the cloud version next to the open source one. It skips with a notice
+until `OPIK_E2E_API_KEY` and `OPIK_E2E_WORKSPACE` exist.
 
 ## Running it locally
 
@@ -99,14 +95,14 @@ cd <opik checkout>/deployment/docker-compose
 OPIK_VERSION=<release> docker compose -p opik-mcp-live \
   -f docker-compose.yaml -f live.override.yaml --profile backend up -d
 OPIK_URL=http://127.0.0.1:28080 make live
-uv run python scripts/seed_e2e_backend.py --wipe   # to start clean
 ```
 
-To seed the production workspace once:
+To seed a fixture by hand, to explore it or for another harness to reuse, and
+to delete it again:
 
 ```bash
-OPIK_URL=https://www.comet.com/opik/api OPIK_API_KEY=*** OPIK_WORKSPACE=<workspace> \
-  uv run python scripts/seed_e2e_backend.py --window-hours 10
+OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --prefix my-fixture
+OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --prefix my-fixture --wipe
 ```
 
 ## Key decisions
@@ -135,3 +131,6 @@ OPIK_URL=https://www.comet.com/opik/api OPIK_API_KEY=*** OPIK_WORKSPACE=<workspa
 - The Diagnostics job operations need Ollie, so their tests skip on an open
   source backend and run only against cloud.
 - Whether `live-local` becomes a required check, once it has a record on main.
+- How old a project must be before the shared cloud workspace's own
+  `e2e-cuj-` cleanup deletes it. A run's fixture carries that prefix too, so a
+  cleanup that took projects younger than a run would delete one mid-run.

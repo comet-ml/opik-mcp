@@ -7,14 +7,13 @@ run-name: "Live ${{ github.ref_name }} by @${{ github.actor }}"
 #
 # TWO JOBS.
 #   live-local: an open source Opik at its latest release, started here from
-#     GHCR images, seeded by scripts/seed_e2e_backend.py, then `make live`.
+#     GHCR images, then `make live`, which seeds its own fixture.
 #     Runs on every PR, on main and nightly. Needs no secrets, so fork PRs run
 #     it too.
 #   live-prod: the whole suite against a shared workspace on Opik cloud, to
-#     catch version skew and cloud-only paths. The read fixture there was
-#     seeded once by hand and is never written to; each run's writes carry
-#     their own prefix and are deleted when it ends. Nightly and on dispatch
-#     only, since it needs secrets.
+#     catch version skew and cloud-only paths. Each run seeds its own fixture
+#     and writes under its own e2e-cuj-mcp-live-<run> names and deletes them
+#     when it ends. Nightly and on dispatch only, since it needs secrets.
 #
 # ADVISORY. Neither job is a required check. Make it required only after it
 # has a record of green runs on main.
@@ -169,7 +168,6 @@ jobs:
       failed: ${{ steps.failures.outputs.failed }}
     env:
       OPIK_URL: https://www.comet.com/opik/api
-      OPIK_LIVE_SHARED: "1"
     steps:
       # Until the dedicated workspace and its secrets exist, say so and pass.
       - name: Check the production workspace is configured
