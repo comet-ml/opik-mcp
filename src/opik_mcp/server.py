@@ -463,7 +463,7 @@ async def list_entities(
         Field(
             description=(
                 "Parent project name — alternative to project_id for project-scoped "
-                "lists, so you don't need to resolve the UUID first."
+                "lists; no UUID lookup needed."
             ),
             max_length=200,
         ),

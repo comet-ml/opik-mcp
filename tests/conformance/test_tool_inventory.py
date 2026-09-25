@@ -92,6 +92,8 @@ from opik_mcp.server import mcp
 #           -99 bytes.
 #   23,280  OPIK-8496 — `read`'s name-lookup lines and the upsert operation's
 #           line say what happens instead of what to prefer. -116 bytes.
+#   23,258  OPIK-8496 — `list.project_name` drops "so you don't need to";
+#           the one input-schema change in the ticket. -22 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
