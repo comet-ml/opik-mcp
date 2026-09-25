@@ -25,6 +25,13 @@ import json
 from typing import Any, Final
 
 from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.read_list.entities.dataset.compared_row import (
+    NO_KINDS,
+    PASS_SEPARATOR,
+    RUN_SEPARATOR,
+    Experiment,
+    ScoreKinds,
+)
 from opik_mcp.read_list.entities.dataset.figures import (
     CATEGORY_CALL_CAP,
     Figures,
@@ -33,14 +40,7 @@ from opik_mcp.read_list.entities.dataset.figures import (
     label_counts_wanted,
     render_figures,
 )
-from opik_mcp.read_list.entities.dataset.layout import (
-    NO_KINDS,
-    PASS_SEPARATOR,
-    RUN_SEPARATOR,
-    Experiment,
-    ScoreKinds,
-    render,
-)
+from opik_mcp.read_list.entities.dataset.layout import render
 from opik_mcp.read_list.entities.dataset.vocabulary import COMPARED
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
