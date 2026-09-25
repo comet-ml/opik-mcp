@@ -9,7 +9,7 @@ We simulate the loop hermetically — no live LLM. The 'transcript' is a
 pair of recorded calls; the test asserts:
 
 1. The first (wrong) call produces a `validation_failed` body that contains
-   both `expected_schema` and `example`.
+   an `example` and names the `schema(operation)` call.
 2. The model's 'recovery' (mechanically derived from the embedded example
    plus the IDs the model would have from prior context) clears Stage 2
    and reaches the BE.
@@ -85,7 +85,7 @@ async def test_validation_error_carries_recoverable_example(patched_client: None
         assert body["operation"] == "span.create"
         # The two recovery handles MUST be present — the model uses these
         # to mechanically construct the retry.
-        assert "expected_schema" in body, "no expected_schema → no recovery"
+        assert "schema('span.create')" in body["message"], "no schema call → no recovery"
         assert "example" in body, "no example → no recovery"
         assert "trace_id" in {i["field"] for i in body["issues"]}
 

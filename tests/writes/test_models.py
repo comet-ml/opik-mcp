@@ -60,7 +60,7 @@ async def test_trace_create_missing_start_time() -> None:
     body = json.loads(exc_info.value.to_json())
     fields = {i["field"] for i in body["issues"]}
     assert "start_time" in fields
-    assert body["expected_schema"]["type"] == "object"
+    assert "schema('trace.create')" in body["message"]
     assert "example" in body
 
 
@@ -76,7 +76,6 @@ async def test_span_create_missing_trace_id() -> None:
     body = json.loads(exc_info.value.to_json())
     fields = {i["field"] for i in body["issues"]}
     assert "trace_id" in fields
-    assert "trace_id" in body["expected_schema"]["required"]
 
 
 @pytest.mark.anyio

@@ -87,6 +87,9 @@ from opik_mcp.server import mcp
 #   23,495  OPIK-8485 — the report now counts each tool's title and hints,
 #           +684 bytes. Hosts read them without the schema; Claude Code runs
 #           read-only tools in parallel because of them.
+#   23,396  OPIK-8496 — `write`'s note on `validation_failed` stops promising
+#           the inlined JSON Schema, which the envelope no longer carries.
+#           -99 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the

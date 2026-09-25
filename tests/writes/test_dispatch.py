@@ -460,7 +460,7 @@ async def test_job_enable_reports_the_conflict_when_the_follow_up_also_fails() -
                 client=_client(),
             )
     body = json.loads(exc_info.value.to_json())
-    assert "Workspace conflict" in json.dumps(body)
+    assert body["backend_error"]["status"] == 409
 
 
 @pytest.mark.anyio
@@ -858,10 +858,12 @@ async def test_idempotency_key_header_forwarded_to_be(
 
 
 @pytest.mark.anyio
-async def test_backend_4xx_wraps_with_body_verbatim() -> None:
+async def test_a_backend_rejection_is_one_sentence_and_the_retry_call() -> None:
+    """The backend's body is untrusted text and the REST path is not a name
+    the caller can use; the envelope keeps the status and says what to do."""
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post("/v1/private/traces").mock(
-            return_value=httpx.Response(400, json={"errors": ["project not found"]})
+            return_value=httpx.Response(400, json={"errors": ["api_key sk-live-123 is bad"]})
         )
         with pytest.raises(BackendError) as exc_info:
             await run_write(
@@ -869,12 +871,13 @@ async def test_backend_4xx_wraps_with_body_verbatim() -> None:
                 data={"name": "t", "start_time": "2026-05-18T12:00:00Z"},
                 client=_client(),
             )
-    body = json.loads(exc_info.value.to_json())
+    envelope = exc_info.value.to_json()
+    body = json.loads(envelope)
     assert body["error"] == "backend_error"
-    assert body["backend_error"]["status"] == 400
-    assert body["backend_error"]["body"] == {"errors": ["project not found"]}
-    assert body["backend_error"]["method"] == "POST"
-    assert body["backend_error"]["path"] == "/v1/private/traces"
+    assert body["backend_error"] == {"status": 400}
+    assert "sk-live-123" not in envelope
+    assert "/v1/" not in envelope
+    assert "write('trace.create'" in body["message"]
 
 
 @pytest.mark.anyio
@@ -891,6 +894,27 @@ async def test_backend_5xx_wraps_with_body() -> None:
             )
     body = json.loads(exc_info.value.to_json())
     assert body["backend_error"]["status"] == 503
+
+
+# --- validation envelope ----------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_a_validation_failure_points_at_schema_instead_of_inlining_it() -> None:
+    """The JSON Schema is one schema() call away; inlining it made a failed
+    write cost up to 3,219 characters."""
+    with pytest.raises(ValidationFailedError) as exc_info:
+        await run_write(
+            operation="span.create",
+            data={"name": "s", "start_time": "2026-05-18T12:00:00Z"},
+        )
+    envelope = exc_info.value.to_json()
+    body = json.loads(envelope)
+    assert "expected_schema" not in body
+    assert "schema('span.create')" in body["message"]
+    assert "write('span.create'" in body["message"]
+    assert "example" in body
+    assert len(envelope) < 1_000
 
 
 # --- path templating ---------------------------------------------------- #

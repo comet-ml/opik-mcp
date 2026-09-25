@@ -5,8 +5,8 @@ Stages, fail-fast:
 1. Registry lookup — ``operation`` must be a known enum value.
 2. Shape validation — ``data`` parsed against the operation's Pydantic
    model. Arrays are validated element-by-element; the first failing
-   index produces an error with the failing index, path, and the
-   operation's expected schema.
+   index produces an error with the failing index, path, and one
+   corrected example; ``schema(operation)`` returns the full schema.
 3. OAuth scope check — token's scopes must include the operation's
    required scope.
 4. BE dispatch — single vs. batch endpoint chosen from ``data`` shape,
@@ -166,13 +166,11 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
     Returns ``(validated_models, is_batch)``. Arrays past
     ``BATCH_LIMIT`` raise ``BatchTooLargeError`` before any model parse.
     """
-    schema = op.pydantic_model.model_json_schema()
     example = op.example
     if not isinstance(data, dict | list):
         raise ValidationFailedError.build(
             op.name,
             [ValidationIssue("", "data must be an object or array.", "type_mismatch")],
-            expected_schema=schema,
             example=example,
         )
 
@@ -190,7 +188,6 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
                         "batch_unsupported",
                     )
                 ],
-                expected_schema=schema,
                 example=example,
             )
         if len(data) > BATCH_LIMIT:
@@ -199,7 +196,6 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
             raise ValidationFailedError.build(
                 op.name,
                 [ValidationIssue("", "batch must contain at least one item.", "empty_batch")],
-                expected_schema=schema,
                 example=[example],
             )
         items: list[BaseModel] = []
@@ -208,11 +204,9 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
                 items.append(op.pydantic_model.model_validate(raw))
             except ValidationError as ve:
                 issues = _convert_pydantic_errors(ve, index_prefix=f"[{idx}]")
-                raise ValidationFailedError.build(
-                    op.name, issues, expected_schema=schema, example=example
-                ) from ve
+                raise ValidationFailedError.build(op.name, issues, example=example) from ve
         if op.validate_fn is not None:
-            op.validate_fn(op, items, is_batch=True, schema=schema, example=example)
+            op.validate_fn(op, items, is_batch=True, example=example)
         return items, True
 
     # Single-object branch.
@@ -220,12 +214,10 @@ def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bo
         model = op.pydantic_model.model_validate(data)
     except ValidationError as ve:
         issues = _convert_pydantic_errors(ve)
-        raise ValidationFailedError.build(
-            op.name, issues, expected_schema=schema, example=example
-        ) from ve
+        raise ValidationFailedError.build(op.name, issues, example=example) from ve
 
     if op.validate_fn is not None:
-        op.validate_fn(op, [model], is_batch=False, schema=schema, example=example)
+        op.validate_fn(op, [model], is_batch=False, example=example)
 
     return [model], False
 
@@ -293,7 +285,7 @@ def _stage4_finalize(
             # Drop the cached OAuth validation so the next request re-validates
             # and meets the 401 that triggers the host's refresh (OPIK-8252).
             note_backend_401()
-        raise BackendError.build(op.name, status, safe_body(resp), method=method, path=path)
+        raise BackendError.build(op.name, status)
     body = safe_body(resp)
     return {
         "ok": True,

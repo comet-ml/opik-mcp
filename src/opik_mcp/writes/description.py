@@ -38,10 +38,8 @@ def build_write_description() -> str:
             "take their list inside the envelope, not at the top level.",
             "- `dry_run=true`: validate + check authorization without calling the "
             "backend. Returns {dry_run, would_call: {method, path, body_size}}.",
-            "- On a schema mismatch the tool returns a `validation_failed` error "
-            "carrying the exact JSON Schema for `data` plus one corrected example. "
-            "Call `schema(operation)` ahead of time only when you want the schema "
-            "without attempting a write.",
+            "- A schema mismatch returns `validation_failed` with the issues and one "
+            "corrected example; `schema(operation)` returns the JSON Schema.",
         ]
     )
     return "\n".join(lines)

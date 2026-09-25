@@ -72,13 +72,7 @@ async def resolve_comment_thread_id(
         # Mirror the live write path: a non-404 backend failure during the
         # resolve becomes a structured BackendError, not a raw OpikError that
         # would bypass the write tool's JSON-envelope contract.
-        raise BackendError.build(
-            op.name,
-            e.http_status or 502,
-            str(e),
-            method="POST",
-            path="/v1/private/traces/threads/retrieve",
-        ) from e
+        raise BackendError.build(op.name, e.http_status or 502) from e
     # ``id`` on a TraceThread is the string thread_id, NOT a UUID — the comment
     # path needs the model UUID, so there is no valid fallback to ``id`` here.
     model_id = thread.get("thread_model_id")
