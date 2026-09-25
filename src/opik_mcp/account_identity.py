@@ -201,7 +201,7 @@ def _fetch(url: str, api_key: str) -> tuple[str | None, str | None] | None:
     )
 
 
-def _refresh(url: str, api_key: str, digest: str) -> None:
+def _refresh(*, url: str, api_key: str, digest: str) -> None:
     """Fetch and store. Runs on a daemon thread; must never raise."""
     try:
         fetched = _fetch(url, api_key)
@@ -278,7 +278,7 @@ def _maybe_refresh(settings: Settings, api_key: str, digest: str, now: float) ->
         _INFLIGHT.add(digest)
     thread = threading.Thread(
         target=_refresh,
-        args=(url, api_key, digest),
+        kwargs={"url": url, "api_key": api_key, "digest": digest},
         name="opik-mcp-identity",
         daemon=True,
     )

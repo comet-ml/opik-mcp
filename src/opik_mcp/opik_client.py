@@ -391,10 +391,10 @@ class OpikClient:
 
     def __init__(
         self,
+        *,
         base_url: str,
         api_key: str | None,
         workspace: str | None,
-        *,
         client: httpx.AsyncClient | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
@@ -452,7 +452,7 @@ class OpikClient:
 
     # -- comments --
 
-    async def add_trace_comment(self, trace_id: str, text: str) -> None:
+    async def add_trace_comment(self, trace_id: str, *, text: str) -> None:
         """``POST /v1/private/traces/{id}/comments``. Returns 201 with no body."""
         await self._request(
             "POST",
@@ -462,7 +462,7 @@ class OpikClient:
             entity_hint=f"trace {trace_id!r}",
         )
 
-    async def add_span_comment(self, span_id: str, text: str) -> None:
+    async def add_span_comment(self, span_id: str, *, text: str) -> None:
         """``POST /v1/private/spans/{id}/comments``. Returns 201 with no body."""
         await self._request(
             "POST",
@@ -472,7 +472,7 @@ class OpikClient:
             entity_hint=f"span {span_id!r}",
         )
 
-    async def add_thread_comment(self, thread_id: str, text: str) -> None:
+    async def add_thread_comment(self, thread_id: str, *, text: str) -> None:
         """``POST /v1/private/traces/threads/{id}/comments``. ``{id}`` is the thread UUID."""
         await self._request(
             "POST",
