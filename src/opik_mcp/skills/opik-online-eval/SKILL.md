@@ -43,6 +43,7 @@ Read three recent **production** traces and note the real shape of `input` and `
 ### 3. Check what already runs
 ```python
 import opik
+
 client = opik.Opik()
 existing = client.rest_client.automation_rule_evaluators.find_evaluators(project_id="<project_id>")
 ```
@@ -52,27 +53,41 @@ Same name or same failure mode already there → don't create a second one; repo
 There is **no high-level SDK wrapper**; use the REST client. LLM-as-judge, trace scope:
 ```python
 from opik.rest_api.types import (
-    AutomationRuleEvaluatorWrite_LlmAsJudge, LlmAsJudgeCodeWrite,
-    LlmAsJudgeModelParametersWrite, LlmAsJudgeMessageWrite, LlmAsJudgeOutputSchemaWrite,
+    AutomationRuleEvaluatorWrite_LlmAsJudge,
+    LlmAsJudgeCodeWrite,
+    LlmAsJudgeModelParametersWrite,
+    LlmAsJudgeMessageWrite,
+    LlmAsJudgeOutputSchemaWrite,
 )
 
 rule = AutomationRuleEvaluatorWrite_LlmAsJudge(
-    action="evaluator",                     # required literal; the model rejects the payload without it
-    name="refund_window_correct",           # becomes the feedback-score name on every scored trace — use underscores, not hyphens: OQL parses `feedback_scores.a-b` as an operator
+    action="evaluator",  # required literal; the model rejects the payload without it
+    name="refund_window_correct",  # becomes the feedback-score name on every scored trace — use underscores, not hyphens: OQL parses `feedback_scores.a-b` as an operator
     project_ids=["<project_id>"],
-    sampling_rate=0.2,                      # fraction of SDK-logged traces scored
+    sampling_rate=0.2,  # fraction of SDK-logged traces scored
     enabled=True,
-    filters=[],                             # e.g. [{"field": "tags", "operator": "contains", "value": "production"}]
+    filters=[],  # e.g. [{"field": "tags", "operator": "contains", "value": "production"}]
     code=LlmAsJudgeCodeWrite(
         model=LlmAsJudgeModelParametersWrite(name="<judge model>", temperature=0.0),
-        messages=[LlmAsJudgeMessageWrite(role="USER", content="<the validated judge prompt using {{input}} and {{output}}>")],
-        variables={"input": "input", "output": "output"},          # field paths from step 2
-        schema_=[LlmAsJudgeOutputSchemaWrite(name="refund_window_correct", type="BOOLEAN",
-                                             description="True if the response states 5-7 business days")],
-        max_cost_usd=5.0,                   # per-rule spend cap — set it
+        messages=[
+            LlmAsJudgeMessageWrite(
+                role="USER", content="<the validated judge prompt using {{input}} and {{output}}>"
+            )
+        ],
+        variables={"input": "input", "output": "output"},  # field paths from step 2
+        schema_=[
+            LlmAsJudgeOutputSchemaWrite(
+                name="refund_window_correct",
+                type="BOOLEAN",
+                description="True if the response states 5-7 business days",
+            )
+        ],
+        max_cost_usd=5.0,  # per-rule spend cap — set it
     ),
 )
-created = client.rest_client.automation_rule_evaluators.create_automation_rule_evaluator(request=rule)
+created = client.rest_client.automation_rule_evaluators.create_automation_rule_evaluator(
+    request=rule
+)
 ```
 Notes: on Opik Cloud without your own provider key, `model.name="opik-free-model"` uses the workspace's built-in free provider; the Python attribute is `schema_` (wire name `schema`); `sampling_rate` applies to production traces only (experiment traces are always scored in full); `trigger_scope` defaults to `production`. Span and thread variants: `AutomationRuleEvaluatorWrite_SpanLlmAsJudge`, `AutomationRuleEvaluatorWrite_TraceThreadLlmAsJudge`. Python metric: `AutomationRuleEvaluatorWrite_UserDefinedMetricPython` with `code={"metric": "<python source defining a BaseMetric>", "arguments": {"output": "output"}}`.
 
@@ -81,10 +96,15 @@ Endpoint, if scripting outside Python: `POST /v1/private/automations/evaluators/
 ### 5. Verify on a real trace
 ```python
 import time
-for _ in range(12):                                          # ~2 min
-    scored = client.search_traces(project_name="<project>", max_results=1,
-                                  filter_string='feedback_scores.refund_window_correct is_not_empty')
-    if scored: break
+
+for _ in range(12):  # ~2 min
+    scored = client.search_traces(
+        project_name="<project>",
+        max_results=1,
+        filter_string="feedback_scores.refund_window_correct is_not_empty",
+    )
+    if scored:
+        break
     time.sleep(10)
 ```
 If the score name already contains a hyphen (an existing rule), double-quote the key or the OQL parser reads the hyphen as an operator: `filter_string='feedback_scores."refund-window-correct" is_not_empty'`.

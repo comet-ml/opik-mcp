@@ -13,8 +13,8 @@ with the classifiers in ``environment.py`` (launch method / parent process),
 (``_resolve_workspace`` / ``_resolve_user``) — adding a new bucket is a BI
 schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
-``tests/test_analytics_events.py``, ``tests/test_analytics_privacy.py``,
-``tests/test_analytics_lifespan.py`` and ``tests/test_analytics_client.py``
+``tests/analytics/test_events.py``, ``tests/analytics/test_privacy.py``,
+``tests/analytics/test_lifespan.py`` and ``tests/analytics/test_client.py``
 (the last asserts against the decoded request body actually posted).
 
 Each Literal documents the *only* values the receiver will ever see for that
@@ -28,8 +28,8 @@ Three declared exceptions to "boolean / enum / bucket":
   irreversible one-way transforms of values the backend already holds. The raw
   key/token/session-id NEVER leaves the process. This is enforced by tests that
   call ``client._build_event`` directly
-  (``tests/test_analytics_client_build_event.py``); the recorder-based tests in
-  ``test_analytics_privacy.py`` intercept at ``track_event`` and never see what
+  (``tests/analytics/test_client_build_event.py``); the recorder-based tests in
+  ``analytics/test_privacy.py`` intercept at ``track_event`` and never see what
   ``_build_event`` builds, so they cannot catch a leak inside it.
 
   ``mcp_session_sha256`` is a SESSION grain and is **not** the adoption funnel's
@@ -73,7 +73,7 @@ Three declared exceptions to "boolean / enum / bucket":
   ``user_id_kind`` declares which sort of identifier the field holds, so a
   reader never has to infer it. Widening identity does NOT widen anything else:
   that the login appears ONLY as ``user_id`` and never bleeds into
-  ``event_properties`` is pinned in ``tests/test_analytics_client_build_event.py``
+  ``event_properties`` is pinned in ``tests/analytics/test_client_build_event.py``
   (the recorder-based suite cannot see the common block — see its docstring).
 
 Never emit free-text queries, paths, filenames, or other user prose.
@@ -174,7 +174,7 @@ Launcher = Literal["uv", "none", "unknown"]
 # ``mcp_host``: bucketed MCP host (clientInfo.name). MUST stay in sync with
 # ``mcp_client_info._MCP_HOST_PATTERNS`` — every bucket that classifier can
 # emit is declared here (enforced by
-# ``test_analytics_events.test_mcp_host_literal_covers_all_classifier_buckets``).
+# ``analytics/test_events.py::test_mcp_host_literal_covers_all_classifier_buckets``).
 # FROZEN. An absent ``clientInfo.name`` reports "other" here, the same bucket as
 # an unrecognised one — a known wart, kept because existing dashboards count on
 # it. ``McpClient`` below separates the two.
@@ -235,7 +235,7 @@ McpClient = Literal[
 # bucket that is unmapped (including ``mcp_client``'s "absent") falls to
 # "unknown". MUST stay in sync with ``mcp_client_info._HOST_LLM_FAMILY`` values
 # (enforced by
-# ``test_analytics_events.test_host_llm_family_literal_covers_all_classifier_values``).
+# ``analytics/test_events.py::test_host_llm_family_literal_covers_all_classifier_values``).
 HostLlmFamily = Literal[
     "anthropic",
     "cursor",

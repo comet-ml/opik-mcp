@@ -33,10 +33,13 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 ### 1. Resolve the suite and the baseline
 ```python
 import opik
+
 client = opik.Opik()
 
 suite = client.get_test_suite(name="<suite>", project_name="<project>")
-prior = client.get_test_suite_experiments(name="<suite>", project_name="<project>")  # newest first is not guaranteed — sort by created_at yourself
+prior = client.get_test_suite_experiments(
+    name="<suite>", project_name="<project>"
+)  # newest first is not guaranteed — sort by created_at yourself
 ```
 Baseline = the most recent prior experiment on this suite, unless the user names one. **No prior experiment → this run *is* the baseline** (step 3 still runs; status `baseline_created`). Two explicit experiments → skip step 3, go to step 4.
 
@@ -54,8 +57,16 @@ Write the runner as a **temp file outside the repo** (or a scratch path the user
 **Prompt candidates** (the change is a prompt version, not code): there is no adapter — run server-side instead:
 ```python
 client.rest_client.experiments.execute_experiment(
-    dataset_name=suite.name, dataset_id=suite.id,
-    prompts=[{"model": "<model>", "messages": [...], "configs": {}, "prompt_versions": [{"id": "<prompt_version_id>"}]}],
+    dataset_name=suite.name,
+    dataset_id=suite.id,
+    prompts=[
+        {
+            "model": "<model>",
+            "messages": [...],
+            "configs": {},
+            "prompt_versions": [{"id": "<prompt_version_id>"}],
+        }
+    ],
     project_name="<project>",
 )  # 202 Accepted; one experiment per prompt variant, processed asynchronously — poll get_experiment_by_id until items fill
 ```
@@ -64,21 +75,24 @@ client.rest_client.experiments.execute_experiment(
 Same suite, same version, same judge model, same runs-per-item as the baseline — vary **only** the thing under test.
 ```python
 result = opik.run_tests(
-    test_suite=suite,                         # or suite.get_version_view("<baseline's version>") to pin
+    test_suite=suite,  # or suite.get_version_view("<baseline's version>") to pin
     task=task,
     experiment_name="candidate-<sha>",
     experiment_tags=["compare", "<sha>"],
     model="<same judge model as baseline>",
-    generate_report=False,                    # default True writes opik_test_suite_reports/ into cwd — the repo stays untouched
+    generate_report=False,  # default True writes opik_test_suite_reports/ into cwd — the repo stays untouched
 )
-candidate_id = result.experiment_id          # result.experiment_url is the single-run link
+candidate_id = result.experiment_id  # result.experiment_url is the single-run link
 
 # GUARD: a missing judge credential does NOT raise — every item comes back failed with
 # scoring_failed=True and a "Missing credentials" reason, and the experiment is still created.
 # Treat that as a Blocker, not as a regression; do not compare against that run.
 judge_failed = [
-    r for ir in result.item_results.values() for t in ir.test_results
-    for r in t.score_results if getattr(r, "scoring_failed", False)
+    r
+    for ir in result.item_results.values()
+    for t in ir.test_results
+    for r in t.score_results
+    if getattr(r, "scoring_failed", False)
 ]
 ```
 Do not read scores off `result` and stop — step 4 reads both runs from Opik so baseline and candidate go through the same path.
@@ -116,6 +130,7 @@ Report what the numbers say. **Do not decide ship or hold** — that is `/opik-v
 Build the compare link with **both** ids — a URL-encoded JSON array — so the user lands on the side-by-side view:
 ```python
 import json, urllib.parse
+
 ids = urllib.parse.quote(json.dumps(["<baseline_id>", candidate_id]))
 compare_url = f"{ui_base}/{workspace}/experiments/{suite.id}/compare?experiments={ids}"
 ```

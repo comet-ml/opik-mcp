@@ -7,7 +7,7 @@ without creating cycles. The typed exception classes (``opik_client``,
 ``getattr`` instead of running an ``isinstance`` cascade.
 
 Adding a new bucket is a BI schema change — extend cautiously and update
-``docs/analytics.md`` (if present) plus the privacy-test allowlist.
+``docs/analytics/design-doc.md`` plus the privacy-test allowlist.
 """
 
 from __future__ import annotations

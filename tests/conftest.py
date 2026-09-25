@@ -19,7 +19,7 @@ os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 # already refuses to initialise under pytest, but that guard reads
 # ``sys.modules`` and ``PYTEST_CURRENT_TEST`` — neither of which survives into a
 # subprocess started with a CLEAN env, which is exactly how
-# ``test_analytics_subprocess`` starts one. Setting the flag here puts the
+# ``analytics/test_subprocess.py`` starts one. Setting the flag here puts the
 # opt-out in the environment itself, so anything that inherits os.environ
 # (``tests/e2e``) carries it, and the guard becomes the backstop rather than the
 # only defence. A crash in a test must never reach the real Sentry project.

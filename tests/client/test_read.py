@@ -1,0 +1,727 @@
+"""GET-side coverage for ``OpikClient`` — backs the resource layer.
+
+Same auth/error contract as the write tests (client/test_client.py); these
+add URL+query+envelope assertions for the 11 read endpoints. Spring Page
+envelope is passed through verbatim — normalization to MCP's canonical
+``{items,nextCursor?,total?}`` shape lives in ``resources.py``.
+"""
+
+import json
+
+import httpx
+import pytest
+import respx
+
+from opik_mcp.opik_client import (
+    OpikAuthError,
+    OpikClient,
+    OpikNotFoundError,
+    OpikPermissionError,
+    OpikServerError,
+    OpikValidationError,
+)
+
+OPIK_BASE = "https://opik.test"
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+def _client() -> OpikClient:
+    return OpikClient(base_url=OPIK_BASE, api_key="key-abc", workspace="ws")
+
+
+def _page(content: list[dict[str, object]], *, page: int = 1, total: int = 0) -> dict[str, object]:
+    return {"content": content, "page": page, "size": len(content), "total": total}
+
+
+# --- projects ------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_projects_sends_get_with_paging_and_headers() -> None:
+    payload = _page([{"id": "p-1", "name": "demo"}], total=1)
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().list_projects(page=2, size=25)
+
+    req = route.calls.last.request
+    assert req.headers["authorization"] == "key-abc"
+    assert req.headers["comet-workspace"] == "ws"
+    assert dict(req.url.params) == {"page": "2", "size": "25"}
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_project_hits_singleton_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-1").mock(
+            return_value=httpx.Response(200, json={"id": "p-1", "name": "demo"}),
+        )
+        body = await _client().get_project("p-1")
+    assert body == {"id": "p-1", "name": "demo"}
+
+
+# --- traces / spans ------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_traces_requires_project_id_or_name() -> None:
+    with pytest.raises(ValueError, match="project_id or project_name"):
+        await _client().list_traces()
+
+
+@pytest.mark.anyio
+async def test_list_traces_by_project_id_passes_query_param() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_traces(project_id="p-1", page=1, size=10)
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1", "page": "1", "size": "10"}
+
+
+@pytest.mark.anyio
+async def test_list_traces_by_project_name_passes_query_param() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_traces(project_name="demo")
+    assert dict(route.calls.last.request.url.params).get("project_name") == "demo"
+
+
+@pytest.mark.anyio
+async def test_get_trace_hits_singleton_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/traces/tr-1").mock(
+            return_value=httpx.Response(200, json={"id": "tr-1", "name": "x"}),
+        )
+        body = await _client().get_trace("tr-1")
+    assert body["id"] == "tr-1"
+
+
+@pytest.mark.anyio
+async def test_list_traces_forwards_filters_only_when_set() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_traces(project_id="p-1")  # no filters
+        assert "filters" not in dict(route.calls.last.request.url.params)
+
+        filt = '[{"field":"thread_id","operator":"=","value":"th-1"}]'
+        await _client().list_traces(project_id="p-1", filters=filt)
+    assert dict(route.calls.last.request.url.params).get("filters") == filt
+
+
+# --- threads -------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_threads_requires_project() -> None:
+    with pytest.raises(ValueError, match="project_id or project_name"):
+        await _client().list_threads()
+
+
+@pytest.mark.anyio
+async def test_list_threads_hits_project_scoped_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces/threads").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "th-1"}], total=1)),
+        )
+        body = await _client().list_threads(project_id="p-1", page=1, size=25)
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1", "page": "1", "size": "25"}
+    assert body["content"][0]["id"] == "th-1"
+
+
+@pytest.mark.anyio
+async def test_get_thread_requires_project() -> None:
+    with pytest.raises(ValueError, match="project_id or project_name"):
+        await _client().get_thread("th-1")
+
+
+@pytest.mark.anyio
+async def test_get_thread_posts_retrieve_body() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(200, json={"id": "th-1", "status": "active"}),
+        )
+        body = await _client().get_thread("th-1", project_name="demo")
+    req = route.calls.last.request
+    sent = json.loads(req.content)
+    assert sent == {"thread_id": "th-1", "truncate": False, "project_name": "demo"}
+    assert body["id"] == "th-1"
+
+
+@pytest.mark.anyio
+async def test_get_thread_maps_404_to_not_found() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(404, json={"message": "nope"}),
+        )
+        with pytest.raises(OpikNotFoundError):
+            await _client().get_thread("th-1", project_id="p-1")
+
+
+# --- agent insights (Diagnostics) issues --------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_list_agent_insights_issues_hits_project_scoped_path() -> None:
+    payload = _page([{"id": "is-1", "name": "Tool loop"}], total=1)
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/issues").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().list_agent_insights_issues(project_id="p-1", page=2, size=25)
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1", "page": "2", "size": "25"}
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_list_agent_insights_issues_forwards_filters_only_when_set() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/issues").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_agent_insights_issues(
+            project_id="p-1",
+            status="resolved",
+            from_date="2026-09-01",
+            to_date="2026-09-08",
+        )
+    params = dict(route.calls.last.request.url.params)
+    assert params == {
+        "project_id": "p-1",
+        "status": "resolved",
+        "from_date": "2026-09-01",
+        "to_date": "2026-09-08",
+        "page": "1",
+        "size": "10",
+    }
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_issue_hits_singleton_path_with_project() -> None:
+    payload = {"id": "is-1", "name": "Tool loop", "details": []}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/issues/is-1").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_agent_insights_issue("is-1", project_id="p-1")
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1"}
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_issue_forwards_window_when_set() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/issues/is-1").mock(
+            return_value=httpx.Response(200, json={"id": "is-1", "details": []}),
+        )
+        await _client().get_agent_insights_issue(
+            "is-1", project_id="p-1", from_date="2026-09-01", to_date="2026-09-08"
+        )
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"project_id": "p-1", "from_date": "2026-09-01", "to_date": "2026-09-08"}
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_issue_maps_404_to_not_found() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/agent-insights/issues/is-x").mock(
+            return_value=httpx.Response(404, json={"message": "nope"}),
+        )
+        with pytest.raises(OpikNotFoundError, match="is-x"):
+            await _client().get_agent_insights_issue("is-x", project_id="p-1")
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_job_hits_project_path() -> None:
+    payload = {"id": "job-1", "project_id": "p-1", "status": "enabled", "last_scan_at": None}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/agent-insights/jobs/p-1").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_agent_insights_job("p-1")
+    assert dict(route.calls.last.request.url.params) == {}
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_service_toggles_hits_the_toggles_path() -> None:
+    payload = {"ollieEnabled": True, "guardrailsEnabled": False}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/toggles/").mock(return_value=httpx.Response(200, json=payload))
+        body = await _client().get_service_toggles()
+    assert body == payload
+
+
+@pytest.mark.anyio
+async def test_get_agent_insights_job_maps_404_to_not_found() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/agent-insights/jobs/p-1").mock(
+            return_value=httpx.Response(404, json={"errors": ["not found"]}),
+        )
+        with pytest.raises(OpikNotFoundError):
+            await _client().get_agent_insights_job("p-1")
+
+
+@pytest.mark.anyio
+async def test_list_agent_insights_issues_maps_400_to_validation_error() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/agent-insights/issues").mock(
+            return_value=httpx.Response(
+                400, json={"errors": ["Parameter 'from_date' must not be after 'to_date'"]}
+            ),
+        )
+        with pytest.raises(OpikValidationError, match="from_date"):
+            await _client().list_agent_insights_issues(
+                project_id="p-1", from_date="2026-09-09", to_date="2026-09-01"
+            )
+
+
+@pytest.mark.anyio
+async def test_list_spans_requires_project_id_or_name() -> None:
+    """opik-backend rejects ``GET /spans`` without a project filter (400)."""
+    with pytest.raises(ValueError, match="project_id or project_name"):
+        await _client().list_spans(trace_id="tr-1")
+
+
+@pytest.mark.anyio
+async def test_list_spans_filters_by_trace_id_and_project_id() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/spans").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "sp-1"}])),
+        )
+        await _client().list_spans(trace_id="tr-1", project_id="p-1")
+    params = dict(route.calls.last.request.url.params)
+    assert params["trace_id"] == "tr-1"
+    assert params["project_id"] == "p-1"
+
+
+@pytest.mark.anyio
+async def test_list_spans_filters_by_trace_id_and_project_name() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/spans").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "sp-1"}])),
+        )
+        await _client().list_spans(trace_id="tr-1", project_name="demo")
+    params = dict(route.calls.last.request.url.params)
+    assert params["trace_id"] == "tr-1"
+    assert params["project_name"] == "demo"
+
+
+@pytest.mark.anyio
+async def test_get_span_hits_singleton_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/spans/sp-1").mock(
+            return_value=httpx.Response(200, json={"id": "sp-1"}),
+        )
+        body = await _client().get_span("sp-1")
+    assert body == {"id": "sp-1"}
+
+
+# --- datasets ------------------------------------------------------------ #
+
+
+@pytest.mark.anyio
+async def test_get_dataset_hits_the_datasets_path() -> None:
+    """The dataset singleton is served from /v1/private/datasets — assert
+    headers + parsed body.
+
+    `route.called` alone passes if the dataset path is swapped for any other
+    endpoint that ds-1 also resolves on; checking the parsed body forces the
+    GET to actually return through `_get_json`.
+    """
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/datasets/ds-1").mock(
+            return_value=httpx.Response(200, json={"id": "ds-1", "name": "suite"}),
+        )
+        body = await _client().get_dataset("ds-1")
+
+    req = route.calls.last.request
+    assert req.headers["authorization"] == "key-abc"
+    assert req.headers["comet-workspace"] == "ws"
+    assert body == {"id": "ds-1", "name": "suite"}
+
+
+@pytest.mark.anyio
+async def test_list_dataset_items_uses_dataset_items_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/datasets/ds-1/items").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_dataset_items("ds-1", page=3, size=5)
+    params = dict(route.calls.last.request.url.params)
+    assert params == {"page": "3", "size": "5"}
+
+
+# --- experiments ---------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_get_experiment_hits_singleton_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/experiments/ex-1").mock(
+            return_value=httpx.Response(200, json={"id": "ex-1"}),
+        )
+        body = await _client().get_experiment("ex-1")
+    assert body == {"id": "ex-1"}
+
+
+# --- prompts -------------------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_get_prompt_hits_singleton_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/prompts/pr-1").mock(
+            return_value=httpx.Response(200, json={"id": "pr-1", "latestVersion": {"v": 3}}),
+        )
+        body = await _client().get_prompt("pr-1")
+    assert body["latestVersion"] == {"v": 3}
+
+
+@pytest.mark.anyio
+async def test_list_prompt_versions_hits_subresource() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/prompts/pr-1/versions").mock(
+            return_value=httpx.Response(200, json=_page([{"v": 1}, {"v": 2}], total=2)),
+        )
+        body = await _client().list_prompt_versions("pr-1")
+    assert route.called
+    assert body["total"] == 2
+
+
+# --- name= filter coverage on the four nameable list endpoints ------------ #
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("list_projects", "/v1/private/projects"),
+        ("list_datasets", "/v1/private/datasets"),
+        ("list_experiments", "/v1/private/experiments"),
+        ("list_prompts", "/v1/private/prompts"),
+    ],
+)
+@pytest.mark.anyio
+async def test_list_name_filter_lands_in_query_params(method: str, path: str) -> None:
+    """The `if name is not None: params['name'] = name` branch on each of the
+    four nameable list endpoints. Without this test the read tool's
+    name-lookup path is silently broken if anyone removes the branch."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get(path).mock(return_value=httpx.Response(200, json=_page([])))
+        await getattr(_client(), method)(name="my-search-term")
+
+    params = dict(route.calls.last.request.url.params)
+    assert params["name"] == "my-search-term"
+    assert params["page"] == "1"
+    assert params["size"] == "10"
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("list_projects", "/v1/private/projects"),
+        ("list_datasets", "/v1/private/datasets"),
+        ("list_experiments", "/v1/private/experiments"),
+        ("list_prompts", "/v1/private/prompts"),
+    ],
+)
+@pytest.mark.anyio
+async def test_list_name_filter_omitted_when_none(method: str, path: str) -> None:
+    """Negative branch: `name=None` must NOT inject `name=` into the URL.
+
+    A naive `params["name"] = name` (no None check) sends `?name=None` which
+    opik-backend's substring filter would treat as "find items containing
+    'None'" — a subtly wrong list."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get(path).mock(return_value=httpx.Response(200, json=_page([])))
+        await getattr(_client(), method)()
+
+    params = dict(route.calls.last.request.url.params)
+    assert "name" not in params
+
+
+# --- error mapping (shared with write path) ------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_exc"),
+    [
+        (401, OpikAuthError),
+        (403, OpikPermissionError),
+        (404, OpikNotFoundError),
+        (400, OpikValidationError),
+        (422, OpikValidationError),
+        (500, OpikServerError),
+        (503, OpikServerError),
+    ],
+)
+@pytest.mark.anyio
+async def test_get_maps_status_to_typed_error(status: int, expected_exc: type[Exception]) -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-x").mock(
+            return_value=httpx.Response(status, json={"message": "bad"}),
+        )
+        with pytest.raises(expected_exc):
+            await _client().get_project("p-x")
+
+
+@pytest.mark.anyio
+async def test_non_json_response_surfaces_as_server_error() -> None:
+    """A 200 with HTML body (e.g. behind a misrouted proxy) is a real failure."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-1").mock(
+            return_value=httpx.Response(200, text="<html>oops</html>"),
+        )
+        with pytest.raises(OpikServerError, match="non-JSON"):
+            await _client().get_project("p-1")
+
+
+@pytest.mark.anyio
+async def test_non_object_json_surfaces_as_server_error() -> None:
+    """Backend contract is ``object`` for every endpoint; arrays are a bug."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-1").mock(
+            return_value=httpx.Response(200, json=[1, 2, 3]),
+        )
+        with pytest.raises(OpikServerError, match="non-object"):
+            await _client().get_project("p-1")
+
+
+# --- project KPI cards ---------------------------------------------------- #
+#
+# The wire shape here is easy to get wrong from the Java alone, and two of
+# these were: `filters` is a JSON-encoded STRING (KpiCardRequest declares
+# `String filters`, not a list), and the window travels as explicit instants
+# rather than a relative span. Verified live against www.comet.com.
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_posts_entity_type_window_and_filters_as_a_json_string() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json={"stats": []}),
+        )
+        await _client().get_project_kpi_cards(
+            "p-1",
+            entity_type="traces",
+            interval_start="2026-09-02T00:00:00Z",
+            interval_end="2026-09-09T00:00:00Z",
+            filters='[{"field":"source","operator":"=","value":"sdk"}]',
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "entity_type": "traces",
+        "interval_start": "2026-09-02T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "filters": '[{"field":"source","operator":"=","value":"sdk"}]',
+    }
+    assert isinstance(sent["filters"], str), "the backend declares filters as a String"
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_omits_unset_fields() -> None:
+    """An empty ``filters`` is malformed JSON to the backend, so it is omitted
+    rather than sent blank — same rule as the list endpoints' query params."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json={"stats": []}),
+        )
+        await _client().get_project_kpi_cards(
+            "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {"entity_type": "traces", "interval_start": "2026-09-02T00:00:00Z"}
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_returns_the_stats_list_verbatim() -> None:
+    """Order is the backend's (count, avg_duration, total_cost, errors) — not
+    the UI's card order — and `avg_duration` is null while the counters are
+    zero for an empty period. The client passes both through untouched; the
+    registry is what interprets them."""
+    payload = {
+        "stats": [
+            {"type": "count", "current_value": 5.0, "previous_value": 0.0},
+            {"type": "avg_duration", "current_value": 602.24, "previous_value": None},
+            {"type": "total_cost", "current_value": 0.0, "previous_value": 0.0},
+            {"type": "errors", "current_value": 20.0, "previous_value": 0.0},
+        ]
+    }
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(200, json=payload),
+        )
+        body = await _client().get_project_kpi_cards(
+            "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+        )
+    assert body == payload
+
+
+# --- project vocabulary: score names, usage keys, automation rules -------- #
+
+
+@pytest.mark.anyio
+async def test_score_names_sends_the_project_id_as_a_json_array() -> None:
+    """``project_ids`` is a list-shaped query param, not a bare id — the
+    endpoint is the multi-project one narrowed to one project."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/feedback-scores/names").mock(
+            return_value=httpx.Response(200, json={"scores": [{"name": "Hallucination"}]}),
+        )
+        body = await _client().list_project_score_names("p-1")
+    assert route.calls.last.request.url.params["project_ids"] == '["p-1"]'
+    assert body["scores"] == [{"name": "Hallucination"}]
+
+
+@pytest.mark.anyio
+async def test_token_usage_names_is_project_scoped_on_the_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/p-1/token-usage/names").mock(
+            return_value=httpx.Response(200, json={"names": ["prompt_tokens"]}),
+        )
+        body = await _client().list_project_token_usage_names("p-1")
+    assert route.called
+    assert body["names"] == ["prompt_tokens"]
+
+
+@pytest.mark.anyio
+async def test_project_metrics_posts_the_metric_interval_window_and_filters() -> None:
+    """Unlike kpi-cards, this endpoint takes the filters as a real array — and
+    a *separate* array per entity kind. Only the one the metric belongs to is
+    sent; the backend applies each to its own entity."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await _client().get_project_metrics(
+            "p-1",
+            metric_type="TRACE_COUNT",
+            interval="DAILY",
+            interval_start="2026-09-02T00:00:00Z",
+            interval_end="2026-09-09T00:00:00Z",
+            trace_filters=[{"field": "source", "operator": "=", "value": "sdk"}],
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent == {
+        "metric_type": "TRACE_COUNT",
+        "interval": "DAILY",
+        "interval_start": "2026-09-02T00:00:00Z",
+        "interval_end": "2026-09-09T00:00:00Z",
+        "trace_filters": [{"field": "source", "operator": "=", "value": "sdk"}],
+    }
+
+
+@pytest.mark.anyio
+async def test_project_metrics_sends_breakdown_only_when_asked() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(200, json={"results": []}),
+        )
+        await _client().get_project_metrics(
+            "p-1",
+            metric_type="SPAN_COUNT",
+            interval="DAILY",
+            interval_start="2026-09-02T00:00:00Z",
+            breakdown={"field": "MODEL"},
+        )
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["breakdown"] == {"field": "MODEL"}
+    assert "trace_filters" not in sent
+
+
+@pytest.mark.anyio
+async def test_project_metrics_maps_an_incompatible_breakdown_to_validation() -> None:
+    """The backend answers 422 with a message that contradicts itself for span
+    metrics missing from its compatibility sets. Typed here; the readable
+    refusal is produced locally before the call."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/metrics").mock(
+            return_value=httpx.Response(
+                422,
+                json={
+                    "errors": [
+                        "breakdown Group by field 'model' is not compatible with "
+                        "metric type 'SPAN_COST'. This field supports Span metrics only."
+                    ]
+                },
+            ),
+        )
+        with pytest.raises(OpikValidationError):
+            await _client().get_project_metrics(
+                "p-1",
+                metric_type="SPAN_COST",
+                interval="DAILY",
+                interval_start="2026-09-02T00:00:00Z",
+                breakdown={"field": "MODEL"},
+            )
+
+
+@pytest.mark.anyio
+async def test_activities_is_project_scoped_and_paged() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/projects/p-1/activities").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "page": 1,
+                    "size": 1,
+                    "total": 1,
+                    "content": [
+                        {
+                            "type": "experiment",
+                            "id": "e-1",
+                            "name": "baseline",
+                            "created_at": "2026-09-07T10:35:35.746Z",
+                        }
+                    ],
+                },
+            ),
+        )
+        body = await _client().list_project_activities("p-1", size=100)
+    assert dict(route.calls.last.request.url.params) == {"page": "1", "size": "100"}
+    assert body["content"][0]["type"] == "experiment"
+
+
+@pytest.mark.anyio
+async def test_automation_rules_keeps_the_trailing_slash() -> None:
+    """The resource is mapped at ``/automations/evaluators/`` — with the
+    trailing segment. Dropping it 404s, which is easy to do and easy to miss."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/automations/evaluators/").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "r-1", "name": "judge"}])),
+        )
+        await _client().list_automation_rules(project_id="p-1", page=2, size=5)
+    req = route.calls.last.request
+    assert req.url.path.endswith("/automations/evaluators/")
+    assert dict(req.url.params) == {"project_id": "p-1", "page": "2", "size": "5"}
+
+
+@pytest.mark.anyio
+async def test_kpi_cards_maps_a_rejected_filter_to_validation() -> None:
+    """The backend's 400 for a bad filter names neither the offending field nor
+    the valid ones, so it is only useful as a typed error — local validation is
+    what produces a usable message."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(
+            return_value=httpx.Response(
+                400, json={"code": 400, "message": "Invalid filters query parameter '[…]'"}
+            ),
+        )
+        with pytest.raises(OpikValidationError):
+            await _client().get_project_kpi_cards(
+                "p-1", entity_type="traces", interval_start="2026-09-02T00:00:00Z"
+            )

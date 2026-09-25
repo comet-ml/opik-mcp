@@ -1,4 +1,4 @@
-# Live tool e2e
+# live-e2e
 
 ## Purpose
 
@@ -8,7 +8,7 @@ wire contract and cannot see a filter that selects the wrong traces or a read
 too large for the host to accept. When a user-flow evaluation fails, this suite
 says whether the tool or the model was wrong.
 
-## What exists
+## What it does now
 
 - `scripts/seed_e2e_backend.py` writes a fixed fixture to any Opik over its
   REST API, verifies the backend holds it, and returns a manifest of every
@@ -18,13 +18,13 @@ says whether the tool or the model was wrong.
   and asserts exact values from the manifest. Marker `live`, run by `make live`.
 - `.github/workflows/live.yaml` runs it on every pull request, on main and
   nightly, and posts failures on main, nightly and dispatched runs to Slack.
-- `scripts/live_alert.py` builds that Slack message: the trigger and commit,
-  each backend's version and counts, every failing test once with its file and
-  assertion, the likely cause, what to do next with a rerun command for exactly
-  those tests, and links to the run and each failing job's log. What it says in
-  each case is checked in `tests/test_live_alert.py`.
+- `scripts/live_alert.py` builds that Slack message. It leads with what failed
+  on which backend and the likely cause, then the buttons to the run, each
+  failing job's log and the commits since the last green run, then each
+  failing test with its file and assertion and the next steps, including a
+  command that reruns exactly those tests.
 
-## Architecture
+## How it works
 
 **A fresh fixture per run.** Every run seeds its own fixture: one project named
 after the run, plus datasets, experiments, prompts and rules carrying the same
@@ -32,14 +32,12 @@ name, all under `mcp-live-run-<run>`. It takes seconds locally and under a
 minute on cloud, and the run deletes it at the end with everything its writes
 created. No fixture outlives a run, so none can go stale or drift in a shared
 workspace. The online rules are created disabled, so cloud never runs the
-seeded LLM judges. `tests/test_seed_e2e_backend.py` checks the plan offline:
-every record stays under its prefix, and a cloud window keeps every id less
-than a day old. The fixture has a content axis
-(errored traces, threads, scores, two experiments with known regressions,
-Diagnostics issues) and a size axis: a tiny, a typical, a heavy and a wide
-trace, a short and a long thread, a small and a wide dataset, a prompt with a
-long history, more rules and score names than the project summary lists. Each
-large case crosses the limit a read has for it.
+seeded LLM judges. The fixture has a content axis (errored traces, threads,
+scores, two experiments with known regressions, Diagnostics issues) and a size
+axis: a tiny, a typical, a heavy and a wide trace, a short and a long thread, a
+small and a wide dataset, a prompt with a long history, more rules and score
+names than the project summary lists. Each large case crosses the limit a read
+has for it.
 
 **Ids carry time.** `since` and `until` filter on the time inside a record's
 UUIDv7 id, not on `start_time`. The seed mints each id from its record's own
@@ -72,7 +70,7 @@ suite. `live-prod` runs the same suite against a shared cloud workspace and
 prints the cloud version next to the open source one. It skips with a notice
 until `OPIK_E2E_API_KEY` and `OPIK_E2E_WORKSPACE` exist.
 
-## Running it locally
+### Running it locally
 
 Start an Opik backend, point `OPIK_URL` at it, run `make live`:
 
@@ -111,7 +109,7 @@ OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --pref
 OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --prefix my-fixture --wipe
 ```
 
-## Key decisions
+## Decisions
 
 - A whole record comes back whole, and its size is stated
   ([ADR 0002](../decisions/0002-layered-reads-no-silent-cuts.md)). The heavy
@@ -120,21 +118,27 @@ OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --pref
 - Every token put into a host's context has to pay for itself
   ([ADR 0001](../decisions/0001-context-budget-first.md)); the size tests are
   where that is measured on real data.
+- The local job runs on every pull request and is advisory. Whether it becomes
+  a required check waits until it has a record of green runs on main.
+- The Diagnostics job operations need Ollie, so their tests skip on an open
+  source backend and run only against cloud.
 
-## Test coverage
+## Proven by
 
 - Reads and lists per entity: `tests/live/test_traces.py`,
   `tests/live/test_threads.py`, `tests/live/test_project.py`,
   `tests/live/test_evaluation.py`.
 - Every write operation, on both backends; the Diagnostics jobs only where
-  Ollie runs:
-  `tests/live/test_writes.py`.
+  Ollie runs: `tests/live/test_writes.py`.
 - Answer sizes and declared cuts: `tests/live/test_sizes.py`, including
   `test_an_answer_fits_what_the_host_accepts` and
   `test_a_wide_trace_accounts_for_every_span`.
+- The seed's plan stays under its prefix and inside cloud's one-day id limit:
+  `tests/repo/test_seed_e2e_backend.py`.
+- What the Slack alert says for each way a run can fail:
+  `tests/repo/test_live_alert.py`.
 
-## Open questions
+## Log
 
-- The Diagnostics job operations need Ollie, so their tests skip on an open
-  source backend and run only against cloud.
-- Whether `live-local` becomes a required check, once it has a record on main.
+- 2026-09-25: live tool e2e against a seeded open source Opik on every PR and a
+  cloud workspace nightly, with a Slack alert (#211).

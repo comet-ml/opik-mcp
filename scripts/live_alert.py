@@ -3,7 +3,7 @@
 Most people only ever see the alert, not the run, so it has to answer what
 they ask when it arrives: what failed and where, which tests and why, the
 likely cause, and what to do next, with a link for each step. The message is
-built by a pure function (``build_message``) that ``tests/test_live_alert.py``
+built by a pure function (``build_message``) that ``tests/repo/test_live_alert.py``
 checks case by case; ``main`` only reads the environment and posts.
 
 Standard library only: the notify job runs it with the runner's ``python3``

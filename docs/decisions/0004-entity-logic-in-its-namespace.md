@@ -21,14 +21,14 @@ to review. Raised in review of #186 and #187.
 
 ## Enforced by
 
-- `tests/test_read_list/test_modular.py`: no entity module at the root, no
+- `tests/read_list/test_modular.py`: no entity module at the root, no
   entity imports another, the registry is only a table, dispatchers name no
   entity, and no new entity name at the root.
-- `tests/test_writes/test_dispatch_stays_generic.py`: the dispatcher names no
+- `tests/writes/test_dispatch_stays_generic.py`: the dispatcher names no
   operation, hooks come from `writes/operations/`, and no new operation name
   at the root.
 - Today's root modules that still name entities are listed in
-  `tests/ratchets.json`. The lists only shrink. A change that needs a root table adds the missing hook
+  `tests/repo/ratchets.json`. The lists only shrink. A change that needs a root table adds the missing hook
   (filter and sort fields, schema notes, URI patterns, write models) instead.
 
 ## Log

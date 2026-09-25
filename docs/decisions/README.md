@@ -10,3 +10,4 @@ to the log at the bottom of the ADR, or write a new ADR that supersedes it.
 | [0002](0002-layered-reads-no-silent-cuts.md) | Layered reads, no silent cuts |
 | [0003](0003-five-tool-surface.md) | Five tools: read, list, write, schema, read_skill |
 | [0004](0004-entity-logic-in-its-namespace.md) | Entity logic lives in its namespace; roots are frameworks |
+| [0008](0008-stay-on-mcp-sdk-1-for-now.md) | Stay on MCP python-sdk 1.x for now; the 2.x port is known (proposed) |

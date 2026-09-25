@@ -56,10 +56,13 @@ Look for `opik-release-policy.yaml` at the repo root, then `.opik/`. Parse it; u
 Take them from `/opik-compare`'s output when it just ran. Otherwise:
 ```python
 import opik
+
 client = opik.Opik()
-runs = sorted(client.get_test_suite_experiments(name="<suite>", project_name="<project>"),
-              key=lambda e: e.get_experiment_data().created_at)
-baseline, candidate = runs[-2], runs[-1]     # or the two ids the user gave
+runs = sorted(
+    client.get_test_suite_experiments(name="<suite>", project_name="<project>"),
+    key=lambda e: e.get_experiment_data().created_at,
+)
+baseline, candidate = runs[-2], runs[-1]  # or the two ids the user gave
 ```
 Skip a **failed-judge run** (a run whose judge had no credential is not a candidate — `/opik-compare` explains how it happens). `scoring_failed` does not survive the read path; the read-back signal is: **every item failed and every assertion `reason` mentions a missing credential or an LLM infrastructure error**. Say which run you skipped and why. When the hosted MCP is connected, `list('experiment', name=…)` shows each run's averages and pass rate to pick from; the item-level read below stays on the SDK.
 
@@ -67,18 +70,38 @@ Skip a **failed-judge run** (a run whose judge had no credential is not a candid
 An experiment holds **one item per run**: with `runs_per_item: 3` a dataset item appears three times, same `dataset_item_id`, different `trace_id`. Group — a dict keyed on `dataset_item_id` silently keeps one run and loses the counts.
 ```python
 from collections import defaultdict
+
+
 def by_item(exp):
     groups = defaultdict(list)
     for i in exp.get_items():
-        groups[i.dataset_item_id].append(i)      # each: dataset_item_data (tags / subgroup key),
-    return groups                                #       assertion_results [{passed, reason}], trace_id
+        groups[i.dataset_item_id].append(i)  # each: dataset_item_data (tags / subgroup key),
+    return groups  #       assertion_results [{passed, reason}], trace_id
+
+
 b, c = by_item(baseline), by_item(candidate)
 
-def run_passed(i): return bool(i.assertion_results) and all(a.get("passed") for a in i.assertion_results)
-def counts(runs): return sum(run_passed(r) for r in runs), len(runs)            # runs_passed, runs_total
-thresholds = {it["id"]: (it.get("execution_policy") or suite.get_global_execution_policy() or {}).get("pass_threshold", 1)
-              for it in suite.get_items()}                                      # the suite, not the experiment, holds the policy
-def passed(item_id, runs): return counts(runs)[0] >= thresholds.get(item_id, 1)
+
+def run_passed(i):
+    return bool(i.assertion_results) and all(a.get("passed") for a in i.assertion_results)
+
+
+def counts(runs):
+    return sum(run_passed(r) for r in runs), len(runs)  # runs_passed, runs_total
+
+
+thresholds = {
+    it["id"]: (it.get("execution_policy") or suite.get_global_execution_policy() or {}).get(
+        "pass_threshold", 1
+    )
+    for it in suite.get_items()
+}  # the suite, not the experiment, holds the policy
+
+
+def passed(item_id, runs):
+    return counts(runs)[0] >= thresholds.get(item_id, 1)
+
+
 # experiment level (client.rest_client.experiments.get_experiment_by_id(id)): pass_rate,
 #            duration (p50/p90/p99), total_estimated_cost_avg, dataset_version_id
 ```
@@ -111,7 +134,13 @@ Never round a `hold` up because the deltas are "mostly positive"; never round a 
 The table (criterion · threshold · observed · pass/fail), the regressions named with their assertion and trace link, the compare URL with both ids, the policy source, and one next step. With `--record`, write the verdict into the candidate experiment's config — read the existing config first and merge, `update_experiment` replaces it:
 ```python
 exp = client.rest_client.experiments.get_experiment_by_id(candidate.id)
-cfg = dict(exp.metadata or {}); cfg["verdict"] = {"status": "hold", "policy": "opik-release-policy.yaml", "failed": ["regressions"], "at": "<iso time>"}
+cfg = dict(exp.metadata or {})
+cfg["verdict"] = {
+    "status": "hold",
+    "policy": "opik-release-policy.yaml",
+    "failed": ["regressions"],
+    "at": "<iso time>",
+}
 client.update_experiment(id=candidate.id, experiment_config=cfg)
 ```
 Offer — do not do — writing `opik-release-policy.yaml` with the defaults when no file existed, so the next verdict is reproducible.

@@ -13,7 +13,7 @@ end, so a run never reads or writes anyone else's data, even in a shared
 workspace. After writing, the seed reads back what it wrote and refuses a
 fixture the backend does not fully hold. Every id is derived from one anchor
 instant and the record's key, so a plan can be rebuilt and checked offline
-(``tests/test_seed_e2e_backend.py``).
+(``tests/repo/test_seed_e2e_backend.py``).
 
 Time layout. The fixture spans two windows of one length: the recent one and
 the one before it, which the project summary compares. ``since``/``until``
@@ -371,7 +371,7 @@ def build_plan(anchor: datetime, *, window: timedelta, project_id: str, prefix: 
     """The whole fixture as data, every name under ``prefix``.
 
     Pure: the same arguments give the same plan, which is what lets
-    ``tests/test_seed_e2e_backend.py`` check it without a backend.
+    ``tests/repo/test_seed_e2e_backend.py`` check it without a backend.
     """
     b = _Builder(anchor, prefix)
     # Every offset is a share of the window, so a short window keeps the shape.

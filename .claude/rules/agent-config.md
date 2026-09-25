@@ -23,7 +23,7 @@ paths:
   model that does it well, and a one-sentence description of when to use it.
 - A hook matches narrowly, exits 0 on input it doesn't understand, and exits 2
   with the reason and where the file belongs. Every hook has a test in
-  `tests/test_agent_hooks.py`.
+  `tests/repo/test_agent_hooks.py`.
 - Nothing under `.claude/skills/` or `.agents/skills/`. `npx skills add`
   ships them to users. Developer procedures are commands.
 - Memory under `.claude/dogfood/memory/`: one file per entry, no workspace or
