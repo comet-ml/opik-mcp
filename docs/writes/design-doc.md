@@ -42,22 +42,38 @@ promises, what comes back on success and failure, and where to change or add an 
 
 ```json
 {"error": "validation_failed", "operation": "thread.close",
+ "message": "data does not fit 'thread.close'; retry write('thread.close', data=…) shaped like example, and schema('thread.close') returns the full schema.",
  "issues": [{"field": "", "message": "thread_project_missing: ...", "code": "thread_project_missing"}],
- "expected_schema": {"...": "..."}, "example": {"thread_id": "...", "project_name": "..."}}
+ "example": {"thread_id": "...", "project_name": "..."}}
 ```
 
 - `field` is a dotted path, prefixed with the index in a batch (`[3].name`).
   Validation stops at the first failing item.
 - `code` is the Pydantic error type, unless a validator message starts with
   `<code>: `, which then becomes the code (`thread_project_missing`).
-- `expected_schema` equals what `schema(operation)` returns, and `example` is
-  a working payload. A check made before sending, such as a thread that is not
-  found, returns the same `validation_failed` shape (`refuse` in `wire.py`).
+- `example` is a working payload. The JSON Schema is not inlined; `message`
+  names `schema(operation)`, which returns it. A check made before sending,
+  such as a thread that is not found, returns the same `validation_failed`
+  shape (`refuse` in `wire.py`).
+
+```json
+{"error": "backend_error", "operation": "trace.create",
+ "message": "Opik rejected the data for 'trace.create' (400); fix it and retry write('trace.create', data=…).",
+ "backend_error": {"status": 400}, "backend_message": "project not found"}
+```
+
+- `message` is one sentence per status and the call to retry
+  (`_backend_sentence`). `backend_error` holds only the status, which
+  analytics buckets on; the body, method and path are not carried.
+- `backend_message` appears on a 400 or 422 only: the strings under the
+  body's `errors` or `message`, cut at `_BACKEND_REASON_CHARS`
+  (`backend_reason` in `src/opik_mcp/opik_client.py`). A non-JSON body or any other status has none.
+- A Diagnostics enable whose 409 follow-up fails reports the 409.
 
 Other codes (`src/opik_mcp/writes/errors.py`): `unknown_operation` (with
-`valid_operations`, `did_you_mean`), `batch_too_large` (over `BATCH_LIMIT`),
-`authorization_denied` (`required_scope`) and `backend_error` (status and body as
-received; the OAuth 401 hint is in [hosted-auth](../hosted-auth/design-doc.md)).
+`valid_operations`, `did_you_mean`), `batch_too_large` (over `BATCH_LIMIT`) and
+`authorization_denied` (`required_scope`). The OAuth 401 hint is in
+[hosted-auth](../hosted-auth/design-doc.md).
 
 ### Scopes
 
@@ -119,8 +135,12 @@ description and `schema` follow. Also:
   ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md), #186).
 - `operation` is advertised as an enum but typed `str`, so a wrong name reaches
   the dispatcher and gets the valid names back (#99).
-- Every validation error carries the schema and a working example, so the
-  model can fix the call in one more turn without calling `schema` (#99).
+- A validation error carries the issues and a working example, and names
+  `schema(operation)` for the schema. Inlining the schema made a failed write
+  cost up to 3,219 characters (OPIK-8496; it was inlined from #99).
+- A backend error carries no body, method or path, since the body is
+  untrusted text. The capped `backend_message` on a 400 or 422 is the
+  exception, in its own field so it is never read as ours (OPIK-8496).
 - A link never costs a backend call after the write. A failed lookup would make
   a successful write look failed (#201).
 - Thread writes take the `thread_id` string plus a project, and the comment
@@ -142,7 +162,10 @@ description and `schema` follow. Also:
 ## Proven by
 
 - The request each operation sends, scope refusal, dry run, idempotency and
-  backend errors: `tests/writes/test_dispatch.py`. Models and their issue
+  backend errors: `tests/writes/test_dispatch.py`; the envelope shapes,
+  `test_a_validation_failure_points_at_schema_instead_of_inlining_it`,
+  `test_a_backend_rejection_is_one_sentence_and_the_retry_call`,
+  `test_a_write_backend_message_is_capped`, `test_a_500_write_has_no_backend_message`. Models and their issue
   codes: `tests/writes/test_models.py`, `tests/writes/test_data_rules.py`.
 - Registry, enum, models and description agree: `tests/writes/test_registry.py`,
   and over a real MCP session `tests/conformance/test_write_tool_surface.py`.
@@ -153,6 +176,7 @@ description and `schema` follow. Also:
 
 ## Log
 
+- 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/422 adds a capped `backend_message` (OPIK-8496).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).
 - 2026-09-22: `item_count` counts records inside an envelope; a large upsert had reported 1 (#199).
 - 2026-09-17: `test_suite.*` writes became `dataset.create` and `dataset_item.upsert`; a suite is a dataset (#190).

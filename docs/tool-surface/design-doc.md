@@ -76,14 +76,24 @@ project if set, tool selection, the link rule, and today's UTC date.
 - `fields=[…]` returns only the named dotted paths, uncut, and always keeps
   the id. It is marked `| projected` in the header and on the line under it.
   An unknown path is refused with the valid ones.
+- A backend failure is one sentence: what was asked and what to change
+  (`_raise_for_status` in `src/opik_mcp/opik_client.py`). A missing record
+  adds the `list('<type>', …)` call for a listable type
+  (`_format_client_error`). A 400 or 422 ends with `Backend said: "…"`: the
+  strings under the body's `errors` or `message`, on one line, cut at
+  `_BACKEND_REASON_CHARS` (`backend_reason`). No other part of the body, and
+  no REST path, reaches a refusal.
 
 ### list
 
 ```
-[list: trace | filters: error_info is_not_empty AND source = "sdk" | sort: duration desc | since: 1h (2026-09-24T10:03Z)]
+[list: trace | 1,234 tok | filters: error_info is_not_empty AND source = "sdk" | sort: duration desc | since: 1h (2026-09-24T10:03Z)]
 ```
 
-- The header echoes filters, sort, since, until, search and fields, in that order.
+- Every list answer's first line states its size, the same estimate a read
+  gives (`list_size_header` in `src/opik_mcp/read_list/size.py`). A runner's
+  answer gets it put into the `[list: …]` line it wrote (`with_list_size`).
+- The header then echoes filters, sort, since, until, search and fields, in that order.
 - `filters` is OQL, the grammar of the SDK's `search_traces(filter_string=…)`,
   checked in `src/opik_mcp/read_list/oql.py`. All problems in a string come
   back in one `OQLError`; an unknown field gets the closest name and the valid
@@ -95,11 +105,14 @@ project if set, tool selection, the link rule, and today's UTC date.
   `7d`, `2w` or an ISO-8601 instant with a zone. Only trace, span and thread
   take a window or `search`; other types refuse both and name what works.
 - trace, span and thread need `project_id` or `project_name`. A misspelled
-  name gets the closest project name back.
+  name gets the closest project name back: on a 404 the projects endpoint is
+  asked whether the name exists (`_refuse_unknown_project`).
 - An entity with its own runner (`project_metric`, the dataset comparison) takes the call from `run_list`.
 - Columns are id, name, `list_extra_fields`, then the sort and filter fields.
   Cells past `_TRUNCATE_AT` are cut and counted; `url` cells never are.
   `fields=[…]` picks the columns and lifts the cut.
+- No default column is a trace body: `list('thread')` leaves out
+  `first_message`, and `fields=["first_message"]` still returns it.
 - The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`).
 
 An empty page with a zero total carries at most one hint, picked by
@@ -176,8 +189,16 @@ Boundaries:
   page that an agent read as the result (`_search_refusal`).
 - One copy of each answer, because `structuredContent` doubled every string
   on the wire. Links are never guessed (#201).
-- Not built: a size header on `list`, and a result cap through
-  `_meta["anthropic/maxResultSizeChars"]` (open in ADR 0001 and ADR 0002).
+- A refusal carries no backend body and no REST path: the body is untrusted
+  text and the path is not a name the caller can use. The one exception is
+  the capped `errors`/`message` strings of a 400 or 422, labelled as the
+  backend's, because a validation reason is what makes the retry right
+  (OPIK-8496).
+- A thread's `first_message` left the default columns because a table never
+  echoes a trace body; rows stay distinct by id, status, size and time
+  (OPIK-8496).
+- Not built: a result cap through `_meta["anthropic/maxResultSizeChars"]`
+  (open in ADR 0002).
 
 ### Traps
 
@@ -210,7 +231,14 @@ Boundaries:
 - Reads and slimming: `tests/read_list/test_read_tool.py`; the uncut
   record, `test_a_huge_record_comes_back_whole`.
 - Lists, the `sdk` default and empty-page hints:
-  `tests/read_list/test_list_tool.py`, `tests/read_list/test_list_filters.py`.
+  `tests/read_list/test_list_tool.py`, `tests/read_list/test_list_filters.py`;
+  the size on every page, `test_a_page_states_its_size_on_the_first_line`,
+  `test_a_series_states_its_size_on_the_first_line`; no thread body,
+  `test_a_thread_page_does_not_echo_the_first_message_body`.
+- Refusals: `test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path`
+  and the backend-reason cases in `tests/client/test_read.py`
+  (`test_a_400_quotes_the_backends_error_strings_after_the_fix`,
+  `test_the_quoted_backend_text_is_capped`, `test_only_a_400_or_422_quotes_the_backend`).
 - OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
@@ -220,6 +248,7 @@ Boundaries:
 
 ## Log
 
+- 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).
 - 2026-09-23: a UI link on every answer; the duplicate `structuredContent` copy removed (#201).
 - 2026-09-22: inline budget on children's bodies, stated in the answer (#199).
