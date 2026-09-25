@@ -54,7 +54,8 @@ promises, what comes back on success and failure, and where to change or add an 
 - `example` is a working payload. The JSON Schema is not inlined; `message`
   names `schema(operation)`, which returns it. A check made before sending,
   such as a thread that is not found, returns the same `validation_failed`
-  shape (`refuse` in `wire.py`).
+  shape (`refuse` in `wire.py`), but its `message` is the check's own sentence
+  and fix, repeated in the issue, rather than the schema-mismatch one.
 
 ```json
 {"error": "backend_error", "operation": "trace.create",
@@ -63,12 +64,14 @@ promises, what comes back on success and failure, and where to change or add an 
 ```
 
 - `message` is one sentence per status and the call to retry
-  (`_backend_sentence`). `backend_error` holds only the status, which
+  (`_backend_sentence`); a 409 says the write conflicts with an existing
+  record rather than that the data is bad. `backend_error` holds only the status, which
   analytics buckets on; the body, method and path are not carried.
 - `backend_message` appears on a 400 or 422 only: the strings under the
   body's `errors` or `message`, cut at `_BACKEND_REASON_CHARS`
   (`backend_reason` in `src/opik_mcp/opik_client.py`). A non-JSON body or any other status has none.
-- A Diagnostics enable whose 409 follow-up fails reports the 409.
+- A Diagnostics enable whose 409 follow-up PATCH fails reports the PATCH's
+  status, so a 401 keeps the credential hint and a 5xx says retry.
 
 Other codes (`src/opik_mcp/writes/errors.py`): `unknown_operation` (with
 `valid_operations`, `did_you_mean`), `batch_too_large` (over `BATCH_LIMIT`) and
@@ -165,6 +168,9 @@ description and `schema` follow. Also:
   backend errors: `tests/writes/test_dispatch.py`; the envelope shapes,
   `test_a_validation_failure_points_at_schema_instead_of_inlining_it`,
   `test_a_backend_rejection_is_one_sentence_and_the_retry_call`,
+  `test_a_failed_follow_up_after_409_reports_its_own_status`,
+  `test_a_409_write_says_it_conflicts_rather_than_bad_data`,
+  `test_a_write_backend_message_is_one_line_without_double_quotes`,
   `test_a_write_backend_message_is_capped`, `test_a_500_write_has_no_backend_message`. Models and their issue
   codes: `tests/writes/test_models.py`, `tests/writes/test_data_rules.py`.
 - Registry, enum, models and description agree: `tests/writes/test_registry.py`,

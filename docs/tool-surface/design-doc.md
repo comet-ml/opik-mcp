@@ -238,7 +238,9 @@ Boundaries:
 - Refusals: `test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path`
   and the backend-reason cases in `tests/client/test_read.py`
   (`test_a_400_quotes_the_backends_error_strings_after_the_fix`,
-  `test_the_quoted_backend_text_is_capped`, `test_only_a_400_or_422_quotes_the_backend`).
+  `test_the_quoted_backend_text_is_capped`,
+  `test_the_quoted_backend_text_is_one_line_without_double_quotes`,
+  `test_only_a_400_or_422_quotes_the_backend`).
 - OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
