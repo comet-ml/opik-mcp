@@ -152,7 +152,8 @@ write → writes/registry.py → writes/operations/evaluation.py build hooks
 - Links: `tests/read_list/test_link_shape.py`, `tests/hermetic/reads/test_experiment.py`,
   `tests/hermetic/reads/test_dataset.py`.
 - Evaluation write bodies and their validation errors:
-  `tests/writes/test_dispatch.py`, `tests/writes/test_models.py`.
+  `tests/writes/test_dispatch.py`, `tests/writes/test_models.py`; over stdio and
+  HTTP: `tests/hermetic/writes/test_evaluation.py`.
 
 ## Log
 
