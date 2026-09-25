@@ -22,9 +22,13 @@ what the caller pays per call. Both are the user's context. ADRs
   behind `schema()` or `read_skill`. Raising the budget is its own commit with
   a dated note in the test.
 - A description is a contract. It says what the tool does and returns, in the
-  caller's words, and never how the model should behave. Every sentence has a
-  probe in `tests/e2e/test_description_claims.py`. If you can't write a probe
-  that would fail, delete the sentence.
+  caller's words, and never how the model should behave.
+- Every sentence of an entity description has a probe in
+  `tests/e2e/test_description_claims.py`. If you can't write a probe that
+  would fail, delete the sentence. Tool descriptions have no probes: the
+  budget test measures them, `tests/conformance/test_schema_snapshots.py`
+  pins their argument descriptions, and a reviewer reads them. An
+  entity-specific promise belongs in the entity description.
 - Every tool declares `title`, `readOnlyHint`, `destructiveHint` and
   `openWorldHint`. Hosts decide permissions from them.
 - Input schemas change on purpose. `UPDATE_SNAPSHOTS=1` in its own commit, and
