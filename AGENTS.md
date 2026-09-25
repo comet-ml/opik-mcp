@@ -45,7 +45,8 @@ How a call flows:
 | `make e2e` | the real stdio startup; not part of `make check` | yes, own job |
 | `make skills-verify-source` | installing from this repo resolves exactly the authored skills | yes |
 | `make conformance` | the MCP wire contract only, for fast iteration | inside `check` |
-| `make live` / `make user-flows` | real backend / real agent (OPIK-8490, OPIK-8491) | not yet |
+| `make live` | the tools against a seeded real Opik; needs `OPIK_URL` | yes, `live.yaml` |
+| `make user-flows` | real agent (OPIK-8491) | not yet |
 | `make install-branch` | installs this worktree as MCP server `opik-<ticket>` | no |
 
 `make` runs mypy over `src/`, `tests/` and the scripts, and ruff over

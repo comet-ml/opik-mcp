@@ -95,8 +95,8 @@ server.write                  src/opik_mcp/server.py
 Evaluation hooks: [experiment-flows](../experiment-flows/design-doc.md).
 Diagnostics hooks: [diagnostics](../diagnostics/design-doc.md). `write_json`:
 [runtime](../runtime/design-doc.md). Error kinds:
-[analytics](../analytics/design-doc.md). Smoke scripts `scripts/smoke_*.py`
-run by hand, not in CI.
+[analytics](../analytics/design-doc.md). Every write against a real Opik:
+[live-e2e](../live-e2e/design-doc.md).
 
 ### Adding an operation
 

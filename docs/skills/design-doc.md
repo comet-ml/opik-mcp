@@ -97,7 +97,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   `src/opik_mcp/skills_resources.py`. HTTP installs it in `build_app`, stdio in
   `_run_transport` in `src/opik_mcp/__main__.py`.
 - The pack: `scripts/build_skills_pack.py` and the `skills-*` targets in
-  `Makefile`. `scripts/smoke_skills_mcp.py` checks every form over stdio.
+  `Makefile`. `tests/e2e/test_stdio_session.py` checks the forms over stdio.
 - Budgets: [tool-surface](../tool-surface/design-doc.md). Analytics:
   [analytics](../analytics/design-doc.md). Evaluation reads: [experiment-flows](../experiment-flows/design-doc.md).
 
