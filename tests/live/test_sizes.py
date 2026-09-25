@@ -148,3 +148,21 @@ async def test_a_heavy_trace_declares_which_bodies_it_cut(mcp: Live, manifest: M
     note = record.get("spanBodies")
     assert isinstance(note, str), "cut span bodies must be declared"
     assert "read('span'" in note, "and the call that returns one whole"
+
+
+async def test_the_backend_cuts_a_span_body_where_the_read_counts_it(
+    mcp: Live, manifest: Manifest
+) -> None:
+    """The read counts a span as cut from the length the backend cuts at.
+
+    The heavy trace's span bodies are twice that length and the typical
+    trace's are a few words, so a backend that cut elsewhere, or a count
+    taken from a threshold it does not use, shows here as a wrong number.
+    """
+    heavy = (await mcp.read("trace", manifest.heavy.id)).record().get("spanBodies")
+    typical = (await mcp.read("trace", manifest.typical.id)).record().get("spanBodies")
+    assert isinstance(heavy, str), "the heavy trace's cut must be declared"
+    assert isinstance(typical, str), "the typical trace's spans must be declared uncut"
+    count = f"{manifest.heavy.span_count} of {manifest.heavy.span_count} spans had a field cut"
+    assert count in heavy, heavy
+    assert "no span reached" in typical, typical

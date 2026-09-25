@@ -122,6 +122,13 @@ OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --pref
   a required check waits until it has a record of green runs on main.
 - The Diagnostics job operations need Ollie, so their tests skip on an open
   source backend and run only against cloud.
+- A test that pins what the backend computes, rather than the shape of our
+  answer, lives here and not against the hermetic stub, where it would only
+  check the stub against itself: the error-rate and cost arithmetic of
+  `list('project_metric')` and where the backend cuts a span body. The
+  comparison's constant cost on a 100,000-case suite stays hermetic: a run
+  cannot seed a suite that size, and the claim is about our page, not the
+  backend's data.
 
 ## Proven by
 
@@ -131,8 +138,11 @@ OPIK_URL=http://127.0.0.1:28080 uv run python scripts/seed_e2e_backend.py --pref
 - Every write operation, on both backends; the Diagnostics jobs only where
   Ollie runs: `tests/live/test_writes.py`.
 - Answer sizes and declared cuts: `tests/live/test_sizes.py`, including
-  `test_an_answer_fits_what_the_host_accepts` and
-  `test_a_wide_trace_accounts_for_every_span`.
+  `test_an_answer_fits_what_the_host_accepts`,
+  `test_a_wide_trace_accounts_for_every_span` and
+  `test_the_backend_cuts_a_span_body_where_the_read_counts_it`.
+- The metric arithmetic: `test_an_error_rate_bucket_is_the_share_of_its_traces_that_errored`
+  and `test_a_sub_cent_cost_survives_the_table` in `tests/live/test_project.py`.
 - The seed's plan stays under its prefix and inside cloud's one-day id limit:
   `tests/repo/test_seed_e2e_backend.py`.
 - What the Slack alert says for each way a run can fail:

@@ -153,7 +153,8 @@ Where to start:
   copied grouping matrix.
 - `tests/hermetic/reads/test_project.py`, `tests/hermetic/reads/test_project_metric.py`,
   `tests/hermetic/reads/test_score_name.py`, `tests/hermetic/reads/test_online_rule.py`:
-  the same over stdio against a stub backend. `tests/client/test_read.py`: the name endpoints' wire shapes.
+  the same over stdio against a stub backend. The rate and cost arithmetic
+  against a real backend: `tests/live/test_project.py`. `tests/client/test_read.py`: the name endpoints' wire shapes.
 
 ## Log
 
