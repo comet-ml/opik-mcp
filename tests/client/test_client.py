@@ -244,8 +244,8 @@ async def test_write_path_propagates_connect_timeout_unchanged() -> None:
 
 
 @pytest.mark.anyio
-async def test_a_validation_error_names_the_target_not_the_backend_body() -> None:
-    """The backend's body is untrusted text; the error names what was asked."""
+async def test_a_validation_error_names_the_target_then_quotes_the_backend() -> None:
+    """Our sentence names what was asked; the backend's reason follows, labelled."""
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post("/v1/private/traces/tr-1/comments").mock(
             return_value=httpx.Response(400, json={"message": "text must be non-blank"})
@@ -253,7 +253,7 @@ async def test_a_validation_error_names_the_target_not_the_backend_body() -> Non
         with pytest.raises(OpikValidationError) as err:
             await _client().add_trace_comment("tr-1", "")
     assert "trace 'tr-1'" in str(err.value)
-    assert "non-blank" not in str(err.value)
+    assert str(err.value).endswith('Backend said: "text must be non-blank"')
 
 
 # --- client injection (for tests + e.g. shared connection pool) ----------- #

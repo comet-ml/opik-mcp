@@ -863,7 +863,9 @@ async def test_a_backend_rejection_is_one_sentence_and_the_retry_call() -> None:
     the caller can use; the envelope keeps the status and says what to do."""
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post("/v1/private/traces").mock(
-            return_value=httpx.Response(400, json={"errors": ["api_key sk-live-123 is bad"]})
+            return_value=httpx.Response(
+                400, json={"errors": ["project not found"], "stack": "api_key sk-live-123"}
+            )
         )
         with pytest.raises(BackendError) as exc_info:
             await run_write(
@@ -875,6 +877,7 @@ async def test_a_backend_rejection_is_one_sentence_and_the_retry_call() -> None:
     body = json.loads(envelope)
     assert body["error"] == "backend_error"
     assert body["backend_error"] == {"status": 400}
+    assert body["backend_message"] == "project not found"
     assert "sk-live-123" not in envelope
     assert "/v1/" not in envelope
     assert "write('trace.create'" in body["message"]
@@ -894,6 +897,48 @@ async def test_backend_5xx_wraps_with_body() -> None:
             )
     body = json.loads(exc_info.value.to_json())
     assert body["backend_error"]["status"] == 503
+
+
+async def _backend_envelope(response: httpx.Response) -> dict[str, object]:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces").mock(return_value=response)
+        with pytest.raises(BackendError) as exc_info:
+            await run_write(
+                operation="trace.create",
+                data={"name": "t", "start_time": "2026-05-18T12:00:00Z"},
+                client=_client(),
+            )
+    parsed: dict[str, object] = json.loads(exc_info.value.to_json())
+    return parsed
+
+
+@pytest.mark.anyio
+async def test_a_422_write_carries_the_backends_message_as_its_own_field() -> None:
+    body = await _backend_envelope(httpx.Response(422, json={"message": "name is blank"}))
+    assert body["backend_message"] == "name is blank"
+    assert "name is blank" not in str(body["message"])
+
+
+@pytest.mark.anyio
+async def test_a_write_backend_message_is_capped() -> None:
+    body = await _backend_envelope(httpx.Response(400, json={"errors": ["y" * 5_000]}))
+    message = body["backend_message"]
+    assert isinstance(message, str)
+    assert len(message) <= 200
+    assert message.endswith("…")
+
+
+@pytest.mark.anyio
+async def test_a_non_json_write_rejection_has_no_backend_message() -> None:
+    body = await _backend_envelope(httpx.Response(400, text="<html>proxy error</html>"))
+    assert "backend_message" not in body
+
+
+@pytest.mark.anyio
+async def test_a_500_write_has_no_backend_message() -> None:
+    body = await _backend_envelope(httpx.Response(500, json={"errors": ["NPE at line 3"]}))
+    assert "backend_message" not in body
+    assert "NPE" not in json.dumps(body)
 
 
 # --- validation envelope ----------------------------------------------- #

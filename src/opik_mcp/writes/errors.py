@@ -161,14 +161,21 @@ class BackendError(WriteError):
     error: ErrorCode = field(default=CODE_BACKEND_ERROR, init=False)
 
     @classmethod
-    def build(cls, operation: str, status: int) -> BackendError:
+    def build(
+        cls, operation: str, status: int, *, backend_message: str | None = None
+    ) -> BackendError:
         # The backend's body is untrusted text and the REST path is not a name
         # the caller can use, so neither is carried; the status is, for the
-        # analytics bucket.
+        # analytics bucket. ``backend_message`` is the backend's own capped
+        # reason on a 400 or 422 (``opik_client.backend_reason``), kept in its
+        # own field so it is never read as ours.
+        extra: dict[str, Any] = {"backend_error": {"status": status}}
+        if backend_message:
+            extra["backend_message"] = backend_message
         return cls(
             operation=operation,
             message=_backend_sentence(operation, status),
-            extra={"backend_error": {"status": status}},
+            extra=extra,
         )
 
 

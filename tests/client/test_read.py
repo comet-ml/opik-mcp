@@ -484,7 +484,9 @@ async def test_get_maps_status_to_typed_error(status: int, expected_exc: type[Ex
 async def test_a_backend_error_is_one_sentence_without_the_body_or_path(status: int) -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/projects/p-x").mock(
-            return_value=httpx.Response(status, json={"message": "token sk-live-123 rejected"}),
+            return_value=httpx.Response(
+                status, json={"errors": ["bad filter"], "trace": "token sk-live-123"}
+            ),
         )
         with pytest.raises(
             (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError)
@@ -494,6 +496,53 @@ async def test_a_backend_error_is_one_sentence_without_the_body_or_path(status: 
     assert "sk-live-123" not in message
     assert "/v1/" not in message
     assert "project 'p-x'" in message
+
+
+async def _refusal_for(response: httpx.Response) -> str:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects/p-x").mock(return_value=response)
+        with pytest.raises(
+            (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError)
+        ) as err:
+            await _client().get_project("p-x")
+    return str(err.value)
+
+
+@pytest.mark.anyio
+async def test_a_400_quotes_the_backends_error_strings_after_the_fix() -> None:
+    message = await _refusal_for(
+        httpx.Response(400, json={"errors": ["from_date is after to_date", "size > 100"]})
+    )
+    assert message.endswith('passed. Backend said: "from_date is after to_date; size > 100"')
+
+
+@pytest.mark.anyio
+async def test_a_422_quotes_the_backends_message() -> None:
+    message = await _refusal_for(httpx.Response(422, json={"message": "name must not be blank"}))
+    assert message.endswith('Backend said: "name must not be blank"')
+
+
+@pytest.mark.anyio
+async def test_the_quoted_backend_text_is_capped() -> None:
+    message = await _refusal_for(httpx.Response(400, json={"errors": ["x" * 5_000]}))
+    quoted = message.split('Backend said: "', 1)[1].rstrip('"')
+    assert len(quoted) <= 200
+    assert quoted.endswith("…")
+
+
+@pytest.mark.anyio
+async def test_a_non_json_400_quotes_nothing() -> None:
+    message = await _refusal_for(httpx.Response(400, text="<html>proxy error</html>"))
+    assert "Backend said" not in message
+    assert "proxy" not in message
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 500, 503])
+@pytest.mark.anyio
+async def test_only_a_400_or_422_quotes_the_backend(status: int) -> None:
+    message = await _refusal_for(httpx.Response(status, json={"errors": ["internal detail"]}))
+    assert "Backend said" not in message
+    assert "internal detail" not in message
 
 
 @pytest.mark.anyio

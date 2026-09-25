@@ -1521,6 +1521,36 @@ def note_backend_401() -> str | None:
     return oauth_token_expired_hint()
 
 
+#: Room for a validation reason or two; a longer one is cut and ends in "…".
+_BACKEND_REASON_CHARS = 200
+
+
+def backend_reason(resp: httpx.Response) -> str | None:
+    """The backend's own words on a 400 or 422, capped; ``None`` otherwise.
+
+    Only the strings under ``errors`` (Opik's ``ErrorMessage``) or ``message``
+    (Dropwizard's), joined and on one line — never the rest of the body, and
+    never for a status where the text is about the server rather than the
+    request.
+    """
+    if resp.status_code not in (400, 422):
+        return None
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    errors, message = body.get("errors"), body.get("message")
+    strings = [e for e in errors if isinstance(e, str)] if isinstance(errors, list) else []
+    if not strings and isinstance(message, str):
+        strings = [message]
+    text = " ".join("; ".join(strings).split()).replace('"', "'")
+    if len(text) > _BACKEND_REASON_CHARS:
+        text = text[: _BACKEND_REASON_CHARS - 1] + "…"
+    return text or None
+
+
 def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
     """One sentence per status: what was asked and what to change.
 
@@ -1544,9 +1574,11 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
             f"{entity_hint} not found (404). Check the id or name and the workspace."
         )
     if status in (400, 422):
+        reason = backend_reason(resp)
+        said = f' Backend said: "{reason}"' if reason else ""
         raise OpikValidationError(
             f"Opik rejected the request for {entity_hint} ({status}). Check the ids, "
-            "filters and window passed."
+            f"filters and window passed.{said}"
         )
     if status >= 500:
         raise OpikServerError(

@@ -535,7 +535,7 @@ async def test_read_surfaces_not_found_with_hint() -> None:
     assert UUID in msg
 
 
-_LEAKY_BODY = {"message": "column api_key='sk-live-123' violates constraint"}
+_LEAKY_BODY = {"errors": ["bad request"], "stack": "column api_key='sk-live-123' violates"}
 
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 500, 503])
