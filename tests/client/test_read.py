@@ -1,6 +1,6 @@
 """GET-side coverage for ``OpikClient`` — backs the resource layer.
 
-Same auth/error contract as the write tests (test_opik_client.py); these
+Same auth/error contract as the write tests (client/test_client.py); these
 add URL+query+envelope assertions for the 11 read endpoints. Spring Page
 envelope is passed through verbatim — normalization to MCP's canonical
 ``{items,nextCursor?,total?}`` shape lives in ``resources.py``.

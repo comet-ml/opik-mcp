@@ -19,7 +19,7 @@ import pytest
 # exactly as pytest will.
 from _pytest.mark.expression import Expression
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 TRACKED = [
     "docs/README.md",

@@ -95,6 +95,7 @@ retiring one is not.
 
 ```python
 import opik
+
 client = opik.Opik()
 # Needs the project_id (a uuid), not the name — read it off any trace from
 # search_traces (trace.project_id), or resolve it from the project name first.

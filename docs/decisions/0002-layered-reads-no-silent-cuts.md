@@ -35,11 +35,11 @@ truncation. A large answer costs context, which the caller can see and narrow
 
 ## Enforced by
 
-- `tests/test_read_list/test_read_tool.py`: `test_a_huge_record_comes_back_whole`,
+- `tests/read_list/test_read_tool.py`: `test_a_huge_record_comes_back_whole`,
   `test_a_traces_spans_are_asked_for_slim`,
   `test_the_dropped_bodies_are_counted_and_one_call_away`.
-- `tests/test_read_list/test_fields.py`: projection names what it keeps.
-- `tests/test_read_list/test_dataset_items.py`: every cut is declared.
+- `tests/read_list/test_fields.py`: projection names what it keeps.
+- `tests/read_list/test_dataset_items.py`: every cut is declared.
 
 ## Log
 

@@ -1,6 +1,6 @@
 """Unit tests for :mod:`opik_mcp.analytics.errors`.
 
-The wrapper-level integration tests in ``test_analytics_wrappers.py`` exercise
+The wrapper-level integration tests in ``analytics/test_wrappers.py`` exercise
 the same mapping through the decorator surface; this module pins the helper
 contract directly so a regression in ``bucket_exception`` / ``bucket_http_status``
 / ``derive_http_status`` fails close to the root cause.

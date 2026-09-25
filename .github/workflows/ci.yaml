@@ -42,6 +42,10 @@ concurrency:
 env:
   IMAGE: ghcr.io/comet-ml/opik-mcp
 
+  # Every `uv sync`, `uv run` and `uv build` in this workflow refuses a stale
+  # uv.lock instead of re-resolving it silently.
+  UV_LOCKED: "1"
+
   # TELEMETRY OFF FOR THE WHOLE WORKFLOW. A CI run is not product usage: BI
   # funnels and the Sentry project must not see it, and `is_ci` only LABELS an
   # event, it does not suppress one. Set at workflow level rather than per job
@@ -114,12 +118,12 @@ jobs:
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
-        with:
-          version: 'latest'
       - name: Install Python
         run: uv python install 3.13
+      - name: Lockfile matches pyproject.toml
+        run: uv lock --check
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
       - name: Run lint + typecheck + tests
         run: make check
 
@@ -157,12 +161,10 @@ jobs:
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
-        with:
-          version: 'latest'
       - name: Install Python
         run: uv python install 3.13
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
       - name: Drive the server over stdio as a real subprocess
         run: make e2e
 
@@ -180,12 +182,10 @@ jobs:
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
-        with:
-          version: 'latest'
       - name: Install Python
         run: uv python install 3.13
       - name: Install dependencies
-        run: uv sync --extra dev
+        run: uv sync --locked --extra dev
       - name: Build the pack and install it with the real installer
         env:
           PYVER: ${{ needs.version.outputs.pyver }}

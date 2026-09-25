@@ -56,7 +56,7 @@ skills-lock.json
 
 # docs/ holds only product-engineering specs: the index, one design-doc.md per
 # feature, and the ADRs. Plans, briefs and working notes stay local, because the
-# repository is public. tests/test_repo_hygiene.py pins this.
+# repository is public. tests/repo/test_repo_hygiene.py pins this.
 /docs/*
 !/docs/*/
 /docs/*/*

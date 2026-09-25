@@ -38,12 +38,21 @@ dev = [
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
 
-# Version comes from a generated, git-ignored file (`make version` writes it from
-# version.txt, which holds the next unreleased x.y.z). `artifacts` force-includes
-# it in the sdist/wheel despite .gitignore, so building from an sdist resolves
-# the version.
+# The exact uv that CI runs. `setup-uv` reads this when no `version` is given,
+# so the resolver in CI is the one the lockfile was written with.
+[tool.uv]
+required-version = "==0.11.7"
+
+# The build version is computed, not read from a generated file:
+# `scripts/_build_version.py` returns `$VERSION` when the release sets it, else
+# `<version.txt>.dev0`, the same rule as `make version`. Reading the git-ignored
+# `src/opik_mcp/_version.py` here made `uv lock` fail on a clean checkout, which
+# is what Dependabot runs. The runtime still imports `_version.py`; `artifacts`
+# keeps it in the wheel despite .gitignore once `make version` has written it.
 [tool.hatch.version]
-path = "src/opik_mcp/_version.py"
+source = "code"
+path = "scripts/_build_version.py"
+expression = "get_version()"
 
 [tool.hatch.build]
 artifacts = ["src/opik_mcp/_version.py"]
@@ -60,7 +69,7 @@ exclude = ["src/opik_mcp/skills/*/evals"]
 packages = ["src/opik_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/README.md"]
+include = ["/src", "/README.md", "/version.txt", "/scripts/_build_version.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -112,11 +121,11 @@ extend-allowed-calls = ["pytest.param"]
 [tool.ruff.lint.per-file-ignores]
 "scripts/**" = ["T20"]          # printing is their output
 ".claude/hooks/**" = ["T20"]
-"tests/**" = ["PLC0415", "ARG001", "FBT"]  # fixtures and lazy imports are the idiom
 "src/opik_mcp/_version.py" = ["I002"]  # generated
+"tests/**" = ["PLC0415", "ARG001", "FBT"]  # fixtures and lazy imports are the idiom
 
 # Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
-# fix a file, then delete or trim its line. tests/test_ratchets.py fails
+# fix a file, then delete or trim its line. tests/repo/test_ratchets.py fails
 # on an entry that no longer matches. Never add a line here.
 "scripts/capture_bi_listener.py" = ["ARG002"]
 "scripts/smoke_live_be.py" = ["PLC0415"]
@@ -170,53 +179,53 @@ extend-allowed-calls = ["pytest.param"]
 "src/opik_mcp/writes/operations/evaluation.py" = ["ARG001"]
 "src/opik_mcp/writes/operations/observability.py" = ["ARG001", "PLC0415"]
 "src/opik_mcp/writes/operations/threads.py" = ["ARG001", "PLC0415"]
+"tests/analytics/test_boot_props.py" = ["PT006"]
+"tests/analytics/test_client.py" = ["ARG002", "C408", "I002"]
+"tests/analytics/test_environment.py" = ["PT006", "PT018"]
+"tests/analytics/test_errors.py" = ["PT006", "PT017"]
+"tests/analytics/test_events.py" = ["I002", "PT006", "PT018"]
+"tests/analytics/test_identity.py" = ["I002", "PT019"]
+"tests/analytics/test_lifespan.py" = ["ARG002", "PT011"]
+"tests/analytics/test_server_startup.py" = ["ARG002", "ARG005", "I002", "PT011"]
+"tests/analytics/test_subprocess.py" = ["ARG002", "PT001"]
+"tests/analytics/test_wrappers.py" = ["ERA001", "I002", "PT006"]
+"tests/client/test_client.py" = ["I002"]
+"tests/client/test_connection_per_tool_call.py" = ["PT022"]
+"tests/client/test_read.py" = ["I002"]
 "tests/conftest.py" = ["I002"]
 "tests/e2e/test_compare_experiments_surface.py" = ["PT018"]
 "tests/e2e/test_description_claims.py" = ["PERF401", "PT018"]
 "tests/e2e/test_project_overview_surface.py" = ["PT018"]
-"tests/test_account_identity.py" = ["C408", "PT019"]
-"tests/test_analytics_boot_props.py" = ["PT006"]
-"tests/test_analytics_client.py" = ["ARG002", "C408", "I002"]
-"tests/test_analytics_environment.py" = ["PT006", "PT018"]
-"tests/test_analytics_errors.py" = ["PT006", "PT017"]
-"tests/test_analytics_events.py" = ["I002", "PT006", "PT018"]
-"tests/test_analytics_identity.py" = ["I002", "PT019"]
-"tests/test_analytics_lifespan.py" = ["ARG002", "PT011"]
-"tests/test_analytics_server_startup.py" = ["ARG002", "ARG005", "I002", "PT011"]
-"tests/test_analytics_subprocess.py" = ["ARG002", "PT001"]
-"tests/test_analytics_wrappers.py" = ["ERA001", "I002", "PT006"]
-"tests/test_config.py" = ["I002"]
-"tests/test_connection_per_tool_call.py" = ["PT022"]
-"tests/test_credential_identity.py" = ["PT018"]
-"tests/test_error_tracking.py" = ["ARG002", "ARG005", "PT006"]
-"tests/test_health.py" = ["I002"]
-"tests/test_http_auth.py" = ["I002"]
-"tests/test_http_path_config.py" = ["I002"]
-"tests/test_instructions.py" = ["PT018"]
-"tests/test_oauth_identity.py" = ["I002"]
-"tests/test_oauth_passthrough_mode.py" = ["I002"]
-"tests/test_oauth_protected_resource.py" = ["I002"]
-"tests/test_oauth_redirect.py" = ["I002"]
-"tests/test_oauth_token_rotation.py" = ["I002", "PT022"]
-"tests/test_oauth_token_validation.py" = ["I002", "PT022"]
-"tests/test_opik_client.py" = ["I002"]
-"tests/test_opik_client_read.py" = ["I002"]
-"tests/test_read_list/test_dataset_compare.py" = ["PT018"]
-"tests/test_read_list/test_dataset_compare_figures.py" = ["PT018"]
-"tests/test_read_list/test_dataset_items.py" = ["PT018"]
-"tests/test_read_list/test_experiments.py" = ["PT018"]
-"tests/test_read_list/test_fields.py" = ["PT018"]
-"tests/test_read_list/test_link_shape.py" = ["ARG002", "PT018"]
-"tests/test_read_list/test_list_filters.py" = ["ARG002", "PT018"]
-"tests/test_read_list/test_list_tool.py" = ["PT018"]
-"tests/test_read_list/test_oql.py" = ["PT018"]
-"tests/test_read_list/test_project_metrics.py" = ["ARG002", "PT018"]
-"tests/test_read_list/test_read_tool.py" = ["ARG002", "PT018"]
-"tests/test_read_list/test_ui_links.py" = ["PT017"]
-"tests/test_resource_metadata_url.py" = ["I002"]
-"tests/test_writes/test_backend_error_oauth_hint.py" = ["I002"]
-"tests/test_writes/test_dispatch.py" = ["PT018"]
-"tests/test_writes/test_models.py" = ["PT017"]
+"tests/identity/test_account_identity.py" = ["C408", "PT019"]
+"tests/identity/test_credential_identity.py" = ["PT018"]
+"tests/identity/test_http_auth.py" = ["I002"]
+"tests/identity/test_oauth_identity.py" = ["I002"]
+"tests/identity/test_oauth_passthrough_mode.py" = ["I002"]
+"tests/identity/test_oauth_protected_resource.py" = ["I002"]
+"tests/identity/test_oauth_redirect.py" = ["I002"]
+"tests/identity/test_oauth_token_rotation.py" = ["I002", "PT022"]
+"tests/identity/test_oauth_token_validation.py" = ["I002", "PT022"]
+"tests/identity/test_resource_metadata_url.py" = ["I002"]
+"tests/read_list/test_dataset_compare.py" = ["PT018"]
+"tests/read_list/test_dataset_compare_figures.py" = ["PT018"]
+"tests/read_list/test_dataset_items.py" = ["PT018"]
+"tests/read_list/test_experiments.py" = ["PT018"]
+"tests/read_list/test_fields.py" = ["PT018"]
+"tests/read_list/test_link_shape.py" = ["ARG002", "PT018"]
+"tests/read_list/test_list_filters.py" = ["ARG002", "PT018"]
+"tests/read_list/test_list_tool.py" = ["PT018"]
+"tests/read_list/test_oql.py" = ["PT018"]
+"tests/read_list/test_project_metrics.py" = ["ARG002", "PT018"]
+"tests/read_list/test_read_tool.py" = ["ARG002", "PT018"]
+"tests/read_list/test_ui_links.py" = ["PT017"]
+"tests/server/test_config.py" = ["I002"]
+"tests/server/test_error_tracking.py" = ["ARG002", "ARG005", "PT006"]
+"tests/server/test_health.py" = ["I002"]
+"tests/server/test_http_path_config.py" = ["I002"]
+"tests/server/test_instructions.py" = ["PT018"]
+"tests/writes/test_backend_error_oauth_hint.py" = ["I002"]
+"tests/writes/test_dispatch.py" = ["PT018"]
+"tests/writes/test_models.py" = ["PT017"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -247,7 +256,7 @@ module = ["opik_mcp.opik_client"]
 disallow_any_explicit = false
 
 # Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
-# shrinks: type a module, then delete its line. tests/test_ratchets.py
+# shrinks: type a module, then delete its line. tests/repo/test_ratchets.py
 # fails on a module that no longer uses explicit Any. Never add a line here.
 [[tool.mypy.overrides]]
 module = [
@@ -311,6 +320,18 @@ module = [
     "scripts.smoke_live_be",
     "scripts.smoke_mcp_session",
     "scripts.smoke_wire_capture",
+    "tests.analytics.test_auth_rejected",
+    "tests.analytics.test_call_context",
+    "tests.analytics.test_client",
+    "tests.analytics.test_client_build_event",
+    "tests.analytics.test_errors",
+    "tests.analytics.test_lifespan",
+    "tests.analytics.test_privacy",
+    "tests.analytics.test_server_startup",
+    "tests.analytics.test_subprocess",
+    "tests.analytics.test_wrappers",
+    "tests.client.test_connection_per_tool_call",
+    "tests.client.test_search",
     "tests.conformance.test_schema_snapshots",
     "tests.conformance.test_skill_resources",
     "tests.conformance.test_tool_inventory",
@@ -318,34 +339,22 @@ module = [
     "tests.e2e.test_compare_experiments_surface",
     "tests.e2e.test_description_claims",
     "tests.e2e.test_find_a_case_surface",
-    "tests.integration.test_llm_recovery",
-    "tests.test_account_identity",
-    "tests.test_analytics_auth_rejected",
-    "tests.test_analytics_call_context",
-    "tests.test_analytics_client",
-    "tests.test_analytics_client_build_event",
-    "tests.test_analytics_errors",
-    "tests.test_analytics_lifespan",
-    "tests.test_analytics_privacy",
-    "tests.test_analytics_server_startup",
-    "tests.test_analytics_subprocess",
-    "tests.test_analytics_wrappers",
-    "tests.test_connection_per_tool_call",
-    "tests.test_error_tracking",
-    "tests.test_instructions",
-    "tests.test_oauth_passthrough_mode",
-    "tests.test_opik_client_search",
-    "tests.test_read_list.test_dataset_compare",
-    "tests.test_read_list.test_dataset_compare_figures",
-    "tests.test_read_list.test_dataset_items",
-    "tests.test_read_list.test_experiments",
-    "tests.test_read_list.test_fields",
-    "tests.test_read_list.test_list_filters",
-    "tests.test_read_list.test_list_tool",
-    "tests.test_read_list.test_project_metrics",
-    "tests.test_read_list.test_read_tool",
-    "tests.test_writes.test_registry",
-    "tests.test_writes.test_write_links",
+    "tests.identity.test_account_identity",
+    "tests.identity.test_oauth_passthrough_mode",
+    "tests.read_list.test_dataset_compare",
+    "tests.read_list.test_dataset_compare_figures",
+    "tests.read_list.test_dataset_items",
+    "tests.read_list.test_experiments",
+    "tests.read_list.test_fields",
+    "tests.read_list.test_list_filters",
+    "tests.read_list.test_list_tool",
+    "tests.read_list.test_project_metrics",
+    "tests.read_list.test_read_tool",
+    "tests.server.test_error_tracking",
+    "tests.server.test_instructions",
+    "tests.writes.test_recovery_envelope",
+    "tests.writes.test_registry",
+    "tests.writes.test_write_links",
 ]
 disallow_any_explicit = false
 

@@ -152,7 +152,7 @@ def test_transport_crash_emits_shutdown_with_reason_transport_error(
 # dict (so they appear in the recorder, which bypasses _build_event). Note:
 # installation_type is NOT here — it comes from _build_event's common block,
 # which the recorder bypasses; its on-every-event presence is covered by
-# tests/test_analytics_client_build_event.py::test_installation_type_in_common_block.
+# tests/analytics/test_client_build_event.py::test_installation_type_in_common_block.
 _BOOT_PROP_KEYS = (
     "oauth_configured",
     "resource_uri_scheme",

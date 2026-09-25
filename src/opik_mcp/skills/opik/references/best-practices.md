@@ -16,15 +16,18 @@ Trace every component of your agent with appropriate span types:
 ```python
 import opik
 
+
 @opik.track(name="research_agent")
 def agent(query: str) -> str:
-    plan = plan_action(query)        # general span
-    results = execute_tool(plan)     # tool span
-    return generate_response(results) # llm span
+    plan = plan_action(query)  # general span
+    results = execute_tool(plan)  # tool span
+    return generate_response(results)  # llm span
+
 
 @opik.track(type="tool")
 def execute_tool(action: dict) -> str:
     return search_web(action["query"])
+
 
 @opik.track(type="llm")
 def generate_response(context: str) -> str:
@@ -112,7 +115,7 @@ results = evaluate(
         AnswerRelevance(),
         Hallucination(),
         AgentTaskCompletionJudge(),
-    ]
+    ],
 )
 ```
 

@@ -61,7 +61,7 @@ COVERAGE_GRACE = timedelta(hours=1)
 # The write operations this hint points at. Named as constants rather than
 # imported from ``writes.registry``: ``writes`` already imports from
 # ``read_list`` (this module among them), so importing back would close a
-# cycle. ``tests/test_writes/test_registry.py`` asserts both names exist.
+# cycle. ``tests/writes/test_registry.py`` asserts both names exist.
 ENABLE_OP = "agent_insights_job.enable"
 TRIGGER_OP = "agent_insights_job.trigger"
 

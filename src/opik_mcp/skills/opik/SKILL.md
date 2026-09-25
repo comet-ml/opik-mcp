@@ -38,17 +38,21 @@ Do NOT use `retrieval` or any other value.
 ```python
 import opik
 
+
 @opik.track(name="agent", type="general")
 def agent(query: str) -> str:
     return generate(retrieve(query))
 
+
 @opik.track(type="tool")
 def retrieve(query): ...
+
 
 @opik.track(type="llm")
 def generate(ctx): ...
 
-opik.flush_tracker()   # required in scripts
+
+opik.flush_tracker()  # required in scripts
 ```
 
 ## TypeScript — tracing
@@ -85,10 +89,12 @@ top-level traces instead of nesting under your span.
 ```python
 from opik.opik_context import get_current_span_data
 
+
 @opik.track
 def call_llm(messages):
     return litellm.completion(
-        model="gpt-4o", messages=messages,
+        model="gpt-4o",
+        messages=messages,
         metadata={"opik": {"current_span_data": get_current_span_data()}},
     )
 ```
