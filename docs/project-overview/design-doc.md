@@ -101,7 +101,7 @@ Where to start:
   sentence in `tests/e2e/test_description_claims.py`.
 - A metric, grouping, series or refusal: `src/opik_mcp/read_list/entities/project_metric/catalog.py`;
   the order of checks is in `run_project_metric`, rendering in `table.py`.
-- Test fakes: `_vocab_fake` in `tests/test_read_list/test_read_tool.py`.
+- Test fakes: `_vocab_fake` in `tests/read_list/test_read_tool.py`.
 - Not here: `decorations.py`, `project_names.py`, `window.py` and `oql.py` are
   [tool-surface](../tool-surface/design-doc.md)'s, `project_scope.py` is
   [diagnostics](../diagnostics/design-doc.md)'s, the client is [runtime](../runtime/design-doc.md)'s.
@@ -143,15 +143,15 @@ Where to start:
 
 ## Proven by
 
-- `tests/test_read_list/test_read_tool.py`, the `test_read_project_*` tests and
+- `tests/read_list/test_read_tool.py`, the `test_read_project_*` tests and
   the decoration tests next to them: record, summary, vocabulary, `contains`,
   links, name resolution, failures in place.
   `test_the_summary_is_not_on_a_decoration_deadline` guards the missing deadline.
-- `tests/test_read_list/test_project_metrics.py`: every `project_metric` rule.
+- `tests/read_list/test_project_metrics.py`: every `project_metric` rule.
 - `test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits`: the
   copied grouping matrix.
 - `tests/e2e/test_project_overview_surface.py`: the same over stdio against a
-  stub backend. `tests/test_opik_client_read.py`: the name endpoints' wire shapes.
+  stub backend. `tests/client/test_read.py`: the name endpoints' wire shapes.
 
 ## Log
 

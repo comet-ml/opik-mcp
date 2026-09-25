@@ -97,8 +97,8 @@ To add a property:
 
 1. Return it from the props function, bucketed or allowlisted.
 2. For an enum, add a `Literal` in `src/opik_mcp/analytics/events.py` and a
-   test in `tests/test_analytics_events.py` that it matches the classifier.
-3. Assert its output and a canary in `tests/test_analytics_privacy.py`, as
+   test in `tests/analytics/test_events.py` that it matches the classifier.
+3. Assert its output and a canary in `tests/analytics/test_privacy.py`, as
    `test_read_props_buckets_id_kind_without_leaking` does for `_read_props`.
 4. A new value is a BI schema change (the docstring in `src/opik_mcp/analytics/events.py`). Unverified: whether a new property counts too; say so in the PR for BI to be safe.
 
@@ -135,23 +135,23 @@ No ADR covers analytics. The reasons come from PRs.
 - `setup_sentry` is called only from `main()`. A process served through
   `build_app()` alone has no Sentry. The Sentry user comes from process
   settings, so on the hosted server it is never the caller.
-- `tests/test_analytics_privacy.py` records at `track_event` and cannot see
-  the common block; `tests/test_analytics_client_build_event.py` covers it.
+- `tests/analytics/test_privacy.py` records at `track_event` and cannot see
+  the common block; `tests/analytics/test_client_build_event.py` covers it.
 
 ## Proven by
 
 - Wire shape, opt-out, queue, retry, and the common block:
-  `tests/test_analytics_client.py`, `tests/test_analytics_client_build_event.py`.
+  `tests/analytics/test_client.py`, `tests/analytics/test_client_build_event.py`.
 - `tool_called`, `session_initialized` and the Sentry skip list:
-  `tests/test_analytics_wrappers.py`, `tests/test_analytics_tools_listed.py`.
-- Error bucketing and the fingerprint: `tests/test_analytics_errors.py`,
-  `tests/test_analytics_environment.py`.
-- Startup, shutdown and lifecycle ownership: `tests/test_analytics_lifespan.py`,
-  `tests/test_analytics_server_startup.py`, `tests/test_analytics_subprocess.py`.
+  `tests/analytics/test_wrappers.py`, `tests/analytics/test_tools_listed.py`.
+- Error bucketing and the fingerprint: `tests/analytics/test_errors.py`,
+  `tests/analytics/test_environment.py`.
+- Startup, shutdown and lifecycle ownership: `tests/analytics/test_lifespan.py`,
+  `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - No canary string or raw token reaches an event or Sentry:
-  `tests/test_analytics_privacy.py`, `tests/test_analytics_auth_rejected.py`.
-- Sentry setup, scope and cap: `tests/test_error_tracking.py`.
-- Telemetry is off for the test process: `tests/test_telemetry_disabled_in_tests.py`.
+  `tests/analytics/test_privacy.py`, `tests/analytics/test_auth_rejected.py`.
+- Sentry setup, scope and cap: `tests/server/test_error_tracking.py`.
+- Telemetry is off for the test process: `tests/repo/test_telemetry_disabled_in_tests.py`.
 
 ## Log
 

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCS_DIR = REPO_ROOT / "docs"
 INDEX = DOCS_DIR / "README.md"
 
@@ -47,7 +47,7 @@ def test_a_design_doc_has_the_six_sections_in_order(path: Path) -> None:
     headings = _h2_headings(path.read_text())
     assert headings == SECTIONS, (
         f"{path.relative_to(REPO_ROOT)} has H2 sections {headings}; "
-        f"the fixed skeleton is SECTIONS in tests/test_design_docs.py: {SECTIONS}"
+        f"the fixed skeleton is SECTIONS in tests/repo/test_design_docs.py: {SECTIONS}"
     )
 
 

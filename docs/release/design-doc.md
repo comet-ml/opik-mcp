@@ -144,7 +144,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 ## Proven by
 
 - The wheel holds exactly the served skills: `tests/e2e/test_wheel_contents.py`.
-- Install-branch naming, credentials and redaction: `tests/test_install_branch.py`.
+- Install-branch naming, credentials and redaction: `tests/repo/test_install_branch.py`.
 - Chart render and image build: `helm-lint` and `build-image` in `ci.yaml`.
 - No test runs or parses `.github/workflows/`; a broken release step shows up
   only in a release.

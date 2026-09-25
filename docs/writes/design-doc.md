@@ -142,14 +142,14 @@ description and `schema` follow. Also:
 ## Proven by
 
 - The request each operation sends, scope refusal, dry run, idempotency and
-  backend errors: `tests/test_writes/test_dispatch.py`. Models and their issue
-  codes: `tests/test_writes/test_models.py`, `tests/test_writes/test_data_rules.py`.
-- Registry, enum, models and description agree: `tests/test_writes/test_registry.py`,
+  backend errors: `tests/writes/test_dispatch.py`. Models and their issue
+  codes: `tests/writes/test_models.py`, `tests/writes/test_data_rules.py`.
+- Registry, enum, models and description agree: `tests/writes/test_registry.py`,
   and over a real MCP session `tests/conformance/test_write_tool_surface.py`.
-- The dispatcher names no operation: `tests/test_writes/test_dispatch_stays_generic.py`.
-- Links: `tests/test_writes/test_write_links.py`. OAuth 401 hint: `tests/test_writes/test_backend_error_oauth_hint.py`.
-- A retry built from an error's example succeeds: `tests/integration/test_llm_recovery.py`.
-- An unknown `schema` key: `tests/test_writes/test_schema_tool.py`.
+- The dispatcher names no operation: `tests/writes/test_dispatch_stays_generic.py`.
+- Links: `tests/writes/test_write_links.py`. OAuth 401 hint: `tests/writes/test_backend_error_oauth_hint.py`.
+- A retry built from an error's example succeeds: `tests/writes/test_recovery_envelope.py`.
+- An unknown `schema` key: `tests/writes/test_schema_tool.py`.
 
 ## Log
 

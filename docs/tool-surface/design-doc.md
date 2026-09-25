@@ -139,7 +139,7 @@ Where to start:
 - A column or an empty-page hint: `src/opik_mcp/read_list/list_tool.py`.
 
 Root modules stay generic ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md));
-`entity_names_at_root` in `tests/ratchets.json` allowlists old exceptions and only shrinks.
+`entity_names_at_root` in `tests/repo/ratchets.json` allowlists old exceptions and only shrinks.
 
 `decorations.block` runs an optional part of a read under a deadline. A
 failure or timeout becomes `{"error": "Could not load …"}` and the read still
@@ -204,18 +204,18 @@ Boundaries:
 
 - Tool set, hints, budgets, description limit, no entity resources: `tests/conformance/`,
   `test_no_entity_resources_advertised`.
-- Instructions: `tests/test_instructions.py`; per session,
+- Instructions: `tests/server/test_instructions.py`; per session,
   `test_initialize_names_oauth_workspace`; agreeing with `tools/list`,
   `tests/e2e/test_stdio_session.py`.
-- Reads and slimming: `tests/test_read_list/test_read_tool.py`; the uncut
+- Reads and slimming: `tests/read_list/test_read_tool.py`; the uncut
   record, `test_a_huge_record_comes_back_whole`.
 - Lists, the `sdk` default and empty-page hints:
-  `tests/test_read_list/test_list_tool.py`, `tests/test_read_list/test_list_filters.py`.
-- OQL, its reference and `fields`: `tests/test_read_list/test_oql.py`,
-  `tests/test_read_list/test_list_schema.py`, `tests/test_read_list/test_fields.py`.
-- Links: `tests/test_read_list/test_link_shape.py`, `tests/test_read_list/test_ui_links.py`,
+  `tests/read_list/test_list_tool.py`, `tests/read_list/test_list_filters.py`.
+- OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
+  `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
+- Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
   `tests/e2e/test_entity_links_surface.py`.
-- Namespaces and description claims: `tests/test_read_list/test_modular.py`,
+- Namespaces and description claims: `tests/read_list/test_modular.py`,
   `tests/e2e/test_description_claims.py`.
 
 ## Log

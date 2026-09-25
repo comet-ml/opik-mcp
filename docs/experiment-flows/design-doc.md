@@ -137,19 +137,19 @@ write → writes/registry.py → writes/operations/evaluation.py build hooks
 ## Proven by
 
 - Comparison table, refusals, guards, refetch, sort notes and the tally:
-  `tests/test_read_list/test_dataset_compare.py`.
+  `tests/read_list/test_dataset_compare.py`.
 - `Δ` and direction note, labels, two authors, figures and the label-count
-  cap: `tests/test_read_list/test_dataset_compare_figures.py`.
+  cap: `tests/read_list/test_dataset_compare_figures.py`.
 - The comparison over stdio, including constant page cost
   (`test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_cases`):
   `tests/e2e/test_compare_experiments_surface.py`.
 - Experiment columns, notes and ranking caveat:
-  `tests/test_read_list/test_experiments.py`.
+  `tests/read_list/test_experiments.py`.
 - Case listing, filters, refused sorts, one-case read, aliases:
-  `tests/test_read_list/test_dataset_items.py`, `tests/e2e/test_find_a_case_surface.py`.
-- Links: `tests/test_read_list/test_link_shape.py`, `tests/e2e/test_entity_links_surface.py`.
+  `tests/read_list/test_dataset_items.py`, `tests/e2e/test_find_a_case_surface.py`.
+- Links: `tests/read_list/test_link_shape.py`, `tests/e2e/test_entity_links_surface.py`.
 - Evaluation write bodies and their validation errors:
-  `tests/test_writes/test_dispatch.py`, `tests/test_writes/test_models.py`.
+  `tests/writes/test_dispatch.py`, `tests/writes/test_models.py`.
 
 ## Log
 

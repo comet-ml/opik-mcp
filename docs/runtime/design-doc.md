@@ -94,7 +94,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - To add a read endpoint, add an `OpikClient` method on `_get_json` (as
   `get_project` does for `read('project')`) or on `_post_json` for a POST read.
   Add it to the `OpikListClient` or `OpikReadClient` protocol so test fakes see
-  it, and test it in `tests/test_opik_client_read.py`.
+  it, and test it in `tests/client/test_read.py`.
 - To change where the credential or workspace comes from, start in
   `resolve_opik_config`. For startup and its refusals, `_run_transport`.
 
@@ -140,13 +140,13 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Proven by
 
-- Credential, workspace, base URL and placeholders: `tests/test_opik_client.py`.
-- Settings and alias precedence: `tests/test_config.py`.
-- Read paths, queries and the error mapping: `tests/test_opik_client_read.py`, `tests/test_opik_client_search.py`.
-- One connection per call: `tests/test_connection_per_tool_call.py`.
-- Timeout and unreachable messages in `list`: `tests/test_read_list/test_list_filters.py`.
+- Credential, workspace, base URL and placeholders: `tests/client/test_client.py`.
+- Settings and alias precedence: `tests/server/test_config.py`.
+- Read paths, queries and the error mapping: `tests/client/test_read.py`, `tests/client/test_search.py`.
+- One connection per call: `tests/client/test_connection_per_tool_call.py`.
+- Timeout and unreachable messages in `list`: `tests/read_list/test_list_filters.py`.
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
-- Startup refusals: `tests/test_analytics_server_startup.py`, `tests/test_analytics_subprocess.py`.
+- Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/e2e/test_stdio_session.py`.
 
 ## Log

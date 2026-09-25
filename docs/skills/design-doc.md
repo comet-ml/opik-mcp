@@ -68,7 +68,7 @@ the verified artifact to the pre-release tag `skills-pack`, where
 ### Adding a skill
 
 1. Create `src/opik_mcp/skills/opik-<verb>/SKILL.md` with `last_updated` and
-   `source_commit` under `metadata:`. `tests/test_skills_spec_compliance.py`
+   `source_commit` under `metadata:`. `tests/skills/test_spec_compliance.py`
    checks the name and the provenance.
 2. Add a line to `SKILL_SUMMARIES`, or the skill is missing from the routing
    list and `test_every_bundled_skill_has_a_summary` fails.
@@ -125,7 +125,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 ### Traps
 
 - `SKILL_SUMMARIES` may differ from the frontmatter on purpose. No test ties
-  them; see the comment in `tests/test_skills_catalog.py` for why.
+  them; see the comment in `tests/skills/test_catalog.py` for why.
 - The `read_skill` description is over the host cut-off, so some hosts drop
   the tail, which is the path inventory (`test_the_description_arrives_whole`).
 - `install_skill_resources` catches only a missing `_mcp_server`; other errors
@@ -140,13 +140,13 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 ## Proven by
 
 - Resolution, errors, header and footer, ordering, the description and the
-  summaries: `tests/test_skills_catalog.py`.
+  summaries: `tests/skills/test_catalog.py`.
 - Resources over a real session, and over stdio:
   `tests/conformance/test_skill_resources.py`, `tests/e2e/test_stdio_session.py`.
 - The pack is verbatim, excludes evals, fails on bad references and has a
-  stable digest: `tests/test_skills_pack_build.py`. Each skill passes the
-  reference validator: `tests/test_skills_spec_compliance.py`.
-- The hook blocks writes to the skill folders: `tests/test_agent_hooks.py`.
+  stable digest: `tests/skills/test_pack_build.py`. Each skill passes the
+  reference validator: `tests/skills/test_spec_compliance.py`.
+- The hook blocks writes to the skill folders: `tests/repo/test_agent_hooks.py`.
 - The installer reproduces the pack and finds only the authored skills:
   `make skills-verify`, `make skills-verify-source`.
 

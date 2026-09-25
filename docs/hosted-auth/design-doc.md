@@ -134,21 +134,21 @@ chart, [tool-surface](../tool-surface/design-doc.md) the instructions and links.
 ## Proven by
 
 - Shape checks, the 401 challenge and API keys initializing:
-  `tests/test_http_auth.py`, `tests/test_oauth_passthrough_mode.py`.
+  `tests/identity/test_http_auth.py`, `tests/identity/test_oauth_passthrough_mode.py`.
 - An API key keeps its wording on a backend 401:
   `test_upstream_401_in_api_key_mode_keeps_the_api_key_wording`.
 - `invalid_token`, fail-open, the cache and its eviction:
-  `tests/test_oauth_token_validation.py`, `tests/test_oauth_identity.py`.
-- A refreshed token is the one forwarded: `tests/test_oauth_token_rotation.py`.
+  `tests/identity/test_oauth_token_validation.py`, `tests/identity/test_oauth_identity.py`.
+- A refreshed token is the one forwarded: `tests/identity/test_oauth_token_rotation.py`.
 - Prefix detection: `test_resolve_opik_config_oauth_detection_is_prefix_not_substring`.
-- Metadata, proxy and path bypass: `tests/test_oauth_protected_resource.py`,
-  `tests/test_resource_metadata_url.py`, `tests/test_oauth_redirect.py`.
-- HTTP path, allow-lists, health: `tests/test_http_path_config.py`, `tests/test_health.py`.
-- Digest keys, LRU bounds, session pairing: `tests/test_credential_identity.py`.
+- Metadata, proxy and path bypass: `tests/identity/test_oauth_protected_resource.py`,
+  `tests/identity/test_resource_metadata_url.py`, `tests/identity/test_oauth_redirect.py`.
+- HTTP path, allow-lists, health: `tests/server/test_http_path_config.py`, `tests/server/test_health.py`.
+- Digest keys, LRU bounds, session pairing: `tests/identity/test_credential_identity.py`.
 - An inbound bearer never takes the operator's identity:
   `test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own`;
-  the install's own key: `tests/test_account_identity.py`.
-- Rejection buckets and skipped paths: `tests/test_analytics_auth_rejected.py`.
+  the install's own key: `tests/identity/test_account_identity.py`.
+- Rejection buckets and skipped paths: `tests/analytics/test_auth_rejected.py`.
 
 ## Log
 

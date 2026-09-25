@@ -140,14 +140,14 @@ write dispatch.py -> hooks in src/opik_mcp/writes/operations/diagnostics.py
 
 ## Proven by
 
-- List, empty states, coverage note: `tests/test_read_list/test_list_tool.py`.
+- List, empty states, coverage note: `tests/read_list/test_list_tool.py`.
 - No trigger for a gap it cannot close:
   `test_issue_list_does_not_offer_a_trigger_that_cannot_close_the_gap`.
 - Toggle fails open: `test_deployment_gate_fails_open_when_toggles_cannot_be_read`;
   cache per credential: `test_list_issues_project_name_cache_is_per_credential`.
-- Read and links: `tests/test_read_list/test_read_tool.py`, `tests/test_read_list/test_uri.py`.
-- Writes, 409 follow-up, refusals, dry runs: `tests/test_writes/test_dispatch.py`.
-- Client paths: `tests/test_opik_client_read.py`. Over stdio:
+- Read and links: `tests/read_list/test_read_tool.py`, `tests/read_list/test_uri.py`.
+- Writes, 409 follow-up, refusals, dry runs: `tests/writes/test_dispatch.py`.
+- Client paths: `tests/client/test_read.py`. Over stdio:
   `tests/e2e/test_description_claims.py`, `tests/e2e/test_entity_links_surface.py`.
 - Instructions: `test_render_names_every_diagnostics_state`.
 
