@@ -10,10 +10,11 @@ import functools
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import Any, ParamSpec, TypeVar
 from weakref import WeakSet
 
 import anyio
+from mcp.server.lowlevel.server import request_ctx
 from mcp.types import ListToolsRequest
 
 from opik_mcp import error_tracking
@@ -35,6 +36,7 @@ from opik_mcp.config import MissingConfigError
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
 T = TypeVar("T")
+P = ParamSpec("P")
 
 
 # Sentry skip-list: buckets representing user-input or user-config problems.
@@ -215,12 +217,12 @@ def instrument_tool(
     name: str,
     *,
     props_fn: PropsFn | None = None,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
     """Wrap an async MCP tool handler so every call emits `opik_mcp_tool_called`."""
 
-    def decorator(fn: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(fn: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         @functools.wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             _maybe_emit_session_initialized(kwargs)
             t0 = time.monotonic()
             error_kind: str | None = None
@@ -336,11 +338,9 @@ def _maybe_emit_tools_listed(result: Any) -> None:
 
     session = None
     try:
-        from mcp.server.lowlevel.server import request_ctx
-
         ctx = request_ctx.get()
         session = getattr(ctx, "session", None)
-    except (ImportError, LookupError, AttributeError):
+    except (LookupError, AttributeError):
         session = None
 
     if session is not None:

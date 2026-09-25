@@ -90,7 +90,6 @@
     ]
   },
   "suppressions": {
-    "src/opik_mcp/analytics/errors.py": 1,
     "src/opik_mcp/server.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
     "tests/analytics/test_auth_rejected.py": 1,
@@ -109,33 +108,8 @@
     "tests/identity/test_resource_metadata_url.py": 1
   },
   "ruff_baseline": {
-    "scripts/capture_bi_listener.py": [
-      "ARG002"
-    ],
     "src/opik_mcp/__main__.py": [
-      "I002",
       "PLC0415"
-    ],
-    "src/opik_mcp/analytics/boot_props.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/environment.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/errors.py": [
-      "RET504"
-    ],
-    "src/opik_mcp/analytics/identity.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/wrappers.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/auth_context.py": [
-      "I002"
-    ],
-    "src/opik_mcp/config.py": [
-      "I002"
     ],
     "src/opik_mcp/opik_client.py": [
       "RET504"
@@ -269,8 +243,6 @@
       "T201"
     ],
     "src/opik_mcp/skills_catalog.py": [
-      "FBT001",
-      "FBT002",
       "PERF401"
     ],
     "src/opik_mcp/writes/__init__.py": [
@@ -462,7 +434,6 @@
   "mypy_baseline": [
     "opik_mcp.account_identity",
     "opik_mcp.analytics.client",
-    "opik_mcp.analytics.errors",
     "opik_mcp.analytics.mcp_client_info",
     "opik_mcp.analytics.wrappers",
     "opik_mcp.config",

@@ -18,6 +18,10 @@ from __future__ import annotations
 import os
 from urllib.parse import urlparse
 
+from opik_mcp.analytics import transport_probe
+from opik_mcp.analytics.events import bucket_seconds
+from opik_mcp.analytics.identity import install_id_was_freshly_generated
+from opik_mcp.auth_context import settings_auth_mode
 from opik_mcp.config import Settings
 from opik_mcp.config import installation_type as _config_installation_type
 
@@ -119,8 +123,6 @@ def auth_mode_at_boot(settings: Settings) -> str:
     ``opik_client.resolve_opik_config`` (inbound bearer wins) and surfaced as the
     per-request ``auth_mode`` in ``client._build_event``.
     """
-    from opik_mcp.auth_context import settings_auth_mode
-
     return settings_auth_mode(
         has_api_key=bool(settings.opik_api_key),
         has_as_url=bool(settings.opik_mcp_as_url),
@@ -164,8 +166,6 @@ def server_started_props(
     controls WHEN ``collect_environment_fingerprint`` runs (it shells out on
     macOS and is timed against the lifespan anchor).
     """
-    from opik_mcp.analytics.identity import install_id_was_freshly_generated
-
     return {
         "transport": settings.opik_mcp_transport.lower(),
         "analytics_enabled": str(settings.opik_mcp_analytics_enabled).lower(),
@@ -187,9 +187,6 @@ def server_shutdown_props(
 ) -> dict[str, str]:
     """The full ``opik_mcp_server_shutdown`` property dict (shared by main() and
     the build_app() lifespan, same anti-drift rationale as server_started_props)."""
-    from opik_mcp.analytics import transport_probe
-    from opik_mcp.analytics.events import bucket_seconds
-
     return {
         "reason": reason,
         "lifespan_seconds_bucket": bucket_seconds(elapsed_seconds),

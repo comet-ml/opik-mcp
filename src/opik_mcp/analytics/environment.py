@@ -16,6 +16,7 @@ import sys
 from collections.abc import Callable
 from functools import lru_cache
 
+from opik_mcp.analytics.identity import install_id_was_freshly_generated
 from opik_mcp.credential_identity import credential_digest
 
 # ``sys.platform`` is a Literal type that mypy narrows per-host, so platform-
@@ -503,12 +504,6 @@ def cached_call_context_env() -> dict[str, str]:
     macOS) stays startup-only on ``server_started`` and is deliberately not
     here.
     """
-    # Imported lazily so this module stays free of ``config`` (and its
-    # pydantic-settings machinery) at import time — ``identity`` pulls in
-    # ``config``, heavier than this hot-path module wants to load eagerly.
-    # There is no import cycle; this is purely about import cost.
-    from opik_mcp.analytics.identity import install_id_was_freshly_generated
-
     return {
         "is_ci": _safe(_detect_ci, "false"),
         "is_container": _safe(_detect_container, "unknown"),
