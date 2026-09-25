@@ -129,7 +129,6 @@ extend-allowed-calls = ["pytest.param"]
 # on an entry that no longer matches. Never add a line here.
 "scripts/capture_bi_listener.py" = ["ARG002"]
 "src/opik_mcp/__main__.py" = ["PLC0415"]
-"src/opik_mcp/analytics/errors.py" = ["RET504"]
 "src/opik_mcp/opik_client.py" = ["RET504"]
 "src/opik_mcp/read_list/__init__.py" = ["I002"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
@@ -254,7 +253,6 @@ disallow_any_explicit = false
 module = [
     "opik_mcp.account_identity",
     "opik_mcp.analytics.client",
-    "opik_mcp.analytics.errors",
     "opik_mcp.analytics.mcp_client_info",
     "opik_mcp.analytics.wrappers",
     "opik_mcp.config",

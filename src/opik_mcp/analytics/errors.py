@@ -27,7 +27,7 @@ machine-checked by ``tests/analytics/test_privacy.py``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TypeIs, get_args
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
@@ -113,7 +113,7 @@ def unwrap_to_real_cause(
     return current
 
 
-def _class_attr(exc: BaseException, name: str) -> Any:
+def _class_attr(exc: BaseException, name: str) -> object:
     """Return ``type(exc).<name>`` if defined as a class-level attribute on
     one of our typed exception classes, else ``None``.
 
@@ -123,8 +123,14 @@ def _class_attr(exc: BaseException, name: str) -> Any:
     as a taxonomy signal.
     (Instance reads are handled separately by ``_instance_http_status``.)
     """
-    value = getattr(type(exc), name, None)
-    return value
+    return getattr(type(exc), name, None)
+
+
+_ERROR_KINDS: frozenset[str] = frozenset(get_args(ErrorKind))
+
+
+def _is_error_kind(value: object) -> TypeIs[ErrorKind]:
+    return isinstance(value, str) and value in _ERROR_KINDS
 
 
 def _instance_http_status(real: BaseException) -> int | None:
@@ -238,8 +244,8 @@ def bucket_exception(exc: BaseException, http_status: int | None = None) -> Erro
     if instance_status is not None:
         return bucket_http_status(instance_status)
     kind = _class_attr(real, "error_kind")
-    if isinstance(kind, str):
-        return kind  # type: ignore[return-value]
+    if _is_error_kind(kind):
+        return kind
     external = _bucket_external(real)
     if external is not None:
         return external
