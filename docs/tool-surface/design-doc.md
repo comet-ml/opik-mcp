@@ -96,8 +96,10 @@ project if set, tool selection, the link rule, and today's UTC date.
   answer gets it put into the `[list: …]` line it wrote (`with_list_size`).
 - The header then echoes filters, sort, since, until, search and fields, in that order.
 - `filters` is OQL, the grammar of the SDK's `search_traces(filter_string=…)`,
-  checked in `src/opik_mcp/read_list/oql.py` against the entity's
-  `Vocabulary` (`src/opik_mcp/read_list/handler.py`). All problems in a string come
+  parsed by `src/opik_mcp/read_list/oql_parser.py` and checked in
+  `src/opik_mcp/read_list/oql.py` against the entity's `Vocabulary`
+  (`src/opik_mcp/read_list/handler.py`) and the backend's tables in
+  `src/opik_mcp/read_list/oql_fields.py`. All problems in a string come
   back in one `OQLError`; an unknown field gets the closest name and the valid
   ones (`test_unknown_field_suggests_the_closest_name_and_lists_the_fields`).
   Checked clauses go JSON-encoded in the `filters` query parameter, except

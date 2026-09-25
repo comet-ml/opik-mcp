@@ -65,14 +65,13 @@ from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn, Vocabulary
 from opik_mcp.read_list.oql import (
-    PARENT_ID_FIELDS,
-    SDK_SOURCE_CLAUSE,
     OQLError,
     compile_filters,
     operand_values,
     render_filters,
     split_param_clauses,
 )
+from opik_mcp.read_list.oql_fields import PARENT_ID_FIELDS, SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE, clamp_size
 from opik_mcp.read_list.project_scope import (
     project_rows,

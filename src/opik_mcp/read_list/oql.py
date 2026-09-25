@@ -1,25 +1,10 @@
 """OQL — the Opik Query Language behind the ``list`` tool's ``filters`` string.
 
-Grammar (the same one the Opik Python SDK's ``search_traces(filter_string=…)``
-accepts, so agents learn one query form)::
-
-    <field>[.<key>] <op> <value> [AND <field> <op> <value>]*
-
-- Connector is ``AND`` only. ``OR`` is rejected with an explicit message.
-- Values are double-quoted strings (``""`` escapes a quote) or bare numbers.
-- ``is_empty`` / ``is_not_empty`` take no value.
-- ``in`` / ``not_in`` take a parenthesised list of quoted strings.
-- ``usage.total_tokens`` / ``usage.prompt_tokens`` / ``usage.completion_tokens``
-  are flat field names, not dictionary keys.
-
-The parser is ported from the SDK (``opik/api_objects/opik_query_language.py``)
-with two deliberate departures. First, the field and operator tables come
-from opik-backend's ``TraceField`` / ``SpanField`` / ``TraceThreadField`` /
-``ExperimentField`` enums and its ``FilterQueryBuilder`` operator map, not the
-SDK's copies — the SDK lists ``>=`` / ``<=`` for dictionaries (the backend
-400s) and misses ``is_empty`` on enums, ``source``, ``error_type``, ``ttft``
-and the whole experiment surface. Second, unknown fields are rejected here
-instead of being defaulted to ``string`` and left for the backend to refuse.
+``oql_parser`` holds the grammar and ``oql_fields`` the field and operator
+tables; this module checks parsed clauses against an entity's vocabulary and
+compiles them into the backend's filter array. Unknown fields are rejected
+here instead of being defaulted to ``string`` and left for the backend to
+refuse, a departure from the SDK.
 
 Every problem in a string is collected and reported together so the agent
 repairs the call in one retry: syntax errors carry the position and a caret,
@@ -39,138 +24,26 @@ from typing import Final, Literal
 
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import FieldType, ParamField, Vocabulary
+from opik_mcp.read_list.oql_fields import (
+    DYNAMIC_TYPES,
+    KEY_ALLOWED_TYPES,
+    KEY_REQUIRED_TYPES,
+    MILLISECOND_FIELDS,
+    NEGATING_OPERATORS,
+    OPERATORS_BY_TYPE,
+    USAGE_FIELDS,
+)
+from opik_mcp.read_list.oql_parser import (
+    GRAMMAR_LINE,
+    LIST_VALUE_OPERATORS,
+    NO_VALUE_OPERATORS,
+    ParseError,
+    Parser,
+    RawClause,
+    clauses_before_error,
+)
 from opik_mcp.read_list.uri import is_uuid
 from opik_mcp.read_list.window import parse_instant
-
-# Operator → FieldType entries of opik-backend's ANALYTICS_DB_OPERATOR_MAP
-# (FilterQueryBuilder.java). A pair missing there is a 400 server-side.
-OPERATORS_BY_TYPE: Final[dict[str, tuple[str, ...]]] = {
-    "string": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with", ">", "<"),
-    # A key addressed inside a map the user owns: ``data.question`` on a
-    # dataset item, ``output.answer`` on the runs compared with it. opik-backend
-    # calls these dynamic fields and wants the key spliced into the field name
-    # with a declared type, which is what ``_dynamic_clause`` below writes.
-    "keyed_string": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with", ">", "<"),
-    "flat_or_keyed_string": (
-        "=",
-        "!=",
-        "contains",
-        "not_contains",
-        "starts_with",
-        "ends_with",
-        ">",
-        "<",
-    ),
-    "date_time": ("=", "!=", ">", ">=", "<", "<="),
-    "number": ("=", "!=", ">", ">=", "<", "<="),
-    "feedback_scores": ("=", "!=", ">", ">=", "<", "<=", "is_empty", "is_not_empty"),
-    "dictionary": (
-        "=",
-        "!=",
-        "contains",
-        "not_contains",
-        "starts_with",
-        "ends_with",
-        ">",
-        "<",
-        "is_empty",
-        "is_not_empty",
-    ),
-    # A ClickHouse Map column the user owns: a dataset item's ``data``. The
-    # backend reads the key out of the clause's ``key`` (it is a real column,
-    # not a dynamic field name) and maps six string operators onto it —
-    # ``ANALYTICS_DB_OPERATOR_MAP`` has no MAP entry for a comparison or for
-    # emptiness, and ``FiltersFactory`` answers 400 for the pair. The
-    # dictionary type above promises what this one cannot deliver.
-    "map": ("=", "!=", "contains", "not_contains", "starts_with", "ends_with"),
-    "list": ("=", "!=", "contains", "not_contains", "is_empty", "is_not_empty"),
-    "enum": ("=", "!=", "in", "not_in", "is_empty", "is_not_empty"),
-    "enum_legacy": ("=", "!="),
-    "error_container": ("is_empty", "is_not_empty"),
-    "string_list": ("in", "not_in"),
-}
-
-NO_VALUE_OPERATORS: Final = frozenset({"is_empty", "is_not_empty"})
-LIST_VALUE_OPERATORS: Final = frozenset({"in", "not_in"})
-# Types whose filters need a ``.key`` (the backend rejects a blank key).
-KEYED_TYPES: Final = frozenset({"feedback_scores", "dictionary", "map"})
-#: Types whose filters carry a key. ``keyed_string`` needs one (``data`` alone
-#: is not a field the backend knows); ``flat_or_keyed_string`` takes one or
-#: not (``output`` searches the whole body, ``output.answer`` one key of it).
-KEY_REQUIRED_TYPES: Final = KEYED_TYPES | {"keyed_string"}
-KEY_ALLOWED_TYPES: Final = KEY_REQUIRED_TYPES | {"flat_or_keyed_string"}
-#: Types the backend cannot type on its own, because the field name is the
-#: user's. The compiled clause declares the type for them and splices the key
-#: into the name; everything else is a known field the backend types itself.
-DYNAMIC_TYPES: Final = frozenset({"keyed_string", "flat_or_keyed_string"})
-USAGE_FIELDS: Final = ("usage.total_tokens", "usage.prompt_tokens", "usage.completion_tokens")
-# Number fields the backend stores in milliseconds — named in value errors so
-# an agent writing ``duration > 5`` learns it asked for five milliseconds.
-MILLISECOND_FIELDS: Final = frozenset({"duration", "ttft"})
-
-#: Timing fields every observability record carries.
-TIMING_FIELDS: Final[dict[str, FieldType]] = {
-    "start_time": "date_time",
-    "end_time": "date_time",
-    "created_at": "date_time",
-    "last_updated_at": "date_time",
-}
-#: The payload, usage, cost, score and error fields a trace and a span share.
-PAYLOAD_FIELDS: Final[dict[str, FieldType]] = {
-    "input": "string",
-    "output": "string",
-    "input_json": "dictionary",
-    "output_json": "dictionary",
-    "metadata": "dictionary",
-    "tags": "list",
-    "usage.total_tokens": "number",
-    "usage.prompt_tokens": "number",
-    "usage.completion_tokens": "number",
-    "total_estimated_cost": "number",
-    "duration": "number",
-    "ttft": "number",
-    "feedback_scores": "feedback_scores",
-    "error_info": "error_container",
-    "error_type": "string",
-    "source": "enum_legacy",
-    "environment": "enum",
-}
-
-
-NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
-
-PARENT_ID_FIELDS: Final[tuple[str, ...]] = (
-    "trace_id",
-    "thread_id",
-    "experiment_id",
-    "experiment_ids",
-)
-"""A filter on one of these names a parent record, and turns a list into the
-rest of that record rather than a triage of the project — so the ``sdk``
-default is not added on top of it.
-
-Every experiment trace carries a source other than ``sdk`` (``evaluate`` and
-``run_tests`` write ``experiment``, the optimizer writes ``optimization``), so
-the default on top of an experiment drill-in hid all of it; the list tool's
-``_without_default`` tells that story. Declared here beside the default it
-exempts from, because two callers apply that default — the list tool and the
-metric runner — and had to agree."""
-SDK_SOURCE_CLAUSE: Final[dict[str, str]] = {
-    "field": "source",
-    "operator": "=",
-    "key": "",
-    "value": "sdk",
-}
-"""That default in compiled form, in one place.
-
-It had been written out three times — twice as this dict, once as its JSON
-string — and three copies of a default are three chances for the tools to
-disagree about what the default is. Copy it before mutating: the compiled
-clause lists are built by appending to them."""
-GRAMMAR_LINE: Final = (
-    "<field>[.<key>] <op> <value> [AND ...] — strings in double quotes, numbers bare, "
-    'is_empty/is_not_empty take no value, in/not_in take ("a", "b").'
-)
 
 IssueKind = Literal["syntax", "unknown_field", "bad_operator", "bad_value", "unsupported_entity"]
 
@@ -251,209 +124,8 @@ _KIND_CLASSES: Final[dict[IssueKind, type[OQLError]]] = {
 }
 
 
-@dataclass(frozen=True)
-class _RawClause:
-    field: str
-    key: str | None
-    operator: str
-    value: str
-    """Comma-joined for in/not_in, "" for is_empty/is_not_empty."""
-    quoted: bool
-    """True when the value was written in double quotes (vs a bare number)."""
-    field_position: int
-
-
-class _SyntaxError(Exception):
-    def __init__(self, message: str, position: int) -> None:
-        super().__init__(message)
-        self.message = message
-        self.position = position
-
-
-class _Parser:
-    """Character-cursor parser ported from the SDK, minus the semantic checks.
-
-    Produces raw clauses; ``_validate`` applies the field/operator/value
-    tables afterwards so semantic problems in several clauses can all be
-    reported at once. Syntax problems stop the parse (there is no reliable
-    way to resynchronise) and are reported with the cursor position.
-    """
-
-    def __init__(self, query: str) -> None:
-        self.query = query
-        self.cursor = 0
-
-    # -- helpers --
-
-    def _at_end(self) -> bool:
-        return self.cursor >= len(self.query)
-
-    def _skip_ws(self) -> None:
-        while not self._at_end() and self.query[self.cursor].isspace():
-            self.cursor += 1
-
-    def _read_word(self) -> str:
-        start = self.cursor
-        while not self._at_end() and (
-            self.query[self.cursor].isalnum() or self.query[self.cursor] == "_"
-        ):
-            self.cursor += 1
-        return self.query[start : self.cursor]
-
-    def _read_quoted(self, *, what: str) -> str:
-        """Cursor is on the opening quote. Returns the unescaped content."""
-        open_pos = self.cursor
-        self.cursor += 1
-        out: list[str] = []
-        while not self._at_end():
-            char = self.query[self.cursor]
-            if char == '"':
-                if self.cursor + 1 < len(self.query) and self.query[self.cursor + 1] == '"':
-                    out.append('"')
-                    self.cursor += 2
-                    continue
-                self.cursor += 1
-                return "".join(out)
-            out.append(char)
-            self.cursor += 1
-        raise _SyntaxError(f"missing closing quote for {what} {self.query[open_pos:]}", open_pos)
-
-    def _read_number(self) -> str:
-        start = self.cursor
-        if not self._at_end() and self.query[self.cursor] == "-":
-            self.cursor += 1
-        digits_start = self.cursor
-        while not self._at_end() and self.query[self.cursor].isdigit():
-            self.cursor += 1
-        if self.cursor == digits_start:
-            msg = "expected a number after '-'" if self.query[start] == "-" else "expected a number"
-            raise _SyntaxError(msg, start)
-        if not self._at_end() and self.query[self.cursor] == ".":
-            self.cursor += 1
-            frac_start = self.cursor
-            while not self._at_end() and self.query[self.cursor].isdigit():
-                self.cursor += 1
-            if self.cursor == frac_start:
-                raise _SyntaxError("expected digits after decimal point", frac_start)
-        return self.query[start : self.cursor]
-
-    # -- grammar --
-
-    def _parse_field(self) -> tuple[str, str | None, int]:
-        self._skip_ws()
-        pos = self.cursor
-        if self._at_end():
-            raise _SyntaxError("unexpected end of input, expected a field name", pos)
-        field = self._read_word()
-        if not field:
-            raise _SyntaxError(f"expected a field name, got {self.query[pos : pos + 12]!r}", pos)
-        key: str | None = None
-        if not self._at_end() and self.query[self.cursor] == ".":
-            self.cursor += 1
-            if not self._at_end() and self.query[self.cursor] == '"':
-                key = self._read_quoted(what="key")
-            else:
-                key_pos = self.cursor
-                key = self._read_word()
-                if not key:
-                    raise _SyntaxError("expected a key after '.'", key_pos)
-        return field, key, pos
-
-    def _parse_operator(self) -> str:
-        self._skip_ws()
-        pos = self.cursor
-        if self._at_end():
-            raise _SyntaxError("unexpected end of input, expected an operator", pos)
-        char = self.query[self.cursor]
-        if char == "=":
-            self.cursor += 1
-            return "="
-        if char in "<>!":
-            if self.cursor + 1 < len(self.query) and self.query[self.cursor + 1] == "=":
-                self.cursor += 2
-                return char + "="
-            if char == "!":
-                raise _SyntaxError("expected '!=' ", pos)
-            self.cursor += 1
-            return char
-        op = self._read_word()
-        if not op:
-            raise _SyntaxError(f"expected an operator, got {self.query[pos : pos + 12]!r}", pos)
-        return op
-
-    def _parse_value(self) -> tuple[str, bool]:
-        self._skip_ws()
-        pos = self.cursor
-        if self._at_end():
-            raise _SyntaxError("unexpected end of input, expected a value", pos)
-        char = self.query[self.cursor]
-        if char == '"':
-            return self._read_quoted(what="value"), True
-        if char.isdigit() or char == "-":
-            return self._read_number(), False
-        raise _SyntaxError('expected a value in double quotes ("…") or a number', pos)
-
-    def _parse_list_value(self) -> str:
-        self._skip_ws()
-        pos = self.cursor
-        if self._at_end() or self.query[self.cursor] != "(":
-            raise _SyntaxError(
-                'expected a list in parentheses after in/not_in, e.g. in ("a", "b"); '
-                "the list must start with '('",
-                pos,
-            )
-        self.cursor += 1
-        items: list[str] = []
-        while True:
-            self._skip_ws()
-            if self._at_end():
-                raise _SyntaxError("unterminated list, missing ')'", pos)
-            if self.query[self.cursor] == ")":
-                if not items:
-                    raise _SyntaxError("expected at least one item inside (...)", pos)
-                self.cursor += 1
-                return ",".join(items)
-            if items:
-                if self.query[self.cursor] != ",":
-                    raise _SyntaxError("expected ',' between list items", self.cursor)
-                self.cursor += 1
-                self._skip_ws()
-            if self._at_end() or self.query[self.cursor] != '"':
-                raise _SyntaxError("list items must be quoted strings", self.cursor)
-            items.append(self._read_quoted(what="list item"))
-
-    def parse(self) -> list[_RawClause]:
-        clauses: list[_RawClause] = []
-        self._skip_ws()
-        if self._at_end():
-            return clauses
-        while True:
-            field, key, field_pos = self._parse_field()
-            operator = self._parse_operator()
-            if operator in NO_VALUE_OPERATORS:
-                value, quoted = "", False
-            elif operator in LIST_VALUE_OPERATORS:
-                value, quoted = self._parse_list_value(), True
-            else:
-                value, quoted = self._parse_value()
-            clauses.append(_RawClause(field, key, operator, value, quoted, field_pos))
-
-            self._skip_ws()
-            if self._at_end():
-                return clauses
-            pos = self.cursor
-            connector = self._read_word()
-            if connector.lower() == "and":
-                continue
-            if connector.lower() == "or":
-                raise _SyntaxError(
-                    "OR is not supported; use AND, or run one query per alternative", pos
-                )
-            raise _SyntaxError(f"trailing characters {self.query[pos:]!r}", pos)
-
-
 def _validate(
-    vocabulary: Vocabulary, raw: _RawClause
+    vocabulary: Vocabulary, raw: RawClause
 ) -> tuple[dict[str, str] | None, OQLIssue | None]:
     fields = vocabulary.filter_fields
     field, key = raw.field, raw.key
@@ -506,7 +178,7 @@ def _validate(
     return {"field": field, "operator": raw.operator, "key": key or "", "value": raw.value}, None
 
 
-def _dynamic_clause(field: str, key: str | None, raw: _RawClause) -> dict[str, str]:
+def _dynamic_clause(field: str, key: str | None, raw: RawClause) -> dict[str, str]:
     """A clause on a field whose name the user chose.
 
     opik-backend types its own known fields and refuses a dynamic one that
@@ -530,7 +202,7 @@ def operand_values(operator: str, value: str) -> list[str]:
 
 
 def _param_operator_issue(
-    vocabulary: Vocabulary, field: str, spec: ParamField, raw: _RawClause
+    vocabulary: Vocabulary, field: str, spec: ParamField, raw: RawClause
 ) -> OQLIssue:
     """Refuse an operator the query parameter cannot carry — with the query
     that would have worked, whenever one can be computed.
@@ -565,7 +237,7 @@ def _unknown_field(vocabulary: Vocabulary, field: str) -> OQLIssue:
 
 
 def _validate_value(
-    vocabulary: Vocabulary, field: str, ftype: str, key: str | None, raw: _RawClause
+    vocabulary: Vocabulary, field: str, ftype: str, key: str | None, raw: RawClause
 ) -> OQLIssue | None:
     if ftype in KEY_REQUIRED_TYPES and not key:
         if ftype == "feedback_scores":
@@ -655,16 +327,16 @@ def compile_filters(
             ],
         )
 
-    parser = _Parser(query)
+    parser = Parser(query)
     issues: list[OQLIssue] = []
     compiled: list[dict[str, str]] = []
     try:
         raw_clauses = parser.parse()
-    except _SyntaxError as e:
+    except ParseError as e:
         # Clauses parsed before the syntax error still get validated so the
         # agent sees every problem in one round.
         raw_clauses = []
-        for raw in _clauses_before_error(parser):
+        for raw in clauses_before_error(parser):
             clause, issue = _validate(vocabulary, raw)
             if issue is not None:
                 issues.append(issue)
@@ -682,22 +354,6 @@ def compile_filters(
     if issues:
         raise OQLError(vocabulary, query, issues)
     return compiled
-
-
-def _clauses_before_error(parser: _Parser) -> list[_RawClause]:
-    """Clauses fully parsed before a syntax error — re-run the parser on the
-    prefix up to the failing clause. Cheap (queries are short) and keeps the
-    parser itself free of error-recovery state."""
-    prefix = parser.query[: parser.cursor]
-    # Walk back to the last complete AND boundary and parse that prefix.
-    lowered = prefix.lower()
-    cut = lowered.rfind(" and ")
-    if cut < 0:
-        return []
-    try:
-        return _Parser(prefix[:cut]).parse()
-    except _SyntaxError:
-        return []
 
 
 def filter_field_names(
@@ -810,16 +466,6 @@ def _quote_key(key: str) -> str:
 
 
 __all__ = [
-    "GRAMMAR_LINE",
-    "KEYED_TYPES",
-    "MILLISECOND_FIELDS",
-    "NEGATING_OPERATORS",
-    "OPERATORS_BY_TYPE",
-    "PARENT_ID_FIELDS",
-    "PAYLOAD_FIELDS",
-    "SDK_SOURCE_CLAUSE",
-    "TIMING_FIELDS",
-    "USAGE_FIELDS",
     "IssueKind",
     "OQLBadOperatorError",
     "OQLBadValueError",

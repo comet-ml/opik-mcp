@@ -8,7 +8,7 @@ the second.
 from __future__ import annotations
 
 from opik_mcp.read_list.handler import Vocabulary
-from opik_mcp.read_list.oql import USAGE_FIELDS
+from opik_mcp.read_list.oql_fields import USAGE_FIELDS
 
 COMPARED = Vocabulary(
     name="dataset_item",

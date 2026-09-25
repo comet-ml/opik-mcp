@@ -31,7 +31,7 @@ from typing import Any, Final
 
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, describe
-from opik_mcp.read_list.oql import SDK_SOURCE_CLAUSE
+from opik_mcp.read_list.oql_fields import SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.window import closed_window, format_instant
 
 WINDOW_DAYS: Final = 7

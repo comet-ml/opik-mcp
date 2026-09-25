@@ -50,6 +50,10 @@ SHARED: frozenset[str] = frozenset(
         "handler",
         "list_tool",
         "oql",
+        # The grammar and the backend's field and operator tables, which ``oql``
+        # compiles against and the schema reference renders.
+        "oql_fields",
+        "oql_parser",
         "paging",
         "project_names",
         "project_scope",
