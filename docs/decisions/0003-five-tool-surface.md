@@ -1,11 +1,11 @@
-# 0003 — Five tools
+# 0003 — A small, fixed tool set
 
 Status: accepted, 2026-09-23 (OPIK-8485)
 
 ## Decision
 
-The server advertises exactly five tools: `read`, `list`, `write`, `schema`
-and `read_skill`.
+The server advertises a small, fixed set of general tools. The set is pinned
+in `EXPECTED_TOOLS` in `tests/conformance/test_tool_inventory.py`.
 
 - Reads are tools over an entity registry, not MCP resources.
 - All writes go through one `write(operation, data)` tool over an operation
@@ -27,6 +27,8 @@ for the model. A new entity or operation is a registry entry, not a new tool.
 - `tests/conformance/test_no_duplicate_payload.py`: one copy per answer.
 - `tests/conformance/test_write_tool_surface.py`: `write` and `schema` match
   the registry.
+- `tests/conformance/test_tool_annotations.py`: every tool declares a title
+  and its hints, and its description arrives whole.
 
 ## Log
 
@@ -34,3 +36,5 @@ for the model. A new entity or operation is a registry entry, not a new tool.
 - 2026-09-01: `read_skill` added (#175).
 - 2026-09-03: `ask_ollie` and `run_experiment` removed (#181).
 - 2026-09-23: duplicate `structuredContent` removed (#201).
+- 2026-09-25: the tool count and names removed from this ADR; the test owns
+  them (OPIK-8496).
