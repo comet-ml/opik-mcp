@@ -48,26 +48,7 @@ Read real traces before writing any scorer — `client.search_traces(project_nam
 Prefer the test suite for agents; it is what `/opik-test` and `/opik-compare` operate on.
 
 ### 4. Build the cases
-```python
-import opik
-
-client = opik.Opik()
-
-suite = client.get_or_create_test_suite(
-    name="<project>-eval",
-    project_name="<project>",
-    global_assertions=["<one behavior every answer must show>"],  # optional
-)
-suite.insert(
-    [
-        {
-            "data": {"input": t.input, "source_trace_id": t.id},
-            "assertions": ["<what a correct output does>"],
-        }
-        for t in sampled_traces
-    ]
-)
-```
+The test-suite calls: `references/sdk-snippets.md` (**Build the cases**).
 For the dataset path: `client.get_or_create_dataset(name, project_name)` then `dataset.insert([{"input": …, "expected_output": …}])`. Store inputs verbatim; keep `source_trace_id` so cases trace back to production.
 
 ### 5. Define the scoring
@@ -78,36 +59,13 @@ For the dataset path: `client.get_or_create_dataset(name, project_name)` then `d
 
 ### 6. Run it
 Write the task adapter as a temp file **outside the repo** (needs the app's provider credentials — absent → **Blocker**). Never run a production entrypoint that writes, sends, or spends.
-```python
-# Test suite
-results = opik.run_tests(
-    test_suite=suite,
-    task=lambda item: {"input": item["input"], "output": str(app(item["input"]))},
-    experiment_name="baseline-<sha>",
-    model="<judge model>",
-    generate_report=False,
-)  # default True writes opik_test_suite_reports/ into cwd — keep the repo clean
-# Dataset
-from opik.evaluation import evaluate
-
-res = evaluate(
-    dataset=dataset,
-    task=task,
-    scoring_metrics=[...],
-    experiment_name="baseline-<sha>",
-    scoring_key_mapping={"reference": "expected_output"},
-)  # map dataset keys onto metric args
-```
+The `run_tests` and `evaluate()` calls: `references/sdk-snippets.md` (**Run it**).
 `project_name` matters: datasets, suites, prompts, and experiments are project-scoped, and it must match the tracing project if the app uses `@track`. Set it when **creating** the dataset or suite — `evaluate()` inherits the dataset's project, and its own `project_name` kwarg is deprecated (the SDK warns and ignores it).
 
 **Judge credential guard:** if the LLM judge (suite assertions, or an LLM metric) has no provider key, `run_tests`/`evaluate` do **not** raise — every item scores 0 with `scoring_failed=True` and a "Missing credentials" reason, and the experiment is still created. Check for that before reporting; it is a **Blocker** ("set the judge's provider key and rerun"), not a result.
 
 ### 7. Read the scores back
-```python
-exp = client.get_experiment_by_id(results.experiment_id)  # or res.experiment_id
-items = exp.get_items()  # dataset_item_data, evaluation_task_output, feedback_scores [{name,value,reason}], assertion_results [{passed,reason}], trace_id
-# aggregate: mean per score name; pass rate = items where every assertion passed / items with assertions
-```
+The SDK read and the aggregates: `references/sdk-snippets.md` (**Read the scores back**).
 On the dataset path `res.aggregate_evaluation_scores().aggregated_scores` gives per-metric statistics directly. Name the worst items and the failure mode each hit — that is the actionable part. (`get_experiment_by_name` is deprecated; use `get_experiments_by_name` / `get_experiment_by_id`.)
 
 ### 8. Report
@@ -125,27 +83,11 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 **User-facing:** a short human message — the experiment link, the score table, the worst items with reasons, the case source, and the single next step. Not a raw dump of every item.
 
-**Underneath** (for composition / evals), one shape:
-- `status`: `evaluated` | `blocked`
-- `shape`: `test_suite` | `dataset` | `server_side`
-- `cases`: `name`, `id`, `count`, `source` (`traces` | `provided` | `synthetic` | `existing`)
-- `scoring`: list of `{name, kind: heuristic|judge|assertion, failure_mode}`
-- `experiment`: `id`, `name`, `url`, `project`
-- `scores`: list of `{metric, value}` (pass rate included)
-- `worst`: list of `{dataset_item_id, input, score_or_assertion, reason, trace_url}`
-- `next_step`: exactly one
-
-Invariants: `evaluated` carries an `experiment.url` and non-empty `scores`; each judge in `scoring` names one `failure_mode`; `blocked` carries exactly one `next_step`; every path leaves the codebase unchanged.
+**Underneath** (for composition / evals), one shape, with its invariants: `references/output-shape.md`.
 
 ## Examples
 
-**Agent, from traces.** `/opik-evaluate`. 100 traces read: 30% give wrong refund windows, 10% invent policies. Suite `support-bot-eval`, 40 items from traces, assertions "States the refund window as 5–7 business days" and "Does not invent a policy not present in the docs". Runner built, `run_tests` → 27/40. Read back: worst items all hit the refund assertion. → **`evaluated`**; next step = "`/opik-test` isn't needed — the suite exists; fix `retrieve()` and run `/opik-compare support-bot-eval`".
-
-**RAG, dataset path.** `/opik-evaluate the RAG answers`. Dataset with `input`, `expected_output`, `context`; `evaluate()` with `ContextPrecision`, `ContextRecall`, `Hallucination`. Recall 0.61 is the weak stage. → **`evaluated`**; next step = "raise top-k / fix the retriever, then `/opik-compare`".
-
-**Prompt only.** The target is a prompt version in the library. `execute_experiment` with the variant; poll until items fill; read back. → **`evaluated`** with `shape: server_side`.
-
-**Blocked.** No entrypoint is inferable from the repo. → **`blocked`**: "Which function should I evaluate?"
+Worked runs (agent from traces, RAG dataset path, prompt only, blocked): `references/examples.md`.
 
 ## Key principles
 - **Error analysis before evaluators.** Never write a scorer without reading traces first.
