@@ -249,7 +249,9 @@ Boundaries:
 - OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
-  `tests/hermetic/test_entity_links_surface.py`.
+  and each entity's file in `tests/hermetic/reads/`, which also checks the size
+  header and that a refusal carries no backend body or REST path
+  (`tests/hermetic/reads/answers.py`).
 - Namespaces and description claims: `tests/read_list/test_modular.py`,
   `tests/hermetic/test_description_claims.py`.
 
