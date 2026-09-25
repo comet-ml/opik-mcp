@@ -21,7 +21,6 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.paging import (
     collection_total,
@@ -31,7 +30,7 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
-from opik_mcp.read_list.ui_links import thread_page_url
+from opik_mcp.read_list.ui_links import logs_page_url
 
 MESSAGES_INLINE_LIMIT = 200
 
@@ -158,6 +157,19 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_threads(**kw)
 
 
+def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str | None:
+    """The Logs page on the threads view, with this thread open."""
+    if not thread_id:
+        return None
+    return logs_page_url(settings, project_id, "threads", thread=thread_id)
+
+
+def row_link_template(settings: Settings, project_id: str | None) -> str | None:
+    if not project_id:
+        return None
+    return logs_page_url(settings, project_id, "threads", thread="{id}")
+
+
 def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The Logs page on the threads view, with this thread open.
 
@@ -204,7 +216,7 @@ VOCABULARY = Vocabulary(
 HANDLER = EntityHandler(
     entity_type="thread",
     vocabularies=(VOCABULARY,),
-    page_note_fn=link_note_for("thread"),
+    row_link_template=row_link_template,
     fetch_fn=fetch,
     link_fn=thread_links,
     list_fn=list_page,

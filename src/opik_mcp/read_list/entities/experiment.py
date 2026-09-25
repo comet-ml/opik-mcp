@@ -309,9 +309,9 @@ def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]
         return {}
     url = experiments_compare_url(
         settings,
-        str(project_id),
-        str(dataset_id),
-        [str(experiment_id)],
+        project_id=str(project_id),
+        dataset_id=str(dataset_id),
+        experiment_ids=[str(experiment_id)],
     )
     return {"url": url} if url is not None else {}
 

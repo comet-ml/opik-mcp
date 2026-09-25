@@ -33,11 +33,7 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.handler import EntityHandler, PageContext, PageNoteFn, ParentPage
 from opik_mcp.read_list.project_scope import resolved_project
-from opik_mcp.read_list.ui_links import (
-    project_page_url,
-    row_link_template,
-    view_link_note,
-)
+from opik_mcp.read_list.ui_links import project_page_url, view_link
 
 logger = logging.getLogger("opik_mcp.read_list.decorations")
 
@@ -173,55 +169,34 @@ async def _parent_page_note(
     return f"Open in Opik: the {parent_page.noun} {named} these belong to — {url}"
 
 
-def page_note_of(handler: EntityHandler) -> PageNoteFn | None:
-    """The note a ``list`` page of this entity ends with, or ``None``.
+def _link_note(handler: EntityHandler) -> PageNoteFn:
+    """The note that tells a page's reader how to open its rows.
 
-    The entity's own ``page_note_fn`` when it has one; otherwise the link to
-    its parent's page, when it declares a ``parent_page``.
-    """
-    if handler.page_note_fn is not None:
-        return handler.page_note_fn
-    parent_page = handler.parent_page
-    if parent_page is None:
-        return None
-
-    async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
-        if ctx.empty or not ctx.parent_id:
-            return None
-        return await _parent_page_note(client, settings, parent_page, ctx.parent_id)
-
-    return note
-
-
-def link_note_for(entity_type: str) -> PageNoteFn:
-    """The ``page_note_fn`` that tells a page's reader how to open its rows.
-
-    One factory rather than the same hook pasted into each entity module: six
-    copies of it differed only in the entity's own name, which is the shape
-    that drifts — five get fixed and the sixth keeps the old wording.
-
-    Two kinds of page, and the entity decides which by what it has. A page
-    whose rows are addressable gets a template with the row's own columns as
-    slots. A page of things that are not addressable at all — a score name is
-    a column, a rule is a row, a metric is a chart — gets the page they are
+    Two kinds of page, and the entity decides which by what it declares. A
+    page whose rows are addressable gets a template with the row's own columns
+    as slots. A page of things that are not addressable at all — a score name
+    is a column, a rule is a row, a metric is a chart — gets the page they are
     visible on, named for what it is, so the link does not read as a link to
     the entity.
     """
+    view_page, row_link_template = handler.view_page, handler.row_link_template
 
     async def note(_client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
         project_id = _project_of(ctx)
-        view = view_link_note(settings, entity_type, project_id, empty=ctx.empty)
+        view = None
+        if view_page is not None:
+            view = view_link(settings, view_page, project_id, is_empty=ctx.empty)
         if view is not None:
             return f"Open in Opik: {view['url_opens']} — {view['url']}"
         if ctx.empty:
             # A template addresses a row, and there are none. Returning nothing
             # also lets the generic "why is this page empty" probes run.
             return None
-        template = row_link_template(settings, entity_type, project_id)
+        template = row_link_template(settings, project_id) if row_link_template else None
         if template is None:
             return None
         return (
-            f"Open a row in Opik: {template['url_template']} — fill the slots from "
+            f"Open a row in Opik: {template} — fill the slots from "
             "the row's own columns. Show it to the user as a link named after the "
             "row, never as a bare URL."
         )
@@ -229,11 +204,33 @@ def link_note_for(entity_type: str) -> PageNoteFn:
     return note
 
 
+def page_note_of(handler: EntityHandler) -> PageNoteFn | None:
+    """The note a ``list`` page of this entity ends with, or ``None``.
+
+    The entity's own ``page_note_fn`` when it has one; otherwise the link its
+    hooks describe: its parent's page, the page it is visible on, or a
+    template for its rows.
+    """
+    if handler.page_note_fn is not None:
+        return handler.page_note_fn
+    parent_page = handler.parent_page
+    if parent_page is not None:
+
+        async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
+            if ctx.empty or not ctx.parent_id:
+                return None
+            return await _parent_page_note(client, settings, parent_page, ctx.parent_id)
+
+        return note
+    if handler.view_page is not None or handler.row_link_template is not None:
+        return _link_note(handler)
+    return None
+
+
 __all__ = [
     "BLOCK_ERRORS",
     "DEADLINE_SECONDS",
     "block",
     "describe",
-    "link_note_for",
     "page_note_of",
 ]

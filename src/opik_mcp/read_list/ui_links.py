@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Final, Literal, get_args
 from urllib.parse import quote
 
@@ -134,6 +135,21 @@ a user is reading.
 _LIVE_AREAS: Final[frozenset[str]] = frozenset(get_args(ProjectArea))
 
 
+@dataclass(frozen=True)
+class ViewPage:
+    """The page something with no page of its own is visible on.
+
+    The label is not decoration: a link to Logs under a score name would
+    otherwise read as a link to the score.
+    """
+
+    area: ProjectArea
+    opens: str
+    """What the page shows the reader, when the listing has rows."""
+    opens_empty: str
+    """The same, for an empty listing, where "this rule is a row" is false."""
+
+
 def project_page_url(
     settings: Settings,
     project_id: str,
@@ -172,6 +188,7 @@ def project_page_url(
 
 def experiments_compare_url(
     settings: Settings,
+    *,
     project_id: str,
     dataset_id: str,
     experiment_ids: Sequence[str],
@@ -195,28 +212,6 @@ def experiments_compare_url(
         subpath=f"{dataset_id}/compare",
         query=f"experiments={runs}",
     )
-
-
-#: The entities that have no page of their own, the page each is visible on,
-#: and what to look for there. The label is not decoration: a link to Logs
-#: under a score name would otherwise read as a link to the score.
-_VIEW_PAGES: Final[dict[str, tuple[ProjectArea, str, str]]] = {
-    "score_name": (
-        "logs",
-        "the project's Logs, where this score is a column on the rows that carry it",
-        "the project's Logs, where scores appear as columns once something is scored",
-    ),
-    "online_rule": (
-        "online-evaluation",
-        "the project's Online evaluation rules, where this rule is a row",
-        "the project's Online evaluation, where a rule can be created",
-    ),
-    "project_metric": (
-        "dashboards",
-        "the project's Dashboards, where this metric is charted",
-        "the project's Dashboards, where metrics are charted",
-    ),
-}
 
 
 def scoped_entity_links(
@@ -248,58 +243,23 @@ def scoped_entity_links(
     return {"url": url} if url is not None else {}
 
 
-#: How a row of each project-scoped listing is addressed, as a query with the
-#: row's own columns left as slots. ``{id}`` is the row's id; ``{trace_id}`` is
-#: the column a span row already prints.
-#: Stands in for the project while a project-list template is built, so the
-#: builder is handed something that is an id in shape if not in meaning.
-_SLOT: Final = "0PROJECTSLOT0"
+def logs_page_url(settings: Settings, project_id: str, logs_type: str, **panels: str) -> str | None:
+    """The Logs page on one of its views, with the named panels open.
 
-_ROW_QUERIES: Final[dict[str, str]] = {
-    "trace": "logsType=traces&trace={id}",
-    "span": "logsType=traces&trace={trace_id}&span={id}",
-    "thread": "logsType=threads&thread={id}",
-}
-
-
-def row_link_template(
-    settings: Settings, entity_type: str, project_id: str | None
-) -> dict[str, str] | None:
-    """One link for a whole page of rows, or ``None`` when none can be filled.
-
-    A url per row would more than double a listing — a row is about a hundred
-    characters and a link about the same again — against a tool budget already
-    near its ceiling. A project-scoped page does not need one: every row
-    shares the project, so only the row's own columns vary, and a single
-    template with those columns as slots costs what one url would.
-
-    ``None`` where the row cannot fill a template. An experiment's address
-    needs its project and its dataset and the row prints neither — it prints
-    ``dataset_name`` — and a template nothing can fill is worse than no
-    template, so that listing points at ``read`` instead of growing two id
-    columns on every row.
+    ``panels`` become ``&<panel>=<value>`` in the order given: the view's
+    record first, then a selection inside it. A value may be a template slot
+    (``{id}``), which is why nothing here encodes it.
     """
-    if entity_type == "project":
-        # The row *is* the project, so the project slot is the id column. The
-        # placeholder is substituted after the url is built rather than passed
-        # in as the project: ``project_page_url`` takes an id, and handing it a
-        # template slot would make its emptiness check the only thing standing
-        # between a slot and a path segment.
-        built = project_page_url(settings, _SLOT, "logs")
-        return None if built is None else {"url_template": built.replace(_SLOT, "{id}")}
-    query = _ROW_QUERIES.get(entity_type)
-    if query is None or not project_id:
-        return None
-    url = project_page_url(settings, project_id, "logs", query=query)
-    return None if url is None else {"url_template": url}
+    query = "&".join((f"logsType={logs_type}", *(f"{k}={v}" for k, v in panels.items())))
+    return project_page_url(settings, project_id, "logs", query=query)
 
 
-def view_link_note(
+def view_link(
     settings: Settings,
-    entity_type: str,
+    view_page: ViewPage,
     project_id: str,
     *,
-    empty: bool = False,
+    is_empty: bool = False,
 ) -> dict[str, str] | None:
     """Where to go and look at something that is not a page, or ``None``.
 
@@ -312,64 +272,27 @@ def view_link_note(
     puts around the link should be the true ones rather than the entity's
     name.
     """
-    page = _VIEW_PAGES.get(entity_type)
-    if page is None or not project_id:
+    if not project_id:
         return None
-    area, opens, opens_empty = page
-    url = project_page_url(settings, project_id, area)
+    url = project_page_url(settings, project_id, view_page.area)
     if url is None:
         return None
     # "where this rule is a row" is false of a page with no rows. The link is
     # still the right one — it is where the reader goes to make one — so the
     # sentence changes rather than the link disappearing.
-    return {"url": url, "url_opens": opens_empty if empty else opens}
-
-
-def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str | None:
-    """The Logs page on the threads view, with this thread open."""
-    if not thread_id:
-        return None
-    return project_page_url(
-        settings, project_id, "logs", query=f"logsType=threads&thread={thread_id}"
-    )
-
-
-def trace_page_url(
-    settings: Settings,
-    project_id: str,
-    trace_id: str,
-    *,
-    span_id: str | None = None,
-) -> str | None:
-    """The Logs page with this trace open, or ``None`` when it cannot be built.
-
-    The direct address, for when the project and the workspace are both known.
-    :func:`trace_link_template` is the fallback for when they are not — it
-    costs a hop and lands on ``/traces``, which v2 keeps only to forward here.
-
-    ``span_id`` selects one span inside the opened trace. It is not an address
-    of its own: the UI treats it as panel state under the trace, and writes an
-    empty one into the query when a trace is opened without a span.
-    """
-    if not trace_id:
-        return None
-    query = f"logsType=traces&trace={trace_id}"
-    if span_id:
-        query = f"{query}&span={span_id}"
-    return project_page_url(settings, project_id, "logs", query=query)
+    return {"url": url, "url_opens": view_page.opens_empty if is_empty else view_page.opens}
 
 
 __all__ = [
     "ProjectArea",
+    "ViewPage",
     "current_workspace",
     "experiments_compare_url",
     "link_workspace",
+    "logs_page_url",
     "opik_ui_base",
     "project_page_url",
-    "row_link_template",
     "scoped_entity_links",
-    "thread_page_url",
     "trace_link_template",
-    "trace_page_url",
-    "view_link_note",
+    "view_link",
 ]

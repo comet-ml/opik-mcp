@@ -16,7 +16,7 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.ui_links import ProjectArea
+from opik_mcp.read_list.ui_links import ProjectArea, ViewPage
 
 # ``FetchFn`` is widened to ``...`` so project-scoped fetchers (only ``thread``
 # today) can accept ``project_id`` / ``project_name`` kwargs. Every other
@@ -93,6 +93,7 @@ class PageContext:
 PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
 LinkRowFn = Callable[[Settings, dict[str, Any]], str | None]
 RunFn = Callable[..., Awaitable[str]]
+RowLinkTemplateFn = Callable[[Settings, str | None], str | None]
 ReferenceFn = Callable[[], dict[str, Any]]
 
 
@@ -324,6 +325,21 @@ class EntityHandler:
     tool.
     """
 
+    row_link_template: RowLinkTemplateFn | None = None
+    """Optional: one link for a whole ``list`` page, with the row's own
+    columns as slots (``{id}``), given the page's project id or ``None``.
+
+    A url per row would more than double a listing — a row is about a hundred
+    characters and a link about the same again. A project-scoped page does
+    not need one: every row shares the project, so a single template costs
+    what one url would. Return ``None`` where no row could fill it: a
+    template nothing can fill is worse than none.
+    """
+    view_page: ViewPage | None = None
+    """Optional: the page this entity is visible on, for an entity that has
+    no page of its own (a score name is a column, a rule a row, a metric a
+    chart). A ``list`` page links it, labelled with what the reader will
+    find there."""
     parent_page: ParentPage | None = None
     """Optional: link a ``list`` page to its parent's page, for rows with no page.
 
@@ -427,6 +443,7 @@ __all__ = [
     "ReadWindow",
     "ReferenceFn",
     "RowFn",
+    "RowLinkTemplateFn",
     "RunFn",
     "SearchByNameFn",
     "Vocabulary",

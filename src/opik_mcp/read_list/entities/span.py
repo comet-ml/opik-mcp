@@ -10,9 +10,8 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.ui_links import trace_page_url
+from opik_mcp.read_list.ui_links import logs_page_url
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -36,8 +35,15 @@ def span_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     span_id = data.get("id")
     if not all(isinstance(v, str) and v for v in (project_id, trace_id, span_id)):
         return {}
-    url = trace_page_url(settings, str(project_id), str(trace_id), span_id=str(span_id))
+    url = logs_page_url(settings, str(project_id), "traces", trace=str(trace_id), span=str(span_id))
     return {"url": url} if url is not None else {}
+
+
+def row_link_template(settings: Settings, project_id: str | None) -> str | None:
+    """The trace column a span row already prints fills the trace slot."""
+    if not project_id:
+        return None
+    return logs_page_url(settings, project_id, "traces", trace="{trace_id}", span="{id}")
 
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
@@ -85,7 +91,7 @@ VOCABULARY = Vocabulary(
 HANDLER = EntityHandler(
     entity_type="span",
     vocabularies=(VOCABULARY,),
-    page_note_fn=link_note_for("span"),
+    row_link_template=row_link_template,
     fetch_fn=fetch,
     link_fn=span_links,
     list_fn=list_page,

@@ -28,8 +28,8 @@ import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikListClient
-from opik_mcp.read_list.decorations import link_note_for, page_note_of
+from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.entities.dataset import dataset_links
 from opik_mcp.read_list.entities.experiment import experiment_links
 from opik_mcp.read_list.entities.prompt import prompt_links
@@ -39,16 +39,33 @@ from opik_mcp.read_list.entities.trace import trace_links
 from opik_mcp.read_list.handler import PageContext, PageNoteFn
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.project_scope import remember_resolved_project, resolved_project
-from opik_mcp.read_list.read_tool import _link_hint
+from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from opik_mcp.read_list.size import size_header
-from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
+from opik_mcp.read_list.ui_links import ProjectArea, view_link
 
 
 def _parent_note() -> PageNoteFn:
-    note = page_note_of(ENTITY_REGISTRY["dataset_item"])
+    return _note_of("dataset_item")
+
+
+def _note_of(entity_type: str) -> PageNoteFn:
+    note = page_note_of(ENTITY_REGISTRY[entity_type])
     assert note is not None
     return note
+
+
+def view_link_note(
+    settings: Settings, entity_type: str, project_id: str, *, empty: bool = False
+) -> dict[str, str] | None:
+    view_page = ENTITY_REGISTRY[entity_type].view_page
+    assert view_page is not None
+    return view_link(settings, view_page, project_id, is_empty=empty)
+
+
+def row_link_template(settings: Settings, entity_type: str, project_id: str | None) -> str | None:
+    template = ENTITY_REGISTRY[entity_type].row_link_template
+    return template(settings, project_id) if template is not None else None
 
 
 @pytest.fixture
@@ -415,9 +432,7 @@ def test_a_project_scoped_page_carries_one_template_for_every_row(
 ) -> None:
     """Every row shares the project, so only the id varies — one template for
     the page costs what one url would, instead of one per row."""
-    note = row_link_template(_settings(), entity, "p-7")
-    assert note is not None
-    assert note["url_template"] == expected
+    assert row_link_template(_settings(), entity, "p-7") == expected
     # the template with its slots filled must be a link the UI serves
     filled = expected.replace("{id}", "x-1").replace("{trace_id}", "t-1")
     assert live_project_url(filled)
@@ -426,9 +441,9 @@ def test_a_project_scoped_page_carries_one_template_for_every_row(
 def test_the_project_list_fills_its_template_from_the_row_id() -> None:
     """A project list's rows differ by project — but the project *is* the row,
     so one template still serves the page."""
-    note = row_link_template(_settings(), "project", None)
-    assert note is not None
-    assert note["url_template"] == "https://opik.test/demo-ws/projects/{id}/logs"
+    assert row_link_template(_settings(), "project", None) == (
+        "https://opik.test/demo-ws/projects/{id}/logs"
+    )
 
 
 def test_no_template_where_the_row_cannot_fill_one() -> None:
@@ -465,13 +480,29 @@ def test_an_unnamed_record_gets_the_generic_link_text() -> None:
     assert "open as a link named 'Open in Opik'" in header
 
 
-def test_a_projection_that_drops_the_url_drops_the_header_promise_too() -> None:
+@pytest.mark.anyio
+async def test_a_projection_that_drops_the_url_drops_the_header_promise_too() -> None:
     """Projection runs after the links are attached, so a caller who does not
     name `url` does not get one. The header must not say otherwise: a promise
     of a link the payload has no url for sends the agent looking for it."""
-    record = {"id": "e-1", "name": "baseline-seed", "url": "https://opik.test/x"}
-    assert _link_hint("experiment", record)["link_as"] == "baseline-seed"
-    assert _link_hint("experiment", {k: v for k, v in record.items() if k != "url"}) == {}
+
+    class _Client:
+        async def get_experiment(self, experiment_id: str, /) -> dict[str, object]:
+            return {
+                "id": experiment_id,
+                "name": "baseline-seed",
+                "project_id": "p-7",
+                "dataset_id": "ds-1",
+            }
+
+    run_id = "01a0c38f-4101-7256-a373-27ed81e31c7c"
+    client = cast("OpikReadClient", _Client())
+    whole = await run_read("experiment", run_id, settings=_settings(), client=client)
+    assert "open as a link named 'baseline-seed'" in whole.splitlines()[0]
+    narrowed = await run_read(
+        "experiment", run_id, fields=["name"], settings=_settings(), client=client
+    )
+    assert "open as a link" not in narrowed.splitlines()[0]
 
 
 def test_project_metric_has_a_page_and_is_reachable_through_the_runner() -> None:
@@ -484,7 +515,7 @@ def test_project_metric_has_a_page_and_is_reachable_through_the_runner() -> None
     note = view_link_note(_settings(), "project_metric", "p-7")
     assert note is not None
     assert note["url"].endswith("/projects/p-7/dashboards")
-    assert ENTITY_REGISTRY["project_metric"].page_note_fn is not None
+    assert page_note_of(ENTITY_REGISTRY["project_metric"]) is not None
 
 
 @pytest.mark.anyio
@@ -506,7 +537,7 @@ async def test_a_list_scoped_by_name_reads_the_project_off_its_own_rows() -> Non
             type(self).calls += 1
             return {"content": [], "total": 0}
 
-    note = await link_note_for("trace")(
+    note = await _note_of("trace")(
         cast("OpikListClient", _Client()),
         _settings(),
         PageContext(
@@ -523,7 +554,7 @@ async def test_a_list_scoped_by_name_reads_the_project_off_its_own_rows() -> Non
 @pytest.mark.anyio
 async def test_a_page_whose_rows_name_no_project_simply_carries_no_link() -> None:
     """No link is the right answer here, not a looked-up one."""
-    note = await link_note_for("trace")(
+    note = await _note_of("trace")(
         cast("OpikListClient", object()),
         _settings(),
         PageContext(project_id=None, project_name="checkout", rows=({"id": "t-1"},)),
@@ -542,7 +573,7 @@ async def test_a_score_name_page_scoped_by_name_keeps_its_link() -> None:
     the name-scoped call is no poorer than the id-scoped one.
     """
     remember_resolved_project("p-7")
-    note = await link_note_for("score_name")(
+    note = await _note_of("score_name")(
         cast("OpikListClient", object()),
         _settings(),
         PageContext(project_id=None, project_name="checkout", rows=({"name": "helpfulness"},)),
@@ -565,24 +596,29 @@ async def test_one_page_never_inherits_another_page_s_project() -> None:
     assert resolved_project() is None, "run_list clears it before doing anything"
 
 
-def test_a_url_column_is_never_cut_to_fit() -> None:
+@pytest.mark.anyio
+async def test_a_url_column_is_never_cut_to_fit() -> None:
     """A truncated link is worse than no link: it looks like an address and
     opens nothing. The table cuts wide cells at 60 characters and every Opik
     url is longer than that, so the column has to be exempt — the cut exists
     to keep a table scannable, and a url is not read, it is clicked."""
-    from opik_mcp.read_list.list_tool import _render_cell
 
-    url = (
-        "https://www.comet.com/opik/ws/projects/01a0c38f-4119-77ff-a0d8-0994aaa47fd1"
-        "/experiments/01a0c38f-4101-7256-a373-27ed81e31c7c/compare"
+    class _Experiments:
+        async def list_experiments(self, **kw: object) -> dict[str, object]:
+            return {
+                "content": [
+                    {"id": "e-1", "name": "x" * 200, "project_id": "p-7", "dataset_id": "ds-1"}
+                ],
+                "total": 1,
+            }
+
+    out = await run_list(
+        "experiment", settings=_settings(), client=cast("OpikListClient", _Experiments())
     )
-    kept, was_cut = _render_cell("url", url, cell_limit=60)
-    assert kept == url
-    assert was_cut is False
-
-    trimmed, cut_it = _render_cell("name", "x" * 200, cell_limit=60)
-    assert trimmed.endswith("...")
-    assert cut_it is True
+    url = "https://opik.test/demo-ws/projects/p-7/experiments/ds-1/compare?experiments="
+    assert url in out
+    assert "x" * 200 not in out
+    assert "x" * 57 + "..." in out
 
 
 @pytest.mark.anyio

@@ -15,14 +15,19 @@ read fans out, and the parts are one file each:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Final
 
+from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.project.read import fetch_project, project_links
 from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow, Vocabulary
 from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.ui_links import project_page_url
+
+#: Stands in for the project while the row template is built, so the builder
+#: is handed something that is an id in shape if not in meaning.
+_SLOT: Final = "0PROJECTSLOT0"
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
@@ -31,6 +36,18 @@ async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, An
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_projects(**kw)
+
+
+def row_link_template(settings: Settings, _page_project_id: str | None) -> str | None:
+    """The row *is* the project, so the project slot is the id column.
+
+    The placeholder is substituted after the url is built rather than passed
+    in as the project: ``project_page_url`` takes an id, and handing it a
+    template slot would make its emptiness check the only thing standing
+    between a slot and a path segment.
+    """
+    built = project_page_url(settings, _SLOT, "logs")
+    return None if built is None else built.replace(_SLOT, "{id}")
 
 
 VOCABULARY = Vocabulary(
@@ -49,7 +66,7 @@ comparing two date columns by eye.
 HANDLER = EntityHandler(
     entity_type="project",
     vocabularies=(VOCABULARY,),
-    page_note_fn=link_note_for("project"),
+    row_link_template=row_link_template,
     fetch_fn=fetch_project,
     search_by_name_fn=search_by_name,
     list_fn=list_page,

@@ -12,15 +12,6 @@
       "thread",
       "trace"
     ],
-    "ui_links": [
-      "online_rule",
-      "project",
-      "project_metric",
-      "score_name",
-      "span",
-      "thread",
-      "trace"
-    ],
     "uri": [
       "agent_insights_issue",
       "dataset",
