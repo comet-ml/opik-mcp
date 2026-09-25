@@ -243,7 +243,9 @@ def scoped_entity_links(
     return {"url": url} if url is not None else {}
 
 
-def logs_page_url(settings: Settings, project_id: str, logs_type: str, **panels: str) -> str | None:
+def logs_page_url(
+    settings: Settings, *, project_id: str, logs_type: str, **panels: str
+) -> str | None:
     """The Logs page on one of its views, with the named panels open.
 
     ``panels`` become ``&<panel>=<value>`` in the order given: the view's

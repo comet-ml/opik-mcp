@@ -716,7 +716,8 @@ def filter_field_names(
     # caller typed rather than the mode. Trying each keeps the dashboard from
     # reading a valid filter as an unparseable one.
     for vocabulary in vocabularies:
-        if vocabulary.entity_type != entity_type or not vocabulary.filter_fields:
+        typed = entity_type in (vocabulary.name, vocabulary.entity_type)
+        if not typed or not vocabulary.filter_fields:
             continue
         try:
             clauses = compile_filters(vocabulary, query)

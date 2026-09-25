@@ -38,7 +38,13 @@ def span_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     span_id = data.get("id")
     if not all(isinstance(v, str) and v for v in (project_id, trace_id, span_id)):
         return {}
-    url = logs_page_url(settings, str(project_id), "traces", trace=str(trace_id), span=str(span_id))
+    url = logs_page_url(
+        settings,
+        project_id=str(project_id),
+        logs_type="traces",
+        trace=str(trace_id),
+        span=str(span_id),
+    )
     return {"url": url} if url is not None else {}
 
 
@@ -46,7 +52,9 @@ def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     """The trace column a span row already prints fills the trace slot."""
     if not project_id:
         return None
-    return logs_page_url(settings, project_id, "traces", trace="{trace_id}", span="{id}")
+    return logs_page_url(
+        settings, project_id=project_id, logs_type="traces", trace="{trace_id}", span="{id}"
+    )
 
 
 async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:

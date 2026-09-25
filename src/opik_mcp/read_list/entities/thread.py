@@ -164,13 +164,13 @@ def thread_page_url(settings: Settings, project_id: str, thread_id: str) -> str 
     """The Logs page on the threads view, with this thread open."""
     if not thread_id:
         return None
-    return logs_page_url(settings, project_id, "threads", thread=thread_id)
+    return logs_page_url(settings, project_id=project_id, logs_type="threads", thread=thread_id)
 
 
 def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     if not project_id:
         return None
-    return logs_page_url(settings, project_id, "threads", thread="{id}")
+    return logs_page_url(settings, project_id=project_id, logs_type="threads", thread="{id}")
 
 
 def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:

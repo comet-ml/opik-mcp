@@ -45,10 +45,6 @@ from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, view_link
 
 
-def _parent_note() -> PageNoteFn:
-    return _note_of("dataset_item")
-
-
 def _note_of(entity_type: str) -> PageNoteFn:
     note = page_note_of(ENTITY_REGISTRY[entity_type])
     assert note is not None
@@ -700,7 +696,7 @@ async def test_a_case_listing_links_to_the_page_its_dataset_is_on() -> None:
         async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
             return {"id": dataset_id, "name": "cases", "project_id": "p-7"}
 
-    note = await _parent_note()(
+    note = await _note_of("dataset_item")(
         cast("OpikListClient", _Client()),
         _settings(),
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
@@ -719,7 +715,7 @@ async def test_a_case_listing_of_a_workspace_level_dataset_says_nothing() -> Non
         async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
             return {"id": dataset_id, "name": "cases"}
 
-    note = await _parent_note()(
+    note = await _note_of("dataset_item")(
         cast("OpikListClient", _Unscoped()),
         _settings(),
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
@@ -736,7 +732,7 @@ async def test_a_case_listing_survives_a_parent_that_cannot_be_read() -> None:
         async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
             raise RuntimeError("backend down")
 
-    note = await _parent_note()(
+    note = await _note_of("dataset_item")(
         cast("OpikListClient", _Boom()),
         _settings(),
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),

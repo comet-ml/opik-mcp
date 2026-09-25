@@ -126,14 +126,16 @@ def trace_page_url(
     if not trace_id:
         return None
     if span_id:
-        return logs_page_url(settings, project_id, "traces", trace=trace_id, span=span_id)
-    return logs_page_url(settings, project_id, "traces", trace=trace_id)
+        return logs_page_url(
+            settings, project_id=project_id, logs_type="traces", trace=trace_id, span=span_id
+        )
+    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace=trace_id)
 
 
 def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     if not project_id:
         return None
-    return logs_page_url(settings, project_id, "traces", trace="{id}")
+    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace="{id}")
 
 
 def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:

@@ -511,3 +511,21 @@ def test_two_clauses_on_one_parameter_field_are_refused() -> None:
     with pytest.raises(OQLError) as exc:
         split_param_clauses("experiment", clauses)
     assert "once" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "query", "expected"),
+    [
+        ("dataset_item_case", 'data.q contains "a"', ["data"]),
+        ("dataset_item_case", 'source contains "trace"', ["source"]),
+        ("dataset_item", 'data.q contains "a"', ["data"]),
+        ("dataset_item", 'full_data contains "a"', ["full_data"]),
+        ("trace", "duration > 5", ["duration"]),
+    ],
+)
+def test_filter_field_names_reads_a_vocabulary_typed_by_its_own_name(
+    entity_type: str, query: str, expected: list[str]
+) -> None:
+    """Analytics labels the fields of a call typed as a mode's own key
+    (``dataset_item_case``), as well as one typed as the entity."""
+    assert oql.filter_field_names(entity_type, query, VOCABULARIES.values()) == expected
