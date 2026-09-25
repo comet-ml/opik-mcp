@@ -73,7 +73,7 @@ jobs:
       opik_version: ${{ steps.release.outputs.version }}
       report: ${{ steps.report.outputs.report }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Resolve the Opik release to test against
         id: release
@@ -87,7 +87,7 @@ jobs:
           echo "### Opik $VERSION (open source, local)" >> "$GITHUB_STEP_SUMMARY"
 
       # opik.sh and the compose files at the tag, so they match the images.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: comet-ml/opik
           ref: ${{ steps.release.outputs.version }}
@@ -188,7 +188,7 @@ jobs:
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "### Opik $VERSION (cloud)" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.configured.outputs.ok == 'true'
       - name: Generate _version.py (required before any uv build)
         if: steps.configured.outputs.ok == 'true'
@@ -235,7 +235,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/live_alert.py
           sparse-checkout-cone-mode: false

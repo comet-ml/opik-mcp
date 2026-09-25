@@ -71,7 +71,7 @@ jobs:
       pyver: ${{ steps.v.outputs.pyver }}       # PEP 440 form for a dev wheel
       sha_tag: ${{ steps.v.outputs.sha_tag }}   # sha-<short>, the image's real identity
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Read the pending version
         id: v
         run: |
@@ -114,7 +114,7 @@ jobs:
   python-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
@@ -163,7 +163,7 @@ jobs:
     # underneath this.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
@@ -184,7 +184,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
@@ -231,7 +231,7 @@ jobs:
       # consumer track a name that changes, which is the problem this avoids.
       PACK_TAG: skills-pack
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: skills-pack
@@ -277,7 +277,7 @@ jobs:
   helm-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
@@ -293,7 +293,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (baked into the image via COPY src)
         run: VERSION="${{ needs.version.outputs.pyver }}" make version
       - uses: docker/setup-qemu-action@v3
