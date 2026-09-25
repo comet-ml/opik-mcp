@@ -2,9 +2,23 @@
 
 Product and engineering specs only. Plans and working notes stay local.
 
+One design doc per feature. Pick the doc by the question you hold; the last
+column says which paths it owns, so a boundary question is settled here.
+
+| Feature | Answers | Owns |
+|---|---|---|
+| [tool-surface](tool-surface/design-doc.md) | How `read`, `list` and `schema` behave, what a host receives on `initialize`, and the wire contract the conformance suite pins. | `src/opik_mcp/read_list/` root modules except `project_scope.py` and `sample.py`, `entities/trace.py`, `span.py`, `thread.py`, `prompt.py`, the read, list and schema registrations in `src/opik_mcp/server.py`, `src/opik_mcp/instructions.py`, `tests/server/test_instructions.py`, the files in `tests/read_list/` not named for another feature's entity, `tests/conformance/` except `test_skill_resources.py`, `tests/e2e/` shared files |
+| [writes](writes/design-doc.md) | How `write(operation, data)` goes from arguments to a backend call and back, and what an error looks like. | `src/opik_mcp/writes/` except the evaluation and diagnostics operation hooks, the write registration in `src/opik_mcp/server.py`, `scripts/smoke_mcp_session.py`, `scripts/smoke_wire_capture.py`, `scripts/smoke_live_be.py`, `tests/writes/` |
+| [experiment-flows](experiment-flows/design-doc.md) | Experiments, datasets and cases: the comparison table, finding a case, the evaluation writes. | `src/opik_mcp/read_list/entities/experiment.py`, `src/opik_mcp/read_list/entities/dataset/`, `src/opik_mcp/read_list/sample.py`, `src/opik_mcp/writes/operations/evaluation.py`, their tests |
+| [project-overview](project-overview/design-doc.md) | `read('project')` and `list('project_metric')`: the summary, the vocabulary, the series. | `src/opik_mcp/read_list/entities/project/`, `src/opik_mcp/read_list/entities/project_metric/`, `src/opik_mcp/read_list/entities/score_name.py`, `src/opik_mcp/read_list/entities/online_rule.py`, their tests |
+| [diagnostics](diagnostics/design-doc.md) | Agent Insights issues and jobs: listing, reading, closing, enabling. | `src/opik_mcp/read_list/entities/agent_insights_issue/`, `src/opik_mcp/writes/operations/diagnostics.py`, `src/opik_mcp/read_list/project_scope.py`, their tests |
+| [skills](skills/design-doc.md) | The skills, `read_skill`, and the pack published as `comet-ml/opik-skills`. | `src/opik_mcp/skills/`, `src/opik_mcp/skills_catalog.py`, `src/opik_mcp/skills_resources.py`, the read_skill registration in `src/opik_mcp/server.py`, `scripts/build_skills_pack.py`, `scripts/skills_trigger_eval.py`, `scripts/smoke_skills_mcp.py`, the pack jobs in `.github/workflows/ci.yaml`, `.claude-plugin/`, `tests/skills/`, `tests/conformance/test_skill_resources.py` |
+| [hosted-auth](hosted-auth/design-doc.md) | Bearer tokens, API keys, identity and the HTTP app the Docker image serves. | The middleware and `build_app` in `src/opik_mcp/server.py`, `src/opik_mcp/auth_context.py`, `src/opik_mcp/oauth_identity.py`, `src/opik_mcp/account_identity.py`, `src/opik_mcp/caller_identity.py`, `src/opik_mcp/credential_identity.py`, the OAuth and HTTP fields of `src/opik_mcp/config.py`, the oauth, http, health and identity tests |
+| [analytics](analytics/design-doc.md) | Product events, error kinds and error tracking. | `src/opik_mcp/analytics/`, `src/opik_mcp/error_kinds.py`, `src/opik_mcp/error_tracking.py`, the props functions and `_make_composed_lifespan` in `src/opik_mcp/server.py`, the analytics and Sentry fields of `src/opik_mcp/config.py`, `scripts/capture_bi_listener.py`, `tests/analytics/`, `tests/server/test_error_tracking.py`, `tests/repo/test_telemetry_disabled_in_tests.py` |
+| [release](release/design-doc.md) | From a merge to `main` to PyPI, the image and the chart. | `.github/workflows/`, `.github/release-drafter.yml`, `.github/dependabot.yml`, `Dockerfile`, `.dockerignore`, `helm/`, the `version`, `docker-*` and `install-branch` targets in `Makefile`, `version.txt`, `src/opik_mcp/_version.py`, the `[tool.hatch.*]` blocks in `pyproject.toml`, `scripts/dev/install_branch.py`, `tests/e2e/test_wheel_contents.py`, `tests/repo/test_install_branch.py` |
+| [runtime](runtime/design-doc.md) | How the process starts, is configured and talks to Opik. | `src/opik_mcp/__main__.py`, `src/opik_mcp/config.py` except the OAuth, HTTP and transport-security fields (hosted-auth) and the analytics and Sentry fields (analytics), `src/opik_mcp/opik_client.py`, `tests/client/test_client.py`, `tests/client/test_read.py`, `tests/client/test_search.py`, `tests/server/test_config.py`, `tests/client/test_connection_per_tool_call.py` |
+
 - [decisions/](decisions/README.md): architecture decisions (ADRs).
-- `<feature>/design-doc.md`: one spec per feature. The index of features is
-  added by OPIK-8492.
 
 A PR that changes a feature's behaviour updates its design doc. These files are
 public: no customer or workspace names, internal links or secrets.
