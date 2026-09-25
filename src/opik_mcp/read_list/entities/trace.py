@@ -17,6 +17,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.oql import PAYLOAD_FIELDS, SOURCE_VALUES, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -186,6 +187,25 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
 
 VOCABULARY = Vocabulary(
     name="trace",
+    filter_fields={
+        "id": "string",
+        "name": "string",
+        **TIMING_FIELDS,
+        **PAYLOAD_FIELDS,
+        "llm_span_count": "number",
+        "span_feedback_scores": "feedback_scores",
+        "thread_id": "string",
+        "guardrails": "string",
+        "visibility_mode": "enum",
+        "annotation_queue_ids": "list",
+        "experiment_id": "string",
+        "experiment_ids": "string_list",
+    },
+    enum_values={
+        "source": SOURCE_VALUES,
+        "visibility_mode": ("default", "hidden"),
+    },
+    is_source_defaulted=True,
     filter_examples=(
         "error_info is_not_empty AND duration > 5000",
         'feedback_scores.accuracy < 0.5 AND start_time >= "2026-09-08T00:00:00Z"',
@@ -217,6 +237,7 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="trace",
+    is_windowed=True,
     # ``tls_trace`` is the UI's key, ``trace_id`` our own redirect's, so a
     # link this server handed out is one it takes back.
     uri_patterns=(

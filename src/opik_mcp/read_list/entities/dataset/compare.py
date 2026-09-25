@@ -101,7 +101,7 @@ async def run_compare(
     experiments = await _resolve(client, ids)
     ran_dataset_id = _dataset_of(experiments, dataset_id)
 
-    clauses = compile_filters(_ENTITY, filters) if filters else []
+    clauses = compile_filters(COMPARED, filters) if filters else []
     stripping = _strips_runs(clauses, experiment_count=len(ids))
     if stripping and size > REFETCH_ROW_CAP:
         raise EntityArgValidationError(
@@ -166,7 +166,7 @@ async def run_compare(
 
     applied = [f"compare: {_legend(experiments)}"]
     if clauses:
-        applied.append(f"filters: {render_filters(_ENTITY, clauses)}")
+        applied.append(f"filters: {render_filters(COMPARED, clauses)}")
     if sort_label is not None:
         applied.append(sort_label)
     if search:

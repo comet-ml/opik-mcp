@@ -14,14 +14,14 @@ optimisation, it is the only readable error.
 from __future__ import annotations
 
 from asyncio import gather
-from collections.abc import Coroutine
+from collections.abc import Coroutine, Mapping
 from typing import Any, Final
 
 from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.entities.project_metric.catalog import (
-    SOURCE_FILTERED_METRIC_ENTITIES,
     Metric,
     companion_count,
+    is_source_filtered,
     parse_breakdown,
     parse_interval,
     parse_metric,
@@ -38,6 +38,7 @@ from opik_mcp.read_list.entities.project_metric.table import (
     render,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import Vocabulary
 from opik_mcp.read_list.oql import (
     PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
@@ -132,6 +133,7 @@ async def run_project_metric(
     size: int | None = None,
     sort: str | None = None,
     fields: list[str] | None = None,
+    vocabularies: Mapping[str, Vocabulary],
     **_collection_args: Any,
 ) -> str:
     """``list('project_metric', …)`` end to end: validate, ask, render.
@@ -155,9 +157,10 @@ async def run_project_metric(
     window_since, window_until = resolve_window(since, until)
     interval_name = parse_interval(interval, since=window_since, until=window_until)
 
-    clauses = compile_filters(metric.entity, filters or "")
+    vocabulary = vocabularies[metric.entity]
+    clauses = compile_filters(vocabulary, filters or "")
     refuse_dropped_fields(metric, clauses)
-    if metric.entity in SOURCE_FILTERED_METRIC_ENTITIES and not any(
+    if is_source_filtered(metric, vocabulary) and not any(
         clause["field"] in ("source", *PARENT_ID_FIELDS) for clause in clauses
     ):
         # Same default as the Logs page and the other lists, with the same
@@ -216,7 +219,7 @@ async def run_project_metric(
     interval_shown = interval_name if interval else f"{interval_name} (from the window)"
     applied = [name, interval_shown, f"{window_since} → {window_until}"]
     if clauses:
-        applied.append(f"filters: {render_filters(metric.entity, clauses)}")
+        applied.append(f"filters: {render_filters(vocabulary, clauses)}")
     if breakdown:
         grouped_by = f"by {breakdown.strip().lower()}"
         # The chosen series is echoed with the grouping because it changes what

@@ -11,12 +11,7 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.read_list.oql import (
-    ENUM_VALUES,
-    FILTERABLE_FIELDS,
-    OPERATORS_BY_TYPE,
-    PARAM_FIELDS,
-)
+from opik_mcp.read_list.oql import OPERATORS_BY_TYPE
 from opik_mcp.read_list.registry import VOCABULARIES
 from opik_mcp.read_list.sorting import sortable_names
 from opik_mcp.writes.errors import UnknownOperationError
@@ -55,7 +50,7 @@ def test_list_experiment_reference_has_no_window_search_or_source_default() -> N
     assert ref["window"] is False
     assert ref["search"] is False
     assert "default" not in ref["filters"]
-    assert set(ref["filters"]["fields"]) == set(FILTERABLE_FIELDS["experiment"])
+    assert set(ref["filters"]["fields"]) == set(VOCABULARIES["experiment"].filter_fields)
 
 
 def test_a_field_the_backend_takes_as_a_parameter_lists_only_what_compiles() -> None:
@@ -91,14 +86,15 @@ def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None
 def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> None:
     ref = run_schema(f"list.{entity_type}")
     fields = ref["filters"]["fields"]
-    assert set(fields) == set(FILTERABLE_FIELDS[entity_type])
+    vocabulary = VOCABULARIES[entity_type]
+    assert set(fields) == set(vocabulary.filter_fields)
     for name, spec in fields.items():
-        expected_type = FILTERABLE_FIELDS[entity_type][name]
+        expected_type = vocabulary.filter_fields[name]
         assert spec["type"] == expected_type
         # A field the backend takes as a query parameter accepts less than
         # its type does, and the reference has to say the smaller set — that
         # is what the caller is held to.
-        param = PARAM_FIELDS.get(entity_type, {}).get(name)
+        param = vocabulary.param_fields.get(name)
         expected_ops = (
             list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[expected_type])
         )
@@ -125,8 +121,9 @@ def test_reference_lists_the_values_a_closed_enum_accepts() -> None:
     assert "values" not in fields["environment"]
 
 
-@pytest.mark.parametrize("entity_type", sorted(FILTERABLE_FIELDS))
+@pytest.mark.parametrize("entity_type", sorted(VOCABULARIES))
 def test_every_enum_value_table_names_a_field_of_its_entity(entity_type: str) -> None:
     """A value list for a field the entity does not have would never fire."""
-    for field in ENUM_VALUES.get(entity_type, {}):
-        assert field in FILTERABLE_FIELDS[entity_type]
+    vocabulary = VOCABULARIES[entity_type]
+    for field in vocabulary.enum_values:
+        assert field in vocabulary.filter_fields

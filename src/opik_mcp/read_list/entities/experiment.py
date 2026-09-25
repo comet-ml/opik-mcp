@@ -14,8 +14,13 @@ from opik_mcp.opik_client import (
     OpikReadClient,
 )
 from opik_mcp.read_list.columns import has_value, resolve
-from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext, Vocabulary
-from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
+from opik_mcp.read_list.handler import (
+    EntityHandler,
+    ListProjection,
+    PageContext,
+    ParamField,
+    Vocabulary,
+)
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
 from opik_mcp.read_list.ui_links import experiments_compare_url
@@ -97,12 +102,90 @@ _CONDITIONAL: Final = (
     "url",
 )
 
+VOCABULARY = Vocabulary(
+    name="experiment",
+    filter_fields={
+        "metadata": "dictionary",
+        "dataset_id": "string",
+        "project_id": "string",
+        "prompt_ids": "list",
+        "tags": "list",
+        "feedback_scores": "feedback_scores",
+        "experiment_scores": "feedback_scores",
+        # Not in ``ExperimentField``: the backend takes these three as query
+        # parameters of their own, and ``split_param_clauses`` lifts them out
+        # of the compiled array before the call is made. They are declared
+        # here because they are the caller's vocabulary either way — how a
+        # filter travels is our problem, not theirs.
+        "type": "enum",
+        "optimization_id": "string",
+        "experiment_ids": "string_list",
+    },
+    # ``ExperimentType``. The resource deserializes the query parameter into
+    # this enum and throws on a miss, so an unknown value is a 400 with the
+    # parameter echoed back rather than anything the agent can act on. It is
+    # also what makes the complement of a negation computable.
+    enum_values={"type": ("regular", "trial", "mini-batch", "mutation")},
+    param_fields={
+        "type": ParamField(
+            param="types",
+            operators=("=", "in"),
+            encoding="json_list",
+            why="the backend filters types as a set",
+        ),
+        "optimization_id": ParamField(
+            param="optimization_id",
+            operators=("=",),
+            encoding="single",
+            why="the backend takes one exact id",
+            value_form="uuid",
+        ),
+        # The runs a caller already holds ids for — the two it is about to
+        # compare, the five it just ranked — in one call, with every column
+        # the listing has. That was N reads or a paged scan before.
+        "experiment_ids": ParamField(
+            param="experiment_ids",
+            operators=("in",),
+            encoding="json_list",
+            why="the backend takes a set of exact ids to include",
+            value_form="uuid",
+        ),
+    },
+    filter_examples=(
+        'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
+        'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
+    ),
+    field_notes={
+        "prompt_ids": (
+            "matches prompt ids, not prompt version ids: the backend compares against the "
+            "experiment's prompt ids, so this narrows to a prompt and not to one version of "
+            "it. No prompt-version filter exists on the backend."
+        ),
+    },
+    sort_fields=(
+        "id",
+        "name",
+        "created_at",
+        "last_updated_at",
+        "created_by",
+        "last_updated_by",
+        "tags",
+        "trace_count",
+        "total_estimated_cost",
+        "total_estimated_cost_avg",
+        "feedback_scores.*",
+        "experiment_scores.*",
+        "duration.*",
+        "pass_rate",
+    ),
+)
+
+
 #: Every filterable field, read off the compiler's own table so it cannot name
 #: one that no longer compiles. Not just the non-column ones: ``dataset_id`` is
 #: filterable while the column is ``dataset_name``.
 _FILTER_HINT: Final = (
-    f"filter: {', '.join(sorted(FILTERABLE_FIELDS['experiment']))}. "
-    'Operators: schema("list.experiment").'
+    f'filter: {", ".join(sorted(VOCABULARY.filter_fields))}. Operators: schema("list.experiment").'
 )
 
 #: The table's own default. Named rather than widened: an experiment's
@@ -114,13 +197,13 @@ _CELL_LIMIT: Final = 60
 def _accepted_values() -> str:
     """What each parameter field takes, read off the compiler's own tables.
 
-    Names the fields from ``PARAM_FIELDS`` rather than spelling them again:
+    Names the fields from ``param_fields`` rather than spelling them again:
     a third parameter field would otherwise update the hint above and leave
     this sentence quietly describing the wrong two.
     """
     parts: list[str] = []
-    for field, spec in PARAM_FIELDS["experiment"].items():
-        values = ENUM_VALUES.get("experiment", {}).get(field)
+    for field, spec in VOCABULARY.param_fields.items():
+        values = VOCABULARY.enum_values.get(field)
         if values:
             parts.append(f"{field} accepts {', '.join(values)}")
         elif spec.value_form == "uuid" and spec.encoding == "json_list":
@@ -348,40 +431,9 @@ def compare_link_run(url: str) -> UriMatch | None:
     return (first, None) if isinstance(first, str) and first else None
 
 
-VOCABULARY = Vocabulary(
-    name="experiment",
-    filter_examples=(
-        'dataset_id = "<dataset-uuid>" AND tags contains "baseline"',
-        'metadata.model = "gpt-4o" AND feedback_scores.accuracy >= 0.8',
-    ),
-    field_notes={
-        "prompt_ids": (
-            "matches prompt ids, not prompt version ids: the backend compares against the "
-            "experiment's prompt ids, so this narrows to a prompt and not to one version of "
-            "it. No prompt-version filter exists on the backend."
-        ),
-    },
-    sort_fields=(
-        "id",
-        "name",
-        "created_at",
-        "last_updated_at",
-        "created_by",
-        "last_updated_by",
-        "tags",
-        "trace_count",
-        "total_estimated_cost",
-        "total_estimated_cost_avg",
-        "feedback_scores.*",
-        "experiment_scores.*",
-        "duration.*",
-        "pass_rate",
-    ),
-)
-
-
 HANDLER = EntityHandler(
     entity_type="experiment",
+    is_name_searchable=True,
     uri_patterns=(
         opik_uri("experiments/{id}"),
         UriPattern(match=compare_link_run, is_web_link=True),

@@ -134,7 +134,9 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "page": str(kwargs.get("page", 1)),
         "size": str(kwargs.get("size", 25)),
         "has_filters": str(bool(filters)).lower(),
-        "filter_fields": ",".join(filter_field_names(kwargs.get("entity_type", ""), filters)),
+        "filter_fields": ",".join(
+            filter_field_names(kwargs.get("entity_type", ""), filters, VOCABULARIES.values())
+        ),
         "has_sort": str(bool(sort)).lower(),
         "sort_field": sort_field_label(sort, VOCABULARIES.values()),
         "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),

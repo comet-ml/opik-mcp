@@ -14,17 +14,11 @@ from __future__ import annotations
 from typing import Any, Final
 
 from opik_mcp.read_list.oql import (
-    ENUM_VALUES,
-    FILTERABLE_FIELDS,
     GRAMMAR_LINE,
     KEY_ALLOWED_TYPES,
     KEY_REQUIRED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
-    PARAM_FIELDS,
-    SOURCE_DEFAULTED_ENTITIES,
-    VOCABULARY_MODES,
-    WINDOWED_ENTITIES,
 )
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
@@ -33,7 +27,7 @@ LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     # Every vocabulary, not only every entity type: a dataset item filtered
     # under its dataset and the same item filtered with runs attached are two
     # field tables, and each has to be answerable on its own.
-    *(f"list.{e}" for e in FILTERABLE_FIELDS),
+    *(f"list.{v.name}" for v in VOCABULARIES.values() if v.filter_fields),
     # An entity whose reference is not a field table (a metric is a time
     # series over one) answers its own, and that reference is what keeps its
     # catalog out of the tool description.
@@ -51,13 +45,13 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         return handler.reference_fn()
     vocabulary = VOCABULARIES[entity_type]
     fields: dict[str, dict[str, Any]] = {}
-    for name, ftype in FILTERABLE_FIELDS[entity_type].items():
+    for name, ftype in vocabulary.filter_fields.items():
         # A field the backend takes as a query parameter accepts less than its
         # type does — one value cannot carry a negation, one id cannot carry a
         # set. The reference has to state the accepted set for the same reason
         # it states a closed enum's values: what the compiler refuses must be
         # discoverable here rather than by being rejected.
-        param = PARAM_FIELDS.get(entity_type, {}).get(name)
+        param = vocabulary.param_fields.get(name)
         operators = list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[ftype])
         spec: dict[str, Any] = {"type": ftype, "operators": operators}
         if param is not None and param.value_form == "uuid":
@@ -73,7 +67,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         note = vocabulary.field_notes.get(name)
         if note is not None:
             spec["note"] = note
-        values = ENUM_VALUES.get(entity_type, {}).get(name)
+        values = vocabulary.enum_values.get(name)
         if values is not None:
             # The compiler refuses anything else, so the accepted set has to be
             # discoverable here rather than by being rejected.
@@ -85,7 +79,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         "fields": fields,
         "examples": list(vocabulary.filter_examples),
     }
-    if entity_type in SOURCE_DEFAULTED_ENTITIES:
+    if vocabulary.is_source_defaulted:
         filters["default"] = 'source = "sdk" unless you name source'
     requires = vocabulary.filter_requirement
     if requires is not None:
@@ -95,7 +89,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
     if pointer is not None:
         filters["see_also"] = pointer.format(
             **{
-                other.name: ", ".join(FILTERABLE_FIELDS[other.name])
+                other.name: ", ".join(other.filter_fields)
                 for other in VOCABULARIES.values()
                 if other.vocabulary_pointer is not None
             }
@@ -109,15 +103,16 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         # that before they page through a dataset looking for one.
         sort["why"] = why
 
+    is_windowed = ENTITY_REGISTRY[vocabulary.entity_type].is_windowed
     return {
         "operation": f"list.{entity_type}",
         # What the caller types, which is not this key when the key is one of
         # an entity's two vocabularies.
-        "entity_type": VOCABULARY_MODES.get(entity_type, entity_type),
+        "entity_type": vocabulary.entity_type,
         "filters": filters,
         "sort": sort,
-        "window": entity_type in WINDOWED_ENTITIES,
-        "search": entity_type in WINDOWED_ENTITIES,
+        "window": is_windowed,
+        "search": is_windowed,
     }
 
 

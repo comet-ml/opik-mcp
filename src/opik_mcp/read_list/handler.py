@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
@@ -129,6 +129,56 @@ ProjectionFn = Callable[[list[dict[str, Any]]], ListProjection]
 RowFn = Callable[[dict[str, Any]], dict[str, Any]]
 
 
+FieldType = Literal[
+    "string",
+    "date_time",
+    "number",
+    "feedback_scores",
+    "dictionary",
+    "map",
+    "list",
+    "enum",
+    "enum_legacy",
+    "error_container",
+    "string_list",
+    "keyed_string",
+    "flat_or_keyed_string",
+]
+"""A filter field's type, which decides the operators ``oql`` accepts on it."""
+
+
+@dataclass(frozen=True)
+class ParamField:
+    """A filter field the backend takes as a query parameter of its own.
+
+    Most fields travel in the ``filters`` array, which the backend types and
+    applies itself. A few predate it and have their own parameter — the
+    experiment listing's ``types`` and ``optimization_id`` are both older than
+    ``ExperimentField``, which is why neither is in that enum. Either way it
+    is a filter to the caller, so it is declared in ``filter_fields`` like
+    anything else and lifted out at the end by ``oql.split_param_clauses``.
+
+    The operators are narrower than the field's type allows, because the
+    constraint is the parameter's shape rather than the column's: one value
+    cannot express a negation, and one identifier cannot express a set.
+    """
+
+    param: str
+    """The query parameter the clause becomes."""
+    operators: tuple[str, ...]
+    """Operators that translate. Anything else is refused with ``why``."""
+    encoding: Literal["json_list", "single"]
+    """``json_list``: a JSON array the resource parses. ``single``: the bare
+    value, so only one clause with one value can be expressed."""
+    why: str
+    """Why the other operators cannot translate, in the refusal's voice."""
+    value_form: Literal["uuid"] | None = None
+    """A shape the parameter requires beyond the field's type. The resource
+    declares ``optimization_id`` as a UUID and answers its own error for
+    anything else, which is a response the agent has to interpret rather than
+    act on — so the check happens here instead."""
+
+
 @dataclass(frozen=True)
 class Vocabulary:
     """One field table a ``list`` call checks its filters and sort against.
@@ -139,6 +189,30 @@ class Vocabulary:
     """
 
     name: str
+    mode_of: str | None = None
+    """The entity this table is a mode of, when it is not named after one. A
+    dataset item is listed two ways and the fields differ, but
+    ``list('dataset_item', …)`` is what is typed either way, so refusals name
+    the entity and only the ``schema("list.…")`` pointer names the table."""
+    filter_fields: Mapping[str, FieldType] = field(default_factory=dict)
+    """Filterable fields and their types, mirroring the backend's field enum."""
+    enum_values: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    """The closed set of values per enum field, which the compiler refuses
+    anything outside of. Only genuinely closed sets: a field that is an enum
+    to the operator map but a free string in the data (``environment``) is
+    left out, or valid filters would be rejected."""
+    param_fields: Mapping[str, ParamField] = field(default_factory=dict)
+    """Filter fields the backend takes as query parameters of their own."""
+    ignored_fields: tuple[tuple[frozenset[str], str], ...] = ()
+    """Fields an agent will reasonably try that this table does not offer,
+    grouped by why. Appended to the unknown-field message so the answer says
+    where the field went rather than "you misspelled something". A field
+    whose answer is "ask the other call" must not be listed beside one that
+    other call also refuses."""
+    is_source_defaulted: bool = False
+    """Does a list add ``source = "sdk"`` unless the caller names ``source``?
+    The UI's Logs page default, so evaluator, playground and experiment
+    traces don't crowd out application traffic."""
     sort_fields: tuple[str, ...] = ()
     """What the backend orders by, from its ``*SortingFactory``. An entry
     ending in ``.*`` is a dynamic prefix: ``feedback_scores.<name>``."""
@@ -161,6 +235,17 @@ class Vocabulary:
     matches. The reference is where a caller looks before writing the filter;
     a refusal cannot carry it, because the filter is accepted and answers
     200."""
+
+    @property
+    def entity_type(self) -> str:
+        """The ``entity_type`` a caller typed to reach this table.
+
+        Refusals name this; the ``schema("list.…")`` pointer beside them names
+        the table, because that is the key that answers with the fields being
+        refused. Saying ``dataset_item_case`` where the call said
+        ``dataset_item`` reads as a typo the caller cannot have made.
+        """
+        return self.mode_of or self.name
 
 
 @dataclass(frozen=True)
@@ -396,6 +481,12 @@ class EntityHandler:
         """
         return self.list_fn is not None or self.run_fn is not None
 
+    is_windowed: bool = False
+    """Does the list endpoint take ``from_time``/``to_time`` and free-text
+    ``search``? The two capabilities ship together on the backend."""
+    is_name_searchable: bool = False
+    """Does the workspace-wide list endpoint take a ``name`` substring? That is
+    the match a caller who reached for ``search`` can have instead."""
     list_has_name: bool = True
     """False for entities whose records carry no ``name`` (thread) — the table
     then starts at ``id`` instead of rendering an always-empty name column."""
@@ -442,11 +533,13 @@ class EntityHandler:
 __all__ = [
     "EntityHandler",
     "FetchFn",
+    "FieldType",
     "LinkFn",
     "ListFn",
     "ListProjection",
     "PageContext",
     "PageNoteFn",
+    "ParamField",
     "ParentPage",
     "ProjectionFn",
     "ReadWindow",

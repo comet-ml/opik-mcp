@@ -66,15 +66,10 @@ from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn, Vocabulary
 from opik_mcp.read_list.oql import (
-    FILTERABLE_FIELDS,
-    NAME_SEARCHABLE_ENTITIES,
     PARENT_ID_FIELDS,
     SDK_SOURCE_CLAUSE,
-    SOURCE_DEFAULTED_ENTITIES,
     SOURCE_VALUES,
-    WINDOWED_ENTITIES,
     OQLError,
-    called,
     compile_filters,
     operand_values,
     render_filters,
@@ -97,9 +92,11 @@ from opik_mcp.read_list.projection import (
 )
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
+    FILTERABLE_TYPES,
     LISTABLE_TYPES,
     SORTABLE_TYPES,
     VOCABULARIES,
+    WINDOWED_TYPES,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -209,7 +206,7 @@ async def _run_whole(
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
-            answer = await run(cast("OpikReadClient", opik), **tool_args)
+            answer = await run(cast("OpikReadClient", opik), vocabularies=VOCABULARIES, **tool_args)
         page_note = page_note_of(handler)
         if page_note is None:
             return answer
@@ -361,17 +358,17 @@ async def run_list(
     # its dataset is filtered on the case, and listed with experiments on the
     # runs, and the two endpoints share no field but ``id``. The registry row
     # says which, so this stays a lookup rather than a branch on a name.
-    vocabulary = handler.list_vocabulary or entity_type
+    vocabulary = _vocabulary(handler.list_vocabulary or entity_type)
 
     applied: list[str] = []
     clauses: list[dict[str, str]] = []
     source_defaulted = False
-    if vocabulary in FILTERABLE_FIELDS or filters:
+    if vocabulary.filter_fields or filters:
         try:
-            clauses = compile_filters(vocabulary, filters or "")
+            clauses = compile_filters(vocabulary, filters or "", filterable_types=FILTERABLE_TYPES)
         except OQLError as err:
             raise ToolError(str(err)) from err
-        if entity_type in SOURCE_DEFAULTED_ENTITIES and not any(
+        if vocabulary.is_source_defaulted and not any(
             c["field"] in ("source", *PARENT_ID_FIELDS) for c in clauses
         ):
             # The SDK default is for triage — "which traces need attention" —
@@ -395,7 +392,7 @@ async def run_list(
             if sent:
                 list_kwargs["filters"] = json.dumps(sent, separators=(",", ":"))
             applied.append(f"filters: {render_filters(vocabulary, clauses)}")
-    if entity_type in WINDOWED_ENTITIES:
+    if handler.is_windowed:
         # Bodies never reach the table, so let the backend trim them.
         list_kwargs["truncate"] = True
     # The sort label is filled in after the response (the backend may have
@@ -405,8 +402,8 @@ async def run_list(
     to_time: str | None = None
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
-        if entity_type not in WINDOWED_ENTITIES and not day_windowed:
-            windowed = ", ".join((*WINDOWED_ENTITIES, *_DAY_WINDOWED_TYPES))
+        if not handler.is_windowed and not day_windowed:
+            windowed = ", ".join((*WINDOWED_TYPES, *_DAY_WINDOWED_TYPES))
             why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
@@ -432,13 +429,13 @@ async def run_list(
                 applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
-        if entity_type not in WINDOWED_ENTITIES:
+        if not handler.is_windowed:
             # Refused, not dropped. This used to return the whole unfiltered
             # page under a header saying "search ignored" — and an agent that
             # skims the header reads thirty-two rows as the result of the
             # search it asked for. A page that is not what was asked for is
             # worse than an error, and the error can name what would work.
-            refusal = EntityArgValidationError(_search_refusal(vocabulary))
+            refusal = EntityArgValidationError(_search_refusal(handler, vocabulary))
             raise ToolError(str(refusal)) from refusal
         list_kwargs["search"] = search
         applied.append(f'search: "{search}"')
@@ -447,11 +444,7 @@ async def run_list(
     sort_field: str | None = None
     if sort is not None:
         try:
-            sort_field, direction = compile_sort(
-                VOCABULARIES.get(vocabulary) or Vocabulary(name=vocabulary),
-                sort,
-                sortable_types=SORTABLE_TYPES,
-            )
+            sort_field, direction = compile_sort(vocabulary, sort, sortable_types=SORTABLE_TYPES)
         except SortError as err:
             raise ToolError(str(err)) from err
         list_kwargs["sorting"] = json.dumps(
@@ -559,18 +552,18 @@ async def run_list(
             # widening it would find anything. Only when the page's own total
             # is zero: a slice past the last page has rows, on an earlier page.
             widened = (
-                _without_default(entity_type, opik, handler.list_fn, list_kwargs, clauses)
+                _without_default(vocabulary, opik, handler.list_fn, list_kwargs, clauses)
                 if source_defaulted and total == 0
                 else None
             )
             unfiltered = (
-                _without_filters(entity_type, opik, handler.list_fn, list_kwargs, clauses)
+                _without_filters(vocabulary, opik, handler.list_fn, list_kwargs, clauses)
                 if page_ctx.filtered and total == 0
                 else None
             )
             unnamed = (
                 _probe(
-                    entity_type,
+                    vocabulary,
                     opik,
                     handler.list_fn,
                     {k: v for k, v in list_kwargs.items() if k != "name"},
@@ -622,7 +615,13 @@ async def run_list(
         return f"{header}\n{table}" if header else table
 
 
-def _search_refusal(entity_type: str) -> str:
+def _vocabulary(name: str) -> Vocabulary:
+    """The field table ``name`` names, or an empty one: a table-less entity
+    refuses filters and sort in the same words as any other."""
+    return VOCABULARIES.get(name) or Vocabulary(name=name)
+
+
+def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary) -> str:
     """Why free text does not apply here, and the nearest thing that does.
 
     Every workspace-wide list takes a ``name`` substring, and the filterable
@@ -630,24 +629,26 @@ def _search_refusal(entity_type: str) -> str:
     a query that works one keyword away.
     """
     alternatives: list[str] = []
-    if entity_type in NAME_SEARCHABLE_ENTITIES:
+    if handler.is_name_searchable:
         alternatives.append("match a name with name=<substring>")
-    if entity_type in FILTERABLE_FIELDS:
+    if vocabulary.filter_fields:
         # The nearest thing to free text the entity has: one ilike over a whole
         # payload where there is one, a key of one otherwise.
-        fields = FILTERABLE_FIELDS[entity_type]
+        fields = vocabulary.filter_fields
         if "full_data" in fields:
             example = 'full_data contains "…"'
         elif "metadata" in fields:
             example = 'metadata.<key> = "…"'
         else:
             example = 'a field = "…"'
-        alternatives.append(f'narrow with filters (e.g. {example}; schema("list.{entity_type}"))')
+        alternatives.append(
+            f'narrow with filters (e.g. {example}; schema("list.{vocabulary.name}"))'
+        )
     joined = "; or ".join(alternatives)
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
-        f"search is not supported for {called(entity_type)!r}: "
-        f"only {', '.join(WINDOWED_ENTITIES)} take free text.{how}"
+        f"search is not supported for {vocabulary.entity_type!r}: "
+        f"only {', '.join(WINDOWED_TYPES)} take free text.{how}"
     )
 
 
@@ -668,7 +669,7 @@ def _source_hint(entity_type: str, hidden: int) -> str:
 
 
 def _without_default(
-    entity_type: str,
+    vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
     list_kwargs: dict[str, Any],
@@ -689,12 +690,12 @@ def _without_default(
     """
 
     return _probe(
-        entity_type, opik, list_fn, list_kwargs, [c for c in clauses if c != SDK_SOURCE_CLAUSE]
+        vocabulary, opik, list_fn, list_kwargs, [c for c in clauses if c != SDK_SOURCE_CLAUSE]
     )
 
 
 def _without_filters(
-    entity_type: str,
+    vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
     list_kwargs: dict[str, Any],
@@ -706,12 +707,12 @@ def _without_filters(
     rows the caller would otherwise have seen.
     """
     return _probe(
-        entity_type, opik, list_fn, list_kwargs, [c for c in clauses if c == SDK_SOURCE_CLAUSE]
+        vocabulary, opik, list_fn, list_kwargs, [c for c in clauses if c == SDK_SOURCE_CLAUSE]
     )
 
 
 def _probe(
-    entity_type: str,
+    vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
     list_kwargs: dict[str, Any],
@@ -725,7 +726,7 @@ def _probe(
         try:
             # The same split the page went through: a clause that is a query
             # parameter must not turn back into a filter entry on the probe.
-            sent, params = split_param_clauses(entity_type, clauses)
+            sent, params = split_param_clauses(vocabulary, clauses)
             probe.update(params)
             if sent:
                 probe["filters"] = json.dumps(sent, separators=(",", ":"))

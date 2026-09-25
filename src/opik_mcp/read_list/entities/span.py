@@ -11,6 +11,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.oql import PAYLOAD_FIELDS, SOURCE_VALUES, TIMING_FIELDS
 from opik_mcp.read_list.ui_links import logs_page_url
 from opik_mcp.read_list.uri import opik_uri
 
@@ -57,6 +58,21 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 VOCABULARY = Vocabulary(
     name="span",
+    filter_fields={
+        "id": "string",
+        "name": "string",
+        "type": "enum",
+        "trace_id": "string",
+        **TIMING_FIELDS,
+        **PAYLOAD_FIELDS,
+        "model": "string",
+        "provider": "string",
+    },
+    enum_values={
+        "source": SOURCE_VALUES,
+        "type": ("general", "tool", "llm", "guardrail", "unknown"),
+    },
+    is_source_defaulted=True,
     filter_examples=(
         'type = "llm" AND usage.total_tokens > 10000',
         'name = "search_docs" AND error_info is_not_empty',
@@ -91,6 +107,7 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="span",
+    is_windowed=True,
     uri_patterns=(opik_uri("spans/{id}"),),
     vocabularies=(VOCABULARY,),
     row_link_template=row_link_template,

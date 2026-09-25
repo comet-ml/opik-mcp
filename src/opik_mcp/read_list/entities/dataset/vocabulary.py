@@ -8,9 +8,30 @@ the second.
 from __future__ import annotations
 
 from opik_mcp.read_list.handler import Vocabulary
+from opik_mcp.read_list.oql import USAGE_FIELDS
 
 COMPARED = Vocabulary(
     name="dataset_item",
+    # What the UI's compare page offers, which is also what the backend
+    # actually applies. ``total_estimated_cost`` and ``usage.total_tokens``
+    # are deliberately absent: the joined endpoint validates them, answers
+    # 200 and never puts them in the query, so a page filtered on either is
+    # an unfiltered page that reads like a filtered one.
+    filter_fields={
+        "id": "string",
+        "data": "keyed_string",
+        "output": "flat_or_keyed_string",
+        "duration": "number",
+        "comments": "string",
+        "feedback_scores": "feedback_scores",
+    },
+    ignored_fields=(
+        (
+            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+            "The compare endpoint accepts it, answers 200 and never applies it, so a page "
+            "filtered on it would be an unfiltered page.",
+        ),
+    ),
     filter_examples=(
         "feedback_scores.correctness < 0.5",
         'data.question contains "refund" AND output contains "sorry"',
@@ -50,6 +71,38 @@ be refused before the call.
 
 CASES = Vocabulary(
     name="dataset_item_case",
+    mode_of="dataset_item",
+    # ``DatasetItemField``: the case itself (its keys, its payload, where it
+    # came from), where the joined page reads the runs. Neither can be written
+    # for the other endpoint, which would be a 400 at best and an unfiltered
+    # page at worst.
+    filter_fields={
+        "id": "string",
+        "data": "map",
+        "full_data": "string",
+        "tags": "list",
+        "source": "string",
+        "trace_id": "string",
+        "span_id": "string",
+        "created_at": "date_time",
+        "last_updated_at": "date_time",
+        "created_by": "string",
+        "last_updated_by": "string",
+    },
+    ignored_fields=(
+        (
+            frozenset({"duration", "output", "comments", "feedback_scores"}),
+            "It is a field of the comparison's joined page, which a plain list of a dataset's "
+            "cases does not have. Name the experiments and it applies: list('dataset_item', "
+            "experiment_ids=['<uuid>', '<uuid>'], filters='feedback_scores.correctness < 0.5').",
+        ),
+        (
+            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
+            "Neither call filters on it: the items endpoint has no such column, and the "
+            "compare endpoint accepts it, answers 200 and never applies it — so naming the "
+            "experiments would not help.",
+        ),
+    ),
     filter_examples=(
         'data.question contains "install"',
         'trace_id = "<trace-uuid>"',

@@ -91,6 +91,7 @@ def prompt_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="prompt",
+    is_name_searchable=True,
     uri_patterns=(opik_uri("prompts/{id}"),),
     link_fn=prompt_links,
     fetch_fn=fetch,

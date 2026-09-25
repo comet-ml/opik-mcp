@@ -17,6 +17,7 @@ import pytest
 from opik_mcp.opik_client import OpikServerError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.oql import compile_filters
+from opik_mcp.read_list.registry import VOCABULARIES
 
 from .test_dataset_compare import _DEFAULT_CASE, A, B, _case, _experiment, _fake, _run, _summaries
 
@@ -394,7 +395,7 @@ async def test_a_categorical_score_in_the_figures_is_counted_per_label_not_avera
     """``low`` is stored as 0 and ``high`` as 2; a mean of 1.3 says nothing.
     One count call per experiment per label, each pinning the score to that
     label's number on top of the page's own filter."""
-    clauses = compile_filters("dataset_item", 'data.category = "billing"')
+    clauses = compile_filters(VOCABULARIES["dataset_item"], 'data.category = "billing"')
     base = json.dumps(clauses, separators=(",", ":"))
 
     def pinned(value: str) -> str:

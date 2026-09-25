@@ -543,11 +543,10 @@ def test_no_column_renames_a_field_the_vocabulary_already_names() -> None:
     ``total_estimated_cost`` teaches a word that does not work — so every
     queryable column uses the vocabulary's own spelling, and the rest are
     declared above as having no spelling to match."""
-    from opik_mcp.read_list.oql import FILTERABLE_FIELDS
     from opik_mcp.read_list.registry import VOCABULARIES
 
     known = {f.removesuffix(".*") for f in VOCABULARIES["experiment"].sort_fields}
-    known |= set(FILTERABLE_FIELDS["experiment"])
+    known |= set(VOCABULARIES["experiment"].filter_fields)
     for column in _project(
         _experiment(
             "everything",

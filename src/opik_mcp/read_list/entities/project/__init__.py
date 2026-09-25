@@ -66,6 +66,7 @@ comparing two date columns by eye.
 
 HANDLER = EntityHandler(
     entity_type="project",
+    is_name_searchable=True,
     uri_patterns=(opik_uri("projects/{id}"),),
     vocabularies=(VOCABULARY,),
     row_link_template=row_link_template,

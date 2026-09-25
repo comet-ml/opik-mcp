@@ -11,8 +11,25 @@ from __future__ import annotations
 
 import pytest
 
+from opik_mcp.read_list import oql
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.oql import OQLError, compile_filters, split_param_clauses
+from opik_mcp.read_list.handler import Vocabulary
+from opik_mcp.read_list.oql import OQLError
+from opik_mcp.read_list.registry import FILTERABLE_TYPES, VOCABULARIES
+
+
+def _vocabulary(entity_type: str) -> Vocabulary:
+    return VOCABULARIES.get(entity_type) or Vocabulary(name=entity_type)
+
+
+def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
+    return oql.compile_filters(_vocabulary(entity_type), query, filterable_types=FILTERABLE_TYPES)
+
+
+def split_param_clauses(
+    entity_type: str, clauses: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], dict[str, str]]:
+    return oql.split_param_clauses(_vocabulary(entity_type), clauses)
 
 
 def _clause(field: str, operator: str, value: str = "", key: str = "") -> dict[str, str]:

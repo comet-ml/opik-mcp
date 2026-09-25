@@ -22,6 +22,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.oql import SOURCE_VALUES, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -191,6 +192,25 @@ def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 VOCABULARY = Vocabulary(
     name="thread",
+    filter_fields={
+        "id": "string",
+        "first_message": "string",
+        "last_message": "string",
+        "number_of_messages": "number",
+        "duration": "number",
+        **TIMING_FIELDS,
+        "feedback_scores": "feedback_scores",
+        "status": "enum",
+        "tags": "list",
+        "annotation_queue_ids": "list",
+        "source": "enum_legacy",
+        "environment": "enum",
+    },
+    enum_values={
+        "source": SOURCE_VALUES,
+        "status": ("active", "inactive"),
+    },
+    is_source_defaulted=True,
     filter_examples=(
         'status = "active" AND number_of_messages > 20',
         "feedback_scores.helpfulness < 0.5 AND duration > 60000",
@@ -216,6 +236,7 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="thread",
+    is_windowed=True,
     uri_patterns=(
         opik_uri("projects/{project}/threads/{id}"),
         web_link("thread", is_project_scoped=True),

@@ -22,7 +22,6 @@ from typing import Final
 
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import Vocabulary
-from opik_mcp.read_list.oql import called
 
 SORT_FORM: Final = "<field> [asc|desc]"
 
@@ -44,13 +43,13 @@ def compile_sort(
     first" is what a sort on a list is almost always for. ``sortable_types``
     is named in the refusal for a vocabulary that orders by nothing.
     """
-    entity_type = vocabulary.name
+    entity_type = vocabulary.entity_type
     if not vocabulary.sort_fields:
         why = vocabulary.unsortable_why
         if why is not None:
-            raise SortError(f"sort is not supported for {called(entity_type)!r}: {why}.")
+            raise SortError(f"sort is not supported for {entity_type!r}: {why}.")
         raise SortError(
-            f"sort is not supported for {called(entity_type)!r}. "
+            f"sort is not supported for {entity_type!r}. "
             f"Sortable types: {', '.join(sortable_types)}."
         )
     parts = sort.split()
@@ -64,7 +63,7 @@ def compile_sort(
         )
     if not is_sortable(vocabulary, field):
         raise SortError(
-            f"'{field}' is not sortable for {called(entity_type)}. "
+            f"'{field}' is not sortable for {entity_type}. "
             f"Sortable: {', '.join(sortable_names(vocabulary))}."
         )
     return field, direction.upper()

@@ -60,6 +60,7 @@ def dataset_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="dataset",
+    is_name_searchable=True,
     # Legacy spelling: the entity was called test_suite before the rename, and
     # URIs handed out then still have to resolve.
     uri_patterns=(opik_uri("datasets/{id}"), opik_uri("test-suites/{id}")),

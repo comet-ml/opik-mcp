@@ -25,9 +25,7 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.oql import (
-    SOURCE_DEFAULTED_ENTITIES,
-)
+from opik_mcp.read_list.handler import Vocabulary
 from opik_mcp.read_list.window import (
     closed_window,
     parse_bound,
@@ -431,9 +429,12 @@ def resolve_window(
 # than quietly given the unfiltered answer. Trace and span metrics use
 # strategies that do carry both.
 
-SOURCE_FILTERED_METRIC_ENTITIES: Final = tuple(
-    entity for entity in SOURCE_DEFAULTED_ENTITIES if entity != "thread"
-)
+
+def is_source_filtered(metric: Metric, vocabulary: Vocabulary) -> bool:
+    """Does the SDK default apply to this metric? Its entity's lists default
+    to it, and its strategy is not the thread one that drops ``source``."""
+    return vocabulary.is_source_defaulted and metric.entity != "thread"
+
 
 _DROPPED_BY_THREAD_METRICS: Final = ("source", "environment")
 
