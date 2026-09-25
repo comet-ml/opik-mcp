@@ -27,14 +27,14 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from opik_mcp.config import Settings
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikListClient,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.protocols import OpikListClient
+from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,

@@ -18,7 +18,7 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.opik_client import OpikNotFoundError
+from opik_mcp.client.base import OpikNotFoundError
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 

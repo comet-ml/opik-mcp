@@ -17,7 +17,7 @@ from asyncio import gather
 from collections.abc import Coroutine, Mapping
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.entities.project_metric.catalog import (
     Metric,
     companion_count,

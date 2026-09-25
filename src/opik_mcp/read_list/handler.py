@@ -14,8 +14,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.ui_links import ProjectArea, ViewPage
 from opik_mcp.read_list.uri import UriPattern
 

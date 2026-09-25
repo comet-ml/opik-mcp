@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.decorations import block
 from opik_mcp.read_list.ui_links import ProjectArea
 

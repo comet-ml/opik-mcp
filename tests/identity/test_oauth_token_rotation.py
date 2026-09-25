@@ -20,10 +20,10 @@ import httpx
 import pytest
 import respx
 
+from opik_mcp.client.base import opik_rest_base
 from opik_mcp.config import get_settings
 from opik_mcp.identity import oauth as oauth_identity
 from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
-from opik_mcp.opik_client import opik_rest_base
 
 PROJECT_ID = "0f1c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b"
 HANDSHAKE_TOKEN = f"{OAUTH_ACCESS_TOKEN_PREFIX}minted-at-connect"

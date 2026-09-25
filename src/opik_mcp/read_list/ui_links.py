@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Final, Literal, get_args
 from urllib.parse import quote
 
+from opik_mcp.client.base import opik_rest_base
 from opik_mcp.config import DEFAULT_WORKSPACE, Settings
 from opik_mcp.identity.context import (
     classify_bearer,
@@ -31,7 +32,6 @@ from opik_mcp.identity.context import (
     inbound_workspace,
     resolved_workspace_name,
 )
-from opik_mcp.opik_client import opik_rest_base
 
 
 def opik_ui_base(settings: Settings) -> str | None:

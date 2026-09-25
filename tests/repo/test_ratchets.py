@@ -31,7 +31,7 @@ MYPY_BASELINE: list[str] = next(
     for override in CONFIG["tool"]["mypy"]["overrides"]
     if isinstance(override["module"], list)
     and override.get("disallow_any_explicit") is False
-    and "opik_mcp.opik_client" not in override["module"]
+    and "opik_mcp.client.*" not in override["module"]
 )
 
 

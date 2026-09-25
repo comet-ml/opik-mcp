@@ -50,16 +50,15 @@ from typing import Any, cast
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.config import Settings, get_settings
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikListClient,
     OpikNotFoundError,
-    OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    client_for_call,
 )
+from opik_mcp.client.opik import client_for_call
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.config import Settings, get_settings
 from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.decorations import page_note_of

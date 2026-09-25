@@ -24,7 +24,7 @@ import asyncio
 import json
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.entities.dataset.figures import (
     CATEGORY_CALL_CAP,
     Figures,

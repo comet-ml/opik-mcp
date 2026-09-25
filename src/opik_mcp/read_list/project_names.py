@@ -18,7 +18,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, DEADLINE_SECONDS
 
 Fetcher = Callable[[OpikReadClient, str], Awaitable[list[str]]]

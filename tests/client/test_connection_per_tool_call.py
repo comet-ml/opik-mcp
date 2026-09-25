@@ -25,8 +25,8 @@ import pytest
 import respx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
 

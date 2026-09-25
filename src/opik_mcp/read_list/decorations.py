@@ -23,14 +23,14 @@ from typing import Any, Final
 
 import httpx
 
-from opik_mcp.config import Settings
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikListClient,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.protocols import OpikListClient
+from opik_mcp.config import Settings
 from opik_mcp.read_list.handler import EntityHandler, PageContext, PageNoteFn, ParentPage
 from opik_mcp.read_list.project_scope import resolved_project
 from opik_mcp.read_list.ui_links import project_page_url, view_link

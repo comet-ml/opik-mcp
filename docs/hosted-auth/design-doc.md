@@ -60,7 +60,7 @@ question in [runtime](../runtime/design-doc.md#credential-and-workspace).
   `expires_at` has passed gets 401 without a backend call.
 - A `resource` that differs from `OPIK_MCP_RESOURCE_URI` is logged and served.
 - A backend 401 on a data call made with an OAuth token runs
-  `note_backend_401` in `src/opik_mcp/opik_client.py`. It drops the cached
+  `note_backend_401` in `src/opik_mcp/client/base.py`. It drops the cached
   validation, and the tool error (`OAUTH_TOKEN_EXPIRED_HINT`) tells the model
   to retry. The retry gets the `invalid_token` 401 and the host refreshes.
 

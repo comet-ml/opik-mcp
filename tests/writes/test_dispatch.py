@@ -14,8 +14,8 @@ import httpx
 import pytest
 import respx
 
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient
 from opik_mcp.writes.dispatch import run_write
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,

@@ -17,8 +17,8 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -547,7 +547,7 @@ async def test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path
     refusal is our own sentence and the call to change."""
     import respx
 
-    from opik_mcp.opik_client import OpikClient
+    from opik_mcp.client.opik import OpikClient
 
     client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
     with respx.mock(base_url="https://opik.test") as mock:

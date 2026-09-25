@@ -1,7 +1,7 @@
 """Shared analytics taxonomy.
 
 Lives in a leaf module so any layer can import the ``ErrorKind`` Literal
-without creating cycles. The typed exception classes (``opik_client``,
+without creating cycles. The typed exception classes (``client.base``,
 ``config``, ``writes/errors``) declare their bucket as a
 ``ClassVar[ErrorKind]``; ``analytics/errors.py`` reads that attribute via
 ``getattr`` instead of running an ``isinstance`` cascade.

@@ -343,7 +343,7 @@ class AnalyticsClient:
         """
         # An inbound header is the caller naming the workspace for THIS call,
         # which outranks anything this process was started with — it is what
-        # opik_client actually routes on (`resolve_opik_config`). Without it a
+        # client.base actually routes on (`resolve_opik_config`). Without it a
         # hosted call would claim "unknown" while `request_workspace` in the
         # same payload carries the name.
         inbound = inbound_workspace.get()

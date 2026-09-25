@@ -12,14 +12,14 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikClient,
     OpikNotFoundError,
     OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.opik import OpikClient
 
 OPIK_BASE = "https://opik.test"
 

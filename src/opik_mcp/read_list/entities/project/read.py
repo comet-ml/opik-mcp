@@ -19,8 +19,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikReadClient
 from opik_mcp.read_list.entities.project import vocabulary as project_vocabulary
 from opik_mcp.read_list.entities.project.contents import UI_PAGE, project_contents
 from opik_mcp.read_list.entities.project.summary import trace_summary

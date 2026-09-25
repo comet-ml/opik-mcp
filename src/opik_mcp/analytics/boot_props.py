@@ -120,7 +120,7 @@ def auth_mode_at_boot(settings: Settings) -> str:
     an AS configured — this then reports "api_key" while ``oauth_configured``
     reports "true", so BI should read the two together to spot hybrid deploys.
     The real per-request credential is resolved in
-    ``opik_client.resolve_opik_config`` (inbound bearer wins) and surfaced as the
+    ``client.base.resolve_opik_config`` (inbound bearer wins) and surfaced as the
     per-request ``auth_mode`` in ``client._build_event``.
     """
     return settings_auth_mode(

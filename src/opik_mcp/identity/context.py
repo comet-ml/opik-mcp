@@ -110,7 +110,7 @@ def classify_bearer(auth_header: str) -> tuple[str, str]:
     - ``("api_key", "")`` for any other forwarded credential (the token is NOT
       returned — api-key-shaped credentials are not hashed here).
 
-    Mirrors ``opik_client.resolve_opik_config``'s OAuth detection
+    Mirrors ``client.base.resolve_opik_config``'s OAuth detection
     (``partition(" ")`` + ``lstrip`` + ``OAUTH_ACCESS_TOKEN_PREFIX``) so BI's
     ``auth_mode`` / ``token_sha256`` agree with the credential actually forwarded
     outbound. Single source of truth shared by ``analytics.client._build_event``
@@ -161,7 +161,7 @@ def oauth_token_expired_hint() -> str | None:
     guidance. Single source of truth for every layer that renders a backend 401
     — the read/list client, the write envelope — so the wording cannot drift.
     Pure: the cache eviction that goes with a backend 401 lives beside the HTTP
-    call (``opik_client.note_backend_401``), not in a message helper.
+    call (``client.base.note_backend_401``), not in a message helper.
     """
     auth = inbound_authorization.get()
     if not auth:

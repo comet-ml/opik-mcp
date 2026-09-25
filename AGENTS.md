@@ -28,10 +28,10 @@ How a call flows:
 
 - `read` / `list`: `server.py` → `read_list/read_tool.py` or `list_tool.py`
   → the entity's `EntityHandler` from `read_list/registry.py` → its module in
-  `read_list/entities/` → `opik_client.py` → Opik backend.
+  `read_list/entities/` → `client/` → Opik backend.
 - `write`: `writes/write_tool.py` → `writes/dispatch.py`, which runs the
   operation from `writes/registry.py` through its hooks in `writes/operations/`
-  → `opik_client.py` → backend. `schema(operation)` returns one operation's
+  → `client/` → backend. `schema(operation)` returns one operation's
   input on demand.
 - `read_skill`: serves `src/opik_mcp/skills/` from `skills_catalog.py`.
 - `instructions.py` renders the text a host receives on `initialize`.

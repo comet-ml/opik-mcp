@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql import PAYLOAD_FIELDS, TIMING_FIELDS

@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import ListProjection
 
 

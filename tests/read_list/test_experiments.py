@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.opik_client import OpikServerError
+from opik_mcp.client.base import OpikServerError
 from opik_mcp.read_list.entities.experiment import (
     HANDLER,
     derive_columns,

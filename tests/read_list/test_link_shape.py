@@ -26,9 +26,9 @@ from urllib.parse import unquote
 
 import pytest
 
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
 from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.entities.dataset import dataset_links
 from opik_mcp.read_list.entities.experiment import experiment_links

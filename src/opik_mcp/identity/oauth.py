@@ -31,9 +31,9 @@ from typing import Literal
 
 import httpx
 
+from opik_mcp.client.base import opik_rest_base
 from opik_mcp.config import Settings
 from opik_mcp.identity.store import ResolvedIdentity
-from opik_mcp.opik_client import opik_rest_base
 
 logger = logging.getLogger("opik_mcp")
 

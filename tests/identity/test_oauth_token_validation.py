@@ -19,10 +19,10 @@ import httpx
 import pytest
 import respx
 
+from opik_mcp.client.base import opik_rest_base
 from opik_mcp.config import get_settings
 from opik_mcp.identity import oauth as oauth_identity
 from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
-from opik_mcp.opik_client import opik_rest_base
 
 INITIALIZE = {
     "jsonrpc": "2.0",

@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.entities.agent_insights_issue.state import issue_page_note
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow
 from opik_mcp.read_list.project_scope import require_project_id

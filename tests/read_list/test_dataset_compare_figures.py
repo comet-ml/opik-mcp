@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.opik_client import OpikServerError
+from opik_mcp.client.base import OpikServerError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.oql import compile_filters
 from opik_mcp.read_list.registry import VOCABULARIES

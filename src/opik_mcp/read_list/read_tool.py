@@ -22,15 +22,15 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.config import Settings, get_settings
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
     OpikNotFoundError,
-    OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    client_for_call,
 )
+from opik_mcp.client.opik import client_for_call
+from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.config import Settings, get_settings
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list

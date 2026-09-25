@@ -20,14 +20,14 @@ from opik_mcp.analytics.errors import (
     derive_http_status,
     unwrap_to_real_cause,
 )
-from opik_mcp.config import MissingConfigError
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.config import MissingConfigError
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.uri import InvalidURI
 from opik_mcp.writes.errors import (
