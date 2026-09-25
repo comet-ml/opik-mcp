@@ -230,7 +230,9 @@ def test_all_problems_are_reported_together() -> None:
         compile_filters("trace", 'durration > 5 AND error_info = "x" AND start_time > "yesterday"')
     assert ei.value.kinds == ("unknown_field", "bad_operator", "bad_value")
     message = str(ei.value)
-    assert "1." in message and "2." in message and "3." in message
+    assert "1." in message
+    assert "2." in message
+    assert "3." in message
 
 
 # --- backend alignment (where the SDK's tables are wrong or short) --------- #
@@ -313,7 +315,8 @@ def test_unknown_source_value_is_rejected_locally_with_the_accepted_set() -> Non
         compile_filters("trace", 'source = "SDK"')
     msg = str(exc.value)
     assert exc.value.kinds == ("bad_value",)
-    assert "sdk" in msg and "evaluator" in msg
+    assert "sdk" in msg
+    assert "evaluator" in msg
 
 
 def test_known_source_values_pass() -> None:

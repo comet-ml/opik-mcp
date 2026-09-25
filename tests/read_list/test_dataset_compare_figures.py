@@ -100,7 +100,8 @@ async def test_a_categorical_score_shows_its_label_and_gets_no_mean_or_delta() -
     row = next(line for line in out.splitlines() if line.startswith("case-1"))
     assert "low,high / high" in row
     assert "Δ" not in row
-    assert "1 /" not in row and "/ 2" not in row, "a categorical value is never its number"
+    assert "1 /" not in row, "a categorical value is never its number"
+    assert "/ 2" not in row, "a categorical value is never its number"
 
 
 @pytest.mark.anyio
@@ -435,7 +436,8 @@ async def test_a_categorical_score_in_the_figures_is_counted_per_label_not_avera
 
     assert "E1: 20 runs; correctness 0.8, verdict low 7, high 13;" in out
     assert "E2: 20 runs; correctness 0.7, verdict low 16, high 4;" in out
-    assert "1.3" not in out and "verdict 0.4" not in out
+    assert "1.3" not in out
+    assert "verdict 0.4" not in out
     assert len(fake.stats_calls) == 2 + 4
 
 

@@ -632,7 +632,7 @@ def test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits() -> Non
         "span_error_rate",
         "thread_average_duration",
         "thread_cost",
-    }
+    }, f"ungroupable metrics changed: {sorted(ungroupable)}"
 
 
 # --- width is whatever the project has ------------------------------------ #
@@ -656,7 +656,8 @@ async def test_a_metric_that_fans_out_per_score_name_returns_every_series() -> N
 
     columns = _table(out)[0].split(" | ")
     assert len(columns) == 31, "time plus every series"
-    assert "score-00" in columns and "score-29" in columns, "the narrow ones too"
+    assert "score-00" in columns, "the narrow ones too"
+    assert "score-29" in columns, "the narrow ones too"
     assert "largest of" not in out
 
 
@@ -1340,7 +1341,7 @@ async def test_a_grouped_token_series_posts_the_body_the_backend_expects() -> No
         "interval_end": "2026-09-09T00:00:00Z",
         "span_filters": [{"field": "source", "operator": "=", "key": "", "value": "sdk"}],
         "breakdown": {"field": "MODEL", "sub_metric": "total_tokens"},
-    }
+    }, f"the metrics request body differs: {sent}"
     assert "2026-09-08 | 120" in out
 
 

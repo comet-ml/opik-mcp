@@ -43,6 +43,7 @@ from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, view_link
+from tests.factories import make_settings
 
 
 def _note_of(entity_type: str) -> PageNoteFn:
@@ -86,7 +87,7 @@ def _settings(**overrides: object) -> Settings:
         "opik_url": "https://opik.test/api/",
     }
     base.update(overrides)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**base)
 
 
 #: ``…/<workspace>/projects/<project id>/<area>`` — the one shape v2 serves.
@@ -402,7 +403,8 @@ def test_a_view_tier_label_does_not_describe_rows_an_empty_page_has_none_of() ->
     label changes rather than the link disappearing."""
     full = view_link_note(_settings(), "online_rule", "p-7")
     empty = view_link_note(_settings(), "online_rule", "p-7", empty=True)
-    assert full is not None and empty is not None
+    assert full is not None
+    assert empty is not None
     assert full["url"] == empty["url"]
     assert "this rule" in full["url_opens"]
     assert "this rule" not in empty["url_opens"]
@@ -550,6 +552,9 @@ async def test_a_list_scoped_by_name_reads_the_project_off_its_own_rows() -> Non
 @pytest.mark.anyio
 async def test_a_page_whose_rows_name_no_project_simply_carries_no_link() -> None:
     """No link is the right answer here, not a looked-up one."""
+    # The resolved-project ContextVar lives in the anyio runner task, which the
+    # sync autouse fixtures cannot reach; an earlier list call may have set it.
+    remember_resolved_project(None)
     note = await _note_of("trace")(
         cast("OpikListClient", object()),
         _settings(),

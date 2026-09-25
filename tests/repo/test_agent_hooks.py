@@ -39,6 +39,7 @@ def repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "relative",
     [
@@ -56,6 +57,7 @@ def test_protect_blocks_with_a_reason(repo: Path, relative: str, tool: str) -> N
     assert "instead" in result.stderr, "the reason must say where the file belongs"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "relative",
     [
@@ -72,6 +74,7 @@ def test_protect_allows_ordinary_paths(repo: Path, relative: str) -> None:
     assert result.stderr == ""
 
 
+@pytest.mark.slow
 def test_protect_judges_a_worktree_by_its_own_root(repo: Path) -> None:
     worktree = repo / ".claude" / "worktrees" / "some-branch"
     worktree.mkdir(parents=True)
@@ -80,6 +83,7 @@ def test_protect_judges_a_worktree_by_its_own_root(repo: Path) -> None:
     assert _run("protect_paths.py", _edit(worktree / ".claude/skills/x/SKILL.md")).returncode == 2
 
 
+@pytest.mark.slow
 def test_protect_ignores_other_tools_and_bad_input(repo: Path) -> None:
     read = {"tool_name": "Read", "tool_input": {"file_path": str(repo / ".claude/skills/x.md")}}
     assert _run("protect_paths.py", read).returncode == 0
@@ -106,6 +110,7 @@ def scratch() -> Iterator[Path]:
         parent.rmdir()
 
 
+@pytest.mark.slow
 def test_format_rewrites_an_edited_python_file_silently(scratch: Path) -> None:
     target = scratch / "messy.py"
     # An import not used yet must survive: the next edit is the one that uses it.
@@ -126,6 +131,7 @@ def test_format_rewrites_an_edited_python_file_silently(scratch: Path) -> None:
     )
 
 
+@pytest.mark.slow
 def test_format_leaves_other_files_alone(scratch: Path) -> None:
     target = scratch / "notes.md"
     target.write_text("x = {  'a':1 }\n")
@@ -152,6 +158,7 @@ def _run_as_configured(command: str, payload: Mapping[str, object]) -> int:
     ).returncode
 
 
+@pytest.mark.slow
 def test_the_configured_pre_hook_blocks_a_skill_write() -> None:
     blocked = _edit(REPO_ROOT / ".claude/skills/dev-helper/SKILL.md")
     allowed = _edit(REPO_ROOT / "src/opik_mcp/read_list/uri.py")
@@ -160,6 +167,7 @@ def test_the_configured_pre_hook_blocks_a_skill_write() -> None:
     assert all(_run_as_configured(c, allowed) == 0 for c in commands)
 
 
+@pytest.mark.slow
 def test_the_configured_post_hook_formats(scratch: Path) -> None:
     target = scratch / "messy.py"
     target.write_text("x = {  'a':1 }\n")
@@ -178,6 +186,7 @@ def test_settings_deny_secrets_and_force_pushes() -> None:
     assert "Bash(git push * +*)" in deny
 
 
+@pytest.mark.slow
 def test_format_leaves_files_outside_the_repo_alone(tmp_path: Path) -> None:
     target = tmp_path / "elsewhere.py"
     target.write_text("x = {  'a':1 }\n")
@@ -186,6 +195,7 @@ def test_format_leaves_files_outside_the_repo_alone(tmp_path: Path) -> None:
     assert target.read_text() == "x = {  'a':1 }\n"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "relative", [".CLAUDE/Skills/x/SKILL.md", "DIST/a.txt", "src/opik_mcp/_VERSION.py"]
 )
@@ -193,6 +203,7 @@ def test_protect_ignores_letter_case(repo: Path, relative: str) -> None:
     assert _run("protect_paths.py", _edit(repo / relative)).returncode == 2
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("hook", ["protect_paths.py", "format_python.py"])
 @pytest.mark.parametrize(
     "payload",

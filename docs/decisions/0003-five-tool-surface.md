@@ -27,6 +27,10 @@ for the model. A new entity or operation is a registry entry, not a new tool.
 - `tests/conformance/test_no_duplicate_payload.py`: one copy per answer.
 - `tests/conformance/test_write_tool_surface.py`: `write` and `schema` match
   the registry.
+- `tests/conformance/test_tool_annotations.py`: checks that every tool
+  declares a title and its hints, checks each description against the
+  host's cut (`DESCRIPTION_LIMIT`), and pins the ones over it as strict
+  expected failures.
 
 ## Log
 
@@ -34,3 +38,5 @@ for the model. A new entity or operation is a registry entry, not a new tool.
 - 2026-09-01: `read_skill` added (#175).
 - 2026-09-03: `ask_ollie` and `run_experiment` removed (#181).
 - 2026-09-23: duplicate `structuredContent` removed (#201).
+- 2026-09-25: the tool set is pinned by `EXPECTED_TOOLS` in
+  `tests/conformance/test_tool_inventory.py` (OPIK-8496).

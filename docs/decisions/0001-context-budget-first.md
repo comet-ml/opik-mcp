@@ -29,6 +29,9 @@ was needed costs the user money and crowds out their own work.
 - The size header on every read (`read_list/size.py`): its format in
   `tests/read_list/test_link_shape.py`, its presence on reads in
   `tests/read_list/test_read_tool.py`.
+- `tests/conformance/test_tool_annotations.py`: checks each description and
+  the instructions against the host's cut (`DESCRIPTION_LIMIT`), and pins the
+  ones over it as strict expected failures.
 
 ## Log
 
@@ -44,3 +47,7 @@ was needed costs the user money and crowds out their own work.
   Titles and hints added to all tools, 734 bytes on `tools/list`.
 - 2026-09-23: instructions budget added. With tool search on, they are the
   part every session still loads, about 1,150 tokens (OPIK-8485).
+- 2026-09-25: the numbers now live in the tests: `SURFACE_BUDGET_BYTES` and
+  `INSTRUCTIONS_BUDGET_BYTES` in `tests/conformance/test_tool_inventory.py`,
+  `DESCRIPTION_LIMIT` in `tests/conformance/test_tool_annotations.py`. The
+  surface headroom has fallen to about 505 bytes since 2026-09-11 (OPIK-8496).

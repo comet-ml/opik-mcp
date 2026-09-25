@@ -116,8 +116,8 @@ write → writes/registry.py → writes/operations/evaluation.py build hooks
 
 ## Decisions
 
-- The comparison is a mode of `list('dataset_item')`, so the tool set stays
-  at five ([ADR 0003](../decisions/0003-five-tool-surface.md), #190).
+- The comparison is a mode of `list('dataset_item')`, so it adds no tool
+  ([ADR 0003](../decisions/0003-five-tool-surface.md), #190).
 - `Δ` is plain arithmetic. Opik's feedback definitions have no direction
   field, and a name like `hallucination` can be scored either way (#195).
 - `errored` is inferred from the row, with no trace query, because the
