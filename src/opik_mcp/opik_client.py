@@ -76,10 +76,18 @@ class OpikNotFoundError(RuntimeError):
 
 
 class OpikValidationError(RuntimeError):
-    """Opik rejected the request body (400/422)."""
+    """Opik rejected the request body (400/422).
+
+    ``backend_reason`` is the backend's own capped reason, for a caller that
+    reports it in a field of its own rather than inside this message.
+    """
 
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
+
+    def __init__(self, message: str, *, backend_reason: str | None = None) -> None:
+        super().__init__(message)
+        self.backend_reason = backend_reason
 
 
 class OpikServerError(RuntimeError):
@@ -1526,14 +1534,15 @@ _BACKEND_REASON_CHARS = 200
 
 
 def backend_reason(resp: httpx.Response) -> str | None:
-    """The backend's own words on a 400 or 422, capped; ``None`` otherwise.
+    """The backend's own words on a 400, 409 or 422, capped; ``None`` otherwise.
 
     Only the strings under ``errors`` (Opik's ``ErrorMessage``) or ``message``
     (Dropwizard's), joined and on one line — never the rest of the body, and
     never for a status where the text is about the server rather than the
-    request.
+    request. A 409 is included because it says which conflict: a trace update
+    under the wrong project and a create of an existing id both answer 409.
     """
-    if resp.status_code not in (400, 422):
+    if resp.status_code not in (400, 409, 422):
         return None
     try:
         body = resp.json()
@@ -1578,7 +1587,8 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
         said = f' Backend said: "{reason}"' if reason else ""
         raise OpikValidationError(
             f"Opik rejected the request for {entity_hint} ({status}). Check the "
-            f"arguments passed.{said}"
+            f"arguments passed.{said}",
+            backend_reason=reason,
         )
     if status >= 500:
         raise OpikServerError(

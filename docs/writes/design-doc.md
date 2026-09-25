@@ -65,14 +65,19 @@ promises, what comes back on success and failure, and where to change or add an 
 ```
 
 - `message` is one sentence per status and the call to retry
-  (`_backend_sentence`); a 409 says the write conflicts with an existing
-  record rather than that the data is bad. `backend_error` holds only the status, which
+  (`_backend_sentence`); a 409 says the write conflicts with the record's
+  current state and to check its ids and project, since the backend answers
+  409 both for an existing id and for a trace updated under the wrong
+  project. `backend_error` holds only the status, which
   analytics buckets on; the body, method and path are not carried.
-- `backend_message` appears on a 400 or 422 only: the strings under the
+- `backend_message` appears on a 400, 409 or 422 only: the strings under the
   body's `errors` or `message`, cut at `_BACKEND_REASON_CHARS`
   (`backend_reason` in `src/opik_mcp/opik_client.py`). A non-JSON body or any other status has none.
+  A 400 or 422 while a comment resolves its thread carries it too.
 - A Diagnostics enable whose 409 follow-up PATCH fails reports the PATCH's
-  status, so a 401 keeps the credential hint and a 5xx says retry.
+  status, so a 401 keeps the credential hint and a 5xx says retry. A 401
+  there also drops the cached OAuth validation (`note_backend_401`), as the
+  main write path does.
 
 Other codes (`src/opik_mcp/writes/errors.py`): `unknown_operation` (with
 `valid_operations`, `did_you_mean`), `batch_too_large` (over `BATCH_LIMIT`) and
@@ -143,7 +148,7 @@ description and `schema` follow. Also:
   `schema(operation)` for the schema. Inlining the schema made a failed write
   cost up to 3,219 characters (OPIK-8496; it was inlined from #99).
 - A backend error carries no body, method or path, since the body is
-  untrusted text. The capped `backend_message` on a 400 or 422 is the
+  untrusted text. The capped `backend_message` on a 400, 409 or 422 is the
   exception, in its own field so it is never read as ours (OPIK-8496).
 - A link never costs a backend call after the write. A failed lookup would make
   a successful write look failed (#201).
@@ -170,7 +175,10 @@ description and `schema` follow. Also:
   `test_a_validation_failure_points_at_schema_instead_of_inlining_it`,
   `test_a_backend_rejection_is_one_sentence_and_the_retry_call`,
   `test_a_failed_follow_up_after_409_reports_its_own_status`,
-  `test_a_409_write_says_it_conflicts_rather_than_bad_data`,
+  `test_a_409_write_says_it_conflicts_and_quotes_why`,
+  `test_a_401_on_the_follow_up_drops_the_cached_oauth_validation`,
+  `test_a_thread_resolve_400_carries_the_backends_reason`,
+  `test_a_thread_with_no_model_id_names_the_retry`,
   `test_a_write_backend_message_is_one_line_without_double_quotes`,
   `test_a_write_backend_message_is_capped`, `test_a_500_write_has_no_backend_message`. Models and their issue
   codes: `tests/writes/test_models.py`, `tests/writes/test_data_rules.py`.
@@ -183,7 +191,7 @@ description and `schema` follow. Also:
 
 ## Log
 
-- 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/422 adds a capped `backend_message` (OPIK-8496).
+- 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/409/422 adds a capped `backend_message` (OPIK-8496).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).
 - 2026-09-22: `item_count` counts records inside an envelope; a large upsert had reported 1 (#199).
 - 2026-09-17: `test_suite.*` writes became `dataset.create` and `dataset_item.upsert`; a suite is a dataset (#190).

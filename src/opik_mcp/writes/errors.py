@@ -202,8 +202,8 @@ def _backend_sentence(operation: str, status: int) -> str:
         return f"The target of {operation!r} was not found (404); check its ids and retry {retry}."
     if status == 409:
         return (
-            f"{operation!r} conflicts with an existing record (409); change the id or "
-            f"update that record instead, then retry {retry}."
+            f"{operation!r} conflicts with the record's current state (409); check its "
+            f"ids and project, then retry {retry}."
         )
     if status in (400, 422):
         return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."

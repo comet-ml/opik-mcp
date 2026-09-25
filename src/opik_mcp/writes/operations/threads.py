@@ -72,12 +72,19 @@ async def resolve_comment_thread_id(
         # Mirror the live write path: a non-404 backend failure during the
         # resolve becomes a structured BackendError, not a raw OpikError that
         # would bypass the write tool's JSON-envelope contract.
-        raise BackendError.build(op.name, e.http_status or 502) from e
+        reason = e.backend_reason if isinstance(e, OpikValidationError) else None
+        raise BackendError.build(op.name, e.http_status or 502, backend_message=reason) from e
     # ``id`` on a TraceThread is the string thread_id, NOT a UUID — the comment
     # path needs the model UUID, so there is no valid fallback to ``id`` here.
     model_id = thread.get("thread_model_id")
     if not isinstance(model_id, str) or not model_id:
-        raise refuse(op, "target_id", "thread has no resolvable model id.", "thread_not_found")
+        raise refuse(
+            op,
+            "target_id",
+            f"thread {model.target_id!r} has no resolvable model id; check the thread_id "
+            f"and project, then retry write({op.name!r}, data=…).",
+            "thread_not_found",
+        )
     items[0] = model.model_copy(update={"target_id": model_id})
     return None
 

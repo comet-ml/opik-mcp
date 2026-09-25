@@ -185,6 +185,40 @@ async def test_comment_thread_not_found_surfaces_recovery() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_thread_resolve_400_carries_the_backends_reason() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(400, json={"errors": ["project_name is blank"]})
+        )
+        with pytest.raises(BackendError) as exc_info:
+            await run_write(
+                operation="comment.create",
+                data={"target": "thread", "target_id": "t", "text": "x", "project_name": "p"},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert body["backend_error"] == {"status": 400}
+    assert body["backend_message"] == "project_name is blank"
+
+
+@pytest.mark.anyio
+async def test_a_thread_with_no_model_id_names_the_retry() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(200, json={"id": "t"})
+        )
+        with pytest.raises(ValidationFailedError) as exc_info:
+            await run_write(
+                operation="comment.create",
+                data={"target": "thread", "target_id": "t", "text": "x", "project_name": "p"},
+                client=_client(),
+            )
+    message = json.loads(exc_info.value.to_json())["message"]
+    assert "check the thread_id and project" in message
+    assert "write('comment.create', data=…)" in message
+
+
+@pytest.mark.anyio
 async def test_comment_thread_resolve_backend_error_is_structured() -> None:
     """A non-404 failure during the resolve surfaces as a structured BackendError,
     not a raw OpikError that would bypass the write tool's JSON envelope."""
@@ -487,6 +521,38 @@ async def test_a_failed_follow_up_after_409_reports_its_own_status(
     body = json.loads(exc_info.value.to_json())
     assert body["backend_error"] == {"status": patch_status}
     assert says in body["message"]
+
+
+@pytest.mark.anyio
+async def test_a_401_on_the_follow_up_drops_the_cached_oauth_validation() -> None:
+    """Every place that turns a backend 401 into an error drops the cached
+    validation, so the next request meets the 401 that makes the host refresh."""
+    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+    from opik_mcp.credential_identity import lookup_validation, remember_validation
+
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}dying"
+    remember_validation(token, ttl_s=300)
+    reset = inbound_authorization.set(f"Bearer {token}")
+    try:
+        with respx.mock(base_url=OPIK_BASE) as mock:
+            mock.get("/v1/private/toggles/").mock(
+                return_value=httpx.Response(200, json=_TOGGLES_ON)
+            )
+            mock.post(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+                return_value=httpx.Response(409, json={"errors": ["exists"]}),
+            )
+            mock.patch(f"/v1/private/agent-insights/jobs/{PROJECT}").mock(
+                return_value=httpx.Response(401),
+            )
+            with pytest.raises(BackendError):
+                await run_write(
+                    operation="agent_insights_job.enable",
+                    data={"project_id": PROJECT},
+                    client=_client(),
+                )
+    finally:
+        inbound_authorization.reset(reset)
+    assert lookup_validation(token) is None
 
 
 @pytest.mark.anyio
@@ -979,10 +1045,16 @@ async def test_a_write_backend_message_is_one_line_without_double_quotes() -> No
 
 
 @pytest.mark.anyio
-async def test_a_409_write_says_it_conflicts_rather_than_bad_data() -> None:
-    body = await _backend_envelope(httpx.Response(409, json={"errors": ["duplicate id"]}))
-    assert "conflicts with an existing record" in str(body["message"])
-    assert "rejected the data" not in str(body["message"])
+async def test_a_409_write_says_it_conflicts_and_quotes_why() -> None:
+    """The backend's 409 on a trace means the project does not match the
+    trace's, which "change the id" would not fix; its own reason says which."""
+    reason = "Project name and workspace name do not match the existing trace"
+    body = await _backend_envelope(httpx.Response(409, json={"errors": [reason]}))
+    message = str(body["message"])
+    assert "conflicts with the record's current state (409)" in message
+    assert "check its ids and project" in message
+    assert "change the id" not in message
+    assert body["backend_message"] == reason
 
 
 @pytest.mark.anyio

@@ -23,7 +23,7 @@ import httpx
 from pydantic import BaseModel
 
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient, backend_reason
+from opik_mcp.opik_client import OpikClient, backend_reason, note_backend_401
 from opik_mcp.read_list.entities.agent_insights_issue import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,
@@ -132,6 +132,8 @@ async def retry(
         request = WireRequest(request.path, {"status": "enabled"}, method="PATCH")
         resp = await client.write_json(request.method or op.method, request.path, request.body)
         if not (200 <= resp.status_code < 300):
+            if resp.status_code == 401:
+                note_backend_401()
             raise BackendError.build(
                 op.name, resp.status_code, backend_message=backend_reason(resp)
             )
