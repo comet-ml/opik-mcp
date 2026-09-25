@@ -63,7 +63,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             project_id=project_id,
             page=1,
             size=SPANS_INLINE_LIMIT,
-            truncate=True,
+            should_truncate=True,
         )
     except Exception:
         return {"trace": trace, "spans": [], "spansTruncated": False}

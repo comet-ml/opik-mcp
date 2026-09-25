@@ -53,12 +53,12 @@ async def resolve_comment_thread_id(
     if not isinstance(model, CommentCreate) or model.target != "thread":
         return None
     try:
-        # truncate=True — we only need the model id, not the full messages.
+        # should_truncate=True — we only need the model id, not the full messages.
         thread = await client.get_thread(
             model.target_id,
             project_id=str(model.project_id) if model.project_id else None,
             project_name=model.project_name,
-            truncate=True,
+            should_truncate=True,
         )
     except OpikNotFoundError as e:
         raise refuse(

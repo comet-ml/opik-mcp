@@ -230,9 +230,9 @@ class FakeOpikClient:
         *,
         project_id: str | None = None,
         project_name: str | None = None,
-        truncate: bool = False,
+        should_truncate: bool = False,
     ) -> dict[str, Any]:
-        self.last_get_thread_truncate = truncate
+        self.last_get_thread_truncate = should_truncate
         if thread_id not in self.threads_by_id:
             raise OpikNotFoundError(f"thread {thread_id!r} not found (404).")
         return self.threads_by_id[thread_id]
@@ -1798,7 +1798,7 @@ async def test_a_traces_spans_are_asked_for_slim() -> None:
 
     await run_read("trace", UUID, client=fake)
 
-    assert fake.last_list_spans_kwargs["truncate"] is True
+    assert fake.last_list_spans_kwargs["should_truncate"] is True
 
 
 @pytest.mark.anyio
@@ -1883,7 +1883,7 @@ async def test_a_threads_turns_are_asked_for_slim_and_counted() -> None:
 
     out = _payload(await run_read("thread", THREAD, project_id="p-9", client=fake))
 
-    assert fake.last_list_traces_kwargs["truncate"] is True
+    assert fake.last_list_traces_kwargs["should_truncate"] is True
     assert "1 of 2 turns had a field cut" in out["messageBodies"]
     assert "read('trace', trace_id)" in out["messageBodies"]
 

@@ -191,7 +191,7 @@ async def test_trace_list_without_filters_still_hides_non_sdk_sources() -> None:
     fake = FakeOpikClient()
     await run_list("trace", project_id="p-1", client=fake)
     assert _sent_filters(fake) == [SDK_SOURCE]
-    assert fake.last_kwargs.get("truncate") is True
+    assert fake.last_kwargs.get("should_truncate") is True
 
 
 @pytest.mark.anyio
@@ -327,7 +327,7 @@ async def test_empty_filters_on_an_unsupported_type_is_the_same_as_none() -> Non
     fake = FakeOpikClient(projects=_page([{"id": "p-1", "name": "demo"}]))
     out = await run_list("project", filters="", client=fake)
     assert "filters" not in fake.project_kwargs
-    assert "truncate" not in fake.project_kwargs
+    assert "should_truncate" not in fake.project_kwargs
     assert out.startswith("Found 1 projects")
 
 
