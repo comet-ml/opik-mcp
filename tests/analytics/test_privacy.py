@@ -837,6 +837,8 @@ def test_new_events_carry_no_forbidden_substring(
         _maybe_emit_session_initialized({"ctx": ctx})
 
     elif event_name == "opik_mcp_tools_listed":
+        from concurrent.futures import ThreadPoolExecutor
+
         import anyio
         from mcp.server.fastmcp import FastMCP
         from mcp.types import ListToolsRequest
@@ -857,7 +859,10 @@ def test_new_events_carry_no_forbidden_substring(
         install_tools_listed_emitter(mcp)
         handler = mcp._mcp_server.request_handlers[ListToolsRequest]
         req = ListToolsRequest(method="tools/list")
-        anyio.run(handler, req)
+        # Its own thread: once the session-scoped anyio runner is up, this
+        # thread already has a running loop and anyio.run refuses to nest.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(anyio.run, handler, req).result()
 
     elif event_name == "opik_mcp_server_shutdown":
         from opik_mcp.analytics import EVENT_SERVER_SHUTDOWN, track_event, transport_probe

@@ -516,6 +516,9 @@ async def test_a_list_scoped_by_name_reads_the_project_off_its_own_rows() -> Non
 @pytest.mark.anyio
 async def test_a_page_whose_rows_name_no_project_simply_carries_no_link() -> None:
     """No link is the right answer here, not a looked-up one."""
+    # The resolved-project ContextVar lives in the anyio runner task, which the
+    # sync autouse fixtures cannot reach; an earlier list call may have set it.
+    remember_resolved_project(None)
     note = await link_note_for("trace")(
         cast("OpikListClient", object()),
         _settings(),
