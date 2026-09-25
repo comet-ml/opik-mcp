@@ -178,7 +178,7 @@ extend-allowed-calls = ["pytest.param"]
 "src/opik_mcp/writes/operations/observability.py" = ["ARG001", "PLC0415"]
 "src/opik_mcp/writes/operations/threads.py" = ["ARG001", "PLC0415"]
 "tests/analytics/test_boot_props.py" = ["PT006"]
-"tests/analytics/test_client.py" = ["ARG002", "C408", "I002"]
+"tests/analytics/test_client.py" = ["ARG002", "I002"]
 "tests/analytics/test_environment.py" = ["PT006", "PT018"]
 "tests/analytics/test_errors.py" = ["PT006", "PT017"]
 "tests/analytics/test_events.py" = ["I002", "PT006", "PT018"]
@@ -194,7 +194,7 @@ extend-allowed-calls = ["pytest.param"]
 "tests/e2e/test_compare_experiments_surface.py" = ["PT018"]
 "tests/e2e/test_description_claims.py" = ["PERF401", "PT018"]
 "tests/e2e/test_project_overview_surface.py" = ["PT018"]
-"tests/identity/test_account_identity.py" = ["C408", "PT019"]
+"tests/identity/test_account_identity.py" = ["PT019"]
 "tests/identity/test_credential_identity.py" = ["PT018"]
 "tests/identity/test_http_auth.py" = ["I002"]
 "tests/identity/test_oauth_identity.py" = ["I002"]
@@ -346,7 +346,6 @@ module = [
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
     "tests.server.test_error_tracking",
-    "tests.server.test_instructions",
     "tests.writes.test_recovery_envelope",
     "tests.writes.test_registry",
     "tests.writes.test_write_links",

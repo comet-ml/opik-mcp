@@ -93,20 +93,14 @@
     "src/opik_mcp/analytics/errors.py": 1,
     "src/opik_mcp/server.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
-    "tests/analytics/test_auth_rejected.py": 1,
-    "tests/analytics/test_boot_props.py": 1,
     "tests/analytics/test_client.py": 2,
-    "tests/analytics/test_client_build_event.py": 1,
-    "tests/analytics/test_errors.py": 3,
-    "tests/analytics/test_privacy.py": 2,
+    "tests/analytics/test_errors.py": 2,
+    "tests/analytics/test_privacy.py": 1,
     "tests/analytics/test_tools_listed.py": 2,
-    "tests/identity/test_oauth_identity.py": 1,
     "tests/identity/test_oauth_passthrough_mode.py": 1,
     "tests/identity/test_oauth_token_rotation.py": 3,
     "tests/read_list/test_dataset_compare.py": 2,
-    "tests/read_list/test_link_shape.py": 1,
-    "tests/read_list/test_ui_links.py": 2,
-    "tests/identity/test_resource_metadata_url.py": 1
+    "tests/read_list/test_ui_links.py": 1
   },
   "ruff_baseline": {
     "scripts/capture_bi_listener.py": [
@@ -307,7 +301,6 @@
       "PT018"
     ],
     "tests/identity/test_account_identity.py": [
-      "C408",
       "PT019"
     ],
     "tests/analytics/test_boot_props.py": [
@@ -315,7 +308,6 @@
     ],
     "tests/analytics/test_client.py": [
       "ARG002",
-      "C408",
       "I002"
     ],
     "tests/analytics/test_environment.py": [
@@ -548,7 +540,6 @@
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
     "tests.server.test_error_tracking",
-    "tests.server.test_instructions",
     "tests.writes.test_recovery_envelope",
     "tests.writes.test_registry",
     "tests.writes.test_write_links"

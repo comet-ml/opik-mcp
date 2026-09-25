@@ -15,13 +15,11 @@ import pytest
 from opik_mcp.analytics import boot_props
 from opik_mcp.analytics.events import AuthMode, InstallationType, ResourceUriScheme
 from opik_mcp.config import Settings
+from tests.factories import make_settings
 
 
 def _settings(**kwargs: object) -> Settings:
-    # _env_file=None: ignore any developer .env so these stay deterministic.
-    base: dict[str, object] = {"_env_file": None}
-    base.update(kwargs)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**kwargs)
 
 
 def test_default_allowed_hosts_schema_parity() -> None:

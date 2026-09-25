@@ -33,6 +33,7 @@ from opik_mcp.credential_identity import (
     lookup_identity,
     reset_identities_for_tests,
 )
+from tests.factories import make_settings
 
 API_KEY = "sk-test-key"
 ACCOUNT_URL = "https://www.comet.com/api/rest/v2/account-details"
@@ -49,9 +50,12 @@ def _fresh_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Pat
     reset_account_identity_for_tests()
 
 
-def _cloud_settings(**overrides: Any) -> Settings:
-    base: dict[str, Any] = dict(opik_api_key=API_KEY, opik_url="https://www.comet.com/opik/api")
-    return Settings(**{**base, **overrides})
+def _cloud_settings(**overrides: object) -> Settings:
+    base: dict[str, object] = {
+        "opik_api_key": API_KEY,
+        "opik_url": "https://www.comet.com/opik/api",
+    }
+    return make_settings(**{**base, **overrides})
 
 
 def _cache_file(home: Path) -> Path:

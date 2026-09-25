@@ -42,6 +42,7 @@ from opik_mcp.read_list.project_scope import remember_resolved_project, resolved
 from opik_mcp.read_list.read_tool import _link_hint
 from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
+from tests.factories import make_settings
 
 
 @pytest.fixture
@@ -66,7 +67,7 @@ def _settings(**overrides: object) -> Settings:
         "opik_url": "https://opik.test/api/",
     }
     base.update(overrides)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**base)
 
 
 #: ``…/<workspace>/projects/<project id>/<area>`` — the one shape v2 serves.

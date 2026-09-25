@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Any
 
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
@@ -18,6 +17,7 @@ from opik_mcp.skills_catalog import (
     read_skill_tool_description,
     skill_names,
 )
+from tests.factories import make_settings
 
 
 @pytest.fixture
@@ -25,14 +25,14 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _settings(**overrides: Any) -> Settings:
-    base: dict[str, Any] = {
+def _settings(**overrides: object) -> Settings:
+    base: dict[str, object] = {
         "opik_api_key": "k",
         "comet_workspace": "demo-ws",
         "opik_url": "https://opik.test/",
     }
     base.update(overrides)
-    return Settings(**base)
+    return make_settings(**base)
 
 
 def test_render_substitutes_workspace_and_url() -> None:

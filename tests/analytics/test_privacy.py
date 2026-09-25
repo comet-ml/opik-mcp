@@ -30,6 +30,7 @@ from typing import Any
 import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+from tests.factories import make_settings
 
 # Substrings that must NEVER appear in any analytics event. Each one is a
 # realistic free-text payload a user might pass, chosen to be globally unique
@@ -881,14 +882,13 @@ def test_new_events_carry_no_forbidden_substring(
 
     elif event_name == "opik_mcp_auth_rejected":
         from opik_mcp import server
-        from opik_mcp.config import Settings
 
         monkeypatch.setattr(
             "opik_mcp.server.track_event", lambda et, p: recorder.track_event(et, p)
         )
         mw = server.AuthRejectionMiddleware(
             None,  # type: ignore[arg-type]  # app unused by _emit_rejection
-            settings=Settings(opik_mcp_analytics_enabled=False, _env_file=None),  # type: ignore[call-arg]
+            settings=make_settings(opik_mcp_analytics_enabled=False),
         )
         # Drive the emit path directly with a canary-laden bearer token; the
         # event must carry only the bucketed reason/auth_mode, never the token.
