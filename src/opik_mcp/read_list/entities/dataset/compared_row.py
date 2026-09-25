@@ -43,7 +43,7 @@ class Experiment:
     # What decides whether lining these runs up means anything: the version
     # of the dataset each ran, whether it has finished, and how many cases it
     # covered. Read off the record the legend already needed, at no extra
-    # call, and checked before the table is drawn — see ``compare._guards``.
+    # call, and checked before the table is drawn — see ``compare_guards.guards``.
     dataset_version_id: str | None = None
     dataset_version: str | None = None
     status: str | None = None
@@ -272,7 +272,7 @@ class ComparedRow:
         mean of the two. A number is the mean over the experiment's runs, and
         with exactly two experiments the cell carries E2 minus E1, signed: the
         sign is arithmetic, not a verdict, because no definition in Opik says
-        which direction a metric improves in (see ``compare._how_to_read``).
+        which direction a metric improves in (see ``compare_notes.how_to_read``).
 
         A dash is an experiment that did not run the case; ``unscored`` is one
         that ran it and recorded nothing for this score; ``errored`` is one

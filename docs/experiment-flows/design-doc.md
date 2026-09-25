@@ -99,7 +99,8 @@ list/read → read_list/registry.py → entities/experiment.py
   dataset_item + experiment_ids   → compare.py run_compare
       → get_experiment per id, then one gather: rows, feedback
         definitions, stats per experiment, output columns (page 1)
-      → figures.py (per-experiment lines), layout.py render
+      → compare_guards.py (same dataset, version, status, case count)
+      → figures.py (per-experiment lines), compare_notes.py, layout.py render
         (compared_row.py: one case's runs and cells)
 write → writes/registry.py → writes/operations/evaluation.py build hooks
 ```
@@ -108,8 +109,10 @@ write → writes/registry.py → writes/operations/evaluation.py build hooks
   in `src/opik_mcp/read_list/entities/experiment.py`. Dotted names such as
   `duration.p90` resolve through `columns.resolve`.
 - For a comparison refusal or fetch, start in
-  `src/opik_mcp/read_list/entities/dataset/compare.py`; for a cell,
-  `compared_row.py`; for a column or note, `layout.py`.
+  `src/opik_mcp/read_list/entities/dataset/compare.py`, and in
+  `compare_guards.py` for what the experiments must agree on; for a cell,
+  `compared_row.py`; for a column, `layout.py`; for a note, `layout.py` or
+  `compare_notes.py`.
 - The item vocabularies (`COMPARED` for the comparison, `CASES` for the
   dataset's own items) are in `src/opik_mcp/read_list/entities/dataset/vocabulary.py`.
   How filters and sort are checked against them, aliases, the `run_fn` handoff

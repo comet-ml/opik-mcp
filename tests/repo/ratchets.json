@@ -275,6 +275,7 @@
     "opik_mcp.read_list.entities.agent_insights_issue.state",
     "opik_mcp.read_list.entities.dataset",
     "opik_mcp.read_list.entities.dataset.compare",
+    "opik_mcp.read_list.entities.dataset.compare_notes",
     "opik_mcp.read_list.entities.dataset.compared_row",
     "opik_mcp.read_list.entities.dataset.figures",
     "opik_mcp.read_list.entities.dataset.items",
