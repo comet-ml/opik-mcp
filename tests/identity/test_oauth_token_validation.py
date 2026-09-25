@@ -19,9 +19,9 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp import oauth_identity
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.config import get_settings
+from opik_mcp.identity import oauth as oauth_identity
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.opik_client import opik_rest_base
 
 INITIALIZE = {
@@ -292,7 +292,7 @@ class _Clock:
 @pytest.fixture
 def clock(monkeypatch: pytest.MonkeyPatch) -> _Clock:
     c = _Clock()
-    monkeypatch.setattr("opik_mcp.credential_identity._now", c)
+    monkeypatch.setattr("opik_mcp.identity.store._now", c)
     return c
 
 
@@ -358,7 +358,7 @@ async def test_cache_is_capped_by_the_backend_expires_at(
     """Once opik-backend reports ``expires_at`` the entry is trusted until that
     instant minus a skew margin, not the whole TTL; and a request landing after
     the expiry is answered 401 from the cache without asking the backend."""
-    from opik_mcp.credential_identity import EXPIRY_SKEW_MARGIN_S
+    from opik_mcp.identity.store import EXPIRY_SKEW_MARGIN_S
 
     ttl = get_settings().opik_mcp_oauth_validation_cache_ttl_s
     expires_in = ttl - 5

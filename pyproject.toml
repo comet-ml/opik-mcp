@@ -233,12 +233,12 @@ disallow_any_explicit = false
 # fails on a module that no longer uses explicit Any. Never add a line here.
 [[tool.mypy.overrides]]
 module = [
-    "opik_mcp.account_identity",
     "opik_mcp.analytics.client",
     "opik_mcp.analytics.mcp_client_info",
     "opik_mcp.analytics.wrappers",
     "opik_mcp.config",
     "opik_mcp.error_tracking",
+    "opik_mcp.identity.account",
     "opik_mcp.read_list.columns",
     "opik_mcp.read_list.decorations",
     "opik_mcp.read_list.entities.agent_insights_issue.availability",

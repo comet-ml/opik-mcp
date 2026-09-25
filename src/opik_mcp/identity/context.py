@@ -49,7 +49,7 @@ inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorizatio
 inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", default=None)
 
 # OAuth-authorized workspace *name*, resolved from the opaque bearer via
-# ``oauth_identity.introspect_oauth_token`` (the same call that validates it).
+# ``identity.oauth.introspect_oauth_token`` (the same call that validates it).
 # Consumed ONLY for display: the instructions blob (``instructions.
 # render_instructions``) so an agent can truthfully name the workspace it is
 # operating against, and the UI links a ``read`` attaches
@@ -70,7 +70,7 @@ resolved_workspace_name: ContextVar[str | None] = ContextVar(
 # a unit that outlives one. "Habit = active on 3+ distinct days" is unanswerable
 # here for the same reason it was unanswerable with the token. **The adoption
 # funnel needs the Comet login** (``user_id`` / ``user_id_kind='comet_user'``),
-# which ``caller_identity`` already resolves and which is live on stdio today —
+# which ``identity.caller`` already resolves and which is live on stdio today —
 # hosted reads zero only because it runs 0.2.12, predating that work. The fix
 # there is a deploy, not this field.
 #
@@ -92,7 +92,7 @@ resolved_workspace_name: ContextVar[str | None] = ContextVar(
 # do carry ``Mcp-Session-Id`` build no events of their own. So this var reads
 # ``None`` for every tool event, which is why the field silently never appeared
 # in production despite tests that set the var directly. The working path is
-# ``credential_identity.remember_session`` / ``lookup_session_digest``, keyed by
+# ``identity.store.remember_session`` / ``lookup_session_digest``, keyed by
 # the credential — the only value in scope on both sides. This var still serves
 # events emitted inside a request, such as ``auth_rejected``.
 #

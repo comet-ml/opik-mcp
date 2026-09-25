@@ -29,7 +29,8 @@ from opik_mcp.analytics import (
 from opik_mcp.analytics.environment import cached_call_context_env, collect_environment_fingerprint
 from opik_mcp.analytics.events import bucket_count, bucket_path
 from opik_mcp.analytics.wrappers import install_tools_listed_emitter, instrument_tool
-from opik_mcp.auth_context import (
+from opik_mcp.config import Settings, get_settings
+from opik_mcp.identity.context import (
     classify_bearer,
     inbound_authorization,
     inbound_mcp_session_id,
@@ -37,8 +38,8 @@ from opik_mcp.auth_context import (
     resolved_workspace_name,
     settings_auth_mode,
 )
-from opik_mcp.config import Settings, get_settings
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.oauth import introspect_oauth_token
+from opik_mcp.identity.store import (
     ResolvedIdentity,
     forget_validation,
     lookup_identity,
@@ -48,7 +49,6 @@ from opik_mcp.credential_identity import (
     remember_validation,
 )
 from opik_mcp.instructions import render_instructions
-from opik_mcp.oauth_identity import introspect_oauth_token
 from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.list_tool import page_facts, run_list
@@ -828,7 +828,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
     signal a host has to refresh (OPIK-8252). Any other well-formed
     ``Authorization: Bearer …`` is an API key and is **not validated locally**:
     the full header value is captured into a ContextVar and forwarded verbatim
-    on the outbound call to opik-backend (see :mod:`opik_mcp.auth_context`),
+    on the outbound call to opik-backend (see :mod:`opik_mcp.identity.context`),
     whose ``AuthFilter`` is its single point of enforcement. Deployments where
     the backend enforces auth are protected end-to-end; OSS installs without
     backend auth are as open via MCP as via their own REST API.
@@ -894,7 +894,7 @@ class BearerAuthMiddleware(BaseHTTPMiddleware):
         auth_token = inbound_authorization.set(auth)
         workspace = request.headers.get("comet-workspace")
         workspace_token = inbound_workspace.set(workspace)
-        # TELEMETRY ONLY — see ``auth_context.inbound_mcp_session_id``. The
+        # TELEMETRY ONLY — see ``identity.context.inbound_mcp_session_id``. The
         # session id is the stable unit the hosted funnel needs: a client keeps it
         # across OAuth token refreshes, so an 8-hour session counts once instead of
         # once per hourly token mint.

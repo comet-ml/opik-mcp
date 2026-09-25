@@ -203,7 +203,7 @@ def test_workspace_kind_literal_has_no_dead_members() -> None:
     from opik_mcp.analytics.client import AnalyticsClient
     from opik_mcp.analytics.events import WorkspaceKind
     from opik_mcp.config import DEFAULT_WORKSPACE, Settings
-    from opik_mcp.credential_identity import ResolvedIdentity
+    from opik_mcp.identity.store import ResolvedIdentity
 
     def _kind(workspace: str | None, resolved: str | None) -> str:
         client = AnalyticsClient(
@@ -235,7 +235,7 @@ def test_user_id_kind_literal_has_no_dead_members() -> None:
 
     from opik_mcp.analytics.client import AnalyticsClient
     from opik_mcp.analytics.events import UserIdKind
-    from opik_mcp.credential_identity import ResolvedIdentity
+    from opik_mcp.identity.store import ResolvedIdentity
 
     produced = {
         AnalyticsClient._resolve_user(

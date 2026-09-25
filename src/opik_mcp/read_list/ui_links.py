@@ -24,13 +24,13 @@ from dataclasses import dataclass
 from typing import Final, Literal, get_args
 from urllib.parse import quote
 
-from opik_mcp.auth_context import (
+from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+from opik_mcp.identity.context import (
     classify_bearer,
     inbound_authorization,
     inbound_workspace,
     resolved_workspace_name,
 )
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings
 from opik_mcp.opik_client import opik_rest_base
 
 

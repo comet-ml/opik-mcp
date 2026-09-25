@@ -22,13 +22,13 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp.account_identity import (
+from opik_mcp.config import Settings
+from opik_mcp.identity.account import (
     CACHE_TTL_SECONDS,
     reset_account_identity_for_tests,
     resolve_api_key_identity,
 )
-from opik_mcp.config import Settings
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.store import (
     credential_digest,
     lookup_identity,
     reset_identities_for_tests,
@@ -94,7 +94,7 @@ def _settle(timeout_s: float = 3.0) -> None:
     For tests asserting that something did NOT happen: once the threads are
     done, a call they would have made has been made.
     """
-    import opik_mcp.account_identity as mod
+    import opik_mcp.identity.account as mod
 
     deadline = time.monotonic() + timeout_s
     for thread in list(mod._REFRESH_THREADS):
@@ -333,7 +333,7 @@ def test_the_disk_cache_is_read_once_not_once_per_event(
 ) -> None:
     """``_build_event`` runs on the emitting thread — disk I/O per event would
     put a JSON parse on the caller's path."""
-    import opik_mcp.account_identity as mod
+    import opik_mcp.identity.account as mod
 
     _write_cache(_fresh_home)
     reads: list[int] = []
@@ -363,7 +363,7 @@ def test_a_reset_waits_for_an_in_flight_refresh(_fresh_home: Path) -> None:
     previous test's user out of memory. That is a cross-test failure whose
     symptom appears in an unrelated test, so it is asserted here directly.
     """
-    import opik_mcp.account_identity as mod
+    import opik_mcp.identity.account as mod
 
     released = threading.Event()
 

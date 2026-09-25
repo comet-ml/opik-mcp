@@ -14,17 +14,17 @@ import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
-from opik_mcp.auth_context import (
+from opik_mcp.identity.context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
     inbound_workspace,
 )
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.oauth import Introspection
+from opik_mcp.identity.store import (
     credential_digest,
     lookup_session_digest,
     reset_identities_for_tests,
 )
-from opik_mcp.oauth_identity import Introspection
 from opik_mcp.server import BearerAuthMiddleware
 
 
@@ -113,8 +113,8 @@ async def test_resolves_workspace_on_session_creating_oauth_request(
     """The ``initialize`` handshake (no Mcp-Session-Id) on an OAuth bearer
     introspects the workspace name and exposes it via the ContextVar the
     instructions blob reads — then resets it after the request."""
-    from opik_mcp.auth_context import resolved_workspace_name
-    from opik_mcp.credential_identity import ResolvedIdentity
+    from opik_mcp.identity.context import resolved_workspace_name
+    from opik_mcp.identity.store import ResolvedIdentity
 
     async def fake_resolve(_auth: str, _settings: object) -> Introspection:
         return Introspection(
@@ -151,7 +151,7 @@ async def test_validates_requests_that_already_carry_a_session(
     tells the host to refresh has to come from the request that hit the dead
     token. The identity is not re-published on those requests; the blob only
     reads it on the handshake."""
-    from opik_mcp.auth_context import resolved_workspace_name
+    from opik_mcp.identity.context import resolved_workspace_name
 
     calls: list[str] = []
 
@@ -311,7 +311,7 @@ async def test_handshake_stores_the_resolved_identity_against_the_token(
     the MCP session task, which never runs inside this request. Keeping the
     identity in a credential-keyed store is what makes it readable from both.
     """
-    from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
+    from opik_mcp.identity.store import ResolvedIdentity, lookup_identity
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}handshake-abc"
     resolved = ResolvedIdentity(
@@ -382,7 +382,7 @@ async def test_failed_introspection_leaves_the_handshake_working(
 ) -> None:
     """A backend hiccup (network, 5xx: ``unknown``) must never cost a session —
     only a definite ``invalid`` answer is a rejection."""
-    from opik_mcp.credential_identity import lookup_identity
+    from opik_mcp.identity.store import lookup_identity
 
     async def _resolve(*_a: object, **_k: object) -> Introspection:
         return Introspection(status="unknown")

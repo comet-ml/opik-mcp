@@ -17,7 +17,7 @@ from collections.abc import Callable
 from functools import lru_cache
 
 from opik_mcp.analytics.identity import install_id_was_freshly_generated
-from opik_mcp.credential_identity import credential_digest
+from opik_mcp.identity.store import credential_digest
 
 # ``sys.platform`` is a Literal type that mypy narrows per-host, so platform-
 # dispatch branches get flagged unreachable on whichever host runs CI (Linux

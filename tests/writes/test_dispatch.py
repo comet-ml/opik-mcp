@@ -566,8 +566,8 @@ async def test_a_failed_follow_up_after_409_reports_its_own_status(
 async def test_a_401_on_the_follow_up_drops_the_cached_oauth_validation() -> None:
     """Every place that turns a backend 401 into an error drops the cached
     validation, so the next request meets the 401 that makes the host refresh."""
-    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
-    from opik_mcp.credential_identity import lookup_validation, remember_validation
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+    from opik_mcp.identity.store import lookup_validation, remember_validation
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}dying"
     remember_validation(token, ttl_s=300)

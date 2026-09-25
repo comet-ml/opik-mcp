@@ -2,7 +2,7 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.opik_client import (
     FeedbackScore,
     OpikAuthError,
@@ -384,8 +384,8 @@ async def test_no_api_key_against_authenticated_backend_surfaces_401() -> None:
 
 
 def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
-    from opik_mcp.auth_context import inbound_authorization
     from opik_mcp.config import Settings
+    from opik_mcp.identity.context import inbound_authorization
     from opik_mcp.opik_client import resolve_opik_config
 
     s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
@@ -404,8 +404,8 @@ def test_resolve_opik_config_oauth_detection_is_prefix_not_substring() -> None:
     OAuth token, so it takes the non-OAuth path: the workspace falls back to
     "default" (the OAuth-passthrough path would instead leave it None).
     """
-    from opik_mcp.auth_context import inbound_authorization
     from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.identity.context import inbound_authorization
     from opik_mcp.opik_client import resolve_opik_config
 
     s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
@@ -477,8 +477,8 @@ def test_an_unfilled_workspace_placeholder_fails_with_a_usable_message(value: st
 def test_an_unfilled_inbound_workspace_header_fails_the_same_way() -> None:
     """Hosted callers send their own config; a host with an unfilled template in
     its headers is just as broken as a local env var."""
-    from opik_mcp.auth_context import inbound_workspace
     from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.identity.context import inbound_workspace
     from opik_mcp.opik_client import resolve_opik_config
 
     s = Settings(opik_api_key="k", comet_workspace="real-ws")

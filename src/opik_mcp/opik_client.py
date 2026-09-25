@@ -20,13 +20,6 @@ from typing import Any, ClassVar, Final, Literal, Protocol
 
 import httpx
 
-from opik_mcp.auth_context import (
-    OAUTH_ACCESS_TOKEN_PREFIX,
-    classify_bearer,
-    inbound_authorization,
-    inbound_workspace,
-    oauth_token_expired_hint,
-)
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     WORKSPACE_ENV_VARS,
@@ -36,8 +29,15 @@ from opik_mcp.config import (
     looks_unsubstituted,
     unfilled_workspace_error,
 )
-from opik_mcp.credential_identity import forget_validation
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.identity.context import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    classify_bearer,
+    inbound_authorization,
+    inbound_workspace,
+    oauth_token_expired_hint,
+)
+from opik_mcp.identity.store import forget_validation
 
 # --- errors --------------------------------------------------------------- #
 #
@@ -50,7 +50,7 @@ from opik_mcp.error_kinds import ErrorKind
 
 class OpikAuthError(RuntimeError):
     """Opik rejected the credential (401): a bad API key, or an OAuth access token
-    that expired or was revoked (see ``auth_context.oauth_token_expired_hint``)."""
+    that expired or was revoked (see ``identity.context.oauth_token_expired_hint``)."""
 
     error_kind: ClassVar[ErrorKind] = "auth"
     http_status: ClassVar[int | None] = 401
@@ -1373,7 +1373,7 @@ def resolve_opik_config(settings: Settings) -> tuple[str, str | None, str | None
     **Per-request bearer + workspace forwarding.** When the process is
     serving an inbound HTTP request that carried an ``Authorization``
     header (OAuth-passthrough mode), the middleware populates
-    :mod:`opik_mcp.auth_context` ContextVars and we prefer those over the
+    :mod:`opik_mcp.identity.context` ContextVars and we prefer those over the
     env-bound ``OPIK_API_KEY`` / ``COMET_WORKSPACE``. opik-backend's
     ``AuthFilter`` accepts both shapes (API key and an
     ``OAUTH_ACCESS_TOKEN_PREFIX``-prefixed ``Bearer``) and enforces
@@ -1428,7 +1428,7 @@ def opik_rest_base(settings: Settings) -> str | None:
     Single source of truth for the rule: an explicit ``OPIK_URL`` override wins;
     otherwise derive from ``COMET_URL_OVERRIDE + "/opik/api"``. Shared by
     ``resolve_opik_config`` (which treats ``None`` as a fatal misconfig) and
-    ``oauth_identity.introspect_oauth_token`` (which treats ``None`` as "skip,
+    ``identity.oauth.introspect_oauth_token`` (which treats ``None`` as "skip,
     fall back to the static workspace"), so both agree on where Opik lives.
     """
     if settings.opik_url:
@@ -1517,7 +1517,7 @@ def note_backend_401() -> str | None:
     the NEXT MCP request re-asks the backend and gets the ``invalid_token`` 401
     that triggers the host's refresh — now, not after the cache TTL. Returns the
     tool-error hint for that bearer (``None`` for an API key); see
-    ``auth_context.oauth_token_expired_hint``. Called from every place a backend
+    ``identity.context.oauth_token_expired_hint``. Called from every place a backend
     401 is turned into an error: here for reads/lists, ``writes.dispatch`` for
     writes, and the Diagnostics follow-up PATCH in
     ``writes.operations.diagnostics``.

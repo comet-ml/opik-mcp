@@ -897,7 +897,7 @@ async def test_read_issue_omits_links_under_oauth_bearer_with_unknown_workspace(
     """Hosted OAuth: the workspace is token-derived server-side. If this
     process could not name it, a link built from the static fallback would
     point at the wrong workspace, so the read carries none."""
-    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 
     tok = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc")
     try:

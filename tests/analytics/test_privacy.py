@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 from tests.factories import make_settings
 
 # Substrings that must NEVER appear in any analytics event. Each one is a

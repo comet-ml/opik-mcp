@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.store import (
     MAX_TRACKED_CREDENTIALS,
     ResolvedIdentity,
     credential_digest,
@@ -95,7 +95,7 @@ def test_reading_an_entry_keeps_it_from_being_evicted_first() -> None:
 
 
 def _keys() -> set[str]:
-    from opik_mcp.credential_identity import _STORE
+    from opik_mcp.identity.store import _STORE
 
     return set(_STORE)
 
@@ -124,7 +124,7 @@ def test_the_raw_session_id_is_never_stored() -> None:
     assert stored is not None
     assert RAW_SESSION not in stored
 
-    from opik_mcp.credential_identity import _SESSIONS
+    from opik_mcp.identity.store import _SESSIONS
 
     blob = repr(list(_SESSIONS.items()))
     assert RAW_SESSION not in blob
@@ -152,7 +152,7 @@ def test_the_session_map_cannot_grow_without_bound() -> None:
     for i in range(MAX_TRACKED_CREDENTIALS + 50):
         remember_session(f"opik_mcp_at_token-{i}", f"session-{i}")
 
-    from opik_mcp.credential_identity import _SESSIONS
+    from opik_mcp.identity.store import _SESSIONS
 
     assert len(_SESSIONS) == MAX_TRACKED_CREDENTIALS
     # Least-recently-used went first; the newest survived.

@@ -35,7 +35,7 @@ Three declared exceptions to "boolean / enum / bucket":
   ``mcp_session_sha256`` is a SESSION grain and is **not** the adoption funnel's
   key. A session ends, so it cannot answer retention ("active on 3+ distinct
   days") any more than the token could. The funnel needs the Comet login —
-  ``user_id`` with ``user_id_kind='comet_user'`` — which ``caller_identity``
+  ``user_id`` with ``user_id_kind='comet_user'`` — which ``identity.caller``
   already resolves and which is live on stdio today; hosted reads zero only
   because it runs 0.2.12, predating that work, so the fix there is a deploy.
 
@@ -321,7 +321,7 @@ InstallIdKind = Literal["file", "fallback"]
 #                       the handshake introspection failed, the pod restarted and
 #                       emptied the in-memory store, the credential was evicted,
 #                       or the credential is an API key forwarded to a hosted
-#                       server, which ``caller_identity`` cannot resolve at all.
+#                       server, which ``identity.caller`` cannot resolve at all.
 #
 # Without this split, a hosted server resolving nothing looks identical to a
 # laptop running open-source Opik: both report ``user_id_kind='install_id'``. That

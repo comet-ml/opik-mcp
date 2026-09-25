@@ -13,8 +13,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
-from opik_mcp.auth_context import oauth_token_expired_hint
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.identity.context import oauth_token_expired_hint
 
 ErrorCode = Literal[
     "validation_failed",

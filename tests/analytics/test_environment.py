@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from opik_mcp.analytics import environment as env
-from opik_mcp.credential_identity import credential_digest
+from opik_mcp.identity.store import credential_digest
 
 
 def _clear_env(monkeypatch: pytest.MonkeyPatch, names: list[str]) -> None:

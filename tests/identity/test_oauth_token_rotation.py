@@ -20,9 +20,9 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp import oauth_identity
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.config import get_settings
+from opik_mcp.identity import oauth as oauth_identity
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.opik_client import opik_rest_base
 
 PROJECT_ID = "0f1c1a2b-3d4e-4f60-8a9b-0c1d2e3f4a5b"
@@ -114,7 +114,7 @@ async def test_rebinding_is_a_no_op_without_an_http_request() -> None:
 
     from mcp.types import CallToolRequest
 
-    from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+    from opik_mcp.identity.context import inbound_authorization, inbound_workspace
     from opik_mcp.server import install_request_auth_rebinding
 
     seen: list[tuple[str | None, str | None]] = []
@@ -142,7 +142,7 @@ async def test_rebinding_uses_the_current_request_and_resets_after() -> None:
     from mcp.types import CallToolRequest
     from starlette.requests import Request
 
-    from opik_mcp.auth_context import inbound_authorization, inbound_workspace
+    from opik_mcp.identity.context import inbound_authorization, inbound_workspace
     from opik_mcp.server import install_request_auth_rebinding
 
     seen: list[tuple[str | None, str | None]] = []

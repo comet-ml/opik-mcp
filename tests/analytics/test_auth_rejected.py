@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.config import Settings
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 from tests.factories import make_settings
 
 # Unique bearer token canary — must never appear raw in the emitted event.

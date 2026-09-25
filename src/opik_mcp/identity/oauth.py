@@ -13,7 +13,7 @@ opik-backend exposes a purpose-built introspection endpoint for exactly this —
 ``ValidatedToken``: ``user_name``, ``workspace_id`` and ``workspace_name``. Since
 OPIK-8252 the same call is also how opik-mcp discharges its resource-server duty
 (MCP authorization spec, Token Handling): ``BearerAuthMiddleware`` asks it on
-every request carrying an OAuth bearer (cached, see ``credential_identity``)
+every request carrying an OAuth bearer (cached, see ``identity.store``)
 and answers ``invalid_token`` 401 when the backend says the token is dead.
 
 The outcome is three-way on purpose — see :data:`IntrospectionStatus`. A
@@ -32,7 +32,7 @@ from typing import Literal
 import httpx
 
 from opik_mcp.config import Settings
-from opik_mcp.credential_identity import ResolvedIdentity
+from opik_mcp.identity.store import ResolvedIdentity
 from opik_mcp.opik_client import opik_rest_base
 
 logger = logging.getLogger("opik_mcp")
