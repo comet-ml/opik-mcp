@@ -8,10 +8,10 @@ identifiable values. Thresholds picked to align with common LLM-context budgets
 
 Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
-with the classifiers in ``environment.py`` (launch method / parent process),
-``mcp_client_info.py`` (mcp host / host LLM family) and ``analytics/client.py``
-(``_resolve_workspace`` / ``_resolve_user``) — adding a new bucket is a BI
-schema change and requires updating both the classifier and the corresponding
+with the classifiers in ``environment.py`` (launch method), ``process_ancestry.py``
+(parent process), ``mcp_client_info.py`` (mcp host / host LLM family) and
+``analytics/client.py`` (``_resolve_workspace`` / ``_resolve_user``) — adding a new
+bucket is a BI schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
 ``tests/analytics/test_events.py``, ``tests/analytics/test_privacy.py``,
 ``tests/analytics/test_lifespan.py`` and ``tests/analytics/test_client.py``
@@ -95,7 +95,7 @@ LaunchMethod = Literal[
 ]
 
 # ``parent_process``: bucketed comm name of the IMMEDIATE parent process. See
-# ``environment._PARENT_PROCESS_PATTERNS``.
+# ``process_ancestry._PARENT_PROCESS_PATTERNS``.
 #
 # FROZEN. Semantics and value set are unchanged since first release, and must
 # stay that way — dashboards and trends are built on these exact buckets. Its
