@@ -142,12 +142,12 @@ write → writes/registry.py → writes/operations/evaluation.py build hooks
   cap: `tests/read_list/test_dataset_compare_figures.py`.
 - The comparison over stdio, including constant page cost
   (`test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_cases`):
-  `tests/e2e/test_compare_experiments_surface.py`.
+  `tests/hermetic/test_compare_experiments_surface.py`.
 - Experiment columns, notes and ranking caveat:
   `tests/read_list/test_experiments.py`.
 - Case listing, filters, refused sorts, one-case read, aliases:
-  `tests/read_list/test_dataset_items.py`, `tests/e2e/test_find_a_case_surface.py`.
-- Links: `tests/read_list/test_link_shape.py`, `tests/e2e/test_entity_links_surface.py`.
+  `tests/read_list/test_dataset_items.py`, `tests/hermetic/test_find_a_case_surface.py`.
+- Links: `tests/read_list/test_link_shape.py`, `tests/hermetic/test_entity_links_surface.py`.
 - Evaluation write bodies and their validation errors:
   `tests/writes/test_dispatch.py`, `tests/writes/test_models.py`.
 

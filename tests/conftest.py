@@ -21,7 +21,7 @@ os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 # subprocess started with a CLEAN env, which is exactly how
 # ``analytics/test_subprocess.py`` starts one. Setting the flag here puts the
 # opt-out in the environment itself, so anything that inherits os.environ
-# (``tests/e2e``) carries it, and the guard becomes the backstop rather than the
+# (``tests/hermetic``) carries it, and the guard becomes the backstop rather than the
 # only defence. A crash in a test must never reach the real Sentry project.
 os.environ.setdefault("OPIK_MCP_SENTRY_ENABLED", "false")
 

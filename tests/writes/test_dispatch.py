@@ -167,6 +167,39 @@ async def test_comment_thread_resolves_model_uuid_for_path() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_thread_comment_links_to_the_thread_by_its_thread_id() -> None:
+    """The path takes the model UUID; the UI opens a thread by the caller's
+    thread_id. The link used to be built after the resolve had replaced one
+    with the other, so it opened a thread the UI does not know."""
+    model_uuid = "019f8eaf-aa13-732d-8157-cb067ea60bed"
+    project_id = "0199c6a4-3a4c-7f1e-9d2b-000000000007"
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(
+                200, json={"id": "support-2026-07-23-alex", "thread_model_id": model_uuid}
+            )
+        )
+        mock.post(f"/v1/private/traces/threads/{model_uuid}/comments").mock(
+            return_value=httpx.Response(201)
+        )
+        out = await run_write(
+            operation="comment.create",
+            data={
+                "target": "thread",
+                "target_id": "support-2026-07-23-alex",
+                "text": "duplicate refunded",
+                "project_id": project_id,
+            },
+            client=_client(),
+            settings=_UI_SETTINGS,
+        )
+    assert out["path"] == f"/v1/private/traces/threads/{model_uuid}/comments"
+    assert out["url"] == (
+        f"{OPIK_BASE}/ws/projects/{project_id}/logs?logsType=threads&thread=support-2026-07-23-alex"
+    )
+
+
+@pytest.mark.anyio
 async def test_comment_thread_not_found_surfaces_recovery() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post("/v1/private/traces/threads/retrieve").mock(

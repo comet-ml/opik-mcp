@@ -18,7 +18,7 @@ You run tests and report. You don't edit files.
 - Asked for "the checks", "what CI runs" or "everything": run all three, in
   order, even if one fails:
   1. `make check`
-  2. `make e2e`
+  2. `make hermetic`
   3. `make skills-verify-source`
 - Asked for something narrower: run that (`make conformance`,
   `uv run pytest <path>::<test>`, `uv run mypy`).

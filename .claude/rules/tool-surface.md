@@ -23,7 +23,7 @@ what the caller pays per call. Both are the user's context. ADRs
   a dated note in the test.
 - A description is a contract. It says what the tool does and returns, in the
   caller's words, and never how the model should behave. Every sentence has a
-  probe in `tests/e2e/test_description_claims.py`. If you can't write a probe
+  probe in `tests/hermetic/test_description_claims.py`. If you can't write a probe
   that would fail, delete the sentence.
 - Every tool declares `title`, `readOnlyHint`, `destructiveHint` and
   `openWorldHint`. Hosts decide permissions from them.
