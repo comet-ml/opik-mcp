@@ -141,6 +141,14 @@ def page_facts() -> dict[str, str]:
 # backend took 32 s live. Everything else keeps the client's 30 s default.
 _SEARCH_TIMEOUT_S = 60.0
 
+#: The entities whose backend takes a window as whole UTC days, named in the
+#: refusal beside the instant-windowed ones.
+_DAY_WINDOWED_TYPES: tuple[str, ...] = tuple(
+    entity_type
+    for entity_type, handler in ENTITY_REGISTRY.items()
+    if "from_date" in handler.list_optional_kwargs
+)
+
 
 @contextmanager
 def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
@@ -177,7 +185,7 @@ async def _run_whole(
     *,
     settings: Settings | None,
     client: OpikListClient | None,
-    **kw: Any,
+    **tool_args: Any,
 ) -> str:
     """Own the connection, then hand the whole call to the entity's runner.
 
@@ -199,7 +207,7 @@ async def _run_whole(
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
-            answer = await run(cast("OpikReadClient", opik), **kw)
+            answer = await run(cast("OpikReadClient", opik), **tool_args)
         page_note = page_note_of(handler)
         if page_note is None:
             return answer
@@ -211,8 +219,8 @@ async def _run_whole(
             opik,
             resolved_settings,
             PageContext(
-                project_id=kw.get("project_id"),
-                project_name=kw.get("project_name"),
+                project_id=tool_args.get("project_id"),
+                project_name=tool_args.get("project_name"),
             ),
         )
         return f"{answer}\n\n{note}" if note else answer
@@ -310,9 +318,9 @@ async def run_list(
     size = clamp_size(size)
     page = max(1, page)
 
-    kw: dict[str, Any] = {"page": page, "size": size}
+    list_kwargs: dict[str, Any] = {"page": page, "size": size}
     if name:
-        kw["name"] = name
+        list_kwargs["name"] = name
     # Entity-specific kwargs are forwarded only when the registry entry declares
     # them (required or optional). A parent id meant for another entity, or
     # project scope on a workspace-wide list, would otherwise reach the client
@@ -328,16 +336,16 @@ async def run_list(
         "prompt_id": prompt_id,
         "status": status,
     }
-    for key, value in candidates.items():
-        if value is not None and key in accepted:
-            kw[key] = value
+    list_kwargs.update(
+        {key: value for key, value in candidates.items() if value is not None and key in accepted}
+    )
 
     for required in handler.list_required_kwargs:
-        if kw.get(required) is None:
+        if list_kwargs.get(required) is None:
             # project_name is an accepted alternative to project_id for the
             # project-scoped lists (trace, span, thread) — the client methods
             # take either, so don't force the UUID when a name was given.
-            if required == "project_id" and kw.get("project_name"):
+            if required == "project_id" and list_kwargs.get("project_name"):
                 continue
             hint = f"{required} (or project_name)" if required == "project_id" else required
             err = EntityArgValidationError(
@@ -381,13 +389,13 @@ async def run_list(
                 sent, params = split_param_clauses(vocabulary, clauses)
             except OQLError as err:
                 raise ToolError(str(err)) from err
-            kw.update(params)
+            list_kwargs.update(params)
             if sent:
-                kw["filters"] = json.dumps(sent, separators=(",", ":"))
+                list_kwargs["filters"] = json.dumps(sent, separators=(",", ":"))
             applied.append(f"filters: {render_filters(vocabulary, clauses)}")
     if entity_type in WINDOWED_ENTITIES:
         # Bodies never reach the table, so let the backend trim them.
-        kw["truncate"] = True
+        list_kwargs["truncate"] = True
     # The sort label is filled in after the response (the backend may have
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)
@@ -396,7 +404,7 @@ async def run_list(
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
         if entity_type not in WINDOWED_ENTITIES and not day_windowed:
-            windowed = ", ".join((*WINDOWED_ENTITIES, "agent_insights_issue"))
+            windowed = ", ".join((*WINDOWED_ENTITIES, *_DAY_WINDOWED_TYPES))
             why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
@@ -408,17 +416,17 @@ async def run_list(
             # Diagnostics aggregates per report day, so the backend takes
             # dates; the instant window is truncated to its UTC days.
             if since is not None and from_time is not None:
-                kw["from_date"] = from_time[:10]
-                applied.append(f"since: {kw['from_date']}")
+                list_kwargs["from_date"] = from_time[:10]
+                applied.append(f"since: {list_kwargs['from_date']}")
             if until is not None and to_time is not None:
-                kw["to_date"] = to_time[:10]
-                applied.append(f"until: {kw['to_date']}")
+                list_kwargs["to_date"] = to_time[:10]
+                applied.append(f"until: {list_kwargs['to_date']}")
         else:
             if since is not None and from_time is not None:
-                kw["from_time"] = from_time
+                list_kwargs["from_time"] = from_time
                 applied.append(f"since: {_window_echo(since, from_time)}")
             if until is not None and to_time is not None:
-                kw["to_time"] = to_time
+                list_kwargs["to_time"] = to_time
                 applied.append(f"until: {_window_echo(until, to_time)}")
 
     if search is not None and search.strip():
@@ -430,7 +438,7 @@ async def run_list(
             # worse than an error, and the error can name what would work.
             refusal = EntityArgValidationError(_search_refusal(vocabulary))
             raise ToolError(str(refusal)) from refusal
-        kw["search"] = search
+        list_kwargs["search"] = search
         applied.append(f'search: "{search}"')
 
     sort_label: str | None = None
@@ -440,7 +448,7 @@ async def run_list(
             sort_field, direction = compile_sort(vocabulary, sort)
         except SortError as err:
             raise ToolError(str(err)) from err
-        kw["sorting"] = json.dumps(
+        list_kwargs["sorting"] = json.dumps(
             [{"field": sort_field, "direction": direction}], separators=(",", ":")
         )
         sort_label = f"sort: {sort_field} {direction.lower()}"
@@ -453,7 +461,7 @@ async def run_list(
     # Free-text search can take the backend >30 s on a cold cache (seen live:
     # 32 s); give only those calls a longer leash.
     resolved_settings = settings or get_settings()
-    search_timeout = _SEARCH_TIMEOUT_S if "search" in kw else None
+    search_timeout = _SEARCH_TIMEOUT_S if "search" in list_kwargs else None
     async with client_for_call(settings, client, timeout=search_timeout) as opik:
         with _as_tool_error(
             f"list {entity_type}s",
@@ -464,13 +472,15 @@ async def run_list(
             ),
         ):
             try:
-                page_body = await handler.list_fn(opik, **kw)
+                page_body = await handler.list_fn(opik, **list_kwargs)
             except OpikNotFoundError as e:
                 # The backend's 404 for a misspelled project names it ("Project
                 # name: X not found"); only that case gets the did-you-mean
                 # recovery, and the rest fall through to the mapping above.
-                if kw.get("project_name") and kw["project_name"] in str(e):
-                    raise ToolError(await unknown_project_message(opik, kw["project_name"])) from e
+                if list_kwargs.get("project_name") and list_kwargs["project_name"] in str(e):
+                    raise ToolError(
+                        await unknown_project_message(opik, list_kwargs["project_name"])
+                    ) from e
                 raise
 
         content_raw = page_body.get("content") or []
@@ -512,19 +522,21 @@ async def run_list(
         # report-day window, so a page under one says nothing about the
         # project outside it.
         page_ctx = PageContext(
-            project_id=kw.get("project_id"),
-            project_name=kw.get("project_name"),
+            project_id=list_kwargs.get("project_id"),
+            project_name=list_kwargs.get("project_name"),
             parent_id=next(
                 (
                     value
                     for field in handler.list_required_kwargs
-                    if field != "project_id" and isinstance(value := kw.get(field), str) and value
+                    if field != "project_id"
+                    and isinstance(value := list_kwargs.get(field), str)
+                    and value
                 ),
                 None,
             ),
             empty=not content,
-            status=kw.get("status"),
-            windowed="from_date" in kw or "to_date" in kw,
+            status=list_kwargs.get("status"),
+            windowed="from_date" in list_kwargs or "to_date" in list_kwargs,
             window_end=parse_instant(to_time) if to_time else None,
             page=page,
             total=total,
@@ -541,12 +553,12 @@ async def run_list(
             # widening it would find anything. Only when the page's own total
             # is zero: a slice past the last page has rows, on an earlier page.
             widened = (
-                _without_default(entity_type, opik, handler.list_fn, kw, clauses)
+                _without_default(entity_type, opik, handler.list_fn, list_kwargs, clauses)
                 if source_defaulted and total == 0
                 else None
             )
             unfiltered = (
-                _without_filters(entity_type, opik, handler.list_fn, kw, clauses)
+                _without_filters(entity_type, opik, handler.list_fn, list_kwargs, clauses)
                 if page_ctx.filtered and total == 0
                 else None
             )
@@ -555,7 +567,7 @@ async def run_list(
                     entity_type,
                     opik,
                     handler.list_fn,
-                    {k: v for k, v in kw.items() if k != "name"},
+                    {k: v for k, v in list_kwargs.items() if k != "name"},
                     [],
                 )
                 if name and total == 0
@@ -565,7 +577,7 @@ async def run_list(
                 opik,
                 handler,
                 name=name,
-                from_time=kw.get("from_time"),
+                from_time=list_kwargs.get("from_time"),
                 widened=widened,
                 unfiltered=unfiltered,
                 unnamed=unnamed,
@@ -653,7 +665,7 @@ def _without_default(
     entity_type: str,
     opik: OpikListClient,
     list_fn: ListFn,
-    kw: dict[str, Any],
+    list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """The same listing again, one row wide, with the ``sdk`` default lifted.
@@ -670,14 +682,16 @@ def _without_default(
     the caller already has, and must never turn it into an error.
     """
 
-    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c != SDK_SOURCE_CLAUSE])
+    return _probe(
+        entity_type, opik, list_fn, list_kwargs, [c for c in clauses if c != SDK_SOURCE_CLAUSE]
+    )
 
 
 def _without_filters(
     entity_type: str,
     opik: OpikListClient,
     list_fn: ListFn,
-    kw: dict[str, Any],
+    list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """The same listing again, one row wide, with the caller's filters lifted.
@@ -685,20 +699,22 @@ def _without_filters(
     Keeps the ``sdk`` default when the page applied it, so the count is of the
     rows the caller would otherwise have seen.
     """
-    return _probe(entity_type, opik, list_fn, kw, [c for c in clauses if c == SDK_SOURCE_CLAUSE])
+    return _probe(
+        entity_type, opik, list_fn, list_kwargs, [c for c in clauses if c == SDK_SOURCE_CLAUSE]
+    )
 
 
 def _probe(
     entity_type: str,
     opik: OpikListClient,
     list_fn: ListFn,
-    kw: dict[str, Any],
+    list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """One-row count of ``clauses``, or ``None`` when it cannot be had."""
 
     async def count() -> int | None:
-        probe = {**kw, "page": 1, "size": 1}
+        probe = {**list_kwargs, "page": 1, "size": 1}
         probe.pop("filters", None)
         try:
             # The same split the page went through: a clause that is a query
@@ -1138,10 +1154,10 @@ def _compact(col: str, val: Any) -> str:
             return format(Decimal(text), "f")
         return text
     if isinstance(val, str):
-        m = _ISO_WITH_FRACTION.match(val)
-        if m:
-            tz = "Z" if m.group(2) in ("Z", "+00:00") else m.group(2)
-            return m.group(1) + tz
+        iso = _ISO_WITH_FRACTION.match(val)
+        if iso:
+            offset = "Z" if iso.group(2) in ("Z", "+00:00") else iso.group(2)
+            return iso.group(1) + offset
     if isinstance(val, dict | list):
         # Compact JSON, not Python's repr: a nested value is still the value,
         # readable and pasteable, rather than a hint that one was there.
