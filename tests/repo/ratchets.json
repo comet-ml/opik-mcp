@@ -369,9 +369,6 @@
     "tests/server/test_http_path_config.py": [
       "I002"
     ],
-    "tests/server/test_instructions.py": [
-      "PT018"
-    ],
     "tests/identity/test_oauth_identity.py": [
       "I002"
     ],
