@@ -1,6 +1,6 @@
 """Every write operation, end to end, over both transports.
 
-WHAT THIS COVERS THAT NOTHING ELSE DOES. ``tests/test_writes`` calls the
+WHAT THIS COVERS THAT NOTHING ELSE DOES. ``tests/writes`` calls the
 dispatcher in-process with respx standing in for httpx, so it proves the
 request each operation builds and cannot prove what reaches a backend from a
 running server: that the tool's arguments survive the MCP layer, that the
@@ -50,7 +50,7 @@ from tests.hermetic.stub_backend import (
     TRACE_ID,
     StubBackend,
 )
-from tests.test_read_list.test_link_shape import live_project_url
+from tests.read_list.test_link_shape import live_project_url
 
 pytestmark = pytest.mark.hermetic
 

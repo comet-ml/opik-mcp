@@ -22,7 +22,7 @@ PRIVACY: public functions never read ``exc.args`` / ``str(exc)`` / response
 body. Classification is class-level (ClassVar reads) plus a tightly-scoped
 whitelist of integer-only instance fields: ``httpx.Response.status_code``
 and ``BackendError.extra["backend_error"]["status"]``. The contract is
-machine-checked by ``tests/test_analytics_privacy.py``.
+machine-checked by ``tests/analytics/test_privacy.py``.
 """
 
 from __future__ import annotations

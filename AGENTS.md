@@ -45,7 +45,8 @@ How a call flows:
 | `make hermetic` | the real server process over stdio and HTTP, against a stub backend; not part of `make check` | yes, own job |
 | `make skills-verify-source` | installing from this repo resolves exactly the authored skills | yes |
 | `make conformance` | the MCP wire contract only, for fast iteration | inside `check` |
-| `make live` / `make user-flows` | real backend / real agent (OPIK-8490, OPIK-8491) | not yet |
+| `make live` | the tools against a seeded real Opik; needs `OPIK_URL` | yes, `live.yaml` |
+| `make user-flows` | real agent (OPIK-8491) | not yet |
 | `make install-branch` | installs this worktree as MCP server `opik-<ticket>` | no |
 
 `make` runs mypy over `src/`, `tests/` and the scripts, and ruff over
@@ -65,12 +66,12 @@ errors.
 - One copy of each answer, no `structuredContent`.
   `tests/conformance/test_no_duplicate_payload.py`
 - Entity and operation logic stays in its namespace; root modules may not
-  gain entity names. `tests/test_read_list/test_modular.py`,
-  `tests/test_writes/test_dispatch_stays_generic.py`
-- No telemetry from tests. `tests/test_telemetry_disabled_in_tests.py`
+  gain entity names. `tests/read_list/test_modular.py`,
+  `tests/writes/test_dispatch_stays_generic.py`
+- No telemetry from tests. `tests/repo/test_telemetry_disabled_in_tests.py`
 - The lint and type baselines in `pyproject.toml` excuse findings that predate
   the rules and only shrink; a new file meets the full rules.
-  `tests/test_ratchets.py`
+  `tests/repo/test_ratchets.py`
 
 ## Gotchas
 
@@ -115,4 +116,5 @@ errors.
 - Subagents: `code-reviewer`, `understand`, `test-runner`.
 - Commands: `/install-branch`, `/dogfood`, `/create-pr`,
   `/address-pr-comments`.
+- Design docs: [docs/README.md](docs/README.md), one per feature.
 - Decisions: [docs/decisions/](docs/decisions/README.md).

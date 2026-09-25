@@ -66,7 +66,7 @@ from tests.hermetic.stub_backend import (
     TRACE_ID,
     StubBackend,
 )
-from tests.test_read_list.test_link_shape import live_project_url
+from tests.read_list.test_link_shape import live_project_url
 
 _TIMEOUT_S = 60
 _WORKSPACE = "stub-workspace"

@@ -1,7 +1,7 @@
 """The hosted server's bearer path, as a host meets it over Streamable HTTP.
 
-WHAT THIS COVERS THAT NOTHING ELSE DOES. ``tests/test_http_auth.py`` and
-``tests/test_oauth_token_validation.py`` drive the ASGI app in-process with
+WHAT THIS COVERS THAT NOTHING ELSE DOES. ``tests/identity/test_http_auth.py`` and
+``tests/identity/test_oauth_token_validation.py`` drive the ASGI app in-process with
 introspection stubbed as a function. Here the server is the process the
 Docker image runs, introspection is an HTTP call to the stub, and every
 assertion is on what crossed a socket: the status and challenge a host keys

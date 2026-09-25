@@ -1,0 +1,252 @@
+name: Live
+run-name: "Live ${{ github.ref_name }} by @${{ github.actor }}"
+
+# The MCP server against a REAL Opik (OPIK-8490). Every other suite runs against
+# a stub; this one asks a real backend and asserts exact values, so it is what
+# says whether a tool returns what the user asked for.
+#
+# TWO JOBS.
+#   live-local: an open source Opik at its latest release, started here from
+#     GHCR images, then `make live`, which seeds its own fixture.
+#     Runs on every PR, on main and nightly. Needs no secrets, so fork PRs run
+#     it too.
+#   live-prod: the whole suite against a shared workspace on Opik cloud, to
+#     catch version skew and cloud-only paths. Each run seeds its own fixture
+#     and writes under its own mcp-live-run-<run> names and deletes them
+#     when it ends. Nightly and on dispatch only, since it needs secrets.
+#
+# ADVISORY. Neither job is a required check. Make it required only after it
+# has a record of green runs on main.
+#
+# ONE WORKFLOW, NOT A JOB IN ci.yaml, the way comet-ml/opik runs its SDK e2e
+# suites. It has no `paths:` filter, so it never leaves a check pending: any
+# change in this repo can change what a tool returns.
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  schedule:
+    # Off the hour: scheduled runs are delayed most at the top of the hour.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      opik_version:
+        description: "Opik release to test against, e.g. 2.2.77. Empty means the latest release."
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+# One run per PR, superseded ones cancelled. On main the event is part of the
+# key, so a push never replaces a nightly run that is still waiting.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.event_name) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # As in ci.yaml: uv refuses a stale uv.lock instead of re-resolving it, and
+  # setup-uv installs the uv version pyproject.toml pins.
+  UV_LOCKED: "1"
+
+  # Telemetry off for the whole workflow, as in ci.yaml: a CI run is not usage.
+  OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_SENTRY_ENABLED: "false"
+  DO_NOT_TRACK: "1"
+  # The same for the Opik backend this workflow starts.
+  OPIK_USAGE_REPORT_ENABLED: "false"
+  OPIK_ANALYTICS_ENABLE: "false"
+  OPIK_SENTRY_ENABLE: "false"
+
+jobs:
+
+  live-local:
+    runs-on: ubuntu-latest
+    # About 2 minutes of image pulls, under 2 to start, under 2 for the suite.
+    timeout-minutes: 30
+    outputs:
+      opik_version: ${{ steps.release.outputs.version }}
+      report: ${{ steps.report.outputs.report }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Resolve the Opik release to test against
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED: ${{ inputs.opik_version }}
+        run: |
+          set -euo pipefail
+          VERSION="${REQUESTED:-$(gh api repos/comet-ml/opik/releases/latest --jq .tag_name)}"
+          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "### Opik $VERSION (open source, local)" >> "$GITHUB_STEP_SUMMARY"
+
+      # opik.sh and the compose files at the tag, so they match the images.
+      - uses: actions/checkout@v6
+        with:
+          repository: comet-ml/opik
+          ref: ${{ steps.release.outputs.version }}
+          path: opik
+          sparse-checkout: |
+            /opik.sh
+            /scripts/
+            /deployment/docker-compose/
+          sparse-checkout-cone-mode: false
+
+      - name: Start the Opik backend
+        env:
+          OPIK_VERSION: ${{ steps.release.outputs.version }}
+          COMPOSE_BAKE: "false"
+        working-directory: opik
+        run: ./opik.sh --backend --port-mapping
+
+      - name: Wait until the backend is ready
+        run: |
+          for _ in $(seq 1 60); do
+            if curl -sf "http://localhost:8080/health-check?name=all&type=ready" >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::the Opik backend did not become ready in 120s"
+          exit 1
+
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      - name: Seed and run the live suite
+        env:
+          OPIK_URL: http://localhost:8080
+        # Every answer's size goes into this job's summary.
+        run: OPIK_LIVE_SIZES="$GITHUB_STEP_SUMMARY" make live PYTEST_ARGS="--junitxml=${RUNNER_TEMP}/live-local.xml"
+
+      # Counts and failures for the Slack alert, whatever the outcome, so the
+      # alert can say how the other job went too. "null" when no test ran.
+      - name: Summarise the test results
+        id: report
+        if: always()
+        run: echo "report=$(python3 scripts/live_alert.py report "${RUNNER_TEMP}/live-local.xml")" >> "$GITHUB_OUTPUT"
+
+      - name: Save the backend log
+        if: failure()
+        run: |
+          mkdir -p "${RUNNER_TEMP}/logs"
+          for c in $(docker ps -a --format '{{.Names}}' | grep -E 'backend'); do
+            docker logs "$c" > "${RUNNER_TEMP}/logs/$c.log" 2>&1 || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: opik-backend-logs
+          path: ${{ runner.temp }}/logs
+          retention-days: 7
+
+      - name: Stop the Opik backend
+        if: always() && hashFiles('opik/opik.sh') != ''
+        working-directory: opik
+        run: ./opik.sh --stop || true
+
+  live-prod:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      cloud_version: ${{ steps.cloud.outputs.version }}
+      report: ${{ steps.report.outputs.report }}
+    env:
+      OPIK_URL: https://www.comet.com/opik/api
+    steps:
+      # Until the dedicated workspace and its secrets exist, say so and pass.
+      - name: Check the production workspace is configured
+        id: configured
+        env:
+          OPIK_API_KEY: ${{ secrets.OPIK_E2E_API_KEY }}
+          OPIK_WORKSPACE: ${{ secrets.OPIK_E2E_WORKSPACE }}
+        run: |
+          if [ -z "$OPIK_API_KEY" ] || [ -z "$OPIK_WORKSPACE" ]; then
+            echo "::notice::OPIK_E2E_API_KEY or OPIK_E2E_WORKSPACE is not set; live-prod skipped"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Read the cloud Opik version
+        id: cloud
+        if: steps.configured.outputs.ok == 'true'
+        run: |
+          VERSION=$(curl -sf "$OPIK_URL/is-alive/ver" | jq -r '.version // "unknown"')
+          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "### Opik $VERSION (cloud)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v6
+        if: steps.configured.outputs.ok == 'true'
+      - name: Generate _version.py (required before any uv build)
+        if: steps.configured.outputs.ok == 'true'
+        run: make version
+      - uses: astral-sh/setup-uv@v6
+        if: steps.configured.outputs.ok == 'true'
+      - name: Install Python
+        if: steps.configured.outputs.ok == 'true'
+        run: uv python install 3.13
+      - name: Install dependencies
+        if: steps.configured.outputs.ok == 'true'
+        run: uv sync --locked --extra dev
+
+      # The key reaches this step only, not the install steps before it.
+      - name: Run the live suite against the production workspace
+        if: steps.configured.outputs.ok == 'true'
+        env:
+          OPIK_API_KEY: ${{ secrets.OPIK_E2E_API_KEY }}
+          OPIK_WORKSPACE: ${{ secrets.OPIK_E2E_WORKSPACE }}
+        run: OPIK_LIVE_SIZES="$GITHUB_STEP_SUMMARY" make live PYTEST_ARGS="--junitxml=${RUNNER_TEMP}/live-prod.xml"
+
+      # Counts and failures for the Slack alert, whatever the outcome, so the
+      # alert can say how the other job went too. "null" when no test ran.
+      - name: Summarise the test results
+        id: report
+        if: always() && steps.configured.outputs.ok == 'true'
+        run: echo "report=$(python3 scripts/live_alert.py report "${RUNNER_TEMP}/live-prod.xml")" >> "$GITHUB_OUTPUT"
+
+  # Slack on a failed run of main, nightly or dispatched. Not on a PR: its own
+  # checks are the notification there.
+  notify:
+    needs: [live-local, live-prod]
+    # A job that hits its time limit ends "cancelled", not "failure", so a hung
+    # nightly or dispatch posts too. Not a push: a push run that a newer one
+    # replaced is also "cancelled", and that is not news.
+    if: >-
+      always() && github.event_name != 'pull_request' &&
+      (needs.live-local.result == 'failure' || needs.live-prod.result == 'failure' ||
+       ((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+        (needs.live-local.result == 'cancelled' || needs.live-prod.result == 'cancelled')))
+    runs-on: ubuntu-latest
+    # actions: read, to link each failing job's log from the message.
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          sparse-checkout: scripts/live_alert.py
+          sparse-checkout-cone-mode: false
+      - name: Post the failure to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOCAL_RESULT: ${{ needs.live-local.result }}
+          PROD_RESULT: ${{ needs.live-prod.result }}
+          LOCAL_VERSION: ${{ needs.live-local.outputs.opik_version }}
+          PROD_VERSION: ${{ needs.live-prod.outputs.cloud_version }}
+          LOCAL_REPORT: ${{ needs.live-local.outputs.report }}
+          PROD_REPORT: ${{ needs.live-prod.outputs.report }}
+        run: python3 scripts/live_alert.py notify

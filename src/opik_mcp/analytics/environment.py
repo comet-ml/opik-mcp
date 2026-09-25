@@ -3,8 +3,8 @@
 Every public/private helper returns a value from a hardcoded allowlist
 (boolean strings ``"true"``/``"false"``, ``"unknown"``, or a bucket enum).
 Raw paths, usernames, hostnames, and process command lines never leave
-this module — see ``tests/test_analytics_environment.py`` and
-``tests/test_analytics_privacy.py`` for the contract.
+this module — see ``tests/analytics/test_environment.py`` and
+``tests/analytics/test_privacy.py`` for the contract.
 """
 
 from __future__ import annotations
