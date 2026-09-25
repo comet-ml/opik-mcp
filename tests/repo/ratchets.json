@@ -108,9 +108,6 @@
     "tests/identity/test_resource_metadata_url.py": 1
   },
   "ruff_baseline": {
-    "scripts/capture_bi_listener.py": [
-      "ARG002"
-    ],
     "src/opik_mcp/__main__.py": [
       "PLC0415"
     ],

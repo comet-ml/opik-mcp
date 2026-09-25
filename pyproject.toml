@@ -127,7 +127,6 @@ extend-allowed-calls = ["pytest.param"]
 # Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
 # fix a file, then delete or trim its line. tests/repo/test_ratchets.py fails
 # on an entry that no longer matches. Never add a line here.
-"scripts/capture_bi_listener.py" = ["ARG002"]
 "src/opik_mcp/__main__.py" = ["PLC0415"]
 "src/opik_mcp/opik_client.py" = ["RET504"]
 "src/opik_mcp/read_list/__init__.py" = ["I002"]

@@ -27,7 +27,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(b'{"success":true}')
 
-    def log_message(self, fmt: str, *args: object) -> None:  # silence noise
+    def log_message(self, _fmt: str, *_args: object) -> None:  # silence noise
         return
 
 
