@@ -408,7 +408,7 @@ async def run_list(
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
         try:
-            from_time, to_time = resolve_window(since, until)
+            from_time, to_time = resolve_window(since=since, until=until)
         except WindowError as err:
             raise ToolError(str(err)) from err
         if day_windowed:
@@ -517,7 +517,7 @@ async def run_list(
             applied.append(f"fields: {', '.join(wanted)}")
         header = f"[list: {entity_type} | {' | '.join(applied)}]" if applied else None
         # What the page knows about itself, for an entity whose registry entry
-        # has something to add. ``windowed``: Diagnostics issues take a
+        # has something to add. ``is_windowed``: Diagnostics issues take a
         # report-day window, so a page under one says nothing about the
         # project outside it.
         page_ctx = PageContext(
@@ -533,13 +533,13 @@ async def run_list(
                 ),
                 None,
             ),
-            empty=not content,
+            is_empty=not content,
             status=list_kwargs.get("status"),
-            windowed="from_date" in list_kwargs or "to_date" in list_kwargs,
+            is_windowed="from_date" in list_kwargs or "to_date" in list_kwargs,
             window_end=parse_instant(to_time) if to_time else None,
             page=page,
             total=total,
-            filtered=bool(filters and filters.strip()),
+            is_filtered=bool(filters and filters.strip()),
             sort_field=sort_field,
             rows=tuple(content),
         )
@@ -558,7 +558,7 @@ async def run_list(
             )
             unfiltered = (
                 _without_filters(vocabulary, opik, handler.list_fn, list_kwargs, clauses)
-                if page_ctx.filtered and total == 0
+                if page_ctx.is_filtered and total == 0
                 else None
             )
             unnamed = (

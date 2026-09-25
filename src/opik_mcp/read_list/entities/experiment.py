@@ -238,7 +238,7 @@ async def page_note(client: OpikListClient, _settings: Settings, page: PageConte
     saying it twice is worse than once — but it may get the one thing a table
     of ranked scores cannot say about itself: see :func:`_ranking_caveat`.
     """
-    if not page.empty:
+    if not page.is_empty:
         return _ranking_caveat(page)
     if page.total > 0:
         # Rows exist and this slice is past them. Nothing was filtered out,
@@ -261,7 +261,7 @@ async def page_note(client: OpikListClient, _settings: Settings, page: PageConte
     matched = f"The workspace has {stock} experiment{plural}; none match this query."
     # The vocabulary answers "what may I filter by", which only a caller who
     # wrote a filter was asking. A name search gets the count and no lecture.
-    return f"{matched} {_accepted_values()}" if page.filtered else matched
+    return f"{matched} {_accepted_values()}" if page.is_filtered else matched
 
 
 #: Sort fields that order runs by how well they did. Two are families keyed

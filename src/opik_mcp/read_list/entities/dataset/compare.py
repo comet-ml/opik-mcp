@@ -213,9 +213,9 @@ async def run_compare(
         # An empty page still says what could be asked next: the keys, the
         # search semantics and the legend are what turn it into a second call.
         reason = _empty(
-            stripping=stripping,
-            filtered=bool(clauses),
-            searched=bool(search),
+            strips_runs=stripping,
+            is_filtered=bool(clauses),
+            is_searched=bool(search),
             page=page,
             total=total,
         )
@@ -674,7 +674,9 @@ def _how_to_read(experiments: list[Experiment], *, assertion_columns: bool) -> s
     )
 
 
-def _empty(*, stripping: bool, filtered: bool, searched: bool, page: int, total: int) -> str:
+def _empty(
+    *, strips_runs: bool, is_filtered: bool, is_searched: bool, page: int, total: int
+) -> str:
     """Why this page is empty — which is four different things.
 
     Answering "no items in common" to a page past the end, or explaining
@@ -686,13 +688,13 @@ def _empty(*, stripping: bool, filtered: bool, searched: bool, page: int, total:
             f"Page {page} is past the end: the comparison has {total} "
             f"case{'s' if total != 1 else ''}. Ask for an earlier page."
         )
-    if stripping:
+    if strips_runs:
         return (
             "No case matched. A filter on the runs matches a case when any of its "
             "experiments matches, so nothing here scored or ran the way you asked."
         )
-    if filtered:
+    if is_filtered:
         return "No case matched the filter."
-    if searched:
+    if is_searched:
         return "No case matched the search. Search matches the case data, not the runs' output."
     return "No cases found: these experiments have no items in common."

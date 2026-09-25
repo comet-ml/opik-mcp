@@ -208,7 +208,7 @@ async def run_read(
         # second — seen live, one call in a few crossing a second boundary.
         now = datetime.now(UTC)
         try:
-            from_time, to_time = resolve_window(since, until, now=now)
+            from_time, to_time = resolve_window(since=since, until=until, now=now)
         except WindowError as e:
             raise ToolError(str(e)) from e
         if not window.day_truncated and to_time is None:

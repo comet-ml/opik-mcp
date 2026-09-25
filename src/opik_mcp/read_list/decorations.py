@@ -185,10 +185,10 @@ def _link_note(handler: EntityHandler) -> PageNoteFn:
         project_id = _project_of(ctx)
         view = None
         if view_page is not None:
-            view = view_link(settings, view_page, project_id, is_empty=ctx.empty)
+            view = view_link(settings, view_page, project_id, is_empty=ctx.is_empty)
         if view is not None:
             return f"Open in Opik: {view['url_opens']} — {view['url']}"
-        if ctx.empty:
+        if ctx.is_empty:
             # A template addresses a row, and there are none. Returning nothing
             # also lets the generic "why is this page empty" probes run.
             return None
@@ -217,7 +217,7 @@ def page_note_of(handler: EntityHandler) -> PageNoteFn | None:
     if parent_page is not None:
 
         async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
-            if ctx.empty or not ctx.parent_id:
+            if ctx.is_empty or not ctx.parent_id:
                 return None
             return await _parent_page_note(client, settings, parent_page, ctx.parent_id)
 

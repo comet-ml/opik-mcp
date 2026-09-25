@@ -84,7 +84,7 @@ def data_columns(content: list[dict[str, Any]], limit: int) -> tuple[list[str], 
     return keys[:limit], keys[limit:]
 
 
-def cell_limit(rows: int, columns: int) -> int:
+def cell_limit(*, rows: int, columns: int) -> int:
     """The per-cell cut for a page, from the page's character budget.
 
     Fewer rows (``size=5``) or fewer columns means more of each value; the
@@ -122,7 +122,7 @@ def project_items(content: list[dict[str, Any]]) -> ListProjection:
         note = f"Columns after id are the items' data keys (all {len(keys)} on this page)."
     return ListProjection(
         columns=tuple(f"data.{key}" for key in shown),
-        cell_limit=cell_limit(len(content), len(shown)),
+        cell_limit=cell_limit(rows=len(content), columns=len(shown)),
         note=note,
         cut_hint=(
             "fewer rows per page (size=…) raise the cap, "

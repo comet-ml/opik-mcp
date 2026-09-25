@@ -154,7 +154,7 @@ async def run_project_metric(
     """
     _refuse_collection_args(page=page, size=size, sort=sort, fields=fields)
     metric = parse_metric(metric_type)
-    window_since, window_until = resolve_window(since, until)
+    window_since, window_until = resolve_window(since=since, until=until)
     interval_name = parse_interval(interval, since=window_since, until=window_until)
 
     vocabulary = vocabularies[metric.entity]

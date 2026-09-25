@@ -401,7 +401,7 @@ def interval_for_window(since: str, until: str) -> str:
 
 
 def resolve_window(
-    since: str | None, until: str | None, *, now: datetime | None = None
+    *, since: str | None, until: str | None, now: datetime | None = None
 ) -> tuple[str, str]:
     """``(since, until)`` instants from the caller's forms, closed and ordered.
 
@@ -412,7 +412,7 @@ def resolve_window(
     30-day window its day count once already (see ``project_summary.window``).
     """
     anchor = now or datetime.now(UTC)
-    resolved_since, resolved_until = window_bounds(since, until, now=anchor)
+    resolved_since, resolved_until = window_bounds(since=since, until=until, now=anchor)
     start, end = closed_window(resolved_since, resolved_until, days=DEFAULT_WINDOW_DAYS, now=anchor)
     return second_precision(start), second_precision(end)
 
