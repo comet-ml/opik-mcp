@@ -15,8 +15,9 @@ paths:
   its `evals/` folder, where it has one, before the PR.
 - Check for the Opik MCP first; SDK scripting is the fallback, and the skill
   says which one it used.
-- Routing between skills lives in `skills_catalog`. A skill never describes
-  another skill.
+- Routing between skills lives in `skills_catalog`. A skill may name its
+  neighbour and hand off to it, but never restates another skill's content;
+  it points to the skill or to the shared file in `opik/references/`.
 - Provenance under `metadata:`. Update it when the content is re-checked
   against Opik, with the date.
 - Reference material goes in `references/`, loaded on demand. `SKILL.md` stays
