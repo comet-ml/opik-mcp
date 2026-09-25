@@ -186,9 +186,10 @@ def issue_details(issue: dict[str, object]) -> dict[str, object]:
 
 
 def page(content: Sequence[object], *, total: int | None = None) -> dict[str, object]:
+    """The backend's page envelope, the one the read_list fakes answer empty."""
     return {
+        **record("empty_page"),
         "content": list(content),
-        "page": 1,
         "size": len(content),
         "total": len(content) if total is None else total,
     }
@@ -237,7 +238,7 @@ def metric_results(body: dict[str, object], *, recorded: set[str]) -> dict[str, 
     if isinstance(breakdown, dict) and breakdown:
         sub = breakdown.get("sub_metric")
         if sub is not None and sub not in {*recorded, "p50", "p90", "p99"}:
-            return {"results": []}
+            return record("no_metric_series")
         return fill("metrics_grouped")
     metric = str(body.get("metric_type"))
     series = fill("metrics", metric_type=metric)
