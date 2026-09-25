@@ -65,7 +65,7 @@ def test_row_fields_names_flat_keys_dict_keys_and_named_entries() -> None:
         "feedback_scores",
         "feedback_scores.helpfulness",
         "id",
-    )
+    ), f"nameable row fields differ: {projection.row_fields(rows)}"
 
 
 def test_row_fields_names_every_key_and_offered_is_the_short_menu() -> None:

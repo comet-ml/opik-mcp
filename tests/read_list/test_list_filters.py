@@ -1251,7 +1251,7 @@ async def test_thread_filters_reach_the_backend_with_the_sdk_default() -> None:
         {"field": "number_of_messages", "operator": ">", "key": "", "value": "20"},
         {"field": "feedback_scores", "operator": "<", "key": "helpfulness", "value": "0.5"},
         SDK_SOURCE,
-    ]
+    ], f"the thread filters sent differ: {_sent_filters(fake)}"
 
 
 @pytest.mark.anyio

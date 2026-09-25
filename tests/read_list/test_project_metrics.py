@@ -632,7 +632,7 @@ def test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits() -> Non
         "span_error_rate",
         "thread_average_duration",
         "thread_cost",
-    }
+    }, f"ungroupable metrics changed: {sorted(ungroupable)}"
 
 
 # --- width is whatever the project has ------------------------------------ #
@@ -1340,7 +1340,7 @@ async def test_a_grouped_token_series_posts_the_body_the_backend_expects() -> No
         "interval_end": "2026-09-09T00:00:00Z",
         "span_filters": [{"field": "source", "operator": "=", "key": "", "value": "sdk"}],
         "breakdown": {"field": "MODEL", "sub_metric": "total_tokens"},
-    }
+    }, f"the metrics request body differs: {sent}"
     assert "2026-09-08 | 120" in out
 
 

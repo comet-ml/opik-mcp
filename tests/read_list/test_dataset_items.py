@@ -510,7 +510,7 @@ def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> Non
         "span_id",
         "tags",
         "trace_id",
-    ]
+    ], f"case filter fields changed: {sorted(fields)}"
     assert fields["data"]["type"] == "map"
     assert fields["data"]["operators"] == [
         "=",
@@ -519,7 +519,7 @@ def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> Non
         "not_contains",
         "starts_with",
         "ends_with",
-    ]
+    ], f"operators on data changed: {fields['data']['operators']}"
     assert fields["data"]["key"] == "required"
     # The one field that costs a full scan says so where it is chosen, not
     # after it has been run on a 100,000-case dataset.

@@ -106,7 +106,7 @@ def test_the_spine_is_there_even_when_its_values_are_not() -> None:
         "created_at",
         "trace_count",
         "feedback_scores",
-    )
+    ), f"the experiment spine changed: {projection.columns[:6]}"
 
 
 def test_the_sample_size_sits_beside_the_score_it_qualifies() -> None:

@@ -128,7 +128,7 @@ def test_collect_boot_props_keys_and_literal_membership() -> None:
         "dns_rebinding_protection",
         "allowed_hosts_is_default",
         "auth_mode",
-    }
+    }, f"boot props changed: {sorted(props)}"
     assert props["auth_mode"] in get_args(AuthMode)
     assert props["resource_uri_scheme"] in get_args(ResourceUriScheme)
     for key in ("oauth_configured", "dns_rebinding_protection", "allowed_hosts_is_default"):

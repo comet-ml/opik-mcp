@@ -268,7 +268,7 @@ async def test_the_dataset_comes_from_the_experiments_not_from_the_caller() -> N
             "page": 1,
             "size": DEFAULT_PAGE_SIZE,
         }
-    ]
+    ], f"the compare call differs: {fake.compare_calls}"
 
 
 @pytest.mark.anyio
@@ -728,7 +728,7 @@ async def test_a_filter_on_the_case_needs_no_second_call() -> None:
             "key": "",
             "value": "Capital",
         }
-    ]
+    ], f"the compiled compare filter differs: {fake.compare_calls[0]['filters']}"
     assert "matches a case when any" not in out
 
 
@@ -844,7 +844,7 @@ def test_the_schema_publishes_the_fields_a_comparison_can_filter_and_sort_on() -
         "feedback_scores",
         "id",
         "output",
-    ]
+    ], f"compare filter fields changed: {sorted(reference['filters']['fields'])}"
     assert reference["filters"]["fields"]["data"]["key"] == "required"
     assert reference["filters"]["fields"]["output"]["key"] == "optional"
     assert "status" not in reference["sort"]["fields"]
