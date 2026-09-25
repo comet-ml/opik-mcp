@@ -11,8 +11,7 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, ParentPage
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -74,6 +73,10 @@ async def list_versions(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_prompt_versions(prompt_id, **kw)
 
 
+async def fetch_prompt_record(client: OpikReadClient, prompt_id: str) -> dict[str, Any]:
+    return await client.get_prompt(prompt_id)
+
+
 def prompt_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The prompt's page under its project, or why there is none.
 
@@ -103,7 +106,7 @@ HANDLER = EntityHandler(
 VERSION_HANDLER = EntityHandler(
     entity_type="prompt_version",
     fetch_fn=unsupported_fetch,
-    page_note_fn=link_note_for("prompt_version"),
+    parent_page=ParentPage(fetch=fetch_prompt_record, area="prompts", subpath="", noun="prompt"),
     list_fn=list_versions,
     list_extra_fields=("template", "created_at"),
     list_required_kwargs=("prompt_id",),

@@ -62,6 +62,7 @@ from opik_mcp.opik_client import (
 )
 from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
+from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
 from opik_mcp.read_list.oql import (
@@ -199,13 +200,14 @@ async def _run_whole(
             "page (size=…).",
         ):
             answer = await run(cast("OpikReadClient", opik), **kw)
-        if handler.page_note_fn is None:
+        page_note = page_note_of(handler)
+        if page_note is None:
             return answer
         # A runner's answer is not a collection, but it is still a page someone
         # may want to open — a metric is a chart on the Dashboards page. The
         # note hook was reachable only from the collection path, so an entity
         # that answers whole could declare one and never have it called.
-        note = await handler.page_note_fn(
+        note = await page_note(
             opik,
             resolved_settings,
             PageContext(
@@ -594,8 +596,9 @@ async def run_list(
             # can only refuse it here: which names are valid is a fact about
             # the page, so the check cannot run before the page exists.
             raise ToolError(str(err)) from err
-        if handler.page_note_fn is not None:
-            note = await handler.page_note_fn(opik, resolved_settings, page_ctx)
+        page_note = page_note_of(handler)
+        if page_note is not None:
+            note = await page_note(opik, resolved_settings, page_ctx)
             if note is not None:
                 table = f"{table}\n\n{note}"
         return f"{header}\n{table}" if header else table
@@ -748,8 +751,9 @@ async def _empty_message(
     entity_type = handler.entity_type
     project_id, project_name = page_ctx.project_id, page_ctx.project_name
     empty = f"No {entity_type}s matching {name!r} found." if name else f"No {entity_type}s found."
-    if handler.page_note_fn is not None:
-        note = await handler.page_note_fn(opik, settings, page_ctx)
+    page_note = page_note_of(handler)
+    if page_note is not None:
+        note = await page_note(opik, settings, page_ctx)
         if note:
             return f"{empty} {note}"
 

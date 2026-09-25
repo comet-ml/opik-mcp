@@ -22,10 +22,9 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.dataset.compare import run_compare
 from opik_mcp.read_list.entities.dataset.items import fetch_item, list_items, project_items
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, ParentPage
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.ui_links import scoped_entity_links
 
@@ -74,7 +73,7 @@ HANDLER = EntityHandler(
 ITEM_HANDLER = EntityHandler(
     entity_type="dataset_item",
     fetch_fn=fetch_item,
-    page_note_fn=link_note_for("dataset_item"),
+    parent_page=ParentPage(fetch=fetch, area="datasets", subpath="items", noun="dataset"),
     list_fn=list_items,
     list_projection_fn=project_items,
     list_required_kwargs=("dataset_id",),

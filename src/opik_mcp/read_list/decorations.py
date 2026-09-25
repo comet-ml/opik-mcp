@@ -31,10 +31,9 @@ from opik_mcp.opik_client import (
     OpikServerError,
     OpikValidationError,
 )
-from opik_mcp.read_list.handler import PageContext, PageNoteFn
+from opik_mcp.read_list.handler import EntityHandler, PageContext, PageNoteFn, ParentPage
 from opik_mcp.read_list.project_scope import resolved_project
 from opik_mcp.read_list.ui_links import (
-    ProjectArea,
     project_page_url,
     row_link_template,
     view_link_note,
@@ -137,16 +136,8 @@ def _project_of(ctx: PageContext) -> str:
     return resolved_project() or ""
 
 
-#: The two listings whose rows have no page of their own and whose parent
-#: does: which parent to read, and the area that parent lives on.
-_PARENT_PAGE: Final[dict[str, tuple[str, ProjectArea, str]]] = {
-    "dataset_item": ("get_dataset", "datasets", "items"),
-    "prompt_version": ("get_prompt", "prompts", ""),
-}
-
-
 async def _parent_page_note(
-    client: OpikListClient, settings: Settings, entity_type: str, parent_id: str
+    client: OpikListClient, settings: Settings, parent_page: ParentPage, parent_id: str
 ) -> str | None:
     """The page this listing's parent lives on, or nothing.
 
@@ -160,24 +151,46 @@ async def _parent_page_note(
     page either, and the parent's own read is where that is explained rather
     than on every page of its cases.
     """
-    reader, area, subpath = _PARENT_PAGE[entity_type]
     try:
-        parent = await getattr(client, reader)(parent_id)
+        parent = await parent_page.fetch(client, parent_id)
     except Exception:
-        logger.debug("link note: could not read the %s parent %r", entity_type, parent_id)
+        logger.debug("link note: could not read the %s %r", parent_page.noun, parent_id)
         return None
     project_id = parent.get("project_id") if isinstance(parent, dict) else None
     if not isinstance(project_id, str) or not project_id:
         return None
+    subpath = parent_page.subpath
     url = project_page_url(
-        settings, project_id, area, subpath=f"{parent_id}/{subpath}" if subpath else parent_id
+        settings,
+        project_id,
+        parent_page.area,
+        subpath=f"{parent_id}/{subpath}" if subpath else parent_id,
     )
     if url is None:
         return None
     name = parent.get("name") if isinstance(parent, dict) else None
     named = f"{name!r}" if isinstance(name, str) and name else "its parent"
-    noun = "dataset" if entity_type == "dataset_item" else "prompt"
-    return f"Open in Opik: the {noun} {named} these belong to — {url}"
+    return f"Open in Opik: the {parent_page.noun} {named} these belong to — {url}"
+
+
+def page_note_of(handler: EntityHandler) -> PageNoteFn | None:
+    """The note a ``list`` page of this entity ends with, or ``None``.
+
+    The entity's own ``page_note_fn`` when it has one; otherwise the link to
+    its parent's page, when it declares a ``parent_page``.
+    """
+    if handler.page_note_fn is not None:
+        return handler.page_note_fn
+    parent_page = handler.parent_page
+    if parent_page is None:
+        return None
+
+    async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
+        if ctx.empty or not ctx.parent_id:
+            return None
+        return await _parent_page_note(client, settings, parent_page, ctx.parent_id)
+
+    return note
 
 
 def link_note_for(entity_type: str) -> PageNoteFn:
@@ -195,11 +208,7 @@ def link_note_for(entity_type: str) -> PageNoteFn:
     the entity.
     """
 
-    async def note(client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
-        if entity_type in _PARENT_PAGE:
-            if ctx.empty or not ctx.parent_id:
-                return None
-            return await _parent_page_note(client, settings, entity_type, ctx.parent_id)
+    async def note(_client: OpikListClient, settings: Settings, ctx: PageContext) -> str | None:
         project_id = _project_of(ctx)
         view = view_link_note(settings, entity_type, project_id, empty=ctx.empty)
         if view is not None:
@@ -226,4 +235,5 @@ __all__ = [
     "block",
     "describe",
     "link_note_for",
+    "page_note_of",
 ]

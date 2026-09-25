@@ -29,19 +29,26 @@ import pytest
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient
-from opik_mcp.read_list.decorations import link_note_for
+from opik_mcp.read_list.decorations import link_note_for, page_note_of
 from opik_mcp.read_list.entities.dataset import dataset_links
 from opik_mcp.read_list.entities.experiment import experiment_links
 from opik_mcp.read_list.entities.prompt import prompt_links
 from opik_mcp.read_list.entities.span import span_links
 from opik_mcp.read_list.entities.thread import thread_links
 from opik_mcp.read_list.entities.trace import trace_links
-from opik_mcp.read_list.handler import PageContext
+from opik_mcp.read_list.handler import PageContext, PageNoteFn
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.project_scope import remember_resolved_project, resolved_project
 from opik_mcp.read_list.read_tool import _link_hint
+from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from opik_mcp.read_list.size import size_header
 from opik_mcp.read_list.ui_links import ProjectArea, row_link_template, view_link_note
+
+
+def _parent_note() -> PageNoteFn:
+    note = page_note_of(ENTITY_REGISTRY["dataset_item"])
+    assert note is not None
+    return note
 
 
 @pytest.fixture
@@ -657,7 +664,7 @@ async def test_a_case_listing_links_to_the_page_its_dataset_is_on() -> None:
         async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
             return {"id": dataset_id, "name": "cases", "project_id": "p-7"}
 
-    note = await link_note_for("dataset_item")(
+    note = await _parent_note()(
         cast("OpikListClient", _Client()),
         _settings(),
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
@@ -676,7 +683,7 @@ async def test_a_case_listing_of_a_workspace_level_dataset_says_nothing() -> Non
         async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
             return {"id": dataset_id, "name": "cases"}
 
-    note = await link_note_for("dataset_item")(
+    note = await _parent_note()(
         cast("OpikListClient", _Unscoped()),
         _settings(),
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
@@ -693,7 +700,7 @@ async def test_a_case_listing_survives_a_parent_that_cannot_be_read() -> None:
         async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
             raise RuntimeError("backend down")
 
-    note = await link_note_for("dataset_item")(
+    note = await _parent_note()(
         cast("OpikListClient", _Boom()),
         _settings(),
         PageContext(parent_id="ds-1", rows=({"id": "c-1"},)),
@@ -701,16 +708,43 @@ async def test_a_case_listing_survives_a_parent_that_cannot_be_read() -> None:
     assert note is None
 
 
-def test_every_entity_with_a_link_has_it_wired_to_its_handler() -> None:
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("entity", "parent_kwarg", "page"),
+    [
+        ("dataset_item", "dataset_id", "/projects/p-7/datasets/par-1/items"),
+        ("prompt_version", "prompt_id", "/projects/p-7/prompts/par-1"),
+    ],
+)
+async def test_every_listing_under_a_parent_links_the_parent_page(
+    entity: str, parent_kwarg: str, page: str
+) -> None:
     """A factory nobody calls is a feature nobody has.
 
-    The parent-page note was written, tested by calling `link_note_for`
-    directly, and never attached to the two handlers that needed it — so the
-    tests passed and the listing shipped without the link. Asserted through
-    the registry from now on, which is the only path a real call takes.
+    The parent-page note was once written, tested by calling it directly, and
+    never attached to the two handlers that needed it, so the tests passed and
+    the listing shipped without the link. Asserted through ``run_list``, which
+    is the only path a real call takes.
     """
-    from opik_mcp.read_list.decorations import _PARENT_PAGE
-    from opik_mcp.read_list.registry import ENTITY_REGISTRY
 
-    unwired = [e for e in _PARENT_PAGE if ENTITY_REGISTRY[e].page_note_fn is None]
-    assert not unwired, f"link logic exists but no handler calls it: {', '.join(unwired)}"
+    class _Client:
+        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
+            return {"id": dataset_id, "name": "cases", "project_id": "p-7"}
+
+        async def get_prompt(self, prompt_id: str, /) -> dict[str, object]:
+            return {"id": prompt_id, "name": "judge", "project_id": "p-7"}
+
+        async def list_dataset_items(self, dataset_id: str, /, **kw: object) -> dict[str, object]:
+            return {"content": [{"id": "c-1", "data": {"q": "hi"}}], "total": 1}
+
+        async def list_prompt_versions(self, prompt_id: str, /, **kw: object) -> dict[str, object]:
+            return {"content": [{"id": "v-1", "template": "hi"}], "total": 1}
+
+    out = await run_list(
+        entity,
+        client=cast("OpikListClient", _Client()),
+        settings=_settings(),
+        dataset_id="par-1" if parent_kwarg == "dataset_id" else None,
+        prompt_id="par-1" if parent_kwarg == "prompt_id" else None,
+    )
+    assert page in out, out

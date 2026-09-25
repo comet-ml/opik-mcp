@@ -16,6 +16,7 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
+from opik_mcp.read_list.ui_links import ProjectArea
 
 # ``FetchFn`` is widened to ``...`` so project-scoped fetchers (only ``thread``
 # today) can accept ``project_id`` / ``project_name`` kwargs. Every other
@@ -124,6 +125,22 @@ class ListProjection:
 
 ProjectionFn = Callable[[list[dict[str, Any]]], ListProjection]
 RowFn = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ParentPage:
+    """The page a listing links to when its rows have none and their parent does.
+
+    A case is listed under a dataset and a version under a prompt. Neither row
+    names a project, so the list page reads the parent (``fetch``) for its
+    ``project_id`` and links ``<area>/<parent id>[/<subpath>]`` under it.
+    """
+
+    fetch: FetchFn
+    area: ProjectArea
+    subpath: str
+    noun: str
+    """What the parent is called in the note: "the dataset 'cases' these belong to"."""
 
 
 @dataclass(frozen=True)
@@ -270,6 +287,14 @@ class EntityHandler:
     tool.
     """
 
+    parent_page: ParentPage | None = None
+    """Optional: link a ``list`` page to its parent's page, for rows with no page.
+
+    Read by :func:`opik_mcp.read_list.decorations.page_note_of` when the entity
+    declares no ``page_note_fn`` of its own. It costs one call, spent only on a
+    non-empty page, and any failure leaves the page without the note.
+    """
+
     run_verb: str = "list"
     """What the runner was doing, for the error an upstream failure becomes.
 
@@ -360,6 +385,7 @@ __all__ = [
     "ListProjection",
     "PageContext",
     "PageNoteFn",
+    "ParentPage",
     "ProjectionFn",
     "ReadWindow",
     "ReferenceFn",
