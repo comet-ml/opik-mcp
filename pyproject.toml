@@ -130,7 +130,9 @@ extend-allowed-calls = ["pytest.param"]
 
 # Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
 # fix a file, then delete or trim its line. tests/repo/test_ratchets.py fails
-# on an entry that no longer matches. Never add a line here.
+# on an entry that no longer matches. Never add a line here, except that a
+# move splitting a file may replace its line with one per new module that
+# carries the same findings; the PR says so.
 "src/opik_mcp/__main__.py" = ["PLC0415"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/state.py" = ["ARG001"]
@@ -229,7 +231,10 @@ disallow_any_explicit = false
 
 # Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
 # shrinks: type a module, then delete its line. tests/repo/test_ratchets.py
-# fails on a module that no longer uses explicit Any. Never add a line here.
+# fails on a module that no longer uses explicit Any. Never add a line here,
+# except that a move splitting a module may replace its line with one per new
+# module that carries the same findings; the PR says so. The total of findings
+# never grows: explicit_any_findings in tests/repo/ratchets.json.
 [[tool.mypy.overrides]]
 module = [
     "opik_mcp.analytics.client",

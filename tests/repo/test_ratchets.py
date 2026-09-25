@@ -142,12 +142,15 @@ def test_every_mypy_entry_still_uses_any(tmp_path: Path) -> None:
     assert "Found" in result.stdout, (
         f"mypy did not run as expected:\n{result.stdout}{result.stderr}"
     )
-    flagged = {
-        _module_name(match.group(1))
-        for match in re.finditer(r"^(\S+\.py):\d+: error: .*\[explicit-any\]$", result.stdout, re.M)
-    }
+    findings = re.findall(r"^(\S+\.py):\d+: error: .*\[explicit-any\]$", result.stdout, re.M)
+    flagged = {_module_name(path) for path in findings}
     stale = sorted(set(MYPY_BASELINE) - flagged)
     assert not stale, f"typed but still excused in pyproject.toml, remove them: {stale}"
+    # A split may spread one entry over its new modules; the findings may not grow.
+    assert len(findings) == RATCHETS["explicit_any_findings"], (
+        f"{len(findings)} explicit-Any findings, tests/repo/ratchets.json records "
+        f"{RATCHETS['explicit_any_findings']}. Fix a new one; after typing one, lower the count."
+    )
 
 
 def _module_name(path: str) -> str:
