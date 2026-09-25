@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -84,6 +85,11 @@ class Report:
         )
 
 
+def _plain(message: str) -> str:
+    """An assertion message without the exception class pytest puts in front."""
+    return re.sub(r"^(AssertionError|Failed): ", "", message)
+
+
 def read_report(path: Path) -> Report | None:
     """What a pytest junit file says, or None when the job never wrote one."""
     try:
@@ -91,7 +97,7 @@ def read_report(path: Path) -> Report | None:
     except (OSError, ET.ParseError):
         return None
     failures: list[Failure] = []
-    total = skipped = 0
+    total = skipped = known = 0
     for case in root.iter("testcase"):
         total += 1
         problem = case.find("failure")
@@ -103,13 +109,16 @@ def read_report(path: Path) -> Report | None:
                 Failure(
                     module=case.get("classname") or "",
                     test=case.get("name") or "",
-                    message=(first[0] if first else "")[:200],
+                    message=_plain(first[0] if first else "")[:200],
                 )
             )
-        elif case.find("skipped") is not None:
+        elif (skip := case.find("skipped")) is not None and skip.get("type") != "pytest.xfail":
+            # An expected failure (strict xfail) is a known state, not a skip.
             skipped += 1
+        elif skip is not None:
+            known += 1
     return Report(
-        passed=total - len(failures) - skipped,
+        passed=total - len(failures) - skipped - known,
         failed=len(failures),
         skipped=skipped,
         failures=tuple(failures),
@@ -127,6 +136,10 @@ class Run:
     event: str
     run_url: str
     commit_title: str
+    #: The commit of the last successful Live run on this branch, when known.
+    last_green_sha: str | None = None
+    #: How many commits landed after it, when known.
+    commits_since_green: int | None = None
 
 
 @dataclass(frozen=True)
@@ -141,6 +154,19 @@ class Job:
     log_url: str | None
 
 
+#: What usually stops a job before its tests, by job.
+_SETUP_CAUSES = {
+    "live-local": "Usually the Opik backend did not start, or a dependency did not install.",
+    "live-prod": "Usually the cloud key is missing or expired, or cloud did not answer.",
+}
+
+_LOCAL_RERUN = "OPIK_URL=http://localhost:8080 make live"
+_CLOUD_RERUN = (
+    "OPIK_URL=https://www.comet.com/opik/api OPIK_API_KEY=<key> "
+    "OPIK_WORKSPACE=<workspace> make live"
+)
+
+
 def _esc(text: str) -> str:
     """Slack mrkdwn treats these three as markup."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -150,118 +176,173 @@ def _link(url: str, text: str) -> str:
     return f"<{url}|{_esc(text)}>"
 
 
-def _broken(job: Job) -> bool:
+def _is_broken(job: Job) -> bool:
     return job.result in ("failure", "cancelled")
 
 
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}" if count == 1 else f"{count} {word}s"
+
+
 def _outcome(job: Job) -> str:
-    """One line per job: what it ran against and how it went."""
+    """How one job went, in a few words."""
     if job.result == "skipped":
-        return "did not run"
+        return "Did not run."
     if job.result == "cancelled":
-        return "timed out or was cancelled"
+        return "Timed out or was cancelled."
     if job.report is None:
-        return "failed before any test ran" if job.result == "failure" else job.result
+        return "Failed before any test ran." if job.result == "failure" else job.result
     r = job.report
-    counts = f"{r.failed} failed · {r.passed} passed"
-    return f"{counts} · {r.skipped} skipped" if r.skipped else counts
+    text = f"{r.failed} failed, {r.passed} passed" if r.failed else f"All {r.passed} passed"
+    return f"{text}, {r.skipped} skipped." if r.skipped else f"{text}."
 
 
-def _causes(jobs: list[Job]) -> list[str]:
-    """The likely cause, read from which jobs failed and how."""
+def _failing(jobs: list[Job], key: str) -> set[tuple[str, str]]:
+    job = next((j for j in jobs if j.key == key), None)
+    if job is None or job.report is None:
+        return set()
+    return {(f.module, f.test) for f in job.report.failures}
+
+
+def _compare_url(run: Run) -> str | None:
+    if not run.last_green_sha or run.last_green_sha == run.sha:
+        return None
+    return f"https://github.com/{run.repo}/compare/{run.last_green_sha}...{run.sha}"
+
+
+def _since_green(run: Run) -> str:
+    """The commits since the last green run, as a link, or an empty string."""
+    url = _compare_url(run)
+    if url is None or not run.commits_since_green:
+        return ""
+    return _link(url, f"{_plural(run.commits_since_green, 'commit')} since the last green run")
+
+
+def _causes(run: Run, jobs: list[Job]) -> list[str]:
+    """The likely cause, read from which jobs failed, how, and what changed."""
     causes: list[str] = []
     for job in jobs:
-        where = f"{_LABELS.get(job.key, job.key)} {job.version}".strip()
+        name = f"The {_SHORT.get(job.key, job.key)} job (Opik {job.version})"
         if job.result == "cancelled":
-            causes.append(
-                f"*{where}* timed out or was cancelled; its log shows the step it stopped in."
-            )
+            causes.append(f"{name} timed out or was cancelled.")
         elif job.result == "failure" and job.report is None:
-            causes.append(
-                f"*{where}* failed before any test ran: the backend did not start, "
-                "a dependency did not install, or a secret is missing."
-            )
-    failing = {
-        job.key: {(f.module, f.test) for f in job.report.failures}
-        for job in jobs
-        if job.report is not None and job.report.failures
-    }
-    local, cloud = failing.get("live-local", set()), failing.get("live-prod", set())
-    if local & cloud:
+            usual = _SETUP_CAUSES.get(job.key, "Its log shows which step failed.")
+            causes.append(f"{name} failed before any test ran. {usual}")
+    local, cloud = _failing(jobs, "live-local"), _failing(jobs, "live-prod")
+    unchanged = run.last_green_sha == run.sha
+    if unchanged and (local or cloud):
         causes.append(
-            "Fails on both backends, so most likely a change in opik-mcp: "
-            "look at what merged since the last green run."
+            "The last green run was on this same commit, so nothing in opik-mcp changed and "
+            "the cause is on the Opik side, either a new release or a change on cloud."
+        )
+    elif local & cloud:
+        causes.append(
+            "The same tests fail on open source and on cloud, so the cause is probably a "
+            "change in opik-mcp."
         )
     elif local:
         causes.append(
-            "Fails only on open source Opik: a change in opik-mcp, or a new Opik release. "
-            "If nothing merged since the last green run, suspect the release."
+            "The tests fail only on open source Opik. Either a change in opik-mcp broke "
+            "them, or a new Opik release changed the behaviour."
         )
     elif cloud:
         causes.append(
-            "Fails only on Opik cloud: cloud-only behaviour, or cloud running a different "
-            "version from the open source release."
+            "The tests fail only on Opik cloud, which points at cloud-only behaviour or "
+            "a difference between cloud and the open source release."
         )
     return causes
 
 
 def _failures(jobs: list[Job]) -> list[tuple[Failure, list[str]]]:
-    """Each failing test once, with the backends it failed on."""
+    """Each failing test once, with the jobs it failed in."""
     seen: dict[tuple[str, str], tuple[Failure, list[str]]] = {}
     for job in jobs:
         for failure in job.report.failures if job.report else ():
             entry = seen.setdefault((failure.module, failure.test), (failure, []))
-            entry[1].append(_SHORT.get(job.key, job.key))
+            entry[1].append(job.key)
     return list(seen.values())
+
+
+def _where(keys: list[str]) -> str:
+    if len(keys) > 1:
+        return "Fails on both backends."
+    return f"Fails only on {_SHORT.get(keys[0], keys[0])}."
 
 
 def _failure_lines(failures: list[tuple[Failure, list[str]]], run: Run) -> str:
     lines: list[str] = []
-    for failure, where in failures[:MAX_NAMED]:
+    for failure, keys in failures[:MAX_NAMED]:
         path = f"{failure.module.replace('.', '/')}.py"
         url = f"https://github.com/{run.repo}/blob/{run.sha}/{path}"
-        line = f"• {_link(url, failure.test)} · {', '.join(where)}"
+        line = f"• {_link(url, failure.test)}\n   "
         if failure.message:
-            line += f"\n      _{_esc(failure.message)}_"
+            message = failure.message.rstrip(".")
+            line += f"{_esc(message[:1].upper() + message[1:])}. "
+        line += _where(keys)
         lines.append(line)
     if len(failures) > MAX_NAMED:
-        lines.append(f"• and {len(failures) - MAX_NAMED} more, in {_link(run.run_url, 'the run')}")
+        lines.append(
+            f"• {len(failures) - MAX_NAMED} more are listed in {_link(run.run_url, 'the run')}."
+        )
     text = "\n".join(lines)
     return text if len(text) <= _SECTION_LIMIT else f"{text[:_SECTION_LIMIT]}…"
 
 
-def _steps(jobs: list[Job], run: Run, failures: list[tuple[Failure, list[str]]]) -> str:
-    broken = [job for job in jobs if _broken(job)]
-    first_log = next((job.log_url for job in broken if job.log_url), run.run_url)
-    steps = [f"Open {_link(first_log, "the failing job's log")}."]
+def _steps(run: Run, jobs: list[Job], failures: list[tuple[Failure, list[str]]]) -> list[str]:
+    """What to do next, for this kind of failure."""
+    steps: list[str] = []
+    broken = [job for job in jobs if _is_broken(job)]
+    stopped = next((job for job in broken if job.report is None), None)
+    if stopped is not None:
+        # No test ran, so the log is the only evidence: it goes first.
+        where = (
+            _link(stopped.log_url, "the job log")
+            if stopped.log_url
+            else _link(run.run_url, "the run")
+        )
+        verb = "stopped in" if stopped.result == "cancelled" else "failed at"
+        steps.append(f"Open {where} and find the step it {verb}.")
+    since = _since_green(run)
+    if since:
+        steps.append(f"Look through the {since}.")
+    local, cloud = _failing(jobs, "live-local"), _failing(jobs, "live-prod")
     if failures:
         names = " or ".join(dict.fromkeys(f.test for f, _ in failures[:MAX_NAMED]))
-        steps.append(
-            "Reproduce it against a local Opik (the design doc says how to start one):\n"
-            f"```OPIK_URL=http://localhost:8080 make live PYTEST_ARGS=\"-k '{names}'\"```"
-        )
-    local = next((job for job in broken if job.key == "live-local"), None)
-    if local is not None:
-        steps.append(f"The {_link(f'{run.run_url}#artifacts', 'backend logs')} are on the run.")
+        if cloud and not local:
+            lead = "Run the failing tests against Opik cloud, with the workspace's key:"
+            command = _CLOUD_RERUN
+        else:
+            design_doc = f"https://github.com/{run.repo}/blob/main/docs/live-e2e/design-doc.md"
+            lead = (
+                "Run the failing tests against a local Opik. The "
+                f"{_link(design_doc, 'design doc')} shows how to start one."
+            )
+            command = _LOCAL_RERUN
+        steps.append(f"{lead}\n```{command} PYTEST_ARGS=\"-k '{names}'\"```")
+    if any(job.key == "live-local" and job.result == "failure" for job in broken):
+        artifacts = _link(f"{run.run_url}#artifacts", "the run")
+        steps.append(f"The Opik backend logs are attached to {artifacts}.")
+    if local and not cloud:
         dispatch = f"https://github.com/{run.repo}/actions/workflows/{WORKFLOW}"
         steps.append(
-            "To tell a new Opik release from a change of ours, "
-            f"{_link(dispatch, 'run Live by hand')} with `opik_version` set to the last "
-            "release that passed."
+            f"{_link(dispatch, 'Run Live by hand')} with `opik_version` set to the release "
+            "before this one. If it passes there, the new Opik release changed the behaviour."
         )
-    return "\n".join(f"{n}. {step}" for n, step in enumerate(steps, start=1))
+    return steps
 
 
 def build_message(run: Run, jobs: list[Job]) -> dict[str, object]:
     """The Slack Block Kit message for a run with at least one broken job."""
     trigger = _TRIGGERS.get(run.event, run.event)
+    timed_out = all(job.result == "cancelled" for job in jobs if _is_broken(job))
+    verb = "timed out" if timed_out else "failed"
+    headline = f"🔴 {trigger} of the live tests {verb} on {run.ref}"
     commit_url = f"https://github.com/{run.repo}/commit/{run.sha}"
     title = run.commit_title if len(run.commit_title) <= 80 else f"{run.commit_title[:79]}…"
+    commit = f"Commit {_link(commit_url, run.sha[:7])}"
+    if title:
+        commit += f": {_esc(title)}"
     fields = [
-        {"type": "mrkdwn", "text": f"*Trigger*\n{trigger} on `{_esc(run.ref)}`"},
-        {"type": "mrkdwn", "text": f"*Commit*\n{_link(commit_url, run.sha[:7])} {_esc(title)}"},
-    ]
-    fields += [
         {
             "type": "mrkdwn",
             "text": f"*{_LABELS.get(job.key, job.key)} {_esc(job.version)}*\n{_outcome(job)}",
@@ -270,49 +351,60 @@ def build_message(run: Run, jobs: list[Job]) -> dict[str, object]:
     ]
     failures = _failures(jobs)
     blocks: list[dict[str, object]] = [
-        {
-            "type": "header",
-            "text": {"type": "plain_text", "text": f"🔴 opik-mcp live tests failed · {trigger}"},
-        },
+        {"type": "header", "text": {"type": "plain_text", "text": headline}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": commit}},
         {"type": "section", "fields": fields},
     ]
-    causes = _causes(jobs)
+    causes = _causes(run, jobs)
     if causes:
-        text = "*Likely cause*\n" + "\n".join(causes)
+        text = "*Likely cause*\n" + " ".join(causes)
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
     if failures:
-        text = f"*Failing tests* ({len(failures)})\n{_failure_lines(failures, run)}"
+        heading = f"*{_plural(len(failures), 'failing test')}*"
+        text = f"{heading}\n{_failure_lines(failures, run)}"
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
-    text = f"*What to do*\n{_steps(jobs, run, failures)}"
-    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
-    buttons = [
+    steps = _steps(run, jobs, failures)
+    if steps:
+        numbered = "\n".join(f"{n}. {step}" for n, step in enumerate(steps, start=1))
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Next steps*\n{numbered}"}}
+        )
+    buttons: list[dict[str, object]] = [
         {"type": "button", "text": {"type": "plain_text", "text": "View run"}, "url": run.run_url}
     ]
     buttons += [
         {
             "type": "button",
-            "text": {"type": "plain_text", "text": f"Log: {_SHORT.get(job.key, job.key)}"},
+            "text": {
+                "type": "plain_text",
+                "text": f"{_SHORT.get(job.key, job.key).capitalize()} log",
+            },
             "url": job.log_url,
         }
         for job in jobs
-        if _broken(job) and job.log_url
+        if _is_broken(job) and job.log_url
     ]
+    compare = _compare_url(run)
+    if compare:
+        buttons.append(
+            {"type": "button", "text": {"type": "plain_text", "text": "Changes"}, "url": compare}
+        )
     blocks.append({"type": "actions", "elements": buttons})
-    design_doc = f"https://github.com/{run.repo}/blob/main/docs/live-e2e/design-doc.md"
     blocks.append(
         {
             "type": "context",
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": "Advisory: the Live check does not block merges. "
-                    f"How the suite works: {_link(design_doc, 'design doc')}.",
+                    "text": "The Live check is advisory, so this does not block merges.",
                 }
             ],
         }
     )
-    summary = f"opik-mcp live tests failed · {trigger} on {run.ref}"
-    return {"text": summary, "attachments": [{"color": "#d1242f", "blocks": blocks}]}
+    return {
+        "text": f"{trigger} of the live tests {verb} on {run.ref}",
+        "attachments": [{"color": "#d1242f", "blocks": blocks}],
+    }
 
 
 # --- the command line -----------------------------------------------------------
@@ -345,6 +437,23 @@ def _job_logs(repo: str, run_id: str) -> dict[str, str]:
     }
 
 
+def _last_green(repo: str, ref: str, sha: str) -> tuple[str | None, int | None]:
+    """The last successful Live run's commit on this branch, and commits since."""
+    found = _github(
+        f"/repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={ref}&status=success&per_page=1"
+    )
+    runs = found.get("workflow_runs") if isinstance(found, dict) else None
+    first = runs[0] if isinstance(runs, list) and runs else None
+    green = (
+        str(first.get("head_sha")) if isinstance(first, dict) and first.get("head_sha") else None
+    )
+    if green is None or green == sha:
+        return green, 0 if green else None
+    compared = _github(f"/repos/{repo}/compare/{green}...{sha}")
+    ahead = compared.get("ahead_by") if isinstance(compared, dict) else None
+    return green, ahead if isinstance(ahead, int) else None
+
+
 def _commit_title(repo: str, sha: str) -> str:
     found = _github(f"/repos/{repo}/commits/{sha}")
     commit = found.get("commit") if isinstance(found, dict) else None
@@ -361,6 +470,7 @@ def notify() -> int:
         return 0
     env = os.environ
     repo, run_id, sha = env["GITHUB_REPOSITORY"], env["GITHUB_RUN_ID"], env["GITHUB_SHA"]
+    green, since = _last_green(repo, env.get("GITHUB_REF_NAME", ""), sha)
     run = Run(
         repo=repo,
         sha=sha,
@@ -368,6 +478,8 @@ def notify() -> int:
         event=env.get("GITHUB_EVENT_NAME", ""),
         run_url=f"{env.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/actions/runs/{run_id}",
         commit_title=_commit_title(repo, sha),
+        last_green_sha=green,
+        commits_since_green=since,
     )
     logs = _job_logs(repo, run_id)
     jobs = [

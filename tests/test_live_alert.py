@@ -9,6 +9,7 @@ run can fail, from the junit file to the message.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from scripts.live_alert import Job, Report, Run, build_message, read_report
@@ -20,10 +21,13 @@ RUN = Run(
     event="schedule",
     run_url="https://github.com/comet-ml/opik-mcp/actions/runs/42",
     commit_title="[OPIK-8490] Alert on timed-out nightlies",
+    last_green_sha="1f2e3d4c5b6a79880a1b2c3d4e5f60718293a4b5",
+    commits_since_green=3,
 )
+UNCHANGED = replace(RUN, last_green_sha=RUN.sha, commits_since_green=0)
 
 JUNIT = """<?xml version="1.0" encoding="utf-8"?>
-<testsuites><testsuite name="pytest" tests="5" failures="1" errors="1" skipped="1">
+<testsuites><testsuite name="pytest" tests="6" failures="1" errors="1" skipped="2">
 <testcase classname="tests.live.test_traces" name="test_a_window_returns_exactly_the_traces"/>
 <testcase classname="tests.live.test_traces" name="test_an_error_filter_returns_the_errored_traces">
 <failure message="AssertionError: the error filter returned 11 traces, not 12&#10;assert 11 == 12"
@@ -35,6 +39,8 @@ JUNIT = """<?xml version="1.0" encoding="utf-8"?>
 <testcase classname="tests.live.test_sizes" name="test_skipped">
 <skipped message="no ollie"/></testcase>
 <testcase classname="tests.live.test_sizes" name="test_other"/>
+<testcase classname="tests.live.test_sizes" name="test_over_the_cap">
+<skipped type="pytest.xfail" message="a whole record above the host's cap"/></testcase>
 </testsuite></testsuites>"""
 
 FAILED = "test_an_error_filter_returns_the_errored_traces"
@@ -76,9 +82,10 @@ def _section(message: dict[str, object], heading: str) -> str:
 
 def test_a_junit_file_becomes_counts_and_each_failure_with_its_message(tmp_path: Path) -> None:
     report = _report(tmp_path)
+    # A known failure (strict xfail) is neither a skip nor news.
     assert (report.passed, report.failed, report.skipped) == (2, 2, 1)
     assert [(f.test, f.message) for f in report.failures] == [
-        (FAILED, "AssertionError: the error filter returned 11 traces, not 12"),
+        (FAILED, "the error filter returned 11 traces, not 12"),
         ("test_a_score_lands_on_its_trace", 'failed on setup with "RuntimeError: could not seed"'),
     ]
 
@@ -92,10 +99,10 @@ def test_the_alert_names_each_failure_once_with_its_file_and_reason(tmp_path: Pa
     message = build_message(
         RUN, [_job("live-local", "failure", report), _job("live-prod", "failure", report)]
     )
-    listed = _section(message, "Failing tests")
+    listed = _section(message, "2 failing tests")
     file_link = f"https://github.com/comet-ml/opik-mcp/blob/{RUN.sha}/tests/live/test_traces.py"
     assert (listed.count(FAILED), file_link in listed) == (1, True)
-    assert ("returned 11 traces, not 12" in listed, "open source, cloud" in listed) == (True, True)
+    assert "The error filter returned 11 traces, not 12. Fails on both backends." in listed
 
 
 def test_a_failure_on_both_backends_points_at_opik_mcp(tmp_path: Path) -> None:
@@ -106,6 +113,41 @@ def test_a_failure_on_both_backends_points_at_opik_mcp(tmp_path: Path) -> None:
         )
     )
     assert "change in opik-mcp" in text
+
+
+def test_a_failure_links_the_commits_since_the_last_green_run(tmp_path: Path) -> None:
+    text = _text(build_message(RUN, [_job("live-local", "failure", _report(tmp_path))]))
+    compare = f"https://github.com/comet-ml/opik-mcp/compare/{RUN.last_green_sha}...{RUN.sha}"
+    assert (compare in text, "3 commits since the last green run" in text) == (True, True)
+
+
+def test_a_failure_with_no_change_since_the_last_green_run_points_outside_opik_mcp(
+    tmp_path: Path,
+) -> None:
+    report = _report(tmp_path)
+    jobs = [_job("live-local", "failure", report), _job("live-prod", "failure", report)]
+    text = _text(build_message(UNCHANGED, jobs))
+    assert ("nothing in opik-mcp changed" in text, "change in opik-mcp" in text) == (True, False)
+
+
+def test_a_failure_only_on_cloud_says_how_to_rerun_against_cloud(tmp_path: Path) -> None:
+    jobs = [_job("live-local", "success", None), _job("live-prod", "failure", _report(tmp_path))]
+    text = _text(build_message(RUN, jobs))
+    assert ("only on Opik cloud" in text, "OPIK_URL=https://www.comet.com/opik/api" in text) == (
+        True,
+        True,
+    )
+
+
+def test_the_alert_reads_as_sentences_with_no_separator_dots(tmp_path: Path) -> None:
+    report = _report(tmp_path)
+    text = _text(
+        build_message(
+            RUN, [_job("live-local", "failure", report), _job("live-prod", "failure", report)]
+        )
+    )
+    # A middle dot, an em dash and an en dash: separators, not sentences.
+    assert [mark for mark in ("\u00b7", "\u2014", "\u2013") if mark in text] == []
 
 
 def test_a_failure_only_on_open_source_points_at_a_new_opik_release(tmp_path: Path) -> None:
