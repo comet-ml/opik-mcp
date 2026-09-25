@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from opik_mcp.read_list.entities.agent_insights_issue.state import ENABLE_OP, TRIGGER_OP
 from opik_mcp.writes import (
     SCHEMA_TOOL_DESCRIPTION,
     WRITE_OPERATIONS,
@@ -40,6 +41,11 @@ def test_registry_keys_match_server_enum() -> None:
     from opik_mcp.server import WRITE_OPERATION_ENUM
 
     assert set(WRITE_OPERATION_ENUM) == set(WRITE_OPERATIONS)
+
+
+def test_the_diagnostics_hints_name_real_operations() -> None:
+    assert ENABLE_OP in WRITE_REGISTRY
+    assert TRIGGER_OP in WRITE_REGISTRY
 
 
 def test_every_model_comes_from_an_operations_module() -> None:

@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikClient
-from opik_mcp.read_list.entities.agent_insights_issue import (
+from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,
 )
