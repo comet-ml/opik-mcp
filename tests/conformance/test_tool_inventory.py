@@ -103,9 +103,11 @@ from opik_mcp.server import mcp
 # went unmentioned. A guard that taxes every improvement gets routed around;
 # a guard against the multi-kilobyte surprise (the `write` entry in the table
 # above landed 1.9 KB in a PR nobody measured) still earns its keep. So the
-# ceiling now sits ~3.5 KB above the measurement: room for a ticket's worth of
-# wording, not for a new tool or an operation nobody meant to advertise.
-# Unused headroom is not in anyone's context; only what is written is.
+# ceiling was set ~3.5 KB above the measurement of the day (#187): room for a
+# ticket's worth of wording, not for a new tool or an operation nobody meant
+# to advertise. The table above has spent most of it since. At 23,495 the
+# headroom was 505 bytes; at 23,258 it is 742. Unused headroom is not in
+# anyone's context; only what is written is.
 SURFACE_BUDGET_BYTES = 24_000
 
 
