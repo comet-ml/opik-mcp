@@ -36,6 +36,7 @@ def assert_answer_equals(
     artefact.parent.mkdir(parents=True, exist_ok=True)
     artefact.write_text("".join(diff), encoding="utf-8")
     pytest.fail(
-        f"actual differs from expected on {changed} lines; unified diff in {artefact}. {hint}",
+        f"actual differs from expected on {changed} lines; unified diff in {artefact}."
+        + (f" {hint}" if hint else ""),
         pytrace=False,
     )

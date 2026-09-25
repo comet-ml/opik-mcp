@@ -10,6 +10,7 @@ update, or fails CI.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterable
 from typing import Any
 
@@ -223,6 +224,18 @@ async def test_the_entity_enum_is_the_pinned_set_in_the_pinned_order(tool: str) 
     )
 
 
+def unnamed_tools(text: str) -> list[str]:
+    """Tools the text never names as a whole word: ``read`` inside ``read_skill``
+    does not count."""
+    return sorted(
+        name for name in EXPECTED_TOOLS if not re.search(rf"(?<!\w){re.escape(name)}(?!\w)", text)
+    )
+
+
+def test_a_tool_named_only_inside_another_name_counts_as_unnamed() -> None:
+    assert unnamed_tools("read_skill, list('trace'), write, schema") == ["read"]
+
+
 @pytest.mark.anyio
 async def test_the_instructions_arrive_before_the_tool_list_is_asked_for() -> None:
     """A host with tool search defers `tools/list`, so `initialize` is all the
@@ -231,7 +244,7 @@ async def test_the_instructions_arrive_before_the_tool_list_is_asked_for() -> No
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         result = await session.initialize()
     instructions = result.instructions or ""
-    unnamed = sorted(name for name in EXPECTED_TOOLS if name not in instructions)
+    unnamed = unnamed_tools(instructions)
     assert instructions.strip(), (
         "initialize carried no instructions. They are set in src/opik_mcp/server.py "
         "(FastMCP(instructions=...) and install_session_instructions) and must load "
