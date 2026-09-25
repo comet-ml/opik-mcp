@@ -1316,11 +1316,8 @@ async def test_thread_rows_carry_duration() -> None:
         )
     )
     out = await run_list("thread", project_id="p-1", client=fake)
-    assert "id | first_message | status | number_of_messages | duration_ms | last_updated_at" in out
-    assert (
-        "th-1 | Hi, my order #4411 never arrived and support is not answe... | inactive | 12"
-        " | 91000 | 2026-09-08T09:00:00Z"
-    ) in out
+    assert "id | status | number_of_messages | duration_ms | last_updated_at" in out
+    assert "th-1 | inactive | 12 | 91000 | 2026-09-08T09:00:00Z" in out
 
 
 @pytest.mark.anyio
