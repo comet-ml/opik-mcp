@@ -72,7 +72,7 @@ def _section(message: dict[str, object], heading: str) -> str:
     """The text of the one section that starts with ``heading``."""
     texts = [
         block["text"]["text"]
-        for block in json.loads(json.dumps(message))["attachments"][0]["blocks"]
+        for block in json.loads(json.dumps(message))["blocks"]
         if block.get("type") == "section" and "text" in block
     ]
     found = [text for text in texts if text.startswith(f"*{heading}*")]
@@ -102,7 +102,10 @@ def test_the_alert_names_each_failure_once_with_its_file_and_reason(tmp_path: Pa
     listed = _section(message, "2 failing tests")
     file_link = f"https://github.com/comet-ml/opik-mcp/blob/{RUN.sha}/tests/live/test_traces.py"
     assert (listed.count(FAILED), file_link in listed) == (1, True)
-    assert "The error filter returned 11 traces, not 12. Fails on both backends." in listed
+    assert (
+        f"{FAILED}> fails on both backends.\n   The error filter returned 11 traces, not 12."
+        in listed
+    )
 
 
 def test_a_failure_on_both_backends_points_at_opik_mcp(tmp_path: Path) -> None:
@@ -133,7 +136,7 @@ def test_a_failure_with_no_change_since_the_last_green_run_points_outside_opik_m
 def test_a_failure_only_on_cloud_says_how_to_rerun_against_cloud(tmp_path: Path) -> None:
     jobs = [_job("live-local", "success", None), _job("live-prod", "failure", _report(tmp_path))]
     text = _text(build_message(RUN, jobs))
-    assert ("only on Opik cloud" in text, "OPIK_URL=https://www.comet.com/opik/api" in text) == (
+    assert ("Cloud alone fails" in text, "OPIK_URL=https://www.comet.com/opik/api" in text) == (
         True,
         True,
     )
@@ -179,3 +182,22 @@ def test_the_alert_links_the_run_the_commit_and_the_failing_job_log(tmp_path: Pa
         "https://github.com/comet-ml/opik-mcp/actions/runs/42/job/live-local",
     ]
     assert [link for link in links if link not in text] == []
+
+
+def test_the_summary_and_the_buttons_come_before_the_detail(tmp_path: Path) -> None:
+    # Slack folds a long message; what is above the fold must be enough to act.
+    report = _report(tmp_path)
+    message = build_message(
+        RUN, [_job("live-local", "failure", report), _job("live-prod", "failure", report)]
+    )
+    kinds = [str(block["type"]) for block in json.loads(json.dumps(message))["blocks"]]
+    summary = json.dumps(json.loads(json.dumps(message))["blocks"][1])
+    assert kinds[:3] == ["header", "section", "actions"], kinds
+    assert (
+        "2 of 4 tests failed on open source Opik 2.2.80" in summary,
+        "change in opik-mcp" in summary,
+    ) == (
+        True,
+        True,
+    )
+    assert "attachments" not in message, "an attachment is folded behind Show more"

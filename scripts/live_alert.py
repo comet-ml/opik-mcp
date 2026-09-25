@@ -39,6 +39,7 @@ _SECTION_LIMIT = 2_900
 
 _LABELS = {"live-local": "Open source Opik", "live-prod": "Opik cloud"}
 _SHORT = {"live-local": "open source", "live-prod": "cloud"}
+_IN_SENTENCE = {"live-local": "open source Opik", "live-prod": "Opik cloud"}
 _TRIGGERS = {
     "schedule": "Nightly run",
     "workflow_dispatch": "Manual run",
@@ -219,36 +220,28 @@ def _since_green(run: Run) -> str:
 
 
 def _causes(run: Run, jobs: list[Job]) -> list[str]:
-    """The likely cause, read from which jobs failed, how, and what changed."""
-    causes: list[str] = []
-    for job in jobs:
-        name = f"The {_SHORT.get(job.key, job.key)} job (Opik {job.version})"
-        if job.result == "cancelled":
-            causes.append(f"{name} timed out or was cancelled.")
-        elif job.result == "failure" and job.report is None:
-            usual = _SETUP_CAUSES.get(job.key, "Its log shows which step failed.")
-            causes.append(f"{name} failed before any test ran. {usual}")
+    """What the pattern of failures suggests, on top of what the summary states."""
+    causes = [
+        _SETUP_CAUSES[job.key]
+        for job in jobs
+        if job.result == "failure" and job.report is None and job.key in _SETUP_CAUSES
+    ]
     local, cloud = _failing(jobs, "live-local"), _failing(jobs, "live-prod")
-    unchanged = run.last_green_sha == run.sha
-    if unchanged and (local or cloud):
+    if run.last_green_sha == run.sha and (local or cloud):
         causes.append(
             "The last green run was on this same commit, so nothing in opik-mcp changed and "
             "the cause is on the Opik side, either a new release or a change on cloud."
         )
     elif local & cloud:
-        causes.append(
-            "The same tests fail on open source and on cloud, so the cause is probably a "
-            "change in opik-mcp."
-        )
+        causes.append("The same tests fail on both, so the cause is probably a change in opik-mcp.")
     elif local:
         causes.append(
-            "The tests fail only on open source Opik. Either a change in opik-mcp broke "
-            "them, or a new Opik release changed the behaviour."
+            "Either a change in opik-mcp broke them, or a new Opik release changed the behaviour."
         )
     elif cloud:
         causes.append(
-            "The tests fail only on Opik cloud, which points at cloud-only behaviour or "
-            "a difference between cloud and the open source release."
+            "Cloud alone fails, which points at cloud-only behaviour or a difference between "
+            "cloud and the open source release."
         )
     return causes
 
@@ -274,11 +267,10 @@ def _failure_lines(failures: list[tuple[Failure, list[str]]], run: Run) -> str:
     for failure, keys in failures[:MAX_NAMED]:
         path = f"{failure.module.replace('.', '/')}.py"
         url = f"https://github.com/{run.repo}/blob/{run.sha}/{path}"
-        line = f"• {_link(url, failure.test)}\n   "
+        line = f"• {_link(url, failure.test)} {_where(keys)[0].lower()}{_where(keys)[1:]}"
         if failure.message:
             message = failure.message.rstrip(".")
-            line += f"{_esc(message[:1].upper() + message[1:])}. "
-        line += _where(keys)
+            line += f"\n   {_esc(message[:1].upper() + message[1:])}."
         lines.append(line)
     if len(failures) > MAX_NAMED:
         lines.append(
@@ -331,44 +323,45 @@ def _steps(run: Run, jobs: list[Job], failures: list[tuple[Failure, list[str]]])
     return steps
 
 
+def _summary(jobs: list[Job]) -> str:
+    """How each job went, as one sentence."""
+    parts: list[str] = []
+    for job in jobs:
+        where = f"{_IN_SENTENCE.get(job.key, job.key)} {job.version}".strip()
+        if job.result == "cancelled":
+            parts.append(f"the {where} job timed out")
+        elif job.report is None:
+            if job.result == "failure":
+                parts.append(f"the {where} job failed before any test ran")
+        elif job.report.failed:
+            ran = job.report.failed + job.report.passed
+            parts.append(f"{job.report.failed} of {ran} tests failed on {where}")
+        else:
+            parts.append(f"all {job.report.passed} tests passed on {where}")
+    if not parts:
+        return ""
+    text = parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])}, and {parts[-1]}"
+    return f"{text[:1].upper()}{text[1:]}."
+
+
 def build_message(run: Run, jobs: list[Job]) -> dict[str, object]:
-    """The Slack Block Kit message for a run with at least one broken job."""
+    """The Slack Block Kit message for a run with at least one broken job.
+
+    Ordered for a reader who stops early: what happened and the likely cause,
+    then the buttons, then the detail below a divider. Top-level blocks, since
+    Slack folds an attachment behind "Show more".
+    """
     trigger = _TRIGGERS.get(run.event, run.event)
     timed_out = all(job.result == "cancelled" for job in jobs if _is_broken(job))
     verb = "timed out" if timed_out else "failed"
-    headline = f"🔴 {trigger} of the live tests {verb} on {run.ref}"
+    headline = f"🔴 Live tests {verb} on {run.ref}"
     commit_url = f"https://github.com/{run.repo}/commit/{run.sha}"
     title = run.commit_title if len(run.commit_title) <= 80 else f"{run.commit_title[:79]}…"
-    commit = f"Commit {_link(commit_url, run.sha[:7])}"
+    origin = f"{trigger} of {_link(commit_url, run.sha[:7])}"
     if title:
-        commit += f": {_esc(title)}"
-    fields = [
-        {
-            "type": "mrkdwn",
-            "text": f"*{_LABELS.get(job.key, job.key)} {_esc(job.version)}*\n{_outcome(job)}",
-        }
-        for job in jobs
-    ]
-    failures = _failures(jobs)
-    blocks: list[dict[str, object]] = [
-        {"type": "header", "text": {"type": "plain_text", "text": headline}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": commit}},
-        {"type": "section", "fields": fields},
-    ]
-    causes = _causes(run, jobs)
-    if causes:
-        text = "*Likely cause*\n" + " ".join(causes)
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
-    if failures:
-        heading = f"*{_plural(len(failures), 'failing test')}*"
-        text = f"{heading}\n{_failure_lines(failures, run)}"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
-    steps = _steps(run, jobs, failures)
-    if steps:
-        numbered = "\n".join(f"{n}. {step}" for n, step in enumerate(steps, start=1))
-        blocks.append(
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Next steps*\n{numbered}"}}
-        )
+        origin += f": {_esc(title)}"
+    lead = " ".join(part for part in (_summary(jobs), *_causes(run, jobs)) if part)
+
     buttons: list[dict[str, object]] = [
         {"type": "button", "text": {"type": "plain_text", "text": "View run"}, "url": run.run_url}
     ]
@@ -385,11 +378,30 @@ def build_message(run: Run, jobs: list[Job]) -> dict[str, object]:
         if _is_broken(job) and job.log_url
     ]
     compare = _compare_url(run)
-    if compare:
+    if compare and run.commits_since_green:
+        label = f"{_plural(run.commits_since_green, 'commit')} since green"
         buttons.append(
-            {"type": "button", "text": {"type": "plain_text", "text": "Changes"}, "url": compare}
+            {"type": "button", "text": {"type": "plain_text", "text": label}, "url": compare}
         )
-    blocks.append({"type": "actions", "elements": buttons})
+
+    blocks: list[dict[str, object]] = [
+        {"type": "header", "text": {"type": "plain_text", "text": headline}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": lead}},
+        {"type": "actions", "elements": buttons},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": origin}]},
+        {"type": "divider"},
+    ]
+    failures = _failures(jobs)
+    if failures:
+        heading = f"*{_plural(len(failures), 'failing test')}*"
+        text = f"{heading}\n{_failure_lines(failures, run)}"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+    steps = _steps(run, jobs, failures)
+    if steps:
+        numbered = "\n".join(f"{n}. {step}" for n, step in enumerate(steps, start=1))
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Next steps*\n{numbered}"}}
+        )
     blocks.append(
         {
             "type": "context",
@@ -401,10 +413,7 @@ def build_message(run: Run, jobs: list[Job]) -> dict[str, object]:
             ],
         }
     )
-    return {
-        "text": f"{trigger} of the live tests {verb} on {run.ref}",
-        "attachments": [{"color": "#d1242f", "blocks": blocks}],
-    }
+    return {"text": f"Live tests {verb} on {run.ref}", "blocks": blocks}
 
 
 # --- the command line -----------------------------------------------------------
