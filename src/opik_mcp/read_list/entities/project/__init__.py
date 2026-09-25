@@ -24,6 +24,7 @@ from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow, Vocabulary
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.ui_links import project_page_url
+from opik_mcp.read_list.uri import opik_uri
 
 #: Stands in for the project while the row template is built, so the builder
 #: is handed something that is an id in shape if not in meaning.
@@ -65,6 +66,7 @@ comparing two date columns by eye.
 
 HANDLER = EntityHandler(
     entity_type="project",
+    uri_patterns=(opik_uri("projects/{id}"),),
     vocabularies=(VOCABULARY,),
     row_link_template=row_link_template,
     fetch_fn=fetch_project,

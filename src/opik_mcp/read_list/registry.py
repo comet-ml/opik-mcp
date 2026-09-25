@@ -26,6 +26,7 @@ from opik_mcp.read_list.entities import (
 )
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.unsupported import unsupported_fetch
+from opik_mcp.read_list.uri import UriPattern
 
 ENTITY_REGISTRY: dict[str, EntityHandler] = {
     handler.entity_type: handler
@@ -85,12 +86,21 @@ VOCABULARIES: dict[str, Vocabulary] = {
 }
 SORTABLE_TYPES: tuple[str, ...] = tuple(v.name for v in VOCABULARIES.values() if v.sort_fields)
 
+#: Every address ``read`` accepts as an id, with the entity it names, in the
+#: order ``uri.parse`` tries them.
+URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
+    (handler.entity_type, pattern)
+    for handler in sorted(ENTITY_REGISTRY.values(), key=lambda h: -h.uri_precedence)
+    for pattern in handler.uri_patterns
+)
+
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
     "LISTABLE_TYPES",
     "READABLE_TYPES",
     "SORTABLE_TYPES",
+    "URI_PATTERNS",
     "VOCABULARIES",
     "resolve_entity_type",
 ]

@@ -28,6 +28,7 @@ from opik_mcp.read_list.entities.dataset.vocabulary import CASES, COMPARED
 from opik_mcp.read_list.handler import EntityHandler, ParentPage
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.ui_links import scoped_entity_links
+from opik_mcp.read_list.uri import opik_uri
 
 __all__ = ["HANDLER", "ITEM_HANDLER", "dataset_links", "fetch_item", "list_items", "project_items"]
 
@@ -59,6 +60,9 @@ def dataset_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="dataset",
+    # Legacy spelling: the entity was called test_suite before the rename, and
+    # URIs handed out then still have to resolve.
+    uri_patterns=(opik_uri("datasets/{id}"), opik_uri("test-suites/{id}")),
     link_fn=dataset_links,
     fetch_fn=fetch,
     search_by_name_fn=search_by_name,

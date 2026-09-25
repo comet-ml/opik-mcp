@@ -17,6 +17,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.ui_links import ProjectArea, ViewPage
+from opik_mcp.read_list.uri import UriPattern
 
 # ``FetchFn`` is widened to ``...`` so project-scoped fetchers (only ``thread``
 # today) can accept ``project_id`` / ``project_name`` kwargs. Every other
@@ -340,6 +341,14 @@ class EntityHandler:
     no page of its own (a score name is a column, a rule a row, a metric a
     chart). A ``list`` page links it, labelled with what the reader will
     find there."""
+    uri_patterns: tuple[UriPattern, ...] = ()
+    """Optional: the ``opik://`` URIs and pasted Opik links that name one of
+    this entity's records, which ``read`` accepts as its id."""
+    uri_precedence: int = 0
+    """Where this entity's patterns are tried, highest first; ties keep
+    registry order. A pasted link can carry two records' keys (a trace opened
+    over the compare view it sits on, a thread next to an issue), and the one
+    the user is looking at has to win."""
     parent_page: ParentPage | None = None
     """Optional: link a ``list`` page to its parent's page, for rows with no page.
 

@@ -54,7 +54,7 @@ from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METR
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.list_tool import page_facts
 from opik_mcp.read_list.oql import filter_field_names
-from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES, VOCABULARIES
+from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES, URI_PATTERNS, VOCABULARIES
 from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.skills_catalog import (
@@ -94,7 +94,7 @@ def _looks_like_uuid(s: str) -> bool:
 
 def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     raw_id = str(kwargs.get("id", ""))
-    if raw_id.startswith("opik://") or looks_like_opik_link(raw_id):
+    if raw_id.startswith("opik://") or looks_like_opik_link(raw_id, URI_PATTERNS):
         id_kind = "uri"
     elif _looks_like_uuid(raw_id):
         id_kind = "uuid"

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any, Final
+from urllib.parse import unquote
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import (
@@ -16,6 +19,7 @@ from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
 from opik_mcp.read_list.ui_links import experiments_compare_url
+from opik_mcp.read_list.uri import UriMatch, UriPattern, is_web_link, opik_uri
 
 logger = logging.getLogger("opik_mcp.read_list.entities.experiment")
 
@@ -316,6 +320,34 @@ def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]
     return {"url": url} if url is not None else {}
 
 
+# The compare route: dataset in the path, runs as a JSON array in the query.
+_WEB_COMPARE_RE = re.compile(r"/experiments/([^/?#]+)/compare")
+_WEB_EXPERIMENTS_QS_RE = re.compile(r"[?&]experiments=([^&#]+)")
+
+
+def compare_link_run(url: str) -> UriMatch | None:
+    """The baseline run of a pasted compare link, which is what the address
+    bar holds when a user says "here's my experiment": a run has no page of
+    its own.
+
+    ``None`` unless the link has the compare path and its ``experiments`` is a
+    non-empty JSON array of strings.
+    """
+    if not is_web_link(url) or _WEB_COMPARE_RE.search(url) is None:
+        return None
+    runs_query = _WEB_EXPERIMENTS_QS_RE.search(url)
+    if runs_query is None:
+        return None
+    try:
+        runs = json.loads(unquote(runs_query.group(1)))
+    except ValueError:
+        return None
+    if not isinstance(runs, list) or not runs:
+        return None
+    first = runs[0]
+    return (first, None) if isinstance(first, str) and first else None
+
+
 VOCABULARY = Vocabulary(
     name="experiment",
     filter_examples=(
@@ -350,6 +382,11 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="experiment",
+    uri_patterns=(
+        opik_uri("experiments/{id}"),
+        UriPattern(match=compare_link_run, is_web_link=True),
+    ),
+    uri_precedence=1,
     vocabularies=(VOCABULARY,),
     fetch_fn=fetch,
     link_fn=experiment_links,

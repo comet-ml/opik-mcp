@@ -26,6 +26,7 @@ from opik_mcp.read_list.paging import (
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
 from opik_mcp.read_list.ui_links import logs_page_url, trace_link_template
+from opik_mcp.read_list.uri import opik_uri, web_link
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -216,6 +217,13 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="trace",
+    # ``tls_trace`` is the UI's key, ``trace_id`` our own redirect's, so a
+    # link this server handed out is one it takes back.
+    uri_patterns=(
+        opik_uri("traces/{id}"),
+        web_link("tls_trace", "trace_id", is_project_scoped=False),
+    ),
+    uri_precedence=3,
     vocabularies=(VOCABULARY,),
     row_link_template=row_link_template,
     fetch_fn=fetch,

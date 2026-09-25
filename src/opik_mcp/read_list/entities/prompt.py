@@ -22,6 +22,7 @@ from opik_mcp.read_list.paging import (
 )
 from opik_mcp.read_list.ui_links import scoped_entity_links
 from opik_mcp.read_list.unsupported import unsupported_fetch
+from opik_mcp.read_list.uri import opik_uri
 
 VERSIONS_INLINE_LIMIT = 100
 
@@ -90,6 +91,7 @@ def prompt_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="prompt",
+    uri_patterns=(opik_uri("prompts/{id}"),),
     link_fn=prompt_links,
     fetch_fn=fetch,
     search_by_name_fn=search_by_name,

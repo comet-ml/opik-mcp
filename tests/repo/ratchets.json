@@ -11,16 +11,6 @@
       "span",
       "thread",
       "trace"
-    ],
-    "uri": [
-      "agent_insights_issue",
-      "dataset",
-      "experiment",
-      "project",
-      "prompt",
-      "span",
-      "thread",
-      "trace"
     ]
   },
   "operation_names_at_root": {

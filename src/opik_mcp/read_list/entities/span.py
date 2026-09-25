@@ -12,6 +12,7 @@ from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.ui_links import logs_page_url
+from opik_mcp.read_list.uri import opik_uri
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -90,6 +91,7 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="span",
+    uri_patterns=(opik_uri("spans/{id}"),),
     vocabularies=(VOCABULARY,),
     row_link_template=row_link_template,
     fetch_fn=fetch,

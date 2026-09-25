@@ -16,6 +16,7 @@ from opik_mcp.read_list.entities.agent_insights_issue.state import issue_page_no
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow
 from opik_mcp.read_list.project_scope import require_project_id
 from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
+from opik_mcp.read_list.uri import opik_uri, web_link
 
 
 def example_trace_ids(details: list[dict[str, Any]]) -> list[str]:
@@ -137,6 +138,12 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="agent_insights_issue",
+    uri_patterns=(
+        opik_uri("projects/{project}/agent-insights-issues/{id}"),
+        # The Diagnostics page, open or resolved view.
+        web_link("issue", is_project_scoped=True),
+    ),
+    uri_precedence=2,
     fetch_fn=fetch,
     list_fn=list_page,
     list_extra_fields=(

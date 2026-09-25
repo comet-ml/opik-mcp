@@ -31,6 +31,7 @@ from opik_mcp.read_list.paging import (
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
 from opik_mcp.read_list.ui_links import logs_page_url
+from opik_mcp.read_list.uri import opik_uri, web_link
 
 MESSAGES_INLINE_LIMIT = 200
 
@@ -215,6 +216,11 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="thread",
+    uri_patterns=(
+        opik_uri("projects/{project}/threads/{id}"),
+        web_link("thread", is_project_scoped=True),
+    ),
+    uri_precedence=4,
     vocabularies=(VOCABULARY,),
     row_link_template=row_link_template,
     fetch_fn=fetch,

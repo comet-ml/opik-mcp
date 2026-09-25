@@ -39,6 +39,7 @@ from opik_mcp.read_list.projection import FieldsError, marker, normalise, projec
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     READABLE_TYPES,
+    URI_PATTERNS,
     resolve_entity_type,
 )
 from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
@@ -144,13 +145,14 @@ async def run_read(
     # and override the explicit argument — that way the agent can paste a URI
     # into either slot. A parsed project-scoped URI/link also carries the
     # project, which overrides the explicit arg.
-    if looks_like_uri(id) or looks_like_opik_link(id):
+    record_id = id
+    if looks_like_uri(record_id) or looks_like_opik_link(record_id, URI_PATTERNS):
         try:
-            parsed = parse_uri(id)
+            parsed = parse_uri(record_id, URI_PATTERNS)
         except InvalidURI as e:
             raise ToolError(str(e)) from e
         entity_type = parsed.entity_type
-        id = parsed.entity_id
+        record_id = parsed.entity_id
         if parsed.project_id is not None:
             # The URI is the source of truth for the project — clear any
             # explicit project_name so we don't send a conflicting pair.
@@ -226,7 +228,7 @@ async def run_read(
     # every leg reuses it.
     async with client_for_call(resolved_settings, client) as opik:
         data = await _fetch_with_name_lookup(
-            handler, opik, id, project_id=project_id, project_name=project_name, extra=extra
+            handler, opik, record_id, project_id=project_id, project_name=project_name, extra=extra
         )
         if handler.link_fn is not None:
             # UI links are session facts (UI base, workspace), so they are
@@ -241,14 +243,14 @@ async def run_read(
         if wanted is None:
             payload = compact_json(data)
             header = size_header(
-                entity_type, id, estimate_tokens(payload), **_link_hint(entity_type, data)
+                entity_type, record_id, estimate_tokens(payload), **_link_hint(entity_type, data)
             )
             return f"{header}\n{payload}"
 
         # Projection is the last thing that happens to the record, after the
         # links are attached and the private keys are gone: the caller names
         # what they see, not what the fetcher happened to hand over.
-        whole = f"read({entity_type!r}, {id!r})"
+        whole = f"read({entity_type!r}, {record_id!r})"
         try:
             projected, kept, omitted = project_record(data, wanted, whole=whole)
         except FieldsError as e:
@@ -259,7 +261,7 @@ async def run_read(
         payload = compact_json(projected)
         header = size_header(
             entity_type,
-            id,
+            record_id,
             estimate_tokens(payload),
             projected=True,
             # the projected record, not the whole one: a caller who did not
