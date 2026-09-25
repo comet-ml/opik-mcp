@@ -13,6 +13,7 @@ import respx
 
 from opik_mcp.config import Settings
 from opik_mcp.oauth_identity import introspect_oauth_token
+from tests.factories import make_settings
 
 AUTH = "Bearer opik_mcp_at_abc123"
 
@@ -20,7 +21,7 @@ AUTH = "Bearer opik_mcp_at_abc123"
 def _settings(**overrides: object) -> Settings:
     base: dict[str, object] = {"opik_url": "https://opik.test/api"}
     base.update(overrides)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**base)
 
 
 @pytest.fixture

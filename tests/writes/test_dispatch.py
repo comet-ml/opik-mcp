@@ -130,7 +130,8 @@ async def test_score_thread_accepts_string_thread_id() -> None:
     item = json.loads(route.calls.last.request.read())["scores"][0]
     assert item["thread_id"] == "support-2026-07-23-alex"
     assert item["project_name"] == "support-bot"
-    assert "target" not in item and "target_id" not in item
+    assert "target" not in item
+    assert "target_id" not in item
 
 
 @pytest.mark.anyio
@@ -157,9 +158,11 @@ async def test_comment_thread_resolves_model_uuid_for_path() -> None:
             },
             client=_client(),
         )
-    assert retrieve.called and comment.called
+    assert retrieve.called
+    assert comment.called
     rb = json.loads(retrieve.calls.last.request.read())
-    assert rb["thread_id"] == "support-2026-07-23-alex" and rb["project_name"] == "support-bot"
+    assert rb["thread_id"] == "support-2026-07-23-alex"
+    assert rb["project_name"] == "support-bot"
     assert json.loads(comment.calls.last.request.read())["text"] == "duplicate refunded"
 
 
@@ -276,10 +279,12 @@ async def test_trace_create_single_vs_batch_endpoint() -> None:
             client=_client(),
         )
 
-    assert single.called and batch.called
+    assert single.called
+    assert batch.called
     # Batch body wraps in the {traces: [...]} envelope.
     body = json.loads(batch.calls.last.request.read())
-    assert "traces" in body and len(body["traces"]) == 2
+    assert "traces" in body
+    assert len(body["traces"]) == 2
 
 
 @pytest.mark.anyio
@@ -303,7 +308,8 @@ async def test_span_create_single_vs_batch_endpoint() -> None:
             client=_client(),
         )
 
-    assert single.called and batch.called
+    assert single.called
+    assert batch.called
 
 
 # --- batch size enforcement --------------------------------------------- #
@@ -547,8 +553,10 @@ async def test_job_enable_twice_in_a_row_is_safe() -> None:
             data={"project_id": PROJECT},
             client=_client(),
         )
-    assert first["ok"] is True and first["method"] == "POST"
-    assert second["ok"] is True and second["method"] == "PATCH"
+    assert first["ok"] is True
+    assert first["method"] == "POST"
+    assert second["ok"] is True
+    assert second["method"] == "PATCH"
     assert second["backend_body"]["status"] == "enabled"
 
 

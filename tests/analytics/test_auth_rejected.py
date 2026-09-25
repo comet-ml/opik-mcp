@@ -16,6 +16,7 @@ import pytest
 
 from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
 from opik_mcp.config import Settings
+from tests.factories import make_settings
 
 # Unique bearer token canary — must never appear raw in the emitted event.
 RAW_TOKEN_CANARY = f"{OAUTH_ACCESS_TOKEN_PREFIX}AUTHREJECT-CANARY-TOKEN-3f9a2b1c"
@@ -30,9 +31,9 @@ class _Recorder:
 
 
 def _settings(**kwargs: object) -> Settings:
-    base: dict[str, object] = {"opik_mcp_analytics_enabled": False, "_env_file": None}
+    base: dict[str, object] = {"opik_mcp_analytics_enabled": False}
     base.update(kwargs)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**base)
 
 
 def _app_returning(status: int) -> Any:

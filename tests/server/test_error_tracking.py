@@ -9,6 +9,7 @@ import sentry_sdk
 
 from opik_mcp import error_tracking
 from opik_mcp.config import Settings, installation_type
+from tests.factories import make_settings
 
 # --- before_send filter --------------------------------------------------- #
 
@@ -101,13 +102,13 @@ def test_before_send_drops_everything_under_pytest(monkeypatch: pytest.MonkeyPat
 # --- setup_sentry --------------------------------------------------------- #
 
 
-def _settings(**overrides: Any) -> Settings:
+def _settings(**overrides: object) -> Settings:
     # ``opik_mcp_sentry_dsn`` is a ClassVar on Settings — hardcoded, NOT a
     # constructor arg. Tests inherit the production DSN automatically; they
     # never need (and can't) inject a fake one.
-    base: dict[str, Any] = {"opik_mcp_sentry_enabled": True}
+    base: dict[str, object] = {"opik_mcp_sentry_enabled": True}
     base.update(overrides)
-    return Settings(**base)
+    return make_settings(**base)
 
 
 def test_settings_dsn_is_not_env_overridable(monkeypatch: pytest.MonkeyPatch) -> None:

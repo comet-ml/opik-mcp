@@ -43,6 +43,7 @@ How a call flows:
 |---|---|---|
 | `make check` | lint + mypy + unit and conformance tests | yes |
 | `make hermetic` | the real server process over stdio and HTTP, against a stub backend; not part of `make check` | yes, own job |
+| `make slow` | the tests that spawn hooks, scripts, git, ruff and mypy; not part of `make check` | yes |
 | `make skills-verify-source` | installing from this repo resolves exactly the authored skills | yes |
 | `make conformance` | the MCP wire contract only, for fast iteration | inside `check` |
 | `make live` | the tools against a seeded real Opik; needs `OPIK_URL` | yes, `live.yaml` |

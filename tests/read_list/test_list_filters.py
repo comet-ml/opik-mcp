@@ -213,7 +213,9 @@ async def test_empty_result_under_the_default_source_says_how_to_widen_it() -> N
     assert out.splitlines()[0] == '[list: trace | filters: source = "sdk"]'
     assert "No traces found." in out
     assert "20 traces match without the default" in out
-    assert 'source = "experiment"' in out and "evaluator" in out and "playground" in out
+    assert 'source = "experiment"' in out
+    assert "evaluator" in out
+    assert "playground" in out
     assert '"optimization"' in out, "the optimizer's traces were the ones nobody was told about"
 
 
@@ -229,7 +231,8 @@ async def test_the_widening_probe_is_one_row_wide_and_drops_only_the_default() -
     assert json.loads(probe["filters"]) == [
         {"field": "duration", "operator": ">", "key": "", "value": "5"}
     ], "the caller's own clause stays; only the default is lifted"
-    assert probe["size"] == 1 and probe["page"] == 1
+    assert probe["size"] == 1
+    assert probe["page"] == 1
 
 
 @pytest.mark.anyio
@@ -265,7 +268,8 @@ async def test_the_agents_own_filters_on_an_empty_project_carry_no_hint() -> Non
     """A ``duration > 5000`` query on a project with nothing under any source:
     nothing was hidden, so nothing is said about hiding."""
     out = await run_list("trace", project_id="p-1", filters="duration > 5", client=FakeOpikClient())
-    assert "No traces found." in out and "playground" not in out
+    assert "No traces found." in out
+    assert "playground" not in out
 
 
 @pytest.mark.anyio
@@ -287,7 +291,8 @@ async def test_window_with_traffic_inside_it_points_at_the_source_default() -> N
         )
     )
     out = await run_list("trace", project_name="demo", since="2026-09-08T00:00:00Z", client=fake)
-    assert "playground" in out and "before your window" not in out
+    assert "playground" in out
+    assert "before your window" not in out
 
 
 @pytest.mark.anyio
@@ -367,7 +372,8 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
     message = str(ei.value)
     assert "did not answer in time" in message
     assert "list('trace'" in message, "the call form is quoted as an agent would type it"
-    assert "since" in message and "size" in message
+    assert "since" in message
+    assert "size" in message
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
 
 
@@ -525,7 +531,8 @@ async def test_span_rejects_trace_only_fields_with_the_span_field_list() -> None
         await run_list("span", project_id="p-1", filters='thread_id = "t"', client=FakeOpikClient())
     message = str(ei.value)
     assert "Unknown field 'thread_id'" in message
-    assert "provider" in message and "llm_span_count" not in message
+    assert "provider" in message
+    assert "llm_span_count" not in message
 
 
 @pytest.mark.anyio
@@ -678,8 +685,10 @@ async def test_malformed_window_value_names_both_accepted_forms() -> None:
     with pytest.raises(ToolError) as ei:
         await run_list("trace", project_id="p-1", since="yesterday", client=FakeOpikClient())
     message = str(ei.value)
-    assert "since" in message and "'yesterday'" in message
-    assert "1h" in message and "2026-09-08T10:00:00Z" in message
+    assert "since" in message
+    assert "'yesterday'" in message
+    assert "1h" in message
+    assert "2026-09-08T10:00:00Z" in message
 
 
 @pytest.mark.anyio
@@ -1071,7 +1080,8 @@ async def test_sort_on_an_unsupported_field_lists_the_sortable_ones() -> None:
     message = str(ei.value)
     assert "'error_type' is not sortable for trace" in message
     assert "Sortable: " in message
-    assert "duration" in message and "feedback_scores.<name>" in message
+    assert "duration" in message
+    assert "feedback_scores.<name>" in message
 
 
 @pytest.mark.anyio
@@ -1251,7 +1261,7 @@ async def test_thread_filters_reach_the_backend_with_the_sdk_default() -> None:
         {"field": "number_of_messages", "operator": ">", "key": "", "value": "20"},
         {"field": "feedback_scores", "operator": "<", "key": "helpfulness", "value": "0.5"},
         SDK_SOURCE,
-    ]
+    ], f"the thread filters sent differ: {_sent_filters(fake)}"
 
 
 @pytest.mark.anyio
@@ -1285,11 +1295,13 @@ async def test_experiment_list_without_filters_sends_none() -> None:
 async def test_thread_and_experiment_unknown_fields_list_their_own_fields() -> None:
     with pytest.raises(ToolError) as ei:
         await run_list("thread", project_id="p-1", filters='model = "x"', client=FakeOpikClient())
-    assert "first_message" in str(ei.value) and "model" in str(ei.value)
+    assert "first_message" in str(ei.value)
+    assert "model" in str(ei.value)
 
     with pytest.raises(ToolError) as ei:
         await run_list("experiment", filters="duration > 5", client=FakeOpikClient())
-    assert "experiment_scores" in str(ei.value) and "Unknown field 'duration'" in str(ei.value)
+    assert "experiment_scores" in str(ei.value)
+    assert "Unknown field 'duration'" in str(ei.value)
 
 
 @pytest.mark.anyio
@@ -1384,7 +1396,8 @@ async def test_the_unfiltered_probe_is_one_row_wide_and_keeps_only_the_default()
     await run_list("trace", project_id="p-1", filters="duration > 5", size=50, client=fake)
     probe = fake.list_calls[-1]
     assert json.loads(probe["filters"]) == [SDK_SOURCE], "only the default survives"
-    assert probe["size"] == 1 and probe["page"] == 1
+    assert probe["size"] == 1
+    assert probe["page"] == 1
 
 
 @pytest.mark.anyio
@@ -1436,4 +1449,5 @@ async def test_the_name_probe_is_one_row_wide_and_only_on_an_empty_page() -> Non
     await run_list("dataset", name="regression", size=50, client=fake)
     probe = fake.list_calls[-1]
     assert not probe.get("name"), "the name is what gets lifted"
-    assert probe["size"] == 1 and probe["page"] == 1
+    assert probe["size"] == 1
+    assert probe["page"] == 1

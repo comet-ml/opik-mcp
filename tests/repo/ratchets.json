@@ -93,20 +93,14 @@
     "src/opik_mcp/analytics/errors.py": 1,
     "src/opik_mcp/server.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
-    "tests/analytics/test_auth_rejected.py": 1,
-    "tests/analytics/test_boot_props.py": 1,
     "tests/analytics/test_client.py": 2,
-    "tests/analytics/test_client_build_event.py": 1,
-    "tests/analytics/test_errors.py": 3,
-    "tests/analytics/test_privacy.py": 2,
+    "tests/analytics/test_errors.py": 2,
+    "tests/analytics/test_privacy.py": 1,
     "tests/analytics/test_tools_listed.py": 2,
-    "tests/identity/test_oauth_identity.py": 1,
     "tests/identity/test_oauth_passthrough_mode.py": 1,
     "tests/identity/test_oauth_token_rotation.py": 3,
     "tests/read_list/test_dataset_compare.py": 2,
-    "tests/read_list/test_link_shape.py": 1,
-    "tests/read_list/test_ui_links.py": 2,
-    "tests/identity/test_resource_metadata_url.py": 1
+    "tests/read_list/test_ui_links.py": 1
   },
   "ruff_baseline": {
     "scripts/capture_bi_listener.py": [
@@ -307,7 +301,6 @@
       "PT018"
     ],
     "tests/identity/test_account_identity.py": [
-      "C408",
       "PT019"
     ],
     "tests/analytics/test_boot_props.py": [
@@ -315,12 +308,10 @@
     ],
     "tests/analytics/test_client.py": [
       "ARG002",
-      "C408",
       "I002"
     ],
     "tests/analytics/test_environment.py": [
-      "PT006",
-      "PT018"
+      "PT006"
     ],
     "tests/analytics/test_errors.py": [
       "PT006",
@@ -328,8 +319,7 @@
     ],
     "tests/analytics/test_events.py": [
       "I002",
-      "PT006",
-      "PT018"
+      "PT006"
     ],
     "tests/analytics/test_identity.py": [
       "I002",
@@ -360,9 +350,6 @@
     "tests/client/test_connection_per_tool_call.py": [
       "PT022"
     ],
-    "tests/identity/test_credential_identity.py": [
-      "PT018"
-    ],
     "tests/server/test_error_tracking.py": [
       "ARG002",
       "ARG005",
@@ -376,9 +363,6 @@
     ],
     "tests/server/test_http_path_config.py": [
       "I002"
-    ],
-    "tests/server/test_instructions.py": [
-      "PT018"
     ],
     "tests/identity/test_oauth_identity.py": [
       "I002"
@@ -406,42 +390,17 @@
     "tests/client/test_read.py": [
       "I002"
     ],
-    "tests/read_list/test_dataset_compare.py": [
-      "PT018"
-    ],
-    "tests/read_list/test_dataset_compare_figures.py": [
-      "PT018"
-    ],
-    "tests/read_list/test_dataset_items.py": [
-      "PT018"
-    ],
-    "tests/read_list/test_experiments.py": [
-      "PT018"
-    ],
-    "tests/read_list/test_fields.py": [
-      "PT018"
-    ],
     "tests/read_list/test_link_shape.py": [
-      "ARG002",
-      "PT018"
+      "ARG002"
     ],
     "tests/read_list/test_list_filters.py": [
-      "ARG002",
-      "PT018"
-    ],
-    "tests/read_list/test_list_tool.py": [
-      "PT018"
-    ],
-    "tests/read_list/test_oql.py": [
-      "PT018"
+      "ARG002"
     ],
     "tests/read_list/test_project_metrics.py": [
-      "ARG002",
-      "PT018"
+      "ARG002"
     ],
     "tests/read_list/test_read_tool.py": [
-      "ARG002",
-      "PT018"
+      "ARG002"
     ],
     "tests/read_list/test_ui_links.py": [
       "PT017"
@@ -451,9 +410,6 @@
     ],
     "tests/writes/test_backend_error_oauth_hint.py": [
       "I002"
-    ],
-    "tests/writes/test_dispatch.py": [
-      "PT018"
     ],
     "tests/writes/test_models.py": [
       "PT017"
@@ -548,7 +504,6 @@
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
     "tests.server.test_error_tracking",
-    "tests.server.test_instructions",
     "tests.writes.test_recovery_envelope",
     "tests.writes.test_registry",
     "tests.writes.test_write_links"

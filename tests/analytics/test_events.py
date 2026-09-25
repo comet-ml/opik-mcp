@@ -352,7 +352,8 @@ def test_mcp_client_literal_matches_its_classifier() -> None:
         f"McpClient drift: unreachable={sorted(declared - produced)} "
         f"undeclared={sorted(produced - declared)}"
     )
-    assert "absent" in declared and "absent" not in set(get_args(McpHost))
+    assert "absent" in declared
+    assert "absent" not in set(get_args(McpHost))
     # The alias that makes the dead bucket reachable, pinned end to end.
     assert classify_mcp_client("claude-ai") == "claude-desktop"
     assert classify_mcp_host("claude-ai") == "other"
@@ -385,4 +386,5 @@ def test_env_id_kind_literal_matches_the_detector(monkeypatch: pytest.MonkeyPatc
     env._detect_env_id.cache_clear()
 
     assert {kind_present, kind_absent} == declared
-    assert digest_present and not digest_absent
+    assert digest_present
+    assert not digest_absent

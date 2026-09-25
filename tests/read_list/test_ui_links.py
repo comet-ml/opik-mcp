@@ -24,6 +24,7 @@ from opik_mcp.read_list.ui_links import (
     project_page_url,
     trace_link_template,
 )
+from tests.factories import make_settings
 
 
 def _settings(**overrides: object) -> Settings:
@@ -33,7 +34,7 @@ def _settings(**overrides: object) -> Settings:
         "opik_url": "https://opik.test/api/",
     }
     base.update(overrides)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**base)
 
 
 def test_ui_base_strips_api_suffix_and_trailing_slash() -> None:

@@ -12,6 +12,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
 RATCHETS = json.loads((REPO_ROOT / "tests" / "repo" / "ratchets.json").read_text())
@@ -72,6 +74,7 @@ def test_suppressions_only_shrink() -> None:
     )
 
 
+@pytest.mark.slow
 def test_every_ruff_entry_still_has_its_findings() -> None:
     codes = sorted({code for listed in RUFF_BASELINE.values() for code in listed})
     result = subprocess.run(
@@ -108,6 +111,7 @@ def test_every_ruff_entry_still_has_its_findings() -> None:
     assert not stale, f"fixed but still excused in pyproject.toml, remove them: {stale}"
 
 
+@pytest.mark.slow
 def test_every_mypy_entry_still_uses_any(tmp_path: Path) -> None:
     # mypy with the baseline override dropped: every listed module must still
     # report explicit Any, or it has been typed and its line has to go.

@@ -206,7 +206,7 @@ async def test_list_agent_insights_issues_forwards_filters_only_when_set() -> No
         "to_date": "2026-09-08",
         "page": "1",
         "size": "10",
-    }
+    }, f"the issues request sent other query params: {params}"
 
 
 @pytest.mark.anyio
@@ -528,7 +528,7 @@ async def test_kpi_cards_posts_entity_type_window_and_filters_as_a_json_string()
         "interval_start": "2026-09-02T00:00:00Z",
         "interval_end": "2026-09-09T00:00:00Z",
         "filters": '[{"field":"source","operator":"=","value":"sdk"}]',
-    }
+    }, f"the stats request body differs: {sent}"
     assert isinstance(sent["filters"], str), "the backend declares filters as a String"
 
 
@@ -622,7 +622,7 @@ async def test_project_metrics_posts_the_metric_interval_window_and_filters() ->
         "interval_start": "2026-09-02T00:00:00Z",
         "interval_end": "2026-09-09T00:00:00Z",
         "trace_filters": [{"field": "source", "operator": "=", "value": "sdk"}],
-    }
+    }, f"the metrics request body differs: {sent}"
 
 
 @pytest.mark.anyio
