@@ -56,7 +56,8 @@ project if set, tool selection, the link rule, and today's UTC date.
   in `src/opik_mcp/read_list/size.py`) and, when there is a `url`, the link
   text to use.
 - `id` takes a UUID, a name (project, experiment, prompt, dataset), an
-  `opik://` URI or a pasted Opik link (`src/opik_mcp/read_list/uri.py`). A
+  `opik://` URI or a pasted Opik link: each entity declares its `uri_patterns`,
+  and `parse` in `src/opik_mcp/read_list/uri.py` tries them by `uri_precedence`. A
   URI or link overrides `entity_type`, and a project-scoped one the project.
   Several name matches are refused with the candidates. No match falls through
   to a 404.
@@ -85,11 +86,12 @@ project if set, tool selection, the link rule, and today's UTC date.
 
 - The header echoes filters, sort, since, until, search and fields, in that order.
 - `filters` is OQL, the grammar of the SDK's `search_traces(filter_string=…)`,
-  checked in `src/opik_mcp/read_list/oql.py`. All problems in a string come
+  checked in `src/opik_mcp/read_list/oql.py` against the entity's
+  `Vocabulary` (`src/opik_mcp/read_list/handler.py`). All problems in a string come
   back in one `OQLError`; an unknown field gets the closest name and the valid
   ones (`test_unknown_field_suggests_the_closest_name_and_lists_the_fields`).
   Checked clauses go JSON-encoded in the `filters` query parameter, except
-  `PARAM_FIELDS`, which become parameters of their own.
+  the vocabulary's `param_fields`, which become parameters of their own.
   `schema("list.<entity>")` lists fields, operators and sortable names.
 - `sort` is one field, `asc` or `desc`. `since`/`until` take `30m`, `1h`,
   `7d`, `2w` or an ISO-8601 instant with a zone. Only trace, span and thread
@@ -111,8 +113,10 @@ skipped.
 
 A read carries a `url`, a `url_absent` sentence when the record has no page,
 or nothing when the UI base or workspace is unknown. A trace, span or thread
-page carries one `url_template` filled from each row (`row_link_template` in
-`src/opik_mcp/read_list/ui_links.py`).
+page carries one `url_template` filled from each row: the entity's
+`row_link_template` hook, turned into a page note by `page_note_of` in
+`src/opik_mcp/read_list/decorations.py`. An entity with no page of its own
+declares a `view_page`, and a case or prompt version a `parent_page`.
 
 ## How it works
 
@@ -128,18 +132,19 @@ server.py read / list (FastMCP tool, instrument_tool wrapper)
 
 Where to start:
 
-- A trace filter or sort field: add it to `FILTERABLE_FIELDS["trace"]` in
-  `src/opik_mcp/read_list/oql.py` and to `_TRACE_SORTABLE` in
-  `src/opik_mcp/read_list/sorting.py`, mirroring opik-backend's `TraceField`
-  enum and `TraceSortingFactory` (span and thread have their own). A field the
-  backend takes as a query parameter also goes in `PARAM_FIELDS`. The
-  `schema` reference follows by itself.
+- A trace filter or sort field: add it to `filter_fields` and `sort_fields`
+  of the `Vocabulary` in `src/opik_mcp/read_list/entities/trace.py`, mirroring
+  opik-backend's `TraceField` enum and `TraceSortingFactory` (span and thread
+  have their own). A field the backend takes as a query parameter also goes in
+  `param_fields`. The registry indexes vocabularies by name (`VOCABULARIES`),
+  and the `schema` reference follows by itself.
 - An entity: a `HANDLER` (`EntityHandler` in `src/opik_mcp/read_list/handler.py`)
   in `read_list/entities/`, registered in `src/opik_mcp/read_list/registry.py`.
 - A column or an empty-page hint: `src/opik_mcp/read_list/list_tool.py`.
 
 Root modules stay generic ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md));
-`entity_names_at_root` in `tests/repo/ratchets.json` allowlists old exceptions and only shrinks.
+`entity_names_at_root` in `tests/repo/ratchets.json` is empty and stays so: a root table
+for one entity is a missing hook on `EntityHandler`.
 
 `decorations.block` runs an optional part of a read under a deadline. A
 failure or timeout becomes `{"error": "Could not load …"}` and the read still

@@ -109,9 +109,10 @@ write → writes/registry.py → writes/operations/evaluation.py build hooks
 - For a comparison refusal or fetch, start in
   `src/opik_mcp/read_list/entities/dataset/compare.py`; for a cell or note,
   `layout.py`.
-- The filter and sort tables (`FILTERABLE_FIELDS`, `IGNORED_BY_BACKEND`),
-  aliases, the `run_fn` handoff and link building are in
-  [tool-surface](../tool-surface/design-doc.md).
+- The item vocabularies (`COMPARED` for the comparison, `CASES` for the
+  dataset's own items) are in `src/opik_mcp/read_list/entities/dataset/vocabulary.py`.
+  How filters and sort are checked against them, aliases, the `run_fn` handoff
+  and link building are in [tool-surface](../tool-surface/design-doc.md).
 
 ## Decisions
 

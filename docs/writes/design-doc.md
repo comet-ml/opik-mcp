@@ -89,7 +89,8 @@ server.write                  src/opik_mcp/server.py
   endpoint plus `items[0]`.
 - Which write gets which link is decided by `decorate_with_page` and
   `_LOGS_VIEW` in `src/opik_mcp/writes/operations/observability.py`; the URLs
-  are built by `src/opik_mcp/read_list/ui_links.py`
+  are built by `trace_page_url` and `thread_page_url` in the trace and thread
+  entities, over `src/opik_mcp/read_list/ui_links.py`
   ([tool-surface](../tool-surface/design-doc.md)).
 
 Evaluation hooks: [experiment-flows](../experiment-flows/design-doc.md).
