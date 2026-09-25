@@ -99,7 +99,7 @@ Where to start:
 - A new vocabulary part: `src/opik_mcp/read_list/entities/project/vocabulary.py`,
   then the gather in `read.py`. The entity description in
   `src/opik_mcp/read_list/entities/project/__init__.py` has a probe per
-  sentence in `tests/e2e/test_description_claims.py`.
+  sentence in `tests/hermetic/test_description_claims.py`.
 - A metric, grouping, series or refusal: `src/opik_mcp/read_list/entities/project_metric/catalog.py`;
   the order of checks is in `run_project_metric`, rendering in `table.py`.
 - Test fakes: `_vocab_fake` in `tests/read_list/test_read_tool.py`.
@@ -151,7 +151,7 @@ Where to start:
 - `tests/read_list/test_project_metrics.py`: every `project_metric` rule.
 - `test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits`: the
   copied grouping matrix.
-- `tests/e2e/test_project_overview_surface.py`: the same over stdio against a
+- `tests/hermetic/test_project_overview_surface.py`: the same over stdio against a
   stub backend. `tests/client/test_read.py`: the name endpoints' wire shapes.
 
 ## Log
