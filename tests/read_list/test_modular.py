@@ -197,12 +197,21 @@ def test_every_argument_the_list_tool_takes_reaches_a_runner() -> None:
     bag: set[str] = set()
     for node in ast.walk(ast.parse((READ_LIST / "list_tool.py").read_text())):
         if isinstance(node, ast.AnnAssign) and getattr(node.target, "id", None) == "tool_args":
-            assert isinstance(node.value, ast.Dict), "tool_args stopped being a literal"
+            assert isinstance(node.value, ast.Dict), (
+                "src/opik_mcp/read_list/list_tool.py: tool_args in run_list is no longer "
+                "a dict literal, so this guard cannot read its keys. Keep it a literal."
+            )
             bag = {str(key.value) for key in node.value.keys if isinstance(key, ast.Constant)}
     # The entity is the dispatch key, the page arguments are normalised on the
     # way in, and the last two are the call's plumbing, not the agent's.
     plumbing = {"entity_type", "page", "size", "settings", "client"}
-    assert bag == set(inspect.signature(list_tool.run_list).parameters) - plumbing
+    params = set(inspect.signature(list_tool.run_list).parameters) - plumbing
+    assert bag == params, (
+        "src/opik_mcp/read_list/list_tool.py: the tool_args literal in run_list and "
+        f"its signature differ: not passed={sorted(params - bag)} "
+        f"unknown={sorted(bag - params)}. Every argument run_list takes goes into "
+        "tool_args, so a runner sees it."
+    )
 
 
 def test_the_handler_contract_imports_no_entity() -> None:
@@ -210,7 +219,10 @@ def test_the_handler_contract_imports_no_entity() -> None:
     importing the table that collects it. If the contract ever imports an
     entity, that direction has reversed."""
     for module in _imports(READ_LIST / "handler.py"):
-        assert "entities" not in module, f"handler.py imports {module}"
+        assert "entities" not in module, (
+            f"src/opik_mcp/read_list/handler.py imports {module}. The handler "
+            "contract imports no entity; entities import it (.claude/rules/architecture.md)."
+        )
 
 
 # Root modules that still name an entity, and the names they use. Debt, not
