@@ -14,10 +14,18 @@ from pydantic import BaseModel
 from opik_mcp.config import Settings
 from opik_mcp.read_list.ui_links import project_page_url, thread_page_url, trace_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
-from opik_mcp.writes.wire import TARGET_PATH, BuildContext, WireRequest, dump
+from opik_mcp.writes.wire import BuildContext, WireRequest, dump
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
+
+
+#: Path segment per annotation target, for the score and comment routes.
+TARGET_PATH: Final[dict[str, str]] = {
+    "trace": "traces",
+    "span": "spans",
+    "thread": "traces/threads",
+}
 
 
 def build_trace_create(

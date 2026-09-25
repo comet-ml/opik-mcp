@@ -81,12 +81,6 @@
       "trace",
       "trace.create",
       "trace.update"
-    ],
-    "wire": [
-      "dataset",
-      "span",
-      "thread",
-      "trace"
     ]
   },
   "suppressions": {

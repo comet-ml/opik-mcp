@@ -8,19 +8,24 @@ re-shaped into the backend's ``{source, data}`` envelope.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel
 
-from opik_mcp.writes.wire import (
-    DATASET_TYPE_TO_WIRE,
-    BuildContext,
-    WireRequest,
-    dump,
-)
+from opik_mcp.writes.wire import BuildContext, WireRequest, dump
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
+
+
+#: MCP ``dataset.create`` type → the backend's ``DatasetType`` value. The two
+#: names agree except for the test suite, whose DB value is still the older
+#: ``evaluation_suite`` (opik-backend's DatasetType carries a TODO, OPIK-5795,
+#: to migrate it to ``test_suite``); when it moves, only this table changes.
+DATASET_TYPE_TO_WIRE: Final[dict[str, str]] = {
+    "dataset": "dataset",
+    "test_suite": "evaluation_suite",
+}
 
 
 def build_prompt_version_save(
