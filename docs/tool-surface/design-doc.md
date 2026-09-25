@@ -227,7 +227,7 @@ Boundaries:
   `test_no_entity_resources_advertised`.
 - Instructions: `tests/server/test_instructions.py`; per session,
   `test_initialize_names_oauth_workspace`; agreeing with `tools/list`,
-  `tests/e2e/test_stdio_session.py`.
+  `tests/hermetic/test_stdio_session.py`.
 - Reads and slimming: `tests/read_list/test_read_tool.py`; the uncut
   record, `test_a_huge_record_comes_back_whole`.
 - Lists, the `sdk` default and empty-page hints:
@@ -244,9 +244,9 @@ Boundaries:
 - OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
-  `tests/e2e/test_entity_links_surface.py`.
+  `tests/hermetic/test_entity_links_surface.py`.
 - Namespaces and description claims: `tests/read_list/test_modular.py`,
-  `tests/e2e/test_description_claims.py`.
+  `tests/hermetic/test_description_claims.py`.
 
 ## Log
 

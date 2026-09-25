@@ -29,7 +29,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.e2e.stub_backend import (
+from tests.hermetic.stub_backend import (
     EXPERIMENT_A,
     EXPERIMENT_B,
     EXPERIMENT_OTHER_SUITE,
@@ -113,7 +113,7 @@ _BOTH = json.dumps([EXPERIMENT_A, EXPERIMENT_B], separators=(",", ":"))
 # --- the stub's own contract ----------------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_the_joined_route_slices_the_suite_by_page_and_size(backend: StubBackend) -> None:
     backend.suite = CompareSuite(case_count=100)
 
@@ -127,7 +127,7 @@ def test_the_joined_route_slices_the_suite_by_page_and_size(backend: StubBackend
     assert ids[-1].endswith("100000490000")
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_a_hundred_thousand_case_suite_builds_only_the_page_asked_for(
     backend: StubBackend,
 ) -> None:
@@ -142,7 +142,7 @@ def test_a_hundred_thousand_case_suite_builds_only_the_page_asked_for(
     ]
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_an_experiment_carries_its_suite_and_how_it_was_evaluated(backend: StubBackend) -> None:
     backend.experiments[EXPERIMENT_A] = ExperimentSpec(name="rerank-v1")
     backend.experiments["plain"] = ExperimentSpec(name="evaluate-run", evaluation_method="dataset")
@@ -157,7 +157,7 @@ def test_an_experiment_carries_its_suite_and_how_it_was_evaluated(backend: StubB
     assert plain["evaluation_method"] == "dataset"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_a_row_carries_every_runs_scores_assertions_and_run_summary(backend: StubBackend) -> None:
     backend.experiments[EXPERIMENT_B] = ExperimentSpec(
         name="rerank-v3", fails_every=4, runs_per_item=2
@@ -178,14 +178,14 @@ def test_a_row_carries_every_runs_scores_assertions_and_run_summary(backend: Stu
     assert regressed["run_summaries_by_experiment"][EXPERIMENT_A]["status"] == "passed"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_the_output_columns_route_names_the_runs_output_keys(backend: StubBackend) -> None:
     body = _get(backend, f"{_JOINED}/output/columns", experiment_ids=_BOTH)
 
     assert [column["name"] for column in body["columns"]] == ["input", "answer", "reasoning"]
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.parametrize("route", ["", "/output/columns"])
 def test_comma_joined_ids_are_a_400_the_way_the_backend_answers_them(
     backend: StubBackend, route: str
@@ -207,7 +207,7 @@ def test_comma_joined_ids_are_a_400_the_way_the_backend_answers_them(
     assert "Invalid query param ids" in response.json()["message"]
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_an_unknown_route_is_still_a_404(backend: StubBackend) -> None:
     response = httpx.get(f"http://127.0.0.1:{backend.port}/api/v1/private/nope", timeout=30)
 
@@ -217,7 +217,7 @@ def test_an_unknown_route_is_still_a_404(backend: StubBackend) -> None:
 # --- the comparison, over stdio -------------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBackend) -> None:
     backend.suite = CompareSuite(case_count=8)
@@ -277,7 +277,7 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     assert "case data keys: expected_answer, question" in answer
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_run_that_produced_nothing_reads_errored_end_to_end(
     backend: StubBackend,
@@ -309,7 +309,7 @@ async def test_a_run_that_produced_nothing_reads_errored_end_to_end(
     assert "open its worst_trace for error_info" in answer
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_score(
     backend: StubBackend,
@@ -374,7 +374,7 @@ async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_
     assert "feedback_scores.correctness" in refusal
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_cases(
     backend: StubBackend,
@@ -407,7 +407,7 @@ async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_c
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_experiments_from_two_datasets_are_refused_before_anything_is_joined(
     backend: StubBackend,
@@ -424,7 +424,7 @@ async def test_experiments_from_two_datasets_are_refused_before_anything_is_join
     assert not backend.called("items/experiments/items")
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
     backend: StubBackend,
@@ -466,7 +466,7 @@ async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
     assert "figures over the runs matching the filter" in answer
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
     backend: StubBackend,
@@ -494,7 +494,7 @@ async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_reading_an_experiment_names_the_call_that_compares_it(
     backend: StubBackend,

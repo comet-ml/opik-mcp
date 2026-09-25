@@ -101,9 +101,13 @@ def build_score_create(
 def build_comment_create(
     op: WriteOperation, items: list[BaseModel], ctx: BuildContext
 ) -> WireRequest:
+    """A thread comment's path takes the model UUID ``prepare_fn`` resolved.
+    A dry run has none and shows the caller's thread_id in its place."""
     single = dump(items[0])
     target = single.pop("target")
     target_id = single.pop("target_id")
+    if target == "thread" and ctx.prepared is not None:
+        target_id = ctx.prepared
     return WireRequest(
         f"/v1/private/{TARGET_PATH[target]}/{target_id}/comments", {"text": single["text"]}
     )
@@ -278,12 +282,25 @@ def decorate_with_page(
         out["url"] = url
 
 
+def decorate_comment(
+    op: WriteOperation,
+    items: list[BaseModel],
+    out: dict[str, Any],
+    settings: Settings,
+    prepared: str | None,
+) -> None:
+    """``decorate_with_page`` without the resolved value, which for a comment is
+    a thread's model UUID and not the project id that function expects there."""
+    decorate_with_page(op, items, out, settings, None)
+
+
 __all__ = [
     "build_comment_create",
     "build_score_create",
     "build_span_create",
     "build_trace_create",
     "build_trace_update",
+    "decorate_comment",
     "decorate_with_page",
     "validate_scores",
 ]

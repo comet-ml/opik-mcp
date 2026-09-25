@@ -187,6 +187,9 @@ description and `schema` follow. Also:
 - The dispatcher names no operation: `tests/writes/test_dispatch_stays_generic.py`.
 - Links: `tests/writes/test_write_links.py`. OAuth 401 hint: `tests/writes/test_backend_error_oauth_hint.py`.
 - A retry built from an error's example succeeds: `tests/writes/test_recovery_envelope.py`.
+- Every operation's refusal and a backend failure and rejection, over stdio and
+  HTTP: `tests/hermetic/test_write_surface.py`
+  (`test_a_backend_rejection_quotes_only_its_error_strings`).
 - An unknown `schema` key: `tests/writes/test_schema_tool.py`.
 
 ## Log

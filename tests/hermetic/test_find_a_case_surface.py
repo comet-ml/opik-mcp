@@ -27,7 +27,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tests.e2e.stub_backend import (
+from tests.hermetic.stub_backend import (
     CASE_ID,
     CASE_TRACE_ID,
     SUITE_ID,
@@ -101,7 +101,7 @@ _ITEMS = f"/v1/private/datasets/{SUITE_ID}/items"
 # --- the stub's own contract ----------------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_the_items_route_pages_the_dataset_and_takes_filters(backend: StubBackend) -> None:
     backend.suite = CompareSuite(case_count=2_000)
     clause = [{"field": "data", "key": "question", "operator": "contains", "value": "install"}]
@@ -115,7 +115,7 @@ def test_the_items_route_pages_the_dataset_and_takes_filters(backend: StubBacken
     assert backend.one("/items").filters() == clause
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_filters_that_are_not_the_backends_array_are_a_400(backend: StubBackend) -> None:
     """``FiltersFactory`` deserializes the parameter and answers 400 when it
     cannot. A stub that shrugged at a malformed array would let a wrongly
@@ -123,7 +123,7 @@ def test_filters_that_are_not_the_backends_array_are_a_400(backend: StubBackend)
     assert _get(backend, _ITEMS, filters="data.question contains install").status_code == 400
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 def test_one_case_is_addressed_without_its_dataset(backend: StubBackend) -> None:
     body = _get(backend, f"/v1/private/datasets/items/{CASE_ID}").json()
 
@@ -135,7 +135,7 @@ def test_one_case_is_addressed_without_its_dataset(backend: StubBackend) -> None
 # --- through the server ---------------------------------------------------- #
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_case_key_reaches_the_backend_as_the_maps_wire_form(
     backend: StubBackend,
@@ -165,7 +165,7 @@ async def test_a_case_key_reaches_the_backend_as_the_maps_wire_form(
     assert "Found 2000 dataset_items (page 1, showing 5 of 2000)" in out
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_source_trace_is_one_call_and_a_comparison_is_none(
     backend: StubBackend,
@@ -203,7 +203,7 @@ async def test_the_source_trace_is_one_call_and_a_comparison_is_none(
     assert "sort is not supported" in sort_refusal
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_read_returns_the_case_the_table_had_to_cut(backend: StubBackend) -> None:
     """The listing cuts every cell to fit a row and says so; the read of the

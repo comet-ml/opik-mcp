@@ -20,13 +20,13 @@ shipped because no in-process test could see them:
    because they call the renderer directly instead of asking a running server
    what it sends.
 
-They are e2e in the sense that matters here — a real process, a real pipe, a real
+They are end to end in the sense that matters here — a real process, a real pipe, a real
 client session — not in the sense of talking to a live Opik backend: skills ship
 in the wheel, so nothing here needs credentials or a network. That keeps the job
 hermetic enough to run on every PR.
 
-Marked `e2e` and excluded from the default `pytest` run (see `pyproject.toml`);
-`make e2e` and the `e2e` CI job select them.
+Marked `hermetic` and excluded from the default `pytest` run (see `pyproject.toml`);
+`make hermetic` and the `hermetic` CI job select them.
 """
 
 from __future__ import annotations
@@ -126,7 +126,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_server_starts_and_completes_a_handshake() -> None:
     """The floor: `python -m opik_mcp` boots with no configuration and speaks MCP.
@@ -140,7 +140,7 @@ async def test_the_server_starts_and_completes_a_handshake() -> None:
     assert result is not None
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_stdio_path_advertises_the_tool_surface() -> None:
     async with _session() as session:
@@ -150,7 +150,7 @@ async def test_the_stdio_path_advertises_the_tool_surface() -> None:
     assert not missing, f"stdio startup did not advertise: {sorted(missing)}"
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_stdio_path_installs_the_skill_resources() -> None:
     """The regression this whole file exists for.
@@ -171,7 +171,7 @@ async def test_the_stdio_path_installs_the_skill_resources() -> None:
     assert extras.get("cacheScope") == SKILLS_CACHE_SCOPE
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_skill_reads_back_over_the_wire() -> None:
     """Content survives the pipe intact — the transport frames it in chunks, and a
@@ -186,7 +186,7 @@ async def test_a_skill_reads_back_over_the_wire() -> None:
     assert "name: opik" in content.text
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_read_skill_returns_a_real_document_over_stdio() -> None:
     async with _session() as session:
@@ -198,7 +198,7 @@ async def test_read_skill_returns_a_real_document_over_stdio() -> None:
     assert "name: opik-instrument" in text
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_a_bad_argument_comes_back_as_a_tool_error_not_a_crash() -> None:
     """A rejected argument must fail the call, not the session. If the server died
@@ -213,7 +213,7 @@ async def test_a_bad_argument_comes_back_as_a_tool_error_not_a_crash() -> None:
     assert not after.isError
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_an_unknown_skill_uri_is_an_error_not_an_empty_success() -> None:
     """An empty success is the dangerous answer: the host caches "this skill is
@@ -223,7 +223,7 @@ async def test_an_unknown_skill_uri_is_an_error_not_an_empty_success() -> None:
             await session.read_resource(AnyUrl(f"{SKILLS_URI_PREFIX}nope/SKILL.md"))
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_session_instructions_name_the_skills() -> None:
     """`install_session_instructions` is wired on the `build_app()` path; on stdio
@@ -266,7 +266,7 @@ def _bulleted_tool_names(instructions: str) -> set[str]:
     return set(re.findall(r"^- ([a-z_]+):", instructions, re.MULTILINE))
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_the_blob_describes_no_tool_the_server_does_not_advertise() -> None:
     """The general invariant, against a default-configured server."""
@@ -281,7 +281,7 @@ async def test_the_blob_describes_no_tool_the_server_does_not_advertise() -> Non
     )
 
 
-@pytest.mark.e2e
+@pytest.mark.hermetic
 @pytest.mark.anyio
 async def test_read_skill_is_described_because_it_is_always_advertised() -> None:
     """The same invariant read the other way for the tool this branch adds: it
