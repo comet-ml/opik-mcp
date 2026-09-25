@@ -17,7 +17,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.decorations import link_note_for
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -154,8 +154,36 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+VOCABULARY = Vocabulary(
+    name="trace",
+    sort_fields=(
+        "id",
+        "name",
+        "input",
+        "output",
+        "start_time",
+        "end_time",
+        "duration",
+        "ttft",
+        "metadata",
+        "thread_id",
+        "span_count",
+        "llm_span_count",
+        "usage.*",
+        "total_estimated_cost",
+        "tags",
+        "error_info",
+        "created_by",
+        "feedback_scores.*",
+        "experiment_id",
+        "environment",
+    ),
+)
+
+
 HANDLER = EntityHandler(
     entity_type="trace",
+    vocabularies=(VOCABULARY,),
     page_note_fn=link_note_for("trace"),
     fetch_fn=fetch,
     link_fn=trace_links,

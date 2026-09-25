@@ -26,8 +26,8 @@ from opik_mcp.read_list.oql import (
     VOCABULARY_MODES,
     WINDOWED_ENTITIES,
 )
-from opik_mcp.read_list.registry import ENTITY_REGISTRY
-from opik_mcp.read_list.sorting import SORT_FORM, UNSORTABLE_WHY, sortable_names
+from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
+from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 
 LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
     # Every vocabulary, not only every entity type: a dataset item filtered
@@ -191,8 +191,9 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             **{name: ", ".join(FILTERABLE_FIELDS[name]) for name in VOCABULARY_POINTERS}
         )
 
-    sort: dict[str, Any] = {"form": SORT_FORM, "fields": sortable_names(entity_type)}
-    why = UNSORTABLE_WHY.get(entity_type)
+    vocabulary = VOCABULARIES[entity_type]
+    sort: dict[str, Any] = {"form": SORT_FORM, "fields": sortable_names(vocabulary)}
+    why = vocabulary.unsortable_why
     if why is not None:
         # An empty field list reads as "not implemented yet". The endpoint has
         # no sorting parameter at all, and the caller is better off knowing

@@ -24,7 +24,7 @@ from opik_mcp.read_list.entities import (
     thread,
     trace,
 )
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 ENTITY_REGISTRY: dict[str, EntityHandler] = {
@@ -34,9 +34,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         trace.HANDLER,
         span.HANDLER,
         thread.HANDLER,
+        experiment.HANDLER,
         dataset.HANDLER,
         dataset.ITEM_HANDLER,
-        experiment.HANDLER,
         prompt.HANDLER,
         prompt.VERSION_HANDLER,
         project_metric.HANDLER,
@@ -76,10 +76,21 @@ READABLE_TYPES: tuple[str, ...] = tuple(
 )
 LISTABLE_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.lists)
 
+#: Every field table a ``list`` call can be checked against, by name, in
+#: registry order: ``schema("list.…")`` keys and refusals list them this way.
+VOCABULARIES: dict[str, Vocabulary] = {
+    vocabulary.name: vocabulary
+    for handler in ENTITY_REGISTRY.values()
+    for vocabulary in handler.vocabularies
+}
+SORTABLE_TYPES: tuple[str, ...] = tuple(v.name for v in VOCABULARIES.values() if v.sort_fields)
+
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
     "LISTABLE_TYPES",
     "READABLE_TYPES",
+    "SORTABLE_TYPES",
+    "VOCABULARIES",
     "resolve_entity_type",
 ]

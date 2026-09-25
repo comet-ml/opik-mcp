@@ -22,7 +22,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.decorations import link_note_for
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -176,8 +176,30 @@ def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     return {"url": url} if url is not None else {}
 
 
+VOCABULARY = Vocabulary(
+    name="thread",
+    sort_fields=(
+        "id",
+        "start_time",
+        "end_time",
+        "duration",
+        "number_of_messages",
+        "last_updated_at",
+        "created_by",
+        "created_at",
+        "usage.*",
+        "total_estimated_cost",
+        "feedback_scores.*",
+        "status",
+        "tags",
+        "environment",
+    ),
+)
+
+
 HANDLER = EntityHandler(
     entity_type="thread",
+    vocabularies=(VOCABULARY,),
     page_note_fn=link_note_for("thread"),
     fetch_fn=fetch,
     link_fn=thread_links,

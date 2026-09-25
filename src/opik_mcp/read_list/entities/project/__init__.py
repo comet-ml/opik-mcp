@@ -21,7 +21,7 @@ from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.decorations import link_note_for
 from opik_mcp.read_list.entities.project.read import fetch_project, project_links
 from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
-from opik_mcp.read_list.handler import EntityHandler, ReadWindow
+from opik_mcp.read_list.handler import EntityHandler, ReadWindow, Vocabulary
 from opik_mcp.read_list.paging import name_candidates
 
 
@@ -33,8 +33,22 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_projects(**kw)
 
 
+VOCABULARY = Vocabulary(
+    name="project",
+    sort_fields=("id", "name", "created_at", "last_updated_at", "last_updated_trace_at"),
+)
+"""Transcribed from ``SortingFactoryProjects``.
+
+``last_updated_trace_at`` is the one that answers a real question: a
+workspace accumulates throwaway projects, and the list arrives ordered by
+creation, so "which project is actually live" meant reading fifteen rows and
+comparing two date columns by eye.
+"""
+
+
 HANDLER = EntityHandler(
     entity_type="project",
+    vocabularies=(VOCABULARY,),
     page_note_fn=link_note_for("project"),
     fetch_fn=fetch_project,
     search_by_name_fn=search_by_name,

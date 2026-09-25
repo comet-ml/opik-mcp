@@ -64,7 +64,7 @@ from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn
+from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, RunFn, Vocabulary
 from opik_mcp.read_list.oql import (
     FILTERABLE_FIELDS,
     NAME_SEARCHABLE_ENTITIES,
@@ -98,6 +98,8 @@ from opik_mcp.read_list.projection import (
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
+    SORTABLE_TYPES,
+    VOCABULARIES,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
@@ -445,7 +447,11 @@ async def run_list(
     sort_field: str | None = None
     if sort is not None:
         try:
-            sort_field, direction = compile_sort(vocabulary, sort)
+            sort_field, direction = compile_sort(
+                VOCABULARIES.get(vocabulary) or Vocabulary(name=vocabulary),
+                sort,
+                sortable_types=SORTABLE_TYPES,
+            )
         except SortError as err:
             raise ToolError(str(err)) from err
         list_kwargs["sorting"] = json.dumps(

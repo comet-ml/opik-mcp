@@ -11,7 +11,7 @@ from opik_mcp.opik_client import (
     OpikReadClient,
 )
 from opik_mcp.read_list.columns import has_value, resolve
-from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
+from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext, Vocabulary
 from opik_mcp.read_list.oql import ENUM_VALUES, FILTERABLE_FIELDS, PARAM_FIELDS
 from opik_mcp.read_list.paging import name_candidates
 from opik_mcp.read_list.sample import is_thin
@@ -316,8 +316,30 @@ def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]
     return {"url": url} if url is not None else {}
 
 
+VOCABULARY = Vocabulary(
+    name="experiment",
+    sort_fields=(
+        "id",
+        "name",
+        "created_at",
+        "last_updated_at",
+        "created_by",
+        "last_updated_by",
+        "tags",
+        "trace_count",
+        "total_estimated_cost",
+        "total_estimated_cost_avg",
+        "feedback_scores.*",
+        "experiment_scores.*",
+        "duration.*",
+        "pass_rate",
+    ),
+)
+
+
 HANDLER = EntityHandler(
     entity_type="experiment",
+    vocabularies=(VOCABULARY,),
     fetch_fn=fetch,
     link_fn=experiment_links,
     search_by_name_fn=search_by_name,

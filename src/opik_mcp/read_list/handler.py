@@ -128,6 +128,24 @@ RowFn = Callable[[dict[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True)
+class Vocabulary:
+    """One field table a ``list`` call checks its filters and sort against.
+
+    Usually an entity has one, named after it. An entity whose two calls hit
+    two backend endpoints has one per endpoint, and ``list_vocabulary`` names
+    the one its collection path uses.
+    """
+
+    name: str
+    sort_fields: tuple[str, ...] = ()
+    """What the backend orders by, from its ``*SortingFactory``. An entry
+    ending in ``.*`` is a dynamic prefix: ``feedback_scores.<name>``."""
+    unsortable_why: str | None = None
+    """Why ``sort_fields`` is empty, in the refusal's voice, for an endpoint
+    that orders by nothing: whose limit it is and what orders the same rows."""
+
+
+@dataclass(frozen=True)
 class ParentPage:
     """The page a listing links to when its rows have none and their parent does.
 
@@ -211,6 +229,9 @@ class EntityHandler:
     column is a field the records lack, and inventing one would undo the point
     of :mod:`opik_mcp.read_list.projection`'s naming rule.
     """
+    vocabularies: tuple[Vocabulary, ...] = ()
+    """The field tables this entity's ``list`` validates against: its own,
+    named after it, and any other one ``list_vocabulary`` names."""
     list_vocabulary: str | None = None
     """The OQL and sort vocabulary the collection path validates against, when
     it is not the entity's own name.
@@ -392,4 +413,5 @@ __all__ = [
     "RowFn",
     "RunFn",
     "SearchByNameFn",
+    "Vocabulary",
 ]

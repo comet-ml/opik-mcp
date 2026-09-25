@@ -41,6 +41,7 @@ from opik_mcp.read_list.entities.dataset.layout import (
     ScoreKinds,
     render,
 )
+from opik_mcp.read_list.entities.dataset.vocabulary import COMPARED
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
 from opik_mcp.read_list.paging import clamp_size
@@ -458,7 +459,7 @@ def _sorting(sort: str | None) -> tuple[str | None, str | None, str | None]:
     """
     if sort is None:
         return None, None, None
-    field, direction = compile_sort(_ENTITY, sort)
+    field, direction = compile_sort(COMPARED, sort)
     return (
         json.dumps([{"field": field, "direction": direction}], separators=(",", ":")),
         f"sort: {field} {direction.lower()}",

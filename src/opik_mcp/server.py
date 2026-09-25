@@ -54,7 +54,7 @@ from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METR
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.list_tool import page_facts
 from opik_mcp.read_list.oql import filter_field_names
-from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES, VOCABULARIES
 from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.skills_catalog import (
@@ -136,7 +136,7 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         "has_filters": str(bool(filters)).lower(),
         "filter_fields": ",".join(filter_field_names(kwargs.get("entity_type", ""), filters)),
         "has_sort": str(bool(sort)).lower(),
-        "sort_field": sort_field_label(sort),
+        "sort_field": sort_field_label(sort, VOCABULARIES.values()),
         "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),
         "has_search": str(bool(kwargs.get("search"))).lower(),
         # Count only — a column name here is a dataset's data key or a score

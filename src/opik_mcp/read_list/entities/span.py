@@ -11,7 +11,7 @@ from typing import Any
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.decorations import link_note_for
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.ui_links import trace_page_url
 
 
@@ -48,8 +48,39 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
     return await client.list_spans(**kw)
 
 
+VOCABULARY = Vocabulary(
+    name="span",
+    sort_fields=(
+        "id",
+        "name",
+        "type",
+        "trace_id",
+        "parent_span_id",
+        "input",
+        "output",
+        "metadata",
+        "start_time",
+        "end_time",
+        "duration",
+        "ttft",
+        "usage.*",
+        "tags",
+        "created_at",
+        "last_updated_at",
+        "model",
+        "provider",
+        "total_estimated_cost",
+        "error_info",
+        "created_by",
+        "feedback_scores.*",
+        "environment",
+    ),
+)
+
+
 HANDLER = EntityHandler(
     entity_type="span",
+    vocabularies=(VOCABULARY,),
     page_note_fn=link_note_for("span"),
     fetch_fn=fetch,
     link_fn=span_links,

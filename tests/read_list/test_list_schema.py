@@ -17,6 +17,7 @@ from opik_mcp.read_list.oql import (
     OPERATORS_BY_TYPE,
     PARAM_FIELDS,
 )
+from opik_mcp.read_list.registry import VOCABULARIES
 from opik_mcp.read_list.sorting import sortable_names
 from opik_mcp.writes.errors import UnknownOperationError
 from opik_mcp.writes.schema_tool import run_schema
@@ -102,7 +103,7 @@ def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> Non
             list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[expected_type])
         )
         assert spec["operators"] == expected_ops
-    assert ref["sort"]["fields"] == sortable_names(entity_type)
+    assert ref["sort"]["fields"] == sortable_names(VOCABULARIES[entity_type])
 
 
 def test_unknown_list_key_recovers_with_the_list_keys_listed() -> None:
