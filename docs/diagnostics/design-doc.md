@@ -137,6 +137,9 @@ write dispatch.py -> hooks in src/opik_mcp/writes/operations/diagnostics.py
   registry, although a comment in `state.py` says a test does.
 - No test pins "ask before enabling" in `src/opik_mcp/instructions.py` or
   "only when the user asks" on resolve and close.
+- No test pins that the instructions name the five empty states. Tests pin
+  behaviour, not wording; the states themselves are pinned in
+  `tests/read_list/test_list_tool.py`.
 
 ## Proven by
 
@@ -149,7 +152,6 @@ write dispatch.py -> hooks in src/opik_mcp/writes/operations/diagnostics.py
 - Writes, 409 follow-up, refusals, dry runs: `tests/writes/test_dispatch.py`.
 - Client paths: `tests/client/test_read.py`. Over stdio:
   `tests/e2e/test_description_claims.py`, `tests/e2e/test_entity_links_surface.py`.
-- Instructions: `test_render_names_every_diagnostics_state`.
 
 ## Log
 
