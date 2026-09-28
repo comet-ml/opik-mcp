@@ -613,18 +613,24 @@ async def test_a_payload_the_operation_does_not_accept_is_refused_before_anythin
     wire: Wire, operation: str
 ) -> None:
     """The ``validation_failed`` envelope carries what the caller needs to fix
-    the call in one turn: which field, the schema, and a working example."""
+    the call in one turn: which field, a working example, the retry call, and
+    the ``schema()`` call that returns the schema, which it no longer inlines."""
     async with wire.connect() as session:
         result = await session.call_tool(
             "write", {"operation": operation, "data": {"not_a_field": 1}}
         )
+        schema_result = await session.call_tool("schema", {"operation": operation})
     assert result.isError
     envelope = result_json(result)
 
     assert envelope["error"] == "validation_failed"
     assert envelope["operation"] == operation
     assert any(issue["field"] == "not_a_field" for issue in issues(envelope)), envelope
-    schema = envelope["expected_schema"]
+    assert "expected_schema" not in envelope
+    message = str(envelope["message"])
+    assert f"write({operation!r}, data=…)" in message
+    assert f"schema({operation!r})" in message
+    schema = result_json(schema_result)["schema"]
     assert isinstance(schema, dict)
     assert schema["type"] == "object"
     assert envelope["example"]
@@ -632,7 +638,9 @@ async def test_a_payload_the_operation_does_not_accept_is_refused_before_anythin
 
 
 @pytest.mark.anyio
-async def test_a_backend_failure_comes_back_with_the_request_that_failed(wire: Wire) -> None:
+async def test_a_backend_failure_comes_back_as_its_status_and_the_retry_call(wire: Wire) -> None:
+    """The status is kept for the caller and analytics; the body is untrusted
+    text and the REST path is not a name the caller can use, so neither is."""
     wire.backend.failing.add("/v1/private/datasets")
     async with wire.connect() as session:
         result = await session.call_tool(
@@ -642,12 +650,31 @@ async def test_a_backend_failure_comes_back_with_the_request_that_failed(wire: W
     envelope = result_json(result)
 
     assert envelope["error"] == "backend_error"
-    assert envelope["backend_error"] == {
-        "status": 500,
-        "body": {"message": "stub failure"},
-        "method": "POST",
-        "path": "/v1/private/datasets",
-    }
+    assert envelope["operation"] == "dataset.create"
+    assert envelope["backend_error"] == {"status": 500}
+    assert "retry the same write('dataset.create', data=…)" in str(envelope["message"])
+    assert "backend_message" not in envelope
+    text = str(envelope)
+    assert "stub failure" not in text
+    assert "/v1/private" not in text
+
+
+@pytest.mark.anyio
+async def test_a_backend_rejection_quotes_only_its_error_strings(wire: Wire) -> None:
+    wire.backend.rejecting.add("/v1/private/datasets")
+    async with wire.connect() as session:
+        result = await session.call_tool(
+            "write", {"operation": "dataset.create", "data": {"name": "refund-cases"}}
+        )
+    assert result.isError
+    envelope = result_json(result)
+
+    assert envelope["backend_error"] == {"status": 400}
+    assert envelope["backend_message"] == "name must be unique"
+    assert "write('dataset.create', data=…)" in str(envelope["message"])
+    text = str(envelope)
+    assert "stub internals" not in text
+    assert "/v1/private" not in text
 
 
 @pytest.mark.anyio
@@ -665,4 +692,6 @@ async def test_a_scan_of_a_project_without_diagnostics_says_to_enable_it(wire: W
 
     (issue,) = issues(envelope)
     assert issue["code"] == "diagnostics_not_enabled"
-    assert "agent_insights_job.enable" in str(issue["message"])
+    # The fix is the envelope's lead sentence, said once, not a copy in the issue.
+    assert "message" not in issue
+    assert "write('agent_insights_job.enable', …)" in str(envelope["message"])

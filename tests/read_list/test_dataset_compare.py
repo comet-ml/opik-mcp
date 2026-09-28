@@ -141,8 +141,8 @@ async def test_the_legend_names_the_baseline_and_the_order_of_the_values() -> No
 
     # The labels are the key to every cell, so they are above the table, with
     # the ids the caller's next call is written with — not in a note below it.
-    assert out.startswith(
-        f"[list: dataset_item | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
+    assert out.splitlines()[0].endswith(
+        f" tok | compare: E1 = baseline rerank-v1 ({A}), E2 = rerank-v3 ({B})]"
     )
     assert "E1 is the baseline" in out
     assert "Δ is E2 minus E1 (a + means E2 scored higher)" in out
@@ -1357,7 +1357,7 @@ async def test_a_value_with_a_line_break_and_a_pipe_stays_one_cell() -> None:
     rows = [line for line in lines if line.startswith("i-1")]
     assert len(rows) == 1, "the row must stay on one line"
     assert rows[0].count(" | ") == 2, "id, data.answer, data.question"
-    assert lines[2].count(" | ") == rows[0].count(" | "), "the header has the row's columns"
+    assert lines[3].count(" | ") == rows[0].count(" | "), "the header has the row's columns"
     assert "Line one Line two ¦ with a pipe" in rows[0]
 
 
@@ -1373,7 +1373,7 @@ async def test_a_data_key_with_a_line_break_and_a_pipe_stays_one_column() -> Non
     out = await run_list("dataset_item", dataset_id=DATASET, client=fake)
 
     lines = out.splitlines()
-    header = lines[2]
+    header = lines[3]
     assert header == "id | data.answer line | data.question ¦ note"
-    assert lines[3].count(" | ") == header.count(" | "), "as many cells as column names"
-    assert lines[3].startswith("i-1 | because | why")
+    assert lines[4].count(" | ") == header.count(" | "), "as many cells as column names"
+    assert lines[4].startswith("i-1 | because | why")

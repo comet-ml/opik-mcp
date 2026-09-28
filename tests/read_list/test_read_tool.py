@@ -535,6 +535,41 @@ async def test_read_surfaces_not_found_with_hint() -> None:
     assert UUID in msg
 
 
+_LEAKY_BODY = {"errors": ["bad request"], "stack": "column api_key='sk-live-123' violates"}
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 500, 503])
+@pytest.mark.anyio
+async def test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path(
+    status: int,
+) -> None:
+    """A backend body is untrusted text and a REST path is an internal key; a
+    refusal is our own sentence and the call to change."""
+    import respx
+
+    from opik_mcp.opik_client import OpikClient
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test") as mock:
+        mock.get(f"/v1/private/traces/{UUID}").mock(
+            return_value=httpx.Response(status, json=_LEAKY_BODY)
+        )
+        with pytest.raises(ToolError) as refusal:
+            await run_read("trace", UUID, client=client)
+    message = str(refusal.value)
+    assert "sk-live-123" not in message
+    assert "violates" not in message
+    assert "/v1/" not in message
+    assert "Detail" not in message
+
+
+@pytest.mark.anyio
+async def test_a_missing_record_names_the_call_that_finds_it() -> None:
+    with pytest.raises(ToolError) as refusal:
+        await run_read("trace", UUID, client=FakeOpikClient())
+    assert "list('trace', …)" in str(refusal.value)
+
+
 # --- agent_insights_issue (Diagnostics) ---------------------------------- #
 
 ISSUE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
@@ -694,7 +729,7 @@ async def test_read_issue_not_found_names_entity_and_id() -> None:
     msg = str(exc.value)
     assert "agent_insights_issue" in msg
     assert "is-missing" in msg
-    assert "not found" in msg
+    assert "not found" in msg.lower()
 
 
 @pytest.mark.anyio

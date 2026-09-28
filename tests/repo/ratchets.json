@@ -18,9 +18,6 @@
     "src/opik_mcp/__main__.py": [
       "PLC0415"
     ],
-    "src/opik_mcp/opik_client.py": [
-      "RET504"
-    ],
     "src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py": [
       "I002"
     ],

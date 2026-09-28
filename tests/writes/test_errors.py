@@ -21,11 +21,10 @@ BUILT_ERRORS: tuple[WriteError, ...] = (
     ValidationFailedError.build(
         "trace.create",
         [ValidationIssue("name", "Field required", "missing")],
-        expected_schema={"type": "object"},
         example={"name": "t"},
     ),
     AuthorizationDeniedError.build("trace.create", "trace:log"),
-    BackendError.build("trace.create", 500, {"errors": ["boom"]}, method="POST", path="/x"),
+    BackendError.build("trace.create", 400, backend_message="boom"),
     BatchTooLargeError.build("trace.create", 1001, 1000),
     BatchPartialFailureError.build("trace.create", [{"index": 0}], [{"index": 1}]),
 )

@@ -1,10 +1,8 @@
 """``schema`` MCP tool — lookup of an operation's JSON Schema (spec §2.2).
 
-Pure registry lookup — no BE call, no auth state changes. The same
-``expected_schema`` blob returned here is also embedded in
-``validation_failed`` errors from the ``write`` tool, so callers that
-prefer to optimistically attempt a write and recover on error never need
-to call this tool.
+Pure registry lookup — no BE call, no auth state changes. A
+``validation_failed`` error from the ``write`` tool carries the example and
+names this call for the schema, rather than inlining it.
 """
 
 from __future__ import annotations

@@ -194,7 +194,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project name \u2014 alternative to project_id for project-scoped lists, so you don't need to resolve the UUID first.",
+      "description": "Parent project name \u2014 alternative to project_id for project-scoped lists; no UUID lookup needed.",
       "title": "Project Name"
     },
     "prompt_id": {
