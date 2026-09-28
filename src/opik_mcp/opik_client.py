@@ -145,7 +145,7 @@ class OpikListClient(Protocol):
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]: ...
@@ -160,7 +160,7 @@ class OpikListClient(Protocol):
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]: ...
@@ -176,7 +176,7 @@ class OpikListClient(Protocol):
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 100,
     ) -> dict[str, Any]: ...
@@ -207,7 +207,7 @@ class OpikListClient(Protocol):
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]: ...
@@ -327,7 +327,7 @@ class OpikReadClient(OpikListClient, Protocol):
         *,
         project_id: str | None = None,
         project_name: str | None = None,
-        truncate: bool = False,
+        should_truncate: bool = False,
     ) -> dict[str, Any]: ...
 
     async def get_agent_insights_issue(
@@ -369,13 +369,13 @@ def _search_params(
     search: str | None,
     from_time: str | None,
     to_time: str | None,
-    truncate: bool | None,
+    should_truncate: bool | None,
 ) -> dict[str, Any]:
     """Query params shared by the searchable list endpoints (traces, spans,
     threads, experiments). Only set values are sent: the backend treats an
     empty ``filters=`` as malformed JSON and answers 400.
 
-    ``truncate`` is rendered as the lowercase literal the backend's boolean
+    ``should_truncate`` is rendered as the lowercase literal the backend's boolean
     query param parser expects (httpx would otherwise send ``True``)."""
     params = _drop_none(
         {
@@ -386,8 +386,8 @@ def _search_params(
             "to_time": to_time,
         }
     )
-    if truncate is not None:
-        params["truncate"] = "true" if truncate else "false"
+    if should_truncate is not None:
+        params["truncate"] = "true" if should_truncate else "false"
     return params
 
 
@@ -399,10 +399,10 @@ class OpikClient:
 
     def __init__(
         self,
+        *,
         base_url: str,
         api_key: str | None,
         workspace: str | None,
-        *,
         client: httpx.AsyncClient | None = None,
         timeout: float = _DEFAULT_TIMEOUT,
     ) -> None:
@@ -460,7 +460,7 @@ class OpikClient:
 
     # -- comments --
 
-    async def add_trace_comment(self, trace_id: str, text: str) -> None:
+    async def add_trace_comment(self, trace_id: str, *, text: str) -> None:
         """``POST /v1/private/traces/{id}/comments``. Returns 201 with no body."""
         await self._request(
             "POST",
@@ -470,7 +470,7 @@ class OpikClient:
             entity_hint=f"trace {trace_id!r}",
         )
 
-    async def add_span_comment(self, span_id: str, text: str) -> None:
+    async def add_span_comment(self, span_id: str, *, text: str) -> None:
         """``POST /v1/private/spans/{id}/comments``. Returns 201 with no body."""
         await self._request(
             "POST",
@@ -480,7 +480,7 @@ class OpikClient:
             entity_hint=f"span {span_id!r}",
         )
 
-    async def add_thread_comment(self, thread_id: str, text: str) -> None:
+    async def add_thread_comment(self, thread_id: str, *, text: str) -> None:
         """``POST /v1/private/traces/threads/{id}/comments``. ``{id}`` is the thread UUID."""
         await self._request(
             "POST",
@@ -701,7 +701,7 @@ class OpikClient:
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
@@ -728,7 +728,7 @@ class OpikClient:
                 search=search,
                 from_time=from_time,
                 to_time=to_time,
-                truncate=truncate,
+                should_truncate=should_truncate,
             )
         )
         return await self._get_json("/v1/private/traces", params=params, entity_hint="traces")
@@ -751,7 +751,7 @@ class OpikClient:
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
@@ -776,7 +776,7 @@ class OpikClient:
                 search=search,
                 from_time=from_time,
                 to_time=to_time,
-                truncate=truncate,
+                should_truncate=should_truncate,
             )
         )
         return await self._get_json(
@@ -791,21 +791,21 @@ class OpikClient:
         *,
         project_id: str | None = None,
         project_name: str | None = None,
-        truncate: bool = False,
+        should_truncate: bool = False,
     ) -> dict[str, Any]:
         """``POST /v1/private/traces/threads/retrieve`` — one thread's metadata.
 
         A thread is keyed by ``thread_id`` within a single project, so the
         backend has no ``GET /{id}`` route — it takes a ``TraceThreadIdentifier``
         body and requires ``project_id`` or ``project_name`` (raise ``ValueError``
-        if neither is given, mirroring ``list_traces``). ``truncate`` cuts
+        if neither is given, mirroring ``list_traces``). ``should_truncate`` cuts
         ``first_message``/``last_message``, which are ``argMin``/``argMax`` over
         the thread's trace bodies — the same bytes the turns carry, so the read
         asks for them slim rather than shipping one payload at two lengths.
         """
         if project_id is None and project_name is None:
             raise ValueError("get_thread requires project_id or project_name")
-        body: dict[str, Any] = {"thread_id": thread_id, "truncate": truncate}
+        body: dict[str, Any] = {"thread_id": thread_id, "truncate": should_truncate}
         if project_id is not None:
             body["project_id"] = project_id
         if project_name is not None:
@@ -827,7 +827,7 @@ class OpikClient:
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 100,
     ) -> dict[str, Any]:
@@ -855,7 +855,7 @@ class OpikClient:
                 search=search,
                 from_time=from_time,
                 to_time=to_time,
-                truncate=truncate,
+                should_truncate=should_truncate,
             )
         )
         hint = f"spans for trace {trace_id!r}" if trace_id is not None else "spans"
@@ -966,7 +966,7 @@ class OpikClient:
                 from_time=None,
                 to_time=None,
                 # Bodies never reach the table; let the backend trim them.
-                truncate=True,
+                should_truncate=True,
             )
         )
         return await self._get_json(
@@ -1007,7 +1007,7 @@ class OpikClient:
         search: str | None = None,
         from_time: str | None = None,
         to_time: str | None = None,
-        truncate: bool | None = None,
+        should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
     ) -> dict[str, Any]:
@@ -1040,7 +1040,7 @@ class OpikClient:
                 search=search,
                 from_time=from_time,
                 to_time=to_time,
-                truncate=truncate,
+                should_truncate=should_truncate,
             )
         )
         return await self._get_json(

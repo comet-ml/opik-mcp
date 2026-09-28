@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import httpx
@@ -87,14 +87,6 @@ DecorateFn = Callable[
 DryRunNoteFn = Callable[["WriteOperation", list[BaseModel], str | None], str | None]
 
 
-#: Path segment per annotation target, for the score and comment routes.
-TARGET_PATH: Final[dict[str, str]] = {
-    "trace": "traces",
-    "span": "spans",
-    "thread": "traces/threads",
-}
-
-
 def refuse(op: WriteOperation, field: str, message: str, code: str) -> ValidationFailedError:
     """A ``validation_failed`` for a precondition the payload cannot express.
 
@@ -133,16 +125,6 @@ def dump(model: BaseModel) -> dict[str, Any]:
     return dumped
 
 
-#: MCP ``dataset.create`` type → the backend's ``DatasetType`` value. The two
-#: names agree except for the test suite, whose DB value is still the older
-#: ``evaluation_suite`` (opik-backend's DatasetType carries a TODO, OPIK-5795,
-#: to migrate it to ``test_suite``); when it moves, only this table changes.
-DATASET_TYPE_TO_WIRE: Final[dict[str, str]] = {
-    "dataset": "dataset",
-    "test_suite": "evaluation_suite",
-}
-
-
 def safe_body(resp: httpx.Response) -> Any:
     """The response body as JSON when it is JSON, else the raw text."""
     try:
@@ -152,8 +134,6 @@ def safe_body(resp: httpx.Response) -> Any:
 
 
 __all__ = [
-    "DATASET_TYPE_TO_WIRE",
-    "TARGET_PATH",
     "BuildContext",
     "BuildFn",
     "DecorateFn",

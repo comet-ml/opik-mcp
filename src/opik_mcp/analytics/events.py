@@ -381,49 +381,49 @@ EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
 EVENT_AUTH_REJECTED = "opik_mcp_auth_rejected"
 
 
-def bucket_tokens(n: int) -> str:
-    if n < 2_000:
+def bucket_tokens(token_count: int) -> str:
+    if token_count < 2_000:
         return "<2k"
-    if n < 8_000:
+    if token_count < 8_000:
         return "2k-8k"
-    if n < 32_000:
+    if token_count < 32_000:
         return "8k-32k"
     return ">32k"
 
 
-def bucket_text_len(s: str | None) -> str:
-    n = len(s) if s else 0
-    if n < 100:
+def bucket_text_len(text: str | None) -> str:
+    length = len(text) if text else 0
+    if length < 100:
         return "<100"
-    if n < 1000:
+    if length < 1000:
         return "100-1000"
     return ">1000"
 
 
-def bucket_count(n: int) -> str:
-    if n == 0:
+def bucket_count(count: int) -> str:
+    if count == 0:
         return "0"
-    if n <= 10:
+    if count <= 10:
         return "1-10"
-    if n <= 100:
+    if count <= 100:
         return "11-100"
-    if n <= 1_000:
+    if count <= 1_000:
         return "101-1000"
     return ">1000"
 
 
-def bucket_seconds(n: float) -> str:
+def bucket_seconds(seconds: float) -> str:
     # <5s isolates probe / crash-loop traffic from "real client connected
     # and disconnected before completing the handshake" (5-60s).
-    if n < 5:
+    if seconds < 5:
         return "<5s"
-    if n < 60:
+    if seconds < 60:
         return "5-60s"
-    if n < 600:
+    if seconds < 600:
         return "1-10m"
-    if n < 3600:
+    if seconds < 3600:
         return "10-60m"
-    if n < 86400:
+    if seconds < 86400:
         return "1-24h"
     return ">24h"
 
@@ -463,12 +463,12 @@ def bucket_path(path: str, mcp_http_path: str = "/mcp") -> str:
     than a bare ``startswith`` so a sibling like ``/mcpfoo`` or ``/healthz`` does
     not get mis-bucketed as the real endpoint.
     """
-    p = path or ""
-    if p.startswith("/.well-known/"):
+    request_path = path or ""
+    if request_path.startswith("/.well-known/"):
         return "well_known"
-    if p == "/health" or p.startswith("/health/"):
+    if request_path == "/health" or request_path.startswith("/health/"):
         return "health"
     mount = mcp_http_path.rstrip("/")
-    if p == mount or p.startswith(mount + "/"):
+    if request_path == mount or request_path.startswith(mount + "/"):
         return "mcp"
     return "other"
