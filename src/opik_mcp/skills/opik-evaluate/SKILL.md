@@ -59,7 +59,7 @@ For the dataset path: `client.get_or_create_dataset(name, project_name)` then `d
 
 ### 6. Run it
 Write the task adapter as a temp file **outside the repo** (needs the app's provider credentials — absent → **Blocker**). Never run a production entrypoint that writes, sends, or spends.
-The `run_tests` and `evaluate()` calls: `references/sdk-snippets.md` (**Run it**).
+The `run_tests` and `evaluate()` calls: `references/sdk-snippets.md` (**Run it**). Pass `generate_report=False`: the default writes `opik_test_suite_reports/` into the user's repo.
 `project_name` matters: datasets, suites, prompts, and experiments are project-scoped, and it must match the tracing project if the app uses `@track`. Set it when **creating** the dataset or suite — `evaluate()` inherits the dataset's project, and its own `project_name` kwarg is deprecated (the SDK warns and ignores it).
 
 **Judge credential guard:** if the LLM judge (suite assertions, or an LLM metric) has no provider key, `run_tests`/`evaluate` do **not** raise — every item scores 0 with `scoring_failed=True` and a "Missing credentials" reason, and the experiment is still created. Check for that before reporting; it is a **Blocker** ("set the judge's provider key and rerun"), not a result.

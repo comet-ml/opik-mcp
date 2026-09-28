@@ -90,7 +90,7 @@ Return a short human result + the trace link (see **Output**), then make the sin
 
 ## Blockers
 
-When you genuinely can't proceed, stop at the **earliest** blocker and return **exactly one** next step — never a checklist — and still report the changes already made. Examples:
+When you genuinely can't proceed, stop at the **earliest** blocker and return **exactly one** next step — never a checklist — and still report the changes already made (`blocked` carries `changes`). An unsupported language or shape is `unsupported` and modifies nothing. Examples:
 - "Run `opik configure`, then rerun `/opik-instrument`."
 - "Install dependencies with `uv sync`, then rerun `/opik-instrument`."
 - "Which dev command safely exercises this agent?"

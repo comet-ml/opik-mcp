@@ -31,7 +31,7 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 ## Activation — the only in-scope work
 
 ### 1. Resolve the suite and the baseline
-The SDK calls: `references/sdk-snippets.md` (**Resolve the suite and the baseline**).
+The SDK calls: `references/sdk-snippets.md` (**Resolve the suite and the baseline**). Newest first is not guaranteed — sort the prior experiments by `created_at` yourself.
 Baseline = the most recent prior experiment on this suite, unless the user names one. **No prior experiment → this run *is* the baseline** (step 3 still runs; status `baseline_created`). Two explicit experiments → skip step 3, go to step 4.
 
 Confirm Opik is reachable: if `~/.opik.config` exists or `OPIK_API_KEY` is set, use it. Otherwise → **Blocker**.
@@ -49,7 +49,7 @@ Write the runner as a **temp file outside the repo** (or a scratch path the user
 
 ### 3. Run the candidate
 Same suite, same version, same judge model, same runs-per-item as the baseline — vary **only** the thing under test.
-The `run_tests` call, and the guard for a judge that fails without raising: `references/sdk-snippets.md` (**Run the candidate**).
+The `run_tests` call, and the guard for a judge that fails without raising: `references/sdk-snippets.md` (**Run the candidate**). Pass `generate_report=False`: the default writes `opik_test_suite_reports/` into the user's repo.
 Do not read scores off `result` and stop — step 4 reads both runs from Opik so baseline and candidate go through the same path.
 
 ### 4. Read both runs back (SDK-first, MCP when connected)

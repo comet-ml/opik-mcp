@@ -58,7 +58,7 @@ read('agent_insights_issue', '<issue id>', project_name='<project>')
 
 Turn each open issue into one shortlist item as `references/diagnostics-list.md` (**Issue to shortlist item**) describes.
 
-**An empty list is not an all-clear, and a non-empty list is not the whole answer either.** Act on the sentence the list gives you: `references/diagnostics-list.md` (**Empty list**, **Coverage line**) says what each one means and what to do.
+**An empty list is not an all-clear, and a non-empty list is not the whole answer either.** Act on the sentence the list gives you: `references/diagnostics-list.md` (**Empty list**, **Coverage line**) says what each one means and what to do; ask the user once before enabling Diagnostics.
 
 Never wait or poll for a scan. Hand back the page link, finish the triage from traces, and say the grouped report will be there in a few minutes. A shortlist built while a scan you started is still running reports `source=diagnostics_pending`.
 
