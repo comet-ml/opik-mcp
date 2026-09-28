@@ -141,7 +141,7 @@ async def test_trace_comment_posts_text() -> None:
                 201, headers={"Location": "/v1/private/traces/tr-1/comments/c-1"}
             )
         )
-        await _client().add_trace_comment("tr-1", "looks good")
+        await _client().add_trace_comment("tr-1", text="looks good")
 
     req = route.calls.last.request
     assert req.headers["comet-workspace"] == "ws"
@@ -152,7 +152,7 @@ async def test_trace_comment_posts_text() -> None:
 async def test_span_comment_posts_text() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         route = mock.post("/v1/private/spans/sp-1/comments").mock(return_value=httpx.Response(201))
-        await _client().add_span_comment("sp-1", "note")
+        await _client().add_span_comment("sp-1", text="note")
 
     req = route.calls.last.request
     assert req.headers["comet-workspace"] == "ws"
@@ -165,7 +165,7 @@ async def test_thread_comment_uses_thread_id_in_path() -> None:
         route = mock.post("/v1/private/traces/threads/th-1/comments").mock(
             return_value=httpx.Response(201)
         )
-        await _client().add_thread_comment("th-1", "see follow-up")
+        await _client().add_thread_comment("th-1", text="see follow-up")
 
     assert route.called
     assert route.calls.last.request.read() == b'{"text":"see follow-up"}'
@@ -240,7 +240,7 @@ async def test_write_path_propagates_connect_timeout_unchanged() -> None:
             side_effect=httpx.ConnectTimeout("connect timed out")
         )
         with pytest.raises(httpx.ConnectTimeout):
-            await _client().add_trace_comment("tr-1", "hello")
+            await _client().add_trace_comment("tr-1", text="hello")
 
 
 @pytest.mark.anyio
@@ -251,7 +251,7 @@ async def test_validation_error_includes_server_body_excerpt() -> None:
             return_value=httpx.Response(400, json={"message": "text must be non-blank"})
         )
         with pytest.raises(OpikValidationError, match=r"text must be non-blank"):
-            await _client().add_trace_comment("tr-1", "")
+            await _client().add_trace_comment("tr-1", text="")
 
 
 # --- client injection (for tests + e.g. shared connection pool) ----------- #
@@ -269,7 +269,7 @@ async def test_uses_injected_httpx_client_when_provided() -> None:
                 workspace="ws",
                 client=injected,
             )
-            await client.add_trace_comment("tr-1", "x")
+            await client.add_trace_comment("tr-1", text="x")
 
     assert route.called
 
@@ -282,7 +282,7 @@ async def test_base_url_trailing_slash_is_normalized() -> None:
     with respx.mock(base_url="https://opik.test") as mock:
         route = mock.post("/v1/private/traces/tr-1/comments").mock(return_value=httpx.Response(201))
         client = OpikClient(base_url="https://opik.test/", api_key="k", workspace="ws")
-        await client.add_trace_comment("tr-1", "x")
+        await client.add_trace_comment("tr-1", text="x")
 
     assert route.called
 

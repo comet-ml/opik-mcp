@@ -15,13 +15,13 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
+from opik_mcp.read_list.entities.agent_insights_issue.state import ENABLE_OP, TRIGGER_OP
 from opik_mcp.writes import (
     SCHEMA_TOOL_DESCRIPTION,
     WRITE_OPERATIONS,
     WRITE_REGISTRY,
     WRITE_TOOL_DESCRIPTION,
 )
-from opik_mcp.writes.models import EXAMPLES, MODELS
 
 # --- enum agreement ------------------------------------------------------ #
 
@@ -43,15 +43,15 @@ def test_registry_keys_match_server_enum() -> None:
     assert set(WRITE_OPERATION_ENUM) == set(WRITE_OPERATIONS)
 
 
-def test_registry_keys_match_models_table() -> None:
-    """Every registry entry's pydantic model must come from MODELS."""
-    for name in WRITE_OPERATIONS:
-        assert WRITE_REGISTRY[name].pydantic_model is MODELS[name]
+def test_the_diagnostics_hints_name_real_operations() -> None:
+    assert ENABLE_OP in WRITE_REGISTRY
+    assert TRIGGER_OP in WRITE_REGISTRY
 
 
-def test_registry_keys_match_examples_table() -> None:
+def test_every_model_comes_from_an_operations_module() -> None:
     for name in WRITE_OPERATIONS:
-        assert WRITE_REGISTRY[name].example == EXAMPLES[name]
+        module = WRITE_REGISTRY[name].pydantic_model.__module__
+        assert module.startswith("opik_mcp.writes.operations."), f"{name}: model from {module!r}"
 
 
 # --- per-entry sanity --------------------------------------------------- #

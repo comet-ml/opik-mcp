@@ -1,39 +1,8 @@
 {
   "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. tests/repo/test_ratchets.py",
   "entity_names_at_root": {},
-  "operation_names_at_root": {
-    "models": [
-      "agent_insights_issue.close",
-      "agent_insights_issue.reopen",
-      "agent_insights_issue.resolve",
-      "agent_insights_job.enable",
-      "agent_insights_job.trigger",
-      "comment.create",
-      "dataset",
-      "dataset.create",
-      "dataset_item.upsert",
-      "experiment.create",
-      "experiment_item.create",
-      "prompt_version.save",
-      "score.create",
-      "span",
-      "span.create",
-      "thread",
-      "thread.close",
-      "thread.open",
-      "trace",
-      "trace.create",
-      "trace.update"
-    ],
-    "wire": [
-      "dataset",
-      "span",
-      "thread",
-      "trace"
-    ]
-  },
+  "operation_names_at_root": {},
   "suppressions": {
-    "src/opik_mcp/analytics/errors.py": 1,
     "src/opik_mcp/server.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
     "tests/analytics/test_client.py": 2,
@@ -46,33 +15,8 @@
     "tests/read_list/test_ui_links.py": 1
   },
   "ruff_baseline": {
-    "scripts/capture_bi_listener.py": [
-      "ARG002"
-    ],
     "src/opik_mcp/__main__.py": [
-      "I002",
       "PLC0415"
-    ],
-    "src/opik_mcp/analytics/boot_props.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/environment.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/errors.py": [
-      "RET504"
-    ],
-    "src/opik_mcp/analytics/identity.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/analytics/wrappers.py": [
-      "PLC0415"
-    ],
-    "src/opik_mcp/auth_context.py": [
-      "I002"
-    ],
-    "src/opik_mcp/config.py": [
-      "I002"
     ],
     "src/opik_mcp/opik_client.py": [
       "RET504"
@@ -191,29 +135,10 @@
       "T201"
     ],
     "src/opik_mcp/skills_catalog.py": [
-      "FBT001",
-      "FBT002",
       "PERF401"
     ],
     "src/opik_mcp/writes/__init__.py": [
       "I002"
-    ],
-    "src/opik_mcp/writes/dispatch.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/diagnostics.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/evaluation.py": [
-      "ARG001"
-    ],
-    "src/opik_mcp/writes/operations/observability.py": [
-      "ARG001",
-      "PLC0415"
-    ],
-    "src/opik_mcp/writes/operations/threads.py": [
-      "ARG001",
-      "PLC0415"
     ],
     "tests/conftest.py": [
       "I002"
@@ -346,7 +271,6 @@
   "mypy_baseline": [
     "opik_mcp.account_identity",
     "opik_mcp.analytics.client",
-    "opik_mcp.analytics.errors",
     "opik_mcp.analytics.mcp_client_info",
     "opik_mcp.analytics.wrappers",
     "opik_mcp.config",

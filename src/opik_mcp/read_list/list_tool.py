@@ -393,7 +393,7 @@ async def run_list(
             applied.append(f"filters: {render_filters(vocabulary, clauses)}")
     if handler.is_windowed:
         # Bodies never reach the table, so let the backend trim them.
-        list_kwargs["truncate"] = True
+        list_kwargs["should_truncate"] = True
     # The sort label is filled in after the response (the backend may have
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)

@@ -43,7 +43,7 @@ _SEARCH_PARAMS: dict[str, Any] = {
     "search": "order-42",
     "from_time": "2026-09-08T00:00:00Z",
     "to_time": "2026-09-08T12:00:00Z",
-    "truncate": True,
+    "should_truncate": True,
 }
 
 
@@ -66,6 +66,7 @@ async def test_list_forwards_search_params_only_when_set(
         bare = dict(route.calls.last.request.url.params)
         for key in _SEARCH_PARAMS:
             assert key not in bare, f"{method} sent {key} without being asked"
+        assert "truncate" not in bare, f"{method} sent truncate without being asked"
 
         await getattr(_client(), method)(**scope, **_SEARCH_PARAMS)
     params = dict(route.calls.last.request.url.params)

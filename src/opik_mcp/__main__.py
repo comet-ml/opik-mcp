@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import socket
@@ -344,6 +346,7 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # Default: Claude Code (or any MCP client) launches this process and
         # speaks MCP over stdin/stdout. No port, no inbound auth, no uvicorn —
         # whoever can spawn the process already owns its stdio.
+        # Imported here so a failing server import reaches main()'s transport-crash handler.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
         from opik_mcp.server import mcp
         from opik_mcp.skills_resources import install_skill_resources

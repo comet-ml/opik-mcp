@@ -13,7 +13,6 @@ import json
 import pytest
 
 from opik_mcp.writes.errors import ValidationFailedError, WriteError
-from opik_mcp.writes.models import EXAMPLES
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
 
 
@@ -36,7 +35,7 @@ async def test_bundled_example_validates(operation: str) -> None:
     try:
         await run_write(
             operation=operation,
-            data=EXAMPLES[operation],
+            data=WRITE_REGISTRY[operation].example,
             dry_run=True,
             scopes=frozenset(),
         )
