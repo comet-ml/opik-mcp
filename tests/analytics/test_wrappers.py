@@ -967,9 +967,7 @@ async def test_instrument_tool_buckets_backend_error_by_instance_status(
 
     @instrument_tool("write")
     async def fake_write(**kwargs: object) -> dict[str, object]:
-        cause = BackendError.build(
-            "trace.create", 503, {"detail": "down"}, method="POST", path="/v1/private/traces"
-        )
+        cause = BackendError.build("trace.create", 503)
         raise ToolError(cause.to_json()) from cause
 
     with pytest.raises(ToolError):

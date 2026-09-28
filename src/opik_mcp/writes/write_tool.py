@@ -3,8 +3,8 @@
 Wraps ``dispatch.run_write`` so the MCP layer doesn't have to know about
 the validation pipeline. Errors are converted to ``ToolError`` carrying
 the JSON-encoded structured envelope from §4.5; the host shows the body
-on the model's next turn, and the model self-corrects on the embedded
-``expected_schema`` + ``example``.
+on the model's next turn, and the model self-corrects from the embedded
+``example``, or from ``schema(operation)``.
 """
 
 from __future__ import annotations

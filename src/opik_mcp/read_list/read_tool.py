@@ -26,7 +26,6 @@ from opik_mcp.config import Settings, get_settings
 from opik_mcp.opik_client import (
     OpikAuthError,
     OpikNotFoundError,
-    OpikPermissionError,
     OpikReadClient,
     OpikServerError,
     OpikValidationError,
@@ -38,6 +37,7 @@ from opik_mcp.read_list.paging import short_list
 from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
+    LISTABLE_TYPES,
     READABLE_TYPES,
     resolve_entity_type,
 )
@@ -65,43 +65,22 @@ def _format_client_error(
     entity_id: str,
     exc: BaseException,
 ) -> str:
-    """Map our typed OpikClient errors to agent-friendly messages.
+    """One sentence on what was asked, and the call to change.
 
-    Mirrors ollie's ``_format_status_error`` shape (status-aware hints for
-    404 / 403 / 422 / 5xx) but reads off the typed-exception hierarchy
-    instead of raw HTTP codes.
+    A missing record is the read's own case: the entity is named in the
+    caller's words and the listing that finds it is offered. Every other
+    status already reads that way from the client (``_raise_for_status``),
+    which names the part of the read that failed; a second copy of it here
+    would say the same thing twice. A 401 is about the credential, never the
+    workspace, and that sentence says which credential and what to do.
     """
     if isinstance(exc, OpikNotFoundError):
+        listable = entity_type in LISTABLE_TYPES
+        find = f", or find it with list({entity_type!r}, …)" if listable else ""
         return (
-            f"Not found: {entity_type} with id '{entity_id}'. "
-            "Verify the ID is a valid UUID and belongs to the current workspace. "
-            f"Detail: {exc}"
+            f"Not found: {entity_type} with id '{entity_id}'. Check the id and the workspace{find}."
         )
-    if isinstance(exc, OpikPermissionError):
-        return (
-            f"Permission denied fetching {entity_type} '{entity_id}'. "
-            "The current workspace may not have access to this entity. "
-            f"Detail: {exc}"
-        )
-    if isinstance(exc, OpikAuthError):
-        # A 401 is about the credential, not the workspace: an expired OAuth
-        # token or a bad API key. The client error already says which and what
-        # to do about it; wrapping it in "permission denied" sent users (and the
-        # model) hunting for workspace access that was never the problem.
-        return f"Authentication failed fetching {entity_type} '{entity_id}'. Detail: {exc}"
-    if isinstance(exc, OpikValidationError):
-        return (
-            f"Validation error fetching {entity_type} '{entity_id}': "
-            "the request was missing or had invalid parameters. "
-            f"Detail: {exc}"
-        )
-    if isinstance(exc, OpikServerError):
-        return (
-            f"Opik backend error fetching {entity_type} '{entity_id}'. "
-            "This is a server-side issue and may be transient. "
-            f"Detail: {exc}"
-        )
-    return f"Failed to fetch {entity_type} '{entity_id}': {exc}"
+    return str(exc)
 
 
 def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:

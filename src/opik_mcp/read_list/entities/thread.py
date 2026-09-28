@@ -182,10 +182,9 @@ HANDLER = EntityHandler(
     fetch_fn=fetch,
     link_fn=thread_links,
     list_fn=list_page,
-    # first_message stands in for the name a thread doesn't have: the
-    # agent can pick the conversation without a read() per row.
+    # No first_message: it is a trace body, and a table never echoes one. The
+    # id is the caller's own thread id; fields=["first_message"] still asks.
     list_extra_fields=(
-        "first_message",
         "status",
         "number_of_messages",
         "duration",

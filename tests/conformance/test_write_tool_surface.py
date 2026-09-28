@@ -135,8 +135,8 @@ def test_write_operation_enum_matches_registry() -> None:
 async def test_schema_call_matches_registry_model(operation: str) -> None:
     """`schema(operation)` MUST return the Pydantic model's own JSON Schema.
 
-    Drift between the schema tool's output and the model means the validation
-    error's `expected_schema` would lie — recovery loops would break.
+    Drift between the schema tool's output and the model means the schema a
+    validation error points at would lie — recovery loops would break.
     """
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         await session.initialize()
@@ -151,17 +151,16 @@ async def test_schema_call_matches_registry_model(operation: str) -> None:
     assert body["oauth_scope"] == WRITE_REGISTRY[operation].oauth_scope
 
 
-# --- validation_failed embeds the same expected_schema as schema() ------ #
+# --- validation_failed points at schema() for the schema ---------------- #
 
 
 @pytest.mark.anyio
-async def test_validation_failed_expected_schema_matches_schema_tool() -> None:
-    """A `validation_failed` from `write` MUST embed the same JSON Schema that
-    `schema(operation)` returns — the two teaching surfaces agree.
+async def test_validation_failed_names_the_schema_call_and_shares_its_example() -> None:
+    """A `validation_failed` from `write` names the `schema(operation)` call
+    that returns the JSON Schema, and carries the same example it does.
 
     We trigger `span.create` with a missing `trace_id` to force Stage 2 failure,
-    parse the ToolError body, and diff `expected_schema` against the schema
-    tool's response.
+    parse the ToolError body, and follow the call it names.
     """
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
         await session.initialize()
@@ -178,9 +177,9 @@ async def test_validation_failed_expected_schema_matches_schema_tool() -> None:
     write_body = _decode_tool_text(write_result)
     schema_body = _decode_tool_text(schema_result)
     assert write_body["error"] == "validation_failed"
-    assert write_body["expected_schema"] == schema_body["schema"], (
-        "validation_failed.expected_schema drifted from schema() — recovery loop would fail"
-    )
+    assert "schema('span.create')" in str(write_body["message"])
+    assert "expected_schema" not in write_body
+    assert schema_body["schema"] == WRITE_REGISTRY["span.create"].pydantic_model.model_json_schema()
     assert write_body["example"] == schema_body["example"]
 
 
