@@ -88,7 +88,7 @@ async def fetch(
     whole read.
     """
     thread = await client.get_thread(
-        entity_id, project_id=project_id, project_name=project_name, truncate=True
+        entity_id, project_id=project_id, project_name=project_name, should_truncate=True
     )
     filters = json.dumps([{"field": "thread_id", "operator": "=", "value": entity_id}])
     try:
@@ -98,7 +98,7 @@ async def fetch(
             filters=filters,
             page=1,
             size=MESSAGES_INLINE_LIMIT,
-            truncate=True,
+            should_truncate=True,
         )
     except Exception:
         # Unlike a trace's spans (secondary), messages ARE a thread's primary

@@ -149,8 +149,8 @@ class AnalyticsClient:
             self._queue.join()
             done.set()
 
-        t = threading.Thread(target=_join, daemon=True)
-        t.start()
+        join_thread = threading.Thread(target=_join, daemon=True)
+        join_thread.start()
         done.wait(timeout=deadline_s if deadline_s > 0 else None)
 
     def close(self) -> None:
@@ -168,13 +168,13 @@ class AnalyticsClient:
     def _start_worker(self) -> None:
         if self._worker is not None:
             return
-        t = threading.Thread(
+        worker = threading.Thread(
             target=self._run_worker,
             name="opik-mcp-analytics",
             daemon=True,
         )
-        self._worker = t
-        t.start()
+        self._worker = worker
+        worker.start()
 
     def _run_worker(self) -> None:
         while True:

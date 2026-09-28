@@ -1190,14 +1190,14 @@ async def _oauth_protected_resource(_request: Request) -> JSONResponse:
     bearers. Returning 503 makes the misconfiguration loud and steers
     operators to set ``OPIK_MCP_AS_URL``.
     """
-    s = get_settings()
-    if not s.opik_mcp_as_url:
+    settings = get_settings()
+    if not settings.opik_mcp_as_url:
         return JSONResponse({"error": "OPIK_MCP_AS_URL not configured"}, status_code=503)
     body: dict[str, Any] = {
-        "authorization_servers": [s.opik_mcp_as_url],
+        "authorization_servers": [settings.opik_mcp_as_url],
     }
-    if s.opik_mcp_resource_uri:
-        body["resource"] = s.opik_mcp_resource_uri
+    if settings.opik_mcp_resource_uri:
+        body["resource"] = settings.opik_mcp_resource_uri
     return JSONResponse(body)
 
 
@@ -1240,14 +1240,14 @@ async def _proxy_to_as(request: Request) -> Response:
     we don't know where to send the probe, and silently 404'ing would
     mislead clients into thinking the resource doesn't support OAuth.
     """
-    s = get_settings()
-    if not s.opik_mcp_as_url:
+    settings = get_settings()
+    if not settings.opik_mcp_as_url:
         return JSONResponse({"error": "OPIK_MCP_AS_URL not configured"}, status_code=503)
     target_path = _PROXIED_OAUTH_PATHS.get(request.url.path)
     if target_path is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     qs = request.url.query
-    target = f"{s.opik_mcp_as_url.rstrip('/')}{target_path}"
+    target = f"{settings.opik_mcp_as_url.rstrip('/')}{target_path}"
     if qs:
         target = f"{target}?{qs}"
     body = await request.body()
@@ -1483,18 +1483,18 @@ def build_app() -> ASGIApp:
     install_session_instructions(mcp)
     install_request_auth_rebinding(mcp)
     install_skill_resources(mcp)
-    s = get_settings()
+    settings = get_settings()
     # Serve the transport at the configured path so it matches the advertised
     # resource URI behind a non-rewriting path-prefix proxy. Read at app-build
     # time (streamable_http_app reads it then), so env overrides take effect.
-    mcp.settings.streamable_http_path = s.opik_mcp_http_path
+    mcp.settings.streamable_http_path = settings.opik_mcp_http_path
     # DNS-rebinding/Host-Origin guard. Default allow-lists cover localhost only,
     # so hosted deployments must add their public host (and browser-client
     # origins). Applied here for the same read-at-build-time reason as above.
     mcp.settings.transport_security = TransportSecuritySettings(
-        enable_dns_rebinding_protection=s.opik_mcp_dns_rebinding_protection,
-        allowed_hosts=s.allowed_hosts_list,
-        allowed_origins=s.allowed_origins_list,
+        enable_dns_rebinding_protection=settings.opik_mcp_dns_rebinding_protection,
+        allowed_hosts=settings.allowed_hosts_list,
+        allowed_origins=settings.allowed_origins_list,
     )
     app = mcp.streamable_http_app()
     # Replace Starlette's default plain-text 404 — see ``_not_found_json``.
@@ -1516,10 +1516,10 @@ def build_app() -> ASGIApp:
     # redirects and silently break their bootstrap.
     for path in _PROXIED_OAUTH_PATHS:
         app.router.routes.append(Route(path, _proxy_to_as, methods=["GET", "POST"]))
-    s = get_settings()
+    settings = get_settings()
     app.add_middleware(
         BearerAuthMiddleware,
-        resource_metadata_url=_resource_metadata_url(s),
+        resource_metadata_url=_resource_metadata_url(settings),
     )
 
     # GAP#1: emit lifecycle events from the lifespan so the hosted --factory
@@ -1531,9 +1531,11 @@ def build_app() -> ASGIApp:
     will_emit = not boot_props.lifecycle_owned_by_main()
     fingerprint_props = collect_environment_fingerprint() if will_emit else {}
     inner_lifespan = app.router.lifespan_context
-    app.router.lifespan_context = _make_composed_lifespan(inner_lifespan, s, fingerprint_props)
+    app.router.lifespan_context = _make_composed_lifespan(
+        inner_lifespan, settings, fingerprint_props
+    )
 
     # Outermost wrapper: observe 401/421/403 and emit auth_rejected (GAP#3). Pure
     # ASGI so streaming SSE is never buffered; the "lifespan" scope passes through
     # to the Starlette app so the composed lifespan above still runs.
-    return AuthRejectionMiddleware(app, settings=s)
+    return AuthRejectionMiddleware(app, settings=settings)

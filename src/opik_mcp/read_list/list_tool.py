@@ -385,7 +385,7 @@ async def run_list(
             applied.append(f"filters: {render_filters(vocabulary, clauses)}")
     if entity_type in WINDOWED_ENTITIES:
         # Bodies never reach the table, so let the backend trim them.
-        kw["truncate"] = True
+        kw["should_truncate"] = True
     # The sort label is filled in after the response (the backend may have
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)

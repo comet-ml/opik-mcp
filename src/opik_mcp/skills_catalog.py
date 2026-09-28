@@ -351,7 +351,7 @@ def resolve(skill_name: str) -> SkillFile:
         return next(f for f in _references(skill) if f.path.endswith(f"{wanted}.md"))
 
     raise UnknownSkillError(
-        f"{skill!r} has no document {relative!r}; readable: {_readable_list(skill, as_uri)}"
+        f"{skill!r} has no document {relative!r}; readable: {_readable_list(skill, as_uri=as_uri)}"
     )
 
 
@@ -373,7 +373,7 @@ def unknown_skill_uri_message(uri: str) -> str:
     )
 
 
-def _readable_list(skill: str, as_uri: bool = False) -> str:
+def _readable_list(skill: str, *, as_uri: bool = False) -> str:
     """A skill's documents, spelled in the form the caller used.
 
     An agent holding URIs should be handed URIs to retry with, not paths it then

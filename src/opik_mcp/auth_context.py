@@ -27,6 +27,8 @@ attaches to its request context, so the outbound client forwards the bearer
 of the request that is actually being served.
 """
 
+from __future__ import annotations
+
 from contextvars import ContextVar
 
 # Access-token prefix minted by opik-backend (McpOAuthTokenUtils.ACCESS_PREFIX).
