@@ -202,3 +202,14 @@ async def test_every_skill_md_footer_lists_its_references() -> None:
         text = getattr(result.content[0], "text", "")
         for path in catalog.readable_paths(name)[1:]:
             assert f"- {name}/{path}" in text, f"{name}/SKILL.md footer does not list {path}"
+
+
+@pytest.mark.anyio
+async def test_the_skill_name_argument_documents_the_uri_form() -> None:
+    """The tool description leaves the resource-URI form out to fit the host's
+    2,048-character cut, so the argument is the one place a caller learns it."""
+    async with create_connected_server_and_client_session(mcp._mcp_server) as session:
+        await session.initialize()
+        tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+    argument = tools["read_skill"].inputSchema["properties"]["skill_name"]["description"]
+    assert catalog.SKILLS_URI_PREFIX in argument, argument

@@ -126,13 +126,13 @@ def test_tool_description_gates_on_context_not_on_installing_anything() -> None:
     assert "install" not in description
 
 
-def test_tool_description_documents_every_accepted_form() -> None:
+def test_tool_description_documents_the_name_and_path_forms() -> None:
     """`skill_name` takes a name, a path, or a resource URI. A form the tool accepts
-    but never advertises is a form no agent uses."""
+    but never advertises is a form no agent uses. The URI form is documented on
+    the argument alone (`test_the_skill_name_argument_documents_the_uri_form`)."""
     description = catalog.read_skill_tool_description()
     assert "`opik`" in description
     assert "`<skill>/references/<file>.md`" in description
-    assert catalog.SKILLS_URI_PREFIX in description
 
 
 def test_tool_description_names_no_reference_path() -> None:

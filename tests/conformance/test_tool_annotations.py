@@ -17,7 +17,7 @@ READ_ONLY = frozenset({"read", "list", "schema", "read_skill"})
 
 # Over the limit today, so a host drops their tail. Strict: the test starts
 # failing once one fits, which is the cue to take it off this list.
-OVER_THE_LIMIT = frozenset({"read", "write", "read_skill"})
+OVER_THE_LIMIT = frozenset({"read", "write"})
 _OVER = pytest.mark.xfail(
     strict=True,
     raises=AssertionError,

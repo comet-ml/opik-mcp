@@ -719,9 +719,11 @@ async def schema(
 # so a name-only contract would leave `opik` a 5 KB index with 130 KB of
 # unreachable references behind it.
 #
-# The description is rendered from the bundled tree — both the routing list and
-# the full path inventory — so a new skill cannot be shipped unmentioned, and a
-# caller never has to guess a path.
+# The description's routing list is rendered from the bundled tree, so a new
+# skill cannot be shipped unmentioned. Reference paths are not in it: each
+# SKILL.md ends with the list of its references, so a caller reads the path
+# from the document that cites it instead of paying for an inventory in every
+# session.
 #
 # No `enum` on `skill_name`: the argument accepts paths and URIs as well as the
 # five names, so an enum would advertise a closed set the tool does not enforce
@@ -742,8 +744,8 @@ async def read_skill(
             description=(
                 "A skill name ('opik-instrument'), a path inside a skill "
                 "('opik/references/tracing-python.md'), or a resource URI "
-                "('opik://skills/opik/SKILL.md'). The tool description lists every "
-                "skill and every readable path."
+                "('opik://skills/opik/SKILL.md'). A SKILL.md ends with the list of "
+                "its references."
             ),
             min_length=1,
             max_length=512,
