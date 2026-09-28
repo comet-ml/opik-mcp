@@ -12,7 +12,10 @@ import subprocess
 import sys
 from functools import lru_cache
 
-# A plain ``str`` for the reason given at ``environment._PLATFORM``.
+# A plain ``str`` for the reason given at ``environment._PLATFORM``. This copy
+# drives the process readers here (parent, grandparent, ppid); the one in
+# ``environment`` drives container, launch-method and machine-id detection.
+# A test patches the module whose detector it exercises.
 _PLATFORM: str = sys.platform
 
 # Parent-process allowlist. Substring match on the raw comm value

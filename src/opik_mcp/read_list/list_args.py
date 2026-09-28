@@ -85,8 +85,8 @@ def resolve_list_args(
     prompt_id: str | None,
     status: str | None,
 ) -> ListArgs:
-    """Every refusal the arguments alone can earn is raised here, as a
-    ``ToolError``, before a connection is opened."""
+    """Every argument refusal after the entity type is known is raised here,
+    as a ``ToolError``, before a connection is opened."""
     size = clamp_size(size)
     page = max(1, page)
 
