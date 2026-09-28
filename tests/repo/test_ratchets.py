@@ -21,6 +21,18 @@ POLICY_GLOBS = {"scripts/**", ".claude/hooks/**", "tests/**"}
 SUPPRESSION = re.compile(r"#\s*(?:noqa|type:\s*ignore)")
 
 _POLICY = {"src/opik_mcp/_version.py"}
+# The raw-backend-JSON edge (pyproject.toml): allowed explicit Any on purpose, not debt.
+ANY_EDGE = {
+    "opik_mcp.client.annotations",
+    "opik_mcp.client.base",
+    "opik_mcp.client.dataset",
+    "opik_mcp.client.diagnostics",
+    "opik_mcp.client.experiment",
+    "opik_mcp.client.observability",
+    "opik_mcp.client.project",
+    "opik_mcp.client.prompt",
+    "opik_mcp.client.protocols",
+}
 RUFF_BASELINE: dict[str, list[str]] = {
     path: codes
     for path, codes in CONFIG["tool"]["ruff"]["lint"]["per-file-ignores"].items()
@@ -31,7 +43,7 @@ MYPY_BASELINE: list[str] = next(
     for override in CONFIG["tool"]["mypy"]["overrides"]
     if isinstance(override["module"], list)
     and override.get("disallow_any_explicit") is False
-    and "opik_mcp.client.*" not in override["module"]
+    and not ANY_EDGE & set(override["module"])
 )
 
 
@@ -57,6 +69,24 @@ def test_the_mypy_baseline_matches_the_record() -> None:
 def test_no_new_glob_exemptions() -> None:
     globs = {key for key in CONFIG["tool"]["ruff"]["lint"]["per-file-ignores"] if "*" in key}
     assert globs == POLICY_GLOBS, f"a glob exemption excuses files nobody listed: {globs}"
+
+
+def test_explicit_any_is_excused_only_by_name() -> None:
+    excused = [
+        module
+        for override in CONFIG["tool"]["mypy"]["overrides"]
+        if override.get("disallow_any_explicit") is False
+        for module in override["module"]
+    ]
+    globs = [module for module in excused if "*" in module]
+    assert not globs, (
+        f"a glob in pyproject.toml excuses explicit Any for modules nobody listed: {globs}"
+    )
+    edge = set(excused) - set(MYPY_BASELINE)
+    assert edge == ANY_EDGE, (
+        f"explicit Any is excused outside the baseline for {sorted(edge ^ ANY_EDGE)}; "
+        "the edge list in pyproject.toml and ANY_EDGE here change together, on purpose."
+    )
 
 
 def test_suppressions_only_shrink() -> None:

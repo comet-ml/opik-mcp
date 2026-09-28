@@ -226,7 +226,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Raw backend JSON is the one place Any is honest. Type it once, at the edge.
-module = ["opik_mcp.client.*"]
+# Listed by name, not by glob, so a new module under client/ meets the full rule.
+module = [
+    "opik_mcp.client.annotations",
+    "opik_mcp.client.base",
+    "opik_mcp.client.dataset",
+    "opik_mcp.client.diagnostics",
+    "opik_mcp.client.experiment",
+    "opik_mcp.client.observability",
+    "opik_mcp.client.project",
+    "opik_mcp.client.prompt",
+    "opik_mcp.client.protocols",
+]
 disallow_any_explicit = false
 
 # Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
