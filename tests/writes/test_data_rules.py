@@ -13,12 +13,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from opik_mcp.writes.dispatch import _resolve_idempotency_key
-from opik_mcp.writes.models import (
-    PromptVersionSave,
-    SpanCreate,
-    TraceCreate,
-    TraceUpdate,
-)
+from opik_mcp.writes.operations.evaluation import PromptVersionSave
+from opik_mcp.writes.operations.observability import SpanCreate, TraceCreate, TraceUpdate
 
 # --- tags: replace-vs-patch xor ----------------------------------------- #
 
