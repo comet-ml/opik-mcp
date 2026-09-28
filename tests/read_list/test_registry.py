@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
+from opik_mcp.read_list.handler import Vocabulary
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
     READABLE_TYPES,
+    SORTABLE_TYPES,
+    VOCABULARIES,
     resolve_entity_type,
 )
+from opik_mcp.read_list.sorting import SortError, compile_sort
 
 
 def test_list_only_entities_excluded_from_readable() -> None:
@@ -121,3 +127,23 @@ def test_legacy_test_suite_names_resolve_to_dataset() -> None:
     learned the old vocabulary still lands on the renamed entity."""
     assert resolve_entity_type("test_suite") == "dataset"
     assert resolve_entity_type("test_suite_item") == "dataset_item"
+
+
+def test_every_vocabulary_is_named_after_its_entity_or_its_list_mode() -> None:
+    """A field table reaches the list tool by name, so a name that is neither
+    the entity's own nor the one its collection path asks for is a table no
+    call can reach."""
+    for entity_type, handler in ENTITY_REGISTRY.items():
+        reachable = {entity_type, handler.list_vocabulary}
+        for vocabulary in handler.vocabularies:
+            assert vocabulary.name in reachable, (entity_type, vocabulary.name)
+    assert len(VOCABULARIES) == sum(len(h.vocabularies) for h in ENTITY_REGISTRY.values())
+
+
+def test_a_sort_on_an_entity_with_no_vocabulary_names_the_sortable_types() -> None:
+    with pytest.raises(SortError) as refused:
+        compile_sort(Vocabulary(name="prompt"), "name", sortable_types=SORTABLE_TYPES)
+    assert str(refused.value) == (
+        "sort is not supported for 'prompt'. Sortable types: "
+        "project, trace, span, thread, experiment, dataset_item."
+    )

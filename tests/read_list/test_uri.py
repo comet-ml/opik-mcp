@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import pytest
 
-from opik_mcp.read_list.uri import (
-    InvalidURI,
-    ParsedURI,
-    looks_like_opik_link,
-    looks_like_thread_url,
-    looks_like_uri,
-    parse,
-)
+from opik_mcp.read_list import uri
+from opik_mcp.read_list.registry import READABLE_TYPES, URI_PATTERNS
+from opik_mcp.read_list.uri import InvalidURI, ParsedURI, looks_like_uri
+
+
+def parse(address: str) -> ParsedURI:
+    return uri.parse(address, URI_PATTERNS)
+
+
+def looks_like_opik_link(address: str) -> bool:
+    return uri.looks_like_opik_link(address, URI_PATTERNS)
+
+
+def looks_like_thread_url(address: str) -> bool:
+    return uri.looks_like_opik_link(address, [p for p in URI_PATTERNS if p[0] == "thread"])
 
 
 @pytest.mark.parametrize(
@@ -190,3 +197,9 @@ def test_a_compare_link_with_an_unparseable_run_list_is_not_claimed() -> None:
     assert not looks_like_opik_link(
         "https://opik.test/ws/experiments/ds/compare?experiments=%5B%5D"
     )
+
+
+def test_every_address_names_an_entity_read_can_open() -> None:
+    """A pattern on a handler ``read`` cannot fetch would parse a link only to
+    refuse it."""
+    assert {entity_type for entity_type, _ in URI_PATTERNS} <= set(READABLE_TYPES)

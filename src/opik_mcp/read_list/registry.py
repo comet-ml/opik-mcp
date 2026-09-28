@@ -24,8 +24,9 @@ from opik_mcp.read_list.entities import (
     thread,
     trace,
 )
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.unsupported import unsupported_fetch
+from opik_mcp.read_list.uri import UriPattern
 
 ENTITY_REGISTRY: dict[str, EntityHandler] = {
     handler.entity_type: handler
@@ -34,9 +35,9 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         trace.HANDLER,
         span.HANDLER,
         thread.HANDLER,
+        experiment.HANDLER,
         dataset.HANDLER,
         dataset.ITEM_HANDLER,
-        experiment.HANDLER,
         prompt.HANDLER,
         prompt.VERSION_HANDLER,
         project_metric.HANDLER,
@@ -58,8 +59,8 @@ ENTITY_ALIASES: dict[str, str] = {
     "issue": "agent_insights_issue",
     "test_suite": "dataset",
     "test_suite_item": "dataset_item",
-    # The field table behind ``schema("list.dataset_item_case")``
-    # (``oql.VOCABULARY_MODES``). Refusals name the entity a caller typed, but
+    # The field table behind ``schema("list.dataset_item_case")`` (a
+    # ``Vocabulary`` with ``mode_of``). Refusals name the entity a caller typed, but
     # the reference pointer beside them names this key — and an agent that has
     # just read a reference is the likeliest caller to type its name back.
     "dataset_item_case": "dataset_item",
@@ -76,10 +77,37 @@ READABLE_TYPES: tuple[str, ...] = tuple(
 )
 LISTABLE_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.lists)
 
+#: Every field table a ``list`` call can be checked against, by name, in
+#: registry order: ``schema("list.…")`` keys and refusals list them this way.
+VOCABULARIES: dict[str, Vocabulary] = {
+    vocabulary.name: vocabulary
+    for handler in ENTITY_REGISTRY.values()
+    for vocabulary in handler.vocabularies
+}
+SORTABLE_TYPES: tuple[str, ...] = tuple(v.name for v in VOCABULARIES.values() if v.sort_fields)
+#: The entity types ``filters`` applies to. A mode of an entity is not a type.
+FILTERABLE_TYPES: tuple[str, ...] = tuple(
+    v.name for v in VOCABULARIES.values() if v.filter_fields and v.mode_of is None
+)
+WINDOWED_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.is_windowed)
+
+#: Every address ``read`` accepts as an id, with the entity it names, in the
+#: order ``uri.parse`` tries them.
+URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
+    (handler.entity_type, pattern)
+    for handler in sorted(ENTITY_REGISTRY.values(), key=lambda h: -h.uri_precedence)
+    for pattern in handler.uri_patterns
+)
+
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
+    "FILTERABLE_TYPES",
     "LISTABLE_TYPES",
     "READABLE_TYPES",
+    "SORTABLE_TYPES",
+    "URI_PATTERNS",
+    "VOCABULARIES",
+    "WINDOWED_TYPES",
     "resolve_entity_type",
 ]

@@ -80,7 +80,8 @@ names a metric that does), a bad or missing `series`, and `page`, `size`,
   `read`. The score-name endpoint returns every name at once, so the server
   slices the page and reports the true total. Rule rows add `type`, `enabled`
   and `sampling_rate`.
-- All four list types carry an "Open in Opik" page note from `link_note_for`.
+- All four list types carry an "Open in Opik" page note, built by
+  `page_note_of` from each handler's `row_link_template` or `view_page`.
 
 ## How it works
 

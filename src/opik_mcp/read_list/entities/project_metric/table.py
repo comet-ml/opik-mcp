@@ -266,7 +266,16 @@ def render(body: dict[str, Any], table: Table) -> str:
             )
         )
 
-    lines.extend(_notes(table, axis, quiet_rows, empty_rows, columns, uncombinable))
+    lines.extend(
+        _notes(
+            table,
+            axis=axis,
+            quiet_rows=quiet_rows,
+            empty_rows=empty_rows,
+            columns=columns,
+            uncombinable=uncombinable,
+        )
+    )
     return "\n".join(lines)
 
 
@@ -284,6 +293,7 @@ def _nothing_there(family: str) -> str:
 
 def _notes(
     table: Table,
+    *,
     axis: list[str],
     quiet_rows: int,
     empty_rows: int,

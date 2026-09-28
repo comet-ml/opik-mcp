@@ -16,8 +16,9 @@ from typing import Any
 
 from opik_mcp.config import Settings
 from opik_mcp.opik_client import OpikListClient, OpikReadClient
-from opik_mcp.read_list.decorations import link_note_for
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.entities import SOURCE_VALUES
+from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.oql import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -26,7 +27,8 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
-from opik_mcp.read_list.ui_links import trace_link_template, trace_page_url
+from opik_mcp.read_list.ui_links import logs_page_url, trace_link_template
+from opik_mcp.read_list.uri import opik_uri, web_link
 
 # Inline caps for composite reads — match the previous resources.py
 # constants so cache shapes stay stable for any in-flight integration.
@@ -104,6 +106,38 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     return result
 
 
+def trace_page_url(
+    settings: Settings,
+    project_id: str,
+    trace_id: str,
+    *,
+    span_id: str | None = None,
+) -> str | None:
+    """The Logs page with this trace open, or ``None`` when it cannot be built.
+
+    The direct address, for when the project and the workspace are both known.
+    :func:`trace_link_template` is the fallback for when they are not — it
+    costs a hop and lands on ``/traces``, which v2 keeps only to forward here.
+
+    ``span_id`` selects one span inside the opened trace. It is not an address
+    of its own: the UI treats it as panel state under the trace, and writes an
+    empty one into the query when a trace is opened without a span.
+    """
+    if not trace_id:
+        return None
+    if span_id:
+        return logs_page_url(
+            settings, project_id=project_id, logs_type="traces", trace=trace_id, span=span_id
+        )
+    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace=trace_id)
+
+
+def row_link_template(settings: Settings, project_id: str | None) -> str | None:
+    if not project_id:
+        return None
+    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace="{id}")
+
+
 def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     """The trace's UI link: the Logs page directly, or the redirect.
 
@@ -154,9 +188,68 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     return record
 
 
+VOCABULARY = Vocabulary(
+    name="trace",
+    filter_fields={
+        "id": "string",
+        "name": "string",
+        **TIMING_FIELDS,
+        **PAYLOAD_FIELDS,
+        "llm_span_count": "number",
+        "span_feedback_scores": "feedback_scores",
+        "thread_id": "string",
+        "guardrails": "string",
+        "visibility_mode": "enum",
+        "annotation_queue_ids": "list",
+        "experiment_id": "string",
+        "experiment_ids": "string_list",
+    },
+    enum_values={
+        "source": SOURCE_VALUES,
+        "visibility_mode": ("default", "hidden"),
+    },
+    is_source_defaulted=True,
+    filter_examples=(
+        "error_info is_not_empty AND duration > 5000",
+        'feedback_scores.accuracy < 0.5 AND start_time >= "2026-09-08T00:00:00Z"',
+    ),
+    sort_fields=(
+        "id",
+        "name",
+        "input",
+        "output",
+        "start_time",
+        "end_time",
+        "duration",
+        "ttft",
+        "metadata",
+        "thread_id",
+        "span_count",
+        "llm_span_count",
+        "usage.*",
+        "total_estimated_cost",
+        "tags",
+        "error_info",
+        "created_by",
+        "feedback_scores.*",
+        "experiment_id",
+        "environment",
+    ),
+)
+
+
 HANDLER = EntityHandler(
     entity_type="trace",
-    page_note_fn=link_note_for("trace"),
+    is_windowed=True,
+    # ``tls_trace`` is the UI's key, ``trace_id`` our own redirect's, so a
+    # link this server handed out is one it takes back.
+    uri_patterns=(
+        opik_uri("traces/{id}"),
+        web_link("tls_trace", "trace_id", is_project_scoped=False),
+    ),
+    uri_precedence=3,
+    vocabularies=(VOCABULARY,),
+    row_link_template=row_link_template,
     fetch_fn=fetch,
     link_fn=trace_links,
     list_fn=list_page,

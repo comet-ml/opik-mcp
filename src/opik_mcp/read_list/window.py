@@ -78,7 +78,7 @@ def resolve_instant(param: str, value: str, *, now: datetime | None = None) -> d
 
 
 def resolve_window(
-    since: str | None, until: str | None, *, now: datetime | None = None
+    *, since: str | None, until: str | None, now: datetime | None = None
 ) -> tuple[str | None, str | None]:
     """Resolve both bounds to ``…Z`` strings and check their order."""
     now = now or datetime.now(UTC)

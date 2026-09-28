@@ -11,8 +11,25 @@ from __future__ import annotations
 
 import pytest
 
+from opik_mcp.read_list import oql
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.oql import OQLError, compile_filters, split_param_clauses
+from opik_mcp.read_list.handler import Vocabulary
+from opik_mcp.read_list.oql import OQLError
+from opik_mcp.read_list.registry import FILTERABLE_TYPES, VOCABULARIES
+
+
+def _vocabulary(entity_type: str) -> Vocabulary:
+    return VOCABULARIES.get(entity_type) or Vocabulary(name=entity_type)
+
+
+def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
+    return oql.compile_filters(_vocabulary(entity_type), query, filterable_types=FILTERABLE_TYPES)
+
+
+def split_param_clauses(
+    entity_type: str, clauses: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], dict[str, str]]:
+    return oql.split_param_clauses(_vocabulary(entity_type), clauses)
 
 
 def _clause(field: str, operator: str, value: str = "", key: str = "") -> dict[str, str]:
@@ -497,3 +514,21 @@ def test_two_clauses_on_one_parameter_field_are_refused() -> None:
     with pytest.raises(OQLError) as exc:
         split_param_clauses("experiment", clauses)
     assert "once" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "query", "expected"),
+    [
+        ("dataset_item_case", 'data.q contains "a"', ["data"]),
+        ("dataset_item_case", 'source contains "trace"', ["source"]),
+        ("dataset_item", 'data.q contains "a"', ["data"]),
+        ("dataset_item", 'full_data contains "a"', ["full_data"]),
+        ("trace", "duration > 5", ["duration"]),
+    ],
+)
+def test_filter_field_names_reads_a_vocabulary_typed_by_its_own_name(
+    entity_type: str, query: str, expected: list[str]
+) -> None:
+    """Analytics labels the fields of a call typed as a mode's own key
+    (``dataset_item_case``), as well as one typed as the entity."""
+    assert oql.filter_field_names(entity_type, query, VOCABULARIES.values()) == expected

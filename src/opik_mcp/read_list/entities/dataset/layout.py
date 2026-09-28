@@ -207,11 +207,11 @@ def authored(run: dict[str, Any], name: str) -> list[tuple[float, str]]:
     by_author = entry.get("value_by_author")
     if not isinstance(by_author, dict) or len(by_author) < 2:
         return []
-    out: list[tuple[float, str]] = []
-    for opinion in by_author.values():
-        if isinstance(opinion, dict) and isinstance(opinion.get("value"), int | float):
-            out.append((float(opinion["value"]), str(opinion.get("source") or "?")))
-    return out
+    return [
+        (float(opinion["value"]), str(opinion.get("source") or "?"))
+        for opinion in by_author.values()
+        if isinstance(opinion, dict) and isinstance(opinion.get("value"), int | float)
+    ]
 
 
 def _mean(values: list[float]) -> float | None:
@@ -607,7 +607,7 @@ def render(
         # ``evaluation_method = 'evaluation_suite'``, so for a plain dataset the
         # backend cannot fill them and the columns would be dashes read as loss.
         columns += ["passed", "worst_trace", "reason"] if assertion_columns else ["worst_trace"]
-        limit = cell_limit(len(rows), len(columns))
+        limit = cell_limit(rows=len(rows), columns=len(columns))
 
     cut = 0
     compared: list[ComparedRow] = []

@@ -33,28 +33,14 @@ from __future__ import annotations
 
 import difflib
 import json
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal
 
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import FieldType, ParamField, Vocabulary
 from opik_mcp.read_list.uri import is_uuid
 from opik_mcp.read_list.window import parse_instant
-
-FieldType = Literal[
-    "string",
-    "date_time",
-    "number",
-    "feedback_scores",
-    "dictionary",
-    "map",
-    "list",
-    "enum",
-    "enum_legacy",
-    "error_container",
-    "string_list",
-    "keyed_string",
-    "flat_or_keyed_string",
-]
 
 # Operator → FieldType entries of opik-backend's ANALYTICS_DB_OPERATOR_MAP
 # (FilterQueryBuilder.java). A pair missing there is a 400 server-side.
@@ -122,13 +108,15 @@ USAGE_FIELDS: Final = ("usage.total_tokens", "usage.prompt_tokens", "usage.compl
 # an agent writing ``duration > 5`` learns it asked for five milliseconds.
 MILLISECOND_FIELDS: Final = frozenset({"duration", "ttft"})
 
-_SHARED_TIMING: dict[str, FieldType] = {
+#: Timing fields every observability record carries.
+TIMING_FIELDS: Final[dict[str, FieldType]] = {
     "start_time": "date_time",
     "end_time": "date_time",
     "created_at": "date_time",
     "last_updated_at": "date_time",
 }
-_SHARED_PAYLOAD: dict[str, FieldType] = {
+#: The payload, usage, cost, score and error fields a trace and a span share.
+PAYLOAD_FIELDS: Final[dict[str, FieldType]] = {
     "input": "string",
     "output": "string",
     "input_json": "dictionary",
@@ -148,266 +136,9 @@ _SHARED_PAYLOAD: dict[str, FieldType] = {
     "environment": "enum",
 }
 
-# Filterable fields per entity — mirrors the backend's field enums.
-FILTERABLE_FIELDS: Final[dict[str, dict[str, FieldType]]] = {
-    "trace": {
-        "id": "string",
-        "name": "string",
-        **_SHARED_TIMING,
-        **_SHARED_PAYLOAD,
-        "llm_span_count": "number",
-        "span_feedback_scores": "feedback_scores",
-        "thread_id": "string",
-        "guardrails": "string",
-        "visibility_mode": "enum",
-        "annotation_queue_ids": "list",
-        "experiment_id": "string",
-        "experiment_ids": "string_list",
-    },
-    "span": {
-        "id": "string",
-        "name": "string",
-        "type": "enum",
-        "trace_id": "string",
-        **_SHARED_TIMING,
-        **_SHARED_PAYLOAD,
-        "model": "string",
-        "provider": "string",
-    },
-    "thread": {
-        "id": "string",
-        "first_message": "string",
-        "last_message": "string",
-        "number_of_messages": "number",
-        "duration": "number",
-        **_SHARED_TIMING,
-        "feedback_scores": "feedback_scores",
-        "status": "enum",
-        "tags": "list",
-        "annotation_queue_ids": "list",
-        "source": "enum_legacy",
-        "environment": "enum",
-    },
-    "experiment": {
-        "metadata": "dictionary",
-        "dataset_id": "string",
-        "project_id": "string",
-        "prompt_ids": "list",
-        "tags": "list",
-        "feedback_scores": "feedback_scores",
-        "experiment_scores": "feedback_scores",
-        # Not in ``ExperimentField``: the backend takes these three as query
-        # parameters of their own, and ``split_param_clauses`` lifts them out
-        # of the compiled array before the call is made. They are declared
-        # here because they are the caller's vocabulary either way — how a
-        # filter travels is our problem, not theirs.
-        "type": "enum",
-        "optimization_id": "string",
-        "experiment_ids": "string_list",
-    },
-    # What the UI's compare page offers, which is also what the backend
-    # actually applies. ``total_estimated_cost`` and ``usage.total_tokens``
-    # are deliberately absent: the joined endpoint validates them, answers
-    # 200 and never puts them in the query, so a page filtered on either is
-    # an unfiltered page that reads like a filtered one.
-    "dataset_item": {
-        "id": "string",
-        "data": "keyed_string",
-        "output": "flat_or_keyed_string",
-        "duration": "number",
-        "comments": "string",
-        "feedback_scores": "feedback_scores",
-    },
-    # The dataset's own cases — ``GET /datasets/{id}/items``, from
-    # ``DatasetItemField``. A different endpoint from the comparison above,
-    # with a different set of columns, so it is a vocabulary of its own: the
-    # joined page reads the runs (duration, output, the judge's scores) and
-    # this one reads the case (its keys, its payload, where it came from).
-    # One entity_type, two questions; ``VOCABULARY_MODES`` says which
-    # vocabulary belongs to which call, and neither can be written for the
-    # other endpoint, which would be a 400 at best and an unfiltered page at
-    # worst.
-    "dataset_item_case": {
-        "id": "string",
-        "data": "map",
-        "full_data": "string",
-        "tags": "list",
-        "source": "string",
-        "trace_id": "string",
-        "span_id": "string",
-        "created_at": "date_time",
-        "last_updated_at": "date_time",
-        "created_by": "string",
-        "last_updated_by": "string",
-    },
-}
-#: Vocabularies that are a mode of another entity rather than an ``entity_type``
-#: a caller can pass. A dataset item is listed two ways and the fields differ,
-#: but ``list('dataset_item', …)`` is what is typed either way — so these keys
-#: stay out of the "filterable types" a refusal names, and the entity's
-#: registry row says which of them its collection path uses.
-VOCABULARY_MODES: Final[dict[str, str]] = {"dataset_item_case": "dataset_item"}
-
-
-def called(vocabulary: str) -> str:
-    """The ``entity_type`` a caller typed to reach this field table.
-
-    Refusals name this; the ``schema("list.…")`` pointer beside them names the
-    vocabulary, because that is the key that answers with the fields being
-    refused. Saying ``dataset_item_case`` where the call said ``dataset_item``
-    reads as a typo the caller cannot have made.
-    """
-    return VOCABULARY_MODES.get(vocabulary, vocabulary)
-
-
-# Closed enum values, per entity, from opik-backend's own enums (Source,
-# SpanType, TraceThreadStatus, VisibilityMode), confirmed against a live
-# backend rather than read off the Java alone.
-#
-# ``source`` is the one the backend itself validates: it deserializes the
-# filter value into the enum and throws on a miss, which reaches the caller as
-# a 500, not a 400, so `source = "SDK"` is an opaque server error for a
-# capital letter. The others are compared as strings in ClickHouse and answer
-# 200 with nothing — a silent empty page that reads like "no matches" when it
-# really means "no such value". Both are worth refusing here, with the set.
-#
-# ``unknown`` is included where the column can actually hold it: Source and
-# SpanType both define it as a stored value that cannot be ingested (rows that
-# predate the field), so filtering for it is a real question. VisibilityMode
-# and TraceThreadStatus define no such sentinel.
-#
-# Only genuinely closed sets appear. ``environment`` is an enum to the operator
-# map but a free string in the data — any deployment names its own — so listing
-# values would reject valid filters.
-SOURCE_VALUES: Final = ("sdk", "experiment", "playground", "optimization", "evaluator", "unknown")
-
-ENUM_VALUES: Final[dict[str, dict[str, tuple[str, ...]]]] = {
-    "trace": {
-        "source": SOURCE_VALUES,
-        "visibility_mode": ("default", "hidden"),
-    },
-    "span": {
-        "source": SOURCE_VALUES,
-        "type": ("general", "tool", "llm", "guardrail", "unknown"),
-    },
-    "thread": {
-        "source": SOURCE_VALUES,
-        "status": ("active", "inactive"),
-    },
-    # ``ExperimentType``. The resource deserializes the query parameter into
-    # this enum and throws on a miss, so an unknown value is a 400 with the
-    # parameter echoed back rather than anything the agent can act on. It is
-    # also what makes the complement of a negation computable.
-    "experiment": {
-        "type": ("regular", "trial", "mini-batch", "mutation"),
-    },
-}
-
-#: Fields an agent will reasonably try that an entity does not offer, grouped
-#: by why. Appended to the unknown-field message so the answer says where the
-#: field went rather than "you misspelled something" — and grouped, because
-#: the reasons differ and one of them names a call that would work. A field
-#: whose answer is "ask the other call" must not be listed beside one that
-#: other call also refuses.
-IGNORED_BY_BACKEND: Final[dict[str, tuple[tuple[frozenset[str], str], ...]]] = {
-    "dataset_item_case": (
-        (
-            frozenset({"duration", "output", "comments", "feedback_scores"}),
-            "It is a field of the comparison's joined page, which a plain list of a dataset's "
-            "cases does not have. Name the experiments and it applies: list('dataset_item', "
-            "experiment_ids=['<uuid>', '<uuid>'], filters='feedback_scores.correctness < 0.5').",
-        ),
-        (
-            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
-            "Neither call filters on it: the items endpoint has no such column, and the "
-            "compare endpoint accepts it, answers 200 and never applies it — so naming the "
-            "experiments would not help.",
-        ),
-    ),
-    "dataset_item": (
-        (
-            frozenset({"total_estimated_cost", *USAGE_FIELDS, "usage"}),
-            "The compare endpoint accepts it, answers 200 and never applies it, so a page "
-            "filtered on it would be an unfiltered page.",
-        ),
-    ),
-}
-
-
-@dataclass(frozen=True)
-class ParamField:
-    """A filter field the backend takes as a query parameter of its own.
-
-    Most fields travel in the ``filters`` array, which the backend types and
-    applies itself. A few predate it and have their own parameter — the
-    experiment listing's ``types`` and ``optimization_id`` are both older than
-    ``ExperimentField``, which is why neither is in that enum. Either way it
-    is a filter to the caller, so it is declared in ``FILTERABLE_FIELDS`` like
-    anything else and lifted out at the end by :func:`split_param_clauses`.
-
-    The operators are narrower than the field's type allows, because the
-    constraint is the parameter's shape rather than the column's: one value
-    cannot express a negation, and one identifier cannot express a set.
-    """
-
-    param: str
-    """The query parameter the clause becomes."""
-    operators: tuple[str, ...]
-    """Operators that translate. Anything else is refused with ``why``."""
-    encoding: Literal["json_list", "single"]
-    """``json_list``: a JSON array the resource parses. ``single``: the bare
-    value, so only one clause with one value can be expressed."""
-    why: str
-    """Why the other operators cannot translate, in the refusal's voice."""
-    value_form: Literal["uuid"] | None = None
-    """A shape the parameter requires beyond the field's type. The resource
-    declares ``optimization_id`` as a UUID and answers its own error for
-    anything else, which is a response the agent has to interpret rather than
-    act on — so the check happens here instead."""
-
-
-PARAM_FIELDS: Final[dict[str, dict[str, ParamField]]] = {
-    "experiment": {
-        "type": ParamField(
-            param="types",
-            operators=("=", "in"),
-            encoding="json_list",
-            why="the backend filters types as a set",
-        ),
-        "optimization_id": ParamField(
-            param="optimization_id",
-            operators=("=",),
-            encoding="single",
-            why="the backend takes one exact id",
-            value_form="uuid",
-        ),
-        # The runs a caller already holds ids for — the two it is about to
-        # compare, the five it just ranked — in one call, with every column
-        # the listing has. That was N reads or a paged scan before.
-        "experiment_ids": ParamField(
-            param="experiment_ids",
-            operators=("in",),
-            encoding="json_list",
-            why="the backend takes a set of exact ids to include",
-            value_form="uuid",
-        ),
-    },
-}
 
 NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
 
-SUPPORTED_ENTITIES: Final[tuple[str, ...]] = tuple(
-    e for e in FILTERABLE_FIELDS if e not in VOCABULARY_MODES
-)
-"""The entity types a caller can put in ``list(entity_type, filters=…)``. Not
-every key of ``FILTERABLE_FIELDS``: a mode of an entity is not a type."""
-# The per-entity search surface beyond filters, in one place so the list tool
-# and the schema reference cannot disagree. Experiments have no ``source``
-# (they are one source by definition), no time window and no free-text search.
-SOURCE_DEFAULTED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
-"""Lists that add ``source = "sdk"`` unless the caller names ``source`` — the
-UI's Logs page default, so evaluator / playground / experiment traces don't
-crowd out application traffic."""
 PARENT_ID_FIELDS: Final[tuple[str, ...]] = (
     "trace_id",
     "thread_id",
@@ -436,13 +167,6 @@ It had been written out three times — twice as this dict, once as its JSON
 string — and three copies of a default are three chances for the tools to
 disagree about what the default is. Copy it before mutating: the compiled
 clause lists are built by appending to them."""
-WINDOWED_ENTITIES: Final[tuple[str, ...]] = ("trace", "span", "thread")
-"""Lists whose backend endpoint takes ``from_time``/``to_time`` and free-text
-``search`` (the two capabilities ship together on the backend)."""
-NAME_SEARCHABLE_ENTITIES: Final[tuple[str, ...]] = ("project", "experiment", "prompt", "dataset")
-"""Workspace-wide lists whose endpoint takes a ``name`` substring — the match
-a caller who reached for ``search`` on one of them can have instead."""
-
 GRAMMAR_LINE: Final = (
     "<field>[.<key>] <op> <value> [AND ...] — strings in double quotes, numbers bare, "
     'is_empty/is_not_empty take no value, in/not_in take ("a", "b").'
@@ -470,13 +194,13 @@ class OQLError(EntityArgValidationError):
     string itself ever leaving the process.
     """
 
-    def __new__(cls, entity_type: str, query: str, issues: list[OQLIssue]) -> OQLError:
+    def __new__(cls, _vocabulary: Vocabulary, _query: str, issues: list[OQLIssue]) -> OQLError:
         if cls is OQLError and issues:
             cls = _KIND_CLASSES[issues[0].kind]
         return super().__new__(cls)
 
-    def __init__(self, entity_type: str, query: str, issues: list[OQLIssue]) -> None:
-        self.entity_type = entity_type
+    def __init__(self, vocabulary: Vocabulary, query: str, issues: list[OQLIssue]) -> None:
+        self.vocabulary = vocabulary
         self.query = query
         self.issues: tuple[OQLIssue, ...] = tuple(issues)
         super().__init__(self._render())
@@ -486,15 +210,15 @@ class OQLError(EntityArgValidationError):
         return tuple(i.kind for i in self.issues)
 
     def _render(self) -> str:
-        lines = [f"Invalid filters for {called(self.entity_type)}:"]
+        lines = [f"Invalid filters for {self.vocabulary.entity_type}:"]
         for n, issue in enumerate(self.issues, start=1):
             lines.append(f"  {n}. {issue.message}")
             if issue.position is not None:
                 lines.append(self.query)
                 lines.append(" " * issue.position + "^")
         lines.append(f"Grammar: {GRAMMAR_LINE}")
-        if self.entity_type in FILTERABLE_FIELDS:
-            lines.append(f'Field reference: schema("list.{self.entity_type}").')
+        if self.vocabulary.filter_fields:
+            lines.append(f'Field reference: schema("list.{self.vocabulary.name}").')
         return "\n".join(lines)
 
 
@@ -556,78 +280,80 @@ class _Parser:
     """
 
     def __init__(self, query: str) -> None:
-        self.q = query
-        self.i = 0
+        self.query = query
+        self.cursor = 0
 
     # -- helpers --
 
     def _at_end(self) -> bool:
-        return self.i >= len(self.q)
+        return self.cursor >= len(self.query)
 
     def _skip_ws(self) -> None:
-        while not self._at_end() and self.q[self.i].isspace():
-            self.i += 1
+        while not self._at_end() and self.query[self.cursor].isspace():
+            self.cursor += 1
 
     def _read_word(self) -> str:
-        start = self.i
-        while not self._at_end() and (self.q[self.i].isalnum() or self.q[self.i] == "_"):
-            self.i += 1
-        return self.q[start : self.i]
+        start = self.cursor
+        while not self._at_end() and (
+            self.query[self.cursor].isalnum() or self.query[self.cursor] == "_"
+        ):
+            self.cursor += 1
+        return self.query[start : self.cursor]
 
     def _read_quoted(self, *, what: str) -> str:
         """Cursor is on the opening quote. Returns the unescaped content."""
-        open_pos = self.i
-        self.i += 1
+        open_pos = self.cursor
+        self.cursor += 1
         out: list[str] = []
         while not self._at_end():
-            ch = self.q[self.i]
-            if ch == '"':
-                if self.i + 1 < len(self.q) and self.q[self.i + 1] == '"':
+            char = self.query[self.cursor]
+            if char == '"':
+                if self.cursor + 1 < len(self.query) and self.query[self.cursor + 1] == '"':
                     out.append('"')
-                    self.i += 2
+                    self.cursor += 2
                     continue
-                self.i += 1
+                self.cursor += 1
                 return "".join(out)
-            out.append(ch)
-            self.i += 1
-        raise _SyntaxError(f"missing closing quote for {what} {self.q[open_pos:]}", open_pos)
+            out.append(char)
+            self.cursor += 1
+        raise _SyntaxError(f"missing closing quote for {what} {self.query[open_pos:]}", open_pos)
 
     def _read_number(self) -> str:
-        start = self.i
-        if not self._at_end() and self.q[self.i] == "-":
-            self.i += 1
-        digits_start = self.i
-        while not self._at_end() and self.q[self.i].isdigit():
-            self.i += 1
-        if self.i == digits_start:
-            msg = "expected a number after '-'" if self.q[start] == "-" else "expected a number"
+        start = self.cursor
+        if not self._at_end() and self.query[self.cursor] == "-":
+            self.cursor += 1
+        digits_start = self.cursor
+        while not self._at_end() and self.query[self.cursor].isdigit():
+            self.cursor += 1
+        if self.cursor == digits_start:
+            msg = "expected a number after '-'" if self.query[start] == "-" else "expected a number"
             raise _SyntaxError(msg, start)
-        if not self._at_end() and self.q[self.i] == ".":
-            self.i += 1
-            frac_start = self.i
-            while not self._at_end() and self.q[self.i].isdigit():
-                self.i += 1
-            if self.i == frac_start:
+        if not self._at_end() and self.query[self.cursor] == ".":
+            self.cursor += 1
+            frac_start = self.cursor
+            while not self._at_end() and self.query[self.cursor].isdigit():
+                self.cursor += 1
+            if self.cursor == frac_start:
                 raise _SyntaxError("expected digits after decimal point", frac_start)
-        return self.q[start : self.i]
+        return self.query[start : self.cursor]
 
     # -- grammar --
 
     def _parse_field(self) -> tuple[str, str | None, int]:
         self._skip_ws()
-        pos = self.i
+        pos = self.cursor
         if self._at_end():
             raise _SyntaxError("unexpected end of input, expected a field name", pos)
         field = self._read_word()
         if not field:
-            raise _SyntaxError(f"expected a field name, got {self.q[pos : pos + 12]!r}", pos)
+            raise _SyntaxError(f"expected a field name, got {self.query[pos : pos + 12]!r}", pos)
         key: str | None = None
-        if not self._at_end() and self.q[self.i] == ".":
-            self.i += 1
-            if not self._at_end() and self.q[self.i] == '"':
+        if not self._at_end() and self.query[self.cursor] == ".":
+            self.cursor += 1
+            if not self._at_end() and self.query[self.cursor] == '"':
                 key = self._read_quoted(what="key")
             else:
-                key_pos = self.i
+                key_pos = self.cursor
                 key = self._read_word()
                 if not key:
                     raise _SyntaxError("expected a key after '.'", key_pos)
@@ -635,65 +361,65 @@ class _Parser:
 
     def _parse_operator(self) -> str:
         self._skip_ws()
-        pos = self.i
+        pos = self.cursor
         if self._at_end():
             raise _SyntaxError("unexpected end of input, expected an operator", pos)
-        ch = self.q[self.i]
-        if ch == "=":
-            self.i += 1
+        char = self.query[self.cursor]
+        if char == "=":
+            self.cursor += 1
             return "="
-        if ch in "<>!":
-            if self.i + 1 < len(self.q) and self.q[self.i + 1] == "=":
-                self.i += 2
-                return ch + "="
-            if ch == "!":
+        if char in "<>!":
+            if self.cursor + 1 < len(self.query) and self.query[self.cursor + 1] == "=":
+                self.cursor += 2
+                return char + "="
+            if char == "!":
                 raise _SyntaxError("expected '!=' ", pos)
-            self.i += 1
-            return ch
+            self.cursor += 1
+            return char
         op = self._read_word()
         if not op:
-            raise _SyntaxError(f"expected an operator, got {self.q[pos : pos + 12]!r}", pos)
+            raise _SyntaxError(f"expected an operator, got {self.query[pos : pos + 12]!r}", pos)
         return op
 
     def _parse_value(self) -> tuple[str, bool]:
         self._skip_ws()
-        pos = self.i
+        pos = self.cursor
         if self._at_end():
             raise _SyntaxError("unexpected end of input, expected a value", pos)
-        ch = self.q[self.i]
-        if ch == '"':
+        char = self.query[self.cursor]
+        if char == '"':
             return self._read_quoted(what="value"), True
-        if ch.isdigit() or ch == "-":
+        if char.isdigit() or char == "-":
             return self._read_number(), False
         raise _SyntaxError('expected a value in double quotes ("…") or a number', pos)
 
     def _parse_list_value(self) -> str:
         self._skip_ws()
-        pos = self.i
-        if self._at_end() or self.q[self.i] != "(":
+        pos = self.cursor
+        if self._at_end() or self.query[self.cursor] != "(":
             raise _SyntaxError(
                 'expected a list in parentheses after in/not_in, e.g. in ("a", "b"); '
                 "the list must start with '('",
                 pos,
             )
-        self.i += 1
+        self.cursor += 1
         items: list[str] = []
         while True:
             self._skip_ws()
             if self._at_end():
                 raise _SyntaxError("unterminated list, missing ')'", pos)
-            if self.q[self.i] == ")":
+            if self.query[self.cursor] == ")":
                 if not items:
                     raise _SyntaxError("expected at least one item inside (...)", pos)
-                self.i += 1
+                self.cursor += 1
                 return ",".join(items)
             if items:
-                if self.q[self.i] != ",":
-                    raise _SyntaxError("expected ',' between list items", self.i)
-                self.i += 1
+                if self.query[self.cursor] != ",":
+                    raise _SyntaxError("expected ',' between list items", self.cursor)
+                self.cursor += 1
                 self._skip_ws()
-            if self._at_end() or self.q[self.i] != '"':
-                raise _SyntaxError("list items must be quoted strings", self.i)
+            if self._at_end() or self.query[self.cursor] != '"':
+                raise _SyntaxError("list items must be quoted strings", self.cursor)
             items.append(self._read_quoted(what="list item"))
 
     def parse(self) -> list[_RawClause]:
@@ -715,7 +441,7 @@ class _Parser:
             self._skip_ws()
             if self._at_end():
                 return clauses
-            pos = self.i
+            pos = self.cursor
             connector = self._read_word()
             if connector.lower() == "and":
                 continue
@@ -723,11 +449,13 @@ class _Parser:
                 raise _SyntaxError(
                     "OR is not supported; use AND, or run one query per alternative", pos
                 )
-            raise _SyntaxError(f"trailing characters {self.q[pos:]!r}", pos)
+            raise _SyntaxError(f"trailing characters {self.query[pos:]!r}", pos)
 
 
-def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None, OQLIssue | None]:
-    fields = FILTERABLE_FIELDS[entity_type]
+def _validate(
+    vocabulary: Vocabulary, raw: _RawClause
+) -> tuple[dict[str, str] | None, OQLIssue | None]:
+    fields = vocabulary.filter_fields
     field, key = raw.field, raw.key
 
     # usage.<x> is a flat composite field name, not a dictionary key.
@@ -740,11 +468,11 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
                     "unknown_field",
                     f"Unknown field '{composite}'. Usage fields: {', '.join(known)}.",
                 )
-            return None, _unknown_field(entity_type, composite, fields)
+            return None, _unknown_field(vocabulary, composite)
         field, key = composite, None
 
     if field not in fields:
-        return None, _unknown_field(entity_type, field, fields)
+        return None, _unknown_field(vocabulary, field)
 
     ftype = fields[field]
     if key is not None and ftype not in KEY_ALLOWED_TYPES:
@@ -754,13 +482,13 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
             f"Field '{field}' does not take a key ('{field}.{key}'). Keyed fields: {keyed}.",
         )
 
-    spec = PARAM_FIELDS.get(entity_type, {}).get(field)
+    spec = vocabulary.param_fields.get(field)
     if spec is not None and raw.operator not in spec.operators:
         # Checked before the type's own operator set, and instead of it: the
         # parameter's shape is the tighter rule and the one the caller has to
         # hear about. ``type != "trial"`` is a valid enum operator refused for
         # a reason that has nothing to do with enums.
-        return None, _param_operator_issue(entity_type, field, spec, raw)
+        return None, _param_operator_issue(vocabulary, field, spec, raw)
 
     valid_ops = OPERATORS_BY_TYPE[ftype]
     if raw.operator not in valid_ops:
@@ -770,7 +498,7 @@ def _validate(entity_type: str, raw: _RawClause) -> tuple[dict[str, str] | None,
             f"Valid: {', '.join(valid_ops)}.",
         )
 
-    issue = _validate_value(entity_type, field, ftype, key, raw)
+    issue = _validate_value(vocabulary, field, ftype, key, raw)
     if issue is not None:
         return None, issue
     if ftype in DYNAMIC_TYPES:
@@ -802,7 +530,7 @@ def operand_values(operator: str, value: str) -> list[str]:
 
 
 def _param_operator_issue(
-    entity_type: str, field: str, spec: ParamField, raw: _RawClause
+    vocabulary: Vocabulary, field: str, spec: ParamField, raw: _RawClause
 ) -> OQLIssue:
     """Refuse an operator the query parameter cannot carry — with the query
     that would have worked, whenever one can be computed.
@@ -813,9 +541,9 @@ def _param_operator_issue(
     """
     base = (
         f"Operator '{raw.operator}' is not valid for '{field}' on "
-        f"{called(entity_type)}: {spec.why}."
+        f"{vocabulary.entity_type}: {spec.why}."
     )
-    values = ENUM_VALUES.get(entity_type, {}).get(field)
+    values = vocabulary.enum_values.get(field)
     if values is not None and raw.operator in NEGATING_OPERATORS:
         excluded = set(operand_values(raw.operator, raw.value))
         rest = [v for v in values if v not in excluded]
@@ -825,11 +553,11 @@ def _param_operator_issue(
     return OQLIssue("bad_operator", f"{base} Valid: {', '.join(spec.operators)}.")
 
 
-def _unknown_field(entity_type: str, field: str, fields: dict[str, FieldType]) -> OQLIssue:
-    names = sorted(fields)
+def _unknown_field(vocabulary: Vocabulary, field: str) -> OQLIssue:
+    names = sorted(vocabulary.filter_fields)
     close = difflib.get_close_matches(field, names, n=1, cutoff=0.6)
     hint = f" Did you mean '{close[0]}'?" if close else ""
-    for ignored, why in IGNORED_BY_BACKEND.get(entity_type, ()):
+    for ignored, why in vocabulary.ignored_fields:
         if field in ignored:
             hint = f" {why}"
             break
@@ -837,7 +565,7 @@ def _unknown_field(entity_type: str, field: str, fields: dict[str, FieldType]) -
 
 
 def _validate_value(
-    entity_type: str, field: str, ftype: str, key: str | None, raw: _RawClause
+    vocabulary: Vocabulary, field: str, ftype: str, key: str | None, raw: _RawClause
 ) -> OQLIssue | None:
     if ftype in KEY_REQUIRED_TYPES and not key:
         if ftype == "feedback_scores":
@@ -879,7 +607,7 @@ def _validate_value(
         return OQLIssue(
             "bad_value", f"Empty value for '{field}': the backend rejects blank filter values."
         )
-    spec = PARAM_FIELDS.get(entity_type, {}).get(field)
+    spec = vocabulary.param_fields.get(field)
     if spec is not None and spec.value_form == "uuid":
         bad = [v for v in operand_values(raw.operator, raw.value) if not is_uuid(v)]
         if bad:
@@ -889,7 +617,7 @@ def _validate_value(
                 f"{', '.join(repr(v) for v in bad)} for '{field}': expected a UUID, which is "
                 f"what the backend's '{spec.param}' parameter takes.",
             )
-    allowed = ENUM_VALUES.get(entity_type, {}).get(field)
+    allowed = vocabulary.enum_values.get(field)
     if allowed is not None:
         # ``in``/``not_in`` values arrive comma-joined; one bad element fails
         # the whole filter server-side, so every element is checked.
@@ -904,22 +632,25 @@ def _validate_value(
     return None
 
 
-def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
+def compile_filters(
+    vocabulary: Vocabulary, query: str, *, filterable_types: Sequence[str] = ()
+) -> list[dict[str, str]]:
     """Compile an OQL string into the backend's filter array.
 
     Returns ``[{field, operator, key, value}, …]`` ready to be JSON-encoded into
     the ``filters`` query parameter. An empty or blank query compiles to ``[]``.
-    Raises :class:`OQLError` carrying every problem found.
+    Raises :class:`OQLError` carrying every problem found. ``filterable_types``
+    is named in the refusal for a vocabulary with no filter fields.
     """
-    if entity_type not in FILTERABLE_FIELDS:
+    if not vocabulary.filter_fields:
         raise OQLError(
-            entity_type,
+            vocabulary,
             query,
             [
                 OQLIssue(
                     "unsupported_entity",
-                    f"filters are not supported for {entity_type!r}. "
-                    f"Filterable types: {', '.join(SUPPORTED_ENTITIES)}.",
+                    f"filters are not supported for {vocabulary.name!r}. "
+                    f"Filterable types: {', '.join(filterable_types)}.",
                 )
             ],
         )
@@ -934,22 +665,22 @@ def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
         # agent sees every problem in one round.
         raw_clauses = []
         for raw in _clauses_before_error(parser):
-            clause, issue = _validate(entity_type, raw)
+            clause, issue = _validate(vocabulary, raw)
             if issue is not None:
                 issues.append(issue)
         issues.append(
             OQLIssue("syntax", f"Syntax error at position {e.position}: {e.message}", e.position)
         )
-        raise OQLError(entity_type, query, issues) from None
+        raise OQLError(vocabulary, query, issues) from None
 
     for raw in raw_clauses:
-        clause, issue = _validate(entity_type, raw)
+        clause, issue = _validate(vocabulary, raw)
         if issue is not None:
             issues.append(issue)
         elif clause is not None:
             compiled.append(clause)
     if issues:
-        raise OQLError(entity_type, query, issues)
+        raise OQLError(vocabulary, query, issues)
     return compiled
 
 
@@ -957,7 +688,7 @@ def _clauses_before_error(parser: _Parser) -> list[_RawClause]:
     """Clauses fully parsed before a syntax error — re-run the parser on the
     prefix up to the failing clause. Cheap (queries are short) and keeps the
     parser itself free of error-recovery state."""
-    prefix = parser.q[: parser.i]
+    prefix = parser.query[: parser.cursor]
     # Walk back to the last complete AND boundary and parse that prefix.
     lowered = prefix.lower()
     cut = lowered.rfind(" and ")
@@ -969,12 +700,9 @@ def _clauses_before_error(parser: _Parser) -> list[_RawClause]:
         return []
 
 
-def filter_fields(entity_type: str) -> dict[str, FieldType]:
-    """Filterable fields and their types for one entity (schema tool, columns)."""
-    return dict(FILTERABLE_FIELDS[entity_type])
-
-
-def filter_field_names(entity_type: str, query: str | None) -> list[str]:
+def filter_field_names(
+    entity_type: str, query: str | None, vocabularies: Iterable[Vocabulary]
+) -> list[str]:
     """Sorted, de-duplicated field names a query uses — keys stripped.
 
     For analytics: says *which fields* agents filter on without carrying the
@@ -987,8 +715,9 @@ def filter_field_names(entity_type: str, query: str | None) -> list[str]:
     # one the call chose, and this function is handed the ``entity_type`` the
     # caller typed rather than the mode. Trying each keeps the dashboard from
     # reading a valid filter as an unparseable one.
-    for vocabulary in (entity_type, *(m for m, e in VOCABULARY_MODES.items() if e == entity_type)):
-        if vocabulary not in FILTERABLE_FIELDS:
+    for vocabulary in vocabularies:
+        typed = entity_type in (vocabulary.name, vocabulary.entity_type)
+        if not typed or not vocabulary.filter_fields:
             continue
         try:
             clauses = compile_filters(vocabulary, query)
@@ -1002,7 +731,7 @@ def filter_field_names(entity_type: str, query: str | None) -> list[str]:
 
 
 def split_param_clauses(
-    entity_type: str, clauses: list[dict[str, str]]
+    vocabulary: Vocabulary, clauses: list[dict[str, str]]
 ) -> tuple[list[dict[str, str]], dict[str, str]]:
     """Lift the clauses the backend wants as query parameters out of the array.
 
@@ -1016,7 +745,7 @@ def split_param_clauses(
     compiles filters it never sends as parameters, and the compiled shape is
     what the OQL tests assert against.
     """
-    specs = PARAM_FIELDS.get(entity_type)
+    specs = vocabulary.param_fields
     if not specs:
         return clauses, {}
 
@@ -1032,8 +761,8 @@ def split_param_clauses(
             # values into one set would turn the AND into an OR and answer a
             # question nobody asked.
             raise OQLError(
-                entity_type,
-                render_filters(entity_type, clauses),
+                vocabulary,
+                render_filters(vocabulary, clauses),
                 [
                     OQLIssue(
                         "bad_operator",
@@ -1049,13 +778,13 @@ def split_param_clauses(
     return remaining, params
 
 
-def render_filters(entity_type: str, clauses: list[dict[str, str]]) -> str:
+def render_filters(vocabulary: Vocabulary, clauses: list[dict[str, str]]) -> str:
     """Render a compiled filter array back to OQL, for the applied-filters header.
 
     Numbers on numeric fields render bare, everything else double-quoted, so
     the echoed string is itself valid input for the next call.
     """
-    fields = FILTERABLE_FIELDS.get(entity_type, {})
+    fields: Mapping[str, FieldType] = vocabulary.filter_fields
     parts: list[str] = []
     for c in clauses:
         field, op, key, value = c["field"], c["operator"], c.get("key", ""), c.get("value", "")
@@ -1077,26 +806,20 @@ def _quote(value: str) -> str:
 
 
 def _quote_key(key: str) -> str:
-    return key if all(ch.isalnum() or ch == "_" for ch in key) else _quote(key)
+    return key if all(char.isalnum() or char == "_" for char in key) else _quote(key)
 
 
 __all__ = [
-    "FILTERABLE_FIELDS",
     "GRAMMAR_LINE",
     "KEYED_TYPES",
     "MILLISECOND_FIELDS",
-    "NAME_SEARCHABLE_ENTITIES",
     "NEGATING_OPERATORS",
     "OPERATORS_BY_TYPE",
-    "PARAM_FIELDS",
     "PARENT_ID_FIELDS",
+    "PAYLOAD_FIELDS",
     "SDK_SOURCE_CLAUSE",
-    "SOURCE_DEFAULTED_ENTITIES",
-    "SUPPORTED_ENTITIES",
+    "TIMING_FIELDS",
     "USAGE_FIELDS",
-    "VOCABULARY_MODES",
-    "WINDOWED_ENTITIES",
-    "FieldType",
     "IssueKind",
     "OQLBadOperatorError",
     "OQLBadValueError",
@@ -1105,11 +828,9 @@ __all__ = [
     "OQLSyntaxError",
     "OQLUnknownFieldError",
     "OQLUnsupportedEntityError",
-    "ParamField",
-    "called",
     "compile_filters",
     "filter_field_names",
-    "filter_fields",
+    "operand_values",
     "render_filters",
     "split_param_clauses",
 ]

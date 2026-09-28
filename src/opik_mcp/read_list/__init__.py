@@ -12,8 +12,3 @@ verbatim where useful), but the entity layer uses opik-mcp's own
 ``OpikClient`` instead of the ``opik`` SDK to keep the runtime dep set
 minimal.
 """
-
-from opik_mcp.read_list.list_tool import run_list
-from opik_mcp.read_list.read_tool import run_read
-
-__all__ = ["run_list", "run_read"]

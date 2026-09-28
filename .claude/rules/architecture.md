@@ -36,10 +36,10 @@ Good: the entity plugs its links in through a hook on its handler.
 HANDLER = EntityHandler(entity_type="thread", link_fn=thread_links, ...)
 ```
 
-Bad: the root module holds the thread's URL shape and the entity imports it
-back (today's debt, on the guard's list).
+Bad: a root module keeps a table keyed by entity name, so every new entity
+edits the root and the entity's facts live in two places.
 
 ```python
-# read_list/entities/thread.py
-from opik_mcp.read_list.ui_links import thread_page_url
+# read_list/sorting.py
+SORTABLE_FIELDS = {"trace": (...), "thread": (...)}
 ```
