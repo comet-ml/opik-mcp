@@ -3,26 +3,43 @@ the failures it reports, and the case table it is checked against."""
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
+
 import pytest
 
+from opik_mcp.writes import operations
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 from tests.hermetic.servers import API_KEY, WORKSPACE, result_json
-from tests.hermetic.writes import (
-    test_diagnostics,
-    test_evaluation,
-    test_observability,
-    test_threads,
-)
-from tests.hermetic.writes.surface import Wire, operations_of
+from tests.hermetic.writes.surface import Wire, WriteCase, operations_of
 
 pytestmark = [pytest.mark.hermetic, pytest.mark.anyio]
 
-_TABLES = (test_observability, test_threads, test_evaluation, test_diagnostics)
+
+def _tables() -> dict[str, tuple[WriteCase, ...]]:
+    """Each operations module's case table, found from the modules themselves."""
+    tables: dict[str, tuple[WriteCase, ...]] = {}
+    for module in pkgutil.iter_modules(operations.__path__):
+        name = f"tests.hermetic.writes.test_{module.name}"
+        try:
+            cases = importlib.import_module(name).CASES
+        except ModuleNotFoundError:
+            cases = ()
+        tables[module.name] = tuple(cases)
+    return tables
+
+
+def test_every_operations_module_has_a_case_table() -> None:
+    empty = sorted(module for module, cases in _tables().items() if not cases)
+    assert not empty, (
+        f"src/opik_mcp/writes/operations/ modules with no hermetic cases: {empty}. "
+        "Add tests/hermetic/writes/test_<module>.py with a CASES table of WriteCase rows."
+    )
 
 
 def test_every_write_operation_has_an_end_to_end_case() -> None:
     """A new operation needs a row in the ``CASES`` of its module's file."""
-    covered = {operation for table in _TABLES for operation in operations_of(table.CASES)}
+    covered = {operation for cases in _tables().values() for operation in operations_of(cases)}
     missing = sorted(set(WRITE_OPERATIONS) - covered)
     assert not missing, (
         f"write operations with no hermetic case: {missing}. Add a WriteCase to CASES in "

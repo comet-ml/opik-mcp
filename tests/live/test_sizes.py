@@ -153,11 +153,12 @@ async def test_a_heavy_trace_declares_which_bodies_it_cut(mcp: Live, manifest: M
 async def test_the_backend_cuts_a_span_body_where_the_read_counts_it(
     mcp: Live, manifest: Manifest
 ) -> None:
-    """The read counts a span as cut from the length the backend cuts at.
+    """The backend cuts at or below 10,001 characters, and the read counts it.
 
-    The heavy trace's span bodies are twice that length and the typical
-    trace's are a few words, so a backend that cut elsewhere, or a count
-    taken from a threshold it does not use, shows here as a wrong number.
+    The heavy trace's span bodies are 20,000 characters and the typical
+    trace's are a few words. So this proves a cut somewhere between the two
+    is counted and nothing is counted when no body is long; it cannot tell a
+    cut at 10,001 from one at 15,000.
     """
     heavy = (await mcp.read("trace", manifest.heavy.id)).record().get("spanBodies")
     typical = (await mcp.read("trace", manifest.typical.id)).record().get("spanBodies")
