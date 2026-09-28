@@ -450,8 +450,8 @@ def read_skill_tool_description() -> str:
         f"Match the user's task to a skill:\n{catalog}\n\n"
         "`skill_name` accepts any of these forms:\n"
         "- `opik` — the skill itself\n"
+        # The resource-URI form is documented on the `skill_name` argument; saying
+        # it here too is what put this description over the 2,048-character cut.
         "- `<skill>/references/<file>.md` — one document inside a skill; a "
-        "SKILL.md ends with the list of its references\n"
-        f"- `{SKILLS_URI_PREFIX}opik/SKILL.md` — a document by its resource "
-        "URI, as listed by resources/list"
+        "SKILL.md ends with the list of its references"
     )

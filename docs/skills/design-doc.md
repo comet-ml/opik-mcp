@@ -44,8 +44,10 @@ An unknown skill raises `UnknownSkillError` (kind `validation`) listing every
 skill; an unknown document lists that skill's documents, in the caller's form.
 
 `read_skill_tool_description` renders the tool description: a routing line
-per skill from `SKILL_SUMMARIES` and the accepted forms. It names no
-reference file; an agent learns a reference's path from the footer of the
+per skill from `SKILL_SUMMARIES`, and the name and path forms; the URI form
+is documented on the `skill_name` argument. It fits the host's
+description cut-off, so no host drops its tail
+(`test_the_description_arrives_whole`). It names no reference file; an agent learns a reference's path from the footer of the
 `SKILL.md` that cites it, so adding a reference costs no session anything
 until that skill is read (`test_tool_description_names_no_reference_path`,
 `test_every_skill_md_footer_lists_its_references`).
@@ -131,8 +133,6 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 
 - `SKILL_SUMMARIES` may differ from the frontmatter on purpose. No test ties
   them; see the comment in `tests/skills/test_catalog.py` for why.
-- The `read_skill` description is over the host cut-off, so some hosts drop
-  the tail, which is the list of accepted forms (`test_the_description_arrives_whole`).
 - `install_skill_resources` catches only a missing `_mcp_server`; other errors
   while installing raise. A second install is a no-op.
 - `npx skills add` run against this repo resolves `.claude/skills/` and
