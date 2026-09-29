@@ -197,7 +197,7 @@ async def test_schema_props_emits_only_operation(
 
     monkeypatch.setattr(
         "opik_mcp.server.tools.schema.run_schema",
-        lambda operation: {"operation": operation, "schema": {}},
+        lambda operation, **_kw: {"operation": operation, "schema": {}},
     )
 
     await schema(operation="trace.create")

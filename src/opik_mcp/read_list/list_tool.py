@@ -51,6 +51,7 @@ from opik_mcp.client.base import (
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.cost_intelligence import Mode, mode_of
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
@@ -65,17 +66,18 @@ from opik_mcp.read_list.list_table import format_table, pinned_columns, requeste
 from opik_mcp.read_list.oql import OQLError
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.project_scope import (
+    enter_mode,
+    keep_fixed_project_row,
     remember_resolved_project,
     resolve_project_id,
+    scoped_list_name,
+    scoped_project_args,
+    verify_project_id,
 )
 from opik_mcp.read_list.projection import normalise
-from opik_mcp.read_list.registry import (
-    ENTITY_REGISTRY,
-    LISTABLE_TYPES,
-    VOCABULARIES,
-    resolve_entity_type,
-)
+from opik_mcp.read_list.registry import VOCABULARIES, resolve_entity_type
 from opik_mcp.read_list.size import list_size_header, with_list_size
+from opik_mcp.read_list.visibility import hidden_list_args, listable_types, visible_handler
 from opik_mcp.read_list.window import parse_instant
 
 logger = logging.getLogger("opik_mcp.read_list.list")
@@ -137,7 +139,8 @@ async def _run_whole(
     handler: EntityHandler,
     entity_type: str,
     *,
-    settings: Settings | None,
+    settings: Settings,
+    mode: Mode,
     client: OpikListClient | None,
     **tool_args: Any,
 ) -> str:
@@ -153,7 +156,7 @@ async def _run_whole(
     got.
     """
     run = cast("RunFn", handler.run_fn)
-    resolved_settings = settings or get_settings()
+    resolved_settings = settings
     async with client_for_call(resolved_settings, client) as opik:
         with _as_tool_error(
             f"{handler.run_verb} {entity_type}",
@@ -161,6 +164,7 @@ async def _run_whole(
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
+            await verify_project_id(opik, handler, mode, tool_args.get("project_id"))
             answer = await run(cast("OpikReadClient", opik), vocabularies=VOCABULARIES, **tool_args)
         page_note = page_note_of(handler)
         if page_note is None:
@@ -219,13 +223,35 @@ async def run_list(
 ) -> str:
     """List tool entrypoint. See ``server/tools/list.py`` for the registered tool."""
     _PAGE_FACTS.set({})
+    resolved_settings = settings or get_settings()
+    mode = mode_of(resolved_settings)
+    enter_mode(mode)
     # Cleared per call for the same reason the page facts are: a project a
     # previous listing resolved is not a fact about this one, and a link
     # built from it would point into the wrong project — the exact failure
     # this whole feature exists to stop.
     remember_resolved_project(None)
+    typed_entity_type = entity_type
     entity_type = resolve_entity_type(entity_type)
-    handler = ENTITY_REGISTRY.get(entity_type)
+    handler = visible_handler(entity_type, mode)
+    if handler is not None:
+        passed = {
+            "dataset_id": dataset_id,
+            "prompt_id": prompt_id,
+            "experiment_ids": experiment_ids,
+            "status": status,
+        }
+        for arg in hidden_list_args(mode):
+            if passed[arg] is not None:
+                refusal = EntityArgValidationError(f"`{arg}` is not available in this workspace.")
+                raise ToolError(str(refusal)) from refusal
+        try:
+            project_id, project_name = scoped_project_args(
+                handler, mode, project_id=project_id, project_name=project_name
+            )
+            name = scoped_list_name(handler, mode, name)
+        except EntityArgValidationError as refusal:
+            raise ToolError(str(refusal)) from refusal
     tool_args: dict[str, Any] = {
         "name": name,
         "filters": filters,
@@ -255,7 +281,8 @@ async def run_list(
         return await _run_whole(
             handler,
             entity_type,
-            settings=settings,
+            settings=resolved_settings,
+            mode=mode,
             client=client,
             page=page if page != 1 else None,
             size=size if size != DEFAULT_PAGE_SIZE else None,
@@ -265,8 +292,10 @@ async def run_list(
     # Checked after the runner branch rather than before it, so that reaching
     # the collection path is what proves there is a ``list_fn`` to drive.
     if handler is None or handler.list_fn is None:
-        valid = ", ".join(sorted(LISTABLE_TYPES))
-        err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
+        valid = ", ".join(sorted(listable_types(mode)))
+        err = EntityArgValidationError(
+            f"Cannot list {typed_entity_type!r}. Listable types: {valid}"
+        )
         raise ToolError(str(err)) from err
 
     resolved = resolve_list_args(
@@ -285,6 +314,7 @@ async def run_list(
         dataset_id=dataset_id,
         prompt_id=prompt_id,
         status=status,
+        mode=mode,
     )
     page, size, vocabulary = resolved.page, resolved.size, resolved.vocabulary
     list_kwargs, applied, clauses = resolved.list_kwargs, resolved.applied, resolved.clauses
@@ -298,9 +328,8 @@ async def run_list(
     #
     # Free-text search can take the backend >30 s on a cold cache (seen live:
     # 32 s); give only those calls a longer leash.
-    resolved_settings = settings or get_settings()
     search_timeout = _SEARCH_TIMEOUT_S if "search" in list_kwargs else None
-    async with client_for_call(settings, client, timeout=search_timeout) as opik:
+    async with client_for_call(resolved_settings, client, timeout=search_timeout) as opik:
         with _as_tool_error(
             f"list {entity_type}s",
             on_timeout=(
@@ -309,6 +338,7 @@ async def run_list(
                 "and retry."
             ),
         ):
+            await verify_project_id(opik, handler, mode, list_kwargs.get("project_id"))
             try:
                 page_body = await handler.list_fn(opik, **list_kwargs)
             except OpikNotFoundError as e:
@@ -319,6 +349,9 @@ async def run_list(
                 if list_kwargs.get("project_name"):
                     await _refuse_unknown_project(opik, list_kwargs["project_name"], cause=e)
                 raise
+            page_body = await keep_fixed_project_row(
+                opik, handler, mode, page_body, page_number=page
+            )
 
         content_raw = page_body.get("content") or []
         content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]

@@ -348,14 +348,17 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # whoever can spawn the process already owns its stdio.
         # Imported here so a failing server import reaches main()'s transport-crash handler.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
+        from opik_mcp.cost_intelligence import is_cost_intelligence
         from opik_mcp.server import mcp
         from opik_mcp.skills_resources import install_skill_resources
 
         install_tools_listed_emitter(mcp)
         # stdio hosts (Claude Code, Cursor) are the ones most likely to browse
         # resources, so the skills must be served on this path too — build_app()
-        # never runs here.
-        install_skill_resources(mcp)
+        # never runs here. Not in cost intelligence mode: resources are public
+        # and would offer skills that mode hides.
+        if not is_cost_intelligence(settings):
+            install_skill_resources(mcp)
         logger.info("startup transport=stdio")
         mcp.run(transport="stdio")
         return

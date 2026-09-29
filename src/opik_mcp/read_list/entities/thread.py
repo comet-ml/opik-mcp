@@ -21,6 +21,7 @@ from typing import Any
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
+from opik_mcp.cost_intelligence import ALL_MODES
 from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql_fields import TIMING_FIELDS
@@ -237,6 +238,8 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="thread",
+    modes=ALL_MODES,
+    project_scope="parent",
     is_windowed=True,
     uri_patterns=(
         opik_uri("projects/{project}/threads/{id}"),

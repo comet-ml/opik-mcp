@@ -1,0 +1,20 @@
+{
+  "properties": {
+    "operation": {
+      "description": "list.<type> for the filter and sort reference of that list call.",
+      "enum": [
+        "list.trace",
+        "list.span",
+        "list.thread",
+        "list.project_metric"
+      ],
+      "title": "Operation",
+      "type": "string"
+    }
+  },
+  "required": [
+    "operation"
+  ],
+  "title": "schemaArguments",
+  "type": "object"
+}

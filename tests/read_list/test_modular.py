@@ -74,6 +74,8 @@ SHARED: frozenset[str] = frozenset(
         "ui_links",
         "unsupported",
         "uri",
+        # What each server mode shows of the table, derived from ``modes``.
+        "visibility",
         "window",
     }
 )

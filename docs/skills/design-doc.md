@@ -52,6 +52,11 @@ description cut-off, so no host drops its tail
 until that skill is read (`test_tool_description_names_no_reference_path`,
 `test_every_skill_md_footer_lists_its_references`).
 
+- In cost intelligence mode `read_skill` serves only the `opik` skill and the
+  cost intelligence guide, which lives outside this tree (see
+  [cost-intelligence](../cost-intelligence/design-doc.md)); no skill resources
+  are registered.
+
 ### Resources
 
 Each served file is a resource at `opik://skills/<skill>/<path>`, with one

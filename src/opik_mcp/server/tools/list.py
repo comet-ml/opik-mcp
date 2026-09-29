@@ -7,6 +7,8 @@ from mcp.server.session import ServerSession
 from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode
+from opik_mcp.cost_intelligence.descriptions import LIST_DESCRIPTION
 from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.list_tool import page_facts, run_list
@@ -296,7 +298,11 @@ async def list_entities(
     )
 
 
-def register(mcp: FastMCP[object]) -> None:
-    mcp.tool(name="list", title="List Opik records", annotations=READS, structured_output=False)(
-        list_entities
-    )
+def register(mcp: FastMCP[object], mode: Mode = DEFAULT_MODE) -> None:
+    mcp.tool(
+        name="list",
+        description=LIST_DESCRIPTION if mode != DEFAULT_MODE else None,
+        title="List Opik records",
+        annotations=READS,
+        structured_output=False,
+    )(list_entities)

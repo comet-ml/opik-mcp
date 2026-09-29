@@ -16,6 +16,7 @@ registry entry exists so the type is listable and reachable.
 
 from __future__ import annotations
 
+from opik_mcp.cost_intelligence import ALL_MODES
 from opik_mcp.read_list.entities.project_metric.reference import reference
 from opik_mcp.read_list.entities.project_metric.runner import run_project_metric
 from opik_mcp.read_list.handler import EntityHandler
@@ -24,6 +25,8 @@ from opik_mcp.read_list.unsupported import unsupported_fetch
 
 HANDLER = EntityHandler(
     entity_type="project_metric",
+    modes=ALL_MODES,
+    project_scope="parent",
     fetch_fn=unsupported_fetch,
     view_page=ViewPage(
         area="dashboards",

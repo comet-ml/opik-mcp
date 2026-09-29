@@ -136,6 +136,9 @@ class StubBackend:
     #: Paths that should answer 400 with an ``ErrorMessage`` and a key that is
     #: not one, to prove only the error strings reach the caller.
     rejecting: set[str] = field(default_factory=set)
+    #: The project the Opik routes serve. Cost intelligence mode confines every
+    #: call to ``claude-code``, so its tests rename the one project here.
+    project_name: str = PROJECT_NAME
     #: Score names the project has recorded.
     score_names: list[str] = field(default_factory=lambda: ["Hallucination", "Answer Relevance"])
     #: Usage keys the project has recorded.
@@ -257,8 +260,8 @@ class StubBackend:
         versions = self.prompt_version_count
         routes: dict[str, Any] = {
             "/v1/private/feedback-definitions": lambda: page(self.feedback_definitions),
-            "/v1/private/projects": lambda: page([fill("project")]),
-            project: lambda: fill("project"),
+            "/v1/private/projects": lambda: page([fill("project", project_name=self.project_name)]),
+            project: lambda: fill("project", project_name=self.project_name),
             f"{project}/kpi-cards": lambda: load("kpi_cards"),
             f"{project}/metrics": lambda: metric_results(
                 body or {}, recorded={*self.usage_keys, *self.score_names}

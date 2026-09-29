@@ -7,6 +7,9 @@ from mcp.server.session import ServerSession
 from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.config import get_settings
+from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode, mode_of
+from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
@@ -38,7 +41,7 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     skill = requested.removeprefix(SKILLS_URI_PREFIX).removeprefix("../").partition("/")[0]
     is_reference = not requested.endswith("SKILL.md") and "/" in requested.removeprefix("../")
     return {
-        "skill": skill if skill in skill_names() else "unknown",
+        "skill": skill if skill in (*skill_names(), GUIDE_NAME) else "unknown",
         "request_shape": request_shape(requested),
         "is_reference": str(is_reference).lower(),
     }
@@ -68,32 +71,40 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
 # and reject valid calls at the host's schema check.
 
 
-@instrument_tool("read_skill", props_fn=_read_skill_props)
-async def read_skill(
-    skill_name: Annotated[
-        str,
-        Field(
-            description=(
-                "A skill name ('opik-instrument'), a path inside a skill "
-                "('opik/references/tracing-python.md'), or a resource URI "
-                "('opik://skills/opik/SKILL.md'). A SKILL.md ends with the list of "
-                "its references."
+def _build(mode: Mode | None = None) -> Any:
+    """The tool bound to the registration mode; unbound, it asks the settings per call."""
+
+    @instrument_tool("read_skill", props_fn=_read_skill_props)
+    async def read_skill(
+        skill_name: Annotated[
+            str,
+            Field(
+                description=(
+                    "A skill name ('opik-instrument'), a path inside a skill "
+                    "('opik/references/tracing-python.md'), or a resource URI "
+                    "('opik://skills/opik/SKILL.md'). A SKILL.md ends with the list of "
+                    "its references."
+                ),
+                min_length=1,
+                max_length=512,
             ),
-            min_length=1,
-            max_length=512,
-        ),
-    ],
-    ctx: Context[ServerSession, None] | None = None,
-) -> str:
-    if ctx is not None:
-        await ctx.info(f"read_skill.called skill_name={skill_name}")
-    return run_read_skill(skill_name)
+        ],
+        ctx: Context[ServerSession, None] | None = None,
+    ) -> str:
+        if ctx is not None:
+            await ctx.info(f"read_skill.called skill_name={skill_name}")
+        return run_read_skill(skill_name, mode or mode_of(get_settings()))
+
+    return read_skill
 
 
-def register(mcp: FastMCP[object]) -> None:
+read_skill = _build()
+
+
+def register(mcp: FastMCP[object], mode: Mode = DEFAULT_MODE) -> None:
     mcp.tool(
-        description=read_skill_tool_description(),
+        description=read_skill_tool_description(mode),
         title="Read an Opik agent skill",
         annotations=READS,
         structured_output=False,
-    )(read_skill)
+    )(_build(mode))

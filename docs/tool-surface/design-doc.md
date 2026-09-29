@@ -25,6 +25,10 @@ a read or a list promises, what is refused, and which test holds each promise.
   without warning. Tools over it today are strict expected failures in
   `OVER_THE_LIMIT` (`tests/conformance/test_tool_annotations.py`).
 
+- In cost intelligence mode the surface is four tools, a narrowed type set,
+  and its own instructions under the same caps; the default surface is
+  unchanged ([cost-intelligence](../cost-intelligence/design-doc.md)).
+
 ### initialize
 
 `initialize` returns the name `opik-mcp` and the text of `render_instructions`

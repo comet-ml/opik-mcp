@@ -29,6 +29,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.cost_intelligence import is_cost_intelligence
+from opik_mcp.cost_intelligence.descriptions import render_instructions_text
 from opik_mcp.read_list.ui_links import (
     current_workspace,
     opik_ui_base,
@@ -149,6 +151,10 @@ def render_instructions(
     user_clause = f" as {user_email}" if user_email else ""
     today = today if today is not None else datetime.now(UTC)
     date = today.strftime("%Y-%m-%d")
+    if is_cost_intelligence(s):
+        return render_instructions_text(
+            user_email=user_email, workspace=workspace, opik_url=opik_url, date=date
+        )
     default_project_clause = _render_default_project_clause(s)
 
     return _TEMPLATE.format(

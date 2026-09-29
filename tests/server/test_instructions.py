@@ -188,3 +188,44 @@ def test_the_handshake_advertises_no_address_the_ui_has_retired() -> None:
     blob = render_instructions(_settings(opik_url="https://opik.test/api/"))
     assert "session/redirect" not in blob
     assert "/traces" not in blob
+
+
+# --- cost intelligence mode ------------------------------------------------ #
+
+
+def _spend_settings() -> Settings:
+    return _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="stdio")
+
+
+def test_the_cost_intelligence_blob_names_only_the_tools_that_mode_advertises() -> None:
+    out = render_instructions(_spend_settings())
+    assert re.search(r"(?<!\w)write(?!\w)", out) is None
+    for tool in ("read", "list", "schema", "read_skill"):
+        assert re.search(rf"(?<!\w){tool}(?!\w)", out), f"{tool} is advertised but not named"
+
+
+def test_the_cost_intelligence_blob_scopes_to_claude_code_and_points_at_the_guide() -> None:
+    out = render_instructions(_spend_settings(), user_email="me@example.com")
+    assert "claude-code" in out
+    assert "read_skill('cost-intelligence')" in out
+    assert "me@example.com" in out
+
+
+def test_the_cost_intelligence_blob_names_no_hidden_type() -> None:
+    out = render_instructions(_spend_settings())
+    for hidden in ("dataset", "experiment", "agent_insights_issue", "prompt_version"):
+        assert hidden not in out, hidden
+
+
+def test_the_default_blob_is_not_the_cost_intelligence_blob() -> None:
+    out = render_instructions(_settings())
+    assert "claude-code" not in out
+    assert "cost-intelligence" not in out
+    assert "write" in out
+
+
+def test_the_hosted_transport_keeps_the_default_blob_on_a_spend_workspace() -> None:
+    out = render_instructions(
+        _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="streamable-http")
+    )
+    assert "cost-intelligence" not in out

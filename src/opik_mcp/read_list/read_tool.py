@@ -17,6 +17,8 @@ LLM's error-recovery prompting is portable.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -31,23 +33,39 @@ from opik_mcp.client.base import (
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.cost_intelligence import Mode, mode_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
+from opik_mcp.read_list.project_scope import (
+    enter_mode,
+    refuse_other_project_name,
+    scoped_project_args,
+    subject_record,
+    verify_project_id,
+    verify_record,
+    verify_record_id,
+)
 from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
 from opik_mcp.read_list.registry import (
-    ENTITY_REGISTRY,
-    LISTABLE_TYPES,
-    READABLE_TYPES,
     URI_PATTERNS,
     resolve_entity_type,
 )
 from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.uri import InvalidURI, is_uuid, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
+from opik_mcp.read_list.visibility import listable_types, readable_types, visible_handler
 from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
+
+
+@contextmanager
+def _refusals_as_tool_errors() -> Iterator[None]:
+    try:
+        yield
+    except EntityArgValidationError as err:
+        raise ToolError(str(err)) from err
 
 
 def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, Any]]) -> str:
@@ -65,6 +83,7 @@ def _format_client_error(
     entity_type: str,
     entity_id: str,
     exc: BaseException,
+    mode: Mode,
 ) -> str:
     """One sentence on what was asked, and the call to change.
 
@@ -76,7 +95,7 @@ def _format_client_error(
     workspace, and that sentence says which credential and what to do.
     """
     if isinstance(exc, OpikNotFoundError):
-        listable = entity_type in LISTABLE_TYPES
+        listable = entity_type in listable_types(mode)
         find = f", or find it with list({entity_type!r}, …)" if listable else ""
         return (
             f"Not found: {entity_type} with id '{entity_id}'. Check the id and the workspace{find}."
@@ -94,9 +113,7 @@ def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
     """
     if not data.get("url"):
         return {}
-    subject = data.get(entity_type)
-    record = subject if isinstance(subject, dict) else data
-    name = record.get("name")
+    name = subject_record(entity_type, data).get("name")
     return {"link_as": name if isinstance(name, str) and name else "Open in Opik"}
 
 
@@ -124,6 +141,9 @@ async def run_read(
     # and override the explicit argument — that way the agent can paste a URI
     # into either slot. A parsed project-scoped URI/link also carries the
     # project, which overrides the explicit arg.
+    resolved_settings = settings or get_settings()
+    mode = mode_of(resolved_settings)
+    enter_mode(mode)
     record_id = id
     if looks_like_uri(record_id) or looks_like_opik_link(record_id, URI_PATTERNS):
         try:
@@ -138,21 +158,28 @@ async def run_read(
             project_id = parsed.project_id
             project_name = None
 
+    typed_entity_type = entity_type
     entity_type = resolve_entity_type(entity_type)
-    if entity_type not in READABLE_TYPES:
-        if entity_type in ENTITY_REGISTRY:
+    handler = visible_handler(entity_type, mode)
+    readable = readable_types(mode)
+    if handler is None or entity_type not in readable:
+        if handler is not None:
             err = EntityArgValidationError(
                 f"Entity {entity_type!r} is list-only — use list({entity_type!r}, "
                 f"<parent_id>=…) to enumerate, or read the parent entity instead."
             )
             raise ToolError(str(err)) from err
-        valid = ", ".join(sorted(READABLE_TYPES))
+        valid = ", ".join(sorted(readable))
         err = EntityArgValidationError(
-            f"Invalid entity_type {entity_type!r}. Readable types: {valid}"
+            f"Invalid entity_type {typed_entity_type!r}. Readable types: {valid}"
         )
         raise ToolError(str(err)) from err
 
-    handler = ENTITY_REGISTRY[entity_type]
+    with _refusals_as_tool_errors():
+        project_id, project_name = scoped_project_args(
+            handler, mode, project_id=project_id, project_name=project_name
+        )
+        refuse_other_project_name(handler, mode, record_id)
 
     if handler.needs_project and project_id is None and project_name is None:
         err = EntityArgValidationError(
@@ -174,7 +201,10 @@ async def run_read(
         window = handler.read_window
         if window is None:
             takes_window = sorted(
-                name for name, entry in ENTITY_REGISTRY.items() if entry.read_window is not None
+                name
+                for name in readable_types(mode)
+                if (shown := visible_handler(name, mode)) is not None
+                and shown.read_window is not None
             )
             err = WindowError(
                 f"since/until are not supported for read({entity_type!r}); "
@@ -201,14 +231,24 @@ async def run_read(
         if to_time is not None:
             extra[window.end_kwarg] = to_time[:10] if window.day_truncated else to_time
 
-    resolved_settings = settings or get_settings()
     # A read can be several backend calls (a trace and its spans, a project and
     # its metrics), so the connection is owned for the span of this call and
     # every leg reuses it.
     async with client_for_call(resolved_settings, client) as opik:
+        with _refusals_as_tool_errors():
+            await verify_project_id(opik, handler, mode, project_id)
+            await verify_record_id(opik, handler, mode, record_id)
         data = await _fetch_with_name_lookup(
-            handler, opik, record_id, project_id=project_id, project_name=project_name, extra=extra
+            handler,
+            opik,
+            record_id,
+            project_id=project_id,
+            project_name=project_name,
+            extra=extra,
+            mode=mode,
         )
+        with _refusals_as_tool_errors():
+            await verify_record(opik, handler, mode, data)
         if handler.link_fn is not None:
             # UI links are session facts (UI base, workspace), so they are
             # attached here rather than inside the fetcher.
@@ -263,6 +303,7 @@ async def _fetch_with_name_lookup(
     project_id: str | None = None,
     project_name: str | None = None,
     extra: dict[str, Any] | None = None,
+    mode: Mode,
 ) -> dict[str, Any]:
     """Resolve name → id when the input doesn't look like a UUID.
 
@@ -304,7 +345,7 @@ async def _fetch_with_name_lookup(
         # argument checks, so analytics buckets it as validation/400.
         raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
-        raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e
+        raise ToolError(_format_client_error(handler.entity_type, entity_id, e, mode)) from e
 
 
 __all__ = ["run_read"]

@@ -32,8 +32,11 @@ from opik_mcp.client.base import (
     OpikValidationError,
 )
 from opik_mcp.client.protocols import OpikListClient
+from opik_mcp.cost_intelligence import COST_INTELLIGENCE_MODE, FIXED_PROJECT, Mode
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
+from opik_mcp.read_list.uri import is_uuid
 
 logger = logging.getLogger("opik_mcp.read_list.project_scope")
 
@@ -54,6 +57,15 @@ _CACHE_TTL_SECONDS = 300.0
 _CACHE_MAX_ENTRIES = 512
 _CacheKey = tuple[str | None, str | None, str | None, str]
 _cache: dict[_CacheKey, tuple[str, float]] = {}
+
+# Cost intelligence mode serves one project, so a project name that resolves
+# to nothing must not list the workspace's others.
+_ONLY_FIXED_PROJECT = f"This cost intelligence workspace only serves the `{FIXED_PROJECT}` project."
+_NO_FIXED_PROJECT = (
+    f"This cost intelligence workspace has no `{FIXED_PROJECT}` project yet. "
+    "Claude Code usage appears there once data arrives."
+)
+_CONFINED: ContextVar[bool] = ContextVar("confined_to_fixed_project", default=False)
 
 
 def _str_attr(client: OpikListClient, name: str) -> str | None:
@@ -122,6 +134,8 @@ async def unknown_project_message(client: OpikListClient, project_name: str) -> 
     """One extra call when a project name resolves to nothing: the names that
     do exist, and the closest one. A typo is the common case, and every
     project-scoped entity answers it with the same words."""
+    if _CONFINED.get():
+        return _NO_FIXED_PROJECT
     names = [p["name"] for p in await project_rows(client) if isinstance(p.get("name"), str)]
     message = f"Project {project_name!r} not found."
     close = difflib.get_close_matches(project_name, names, n=1, cutoff=0.6)
@@ -247,13 +261,145 @@ async def scope_of(client: OpikListClient, kw: dict[str, Any], *, caller: str) -
     )
 
 
+def enter_mode(mode: Mode) -> None:
+    """Record, for this call, whether it is confined to the fixed project."""
+    _CONFINED.set(mode == COST_INTELLIGENCE_MODE)
+
+
+def is_confined() -> bool:
+    """Whether this call is confined to the fixed project (cost intelligence mode)."""
+    return _CONFINED.get()
+
+
+def _is_scoped(handler: EntityHandler, mode: Mode, scope: str) -> bool:
+    return mode == COST_INTELLIGENCE_MODE and handler.project_scope == scope
+
+
+def subject_record(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    """The record an answer is about: a composite keeps it under the entity's
+    name, anything else is the answer itself."""
+    subject = data.get(entity_type)
+    return subject if isinstance(subject, dict) else data
+
+
+def scoped_project_args(
+    handler: EntityHandler, mode: Mode, *, project_id: str | None, project_name: str | None
+) -> tuple[str | None, str | None]:
+    """The project scope a project-owned entity is called with in cost intelligence
+    mode: the fixed project when none was given, a refusal for another name."""
+    if not _is_scoped(handler, mode, "parent"):
+        return project_id, project_name
+    if project_name is not None and project_name.casefold() != FIXED_PROJECT.casefold():
+        raise EntityArgValidationError(_ONLY_FIXED_PROJECT)
+    # The fixed spelling, so a differently-cased twin project is never matched.
+    if project_id is None:
+        return None, FIXED_PROJECT
+    return project_id, None if project_name is None else FIXED_PROJECT
+
+
+def scoped_list_name(handler: EntityHandler, mode: Mode, name: str | None) -> str | None:
+    """The name filter a project listing runs with: always the fixed project.
+
+    A caller's name is only checked, so a substring never widens the backend page."""
+    if not _is_scoped(handler, mode, "self"):
+        return name
+    if name is not None and name.casefold() not in FIXED_PROJECT.casefold():
+        raise EntityArgValidationError(_ONLY_FIXED_PROJECT)
+    return FIXED_PROJECT
+
+
+def refuse_other_project_name(handler: EntityHandler, mode: Mode, record_id: str) -> None:
+    """Refuse a plain project name that is not the fixed project, before any fetch."""
+    is_other_name = record_id.casefold() != FIXED_PROJECT.casefold() and not is_uuid(record_id)
+    if _is_scoped(handler, mode, "self") and is_other_name:
+        raise EntityArgValidationError(_ONLY_FIXED_PROJECT)
+
+
+async def verify_project_id(
+    client: OpikListClient, handler: EntityHandler, mode: Mode, project_id: str | None
+) -> None:
+    """Refuse a project id that is not the fixed project's."""
+    if project_id is None or not _is_scoped(handler, mode, "parent"):
+        return
+    fixed_id = await resolve_project_id(client, FIXED_PROJECT)
+    if project_id.casefold() != fixed_id.casefold():
+        raise EntityArgValidationError(_ONLY_FIXED_PROJECT)
+
+
+async def verify_record_id(
+    client: OpikListClient, handler: EntityHandler, mode: Mode, record_id: str
+) -> None:
+    """Refuse another project's UUID before any fetch runs."""
+    if not _is_scoped(handler, mode, "self") or not is_uuid(record_id):
+        return
+    fixed_id = await resolve_project_id(client, FIXED_PROJECT)
+    if record_id.casefold() != fixed_id.casefold():
+        raise EntityArgValidationError(_ONLY_FIXED_PROJECT)
+
+
+async def verify_record(
+    client: OpikListClient, handler: EntityHandler, mode: Mode, data: dict[str, Any]
+) -> None:
+    """Refuse a fetched record that belongs to another project.
+
+    A record with no project id is trusted only where the fetch was itself
+    scoped to the project (``needs_project``).
+    """
+    if not (_is_scoped(handler, mode, "parent") or _is_scoped(handler, mode, "self")):
+        return
+    record = subject_record(handler.entity_type, data)
+    owner = record.get("id" if handler.project_scope == "self" else "project_id")
+    if owner is None and handler.needs_project:
+        return
+    fixed_id = await resolve_project_id(client, FIXED_PROJECT)
+    if not isinstance(owner, str) or owner.casefold() != fixed_id.casefold():
+        raise EntityArgValidationError(_ONLY_FIXED_PROJECT)
+
+
+async def keep_fixed_project_row(
+    client: OpikListClient,
+    handler: EntityHandler,
+    mode: Mode,
+    page: dict[str, Any],
+    *,
+    page_number: int = 1,
+) -> dict[str, Any]:
+    """A project listing narrowed to the fixed project, with its total recomputed.
+
+    The row kept is the one whose id is the resolved fixed project's, the test
+    every read uses. Only a missing project is refused; a page past the single
+    row stays empty and still counts the one project."""
+    if not _is_scoped(handler, mode, "self"):
+        return page
+    candidates = [row for row in page.get("content") or [] if isinstance(row, dict)]
+    rows: list[dict[str, Any]] = []
+    if candidates:
+        fixed_id = await resolve_project_id(client, FIXED_PROJECT)
+        rows = [row for row in candidates if str(row.get("id")).casefold() == fixed_id.casefold()]
+    if not rows:
+        if page_number > 1 and page.get("total"):
+            return {**page, "content": [], "total": 1}
+        raise EntityArgValidationError(_NO_FIXED_PROJECT)
+    return {**page, "content": rows, "total": len(rows)}
+
+
 __all__ = [
+    "enter_mode",
+    "is_confined",
+    "keep_fixed_project_row",
     "project_rows",
+    "refuse_other_project_name",
     "remember_resolved_project",
     "require_project_id",
     "reset_project_cache_for_tests",
     "resolve_project_id",
     "resolved_project",
     "scope_of",
+    "scoped_list_name",
+    "scoped_project_args",
+    "subject_record",
     "unknown_project_message",
+    "verify_project_id",
+    "verify_record",
+    "verify_record_id",
 ]

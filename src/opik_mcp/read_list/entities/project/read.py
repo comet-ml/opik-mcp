@@ -24,7 +24,12 @@ from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.project import vocabulary as project_vocabulary
 from opik_mcp.read_list.entities.project.contents import UI_PAGE, project_contents
 from opik_mcp.read_list.entities.project.summary import trace_summary
+from opik_mcp.read_list.project_scope import is_confined
 from opik_mcp.read_list.ui_links import project_page_url
+
+
+async def _nothing() -> None:
+    return None
 
 
 async def fetch_project(
@@ -46,13 +51,16 @@ async def fetch_project(
     # raises something the block does not catch, the siblings must be
     # collected rather than left running against a connection this call is
     # about to close.
+    # Cost intelligence mode hides experiments, rules and the rest of what the
+    # project holds, so those legs are not fetched.
+    confined = is_confined()
     legs = await asyncio.gather(
         trace_summary(client, entity_id, since=since, until=until),
         project_vocabulary.score_names(client, entity_id),
         project_vocabulary.usage_keys(client, entity_id),
-        project_vocabulary.online_rules(client, entity_id),
-        project_vocabulary.experiment_metadata_keys(client, entity_id),
-        project_contents(client, entity_id),
+        _nothing() if confined else project_vocabulary.online_rules(client, entity_id),
+        _nothing() if confined else project_vocabulary.experiment_metadata_keys(client, entity_id),
+        _nothing() if confined else project_contents(client, entity_id),
         return_exceptions=True,
     )
     for leg in legs:

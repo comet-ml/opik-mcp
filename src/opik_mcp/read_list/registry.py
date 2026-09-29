@@ -11,6 +11,7 @@ through.
 
 from __future__ import annotations
 
+from opik_mcp.cost_intelligence import DEFAULT_MODE
 from opik_mcp.read_list.entities import (
     agent_insights_issue,
     dataset,
@@ -72,10 +73,16 @@ def resolve_entity_type(entity_type: str) -> str:
     return ENTITY_ALIASES.get(entity_type, entity_type)
 
 
+# The advertised tuples below mean the default mode; ``visibility`` has the
+# same views for any mode.
 READABLE_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if h.fetch_fn is not unsupported_fetch
+    t
+    for t, h in ENTITY_REGISTRY.items()
+    if DEFAULT_MODE in h.modes and h.fetch_fn is not unsupported_fetch
 )
-LISTABLE_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.lists)
+LISTABLE_TYPES: tuple[str, ...] = tuple(
+    t for t, h in ENTITY_REGISTRY.items() if DEFAULT_MODE in h.modes and h.lists
+)
 
 #: Every field table a ``list`` call can be checked against, by name, in
 #: registry order: ``schema("list.…")`` keys and refusals list them this way.
@@ -84,15 +91,26 @@ VOCABULARIES: dict[str, Vocabulary] = {
     for handler in ENTITY_REGISTRY.values()
     for vocabulary in handler.vocabularies
 }
-SORTABLE_TYPES: tuple[str, ...] = tuple(v.name for v in VOCABULARIES.values() if v.sort_fields)
+SORTABLE_TYPES: tuple[str, ...] = tuple(
+    v.name
+    for v in VOCABULARIES.values()
+    if v.sort_fields and DEFAULT_MODE in ENTITY_REGISTRY[v.entity_type].modes
+)
 #: The entity types ``filters`` applies to. A mode of an entity is not a type.
 FILTERABLE_TYPES: tuple[str, ...] = tuple(
-    v.name for v in VOCABULARIES.values() if v.filter_fields and v.mode_of is None
+    v.name
+    for v in VOCABULARIES.values()
+    if v.filter_fields
+    and v.mode_of is None
+    and DEFAULT_MODE in ENTITY_REGISTRY[v.entity_type].modes
 )
-WINDOWED_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.is_windowed)
+WINDOWED_TYPES: tuple[str, ...] = tuple(
+    t for t, h in ENTITY_REGISTRY.items() if DEFAULT_MODE in h.modes and h.is_windowed
+)
 
 #: Every address ``read`` accepts as an id, with the entity it names, in the
-#: order ``uri.parse`` tries them.
+#: order ``uri.parse`` tries them. Every mode: a link to an entity the mode
+#: hides is parsed, so it can be refused by name.
 URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
     (handler.entity_type, pattern)
     for handler in sorted(ENTITY_REGISTRY.values(), key=lambda h: -h.uri_precedence)
