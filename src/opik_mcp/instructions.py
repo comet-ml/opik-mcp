@@ -16,7 +16,7 @@ not as a list to verify, so anything it describes had better exist on THIS
 connection. It must therefore stay in step with what ``tools/list`` actually
 advertises.
 
-The blob is rendered per session (see ``server.install_session_instructions``):
+The blob is rendered per session (see ``server.app.session.install_session_instructions``):
 ``workspace`` prefers the OAuth-authorized workspace for THIS session — the
 inbound ``Comet-Workspace`` header, else the name introspected from the bearer
 (``resolved_workspace_name``) — and only falls back to the static ``Settings``

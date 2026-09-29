@@ -95,7 +95,7 @@ write dispatch.py -> hooks in src/opik_mcp/writes/operations/diagnostics.py
 ```
 
 - Columns or filters: `HANDLER` in `entity.py`, then the `list` signature and
-  docstring in `src/opik_mcp/server.py`. A new parameter changes the schema
+  docstring in `src/opik_mcp/server/tools/list.py`. A new parameter changes the schema
   snapshot and the tool byte budget.
 - Empty-page and coverage text: `state.py`. Deployment check:
   `diagnostics_available` in `availability.py`.

@@ -12,7 +12,7 @@ import pytest
 import respx
 
 from opik_mcp.config import Settings
-from opik_mcp.oauth_identity import introspect_oauth_token
+from opik_mcp.identity.oauth import introspect_oauth_token
 from tests.factories import make_settings
 
 AUTH = "Bearer opik_mcp_at_abc123"

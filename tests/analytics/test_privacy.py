@@ -29,7 +29,7 @@ from typing import Any
 
 import pytest
 
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 from tests.factories import make_settings
 
 # Substrings that must NEVER appear in any analytics event. Each one is a
@@ -116,14 +116,14 @@ async def test_write_props_emits_only_low_cardinality_signals(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """server.write with a PII data payload MUST emit only bucketed flags."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.write import write
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_write",
+        "opik_mcp.server.tools.write.run_write",
         lambda **_kw: _noop_coroutine_result({"ok": True, "operation": "comment.create"}),
     )
 
-    await server.write(
+    await write(
         operation="comment.create",
         data={
             "target": "trace",
@@ -144,15 +144,15 @@ async def test_write_props_emits_batch_size_bucket(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """server.write with an array data payload MUST emit is_batch + bucketed size."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.write import write
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_write",
+        "opik_mcp.server.tools.write.run_write",
         lambda **_kw: _noop_coroutine_result({"ok": True, "operation": "trace.create"}),
     )
 
     payload = [{"name": f"trace-{i}", "input": FORBIDDEN[3]} for i in range(50)]
-    await server.write(operation="trace.create", data=payload)
+    await write(operation="trace.create", data=payload)
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
     assert props["operation"] == "trace.create"
@@ -165,14 +165,14 @@ async def test_write_props_emits_batch_size_bucket(
 async def test_write_props_emits_dry_run_flag(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from opik_mcp import server
+    from opik_mcp.server.tools.write import write
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_write",
+        "opik_mcp.server.tools.write.run_write",
         lambda **_kw: _noop_coroutine_result({"dry_run": True}),
     )
 
-    await server.write(
+    await write(
         operation="score.create",
         data={
             "target": "trace",
@@ -193,14 +193,14 @@ async def test_schema_props_emits_only_operation(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """server.schema MUST only emit `operation` — no input payload to leak."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.schema import schema
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_schema",
+        "opik_mcp.server.tools.schema.run_schema",
         lambda operation: {"operation": operation, "schema": {}},
     )
 
-    await server.schema(operation="trace.create")
+    await schema(operation="trace.create")
     props = _tool_called(recorder.events)
     assert props["operation"] == "trace.create"
 
@@ -227,14 +227,14 @@ async def test_read_props_buckets_id_kind_without_leaking(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """server.read MUST emit only `entity_type` + `id_kind` — never the raw id."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.read import read
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_read",
+        "opik_mcp.server.tools.read.run_read",
         lambda **_kw: _noop_coroutine("[read: project / x / SKELETON / 1 / 1]\n{}"),
     )
 
-    await server.read(entity_type="project", id=raw_id)
+    await read(entity_type="project", id=raw_id)
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
     assert props["entity_type"] == "project"
@@ -251,14 +251,14 @@ async def test_list_props_emits_had_name_filter_without_leaking(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """server.list_entities with a PII `name` filter MUST only emit a boolean."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.list import list_entities
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_list",
+        "opik_mcp.server.tools.list.run_list",
         lambda **_kw: _noop_coroutine("[list: project / page 1 / 0 items]\n"),
     )
 
-    await server.list_entities(entity_type="project", name=FORBIDDEN[7], page=3, size=50)
+    await list_entities(entity_type="project", name=FORBIDDEN[7], page=3, size=50)
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
     assert props["entity_type"] == "project"
@@ -275,16 +275,18 @@ async def test_list_props_carry_the_page_shape_as_two_booleans(
     the two facts that tell "the default hid the traces" from "there were
     none" in a dashboard. They arrive as booleans, set by the list call
     itself, never as a count or a value."""
-    from opik_mcp import server
     from opik_mcp.read_list import list_tool
+    from opik_mcp.server.tools.list import list_entities
 
     async def run_list_that_saw_an_empty_defaulted_page(**_kw: Any) -> str:
         list_tool._PAGE_FACTS.set({"empty": "true", "source_defaulted": "true"})
         return '[list: trace | filters: source = "sdk"]\nNo traces found.'
 
-    monkeypatch.setattr("opik_mcp.server.run_list", run_list_that_saw_an_empty_defaulted_page)
+    monkeypatch.setattr(
+        "opik_mcp.server.tools.list.run_list", run_list_that_saw_an_empty_defaulted_page
+    )
 
-    await server.list_entities(entity_type="trace", project_id=FORBIDDEN[0])
+    await list_entities(entity_type="trace", project_id=FORBIDDEN[0])
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
     assert props["empty"] == "true"
@@ -297,16 +299,18 @@ async def test_list_props_carry_no_page_facts_after_a_call_that_saw_no_page(
 ) -> None:
     """A metric series or a refusal never reaches a page. Neither boolean is
     sent, rather than a default that would count as an empty page."""
-    from opik_mcp import server
     from opik_mcp.read_list import list_tool
+    from opik_mcp.server.tools.list import list_entities
 
     async def run_list_that_answered_through_a_runner(**_kw: Any) -> str:
         list_tool._PAGE_FACTS.set({})
         return "[list: project_metric]\nseries"
 
-    monkeypatch.setattr("opik_mcp.server.run_list", run_list_that_answered_through_a_runner)
+    monkeypatch.setattr(
+        "opik_mcp.server.tools.list.run_list", run_list_that_answered_through_a_runner
+    )
 
-    await server.list_entities(entity_type="project_metric", project_id=FORBIDDEN[0])
+    await list_entities(entity_type="project_metric", project_id=FORBIDDEN[0])
     props = _tool_called(recorder.events)
     assert "empty" not in props
     assert "source_defaulted" not in props
@@ -317,14 +321,14 @@ async def test_list_props_emits_had_name_filter_false_when_absent(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Negative branch — no `name` filter must yield `had_name_filter=false`."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.list import list_entities
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_list",
+        "opik_mcp.server.tools.list.run_list",
         lambda **_kw: _noop_coroutine("[list: project / page 1 / 0 items]\n"),
     )
 
-    await server.list_entities(entity_type="project")
+    await list_entities(entity_type="project")
     props = _tool_called(recorder.events)
     assert props["had_name_filter"] == "false"
 
@@ -335,14 +339,14 @@ async def test_list_props_record_the_search_shape_without_values(
 ) -> None:
     """Filter field names, sort field, window and search are shape signals;
     filter values, search text and metadata/score keys never leave the process."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.list import list_entities
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_list",
+        "opik_mcp.server.tools.list.run_list",
         lambda **_kw: _noop_coroutine("[list: trace | filters: …]\n"),
     )
 
-    await server.list_entities(
+    await list_entities(
         entity_type="trace",
         project_name=FORBIDDEN[4],
         filters=(
@@ -367,13 +371,13 @@ async def test_list_props_record_the_search_shape_without_values(
 async def test_list_props_shape_signals_are_false_on_a_bare_call(
     recorder: _Recorder, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from opik_mcp import server
+    from opik_mcp.server.tools.list import list_entities
 
     monkeypatch.setattr(
-        "opik_mcp.server.run_list",
+        "opik_mcp.server.tools.list.run_list",
         lambda **_kw: _noop_coroutine("[list: trace | filters: …]\n"),
     )
-    await server.list_entities(entity_type="trace", project_id="p-1")
+    await list_entities(entity_type="trace", project_id="p-1")
     props = _tool_called(recorder.events)
     assert props["has_filters"] == "false"
     assert props["filter_fields"] == ""
@@ -398,16 +402,16 @@ async def test_list_props_shape_signals_are_false_on_a_bare_call(
 )
 @pytest.mark.anyio
 async def test_list_validation_failures_record_their_class_and_nothing_else(
-    recorder: _Recorder, kwargs: dict[str, str], expected_cause: str
+    recorder: _Recorder, kwargs: dict[str, Any], expected_cause: str
 ) -> None:
     """A rejected filter/sort/window is bucketed by exception class only — the
     offending string (which may carry customer data) never reaches analytics."""
     from mcp.server.fastmcp.exceptions import ToolError
 
-    from opik_mcp import server
+    from opik_mcp.server.tools.list import list_entities
 
     with pytest.raises(ToolError):
-        await server.list_entities(entity_type="trace", project_id="p-1", **kwargs)
+        await list_entities(entity_type="trace", project_id="p-1", **kwargs)
     _assert_no_leak(recorder.events)
     payload = json.dumps(recorder.events)
     for value in kwargs.values():
@@ -439,18 +443,18 @@ async def test_tool_called_failure_strips_exception_message(
     text in the analytics event — only the class-keyed bucket and class name.
     Drives ``server.read`` so ``_read_props`` + the wrapper's error-emit arm
     both execute on the real tool surface."""
-    from opik_mcp import server
-    from opik_mcp.opik_client import OpikAuthError
+    from opik_mcp.client.base import OpikAuthError
+    from opik_mcp.server.tools.read import read
 
     canary = "raw-error-message-UNIQUE-CANARY-7e1f2a3b"
 
     async def _raise(**_kw: Any) -> str:
         raise OpikAuthError(canary)
 
-    monkeypatch.setattr("opik_mcp.server.run_read", _raise)
+    monkeypatch.setattr("opik_mcp.server.tools.read.run_read", _raise)
 
     with pytest.raises(OpikAuthError):
-        await server.read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
+        await read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
 
     # Canary must not appear anywhere in the recorded payload.
     payload = json.dumps(recorder.events)
@@ -476,17 +480,17 @@ async def test_tool_called_failure_unknown_class_uses_class_name_only(
     """A custom Exception class falls through to ``error_kind=unknown``. The
     only granular signal is ``exception_type`` (the class name), which is
     fixed by the class declaration — never an attacker-controlled string."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.read import read
 
     canary = "unknown-class-message-UNIQUE-CANARY-c4d5e6f7"
 
     async def _raise(**_kw: Any) -> str:
         raise _CanaryAuthError(canary)
 
-    monkeypatch.setattr("opik_mcp.server.run_read", _raise)
+    monkeypatch.setattr("opik_mcp.server.tools.read.run_read", _raise)
 
     with pytest.raises(_CanaryAuthError):
-        await server.read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
+        await read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
 
     payload = json.dumps(recorder.events)
     assert canary not in payload
@@ -511,8 +515,8 @@ async def test_tool_called_cause_type_is_class_only(
     ``real.args`` could silently exfiltrate exception messages into BI."""
     from mcp.server.fastmcp.exceptions import ToolError
 
-    from opik_mcp import server
-    from opik_mcp.opik_client import OpikAuthError
+    from opik_mcp.client.base import OpikAuthError
+    from opik_mcp.server.tools.read import read
 
     wrapper_canary = "tool-error-wrapper-msg-UNIQUE-CANARY-1f2e3d4c"
     cause_canary = "opik-auth-cause-msg-UNIQUE-CANARY-5b6a7980"
@@ -523,10 +527,10 @@ async def test_tool_called_cause_type_is_class_only(
         except OpikAuthError as e:
             raise ToolError(wrapper_canary) from e
 
-    monkeypatch.setattr("opik_mcp.server.run_read", _raise)
+    monkeypatch.setattr("opik_mcp.server.tools.read.run_read", _raise)
 
     with pytest.raises(ToolError):
-        await server.read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
+        await read(entity_type="project", id="00000000-0000-0000-0000-000000000001")
 
     payload = json.dumps(recorder.events)
     assert wrapper_canary not in payload, (
@@ -652,9 +656,9 @@ async def test_read_skill_props_report_the_skill_the_form_and_whether_it_was_a_r
     """Three questions BI has of this tool: which skills earn their place, which
     documented form callers use, and whether they read whole skills or drill into
     the documents a SKILL.md points at."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.read_skill import read_skill
 
-    await server.read_skill(skill_name="opik")
+    await read_skill(skill_name="opik")
     props = _tool_called(recorder.events)
     assert props["skill"] == "opik"
     assert props["request_shape"] == "name"
@@ -676,9 +680,9 @@ async def test_read_skill_shape_labels(
 ) -> None:
     """A `uri` in the data means the caller browsed `resources/list` first — which
     is how we learn whether the resource surface is being discovered at all."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.read_skill import read_skill
 
-    await server.read_skill(skill_name=requested)
+    await read_skill(skill_name=requested)
     props = _tool_called(recorder.events)
     assert props["request_shape"] == shape
     assert props["is_reference"] == is_reference
@@ -689,9 +693,9 @@ async def test_read_skill_never_emits_the_document_path(recorder: _Recorder) -> 
     """16 of the 21 bundled files are references, so the path would be the
     highest-cardinality label on the event — and it informs no decision that
     `is_reference` doesn't. Only the shape and the skill are recorded."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.read_skill import read_skill
 
-    await server.read_skill(skill_name="opik/references/tracing-python.md")
+    await read_skill(skill_name="opik/references/tracing-python.md")
     props = _tool_called(recorder.events)
     assert props["skill"] == "opik"
     assert "tracing-python" not in json.dumps(props)
@@ -709,11 +713,11 @@ async def test_read_skill_free_text_argument_never_reaches_analytics(
     guard that keeps the `skill` label space closed on the *success* path is
     covered by `test_read_skill_props_collapse_an_unknown_skill_to_a_constant`.
     """
-    from opik_mcp import server
+    from opik_mcp.server.tools.read_skill import read_skill
     from opik_mcp.skills_catalog import UnknownSkillError
 
     with pytest.raises(UnknownSkillError):
-        await server.read_skill(skill_name=FORBIDDEN[9])
+        await read_skill(skill_name=FORBIDDEN[9])
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
     assert props["success"] == "false"
@@ -729,7 +733,7 @@ def test_read_skill_props_collapse_an_unknown_skill_to_a_constant() -> None:
     rather than through the tool, and stays honest if resolution later grows
     aliases or fuzzy matching.
     """
-    from opik_mcp.server import _read_skill_props
+    from opik_mcp.server.tools.read_skill import _read_skill_props
 
     props = _read_skill_props(None, {"skill_name": FORBIDDEN[9]})
     assert props["skill"] == "unknown"
@@ -742,11 +746,11 @@ async def test_read_skill_emits_the_validation_error_kind_on_a_bad_argument(
 ) -> None:
     """`UnknownSkillError` declares `error_kind = "validation"`, so a wrong skill
     name lands in the user-side bucket and never pages anyone."""
-    from opik_mcp import server
+    from opik_mcp.server.tools.read_skill import read_skill
     from opik_mcp.skills_catalog import UnknownSkillError
 
     with pytest.raises(UnknownSkillError):
-        await server.read_skill(skill_name="not-a-skill")
+        await read_skill(skill_name="not-a-skill")
     props = _tool_called(recorder.events)
     assert props["error_kind"] == "validation"
 
@@ -881,12 +885,12 @@ def test_new_events_carry_no_forbidden_substring(
         )
 
     elif event_name == "opik_mcp_auth_rejected":
-        from opik_mcp import server
+        from opik_mcp.server.http.middleware import AuthRejectionMiddleware
 
         monkeypatch.setattr(
-            "opik_mcp.server.track_event", lambda et, p: recorder.track_event(et, p)
+            "opik_mcp.server.http.middleware.track_event", lambda et, p: recorder.track_event(et, p)
         )
-        mw = server.AuthRejectionMiddleware(
+        mw = AuthRejectionMiddleware(
             None,  # type: ignore[arg-type]  # app unused by _emit_rejection
             settings=make_settings(opik_mcp_analytics_enabled=False),
         )
@@ -933,7 +937,7 @@ async def test_sentry_capture_path_carries_no_forbidden_substring(
     from types import SimpleNamespace
 
     from opik_mcp.analytics.wrappers import instrument_tool
-    from opik_mcp.opik_client import OpikServerError
+    from opik_mcp.client.base import OpikServerError
 
     captured_tags: dict[str, str] = {}
     captured_extras: dict[str, Any] = {}

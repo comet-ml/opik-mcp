@@ -13,8 +13,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
-from opik_mcp.auth_context import oauth_token_expired_hint
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.identity.context import oauth_token_expired_hint
 
 ErrorCode = Literal[
     "validation_failed",
@@ -179,7 +179,7 @@ class BackendError(WriteError):
         # The backend's body is untrusted text and the REST path is not a name
         # the caller can use, so neither is carried; the status is, for the
         # analytics bucket. ``backend_message`` is the backend's own capped
-        # reason on a 400, 409 or 422 (``opik_client.backend_reason``), kept in its
+        # reason on a 400, 409 or 422 (``client.base.backend_reason``), kept in its
         # own field so it is never read as ours.
         extra: dict[str, Any] = {"backend_error": {"status": status}}
         if backend_message:

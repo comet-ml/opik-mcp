@@ -1,8 +1,8 @@
 """Which identity applies to the call being made right now.
 
-Three modules can each answer "who is this": ``oauth_identity`` introspects an
-inbound bearer, ``account_identity`` resolves this install's own API key, and
-``credential_identity`` remembers what either of them found. This module owns the
+Three modules can each answer "who is this": ``identity.oauth`` introspects an
+inbound bearer, ``identity.account`` resolves this install's own API key, and
+``identity.store`` remembers what either of them found. This module owns the
 one policy question that sits above all three — *whose* credential is in play —
 so that the analytics layer can stamp an answer without also deciding it.
 
@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import logging
 
-from opik_mcp.account_identity import resolve_api_key_identity
-from opik_mcp.auth_context import classify_bearer, inbound_authorization
 from opik_mcp.config import Settings, installation_type
-from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
+from opik_mcp.identity.account import resolve_api_key_identity
+from opik_mcp.identity.context import classify_bearer, inbound_authorization
+from opik_mcp.identity.store import ResolvedIdentity, lookup_identity
 
-logger = logging.getLogger("opik_mcp.caller_identity")
+logger = logging.getLogger("opik_mcp.identity.caller")
 
 
 def caller_identity(settings: Settings) -> ResolvedIdentity | None:

@@ -54,7 +54,7 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
     )
-    from opik_mcp.credential_identity import reset_identities_for_tests
+    from opik_mcp.identity.store import reset_identities_for_tests
     from opik_mcp.read_list.project_scope import reset_project_cache_for_tests
 
     _reset_process_caches()
@@ -89,9 +89,9 @@ def _reset_process_caches() -> None:
     from HOME, the per-session host context, and the account identity (its
     disk read, in-flight refreshes and bookkeeping)."""
     from opik_mcp import config
-    from opik_mcp.account_identity import reset_account_identity_for_tests
     from opik_mcp.analytics import identity
     from opik_mcp.analytics.mcp_client_info import _reset_call_context_cache_for_tests
+    from opik_mcp.identity.account import reset_account_identity_for_tests
 
     config.get_settings.cache_clear()
     identity._get_install_id.cache_clear()
@@ -110,7 +110,7 @@ def _disable_workspace_introspection() -> Generator[None]:
     ``@respx.mock`` window. Stubbed to ``unknown`` by default — the fail-open
     outcome, so the request is forwarded exactly as with no introspection at
     all (mirrors the analytics default above); tests that exercise validation
-    ``monkeypatch.setattr`` the real function back, and the ``oauth_identity``
+    ``monkeypatch.setattr`` the real function back, and the ``identity.oauth``
     unit tests call it directly.
 
     Uses a standalone ``pytest.MonkeyPatch()`` rather than the ``monkeypatch``
@@ -121,13 +121,13 @@ def _disable_workspace_introspection() -> Generator[None]:
     on ``cache_info``). A self-owned instance keeps fixture ordering untouched.
     """
 
-    from opik_mcp.oauth_identity import Introspection
+    from opik_mcp.identity.oauth import Introspection
 
     async def _unknown(*_args: object, **_kwargs: object) -> Introspection:
         return Introspection(status="unknown")
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.server.introspect_oauth_token", _unknown)
+    mp.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", _unknown)
     try:
         yield
     finally:
@@ -157,7 +157,7 @@ def _disable_api_key_identity() -> Generator[None]:
         return None
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.caller_identity.resolve_api_key_identity", _none)
+    mp.setattr("opik_mcp.identity.caller.resolve_api_key_identity", _none)
     try:
         yield
     finally:

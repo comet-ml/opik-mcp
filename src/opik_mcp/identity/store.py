@@ -187,7 +187,7 @@ _VALIDATIONS: OrderedDict[str, _Validation] = OrderedDict()
 # Clock skew allowance between opik-backend's ``expires_at`` and this pod.
 EXPIRY_SKEW_MARGIN_S = 10.0
 
-# Same words as ``oauth_identity.IntrospectionStatus`` for the same verdicts, so
+# Same words as ``identity.oauth.IntrospectionStatus`` for the same verdicts, so
 # the middleware switches on one vocabulary. ``None`` from a lookup means "ask".
 ValidationVerdict = Literal["valid", "invalid"]
 

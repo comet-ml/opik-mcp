@@ -18,7 +18,9 @@ paths:
   still on, and its failure message names the file, where the code belongs and
   the rule.
 - A ratchet only shrinks. Paying off an item means deleting it from the list,
-  and the test fails if you don't.
+  and the test fails if you don't. A move that splits a file may replace its
+  entry with one per new module carrying the same findings; the PR says so,
+  and the total of findings never grows.
 - Slow suites carry their marker and run only through their make target.
   Never mark a fast test.
 - Telemetry is off for the whole test process. Assert on it only in the test

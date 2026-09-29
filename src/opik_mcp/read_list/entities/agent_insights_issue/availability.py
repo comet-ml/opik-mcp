@@ -28,13 +28,13 @@ from typing import Any
 
 import httpx
 
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikListClient,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.protocols import OpikListClient
 
 logger = logging.getLogger("opik_mcp.read_list.entities.agent_insights_issue.availability")
 

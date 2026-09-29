@@ -24,7 +24,21 @@ import asyncio
 import json
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.read_list.entities.dataset.compare_guards import dataset_of, guards
+from opik_mcp.read_list.entities.dataset.compare_notes import (
+    how_to_read,
+    keys_note,
+    legend,
+    sort_caveat,
+    unrestored_note,
+    why_empty,
+)
+from opik_mcp.read_list.entities.dataset.compared_row import (
+    NO_KINDS,
+    Experiment,
+    ScoreKinds,
+)
 from opik_mcp.read_list.entities.dataset.figures import (
     CATEGORY_CALL_CAP,
     Figures,
@@ -33,30 +47,18 @@ from opik_mcp.read_list.entities.dataset.figures import (
     label_counts_wanted,
     render_figures,
 )
-from opik_mcp.read_list.entities.dataset.layout import (
-    NO_KINDS,
-    PASS_SEPARATOR,
-    RUN_SEPARATOR,
-    Experiment,
-    ScoreKinds,
-    render,
-)
+from opik_mcp.read_list.entities.dataset.layout import render
 from opik_mcp.read_list.entities.dataset.vocabulary import COMPARED
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.oql import compile_filters, render_filters
 from opik_mcp.read_list.paging import clamp_size
 from opik_mcp.read_list.projection import normalise
-from opik_mcp.read_list.sample import is_thin
 from opik_mcp.read_list.sorting import compile_sort
 
 #: What opik-backend stores on an experiment that ran a test suite. Not
 #: ``test_suite``: its OPIK-5795 plans that rename and has not done it, so
 #: this is the one place that knows the stored spelling.
 TEST_SUITE_METHOD = "evaluation_suite"
-#: opik-backend's ``ExperimentStatus.RUNNING``. The record's ``status`` is not
-#: a filterable field, so it has no entry in the OQL enum table; the one value
-#: the comparison has to recognise is named here.
-RUNNING: Final = "running"
 
 MAX_EXPERIMENTS = 10
 #: Filter fields that live on the runs rather than on the case. opik-backend
@@ -66,9 +68,6 @@ RUN_LEVEL_FIELDS = ("feedback_scores", "output", "duration")
 #: How many rows a run-level filter may put back together in one call. Each
 #: costs a request, and one tool call turning into a hundred is not a page.
 REFETCH_ROW_CAP = 25
-#: A test suite's runs echo the case input back under ``input``, so it shows
-#: up as an output key that is not one. The UI hides it on the same page.
-ECHOED_OUTPUT_KEY = "input"
 _ENTITY = "dataset_item"
 
 
@@ -99,7 +98,7 @@ async def run_compare(
     size = clamp_size(size)
 
     experiments = await _resolve(client, ids)
-    ran_dataset_id = _dataset_of(experiments, dataset_id)
+    ran_dataset_id = dataset_of(experiments, dataset_id)
 
     clauses = compile_filters(COMPARED, filters) if filters else []
     stripping = _strips_runs(clauses, experiment_count=len(ids))
@@ -164,7 +163,7 @@ async def run_compare(
     if stripping and rows:
         rows, unrestored = await _with_every_run(client, ran_dataset_id, ids, rows)
 
-    applied = [f"compare: {_legend(experiments)}"]
+    applied = [f"compare: {legend(experiments)}"]
     if clauses:
         applied.append(f"filters: {render_filters(COMPARED, clauses)}")
     if sort_label is not None:
@@ -179,7 +178,7 @@ async def run_compare(
 
     # Warnings first: whether the table can be read at face value is decided
     # before how to read it.
-    notes = [*_guards(experiments), _how_to_read(experiments, assertion_columns=assertion_columns)]
+    notes = [*guards(experiments), how_to_read(experiments, assertion_columns=assertion_columns)]
     if figure_lines:
         notes.append(figures_note(experiments, filtered=bool(clauses), skipped=uncounted))
     if stripping and rows:
@@ -189,7 +188,7 @@ async def run_compare(
             "is the whole case."
         )
     keys_line = (
-        _keys_note(column_results[0] if column_results else None, rows, hide_echo=assertion_columns)
+        keys_note(column_results[0] if column_results else None, rows, hide_echo=assertion_columns)
         if wanted is None
         # The projection marker already accounts for every field of the row,
         # and the keys note answers the same question one call earlier. Saying
@@ -204,15 +203,15 @@ async def run_compare(
             "search matched the cases' data, not the runs' output; to search the output, "
             'filter on it (output contains "…").'
         )
-    caveat = _sort_caveat(sort_field)
+    caveat = sort_caveat(sort_field)
     if caveat is not None:
         notes.append(caveat)
     if unrestored:
-        notes.append(_unrestored_note(unrestored))
+        notes.append(unrestored_note(unrestored))
     if not rows:
         # An empty page still says what could be asked next: the keys, the
         # search semantics and the legend are what turn it into a second call.
-        reason = _empty(
+        reason = why_empty(
             strips_runs=stripping,
             is_filtered=bool(clauses),
             is_searched=bool(search),
@@ -291,56 +290,6 @@ async def _label_counts(
             continue
         counts.setdefault((experiment.id, name), {})[label] = runs
     return counts, []
-
-
-def _keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> str | None:
-    """What this dataset and its runs can be filtered and sorted on, once.
-
-    The case keys are read off the page; the runs' output keys need a call,
-    which only the first page makes. A failed columns call costs the line, not
-    the page.
-    """
-    case_keys = sorted({key for row in rows for key in (row.get("data") or {})})
-    output_keys: list[str] = []
-    if isinstance(columns, dict):
-        output_keys = [
-            str(column["name"])
-            for column in columns.get("columns") or []
-            if isinstance(column, dict) and column.get("name")
-        ]
-        if hide_echo:
-            # A suite's runs echo the case back under ``input``; it is the case,
-            # not an output.
-            output_keys = [key for key in output_keys if key != ECHOED_OUTPUT_KEY]
-    if not case_keys and not output_keys:
-        return None
-    parts = []
-    if output_keys:
-        parts.append(f"runs' output keys: {', '.join(output_keys)}")
-    if case_keys:
-        parts.append(f"case data keys: {', '.join(case_keys)}")
-    return f"{'; '.join(parts)}. Filter or sort on them as output.<key> and data.<key>."
-
-
-#: How many failed refetches a note names before it starts counting. Naming
-#: all of a capped page is 25 uuids of note for a backend having a bad minute.
-_NAMED_UNRESTORED = 3
-
-
-def _unrestored_note(case_ids: list[str]) -> str:
-    """Which rows on the page show only the runs that matched the filter.
-
-    A count alone makes the whole page suspect; the ids make exactly those
-    rows suspect, and each one is a ``filters='id = "…"'`` away from a retry.
-    """
-    named = ", ".join(case_ids[:_NAMED_UNRESTORED])
-    if len(case_ids) > _NAMED_UNRESTORED:
-        named += f", and {len(case_ids) - _NAMED_UNRESTORED} more"
-    plural = "s" if len(case_ids) != 1 else ""
-    return (
-        f"{len(case_ids)} row{plural} could not be fetched again and show{'' if plural else 's'} "
-        f"only the runs that matched the filter: {named}."
-    )
 
 
 def _strips_runs(clauses: list[dict[str, str]], *, experiment_count: int) -> bool:
@@ -467,42 +416,6 @@ def _sorting(sort: str | None) -> tuple[str | None, str | None, str | None]:
     )
 
 
-#: Row fields the joined query averages across the compared runs
-#: (``avgMap``/``avg`` in opik-backend's compare SELECT).
-_AVERAGED_SORTS = ("feedback_scores.", "usage.")
-_AVERAGED_SORT_FIELDS = ("duration", "total_estimated_cost")
-#: Row fields it takes from the newest run instead (``argMax`` by created_at).
-_NEWEST_RUN_SORTS = ("output.", "input.", "metadata.")
-
-
-def _sort_caveat(field: str | None) -> str | None:
-    """What a sort on a compared row actually ordered by.
-
-    A joined row has one value per column and several runs behind it, so the
-    backend has to pick one: it averages the numbers across the compared runs
-    and takes the bodies from the newest run. Neither is the baseline, and a
-    caller ranking regressions by score would otherwise read the order as the
-    baseline's. Case-level fields (id, created_at, data.<key>, comments) have
-    one value per row and need no warning.
-    """
-    if field is None:
-        return None
-    if field.startswith(_AVERAGED_SORTS) or field in _AVERAGED_SORT_FIELDS:
-        return (
-            f"The sort on {field} ordered the page by that value averaged across the compared "
-            "runs, which is what the joined row carries — not by the baseline's own value."
-        )
-    if field.startswith(_NEWEST_RUN_SORTS):
-        return (
-            f"The sort on {field} ordered the page by the most recent run's value on each case, "
-            "which is what the joined row carries — not by the baseline's."
-        )
-    return None
-
-
-# --- the experiments, and the dataset they agree on ------------------------ #
-
-
 async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
     """Read the named experiments at once, in the order the caller named them.
 
@@ -541,160 +454,3 @@ async def _resolve(client: OpikReadClient, ids: list[str]) -> list[Experiment]:
             )
         )
     return experiments
-
-
-def _guards(experiments: list[Experiment]) -> list[str]:
-    """What makes this comparison unsafe to read at face value, before the table.
-
-    Each was a check the agent had to make itself with a ``list('experiment')``
-    call before comparing, and skipped, because the table renders either way.
-    Three facts decide whether two averages are the same kind of number: the
-    dataset version each run used (same dataset, different version means
-    cases were added, edited or removed, so a dash may be a case that did not
-    exist yet — a warning, not the refusal a different *dataset* gets, since
-    the shared cases still line up); whether a run has finished (a running
-    one's averages will move); and how many cases each covered (the incident
-    behind ``experiment._SPINE`` — a mean over three beside a mean over
-    twenty is not a comparison of the same thing).
-
-    Every guard stays silent when a record lacks the field it reads. Older
-    experiments carry no ``dataset_version_id`` and some carry no
-    ``trace_count``; a guard that fired on absence would warn about a
-    difference nobody can see.
-    """
-    if len(experiments) < 2:
-        return []
-    notes: list[str] = []
-
-    versions = {e.dataset_version_id for e in experiments if e.dataset_version_id}
-    if len(versions) > 1:
-        ran = ", ".join(
-            f"{e.label} ran {e.dataset_version or e.dataset_version_id or 'an unknown version'}"
-            for e in experiments
-        )
-        notes.append(
-            f"These runs used different versions of the dataset ({ran}): cases may have been "
-            "added, edited or removed between them, so a - can mean the case did not exist yet, "
-            "and a gap on an edited case is not a regression."
-        )
-
-    running = [e.label for e in experiments if e.status == RUNNING]
-    if running:
-        who = " and ".join(running)
-        verb = "is" if len(running) == 1 else "are"
-        notes.append(
-            f"{who} {verb} still running: {'its' if len(running) == 1 else 'their'} scores are "
-            "over the cases finished so far and will change."
-        )
-
-    counts = [(e.label, e.trace_count) for e in experiments if e.trace_count is not None]
-    if len(counts) == len(experiments) and len({n for _, n in counts}) > 1:
-        each = ", ".join(f"{label} {n}" for label, n in counts)
-        smallest = min(n for _, n in counts)
-        thin = f" {smallest} is too few to weigh against the others." if is_thin(smallest) else ""
-        notes.append(f"The runs covered different numbers of cases ({each}).{thin}")
-    return notes
-
-
-def _dataset_of(experiments: list[Experiment], dataset_id: str | None) -> str:
-    """The one dataset every compared experiment ran.
-
-    Experiments of different datasets have no cases in common, so lining them
-    up would produce a table of blanks rather than an answer. The UI refuses
-    the same comparison in the same words.
-    """
-    dataset_ids = {experiment.dataset_id for experiment in experiments}
-    if len(dataset_ids) > 1:
-        ran = "; ".join(
-            f"{experiment.name} ran {experiment.dataset_name} ({experiment.dataset_id})"
-            for experiment in experiments
-        )
-        raise EntityArgValidationError(
-            f"Cannot compare experiments that ran different datasets: {ran}. "
-            "Compare experiments of one dataset."
-        )
-    ran_dataset_id = experiments[0].dataset_id
-    if dataset_id and dataset_id != ran_dataset_id:
-        raise EntityArgValidationError(
-            f"dataset_id {dataset_id!r} is not the dataset these experiments ran "
-            f"({experiments[0].dataset_name}, {ran_dataset_id}). Drop dataset_id: with "
-            "experiment_ids the dataset is resolved from the experiments."
-        )
-    return ran_dataset_id
-
-
-# --- the lines under the table --------------------------------------------- #
-
-
-def _legend(experiments: list[Experiment]) -> str:
-    """Which experiment each ``E<n>`` is, in the header, above the table.
-
-    The labels are the key to every cell on the page, so they go where they
-    are read before the rows rather than in a note under them — and they carry
-    the ids, because the caller's next call (another comparison, a read of the
-    losing run) is written with an id and not with a name.
-    """
-    return ", ".join(
-        f"{e.label} = {'baseline ' if position == 0 and len(experiments) > 1 else ''}"
-        f"{e.name} ({e.id})"
-        for position, e in enumerate(experiments)
-    )
-
-
-def _how_to_read(experiments: list[Experiment], *, assertion_columns: bool) -> str:
-    """What the separators in a cell mean. The header already said who is who."""
-    passed = (
-        f" passed is passed/total runs, {PASS_SEPARATOR.join(e.label for e in experiments)}."
-        if assertion_columns
-        else ""
-    )
-    if len(experiments) == 1:
-        return f"Score cells carry {experiments[0].label}'s value.{passed}"
-    order = RUN_SEPARATOR.join(e.label for e in experiments)
-    gap = ""
-    if len(experiments) == 2:
-        # The sign is arithmetic. Opik's feedback definitions record a score's
-        # type and range and nothing about which way it improves, so the
-        # table cannot call a drop a regression; it says who scored higher
-        # and leaves the reading of a lower-is-better metric to the caller,
-        # in so many words — and in the column header too, which is where a
-        # caller reading a Δ is looking (``layout._header``). Phrased as the
-        # rule rather than as a claim about this page: with only a categorical
-        # or a two-authored score there is no Δ to mark, and the sentence has
-        # to be true there as well.
-        gap = (
-            f", and Δ is {experiments[1].label} minus {experiments[0].label} (a + means "
-            f"{experiments[1].label} scored higher). No score definition records which "
-            "direction is better, so a score column carrying a Δ is marked direction "
-            "unknown: on a lower-is-better metric a + is the regression"
-        )
-    return (
-        f"{experiments[0].label} is the baseline; score cells read {order} "
-        f"in that order{gap}.{passed}"
-    )
-
-
-def _empty(
-    *, strips_runs: bool, is_filtered: bool, is_searched: bool, page: int, total: int
-) -> str:
-    """Why this page is empty — which is four different things.
-
-    Answering "no items in common" to a page past the end, or explaining
-    any-run semantics to someone who filtered on the case, sends the caller
-    looking for a problem that is not there.
-    """
-    if page > 1 and total:
-        return (
-            f"Page {page} is past the end: the comparison has {total} "
-            f"case{'s' if total != 1 else ''}. Ask for an earlier page."
-        )
-    if strips_runs:
-        return (
-            "No case matched. A filter on the runs matches a case when any of its "
-            "experiments matches, so nothing here scored or ran the way you asked."
-        )
-    if is_filtered:
-        return "No case matched the filter."
-    if is_searched:
-        return "No case matched the search. Search matches the case data, not the runs' output."
-    return "No cases found: these experiments have no items in common."

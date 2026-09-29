@@ -14,7 +14,7 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp.opik_client import OpikClient
+from opik_mcp.client.opik import OpikClient
 
 OPIK_BASE = "https://opik.test"
 

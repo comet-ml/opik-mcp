@@ -17,7 +17,7 @@ from asyncio import gather
 from collections.abc import Coroutine, Mapping
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.entities.project_metric.catalog import (
     Metric,
     companion_count,
@@ -39,12 +39,8 @@ from opik_mcp.read_list.entities.project_metric.table import (
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import Vocabulary
-from opik_mcp.read_list.oql import (
-    PARENT_ID_FIELDS,
-    SDK_SOURCE_CLAUSE,
-    compile_filters,
-    render_filters,
-)
+from opik_mcp.read_list.oql import compile_filters, render_filters
+from opik_mcp.read_list.oql_fields import PARENT_ID_FIELDS, SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,
     recorded,

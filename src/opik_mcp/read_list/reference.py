@@ -13,13 +13,13 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from opik_mcp.read_list.oql import (
-    GRAMMAR_LINE,
+from opik_mcp.read_list.oql_fields import (
     KEY_ALLOWED_TYPES,
     KEY_REQUIRED_TYPES,
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
 )
+from opik_mcp.read_list.oql_parser import GRAMMAR_LINE
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 

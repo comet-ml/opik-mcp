@@ -25,7 +25,7 @@ in [ADR 0004](../../docs/decisions/0004-entity-logic-in-its-namespace.md).
 - A fact lives in one place: skill routing in `skills_catalog`, an entity's
   vocabulary in the entity. Instructions and descriptions point at it.
 - Call flow is one direction: tool → dispatcher → handler or operation →
-  `opik_client` → backend. Nothing below imports anything above.
+  `client/` → backend. Nothing below imports anything above.
 
 A failing guard test names the file and where the code belongs. Follow it.
 

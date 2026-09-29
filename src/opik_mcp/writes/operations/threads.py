@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikClient,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.writes.errors import BackendError
 from opik_mcp.writes.operations.observability import CommentCreate
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse

@@ -9,13 +9,13 @@ from __future__ import annotations
 import base64
 from urllib.parse import unquote
 
-from opik_mcp.auth_context import (
+from opik_mcp.config import Settings
+from opik_mcp.identity.context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
     inbound_workspace,
     resolved_workspace_name,
 )
-from opik_mcp.config import Settings
 from opik_mcp.read_list.ui_links import (
     current_workspace,
     experiments_compare_url,

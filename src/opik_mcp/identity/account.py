@@ -38,14 +38,14 @@ from urllib.parse import urlparse
 import httpx
 
 from opik_mcp.config import Settings, installation_type
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.store import (
     ResolvedIdentity,
     credential_digest,
     lookup_identity,
     remember_identity,
 )
 
-logger = logging.getLogger("opik_mcp.account_identity")
+logger = logging.getLogger("opik_mcp.identity.account")
 
 # Path of the Comet account-details endpoint, matching the Opik Python SDK
 # (``opik.url_helpers.URL_ACCOUNT_DETAILS_POSTFIX``).

@@ -21,13 +21,13 @@ from typing import Any, get_args
 import pytest
 
 from opik_mcp.analytics.client import AnalyticsClient
-from opik_mcp.auth_context import (
+from opik_mcp.identity.context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     inbound_authorization,
     inbound_mcp_session_id,
     inbound_workspace,
 )
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.store import (
     ResolvedIdentity,
     credential_digest,
     remember_identity,
@@ -208,8 +208,8 @@ def test_login_is_emitted_plaintext_as_the_top_level_user_id(make_client: Any) -
     Hashing it would make it unjoinable — the warehouse's own user key is this
     same plaintext login — so the contract was amended rather than worked around.
     """
-    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
-    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.identity.store import ResolvedIdentity, remember_identity
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}build-event-token"
     remember_identity(
@@ -227,8 +227,8 @@ def test_login_is_emitted_plaintext_as_the_top_level_user_id(make_client: Any) -
 def test_the_login_never_leaks_into_any_other_field(make_client: Any) -> None:
     """Widening identity must not widen anything else: the login belongs in
     exactly one place, and nowhere in event_properties except its discriminator."""
-    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
-    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.identity.store import ResolvedIdentity, remember_identity
 
     canary_login = "LOGIN-CANARY-MUST-APPEAR-ONLY-AS-USER-ID-5e1f7a"
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}leak-check-token"
@@ -248,7 +248,7 @@ def test_the_raw_bearer_is_still_never_emitted_now_identity_rides_along(
     make_client: Any,
 ) -> None:
     """The pre-existing guarantee must survive the identity change."""
-    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+    from opik_mcp.identity.store import ResolvedIdentity, remember_identity
 
     remember_identity(
         RAW_OAUTH_TOKEN,

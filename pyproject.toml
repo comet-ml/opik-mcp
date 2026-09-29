@@ -130,12 +130,13 @@ extend-allowed-calls = ["pytest.param"]
 
 # Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
 # fix a file, then delete or trim its line. tests/repo/test_ratchets.py fails
-# on an entry that no longer matches. Never add a line here.
+# on an entry that no longer matches. Never add a line here, except that a
+# move splitting a file may replace its line with one per new module that
+# carries the same findings; the PR says so.
 "src/opik_mcp/__main__.py" = ["PLC0415"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
 "src/opik_mcp/read_list/entities/agent_insights_issue/state.py" = ["ARG001"]
 "src/opik_mcp/read_list/read_tool.py" = ["ARG001"]
-"src/opik_mcp/server.py" = ["FBT002", "I002", "PLC0415"]
 "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/agent.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/seed.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-compare/evals/run_evals.py" = ["PLC0415", "T201"]
@@ -223,20 +224,34 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Raw backend JSON is the one place Any is honest. Type it once, at the edge.
-module = ["opik_mcp.opik_client"]
+# Listed by name, not by glob, so a new module under client/ meets the full rule.
+module = [
+    "opik_mcp.client.annotations",
+    "opik_mcp.client.base",
+    "opik_mcp.client.dataset",
+    "opik_mcp.client.diagnostics",
+    "opik_mcp.client.experiment",
+    "opik_mcp.client.observability",
+    "opik_mcp.client.project",
+    "opik_mcp.client.prompt",
+    "opik_mcp.client.protocols",
+]
 disallow_any_explicit = false
 
 # Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
 # shrinks: type a module, then delete its line. tests/repo/test_ratchets.py
-# fails on a module that no longer uses explicit Any. Never add a line here.
+# fails on a module that no longer uses explicit Any. Never add a line here,
+# except that a move splitting a module may replace its line with one per new
+# module that carries the same findings; the PR says so. The total of findings
+# never grows: explicit_any_findings in tests/repo/ratchets.json.
 [[tool.mypy.overrides]]
 module = [
-    "opik_mcp.account_identity",
     "opik_mcp.analytics.client",
     "opik_mcp.analytics.mcp_client_info",
     "opik_mcp.analytics.wrappers",
     "opik_mcp.config",
     "opik_mcp.error_tracking",
+    "opik_mcp.identity.account",
     "opik_mcp.read_list.columns",
     "opik_mcp.read_list.decorations",
     "opik_mcp.read_list.entities.agent_insights_issue.availability",
@@ -244,6 +259,8 @@ module = [
     "opik_mcp.read_list.entities.agent_insights_issue.state",
     "opik_mcp.read_list.entities.dataset",
     "opik_mcp.read_list.entities.dataset.compare",
+    "opik_mcp.read_list.entities.dataset.compare_notes",
+    "opik_mcp.read_list.entities.dataset.compared_row",
     "opik_mcp.read_list.entities.dataset.figures",
     "opik_mcp.read_list.entities.dataset.items",
     "opik_mcp.read_list.entities.dataset.layout",
@@ -264,6 +281,9 @@ module = [
     "opik_mcp.read_list.entities.thread",
     "opik_mcp.read_list.entities.trace",
     "opik_mcp.read_list.handler",
+    "opik_mcp.read_list.list_args",
+    "opik_mcp.read_list.list_empty_page",
+    "opik_mcp.read_list.list_table",
     "opik_mcp.read_list.list_tool",
     "opik_mcp.read_list.paging",
     "opik_mcp.read_list.project_names",
@@ -274,7 +294,13 @@ module = [
     "opik_mcp.read_list.size",
     "opik_mcp.read_list.slim",
     "opik_mcp.read_list.unsupported",
-    "opik_mcp.server",
+    "opik_mcp.server.app.lifespan",
+    "opik_mcp.server.app.session",
+    "opik_mcp.server.tools.list",
+    "opik_mcp.server.tools.read",
+    "opik_mcp.server.tools.read_skill",
+    "opik_mcp.server.tools.schema",
+    "opik_mcp.server.tools.write",
     "opik_mcp.skills_resources",
     "opik_mcp.writes.dispatch",
     "opik_mcp.writes.errors",

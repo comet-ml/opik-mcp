@@ -21,7 +21,7 @@ does the process refuse to start, and why does no tool take a workspace?
 
 ### Credential and workspace
 
-`resolve_opik_config()` in `src/opik_mcp/opik_client.py` returns
+`resolve_opik_config()` in `src/opik_mcp/client/base.py` returns
 `(base_url, api_key, workspace)` for every call:
 
 - Credential: the inbound `Authorization` header, else `OPIK_API_KEY`, else
@@ -91,14 +91,15 @@ read/list -> client_for_call -> make_opik_client -> resolve_opik_config
 write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 ```
 
-- To add a read endpoint, add an `OpikClient` method on `_get_json` (as
-  `get_project` does for `read('project')`) or on `_post_json` for a POST read.
-  Add it to the `OpikListClient` or `OpikReadClient` protocol so test fakes see
-  it, and test it in `tests/client/test_read.py`.
+- To add a read endpoint, add a method to its group in `src/opik_mcp/client/`
+  on `_get_json` (as `ProjectEndpoints.get_project` does for `read('project')`)
+  or on `_post_json` for a POST read. Add it to the `OpikListClient` or
+  `OpikReadClient` protocol so test fakes see it, and test it in
+  `tests/client/test_read.py`.
 - To change where the credential or workspace comes from, start in
   `resolve_opik_config`. For startup and its refusals, `_run_transport`.
 
-- `opik_client.py` knows endpoints and wire formats. Answer shaping, project
+- `client/` knows endpoints and wire formats. Answer shaping, project
   names and UI links live in the entity namespaces ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md)).
 - Bearer kinds, the middleware and the 401 cache drop (`note_backend_401`):
   [hosted-auth](../hosted-auth/design-doc.md).

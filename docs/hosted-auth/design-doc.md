@@ -12,7 +12,7 @@ sees when a token is missing, expired or an API key, and where to change that.
 ### Two kinds of bearer
 
 Every request to the MCP path needs `Authorization: Bearer <token>`. A token
-that starts with `OAUTH_ACCESS_TOKEN_PREFIX` (in `src/opik_mcp/auth_context.py`)
+that starts with `OAUTH_ACCESS_TOKEN_PREFIX` (in `src/opik_mcp/identity/context.py`)
 is an OAuth token. Any other bearer is an API key.
 
 | | OAuth token | API key |
@@ -47,9 +47,9 @@ question in [runtime](../runtime/design-doc.md#credential-and-workspace).
 
 ### OAuth validation and refresh
 
-- The cache in `src/opik_mcp/credential_identity.py` is checked first. A miss
+- The cache in `src/opik_mcp/identity/store.py` is checked first. A miss
   posts the inbound header to `/opik/auth-oauth` under the Opik REST base
-  (`introspect_oauth_token` in `src/opik_mcp/oauth_identity.py`).
+  (`introspect_oauth_token` in `src/opik_mcp/identity/oauth.py`).
 - 200 is valid and 401 is invalid. Anything else (no REST base, network
   error, timeout, another status, a body that is not a JSON object) is
   unknown: the request is forwarded unchecked and nothing is cached. Each
@@ -60,7 +60,7 @@ question in [runtime](../runtime/design-doc.md#credential-and-workspace).
   `expires_at` has passed gets 401 without a backend call.
 - A `resource` that differs from `OPIK_MCP_RESOURCE_URI` is logged and served.
 - A backend 401 on a data call made with an OAuth token runs
-  `note_backend_401` in `src/opik_mcp/opik_client.py`. It drops the cached
+  `note_backend_401` in `src/opik_mcp/client/base.py`. It drops the cached
   validation, and the tool error (`OAUTH_TOKEN_EXPIRED_HINT`) tells the model
   to retry. The retry gets the `invalid_token` 401 and the host refreshes.
 
@@ -72,9 +72,9 @@ per the comment on `inbound_workspace`). The introspected name is display-only
 (`resolved_workspace_name`); its precedence is in [tool-surface](../tool-surface/design-doc.md).
 
 Caller identity feeds analytics and never decides access. The rule is in
-`caller_identity_with_outcome` (`src/opik_mcp/caller_identity.py`): an OAuth
+`caller_identity_with_outcome` (`src/opik_mcp/identity/caller.py`): an OAuth
 token uses what introspection stored for it, an inbound API key is a miss, and
-stdio resolves the install's own key through `src/opik_mcp/account_identity.py`
+stdio resolves the install's own key through `src/opik_mcp/identity/account.py`
 on cloud Comet only.
 
 ## How it works
@@ -87,7 +87,7 @@ host -> AuthRejectionMiddleware -> BearerAuthMiddleware
      -> tool -> resolve_opik_config -> OpikClient -> opik-backend
 ```
 
-- Assembly of the app and settings: `build_app` in `src/opik_mcp/server.py`,
+- Assembly of the app and settings: `build_app` in `src/opik_mcp/server/app/factory.py`,
   the OAuth and HTTP fields of `Settings` in `src/opik_mcp/config.py`.
 - Order of checks and the 401 bodies: `BearerAuthMiddleware.dispatch`.
 - Validation and the cache: `_validate_oauth_bearer`, then the two modules above.

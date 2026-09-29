@@ -18,7 +18,7 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.opik_client import OpikNotFoundError
+from opik_mcp.client.base import OpikNotFoundError
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 from tests.hermetic.fixtures import record
@@ -263,7 +263,7 @@ async def test_the_agents_own_filters_no_longer_silence_the_hint_when_it_is_true
     """This used to assert the opposite: with filters of the agent's own, the
     hint was suppressed on the guess that those were the likelier reason. The
     hint is earned by the probe now, whatever the caller filtered on (see
-    ``list_tool._without_default`` for the case that ended the guess)."""
+    ``list_empty_page.without_default`` for the case that ended the guess)."""
     fake = SourceAwareClient(hidden=20)
     out = await run_list("trace", project_id="p-1", filters="duration > 5", client=fake)
     assert "20 traces match without the default" in out

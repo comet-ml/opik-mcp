@@ -24,7 +24,7 @@ Every name starts with `opik_mcp_` (`src/opik_mcp/analytics/events.py`).
 | `tools_listed` | the first `tools/list` of a session | `install_tools_listed_emitter` in `src/opik_mcp/analytics/wrappers.py` |
 | `session_initialized` | the first tool call of a session | `instrument_tool` in `src/opik_mcp/analytics/wrappers.py` |
 | `tool_called` | a call to `read`, `list`, `write`, `schema` or `read_skill` that passed argument validation | `instrument_tool` |
-| `auth_rejected` | HTTP only: 401, 403 or 421 on an authenticated path | `AuthRejectionMiddleware` in `src/opik_mcp/server.py` |
+| `auth_rejected` | HTTP only: 401, 403 or 421 on an authenticated path | `AuthRejectionMiddleware` in `src/opik_mcp/server/http/middleware.py` |
 | `server_shutdown` | the process stops, with a `reason` | `_emit_server_shutdown` in `src/opik_mcp/__main__.py`, or the lifespan |
 
 `initialize` produces no event. `tools_listed` and `session_initialized` are
@@ -86,7 +86,7 @@ tool handler wrapped by instrument_tool
 To change something, start here:
 
 - A tool's props (a new `read` prop such as `has_fields`): `_read_props` and its
-  siblings in `src/opik_mcp/server.py`, computed from the call's arguments.
+  siblings in `src/opik_mcp/server/tools/`, computed from the call's arguments.
   Only `_list_props` adds page facts, from tool-surface's `page_facts`.
 - The common block or identity: `src/opik_mcp/analytics/client.py`.
 - Startup and shutdown emits: `src/opik_mcp/__main__.py`.
@@ -145,7 +145,7 @@ No ADR covers analytics. The reasons come from PRs.
 - `tool_called`, `session_initialized` and the Sentry skip list:
   `tests/analytics/test_wrappers.py`, `tests/analytics/test_tools_listed.py`.
 - Error bucketing and the fingerprint: `tests/analytics/test_errors.py`,
-  `tests/analytics/test_environment.py`.
+  `tests/analytics/test_environment.py`, `tests/analytics/test_process_ancestry.py`.
 - Startup, shutdown and lifecycle ownership: `tests/analytics/test_lifespan.py`,
   `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - No canary string or raw token reaches an event or Sentry:

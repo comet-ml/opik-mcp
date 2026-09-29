@@ -21,8 +21,8 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel
 
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, registry imports operations

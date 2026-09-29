@@ -14,8 +14,8 @@ a read or a list promises, what is refused, and which test holds each promise.
 ### The advertised surface
 
 - Exactly `read`, `list`, `write`, `schema` and `read_skill`, each with a
-  title and all four hints. Only `write` is destructive (`_READS`, `_WRITES`
-  in `src/opik_mcp/server.py`).
+  title and all four hints. Only `write` is destructive (`READS`, `WRITES`
+  in `src/opik_mcp/server/tools/hints.py`).
 - `structured_output=False` everywhere: one text copy per answer.
 - The surface and the instructions have byte ceilings (`SURFACE_BUDGET_BYTES`,
   `INSTRUCTIONS_BUDGET_BYTES` in `tests/conformance/test_tool_inventory.py`),
@@ -78,7 +78,7 @@ project if set, tool selection, the link rule, and today's UTC date.
   the id. It is marked `| projected` in the header and on the line under it.
   An unknown path is refused with the valid ones.
 - A backend failure is one sentence: what was asked and what to change
-  (`_raise_for_status` in `src/opik_mcp/opik_client.py`). A missing record
+  (`_raise_for_status` in `src/opik_mcp/client/base.py`). A missing record
   adds the `list('<type>', …)` call for a listable type
   (`_format_client_error`). A 400 or 422 ends with `Backend said: "…"`: the
   strings under the body's `errors` or `message`, on one line, cut at
@@ -96,8 +96,10 @@ project if set, tool selection, the link rule, and today's UTC date.
   answer gets it put into the `[list: …]` line it wrote (`with_list_size`).
 - The header then echoes filters, sort, since, until, search and fields, in that order.
 - `filters` is OQL, the grammar of the SDK's `search_traces(filter_string=…)`,
-  checked in `src/opik_mcp/read_list/oql.py` against the entity's
-  `Vocabulary` (`src/opik_mcp/read_list/handler.py`). All problems in a string come
+  parsed by `src/opik_mcp/read_list/oql_parser.py` and checked in
+  `src/opik_mcp/read_list/oql.py` against the entity's `Vocabulary`
+  (`src/opik_mcp/read_list/handler.py`) and the backend's tables in
+  `src/opik_mcp/read_list/oql_fields.py`. All problems in a string come
   back in one `OQLError`; an unknown field gets the closest name and the valid
   ones (`test_unknown_field_suggests_the_closest_name_and_lists_the_fields`).
   Checked clauses go JSON-encoded in the `filters` query parameter, except
@@ -115,10 +117,11 @@ project if set, tool selection, the link rule, and today's UTC date.
   `fields=[…]` picks the columns and lifts the cut.
 - No default column is a trace body: `list('thread')` leaves out
   `first_message`, and `fields=["first_message"]` still returns it.
-- The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`).
+- The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`);
+  the argument checks are in `resolve_list_args` (`src/opik_mcp/read_list/list_args.py`).
 
 An empty page with a zero total carries at most one hint, picked by
-`_empty_message` in this order: the entity's `page_note_fn` note
+`empty_message` (`src/opik_mcp/read_list/list_empty_page.py`) in this order: the entity's `page_note_fn` note
 (Diagnostics); with `since`, the project's last trace when it is before the
 window; under the `sdk` default, the rows other sources hold; with `name`, the
 rows without it; with `filters`, the rows without them. A failed probe is
@@ -134,11 +137,11 @@ declares a `view_page`, and a case or prompt version a `parent_page`.
 ## How it works
 
 ```
-server.py read / list (FastMCP tool, instrument_tool wrapper)
+server/tools/ read / list (FastMCP tool, instrument_tool wrapper)
   -> read_list/read_tool.py run_read  |  read_list/list_tool.py run_list
   -> read_list/registry.py ENTITY_REGISTRY[entity_type]  (an EntityHandler)
   -> read_list/entities/<entity>.py  fetch_fn / list_fn / run_fn / link_fn / page_note_fn
-  -> opik_client.py  -> Opik REST API
+  -> client/  -> Opik REST API
 ```
 
 `schema("list.*")` goes `writes/schema_tool.py run_schema` → `read_list/reference.py list_reference`.
@@ -153,7 +156,9 @@ Where to start:
   and the `schema` reference follows by itself.
 - An entity: a `HANDLER` (`EntityHandler` in `src/opik_mcp/read_list/handler.py`)
   in `read_list/entities/`, registered in `src/opik_mcp/read_list/registry.py`.
-- A column or an empty-page hint: `src/opik_mcp/read_list/list_tool.py`.
+- A column: `src/opik_mcp/read_list/list_table.py`. An empty-page hint:
+  `src/opik_mcp/read_list/list_empty_page.py`. An argument check:
+  `src/opik_mcp/read_list/list_args.py`.
 
 Root modules stay generic ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md));
 `entity_names_at_root` in `tests/repo/ratchets.json` is empty and stays so: a root table

@@ -25,14 +25,14 @@ from opik_mcp.analytics.wrappers import (
     _reset_seen_sessions_for_tests,
     instrument_tool,
 )
-from opik_mcp.config import MissingConfigError
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.config import MissingConfigError
 
 
 def _build_pydantic_error() -> PydanticValidationError:

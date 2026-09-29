@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikListClient, OpikReadClient
 from opik_mcp.read_list.entities.dataset.compare import run_compare
 from opik_mcp.read_list.entities.dataset.items import fetch_item, list_items, project_items
 from opik_mcp.read_list.entities.dataset.vocabulary import CASES, COMPARED

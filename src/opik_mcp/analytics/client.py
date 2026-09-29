@@ -25,21 +25,21 @@ from opik_mcp.analytics.identity import (
     get_install_id,
     install_id_kind,
 )
-from opik_mcp.auth_context import (
-    classify_bearer,
-    inbound_authorization,
-    inbound_mcp_session_id,
-    inbound_workspace,
-    settings_auth_mode,
-)
-from opik_mcp.caller_identity import caller_identity_with_outcome
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     Settings,
     installation_type,
     looks_unsubstituted,
 )
-from opik_mcp.credential_identity import (
+from opik_mcp.identity.caller import caller_identity_with_outcome
+from opik_mcp.identity.context import (
+    classify_bearer,
+    inbound_authorization,
+    inbound_mcp_session_id,
+    inbound_workspace,
+    settings_auth_mode,
+)
+from opik_mcp.identity.store import (
     ResolvedIdentity,
     credential_digest,
     lookup_session_digest,
@@ -343,7 +343,7 @@ class AnalyticsClient:
         """
         # An inbound header is the caller naming the workspace for THIS call,
         # which outranks anything this process was started with — it is what
-        # opik_client actually routes on (`resolve_opik_config`). Without it a
+        # client.base actually routes on (`resolve_opik_config`). Without it a
         # hosted call would claim "unknown" while `request_workspace` in the
         # same payload carries the name.
         inbound = inbound_workspace.get()
@@ -382,7 +382,7 @@ class AnalyticsClient:
             ws_header = inbound_workspace.get()
 
             if inbound_auth:
-                # Shared classifier (see auth_context.classify_bearer) so BI's
+                # Shared classifier (see identity.context.classify_bearer) so BI's
                 # auth_mode/token_sha256 agree with the outbound credential and
                 # with AuthRejectionMiddleware.
                 mode, token = classify_bearer(inbound_auth)
@@ -407,9 +407,9 @@ class AnalyticsClient:
 
             # SESSION grain — NOT a user grain, and NOT the adoption funnel's key.
             # A session ends, so it cannot answer retention ("active on 3+ days").
-            # The funnel needs the Comet login, which ``caller_identity`` already
+            # The funnel needs the Comet login, which ``identity.caller`` already
             # resolves; hosted reads zero only because it runs 0.2.12. See the
-            # scope note on ``auth_context.inbound_mcp_session_id``.
+            # scope note on ``identity.context.inbound_mcp_session_id``.
             #
             # What it does buy: a client keeps its ``Mcp-Session-Id`` across OAuth
             # token refreshes, so an 8-hour session is ONE session here — where

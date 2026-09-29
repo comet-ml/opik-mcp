@@ -1,6 +1,6 @@
 ---
 paths:
-  - "src/opik_mcp/server.py"
+  - "src/opik_mcp/server/tools/**"
   - "src/opik_mcp/instructions.py"
   - "src/opik_mcp/skills_catalog.py"
   - "src/opik_mcp/read_list/**"

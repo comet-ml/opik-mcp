@@ -662,6 +662,6 @@ async def test_no_fields_is_the_page_as_it_was() -> None:
 def test_the_two_new_parameter_descriptions_stay_tight() -> None:
     """The tool surface rides in the context of every request the host makes.
     Two arguments are worth a budget line; two paragraphs are not."""
-    from opik_mcp.server import FIELDS_LIST_DESCRIPTION, FIELDS_READ_DESCRIPTION
+    from opik_mcp.server.tools.fields import FIELDS_LIST_DESCRIPTION, FIELDS_READ_DESCRIPTION
 
     assert len(FIELDS_READ_DESCRIPTION) + len(FIELDS_LIST_DESCRIPTION) <= 700

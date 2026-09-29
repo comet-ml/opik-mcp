@@ -63,7 +63,7 @@ def test_render_strips_api_suffix_from_opik_url() -> None:
 def test_render_prefers_resolved_workspace_over_settings() -> None:
     """The OAuth-introspected workspace (set per session) outranks the static
     env workspace — defect #1: the blob must name the authorized workspace."""
-    from opik_mcp.auth_context import resolved_workspace_name
+    from opik_mcp.identity.context import resolved_workspace_name
 
     token = resolved_workspace_name.set("andreicautisanu")
     try:
@@ -77,7 +77,7 @@ def test_render_prefers_resolved_workspace_over_settings() -> None:
 def test_render_inbound_workspace_header_outranks_resolved() -> None:
     """An explicit Comet-Workspace header (self-hosted / API-key) is the most
     authoritative signal for the session."""
-    from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
+    from opik_mcp.identity.context import inbound_workspace, resolved_workspace_name
 
     t_header = inbound_workspace.set("header-ws")
     t_resolved = resolved_workspace_name.set("resolved-ws")

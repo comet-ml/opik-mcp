@@ -14,8 +14,8 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient
 from opik_mcp.writes.dispatch import run_write as _dispatch
 from opik_mcp.writes.errors import WriteError
 from opik_mcp.writes.scopes import ALL_WRITE_SCOPES

@@ -25,13 +25,13 @@ from typing import Any
 
 import httpx
 
-from opik_mcp.opik_client import (
+from opik_mcp.client.base import (
     OpikAuthError,
-    OpikListClient,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.protocols import OpikListClient
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.paging import short_list
 

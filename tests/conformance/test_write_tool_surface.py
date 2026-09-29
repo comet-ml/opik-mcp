@@ -16,7 +16,8 @@ import json
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from opik_mcp.server import WRITE_OPERATION_ENUM, mcp
+from opik_mcp.server import mcp
+from opik_mcp.server.tools.write import WRITE_OPERATION_ENUM
 from opik_mcp.writes import SCHEMA_TOOL_DESCRIPTION, WRITE_TOOL_DESCRIPTION
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
 
@@ -95,7 +96,7 @@ async def test_write_input_schema_no_additional_required() -> None:
 async def test_write_tool_description_byte_identical() -> None:
     """Description shipped over the wire MUST equal the registry-generated string.
 
-    Drift here means someone hardcoded a description in server.py and bypassed
+    Drift here means someone hardcoded a description in server/tools/write.py and bypassed
     the registry — that's a teaching-surface regression.
     """
     async with create_connected_server_and_client_session(mcp._mcp_server) as session:
@@ -122,7 +123,7 @@ def test_write_operation_enum_matches_registry() -> None:
 
     The enum is derived at module load from ``WRITE_OPERATIONS`` so drift is
     structurally impossible; this test is a belt-and-braces pin in case the
-    server.py ever switches to a hand-written list again.
+    server/tools/write.py ever switches to a hand-written list again.
     """
     assert set(WRITE_OPERATION_ENUM) == set(WRITE_OPERATIONS)
 

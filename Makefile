@@ -61,7 +61,7 @@ run-dev:
 	OPIK_MCP_RELOAD=1 OPIK_MCP_LOG_LEVEL=DEBUG uv run opik-mcp
 
 dev:
-	uv run mcp dev src/opik_mcp/server.py
+	uv run mcp dev src/opik_mcp/server/app/instance.py
 
 inspect:
 	npx @modelcontextprotocol/inspector

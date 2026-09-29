@@ -21,9 +21,9 @@ from urllib.parse import urlparse
 from opik_mcp.analytics import transport_probe
 from opik_mcp.analytics.events import bucket_seconds
 from opik_mcp.analytics.identity import install_id_was_freshly_generated
-from opik_mcp.auth_context import settings_auth_mode
 from opik_mcp.config import Settings
 from opik_mcp.config import installation_type as _config_installation_type
+from opik_mcp.identity.context import settings_auth_mode
 
 # Lifecycle sentinel env-var name. An env var (not a module-level bool) so that
 # uvicorn ``--reload`` workers — spawned via multiprocessing — inherit it from
@@ -120,7 +120,7 @@ def auth_mode_at_boot(settings: Settings) -> str:
     an AS configured — this then reports "api_key" while ``oauth_configured``
     reports "true", so BI should read the two together to spot hybrid deploys.
     The real per-request credential is resolved in
-    ``opik_client.resolve_opik_config`` (inbound bearer wins) and surfaced as the
+    ``client.base.resolve_opik_config`` (inbound bearer wins) and surfaced as the
     per-request ``auth_mode`` in ``client._build_event``.
     """
     return settings_auth_mode(

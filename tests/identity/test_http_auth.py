@@ -13,7 +13,7 @@ hosts bootstrap the OAuth dance.
 import httpx
 import pytest
 
-from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
 
 INITIALIZE = {
     "jsonrpc": "2.0",
@@ -74,8 +74,8 @@ async def test_initialize_names_oauth_workspace(
     only the backend introspection call stubbed.
     """
 
-    from opik_mcp.credential_identity import ResolvedIdentity, lookup_identity
-    from opik_mcp.oauth_identity import Introspection
+    from opik_mcp.identity.oauth import Introspection
+    from opik_mcp.identity.store import ResolvedIdentity, lookup_identity
 
     async def fake_resolve(_auth: str, _settings: object) -> Introspection:
         return Introspection(
@@ -87,7 +87,7 @@ async def test_initialize_names_oauth_workspace(
             ),
         )
 
-    monkeypatch.setattr("opik_mcp.server.introspect_oauth_token", fake_resolve)
+    monkeypatch.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", fake_resolve)
     r = await http_client.post(
         "/mcp",
         json=INITIALIZE,

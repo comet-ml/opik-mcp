@@ -28,7 +28,7 @@ import pytest
 import respx
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from opik_mcp.opik_client import OpikClient
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.server import mcp
 
 OPIK_BASE = "https://opik.test"

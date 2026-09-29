@@ -20,8 +20,8 @@ per-request isolation without threading anything through the call signatures
 of the MCP tool implementations. One catch: a tool does NOT run in the request
 task. The SDK forks the MCP session task from the ``initialize`` request, so
 inside a tool these vars hold the handshake-time values — and an OAuth bearer
-changes mid-session once the host refreshes it (OPIK-8252). ``server.
-install_request_auth_rebinding`` therefore re-binds ``inbound_authorization``
+changes mid-session once the host refreshes it (OPIK-8252). ``server.app.
+session.install_request_auth_rebinding`` therefore re-binds ``inbound_authorization``
 and ``inbound_workspace`` on every ``tools/call`` from the request the SDK
 attaches to its request context, so the outbound client forwards the bearer
 of the request that is actually being served.
@@ -49,7 +49,7 @@ inbound_authorization: ContextVar[str | None] = ContextVar("inbound_authorizatio
 inbound_workspace: ContextVar[str | None] = ContextVar("inbound_workspace", default=None)
 
 # OAuth-authorized workspace *name*, resolved from the opaque bearer via
-# ``oauth_identity.introspect_oauth_token`` (the same call that validates it).
+# ``identity.oauth.introspect_oauth_token`` (the same call that validates it).
 # Consumed ONLY for display: the instructions blob (``instructions.
 # render_instructions``) so an agent can truthfully name the workspace it is
 # operating against, and the UI links a ``read`` attaches
@@ -70,7 +70,7 @@ resolved_workspace_name: ContextVar[str | None] = ContextVar(
 # a unit that outlives one. "Habit = active on 3+ distinct days" is unanswerable
 # here for the same reason it was unanswerable with the token. **The adoption
 # funnel needs the Comet login** (``user_id`` / ``user_id_kind='comet_user'``),
-# which ``caller_identity`` already resolves and which is live on stdio today —
+# which ``identity.caller`` already resolves and which is live on stdio today —
 # hosted reads zero only because it runs 0.2.12, predating that work. The fix
 # there is a deploy, not this field.
 #
@@ -92,7 +92,7 @@ resolved_workspace_name: ContextVar[str | None] = ContextVar(
 # do carry ``Mcp-Session-Id`` build no events of their own. So this var reads
 # ``None`` for every tool event, which is why the field silently never appeared
 # in production despite tests that set the var directly. The working path is
-# ``credential_identity.remember_session`` / ``lookup_session_digest``, keyed by
+# ``identity.store.remember_session`` / ``lookup_session_digest``, keyed by
 # the credential — the only value in scope on both sides. This var still serves
 # events emitted inside a request, such as ``auth_rejected``.
 #
@@ -110,7 +110,7 @@ def classify_bearer(auth_header: str) -> tuple[str, str]:
     - ``("api_key", "")`` for any other forwarded credential (the token is NOT
       returned — api-key-shaped credentials are not hashed here).
 
-    Mirrors ``opik_client.resolve_opik_config``'s OAuth detection
+    Mirrors ``client.base.resolve_opik_config``'s OAuth detection
     (``partition(" ")`` + ``lstrip`` + ``OAUTH_ACCESS_TOKEN_PREFIX``) so BI's
     ``auth_mode`` / ``token_sha256`` agree with the credential actually forwarded
     outbound. Single source of truth shared by ``analytics.client._build_event``
@@ -161,7 +161,7 @@ def oauth_token_expired_hint() -> str | None:
     guidance. Single source of truth for every layer that renders a backend 401
     — the read/list client, the write envelope — so the wording cannot drift.
     Pure: the cache eviction that goes with a backend 401 lives beside the HTTP
-    call (``opik_client.note_backend_401``), not in a message helper.
+    call (``client.base.note_backend_401``), not in a message helper.
     """
     auth = inbound_authorization.get()
     if not auth:

@@ -5,7 +5,7 @@
 - No secret in code, logs, answers, commits or error text. Redact before
   printing a command that carries one.
 - Tool arguments and backend bodies are untrusted. OQL goes through the
-  grammar in `oql.py`; trace bodies are returned as data, never interpreted.
+  grammar in `oql_parser.py`; trace bodies are returned as data, never interpreted.
 - Local servers bind loopback by default. Binding elsewhere is opt-in
   (`OPIK_MCP_HOST`, as the Docker image does) and needs auth in front of it.
 

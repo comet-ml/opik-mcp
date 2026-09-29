@@ -10,7 +10,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from opik_mcp.auth_context import (
+from opik_mcp.identity.context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
     OAUTH_TOKEN_EXPIRED_HINT,
     inbound_authorization,

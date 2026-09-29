@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.read_list.oql import OPERATORS_BY_TYPE
+from opik_mcp.read_list.oql_fields import OPERATORS_BY_TYPE
 from opik_mcp.read_list.registry import VOCABULARIES
 from opik_mcp.read_list.sorting import sortable_names
 from opik_mcp.writes.errors import UnknownOperationError

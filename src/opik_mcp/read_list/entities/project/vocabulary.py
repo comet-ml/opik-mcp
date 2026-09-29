@@ -34,7 +34,7 @@ import json
 from collections import Counter
 from typing import Any, Final
 
-from opik_mcp.opik_client import OpikReadClient
+from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.decorations import block
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,

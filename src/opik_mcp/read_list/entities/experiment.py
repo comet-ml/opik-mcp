@@ -8,11 +8,8 @@ import re
 from typing import Any, Final
 from urllib.parse import unquote
 
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import (
-    OpikListClient,
-    OpikReadClient,
-)
 from opik_mcp.read_list.columns import has_value, resolve
 from opik_mcp.read_list.handler import (
     EntityHandler,

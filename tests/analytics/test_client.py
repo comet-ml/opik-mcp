@@ -528,8 +528,8 @@ def _with_oauth_identity(
     answer against the credential. Returns the header the caller should set on
     ``inbound_authorization`` so ``_build_event`` finds it.
     """
-    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX
-    from opik_mcp.credential_identity import ResolvedIdentity, remember_identity
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.identity.store import ResolvedIdentity, remember_identity
 
     token = f"{OAUTH_ACCESS_TOKEN_PREFIX}wire-shape-token"
     remember_identity(
@@ -546,7 +546,7 @@ def _with_oauth_identity(
 @respx.mock
 def test_resolved_login_becomes_the_top_level_user_id() -> None:
     """The whole point: BI joins this straight to the warehouse user key."""
-    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.identity.context import inbound_authorization
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     auth = _with_oauth_identity()
@@ -574,7 +574,7 @@ def test_resolved_login_becomes_the_top_level_user_id() -> None:
 def test_backend_workspace_beats_the_placeholder_operators_were_told_to_set() -> None:
     """Our own docs invited ``default``; it collides with a real customer
     workspace of that name in the warehouse, so the resolved name must win."""
-    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.identity.context import inbound_authorization
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     auth = _with_oauth_identity(workspace_name="awkoy-v2")
@@ -596,7 +596,7 @@ def test_backend_workspace_beats_the_placeholder_operators_were_told_to_set() ->
 def test_a_deliberately_configured_workspace_is_not_overridden() -> None:
     """An operator working outside their account default must not be reported
     as being in it."""
-    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.identity.context import inbound_authorization
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     auth = _with_oauth_identity(workspace_name="account-default-ws")
@@ -634,7 +634,7 @@ def test_placeholder_workspace_is_labelled_when_nothing_resolves() -> None:
 @respx.mock
 def test_unresolved_caller_stays_anonymous_and_says_so() -> None:
     """A bearer we never resolved must not silently borrow another identity."""
-    from opik_mcp.auth_context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     client = AnalyticsClient(_settings(comet_workspace=None))
@@ -654,7 +654,7 @@ def test_unresolved_caller_stays_anonymous_and_says_so() -> None:
 @respx.mock
 def test_configured_workspace_uuid_still_wins_over_the_resolved_one() -> None:
     """The env var is an operator stating a fact about their deployment."""
-    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.identity.context import inbound_authorization
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     auth = _with_oauth_identity(workspace_id="resolved-uuid")
@@ -680,10 +680,10 @@ def test_api_key_install_reports_its_resolved_login(monkeypatch: pytest.MonkeyPa
     The install's own API key identifies the caller, so unlike a forwarded
     bearer it is safe to resolve against our settings.
     """
-    from opik_mcp.credential_identity import ResolvedIdentity
+    from opik_mcp.identity.store import ResolvedIdentity
 
     monkeypatch.setattr(
-        "opik_mcp.caller_identity.resolve_api_key_identity",
+        "opik_mcp.identity.caller.resolve_api_key_identity",
         lambda _s: ResolvedIdentity(
             user_name="awkoy",
             workspace_name="awkoy-v2",
@@ -715,11 +715,11 @@ def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
 ) -> None:
     """In hosted mode the inbound credential belongs to the caller. Resolving
     our own settings identity here would attribute their call to this server."""
-    from opik_mcp.auth_context import inbound_authorization
-    from opik_mcp.credential_identity import ResolvedIdentity
+    from opik_mcp.identity.context import inbound_authorization
+    from opik_mcp.identity.store import ResolvedIdentity
 
     monkeypatch.setattr(
-        "opik_mcp.caller_identity.resolve_api_key_identity",
+        "opik_mcp.identity.caller.resolve_api_key_identity",
         lambda _s: ResolvedIdentity(
             user_name="server-operator",
             workspace_name="ops",
@@ -822,7 +822,7 @@ def test_a_template_is_not_silently_replaced_by_a_resolved_workspace() -> None:
     credential, not the workspace — so hiding the template would cost the
     signal and buy nothing.
     """
-    from opik_mcp.auth_context import inbound_authorization
+    from opik_mcp.identity.context import inbound_authorization
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     auth = _with_oauth_identity(workspace_name="real-workspace")
@@ -913,7 +913,7 @@ def test_a_hosted_call_reports_the_workspace_from_its_own_header() -> None:
     """The inbound header is what the call actually routes on. Reporting
     `unknown` here while `request_workspace` carries the name would be an
     affirmative wrong claim, not merely a missing one."""
-    from opik_mcp.auth_context import inbound_workspace
+    from opik_mcp.identity.context import inbound_workspace
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     client = AnalyticsClient(_settings(comet_workspace=None))
@@ -933,7 +933,7 @@ def test_a_hosted_call_reports_the_workspace_from_its_own_header() -> None:
 
 @respx.mock
 def test_an_inbound_header_outranks_the_process_setting() -> None:
-    from opik_mcp.auth_context import inbound_workspace
+    from opik_mcp.identity.context import inbound_workspace
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     client = AnalyticsClient(_settings(comet_workspace="server-side-ws"))
@@ -951,7 +951,7 @@ def test_an_inbound_header_outranks_the_process_setting() -> None:
 
 @respx.mock
 def test_an_unfilled_placeholder_in_the_inbound_header_is_labelled_too() -> None:
-    from opik_mcp.auth_context import inbound_workspace
+    from opik_mcp.identity.context import inbound_workspace
 
     route = respx.post(URL).mock(return_value=httpx.Response(200))
     client = AnalyticsClient(_settings(comet_workspace=None))

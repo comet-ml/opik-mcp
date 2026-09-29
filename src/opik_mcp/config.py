@@ -254,7 +254,7 @@ def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
     """The one message for an unfilled workspace, wherever it is noticed.
 
     Every call into Opik reaches the backend with a ``Comet-Workspace`` header
-    resolved by ``opik_client.resolve_opik_config``; this is the wording it
+    resolved by ``client.base.resolve_opik_config``; this is the wording it
     raises so the message does not depend on which tool the user called.
     """
     return MissingConfigError(

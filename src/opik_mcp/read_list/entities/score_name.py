@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from opik_mcp.opik_client import OpikListClient
+from opik_mcp.client.protocols import OpikListClient
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.project_scope import scope_of
 from opik_mcp.read_list.ui_links import ViewPage

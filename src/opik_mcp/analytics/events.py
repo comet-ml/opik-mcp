@@ -8,10 +8,10 @@ identifiable values. Thresholds picked to align with common LLM-context budgets
 
 Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
-with the classifiers in ``environment.py`` (launch method / parent process),
-``mcp_client_info.py`` (mcp host / host LLM family) and ``analytics/client.py``
-(``_resolve_workspace`` / ``_resolve_user``) — adding a new bucket is a BI
-schema change and requires updating both the classifier and the corresponding
+with the classifiers in ``environment.py`` (launch method), ``process_ancestry.py``
+(parent process), ``mcp_client_info.py`` (mcp host / host LLM family) and
+``analytics/client.py`` (``_resolve_workspace`` / ``_resolve_user``) — adding a new
+bucket is a BI schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
 ``tests/analytics/test_events.py``, ``tests/analytics/test_privacy.py``,
 ``tests/analytics/test_lifespan.py`` and ``tests/analytics/test_client.py``
@@ -35,7 +35,7 @@ Three declared exceptions to "boolean / enum / bucket":
   ``mcp_session_sha256`` is a SESSION grain and is **not** the adoption funnel's
   key. A session ends, so it cannot answer retention ("active on 3+ distinct
   days") any more than the token could. The funnel needs the Comet login —
-  ``user_id`` with ``user_id_kind='comet_user'`` — which ``caller_identity``
+  ``user_id`` with ``user_id_kind='comet_user'`` — which ``identity.caller``
   already resolves and which is live on stdio today; hosted reads zero only
   because it runs 0.2.12, predating that work, so the fix there is a deploy.
 
@@ -95,7 +95,7 @@ LaunchMethod = Literal[
 ]
 
 # ``parent_process``: bucketed comm name of the IMMEDIATE parent process. See
-# ``environment._PARENT_PROCESS_PATTERNS``.
+# ``process_ancestry._PARENT_PROCESS_PATTERNS``.
 #
 # FROZEN. Semantics and value set are unchanged since first release, and must
 # stay that way — dashboards and trends are built on these exact buckets. Its
@@ -321,7 +321,7 @@ InstallIdKind = Literal["file", "fallback"]
 #                       the handshake introspection failed, the pod restarted and
 #                       emptied the in-memory store, the credential was evicted,
 #                       or the credential is an API key forwarded to a hosted
-#                       server, which ``caller_identity`` cannot resolve at all.
+#                       server, which ``identity.caller`` cannot resolve at all.
 #
 # Without this split, a hosted server resolving nothing looks identical to a
 # laptop running open-source Opik: both report ``user_id_kind='install_id'``. That
@@ -377,7 +377,7 @@ EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
 # reaching a tool: 401 from BearerAuthMiddleware (missing/malformed bearer) or
 # 421/403 from the SDK transport-security guard (Host/Origin). The key HTTPS
 # health signal — without it auth failures are invisible. See
-# ``AuthRejectionMiddleware`` in server.py.
+# ``AuthRejectionMiddleware`` in server/http/middleware.py.
 EVENT_AUTH_REJECTED = "opik_mcp_auth_rejected"
 
 
