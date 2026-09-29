@@ -92,21 +92,6 @@ VOCABULARIES: dict[str, Vocabulary] = {
     for handler in ENTITY_REGISTRY.values()
     for vocabulary in handler.vocabularies
 }
-SORTABLE_TYPES: tuple[str, ...] = tuple(
-    v.name
-    for v in VOCABULARIES.values()
-    if v.sort_fields and ENTITY_REGISTRY[v.entity_type].feature is None
-)
-#: The entity types ``filters`` applies to. A mode of an entity is not a type.
-FILTERABLE_TYPES: tuple[str, ...] = tuple(
-    v.name
-    for v in VOCABULARIES.values()
-    if v.filter_fields and v.mode_of is None and ENTITY_REGISTRY[v.entity_type].feature is None
-)
-WINDOWED_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if h.feature is None and h.is_windowed
-)
-
 #: Every address ``read`` accepts as an id, with the entity it names, in the
 #: order ``uri.parse`` tries them. Feature types included: a link to one
 #: is parsed, so a workspace without the feature can refuse it by name.
@@ -119,12 +104,9 @@ URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
-    "FILTERABLE_TYPES",
     "LISTABLE_TYPES",
     "READABLE_TYPES",
-    "SORTABLE_TYPES",
     "URI_PATTERNS",
     "VOCABULARIES",
-    "WINDOWED_TYPES",
     "resolve_entity_type",
 ]

@@ -27,8 +27,11 @@ from opik_mcp.read_list.visibility import (
     added_listable,
     added_readable,
     added_schema_keys,
+    filterable_types,
     listable_types,
     readable_types,
+    sortable_types,
+    windowed_types,
 )
 from opik_mcp.read_list.window import parse_bound
 from opik_mcp.skills_catalog import run_read_skill
@@ -336,6 +339,32 @@ async def test_the_leaderboard_states_how_many_pages_are_left() -> None:
     assert "17 more users: page=2." in answer
 
 
+@pytest.mark.parametrize(
+    ("entity_type", "key"), [("spend_user", "users"), ("spend_session", "sessions")]
+)
+async def test_a_page_past_the_end_ends_with_the_call_for_page_one(
+    entity_type: str, key: str
+) -> None:
+    body = {"total": 27, "content": []}
+    fake = FakeSpend(users=body) if key == "users" else FakeSpend(sessions=body)
+    answer = await _list(fake, entity_type, page=9, size=10)
+    assert f"Go back with list('{entity_type}', page=1)." in answer
+
+
+async def test_the_leaderboard_has_no_link_line_when_opik_has_no_ui_base() -> None:
+    no_ui = make_settings(
+        comet_workspace="__ai_spend_test__",
+        opik_mcp_transport="stdio",
+        opik_api_key="k",
+        opik_url="",
+        comet_url_override="",
+    )
+    fake = FakeSpend(users={"total": 1, "content": [_user_row("a@example.com", 5)]})
+    answer = await run_list("spend_user", settings=no_ui, client=cast("OpikListClient", fake))
+    assert "Open in Opik" not in answer
+    assert "None" not in answer
+
+
 # --- sessions -------------------------------------------------------------- #
 
 
@@ -370,6 +399,15 @@ async def test_a_session_row_cuts_its_summary_and_carries_the_id_to_read() -> No
     assert row[3] == "1h12m"
     assert len(row[-1]) == 120
     assert row[-1].endswith("…")
+    assert (
+        "Summaries are cut to 120 characters; read('spend_session', '<id>') gives the narrative."
+        in answer.split("\n")
+    )
+
+
+async def test_a_session_list_with_short_summaries_has_no_cut_line() -> None:
+    fake = FakeSpend(sessions={"total": 1, "content": [_session_row(SESSION)]})
+    assert "Summaries are cut" not in await _list(fake, "spend_session")
 
 
 async def test_session_filters_take_only_the_declared_fields() -> None:
@@ -648,6 +686,7 @@ async def test_arguments_a_type_does_not_honor_are_refused_in_one_line(
         await call(fake)
     assert f"does not take {named}" in str(exc.value)
     assert "\n" not in str(exc.value)
+    assert re.search(r"Retry list\('spend_\w+'\) without them\.$", str(exc.value))
     assert fake.calls == []
 
 
@@ -692,9 +731,9 @@ def test_the_default_surface_names_no_spend_type() -> None:
     advertised = (
         *registry.READABLE_TYPES,
         *registry.LISTABLE_TYPES,
-        *registry.SORTABLE_TYPES,
-        *registry.FILTERABLE_TYPES,
-        *registry.WINDOWED_TYPES,
+        *sortable_types(frozenset()),
+        *filterable_types(frozenset()),
+        *windowed_types(frozenset()),
         *LIST_SCHEMA_KEYS,
     )
     assert not [name for name in advertised if "spend" in name], (
@@ -723,10 +762,18 @@ async def test_a_missing_dollar_field_reads_n_a_not_zero() -> None:
         users={"total": 1, "content": [{"user_email": "a@example.com", "total_tokens": 10}]},
     )
     summary = await _list(fake, "spend_summary")
-    assert "billed $5.00 = seat n/a + over-plan n/a + API $5.00" in summary
+    assert "billed n/a = seat n/a + over-plan n/a + API $5.00" in summary
     assert "list value at API rates n/a" in summary
     row = (await _list(fake, "spend_user")).split("\n")[2]
     assert row.split(" | ")[3:7] == ["n/a", "n/a", "n/a", "n/a"]
+
+
+async def test_billed_dollars_are_n_a_when_any_part_is_missing_but_the_parts_still_print() -> None:
+    partial = _user_row("a@example.com", 10)
+    del partial["api_cost_usd"]
+    fake = FakeSpend(users={"total": 1, "content": [partial]})
+    row = (await _list(fake, "spend_user")).split("\n")[2]
+    assert row.split(" | ")[3:7] == ["n/a", "$20.00", "$5.50", "n/a"]
 
 
 async def test_a_zero_dollar_lane_ranks_above_a_lane_with_no_dollars() -> None:

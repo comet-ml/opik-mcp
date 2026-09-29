@@ -13,14 +13,12 @@ from mcp.server.fastmcp import FastMCP
 from opik_mcp.cost_intelligence.descriptions import (
     LIST_SENTENCE,
     READ_SENTENCE,
-    READ_SKILL_SENTENCE,
 )
 from opik_mcp.read_list.visibility import added_listable, added_readable, added_schema_keys
 
 _SENTENCES = {
     "read": READ_SENTENCE,
     "list": LIST_SENTENCE,
-    "read_skill": READ_SKILL_SENTENCE,
 }
 
 
@@ -56,14 +54,16 @@ def _merge_entity_types(mcp: FastMCP[object], tool: str, added: list[str]) -> No
 
 
 def extend_advertised_schemas(mcp: FastMCP[object], features: frozenset[str]) -> None:
+    """Idempotent; ``register_tools`` calls it once per server."""
     if not features:
         return
     _merge_entity_types(mcp, "read", added_readable(features))
     _merge_entity_types(mcp, "list", added_listable(features))
     _, keys = _enum(mcp, "schema", "operation")
-    keys.extend(added_schema_keys(features))
+    keys.extend(key for key in added_schema_keys(features) if key not in keys)
     for tool, sentence in _SENTENCES.items():
         registered = mcp._tool_manager.get_tool(tool)
         if registered is None:
             raise RuntimeError(f"{tool} is not registered; register_tools must add it first.")
-        registered.description = f"{sentence} {registered.description}"
+        if not registered.description.startswith(sentence):
+            registered.description = f"{sentence} {registered.description}"

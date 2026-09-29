@@ -13,7 +13,7 @@ skills folder.
 ### When it turns on
 
 The spend feature is on when the transport is stdio and the workspace name
-starts with `__ai_spend_` (`is_cost_intelligence` and `enabled_features`,
+starts with `__ai_spend_` (`is_ai_spend_workspace` and `enabled_features`,
 `src/opik_mcp/cost_intelligence/__init__.py`). The hosted HTTP server never
 turns it on, whatever the workspace is called. Every other workspace keeps the
 default surface, byte for byte.
@@ -24,15 +24,15 @@ Nothing is hidden or removed. The default tools, types, arguments, skills and
 project handling work as in any workspace. In an AI Spend workspace the
 server adds:
 
-- Five entity types, `spend_summary`, `spend_lane`, `spend_user`,
+- The spend types, `spend_summary`, `spend_lane`, `spend_user`,
   `spend_session` and `spend_agent`, to the `read` and `list` enums, and their
   `list.spend_*` keys to `schema`.
-- One sentence at the front of the `read`, `list` and `read_skill`
-  descriptions, saying the spend types and the guide are available.
+- One sentence at the front of the `read` and `list` descriptions, saying the
+  spend types are available.
 - The `cost-intelligence` guide as a `read_skill` name next to the bundled
   skills.
 - One paragraph in the instructions: usage is in project `claude-code`,
-  dollars come only from the spend types, rank by tokens, read the guide first.
+  dollars come from the spend types ranked by tokens, read the guide first.
 
 ### What the spend types answer
 
@@ -107,8 +107,10 @@ Where to start:
 
 ### Traps
 
-- The host cuts each tool description at 2,048 characters, so the added
-  sentence goes first, not last.
+- The host cuts a tool description at the host's description limit
+  (`tests/conformance/test_tool_annotations.py`), so the added sentence goes
+  first, not last. `list` stays under it in this workspace; `read` is over it
+  on the default surface already.
 - `cost_usd` is billed money on the leaderboard and list price on lanes; the
   types label each figure.
 - `list('spend_lane')` and `read('spend_lane', key)` come from two backend
@@ -116,11 +118,11 @@ Where to start:
 
 ## Proven by
 
-- `tests/cost_intelligence/test_mode.py`: when the feature turns on, and never
+- `tests/cost_intelligence/test_features.py`: when the feature turns on, and never
   on hosted HTTP.
 - `tests/read_list/test_visibility.py`: the default views are unchanged; a
   feature type appears only with its feature.
-- `tests/conformance/test_cost_intelligence_surface.py`: the five tools, the
+- `tests/conformance/test_cost_intelligence_surface.py`: the default tools, the
   default schemas plus the added names, the budgets.
 - `tests/read_list/test_spend.py`: each spend type's answer, dollar labels,
   filter routing, the admin error, the window default.

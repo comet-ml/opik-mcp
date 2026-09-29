@@ -29,7 +29,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from opik_mcp.config import Settings, get_settings
-from opik_mcp.cost_intelligence import is_cost_intelligence
+from opik_mcp.cost_intelligence import is_ai_spend_workspace
 from opik_mcp.cost_intelligence.descriptions import INSTRUCTIONS_PARAGRAPH
 from opik_mcp.read_list.ui_links import (
     current_workspace,
@@ -159,7 +159,7 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
-        ai_spend_clause=f"\n{INSTRUCTIONS_PARAGRAPH}\n" if is_cost_intelligence(s) else "",
+        ai_spend_clause=f"\n{INSTRUCTIONS_PARAGRAPH}\n" if is_ai_spend_workspace(s) else "",
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
         skill_names=", ".join(skill_names()),
     )

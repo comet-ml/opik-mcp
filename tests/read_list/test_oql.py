@@ -15,7 +15,8 @@ from opik_mcp.read_list import oql
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import Vocabulary
 from opik_mcp.read_list.oql import OQLError
-from opik_mcp.read_list.registry import FILTERABLE_TYPES, VOCABULARIES
+from opik_mcp.read_list.registry import VOCABULARIES
+from opik_mcp.read_list.visibility import filterable_types
 
 
 def _vocabulary(entity_type: str) -> Vocabulary:
@@ -23,7 +24,9 @@ def _vocabulary(entity_type: str) -> Vocabulary:
 
 
 def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
-    return oql.compile_filters(_vocabulary(entity_type), query, filterable_types=FILTERABLE_TYPES)
+    return oql.compile_filters(
+        _vocabulary(entity_type), query, filterable_types=filterable_types(frozenset())
+    )
 
 
 def split_param_clauses(

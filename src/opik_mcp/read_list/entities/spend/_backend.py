@@ -88,7 +88,8 @@ def refuse_unhonored(entity_type: str, given: Mapping[str, object], *, why: str)
     ]
     if named:
         raise EntityArgValidationError(
-            f"list({entity_type!r}) does not take {', '.join(sorted(named))}: {why}"
+            f"list({entity_type!r}) does not take {', '.join(sorted(named))}: {why} "
+            f"Retry list({entity_type!r}) without them."
         )
 
 
@@ -185,9 +186,9 @@ def usd(value: float | None) -> str:
 
 
 def billed(row: Row, *keys: str) -> float | None:
-    """The sum of the components present, or ``None`` when every one is absent."""
-    parts = [value for key in keys if (value := number(row, key)) is not None]
-    return sum(parts) if parts else None
+    """The sum of the components, or ``None`` unless every one is present."""
+    present = [value for key in keys if (value := number(row, key)) is not None]
+    return sum(present) if len(present) == len(keys) else None
 
 
 def tokens(count: float | int | None) -> str:

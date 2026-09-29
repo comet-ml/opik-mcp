@@ -62,12 +62,10 @@ async def test_the_spend_server_serves_the_guide_and_every_bundled_skill(
         await client.initialize()
         guide = await client.call_tool("read_skill", {"skill_name": GUIDE_NAME})
         bundled = await client.call_tool("read_skill", {"skill_name": "opik-verify"})
-        described = {t.name: t.description or "" for t in (await client.list_tools()).tools}
     assert not bundled.isError
     assert not guide.isError
     assert isinstance(guide.content[0], TextContent)
     assert "# Cost intelligence" in guide.content[0].text
-    assert GUIDE_NAME in described["read_skill"]
 
 
 @pytest.mark.anyio

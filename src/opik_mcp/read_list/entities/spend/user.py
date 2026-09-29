@@ -77,7 +77,8 @@ async def leaderboard_note(
     _client: OpikListClient, settings: Settings, _ctx: PageContext
 ) -> str | None:
     """Users have no page of their own; the page ends with the leaderboard link."""
-    return f"Open in Opik: the AI Spend leaderboard — {page_url(settings, 'leaderboard')}"
+    url = page_url(settings, "leaderboard")
+    return f"Open in Opik: the AI Spend leaderboard — {url}" if url is not None else None
 
 
 async def run_spend_user(
@@ -152,7 +153,10 @@ async def run_spend_user(
 
 def _nothing_here(window: SpendWindow, *, total: int, page: int, name: str | None) -> str:
     if total:
-        return f"Page {page} is past the last page; {total} users match."
+        return (
+            f"Page {page} is past the last page; {total} users match. "
+            f"Go back with list('{ENTITY}', page=1)."
+        )
     if name:
         return f"No Claude Code usage in {window.label} for a user matching {name!r}."
     return no_usage(window)

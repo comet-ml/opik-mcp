@@ -144,6 +144,11 @@ async def run_spend_session(
         empty = _nothing_here(window, total=total, page=current_page, narrowed=narrowed)
         return f"{header}\n{empty}"
     lines = [header, _rows(rows)]
+    if any(len(one_line(text(row, "summary"))) > SUMMARY_CHARS for row in rows):
+        lines.append(
+            f"Summaries are cut to {SUMMARY_CHARS} characters; "
+            "read('spend_session', '<id>') gives the narrative."
+        )
     if current_page < pages:
         lines.append(f"{total - current_page * page_size} more sessions: page={current_page + 1}.")
     return "\n".join(lines)
@@ -151,7 +156,10 @@ async def run_spend_session(
 
 def _nothing_here(window: SpendWindow, *, total: int, page: int, narrowed: bool) -> str:
     if total:
-        return f"Page {page} is past the last page; {total} sessions match."
+        return (
+            f"Page {page} is past the last page; {total} sessions match. "
+            f"Go back with list('{ENTITY}', page=1)."
+        )
     if narrowed:
         return f"No Claude Code sessions in {window.label} match the filters."
     return no_usage(window)
