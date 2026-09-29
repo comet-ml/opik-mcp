@@ -44,7 +44,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _experiment(name: str, **extra: Any) -> dict[str, Any]:
+def _experiment(name: str, **extra: object) -> dict[str, object]:
     """A regular experiment as the backend serves it in a listing."""
     return {
         "id": f"exp-{name}",
@@ -61,7 +61,7 @@ def _experiment(name: str, **extra: Any) -> dict[str, Any]:
     }
 
 
-def _page(*items: dict[str, Any]) -> dict[str, Any]:
+def _page(*items: dict[str, object]) -> dict[str, object]:
     return {"content": list(items), "total": len(items)}
 
 

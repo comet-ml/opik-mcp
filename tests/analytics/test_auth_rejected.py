@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
 
 import pytest
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from opik_mcp.config import Settings
 from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
@@ -36,32 +36,35 @@ def _settings(**kwargs: object) -> Settings:
     return make_settings(**base)
 
 
-def _app_returning(status: int) -> Any:
-    async def app(scope: Any, receive: Any, send: Any) -> None:
+def _app_returning(status: int) -> ASGIApp:
+    async def app(scope: Scope, receive: Receive, send: Send) -> None:
         await send({"type": "http.response.start", "status": status, "headers": []})
         await send({"type": "http.response.body", "body": b"{}"})
 
     return app
 
 
-def _drive(mw: Any, *, path: str = "/mcp", auth: bytes | None = None) -> None:
+def _drive(mw: ASGIApp, *, path: str = "/mcp", auth: bytes | None = None) -> None:
     headers: list[tuple[bytes, bytes]] = []
     if auth is not None:
         headers.append((b"authorization", auth))
-    scope = {"type": "http", "path": path, "headers": headers}
+    scope: Scope = {"type": "http", "path": path, "headers": headers}
 
-    async def receive() -> Any:
+    async def receive() -> Message:
         return {"type": "http.request", "body": b"", "more_body": False}
 
-    async def send(_msg: Any) -> None:
+    async def send(_msg: Message) -> None:
         return None
 
-    asyncio.run(mw(scope, receive, send))
+    async def call() -> None:
+        await mw(scope, receive, send)
+
+    asyncio.run(call())
 
 
 def _make(
     monkeypatch: pytest.MonkeyPatch, status: int, settings: Settings | None = None
-) -> tuple[_Recorder, Any]:
+) -> tuple[_Recorder, ASGIApp]:
     from opik_mcp.server.http.middleware import AuthRejectionMiddleware
 
     recorder = _Recorder()
@@ -208,7 +211,7 @@ def test_app_exception_propagates_without_emitting(monkeypatch: pytest.MonkeyPat
         "opik_mcp.server.http.middleware.track_event", lambda et, p: recorder.track_event(et, p)
     )
 
-    async def _boom(scope: Any, receive: Any, send: Any) -> None:
+    async def _boom(scope: Scope, receive: Receive, send: Send) -> None:
         raise RuntimeError("inner app blew up")
 
     mw = AuthRejectionMiddleware(_boom, settings=_settings())
@@ -231,15 +234,15 @@ def test_lifespan_scope_passes_through(monkeypatch: pytest.MonkeyPatch) -> None:
 
     seen: list[str] = []
 
-    async def inner(scope: Any, receive: Any, send: Any) -> None:
+    async def inner(scope: Scope, receive: Receive, send: Send) -> None:
         seen.append(scope["type"])
 
     mw = AuthRejectionMiddleware(inner, settings=_settings())
 
-    async def receive() -> Any:
+    async def receive() -> Message:
         return {"type": "lifespan.startup"}
 
-    async def send(_msg: Any) -> None:
+    async def send(_msg: Message) -> None:
         return None
 
     asyncio.run(mw({"type": "lifespan"}, receive, send))

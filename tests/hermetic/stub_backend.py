@@ -21,9 +21,9 @@ from __future__ import annotations
 import json
 import re
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from tests.hermetic.fixtures import load
@@ -96,20 +96,20 @@ class Request:
     method: str
     path: str
     query: dict[str, list[str]]
-    body: dict[str, Any] | None
+    body: dict[str, object] | None
     #: Header names lower-cased, so a test does not depend on how httpx
     #: spells them.
     headers: dict[str, str] = field(default_factory=dict)
     #: The body when it is a JSON array, which ``body`` leaves out.
-    json_body: Any = None
+    json_body: object = None
 
     @property
-    def payload(self) -> dict[str, Any]:
+    def payload(self) -> dict[str, object]:
         """The JSON body, for a request that must have carried one."""
         assert self.body is not None, f"{self.method} {self.path} carried no body"
         return self.body
 
-    def filters(self) -> Any:
+    def filters(self) -> object:
         """The ``filters`` this request carried, in whichever form it uses."""
         if self.body is not None and "filters" in self.body:
             raw = self.body["filters"]
@@ -120,7 +120,7 @@ class Request:
         return json.loads(raw_query) if raw_query else None
 
 
-def _issue() -> dict[str, Any]:
+def _issue() -> dict[str, object]:
     """One Diagnostics issue, as the list page ranks them."""
     return fill("issue")
 
@@ -148,7 +148,7 @@ class StubBackend:
     experiments: dict[str, ExperimentSpec] = field(default_factory=default_experiments)
     #: The workspace's feedback definitions, as ``GET /feedback-definitions``
     #: pages them. None by default, which is what the live workspace has.
-    feedback_definitions: list[dict[str, Any]] = field(default_factory=list)
+    feedback_definitions: list[dict[str, object]] = field(default_factory=list)
     #: How many versions the prompt has. Above the read's inline limit the
     #: parent read has to say so rather than quietly showing the first 100.
     prompt_version_count: int = 3
@@ -159,12 +159,12 @@ class StubBackend:
     thread_turn_count: int = len(THREAD_TRACE_IDS)
     #: The Diagnostics job's state for the project, or ``None`` for "never
     #: enabled", which the backend spells as a 404, not as a record.
-    agent_insights_job: dict[str, Any] | None = field(
+    agent_insights_job: dict[str, object] | None = field(
         default_factory=lambda: fill("agent_insights_job")
     )
     #: Diagnostics issues the project has, newest-seen first. Keyed by status
     #: so a probe can ask for the closed ones the default page leaves out.
-    issues: list[dict[str, Any]] = field(default_factory=lambda: [_issue()])
+    issues: list[dict[str, object]] = field(default_factory=lambda: [_issue()])
     #: Bearer tokens the backend no longer accepts. Every route, token
     #: introspection included, answers 401 to a request that carries one. A
     #: test adds a token here partway through a session to expire it.
@@ -226,10 +226,10 @@ class StubBackend:
         self,
         method: str,
         path: str,
-        body: dict[str, Any] | None,
+        body: dict[str, object] | None,
         query: dict[str, list[str]] | None = None,
         headers: dict[str, str] | None = None,
-    ) -> tuple[int, Any]:
+    ) -> tuple[int, object]:
         query = query or {}
         if _bearer(headers or {}) in self.dead_bearers:
             # opik-backend's AuthFilter, which runs before any resource.
@@ -255,7 +255,7 @@ class StubBackend:
 
         project = f"/v1/private/projects/{PROJECT_ID}"
         versions = self.prompt_version_count
-        routes: dict[str, Any] = {
+        routes: dict[str, Callable[[], object]] = {
             "/v1/private/feedback-definitions": lambda: page(self.feedback_definitions),
             "/v1/private/projects": lambda: page([fill("project")]),
             project: lambda: fill("project"),
@@ -301,7 +301,7 @@ class StubBackend:
             return 200, issue_details(issue)
         return 404, {"message": f"stub has no route for {method} {path}"}
 
-    def _dataset_routes(self, path: str, query: dict[str, list[str]]) -> tuple[int, Any] | None:
+    def _dataset_routes(self, path: str, query: dict[str, list[str]]) -> tuple[int, object] | None:
         comparison = Comparison(self.suite, self.experiments)
         if path.endswith("/items/experiments/items/output/columns"):
             return 200, comparison.output_columns(query)
@@ -319,7 +319,7 @@ class StubBackend:
 
     # --- the write routes ------------------------------------------------- #
 
-    def _write(self, method: str, path: str) -> tuple[int, Any] | None:
+    def _write(self, method: str, path: str) -> tuple[int, object] | None:
         """A write route's answer, or ``None`` when this is not one.
 
         Statuses are the ones opik-backend's OpenAPI spec declares for each
@@ -362,7 +362,7 @@ class StubBackend:
 
     # --- the routes that read what was asked for --------------------------- #
 
-    def _experiment_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+    def _experiment_page(self, query: dict[str, list[str]]) -> dict[str, object]:
         """Every experiment the stub holds, narrowed by the ``name`` substring."""
         wanted = query_value(query, "name", "").lower()
         rows: list[object] = [
@@ -372,7 +372,7 @@ class StubBackend:
         ]
         return page(rows)
 
-    def _issue_page(self, query: dict[str, list[str]]) -> dict[str, Any]:
+    def _issue_page(self, query: dict[str, list[str]]) -> dict[str, object]:
         """Open issues unless a status was asked for: the Diagnostics default."""
         wanted = query_value(query, "status", "open")
         return page([issue for issue in self.issues if issue["status"] == wanted])
@@ -422,7 +422,7 @@ def _handler_for(stub: StubBackend) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
-        def log_message(self, *_args: Any) -> None:
+        def log_message(self, *_args: object) -> None:
             """Quiet: the test's own output is the interesting stream."""
 
         def _serve(self, method: str) -> None:
