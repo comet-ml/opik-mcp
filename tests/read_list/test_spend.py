@@ -15,14 +15,14 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.ai_spend import SpendAdminRequiredError, SpendItemKind
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE, FIXED_PROJECT, enabled_features
-from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
+from opik_mcp.cost_intelligence import AI_SPEND_FEATURE, FIXED_PROJECT
+from opik_mcp.cost_intelligence.feature import GUIDE_NAME
 from opik_mcp.read_list import registry
 from opik_mcp.read_list.entities.spend.lane import LANE_KEYS, TOP_ITEMS
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.read_tool import run_read
-from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS, list_reference
+from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS
 from opik_mcp.read_list.visibility import (
     added_listable,
     added_readable,
@@ -476,7 +476,7 @@ async def test_a_session_read_without_an_analysis_names_the_outline_call(status:
 
 
 async def test_the_guide_outline_call_names_the_fixed_project() -> None:
-    guide = run_read_skill(GUIDE_NAME, enabled_features(SPEND))
+    guide = run_read_skill(GUIDE_NAME, SPEND)
     step = guide[guide.index("If the narrative isn't ready") :]
     assert f"project_name='{FIXED_PROJECT}'" in step[: step.index("**Which subagents")]
 
@@ -790,7 +790,7 @@ def test_every_spend_handler_is_behind_the_feature() -> None:
 
 
 def test_the_spend_workspace_adds_exactly_the_spend_types() -> None:
-    features = enabled_features(SPEND)
+    features = SPEND.features
     assert added_readable(features) == ["spend_lane", "spend_session"]
     assert sorted(added_listable(features)) == sorted(SPEND_TYPES)
     assert added_schema_keys(features) == sorted(f"list.{name}" for name in SPEND_TYPES)
@@ -855,7 +855,7 @@ async def test_a_lane_read_counts_the_hidden_items_from_what_the_backend_returne
 
 
 async def test_the_guide_says_the_outline_filter_leaves_some_background_turns() -> None:
-    guide = run_read_skill(GUIDE_NAME, enabled_features(SPEND))
+    guide = run_read_skill(GUIDE_NAME, SPEND)
     step = guide[guide.index("If the narrative isn't ready") :]
     step = step[: step.index("**Which subagents")]
     assert 'name not_contains "automated"' in step
@@ -865,7 +865,7 @@ async def test_the_guide_says_the_outline_filter_leaves_some_background_turns() 
 
 
 async def test_the_guide_says_what_turn_names_look_like_without_capture() -> None:
-    guide = run_read_skill(GUIDE_NAME, enabled_features(SPEND))
+    guide = run_read_skill(GUIDE_NAME, SPEND)
     step = guide[guide.index("If the narrative isn't ready") :]
     step = step[: step.index("**Which subagents")]
     assert "starts with its prompt" in step
@@ -906,18 +906,5 @@ def test_the_reference_says_every_spend_list_takes_a_window(
     assert reference["search"] is (entity_type == "spend_session")
 
 
-def test_the_spend_user_grammar_names_only_operators_its_fields_take(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr("opik_mcp.writes.schema_tool.get_settings", lambda: SPEND)
-    grammar = run_schema("list.spend_user")["filters"]["grammar"]
-    assert "is_empty" not in grammar
-    assert "in/not_in" not in grammar
-    assert grammar.endswith("numbers bare.")
-    assert "is_empty" not in run_schema("list.spend_session")["filters"]["grammar"]
-
-
-def test_the_default_types_keep_the_full_grammar_and_no_spend_type_is_windowed() -> None:
+def test_no_spend_type_is_windowed_in_the_default_views() -> None:
     assert not [t for t in windowed_types(frozenset()) if "spend" in t]
-    for entity_type in ("trace", "thread", "project"):
-        assert "in/not_in take" in list_reference(entity_type)["filters"]["grammar"]

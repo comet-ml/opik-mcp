@@ -51,7 +51,6 @@ from opik_mcp.client.base import (
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings, get_settings
-from opik_mcp.cost_intelligence import enabled_features
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
@@ -222,7 +221,7 @@ async def run_list(
     """List tool entrypoint. See ``server/tools/list.py`` for the registered tool."""
     _PAGE_FACTS.set({})
     resolved_settings = settings or get_settings()
-    features = enabled_features(resolved_settings)
+    features = resolved_settings.features
     # Cleared per call for the same reason the page facts are: a project a
     # previous listing resolved is not a fact about this one, and a link
     # built from it would point into the wrong project — the exact failure

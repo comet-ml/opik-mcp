@@ -13,8 +13,8 @@ skills folder.
 ### When it turns on
 
 The spend feature is on when the transport is stdio and the workspace name
-starts with `__ai_spend_` (`is_ai_spend_workspace` and `enabled_features`,
-`src/opik_mcp/cost_intelligence/__init__.py`). The hosted HTTP server never
+starts with `__ai_spend_` (`Settings.features`, resolved once in
+`src/opik_mcp/config.py`). The hosted HTTP server never
 turns it on, whatever the workspace is called. Every other workspace keeps the
 default surface, byte for byte.
 
@@ -67,16 +67,20 @@ skill in every other workspace.
 ## How it works
 
 ```
-list/read → run_list/run_read → enabled_features(settings) → visibility (types)
+list/read → run_list/run_read → settings.features → visibility (types)
           → the entity's handler (entities/spend/*) → client/ai_spend.py → AI Spend endpoints
-build_server(settings) → register_tools → feature_surface.extend_advertised_schemas
-instructions.py → {ai_spend_clause}; skills_catalog.run_read_skill(name, features)
+build_server(settings) → register_tools → feature_surface.extend_advertised_schemas → features/registry.py
+instructions, read_skill → features/registry.py (paragraph, guide)
 ```
+
+A feature is one `Feature` value in `src/opik_mcp/cost_intelligence/feature.py`
+(sentences, paragraph, guide loader), listed in the feature registry.
 
 Where to start:
 
-- The switch: `src/opik_mcp/cost_intelligence/__init__.py`.
-- The added sentences and paragraph: `src/opik_mcp/cost_intelligence/descriptions.py`.
+- The toggle: `Settings.features` in `src/opik_mcp/config.py`.
+- The feature registry: `src/opik_mcp/features/registry.py`.
+- The added sentences, paragraph and guide: `src/opik_mcp/cost_intelligence/feature.py`.
 - Which types a feature set shows: `src/opik_mcp/read_list/visibility.py`;
   a handler opts in with `EntityHandler.feature`.
 - Extending the advertised schemas: `src/opik_mcp/server/tools/feature_surface.py`.
@@ -93,6 +97,10 @@ Where to start:
   arguments, `write` and skills and pinned every call to `claude-code`; that
   needed a refusal and a test on every hidden path and would block a later
   dual mode. Now a handler carries a `feature` and everything else is untouched.
+  A later dual mode changes only `Settings.features`.
+- The toggle is resolved once, in settings, and has no environment variable.
+- Feature specifics reach the framework only through the feature registry, as
+  entities do through the entity registry (`tests/repo/test_feature_boundary.py`).
 - The spend types query `claude-code` themselves. The Opik types take any
   project, as elsewhere; the instructions name the project.
 - Rankings are by total tokens, which the backend can sort on; dollars are
@@ -120,6 +128,9 @@ Where to start:
 
 - `tests/cost_intelligence/test_features.py`: when the feature turns on, and never
   on hosted HTTP.
+- `tests/features/test_registry.py`: the registry is a table and every feature
+  declares what the framework reads.
+- `tests/repo/test_feature_boundary.py`: no generic module imports the feature package.
 - `tests/read_list/test_visibility.py`: the default views are unchanged; a
   feature type appears only with its feature.
 - `tests/conformance/test_cost_intelligence_surface.py`: the default tools, the

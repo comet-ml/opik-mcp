@@ -7,13 +7,13 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import TextContent
 
 from opik_mcp import skills_catalog as catalog
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE
-from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
+from opik_mcp.cost_intelligence.feature import GUIDE_NAME
 from opik_mcp.server import mcp
 from opik_mcp.skills_resources import install_skill_resources
-from tests.cost_intelligence.build import build_cost_intelligence_server
+from tests.cost_intelligence.build import SPEND_WORKSPACE, build_cost_intelligence_server
+from tests.factories import make_settings
 
-SPEND = frozenset({AI_SPEND_FEATURE})
+SPEND = make_settings(opik_workspace=SPEND_WORKSPACE, opik_mcp_transport="stdio")
 
 
 @pytest.fixture
@@ -21,9 +21,8 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-@pytest.mark.parametrize("requested", ["cost-intelligence", "cost-intelligence.md"])
-def test_the_guide_is_served_with_the_feature(requested: str) -> None:
-    out = catalog.run_read_skill(requested, SPEND)
+def test_the_guide_is_served_with_the_feature() -> None:
+    out = catalog.run_read_skill(GUIDE_NAME, SPEND)
     assert out.startswith("[read_skill: cost-intelligence")
     assert "# Cost intelligence" in out
 

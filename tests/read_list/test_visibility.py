@@ -12,7 +12,7 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.protocols import OpikReadClient
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE, WORKSPACE_PREFIX, enabled_features
+from opik_mcp.config import AI_SPEND_FEATURE, AI_SPEND_WORKSPACE_PREFIX
 from opik_mcp.read_list import registry
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.anyio
 
 NONE = frozenset[str]()
 SPEND = frozenset({AI_SPEND_FEATURE})
-SPEND_SETTINGS = make_settings(opik_workspace=f"{WORKSPACE_PREFIX}org__", opik_api_key="k")
+SPEND_SETTINGS = make_settings(opik_workspace=f"{AI_SPEND_WORKSPACE_PREFIX}org__", opik_api_key="k")
 DEFAULT_SETTINGS = make_settings(opik_workspace="team", opik_api_key="k")
 UUID = "0190a3c4-1111-7000-8000-000000000001"
 
@@ -111,8 +111,8 @@ def test_the_spend_workspace_adds_the_spend_types_and_nothing_else() -> None:
     assert added_readable(SPEND) == ["spend_lane", "spend_session"]
     assert added_listable(SPEND) == sorted(SPEND_TYPES)
     assert added_schema_keys(SPEND) == sorted(f"list.{name}" for name in SPEND_TYPES)
-    assert enabled_features(SPEND_SETTINGS) == SPEND
-    assert enabled_features(DEFAULT_SETTINGS) == NONE
+    assert SPEND_SETTINGS.features == SPEND
+    assert DEFAULT_SETTINGS.features == NONE
 
 
 def test_a_feature_entity_is_added_by_its_feature_and_by_no_other(
