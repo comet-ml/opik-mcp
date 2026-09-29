@@ -290,8 +290,6 @@ module = [
     "opik_mcp.read_list.size",
     "opik_mcp.read_list.slim",
     "opik_mcp.read_list.unsupported",
-    "opik_mcp.server.app.lifespan",
-    "opik_mcp.server.app.session",
     "opik_mcp.skills_resources",
     "opik_mcp.writes.dispatch",
     "opik_mcp.writes.errors",

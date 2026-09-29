@@ -4,8 +4,11 @@ import asyncio
 import contextlib
 import logging
 import time
-from collections.abc import AsyncIterator
-from typing import Any
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
+from typing import overload
+
+from starlette.types import StatefulLifespan, StatelessLifespan
 
 from opik_mcp.analytics import (
     EVENT_SERVER_SHUTDOWN,
@@ -24,11 +27,29 @@ logger = logging.getLogger("opik_mcp")
 _LIFESPAN_FLUSH_DEADLINE_S = 3.5
 
 
-def _make_composed_lifespan(
-    inner_lifespan: Any,
+# Starlette types a lifespan as a union of the stateless and the stateful form;
+# the overloads let mypy hand the same form back for each member.
+@overload
+def _make_composed_lifespan[AppT](
+    inner_lifespan: StatelessLifespan[AppT],
     settings: Settings,
     fingerprint_props: dict[str, str],
-) -> Any:
+) -> StatelessLifespan[AppT]: ...
+
+
+@overload
+def _make_composed_lifespan[AppT](
+    inner_lifespan: StatefulLifespan[AppT],
+    settings: Settings,
+    fingerprint_props: dict[str, str],
+) -> StatefulLifespan[AppT]: ...
+
+
+def _make_composed_lifespan[AppT, StateT](
+    inner_lifespan: Callable[[AppT], AbstractAsyncContextManager[StateT]],
+    settings: Settings,
+    fingerprint_props: dict[str, str],
+) -> Callable[[AppT], AbstractAsyncContextManager[StateT]]:
     """Wrap FastMCP's session-manager lifespan with analytics lifecycle emits.
 
     Closes GAP#1: the hosted entrypoint runs ``uvicorn ... build_app --factory``,
@@ -43,7 +64,7 @@ def _make_composed_lifespan(
     """
 
     @contextlib.asynccontextmanager
-    async def _composed(app: Any) -> AsyncIterator[Any]:
+    async def _composed(app: AppT) -> AsyncIterator[StateT]:
         if boot_props.lifecycle_owned_by_main():
             # main() emits the lifecycle events; just run the session manager.
             async with inner_lifespan(app) as state:
