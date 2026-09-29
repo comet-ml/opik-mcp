@@ -256,6 +256,7 @@ Boundaries:
 ## Log
 
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
+- 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).
 - 2026-09-23: a UI link on every answer; the duplicate `structuredContent` copy removed (#201).
 - 2026-09-22: inline budget on children's bodies, stated in the answer (#199).

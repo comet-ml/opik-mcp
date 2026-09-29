@@ -95,6 +95,18 @@ from opik_mcp.server import mcp
 #           line say what happens instead of what to prefer. -116 bytes.
 #   23,258  OPIK-8496 — `list.project_name` drops "so you don't need to";
 #           the one input-schema change in the ticket. -22 bytes.
+#   22,488  OPIK-8496 — `read_skill` names skills only. -770 bytes: the
+#           per-file inventory of `references/` paths leaves the description,
+#           which drops from 2,900 to 2,130 characters. Each SKILL.md footer
+#           already lists its references, so the name is one read away, and
+#           adding a reference file no longer costs every session.
+#   22,473  OPIK-8496 — the `skill_name` argument stops saying the description
+#           lists every readable path, and points at the SKILL.md list of
+#           references instead. -15 bytes.
+#   22,379  OPIK-8496 — the resource-URI line leaves the `read_skill`
+#           description, since the `skill_name` argument documents that form.
+#           -94 bytes; the description is 2,036 characters and now fits the
+#           2,048-character host cut.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -107,7 +119,7 @@ from opik_mcp.server import mcp
 # ceiling was set ~3.5 KB above the measurement of the day (#187): room for a
 # ticket's worth of wording, not for a new tool or an operation nobody meant
 # to advertise. The table above has spent most of it since. At 23,495 the
-# headroom was 505 bytes; at 23,258 it is 742. Unused headroom is not in
+# headroom was 505 bytes; at 22,379 it is 1,621. Unused headroom is not in
 # anyone's context; only what is written is.
 SURFACE_BUDGET_BYTES = 24_000
 
