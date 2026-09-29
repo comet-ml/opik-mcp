@@ -302,7 +302,6 @@ module = [
     "opik_mcp.server.tools.write",
     "opik_mcp.skills_resources",
     "opik_mcp.writes.dispatch",
-    "opik_mcp.writes.errors",
     "opik_mcp.writes.models",
     "opik_mcp.writes.operations.diagnostics",
     "opik_mcp.writes.operations.evaluation",
