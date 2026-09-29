@@ -2,7 +2,34 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Protocol
+
+from opik_mcp.client.json_value import JsonObject
+from opik_mcp.client.shapes import (
+    Activity,
+    AgentInsightsIssue,
+    AgentInsightsIssueWithDetails,
+    AgentInsightsJob,
+    AutomationRule,
+    Columns,
+    Dataset,
+    DatasetItem,
+    DatasetItemPage,
+    Experiment,
+    FeedbackDefinition,
+    KpiCards,
+    Page,
+    Project,
+    ProjectMetrics,
+    Prompt,
+    PromptVersion,
+    ScoreNames,
+    Span,
+    Stats,
+    TokenUsageNames,
+    Trace,
+    TraceThread,
+)
 
 
 class OpikListClient(Protocol):
@@ -21,7 +48,7 @@ class OpikListClient(Protocol):
         page: int = 1,
         size: int = 10,
         sorting: str | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> Page[Project]: ...
 
     async def list_traces(
         self,
@@ -36,7 +63,7 @@ class OpikListClient(Protocol):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]: ...
+    ) -> Page[Trace]: ...
 
     async def list_threads(
         self,
@@ -51,7 +78,7 @@ class OpikListClient(Protocol):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]: ...
+    ) -> Page[TraceThread]: ...
 
     async def list_spans(
         self,
@@ -67,11 +94,11 @@ class OpikListClient(Protocol):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 100,
-    ) -> dict[str, Any]: ...
+    ) -> Page[Span]: ...
 
     async def list_datasets(
         self, *, name: str | None = None, page: int = 1, size: int = 10
-    ) -> dict[str, Any]: ...
+    ) -> Page[Dataset]: ...
 
     async def list_dataset_items(
         self,
@@ -81,7 +108,7 @@ class OpikListClient(Protocol):
         filters: str | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]: ...
+    ) -> DatasetItemPage: ...
 
     async def list_experiments(
         self,
@@ -98,7 +125,7 @@ class OpikListClient(Protocol):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]: ...
+    ) -> Page[Experiment]: ...
 
     async def list_compared_dataset_items(
         self,
@@ -111,19 +138,19 @@ class OpikListClient(Protocol):
         search: str | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]: ...
+    ) -> DatasetItemPage: ...
 
     async def list_compared_output_columns(
         self, dataset_id: str, /, *, experiment_ids: list[str]
-    ) -> dict[str, Any]: ...
+    ) -> Columns: ...
 
     async def list_prompts(
         self, *, name: str | None = None, page: int = 1, size: int = 10
-    ) -> dict[str, Any]: ...
+    ) -> Page[Prompt]: ...
 
     async def list_prompt_versions(
         self, prompt_id: str, /, *, page: int = 1, size: int = 10
-    ) -> dict[str, Any]: ...
+    ) -> Page[PromptVersion]: ...
 
     async def list_agent_insights_issues(
         self,
@@ -134,9 +161,9 @@ class OpikListClient(Protocol):
         to_date: str | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]: ...
+    ) -> Page[AgentInsightsIssue]: ...
 
-    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]: ...
+    async def list_project_score_names(self, project_id: str, /) -> ScoreNames: ...
 
     async def get_project_metrics(
         self,
@@ -151,20 +178,20 @@ class OpikListClient(Protocol):
         span_filters: list[dict[str, str]] | None = None,
         thread_filters: list[dict[str, str]] | None = None,
         breakdown: dict[str, str] | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> ProjectMetrics: ...
 
-    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]: ...
+    async def list_project_token_usage_names(self, project_id: str, /) -> TokenUsageNames: ...
 
     async def list_project_activities(
         self, project_id: str, /, *, page: int = 1, size: int = 10
-    ) -> dict[str, Any]: ...
+    ) -> Page[Activity]: ...
 
     async def list_automation_rules(
         self, *, project_id: str, page: int = 1, size: int = 10
-    ) -> dict[str, Any]: ...
-    async def get_agent_insights_job(self, project_id: str, /) -> dict[str, Any]: ...
+    ) -> Page[AutomationRule]: ...
+    async def get_agent_insights_job(self, project_id: str, /) -> AgentInsightsJob: ...
 
-    async def get_service_toggles(self) -> dict[str, Any]: ...
+    async def get_service_toggles(self) -> JsonObject: ...
 
 
 class OpikReadClient(OpikListClient, Protocol):
@@ -175,7 +202,7 @@ class OpikReadClient(OpikListClient, Protocol):
     inlining a trace's spans tree).
     """
 
-    async def get_project(self, project_id: str, /) -> dict[str, Any]: ...
+    async def get_project(self, project_id: str, /) -> Project: ...
 
     async def get_project_kpi_cards(
         self,
@@ -186,27 +213,27 @@ class OpikReadClient(OpikListClient, Protocol):
         interval_start: str,
         interval_end: str | None = None,
         filters: str | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> KpiCards: ...
 
-    async def get_trace(self, trace_id: str, /) -> dict[str, Any]: ...
+    async def get_trace(self, trace_id: str, /) -> Trace: ...
 
-    async def get_span(self, span_id: str, /) -> dict[str, Any]: ...
+    async def get_span(self, span_id: str, /) -> Span: ...
 
-    async def get_dataset(self, dataset_id: str, /) -> dict[str, Any]: ...
+    async def get_dataset(self, dataset_id: str, /) -> Dataset: ...
 
-    async def get_dataset_item(self, item_id: str, /) -> dict[str, Any]: ...
+    async def get_dataset_item(self, item_id: str, /) -> DatasetItem: ...
 
-    async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]: ...
+    async def get_experiment(self, experiment_id: str, /) -> Experiment: ...
 
     async def get_compared_stats(
         self, dataset_id: str, /, *, experiment_ids: list[str], filters: str | None = None
-    ) -> dict[str, Any]: ...
+    ) -> Stats: ...
 
     async def list_feedback_definitions(
         self, *, page: int = 1, size: int = 10
-    ) -> dict[str, Any]: ...
+    ) -> Page[FeedbackDefinition]: ...
 
-    async def get_prompt(self, prompt_id: str, /) -> dict[str, Any]: ...
+    async def get_prompt(self, prompt_id: str, /) -> Prompt: ...
 
     async def get_thread(
         self,
@@ -216,7 +243,7 @@ class OpikReadClient(OpikListClient, Protocol):
         project_id: str | None = None,
         project_name: str | None = None,
         should_truncate: bool = False,
-    ) -> dict[str, Any]: ...
+    ) -> TraceThread: ...
 
     async def get_agent_insights_issue(
         self,
@@ -226,4 +253,4 @@ class OpikReadClient(OpikListClient, Protocol):
         project_id: str,
         from_date: str | None = None,
         to_date: str | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> AgentInsightsIssueWithDetails: ...

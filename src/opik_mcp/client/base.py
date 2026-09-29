@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json as _json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
-from typing import Any, ClassVar, Final
+from typing import ClassVar, Final
 
 import httpx
 
+from opik_mcp.client.json_value import JsonObject
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     WORKSPACE_ENV_VARS,
@@ -90,7 +91,11 @@ class OpikServerError(RuntimeError):
 _DEFAULT_TIMEOUT: Final = 30.0
 
 
-def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
+type QueryParams = dict[str, str | int]
+"""Query parameters as httpx sends them: every value is a string or a number."""
+
+
+def _drop_none[V](d: Mapping[str, V | None]) -> dict[str, V]:
     return {k: v for k, v in d.items() if v is not None}
 
 
@@ -114,7 +119,7 @@ def _search_params(
     from_time: str | None,
     to_time: str | None,
     should_truncate: bool | None,
-) -> dict[str, Any]:
+) -> dict[str, str]:
     """Query params shared by the searchable list endpoints (traces, spans,
     threads, experiments). Only set values are sent: the backend treats an
     empty ``filters=`` as malformed JSON and answers 400.
@@ -182,9 +187,9 @@ class OpikClientBase:
         self,
         path: str,
         *,
-        params: dict[str, Any] | None,
+        params: QueryParams | None,
         entity_hint: str,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """GET with the standard headers, expect 200, return parsed JSON.
 
         Non-2xx maps to the same typed errors as the write path via
@@ -212,9 +217,9 @@ class OpikClientBase:
         self,
         path: str,
         *,
-        json: dict[str, Any],
+        json: Mapping[str, object],
         entity_hint: str,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """POST a JSON body, expect 200, return the parsed object.
 
         Read-side sibling of ``_get_json`` for endpoints the backend models as
@@ -245,7 +250,7 @@ class OpikClientBase:
         method: str,
         path: str,
         *,
-        json: dict[str, Any],
+        json: Mapping[str, object],
         expected_status: int,
         entity_hint: str,
     ) -> httpx.Response:
@@ -270,7 +275,7 @@ class OpikClientBase:
         self,
         method: str,
         path: str,
-        body: dict[str, Any] | list[Any],
+        body: Mapping[str, object] | Sequence[object],
         *,
         idempotency_key: str | None = None,
     ) -> httpx.Response:

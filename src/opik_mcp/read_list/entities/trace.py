@@ -12,12 +12,14 @@ See ``read_list/slim.py``.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Page, Trace
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities import SOURCE_VALUES
-from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.handler import EntityHandler, SearchKwargs, Vocabulary
 from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
@@ -43,7 +45,7 @@ SPANS_INLINE_CHARS = 14_000
 SLIM_SPAN_FIELDS = ("input", "output", "metadata")
 
 
-async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, object]:
     """Trace + inlined spans (up to ``SPANS_INLINE_LIMIT``).
 
     The spans index in opik-backend is sharded by project, so the second
@@ -74,7 +76,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     cut = count_cut(fetched, SLIM_SPAN_FIELDS)
     spans, dropped = drop_bodies_past(fetched, SPANS_INLINE_CHARS, SLIM_SPAN_FIELDS)
     truncated = collection_truncated(spans_page, inlined=len(spans), limit=SPANS_INLINE_LIMIT)
-    result: dict[str, Any] = {"trace": trace, "spans": spans, "spansTruncated": truncated}
+    result: dict[str, object] = {"trace": trace, "spans": spans, "spansTruncated": truncated}
     if truncated:
         # An agent loop can run to hundreds of spans; the flag alone left the
         # caller knowing the tree was short and not how to see the rest.
@@ -138,7 +140,7 @@ def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     return logs_page_url(settings, project_id=project_id, logs_type="traces", trace="{id}")
 
 
-def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def trace_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The trace's UI link: the Logs page directly, or the redirect.
 
     The direct address is preferred because the redirect costs a hop and lands
@@ -163,15 +165,13 @@ def trace_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     return {"url": template.replace("{trace_id}", trace_id)}
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[SearchKwargs]) -> Page[Trace]:
     # Trace listing is project-scoped — ``list`` tool enforces project_id
-    # presence via ``list_required_kwargs``. ``name`` filtering on traces
-    # isn't supported by opik-backend; drop it if passed.
-    kw.pop("name", None)
+    # presence via ``list_required_kwargs``.
     return await client.list_traces(**kw)
 
 
-def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
+def derive_columns(record: Mapping[str, object]) -> Mapping[str, object]:
     """``experiment_id``, from the ``experiment`` reference the record carries.
 
     The filter field is ``experiment_id``; the trace record has ``experiment:

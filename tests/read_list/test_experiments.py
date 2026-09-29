@@ -16,11 +16,12 @@ that names every omission.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from opik_mcp.client.base import OpikServerError
+from opik_mcp.client.shapes import Experiment, Page
 from opik_mcp.read_list.entities.experiment import (
     HANDLER,
     derive_columns,
@@ -335,17 +336,17 @@ class PickyClient(FakeOpikClient):
     """Serve an empty slice of a listing that does match — what the backend
     returns for a page beyond the last one: no rows, but a total."""
 
-    async def list_experiments(self, **kw: Any) -> dict[str, Any]:
+    async def list_experiments(self, **kw: Any) -> Page[Experiment]:
         self.last_kwargs = kw
         self.experiment_calls.append(kw)
         narrowed = any(k in kw for k in ("filters", "types", "optimization_id", "name"))
         if narrowed:
-            return {"content": [], "total": 0}
+            return cast("Page[Experiment]", {"content": [], "total": 0})
         if self.past_the_end and kw.get("page", 1) > 1:
-            return {"content": [], "total": self.stock}
+            return cast("Page[Experiment]", {"content": [], "total": self.stock})
         if self.side_error is not None:
             raise self.side_error
-        return {"content": [_experiment("nightly")], "total": self.stock}
+        return cast("Page[Experiment]", {"content": [_experiment("nightly")], "total": self.stock})
 
     @property
     def side_calls(self) -> int:

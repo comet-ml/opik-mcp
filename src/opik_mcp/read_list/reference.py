@@ -11,8 +11,9 @@ while ``list`` accepts another.
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Final, NotRequired, TypedDict
 
+from opik_mcp.read_list.handler import FieldType
 from opik_mcp.read_list.oql_fields import (
     KEY_ALLOWED_TYPES,
     KEY_REQUIRED_TYPES,
@@ -35,7 +36,43 @@ LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
 )
 
 
-def list_reference(entity_type: str) -> dict[str, Any]:
+class FieldSpec(TypedDict):
+    type: FieldType
+    operators: list[str]
+    format: NotRequired[str]
+    key: NotRequired[str]
+    unit: NotRequired[str]
+    note: NotRequired[str]
+    values: NotRequired[list[str]]
+
+
+class FilterReference(TypedDict):
+    grammar: str
+    fields: dict[str, FieldSpec]
+    examples: list[str]
+    default: NotRequired[str]
+    requires: NotRequired[str]
+    see_also: NotRequired[str]
+
+
+class SortReference(TypedDict):
+    form: str
+    fields: list[str]
+    why: NotRequired[str]
+
+
+class FieldReference(TypedDict):
+    """The reference an entity's field table answers with."""
+
+    operation: str
+    entity_type: str
+    filters: FilterReference
+    sort: SortReference
+    window: bool
+    search: bool
+
+
+def list_reference(entity_type: str) -> dict[str, object]:
     """The ``schema("list.<entity>")`` payload. ``entity_type`` must be supported."""
     handler = ENTITY_REGISTRY.get(entity_type)
     if handler is not None and handler.reference_fn is not None:
@@ -43,8 +80,13 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         # metrics, intervals and limits, not a table of OQL fields. It lives
         # beside the data it describes.
         return handler.reference_fn()
+    return dict(field_reference(entity_type))
+
+
+def field_reference(entity_type: str) -> FieldReference:
+    """The reference built from the field table ``entity_type`` names."""
     vocabulary = VOCABULARIES[entity_type]
-    fields: dict[str, dict[str, Any]] = {}
+    fields: dict[str, FieldSpec] = {}
     for name, ftype in vocabulary.filter_fields.items():
         # A field the backend takes as a query parameter accepts less than its
         # type does — one value cannot carry a negation, one id cannot carry a
@@ -53,7 +95,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         # discoverable here rather than by being rejected.
         param = vocabulary.param_fields.get(name)
         operators = list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[ftype])
-        spec: dict[str, Any] = {"type": ftype, "operators": operators}
+        spec: FieldSpec = {"type": ftype, "operators": operators}
         if param is not None and param.value_form == "uuid":
             spec["format"] = "UUID"
         if ftype in KEY_REQUIRED_TYPES:
@@ -74,7 +116,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             spec["values"] = list(values)
         fields[name] = spec
 
-    filters: dict[str, Any] = {
+    filters: FilterReference = {
         "grammar": GRAMMAR_LINE,
         "fields": fields,
         "examples": list(vocabulary.filter_examples),
@@ -95,7 +137,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
             }
         )
 
-    sort: dict[str, Any] = {"form": SORT_FORM, "fields": sortable_names(vocabulary)}
+    sort: SortReference = {"form": SORT_FORM, "fields": sortable_names(vocabulary)}
     why = vocabulary.unsortable_why
     if why is not None:
         # An empty field list reads as "not implemented yet". The endpoint has
@@ -118,5 +160,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
 
 __all__ = [
     "LIST_SCHEMA_KEYS",
+    "FieldReference",
+    "field_reference",
     "list_reference",
 ]

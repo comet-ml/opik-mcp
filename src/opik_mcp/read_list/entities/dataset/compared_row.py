@@ -4,8 +4,10 @@ each scored.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+
+from opik_mcp.client.shapes import DatasetItem, ExperimentItem, FeedbackDefinition, FeedbackScore
 
 #: An experiment that did not run the case.
 MISSING = "-"
@@ -50,21 +52,21 @@ class Experiment:
     trace_count: int | None = None
 
 
-def runs_by_experiment(row: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+def runs_by_experiment(row: DatasetItem) -> dict[str, list[ExperimentItem]]:
     """The row's runs, grouped by the experiment that produced them.
 
     An experiment appears more than once when its execution policy ran the
     case more than once; it is missing entirely when a run-level filter
     matched one of the others and the backend stripped it off the row.
     """
-    grouped: dict[str, list[dict[str, Any]]] = {}
+    grouped: dict[str, list[ExperimentItem]] = {}
     for item in row.get("experiment_items") or []:
         if isinstance(item, dict) and item.get("experiment_id"):
             grouped.setdefault(str(item["experiment_id"]), []).append(item)
     return grouped
 
 
-def scores_of(run: dict[str, Any]) -> dict[str, float]:
+def scores_of(run: ExperimentItem) -> dict[str, float]:
     """One run's scores as a map, from the backend's list of named entries."""
     out: dict[str, float] = {}
     for score in _entries(run):
@@ -74,11 +76,11 @@ def scores_of(run: dict[str, Any]) -> dict[str, float]:
     return out
 
 
-def _entries(run: dict[str, Any]) -> list[dict[str, Any]]:
+def _entries(run: ExperimentItem) -> list[FeedbackScore]:
     return [s for s in run.get("feedback_scores") or [] if isinstance(s, dict)]
 
 
-def _entry(run: dict[str, Any], name: str) -> dict[str, Any] | None:
+def _entry(run: ExperimentItem, name: str) -> FeedbackScore | None:
     return next((s for s in _entries(run) if s.get("name") == name), None)
 
 
@@ -100,7 +102,7 @@ class ScoreKinds:
     categorical: dict[str, dict[float, str]]
 
     @classmethod
-    def of(cls, definitions: list[dict[str, Any]]) -> ScoreKinds:
+    def of(cls, definitions: Sequence[FeedbackDefinition]) -> ScoreKinds:
         categorical: dict[str, dict[float, str]] = {}
         for definition in definitions:
             if definition.get("type") != "categorical":
@@ -124,7 +126,7 @@ class ScoreKinds:
 NO_KINDS = ScoreKinds(categorical={})
 
 
-def is_categorical(runs: list[dict[str, Any]], name: str, kinds: ScoreKinds) -> bool:
+def is_categorical(runs: Sequence[ExperimentItem], name: str, kinds: ScoreKinds) -> bool:
     """Is this score a label rather than a number, by definition or by the rows?
 
     A run's entry carries ``category_name`` when the score was written with a
@@ -135,7 +137,7 @@ def is_categorical(runs: list[dict[str, Any]], name: str, kinds: ScoreKinds) -> 
     return any((e := _entry(run, name)) is not None and e.get("category_name") for run in runs)
 
 
-def category_of(run: dict[str, Any], name: str, kinds: ScoreKinds) -> str | None:
+def category_of(run: ExperimentItem, name: str, kinds: ScoreKinds) -> str | None:
     """The label one run recorded for a categorical score, or the number when
     no label is known for it — a value the definition does not list is still
     what the run said."""
@@ -151,7 +153,7 @@ def category_of(run: dict[str, Any], name: str, kinds: ScoreKinds) -> str | None
     return None
 
 
-def authored(run: dict[str, Any], name: str) -> list[tuple[float, str]]:
+def authored(run: ExperimentItem, name: str) -> list[tuple[float, str]]:
     """Every author's value for one score on one run, with where it came from.
 
     The backend keeps one entry per score name and folds the authors into
@@ -166,9 +168,9 @@ def authored(run: dict[str, Any], name: str) -> list[tuple[float, str]]:
     if not isinstance(by_author, dict) or len(by_author) < 2:
         return []
     return [
-        (float(opinion["value"]), str(opinion.get("source") or "?"))
+        (float(value), str(opinion.get("source") or "?"))
         for opinion in by_author.values()
-        if isinstance(opinion, dict) and isinstance(opinion.get("value"), int | float)
+        if isinstance(opinion, dict) and isinstance(value := opinion.get("value"), int | float)
     ]
 
 
@@ -176,7 +178,7 @@ def _mean(values: list[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def score_value(runs: list[dict[str, Any]], name: str) -> float | None:
+def score_value(runs: Sequence[ExperimentItem], name: str) -> float | None:
     """What one experiment scored on one case: the mean over its runs.
 
     With the usual single run this is that run's score. With an execution
@@ -208,15 +210,15 @@ class ComparedRow:
     re-derived per cell, the second one twice. The row answers them once.
     """
 
-    case: dict[str, Any]
+    case: DatasetItem
     experiments: list[Experiment]
-    runs: dict[str, list[dict[str, Any]]]
-    worst: tuple[Experiment, dict[str, Any]] | None
+    runs: dict[str, list[ExperimentItem]]
+    worst: tuple[Experiment, ExperimentItem] | None
     kinds: ScoreKinds = NO_KINDS
 
     @classmethod
     def of(
-        cls, case: dict[str, Any], experiments: list[Experiment], kinds: ScoreKinds = NO_KINDS
+        cls, case: DatasetItem, experiments: list[Experiment], kinds: ScoreKinds = NO_KINDS
     ) -> ComparedRow:
         runs = runs_by_experiment(case)
         return cls(
@@ -397,8 +399,8 @@ class ComparedRow:
 
 
 def _worst(
-    runs: dict[str, list[dict[str, Any]]], experiments: list[Experiment]
-) -> tuple[Experiment, dict[str, Any]] | None:
+    runs: dict[str, list[ExperimentItem]], experiments: list[Experiment]
+) -> tuple[Experiment, ExperimentItem] | None:
     """The run a caller should open first, and whose experiment it was.
 
     The worst run is the single experiment item with the lowest sum of the
@@ -426,7 +428,7 @@ def _worst(
     worth opening.
     """
     if not any(scores_of(run) for own in runs.values() for run in own):
-        failed_by: tuple[Experiment, dict[str, Any]] | None = None
+        failed_by: tuple[Experiment, ExperimentItem] | None = None
         for experiment in experiments:
             for run in runs.get(experiment.id, []):
                 if run.get("status") == "failed":
@@ -434,7 +436,7 @@ def _worst(
                     break
         return failed_by
 
-    worst: tuple[float, Experiment, list[dict[str, Any]]] | None = None
+    worst: tuple[float, Experiment, list[ExperimentItem]] | None = None
     for experiment in experiments:
         own = runs.get(experiment.id, [])
         if not own:
@@ -449,6 +451,6 @@ def _worst(
     return experiment, failed or min(own, key=_total)
 
 
-def _total(run: dict[str, Any]) -> float:
+def _total(run: ExperimentItem) -> float:
     """One experiment item's standing: the sum of the scores it recorded."""
     return sum(scores_of(run).values())

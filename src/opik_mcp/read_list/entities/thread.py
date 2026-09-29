@@ -17,12 +17,14 @@ in full. See ``read_list/slim.py``.
 from __future__ import annotations
 
 import json
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Page, Trace, TraceThread
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities import SOURCE_VALUES
-from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.handler import EntityHandler, SearchKwargs, Vocabulary
 from opik_mcp.read_list.oql_fields import TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
@@ -46,16 +48,16 @@ MESSAGES_INLINE_CHARS = 14_000
 SLIM_TURN_FIELDS = ("input", "output")
 
 
-def as_messages(traces: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def as_messages(traces: Sequence[Trace]) -> list[dict[str, object]]:
     """Project each trace to one conversation turn, sorted by ``start_time`` asc.
 
     Ascending order is conversation order. Each turn keeps a ``trace_id`` so the
     agent can ``read('trace', id)`` to drill into spans/metadata.
     """
     ordered = sorted(traces, key=lambda t: t.get("start_time") or "")
-    messages: list[dict[str, Any]] = []
+    messages: list[dict[str, object]] = []
     for t in ordered:
-        msg: dict[str, Any] = {
+        msg: dict[str, object] = {
             "trace_id": t.get("id"),
             "name": t.get("name"),
             "input": t.get("input"),
@@ -80,7 +82,7 @@ async def fetch(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Thread metadata + its messages (traces filtered by ``thread_id``).
 
     Two project-scoped calls reproduce the UI's Thread panel: ``get_thread``
@@ -117,7 +119,7 @@ async def fetch(
     turns = as_messages(traces)
     cut = count_cut(turns, SLIM_TURN_FIELDS)
     messages, dropped = drop_bodies_past(turns, MESSAGES_INLINE_CHARS, SLIM_TURN_FIELDS)
-    result: dict[str, Any] = {
+    result: dict[str, object] = {
         "thread": thread,
         "messages": messages,
         "messagesTruncated": truncated,
@@ -152,11 +154,9 @@ async def fetch(
     return result
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[SearchKwargs]) -> Page[TraceThread]:
     # Thread listing is project-scoped — the ``list`` tool enforces project_id
-    # via ``list_required_kwargs``. ``name`` filtering on threads isn't
-    # supported by opik-backend; drop it if passed.
-    kw.pop("name", None)
+    # via ``list_required_kwargs``.
     return await client.list_threads(**kw)
 
 
@@ -173,7 +173,7 @@ def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     return logs_page_url(settings, project_id=project_id, logs_type="threads", thread="{id}")
 
 
-def thread_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def thread_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The Logs page on the threads view, with this thread open.
 
     A thread read cannot happen without project scope — the tool refuses

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
-from opik_mcp.client.base import OpikClientBase, _ids_param, _search_params
+from opik_mcp.client.base import OpikClientBase, QueryParams, _ids_param, _search_params
+from opik_mcp.client.shapes import Experiment, FeedbackDefinition, Page, Stats
 
 
 class ExperimentEndpoints(OpikClientBase):
@@ -23,7 +24,7 @@ class ExperimentEndpoints(OpikClientBase):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[Experiment]:
         """``GET /v1/private/experiments`` — Spring Page envelope.
 
         ``name`` is the backend's case-insensitive partial match. ``types`` is
@@ -35,7 +36,7 @@ class ExperimentEndpoints(OpikClientBase):
         sends a time window or free-text search for experiments (the backend
         has neither).
         """
-        params: dict[str, Any] = {"page": page, "size": size}
+        params: QueryParams = {"page": page, "size": size}
         if name is not None:
             params["name"] = name
         if types is not None:
@@ -56,23 +57,29 @@ class ExperimentEndpoints(OpikClientBase):
                 should_truncate=should_truncate,
             )
         )
-        return await self._get_json(
-            "/v1/private/experiments",
-            params=params,
-            entity_hint="experiments",
+        return cast(
+            Page[Experiment],
+            await self._get_json(
+                "/v1/private/experiments",
+                params=params,
+                entity_hint="experiments",
+            ),
         )
 
-    async def get_experiment(self, experiment_id: str) -> dict[str, Any]:
+    async def get_experiment(self, experiment_id: str) -> Experiment:
         """``GET /v1/private/experiments/{id}``."""
-        return await self._get_json(
-            f"/v1/private/experiments/{experiment_id}",
-            params=None,
-            entity_hint=f"experiment {experiment_id!r}",
+        return cast(
+            Experiment,
+            await self._get_json(
+                f"/v1/private/experiments/{experiment_id}",
+                params=None,
+                entity_hint=f"experiment {experiment_id!r}",
+            ),
         )
 
     async def get_compared_stats(
         self, dataset_id: str, /, *, experiment_ids: list[str], filters: str | None = None
-    ) -> dict[str, Any]:
+    ) -> Stats:
         """``GET /v1/private/datasets/{id}/items/experiments/items/stats``.
 
         Count, averages and percentiles over the experiment items of the
@@ -80,24 +87,32 @@ class ExperimentEndpoints(OpikClientBase):
         per-experiment figures. ``filters`` is the same array the joined
         list takes, evaluated on the same rows.
         """
-        params: dict[str, Any] = {"experiment_ids": _ids_param(experiment_ids)}
+        params: QueryParams = {"experiment_ids": _ids_param(experiment_ids)}
         if filters:
             params["filters"] = filters
-        return await self._get_json(
-            f"/v1/private/datasets/{dataset_id}/items/experiments/items/stats",
-            params=params,
-            entity_hint=f"dataset {dataset_id!r} experiment stats",
+        return cast(
+            Stats,
+            await self._get_json(
+                f"/v1/private/datasets/{dataset_id}/items/experiments/items/stats",
+                params=params,
+                entity_hint=f"dataset {dataset_id!r} experiment stats",
+            ),
         )
 
-    async def list_feedback_definitions(self, *, page: int = 1, size: int = 10) -> dict[str, Any]:
+    async def list_feedback_definitions(
+        self, *, page: int = 1, size: int = 10
+    ) -> Page[FeedbackDefinition]:
         """``GET /v1/private/feedback-definitions`` — the workspace's score definitions.
 
         A definition carries the score's type (``numerical``, ``categorical``,
         ``boolean``) and, for a categorical one, the category labels and the
         number each is stored as. It carries no direction.
         """
-        return await self._get_json(
-            "/v1/private/feedback-definitions",
-            params={"page": page, "size": size},
-            entity_hint="feedback definitions",
+        return cast(
+            Page[FeedbackDefinition],
+            await self._get_json(
+                "/v1/private/feedback-definitions",
+                params={"page": page, "size": size},
+                entity_hint="feedback definitions",
+            ),
         )

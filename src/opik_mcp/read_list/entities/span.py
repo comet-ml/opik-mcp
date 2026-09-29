@@ -6,22 +6,24 @@ spans of the same project, and the caller asked for one.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Page, Span
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities import SOURCE_VALUES
-from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.handler import EntityHandler, SearchKwargs, Vocabulary
 from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.ui_links import logs_page_url
 from opik_mcp.read_list.uri import opik_uri
 
 
-async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+async def fetch(client: OpikReadClient, entity_id: str) -> Span:
     return await client.get_span(entity_id)
 
 
-def span_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def span_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The span, open inside its trace.
 
     A span has no page and no panel of its own: the Logs spans view lists
@@ -57,11 +59,9 @@ def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     )
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[SearchKwargs]) -> Page[Span]:
     # Project-wide span search: no ``trace_id`` — that scoping (and ``type``)
-    # is expressed in OQL (``trace_id = "…"``, ``type = "llm"``). ``name``
-    # filtering isn't supported by opik-backend; drop it if passed.
-    kw.pop("name", None)
+    # is expressed in OQL (``trace_id = "…"``, ``type = "llm"``).
     return await client.list_spans(**kw)
 
 

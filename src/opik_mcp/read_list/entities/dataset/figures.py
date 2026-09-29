@@ -18,9 +18,10 @@ capped; over the cap the header says which labels can be counted and how.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
+from opik_mcp.client.shapes import Stats
 from opik_mcp.read_list.entities.dataset.compared_row import Experiment, ScoreKinds, number
+from opik_mcp.read_list.paging import well_formed
 
 #: Extra stats calls a page may spend counting categorical labels. Two
 #: experiments and a three-label verdict are six; two experiments and two
@@ -43,7 +44,7 @@ class Figures:
     p50_ms: float | None = None
 
     @classmethod
-    def of(cls, body: dict[str, Any]) -> Figures:
+    def of(cls, body: Stats) -> Figures:
         """Read the stats list the endpoint returns.
 
         Entries are ``{name, type, value}``; the same name appears once as an
@@ -53,9 +54,7 @@ class Figures:
         scores: dict[str, float] = {}
         cost: float | None = None
         p50: float | None = None
-        for entry in body.get("stats") or []:
-            if not isinstance(entry, dict):
-                continue
+        for entry in well_formed(body.get("stats")):
             name, kind, value = entry.get("name"), entry.get("type"), entry.get("value")
             if not isinstance(name, str):
                 continue
@@ -72,7 +71,7 @@ class Figures:
         return cls(runs=runs, scores=scores, cost=cost, p50_ms=p50)
 
 
-def _as_float(value: Any) -> float | None:
+def _as_float(value: object) -> float | None:
     if isinstance(value, int | float) and not isinstance(value, bool):
         return float(value)
     return None

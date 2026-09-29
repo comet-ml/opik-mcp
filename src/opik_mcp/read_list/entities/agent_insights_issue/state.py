@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 
@@ -34,6 +34,7 @@ from opik_mcp.client.base import (
     OpikValidationError,
 )
 from opik_mcp.client.protocols import OpikListClient
+from opik_mcp.client.shapes import AgentInsightsJob
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
@@ -72,7 +73,9 @@ TRIGGER_OP = "agent_insights_job.trigger"
 _KNOWN_STATUSES = frozenset({"open", "resolved", "closed"})
 
 
-async def _read_job(client: OpikListClient, project_id: str, *, what: str) -> dict[str, Any] | None:
+async def _read_job(
+    client: OpikListClient, project_id: str, *, what: str
+) -> AgentInsightsJob | None:
     """The project's Diagnostics job, ``None`` when it has none, and
     :class:`_Unreadable` when the lookup itself failed.
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import base64
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, Literal, get_args
 from urllib.parse import quote
@@ -216,7 +216,7 @@ def experiments_compare_url(
 
 def scoped_entity_links(
     settings: Settings,
-    record: dict[str, object],
+    record: Mapping[str, object],
     *,
     area: ProjectArea,
     noun: str,

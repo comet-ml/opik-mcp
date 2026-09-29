@@ -8,18 +8,21 @@ whether the deployment has Diagnostics at all.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import AgentInsightsIssue, AgentInsightsIssueDetail, Page
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.agent_insights_issue.state import issue_page_note
-from opik_mcp.read_list.handler import EntityHandler, ReadWindow
-from opik_mcp.read_list.project_scope import require_project_id
+from opik_mcp.read_list.handler import EntityHandler, PageKwargs, ProjectScope, ReadWindow
+from opik_mcp.read_list.paging import well_formed
+from opik_mcp.read_list.project_scope import require_project_id, scope_of
 from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
 from opik_mcp.read_list.uri import opik_uri, web_link
 
 
-def example_trace_ids(details: list[dict[str, Any]]) -> list[str]:
+def example_trace_ids(details: Sequence[AgentInsightsIssueDetail]) -> list[str]:
     """Deduplicated union of each per-day row's ``metadata.example_trace_ids``.
 
     First-seen order over the rows as the backend returns them (ascending
@@ -50,7 +53,7 @@ async def fetch(
     project_name: str | None = None,
     from_date: str | None = None,
     to_date: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Diagnostics issue + deduped example trace ids + per-day breakdown.
 
     One backend call. Returns ``{issue, example_trace_ids, details}`` plus a
@@ -75,12 +78,7 @@ async def fetch(
     body = await client.get_agent_insights_issue(
         entity_id, project_id=project_id, from_date=from_date, to_date=to_date
     )
-    details_raw = body.get("details")
-    details = (
-        [row for row in details_raw if isinstance(row, dict)]
-        if isinstance(details_raw, list)
-        else []
-    )
+    details = well_formed(body.get("details"))
     issue = {key: value for key, value in body.items() if key != "details"}
     return {
         "issue": issue,
@@ -93,12 +91,14 @@ async def fetch(
     }
 
 
-def issue_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
+def issue_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The issue's Diagnostics page (open or resolved view, by status) and a
     template for deep-linking any of its example traces — the two links the
     diagnose skill has to hand the user."""
     project_id = data.get("_project_id")
-    issue = data.get("issue") or {}
+    issue = data.get("issue")
+    if not isinstance(issue, dict):
+        issue = {}
     issue_id = issue.get("id")
     if not isinstance(project_id, str) or not isinstance(issue_id, str):
         return {}
@@ -115,25 +115,38 @@ def issue_links(settings: Settings, data: dict[str, Any]) -> dict[str, str]:
     return {"url": page, "trace_url_template": traces}
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+class IssuesQuery(PageKwargs, total=False):
+    from_date: str
+    to_date: str
+
+
+class ListIssuesKwargs(IssuesQuery, ProjectScope, total=False):
+    status: str
+
+
+async def list_page(
+    client: OpikListClient, **kw: Unpack[ListIssuesKwargs]
+) -> Page[AgentInsightsIssue]:
     # "What is broken" means open issues, so that is the default; the caller
     # asks for resolved/closed explicitly. No name filter exists on the backend.
     # No ``sorting`` is sent: the backend's default (last seen, then total
     # occurrences) is the Diagnostics page's ranking.
-    kw.pop("name", None)
-    kw.setdefault("status", "open")
     # The backend takes project_id only. The list tool lets project_name
     # satisfy the project requirement (as for trace/thread), so resolve it
-    # here; an explicit project_id wins and skips the lookup. Not `scope_of`
-    # like its two neighbours: the name has to leave ``kw`` as well, since
-    # what remains is forwarded to a client method that has no such parameter.
-    kw["project_id"] = await require_project_id(
-        client,
-        project_id=kw.get("project_id"),
-        project_name=kw.pop("project_name", None),
-        caller="list('agent_insights_issue')",
+    # here; an explicit project_id wins and skips the lookup.
+    project_id = await scope_of(client, kw, caller="list('agent_insights_issue')")
+    query: IssuesQuery = {}
+    if "from_date" in kw:
+        query["from_date"] = kw["from_date"]
+    if "to_date" in kw:
+        query["to_date"] = kw["to_date"]
+    if "page" in kw:
+        query["page"] = kw["page"]
+    if "size" in kw:
+        query["size"] = kw["size"]
+    return await client.list_agent_insights_issues(
+        project_id=project_id, status=kw.get("status", "open"), **query
     )
-    return await client.list_agent_insights_issues(**kw)
 
 
 HANDLER = EntityHandler(

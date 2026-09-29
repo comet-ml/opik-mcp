@@ -21,18 +21,10 @@ POLICY_GLOBS = {"scripts/**", ".claude/hooks/**", "tests/**"}
 SUPPRESSION = re.compile(r"#\s*(?:noqa|type:\s*ignore)")
 
 _POLICY = {"src/opik_mcp/_version.py"}
-# The raw-backend-JSON edge (pyproject.toml): allowed explicit Any on purpose, not debt.
-ANY_EDGE = {
-    "opik_mcp.client.annotations",
-    "opik_mcp.client.base",
-    "opik_mcp.client.dataset",
-    "opik_mcp.client.diagnostics",
-    "opik_mcp.client.experiment",
-    "opik_mcp.client.observability",
-    "opik_mcp.client.project",
-    "opik_mcp.client.prompt",
-    "opik_mcp.client.protocols",
-}
+# Modules allowed explicit Any on purpose rather than as debt: none. The raw
+# backend JSON the client once passed through as Any is typed at the edge now
+# (``opik_mcp/client/shapes.py``).
+ANY_EDGE: set[str] = set()
 RUFF_BASELINE: dict[str, list[str]] = {
     path: codes
     for path, codes in CONFIG["tool"]["ruff"]["lint"]["per-file-ignores"].items()

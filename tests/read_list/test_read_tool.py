@@ -11,13 +11,39 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.client.json_value import JsonObject
+from opik_mcp.client.shapes import (
+    Activity,
+    AgentInsightsIssue,
+    AgentInsightsIssueWithDetails,
+    AgentInsightsJob,
+    AutomationRule,
+    Columns,
+    Dataset,
+    DatasetItem,
+    DatasetItemPage,
+    Experiment,
+    FeedbackDefinition,
+    KpiCards,
+    Page,
+    Project,
+    ProjectMetrics,
+    Prompt,
+    PromptVersion,
+    ScoreNames,
+    Span,
+    Stats,
+    TokenUsageNames,
+    Trace,
+    TraceThread,
+)
 from opik_mcp.config import Settings
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
@@ -90,10 +116,10 @@ class FakeOpikClient:
         finally:
             self.in_flight -= 1
 
-    async def get_project(self, project_id: str) -> dict[str, Any]:
+    async def get_project(self, project_id: str) -> Project:
         if project_id not in self.projects_by_id:
             raise OpikNotFoundError(f"project {project_id!r} not found (404).")
-        return self.projects_by_id[project_id]
+        return cast("Project", self.projects_by_id[project_id])
 
     async def get_project_kpi_cards(
         self,
@@ -104,7 +130,7 @@ class FakeOpikClient:
         interval_start: str,
         interval_end: str | None = None,
         filters: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> KpiCards:
         self.last_kpi_kwargs = {
             "project_id": project_id,
             "entity_type": entity_type,
@@ -114,7 +140,7 @@ class FakeOpikClient:
         }
         if self.fail_kpi_with is not None:
             raise self.fail_kpi_with
-        return await self._concurrently({"stats": self.kpi_stats})
+        return cast("KpiCards", await self._concurrently({"stats": self.kpi_stats}))
 
     async def list_projects(
         self,
@@ -123,29 +149,32 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 10,
         sorting: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Page[Project]:
         self.project_lookups += 1
         content = self.projects_by_name.get(name or "", [])
-        return {"content": content, "page": page, "size": len(content), "total": len(content)}
+        return cast(
+            "Page[Project]",
+            {"content": content, "page": page, "size": len(content), "total": len(content)},
+        )
 
-    async def get_trace(self, trace_id: str) -> dict[str, Any]:
+    async def get_trace(self, trace_id: str) -> Trace:
         if trace_id not in self.traces_by_id:
             raise OpikNotFoundError(f"trace {trace_id!r} not found (404).")
-        return self.traces_by_id[trace_id]
+        return cast("Trace", self.traces_by_id[trace_id])
 
     # Not exercised by the read tool — the comparison is a list — but part of
     # the client protocol a read is handed.
-    async def list_compared_dataset_items(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_compared_dataset_items(self, dataset_id: str, /, **_kw: Any) -> DatasetItemPage:
+        return cast("DatasetItemPage", record("empty_page"))
 
-    async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_output_columns")
+    async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> Columns:
+        return cast("Columns", record("no_output_columns"))
 
-    async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_compared_stats")
+    async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> Stats:
+        return cast("Stats", record("no_compared_stats"))
 
-    async def list_feedback_definitions(self, **_kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_feedback_definitions(self, **_kw: Any) -> Page[FeedbackDefinition]:
+        return cast("Page[FeedbackDefinition]", record("empty_page"))
 
     async def list_spans(
         self,
@@ -156,7 +185,7 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 100,
         **_search: Any,
-    ) -> dict[str, Any]:
+    ) -> Page[Span]:
         self.last_list_spans_kwargs = dict(
             trace_id=trace_id, project_id=project_id, page=page, size=size, **_search
         )
@@ -169,13 +198,16 @@ class FakeOpikClient:
                 trace_id = clause.get("value")
         every = self.trace_spans.get(trace_id or "", [])
         content = every[(page - 1) * size : page * size]
-        return {"content": content, "page": page, "size": len(content), "total": len(every)}
+        return cast(
+            "Page[Span]",
+            {"content": content, "page": page, "size": len(content), "total": len(every)},
+        )
 
-    async def get_span(self, span_id: str) -> dict[str, Any]:
-        return self.spans_by_id[span_id]
+    async def get_span(self, span_id: str) -> Span:
+        return cast("Span", self.spans_by_id[span_id])
 
-    async def get_experiment(self, experiment_id: str) -> dict[str, Any]:
-        return self.experiments_by_id[experiment_id]
+    async def get_experiment(self, experiment_id: str) -> Experiment:
+        return cast("Experiment", self.experiments_by_id[experiment_id])
 
     async def list_experiments(
         self,
@@ -184,28 +216,31 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 10,
         **search: Any,
-    ) -> dict[str, Any]:
+    ) -> Page[Experiment]:
         self.last_experiments_kwargs = {"name": name, "page": page, "size": size, **search}
         if self.experiments_page is not None and name is None:
-            return await self._concurrently(self.experiments_page)
+            return cast("Page[Experiment]", await self._concurrently(self.experiments_page))
         content = self.experiments_by_name.get(name or "", [])
-        return {"content": content, "page": page, "size": len(content), "total": len(content)}
+        return cast(
+            "Page[Experiment]",
+            {"content": content, "page": page, "size": len(content), "total": len(content)},
+        )
 
-    async def get_dataset(self, dataset_id: str) -> dict[str, Any]:
-        return self.datasets_by_id[dataset_id]
+    async def get_dataset(self, dataset_id: str) -> Dataset:
+        return cast("Dataset", self.datasets_by_id[dataset_id])
 
-    async def get_dataset_item(self, item_id: str) -> dict[str, Any]:
+    async def get_dataset_item(self, item_id: str) -> DatasetItem:
         record = self.dataset_items_by_id.get(item_id)
         if record is None:
             raise OpikNotFoundError(f"dataset item {item_id!r} not found (404).")
         self.fetched_items.append(item_id)
-        return dict(record)
+        return cast("DatasetItem", dict(record))
 
-    async def list_datasets(self, **_: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_datasets(self, **_: Any) -> Page[Dataset]:
+        return cast("Page[Dataset]", record("empty_page"))
 
-    async def get_prompt(self, prompt_id: str) -> dict[str, Any]:
-        return self.prompts_by_id[prompt_id]
+    async def get_prompt(self, prompt_id: str) -> Prompt:
+        return cast("Prompt", self.prompts_by_id[prompt_id])
 
     async def list_prompt_versions(
         self,
@@ -213,13 +248,16 @@ class FakeOpikClient:
         *,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[PromptVersion]:
         every = self.prompt_versions.get(prompt_id, [])
         content = every[(page - 1) * size : page * size]
-        return {"content": content, "page": page, "size": len(content), "total": len(every)}
+        return cast(
+            "Page[PromptVersion]",
+            {"content": content, "page": page, "size": len(content), "total": len(every)},
+        )
 
-    async def list_prompts(self, **_: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_prompts(self, **_: Any) -> Page[Prompt]:
+        return cast("Page[Prompt]", record("empty_page"))
 
     async def get_thread(
         self,
@@ -228,11 +266,11 @@ class FakeOpikClient:
         project_id: str | None = None,
         project_name: str | None = None,
         should_truncate: bool = False,
-    ) -> dict[str, Any]:
+    ) -> TraceThread:
         self.last_get_thread_truncate = should_truncate
         if thread_id not in self.threads_by_id:
             raise OpikNotFoundError(f"thread {thread_id!r} not found (404).")
-        return self.threads_by_id[thread_id]
+        return cast("TraceThread", self.threads_by_id[thread_id])
 
     async def list_traces(
         self,
@@ -243,7 +281,7 @@ class FakeOpikClient:
         page: int = 1,
         size: int = 10,
         **_search: Any,
-    ) -> dict[str, Any]:
+    ) -> Page[Trace]:
         self.last_list_traces_kwargs = dict(
             project_id=project_id, project_name=project_name, filters=filters, **_search
         )
@@ -255,49 +293,52 @@ class FakeOpikClient:
                 if f.get("field") == "thread_id":
                     every = self.thread_messages.get(f.get("value"), [])
                     content = every[(page - 1) * size : page * size]
-                    return {
-                        "content": content,
-                        "page": page,
-                        "size": len(content),
-                        "total": len(every),
-                    }
-        return {"content": [], "page": page, "size": 0, "total": 0}
+                    return cast(
+                        "Page[Trace]",
+                        {
+                            "content": content,
+                            "page": page,
+                            "size": len(content),
+                            "total": len(every),
+                        },
+                    )
+        return cast("Page[Trace]", {"content": [], "page": page, "size": 0, "total": 0})
 
     # OpikListClient surface the read tool doesn't exercise — present so the
     # fake satisfies the Protocol structurally.
-    async def list_threads(self, **_: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_threads(self, **_: Any) -> Page[TraceThread]:
+        return cast("Page[TraceThread]", record("empty_page"))
 
-    async def list_dataset_items(self, _dataset_id: str, **_kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_dataset_items(self, _dataset_id: str, **_kw: Any) -> DatasetItemPage:
+        return cast("DatasetItemPage", record("empty_page"))
 
-    async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_agent_insights_issues(self, **_: Any) -> Page[AgentInsightsIssue]:
+        return cast("Page[AgentInsightsIssue]", record("empty_page"))
 
-    async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
+    async def list_project_score_names(self, _project_id: str, /) -> ScoreNames:
         if self.fail_score_names_with is not None:
             raise self.fail_score_names_with
-        return await self._concurrently(self.score_names)
+        return cast("ScoreNames", await self._concurrently(self.score_names))
 
-    async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
-        return await self._concurrently(self.usage_keys)
+    async def list_project_token_usage_names(self, _project_id: str, /) -> TokenUsageNames:
+        return cast("TokenUsageNames", await self._concurrently(self.usage_keys))
 
-    async def list_automation_rules(self, **_: Any) -> dict[str, Any]:
-        return await self._concurrently(self.automation_rules)
+    async def list_automation_rules(self, **_: Any) -> Page[AutomationRule]:
+        return cast("Page[AutomationRule]", await self._concurrently(self.automation_rules))
 
-    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> Page[Activity]:
         if self.fail_activities_with is not None:
             raise self.fail_activities_with
-        return await self._concurrently(self.activities)
+        return cast("Page[Activity]", await self._concurrently(self.activities))
 
-    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_metric_series")
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> ProjectMetrics:
+        return cast("ProjectMetrics", record("no_metric_series"))
 
-    async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
+    async def get_agent_insights_job(self, project_id: str) -> AgentInsightsJob:
         raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
 
-    async def get_service_toggles(self) -> dict[str, Any]:
-        return record("toggles")
+    async def get_service_toggles(self) -> JsonObject:
+        return cast("JsonObject", record("toggles"))
 
     async def get_agent_insights_issue(
         self,
@@ -306,7 +347,7 @@ class FakeOpikClient:
         project_id: str,
         from_date: str | None = None,
         to_date: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> AgentInsightsIssueWithDetails:
         self.last_issue_kwargs = {
             "project_id": project_id,
             "from_date": from_date,
@@ -316,7 +357,7 @@ class FakeOpikClient:
             raise self.fail_issue_with
         if issue_id not in self.issues_by_id:
             raise OpikNotFoundError(f"agent insights issue {issue_id!r} not found (404).")
-        return self.issues_by_id[issue_id]
+        return cast("AgentInsightsIssueWithDetails", self.issues_by_id[issue_id])
 
 
 UUID = "11111111-2222-3333-4444-555555555555"

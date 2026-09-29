@@ -18,34 +18,36 @@ other's fields, so the vocabulary is declared per call rather than per entity.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Dataset, Page
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.dataset.compare import run_compare
 from opik_mcp.read_list.entities.dataset.items import fetch_item, list_items, project_items
 from opik_mcp.read_list.entities.dataset.vocabulary import CASES, COMPARED
-from opik_mcp.read_list.handler import EntityHandler, ParentPage
-from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.handler import EntityHandler, NamedPageKwargs, ParentPage
+from opik_mcp.read_list.paging import NameCandidate, name_candidates
 from opik_mcp.read_list.ui_links import scoped_entity_links
 from opik_mcp.read_list.uri import opik_uri
 
 __all__ = ["HANDLER", "ITEM_HANDLER", "dataset_links", "fetch_item", "list_items", "project_items"]
 
 
-async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+async def fetch(client: OpikReadClient, entity_id: str) -> Dataset:
     return await client.get_dataset(entity_id)
 
 
-async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
+async def search_by_name(client: OpikReadClient, name: str) -> list[NameCandidate]:
     return name_candidates(await client.list_datasets(name=name, size=5))
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[NamedPageKwargs]) -> Page[Dataset]:
     return await client.list_datasets(**kw)
 
 
-def dataset_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def dataset_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The dataset's page under its project, or why there is none.
 
     A dataset may carry a project or may have been created at workspace level

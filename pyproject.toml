@@ -222,22 +222,6 @@ ignore_missing_imports = true
 module = ["skills_ref", "skills_ref.*"]
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-# Raw backend JSON is the one place Any is honest. Type it once, at the edge.
-# Listed by name, not by glob, so a new module under client/ meets the full rule.
-module = [
-    "opik_mcp.client.annotations",
-    "opik_mcp.client.base",
-    "opik_mcp.client.dataset",
-    "opik_mcp.client.diagnostics",
-    "opik_mcp.client.experiment",
-    "opik_mcp.client.observability",
-    "opik_mcp.client.project",
-    "opik_mcp.client.prompt",
-    "opik_mcp.client.protocols",
-]
-disallow_any_explicit = false
-
 # Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
 # shrinks: type a module, then delete its line. tests/repo/test_ratchets.py
 # fails on a module that no longer uses explicit Any. Never add a line here,
@@ -252,48 +236,7 @@ module = [
     "opik_mcp.config",
     "opik_mcp.error_tracking",
     "opik_mcp.identity.account",
-    "opik_mcp.read_list.columns",
-    "opik_mcp.read_list.decorations",
-    "opik_mcp.read_list.entities.agent_insights_issue.availability",
-    "opik_mcp.read_list.entities.agent_insights_issue.entity",
-    "opik_mcp.read_list.entities.agent_insights_issue.state",
-    "opik_mcp.read_list.entities.dataset",
-    "opik_mcp.read_list.entities.dataset.compare",
-    "opik_mcp.read_list.entities.dataset.compare_notes",
-    "opik_mcp.read_list.entities.dataset.compared_row",
-    "opik_mcp.read_list.entities.dataset.figures",
-    "opik_mcp.read_list.entities.dataset.items",
-    "opik_mcp.read_list.entities.dataset.layout",
-    "opik_mcp.read_list.entities.experiment",
-    "opik_mcp.read_list.entities.online_rule",
-    "opik_mcp.read_list.entities.project",
-    "opik_mcp.read_list.entities.project.contents",
-    "opik_mcp.read_list.entities.project.read",
-    "opik_mcp.read_list.entities.project.summary",
-    "opik_mcp.read_list.entities.project.vocabulary",
-    "opik_mcp.read_list.entities.project_metric.catalog",
-    "opik_mcp.read_list.entities.project_metric.reference",
-    "opik_mcp.read_list.entities.project_metric.runner",
-    "opik_mcp.read_list.entities.project_metric.table",
-    "opik_mcp.read_list.entities.prompt",
-    "opik_mcp.read_list.entities.score_name",
-    "opik_mcp.read_list.entities.span",
-    "opik_mcp.read_list.entities.thread",
-    "opik_mcp.read_list.entities.trace",
     "opik_mcp.read_list.handler",
-    "opik_mcp.read_list.list_args",
-    "opik_mcp.read_list.list_empty_page",
-    "opik_mcp.read_list.list_table",
-    "opik_mcp.read_list.list_tool",
-    "opik_mcp.read_list.paging",
-    "opik_mcp.read_list.project_names",
-    "opik_mcp.read_list.project_scope",
-    "opik_mcp.read_list.projection",
-    "opik_mcp.read_list.read_tool",
-    "opik_mcp.read_list.reference",
-    "opik_mcp.read_list.size",
-    "opik_mcp.read_list.slim",
-    "opik_mcp.read_list.unsupported",
     "opik_mcp.server.app.lifespan",
     "opik_mcp.server.app.session",
     "opik_mcp.server.tools.list",

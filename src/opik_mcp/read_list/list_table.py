@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
 
 from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
@@ -95,7 +95,7 @@ def pinned_columns(clauses: list[dict[str, str]]) -> frozenset[str]:
 
 def _projected_columns(
     handler: EntityHandler,
-    content: list[dict[str, Any]],
+    content: Sequence[Mapping[str, object]],
     fields: tuple[str, ...],
 ) -> tuple[str, ...]:
     """The columns of a projected page: the id, the named fields, the handle.
@@ -121,7 +121,7 @@ def _projected_columns(
     return tuple(columns)
 
 
-def _render_cell(column: str, value: Any, *, cell_limit: int) -> tuple[str, bool]:
+def _render_cell(column: str, value: object, *, cell_limit: int) -> tuple[str, bool]:
     """One cell, and whether the width cut took anything from it.
 
     The cut keeps a table scannable, which is worth a lot for a long output
@@ -140,7 +140,7 @@ def _render_cell(column: str, value: Any, *, cell_limit: int) -> tuple[str, bool
 def format_table(
     entity_type: str,
     handler: EntityHandler,
-    content: list[dict[str, Any]],
+    content: Sequence[Mapping[str, object]],
     total: int,
     page: int,
     size: int,
@@ -289,7 +289,7 @@ def format_table(
     return "\n".join(lines)
 
 
-def _cell(item: dict[str, Any], col: str) -> Any:
+def _cell(item: Mapping[str, object], col: str) -> object:
     """Resolve one column of one record.
 
     ``error_type`` is derived from the error container when the record does
@@ -311,7 +311,7 @@ def _cell(item: dict[str, Any], col: str) -> Any:
     return resolve_column(item, col)
 
 
-def _score_summary(scores: list[dict[str, Any]]) -> str:
+def _score_summary(scores: Iterable[Mapping[str, object]]) -> str:
     return ", ".join(f"{s.get('name')}={s.get('value')}" for s in scores if "name" in s)
 
 
@@ -331,7 +331,7 @@ _COLUMN_LABELS = {
 _ISO_WITH_FRACTION = re.compile(r"^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.\d+)?(Z|[+-]\d\d:\d\d)$")
 
 
-def _render(col: str, val: Any) -> str:
+def _render(col: str, val: object) -> str:
     """One cell of the table: compact, and one cell.
 
     A name, a reason or a case's data can carry a line break or a bare pipe;
@@ -343,7 +343,7 @@ def _render(col: str, val: Any) -> str:
     return one_line(_compact(col, val))
 
 
-def _compact(col: str, val: Any) -> str:
+def _compact(col: str, val: object) -> str:
     """The value itself: whole milliseconds, seconds-precision timestamps,
     plain decimals. Every page pays for every character here."""
     if val is None:

@@ -27,6 +27,17 @@ from urllib.parse import unquote
 import pytest
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import (
+    Dataset,
+    DatasetItemPage,
+    Experiment,
+    Page,
+    Project,
+    ProjectMetrics,
+    Prompt,
+    PromptVersion,
+    ScoreNames,
+)
 from opik_mcp.config import Settings
 from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
 from opik_mcp.read_list.decorations import page_note_of
@@ -73,8 +84,8 @@ def anyio_backend() -> str:
 class _ScoreNameClient:
     """Just enough of the client for a score_name listing."""
 
-    async def list_project_score_names(self, project_id: str, /) -> dict[str, object]:
-        return {"scores": [{"name": "helpfulness"}]}
+    async def list_project_score_names(self, project_id: str, /) -> ScoreNames:
+        return cast("ScoreNames", {"scores": [{"name": "helpfulness"}]})
 
 
 _LIVE_AREAS = frozenset(get_args(ProjectArea))
@@ -485,13 +496,16 @@ async def test_a_projection_that_drops_the_url_drops_the_header_promise_too() ->
     of a link the payload has no url for sends the agent looking for it."""
 
     class _Client:
-        async def get_experiment(self, experiment_id: str, /) -> dict[str, object]:
-            return {
-                "id": experiment_id,
-                "name": "baseline-seed",
-                "project_id": "p-7",
-                "dataset_id": "ds-1",
-            }
+        async def get_experiment(self, experiment_id: str, /) -> Experiment:
+            return cast(
+                "Experiment",
+                {
+                    "id": experiment_id,
+                    "name": "baseline-seed",
+                    "project_id": "p-7",
+                    "dataset_id": "ds-1",
+                },
+            )
 
     run_id = "01a0c38f-4101-7256-a373-27ed81e31c7c"
     client = cast("OpikReadClient", _Client())
@@ -531,9 +545,9 @@ async def test_a_list_scoped_by_name_reads_the_project_off_its_own_rows() -> Non
     class _Client:
         calls = 0
 
-        async def list_projects(self, **kw: object) -> dict[str, object]:
+        async def list_projects(self, **kw: object) -> Page[Project]:
             type(self).calls += 1
-            return {"content": [], "total": 0}
+            return cast("Page[Project]", {"content": [], "total": 0})
 
     note = await _note_of("trace")(
         cast("OpikListClient", _Client()),
@@ -605,13 +619,16 @@ async def test_a_url_column_is_never_cut_to_fit() -> None:
     to keep a table scannable, and a url is not read, it is clicked."""
 
     class _Experiments:
-        async def list_experiments(self, **kw: object) -> dict[str, object]:
-            return {
-                "content": [
-                    {"id": "e-1", "name": "x" * 200, "project_id": "p-7", "dataset_id": "ds-1"}
-                ],
-                "total": 1,
-            }
+        async def list_experiments(self, **kw: object) -> Page[Experiment]:
+            return cast(
+                "Page[Experiment]",
+                {
+                    "content": [
+                        {"id": "e-1", "name": "x" * 200, "project_id": "p-7", "dataset_id": "ds-1"}
+                    ],
+                    "total": 1,
+                },
+            )
 
     out = await run_list(
         "experiment", settings=_settings(), client=cast("OpikListClient", _Experiments())
@@ -633,7 +650,7 @@ async def test_a_failed_call_leaves_nothing_for_the_next_one_to_pick_up() -> Non
     """
 
     class _Boom:
-        async def list_project_score_names(self, project_id: str, /) -> dict[str, object]:
+        async def list_project_score_names(self, project_id: str, /) -> ScoreNames:
             raise RuntimeError("backend down")
 
     remember_resolved_project("p-stale")
@@ -654,10 +671,8 @@ async def test_a_runner_call_clears_it_too() -> None:
     the collection path."""
 
     class _Metrics:
-        async def get_project_metrics(
-            self, project_id: str, /, **body: object
-        ) -> dict[str, object]:
-            return {"results": []}
+        async def get_project_metrics(self, project_id: str, /, **body: object) -> ProjectMetrics:
+            return cast("ProjectMetrics", {"results": []})
 
     remember_resolved_project("p-stale")
     await run_list(
@@ -678,11 +693,14 @@ async def test_an_experiment_page_that_cannot_link_prints_no_url_column() -> Non
     """
 
     class _Experiments:
-        async def list_experiments(self, **kw: object) -> dict[str, object]:
-            return {
-                "content": [{"id": "e-1", "name": "nightly", "dataset_id": "ds-1"}],
-                "total": 1,
-            }
+        async def list_experiments(self, **kw: object) -> Page[Experiment]:
+            return cast(
+                "Page[Experiment]",
+                {
+                    "content": [{"id": "e-1", "name": "nightly", "dataset_id": "ds-1"}],
+                    "total": 1,
+                },
+            )
 
     # No project_id on the record, so no row can be addressed.
     out = await run_list("experiment", client=cast("OpikListClient", _Experiments()))
@@ -698,8 +716,8 @@ async def test_a_case_listing_links_to_the_page_its_dataset_is_on() -> None:
     """
 
     class _Client:
-        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
-            return {"id": dataset_id, "name": "cases", "project_id": "p-7"}
+        async def get_dataset(self, dataset_id: str, /) -> Dataset:
+            return cast("Dataset", {"id": dataset_id, "name": "cases", "project_id": "p-7"})
 
     note = await _note_of("dataset_item")(
         cast("OpikListClient", _Client()),
@@ -717,8 +735,8 @@ async def test_a_case_listing_of_a_workspace_level_dataset_says_nothing() -> Non
     sentence worth spending — the parent read is where that is explained."""
 
     class _Unscoped:
-        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
-            return {"id": dataset_id, "name": "cases"}
+        async def get_dataset(self, dataset_id: str, /) -> Dataset:
+            return cast("Dataset", {"id": dataset_id, "name": "cases"})
 
     note = await _note_of("dataset_item")(
         cast("OpikListClient", _Unscoped()),
@@ -734,7 +752,7 @@ async def test_a_case_listing_survives_a_parent_that_cannot_be_read() -> None:
     answered page comes back as an error."""
 
     class _Boom:
-        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
+        async def get_dataset(self, dataset_id: str, /) -> Dataset:
             raise RuntimeError("backend down")
 
     note = await _note_of("dataset_item")(
@@ -765,17 +783,23 @@ async def test_every_listing_under_a_parent_links_the_parent_page(
     """
 
     class _Client:
-        async def get_dataset(self, dataset_id: str, /) -> dict[str, object]:
-            return {"id": dataset_id, "name": "cases", "project_id": "p-7"}
+        async def get_dataset(self, dataset_id: str, /) -> Dataset:
+            return cast("Dataset", {"id": dataset_id, "name": "cases", "project_id": "p-7"})
 
-        async def get_prompt(self, prompt_id: str, /) -> dict[str, object]:
-            return {"id": prompt_id, "name": "judge", "project_id": "p-7"}
+        async def get_prompt(self, prompt_id: str, /) -> Prompt:
+            return cast("Prompt", {"id": prompt_id, "name": "judge", "project_id": "p-7"})
 
-        async def list_dataset_items(self, dataset_id: str, /, **kw: object) -> dict[str, object]:
-            return {"content": [{"id": "c-1", "data": {"q": "hi"}}], "total": 1}
+        async def list_dataset_items(self, dataset_id: str, /, **kw: object) -> DatasetItemPage:
+            return cast(
+                "DatasetItemPage", {"content": [{"id": "c-1", "data": {"q": "hi"}}], "total": 1}
+            )
 
-        async def list_prompt_versions(self, prompt_id: str, /, **kw: object) -> dict[str, object]:
-            return {"content": [{"id": "v-1", "template": "hi"}], "total": 1}
+        async def list_prompt_versions(
+            self, prompt_id: str, /, **kw: object
+        ) -> Page[PromptVersion]:
+            return cast(
+                "Page[PromptVersion]", {"content": [{"id": "v-1", "template": "hi"}], "total": 1}
+            )
 
     out = await run_list(
         entity,

@@ -14,8 +14,9 @@ the parts a caller cannot reconstruct from an average.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from collections.abc import Sequence
 
+from opik_mcp.client.shapes import DatasetItem, ExperimentItem
 from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.entities.dataset.compared_row import (
     MISSING,
@@ -61,7 +62,7 @@ DIRECTION_UNKNOWN = "direction unknown"
 
 
 def score_columns(
-    rows: list[dict[str, Any]], limit: int = MAX_SCORE_COLUMNS
+    rows: Sequence[DatasetItem], limit: int = MAX_SCORE_COLUMNS
 ) -> tuple[list[str], list[str]]:
     """The score names on the page, most filled first: (shown, omitted).
 
@@ -78,12 +79,12 @@ def score_columns(
     return ranked[:limit], ranked[limit:]
 
 
-def _all_runs(row: dict[str, Any]) -> list[dict[str, Any]]:
+def _all_runs(row: DatasetItem) -> list[ExperimentItem]:
     return [item for item in row.get("experiment_items") or [] if isinstance(item, dict)]
 
 
 def compare_fields(
-    rows: list[dict[str, Any]], *, assertions: bool
+    rows: Sequence[DatasetItem], *, assertions: bool
 ) -> tuple[tuple[str, ...], list[str]]:
     """What a comparison page's rows carry: ``(names, score names)``.
 
@@ -127,7 +128,7 @@ def _named_columns(fields: tuple[str, ...], scores: list[str]) -> tuple[list[str
 
 
 def render(
-    rows: list[dict[str, Any]],
+    rows: Sequence[DatasetItem],
     experiments: list[Experiment],
     *,
     total: int,
@@ -341,7 +342,7 @@ def _cases(n: int) -> str:
     return f"{n} case{'s' if n != 1 else ''}"
 
 
-def _not_run_by_every(case: dict[str, Any], experiments: list[Experiment]) -> bool:
+def _not_run_by_every(case: DatasetItem, experiments: list[Experiment]) -> bool:
     """Did some compared experiment leave this case untouched?
 
     Its cells show ``-`` exactly like a run that scored nothing, so the page

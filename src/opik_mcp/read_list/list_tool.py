@@ -34,10 +34,10 @@ Arguments are checked in ``list_args``; an empty page explains itself from
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Any, cast
+from typing import cast
 
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
@@ -53,7 +53,7 @@ from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
+from opik_mcp.read_list.handler import EntityHandler, ListKwargs, PageContext, RunFn
 from opik_mcp.read_list.list_args import resolve_list_args
 from opik_mcp.read_list.list_empty_page import (
     empty_message,
@@ -139,7 +139,7 @@ async def _run_whole(
     *,
     settings: Settings | None,
     client: OpikListClient | None,
-    **tool_args: Any,
+    **tool_args: object,
 ) -> str:
     """Own the connection, then hand the whole call to the entity's runner.
 
@@ -173,14 +173,18 @@ async def _run_whole(
             opik,
             resolved_settings,
             PageContext(
-                project_id=tool_args.get("project_id"),
-                project_name=tool_args.get("project_name"),
+                project_id=_text(tool_args.get("project_id")),
+                project_name=_text(tool_args.get("project_name")),
             ),
         )
         return with_list_size(entity_type, f"{answer}\n\n{note}" if note else answer)
 
 
-def _whole_call(handler: EntityHandler, tool_args: dict[str, Any]) -> bool:
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _whole_call(handler: EntityHandler, tool_args: Mapping[str, object]) -> bool:
     """Does this call belong to the entity's runner, or to the collection path?
 
     An entity with no ``run_when_kwargs`` answers every call through its
@@ -226,7 +230,7 @@ async def run_list(
     remember_resolved_project(None)
     entity_type = resolve_entity_type(entity_type)
     handler = ENTITY_REGISTRY.get(entity_type)
-    tool_args: dict[str, Any] = {
+    tool_args: dict[str, object] = {
         "name": name,
         "filters": filters,
         "sort": sort,
@@ -321,7 +325,7 @@ async def run_list(
                 raise
 
         content_raw = page_body.get("content") or []
-        content: list[dict[str, Any]] = [it for it in content_raw if isinstance(it, dict)]
+        content: list[Mapping[str, object]] = [it for it in content_raw if isinstance(it, dict)]
         if handler.list_link_fn is not None:
             # A url per row, for the listing that cannot share one template.
             # Attached here rather than in ``list_row_fn`` because it needs the
@@ -403,7 +407,7 @@ async def run_list(
                     vocabulary,
                     opik,
                     handler.list_fn,
-                    {k: v for k, v in list_kwargs.items() if k != "name"},
+                    _without_name(list_kwargs),
                     [],
                 )
                 if name and total == 0
@@ -451,6 +455,12 @@ async def run_list(
             if note is not None:
                 table = f"{table}\n\n{note}"
         return f"{list_size_header(entity_type, table, applied)}\n{table}"
+
+
+def _without_name(list_kwargs: ListKwargs) -> ListKwargs:
+    rest: ListKwargs = {**list_kwargs}
+    rest.pop("name", None)
+    return rest
 
 
 async def _refuse_unknown_project(
