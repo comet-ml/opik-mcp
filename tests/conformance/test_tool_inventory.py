@@ -16,9 +16,9 @@ from collections.abc import Iterable
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from opik_mcp.config import Settings
 from opik_mcp.instructions import render_instructions
 from opik_mcp.server import mcp
+from tests.factories import make_settings
 
 # Ceiling on everything `tools/list` advertises: names + descriptions + input
 # schemas, as sent on the wire.
@@ -364,7 +364,7 @@ INSTRUCTIONS_BUDGET_BYTES = 5_000
 
 def longest_instructions() -> str:
     return render_instructions(
-        Settings(comet_workspace="w" * 40, opik_url="https://www.comet.com/opik/api"),
+        make_settings(comet_workspace="w" * 40, opik_url="https://www.comet.com/opik/api"),
         user_email="u" * 40 + "@example.com",
     )
 

@@ -15,7 +15,6 @@ import pytest
 import respx
 
 from opik_mcp.client.opik import OpikClient
-from opik_mcp.config import Settings
 from opik_mcp.writes.dispatch import run_write
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
@@ -29,11 +28,14 @@ from opik_mcp.writes.scopes import (
     SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
     SCOPE_TRACE_SPAN_THREAD_LOG,
 )
+from tests.factories import make_settings
 
 OPIK_BASE = "https://opik.test"
 
 # Settings whose UI base and workspace are known, so a write can carry a link.
-_UI_SETTINGS = Settings(opik_api_key="key-abc", comet_workspace="ws", opik_url=f"{OPIK_BASE}/api")
+_UI_SETTINGS = make_settings(
+    opik_api_key="key-abc", comet_workspace="ws", opik_url=f"{OPIK_BASE}/api"
+)
 
 
 @pytest.fixture

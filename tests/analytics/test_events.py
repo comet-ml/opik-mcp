@@ -6,6 +6,7 @@ from opik_mcp.analytics.events import (
     bucket_text_len,
     bucket_tokens,
 )
+from tests.factories import make_settings
 
 
 def test_startup_error_event_name() -> None:
@@ -202,12 +203,12 @@ def test_workspace_kind_literal_has_no_dead_members() -> None:
 
     from opik_mcp.analytics.client import AnalyticsClient
     from opik_mcp.analytics.events import WorkspaceKind
-    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.config import DEFAULT_WORKSPACE
     from opik_mcp.identity.store import ResolvedIdentity
 
     def _kind(workspace: str | None, resolved: str | None) -> str:
         client = AnalyticsClient(
-            Settings(opik_mcp_analytics_enabled=False, comet_workspace=workspace)
+            make_settings(opik_mcp_analytics_enabled=False, comet_workspace=workspace)
         )
         identity = (
             ResolvedIdentity(user_name="u", workspace_name=resolved, workspace_id=None)

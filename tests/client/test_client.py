@@ -12,6 +12,7 @@ from opik_mcp.client.base import (
 )
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
+from tests.factories import make_settings
 
 OPIK_BASE = "https://opik.test"
 
@@ -294,18 +295,16 @@ async def test_base_url_trailing_slash_is_normalized() -> None:
 
 def test_resolve_opik_config_uses_opik_url_when_set() -> None:
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import Settings
 
-    s = Settings(opik_api_key="k", comet_workspace="ws", opik_url="https://opik.example.com/")
+    s = make_settings(opik_api_key="k", comet_workspace="ws", opik_url="https://opik.example.com/")
     base, _api, _ws = resolve_opik_config(s)
     assert base == "https://opik.example.com"
 
 
 def test_resolve_opik_config_derives_from_comet_url_override() -> None:
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import Settings
 
-    s = Settings(
+    s = make_settings(
         opik_api_key="k",
         comet_workspace="ws",
         comet_url_override="https://dev.comet.com/",
@@ -323,9 +322,9 @@ def test_resolve_opik_config_rejects_empty_url_pair() -> None:
     Better to fail loudly at construction.
     """
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.config import MissingConfigError
 
-    s = Settings(opik_api_key="k", comet_workspace="ws", comet_url_override="", opik_url=None)
+    s = make_settings(opik_api_key="k", comet_workspace="ws", comet_url_override="", opik_url=None)
     with pytest.raises(MissingConfigError, match="OPIK_URL or COMET_URL_OVERRIDE"):
         resolve_opik_config(s)
 
@@ -334,9 +333,8 @@ def test_resolve_opik_config_allows_missing_api_key() -> None:
     """The api key is optional — self-hosted backends run with auth disabled and
     authorize on the workspace header alone, so a missing key no longer raises."""
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import Settings
 
-    s = Settings(opik_api_key=None, comet_workspace="ws", opik_url="https://opik.example.com")
+    s = make_settings(opik_api_key=None, comet_workspace="ws", opik_url="https://opik.example.com")
     _base, api_key, workspace = resolve_opik_config(s)
     assert api_key is None
     assert workspace == "ws"
@@ -346,9 +344,9 @@ def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
     """Workspace is optional — when unset, resolve_opik_config falls back to
     "default" (matching the Opik SDK) instead of raising."""
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.config import DEFAULT_WORKSPACE
 
-    s = Settings(opik_api_key="k", comet_workspace=None, opik_url="https://opik.example.com/")
+    s = make_settings(opik_api_key="k", comet_workspace=None, opik_url="https://opik.example.com/")
     _base, _api_key, workspace = resolve_opik_config(s)
     assert workspace == DEFAULT_WORKSPACE
 
@@ -385,10 +383,9 @@ async def test_no_api_key_against_authenticated_backend_surfaces_401() -> None:
 
 def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import Settings
     from opik_mcp.identity.context import inbound_authorization
 
-    s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
+    s = make_settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
     token = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc123")
     try:
         _base, api_key, workspace = resolve_opik_config(s)
@@ -405,10 +402,10 @@ def test_resolve_opik_config_oauth_detection_is_prefix_not_substring() -> None:
     "default" (the OAuth-passthrough path would instead leave it None).
     """
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.config import DEFAULT_WORKSPACE
     from opik_mcp.identity.context import inbound_authorization
 
-    s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
+    s = make_settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
     token = inbound_authorization.set(f"Bearer sk-x{OAUTH_ACCESS_TOKEN_PREFIX}y")
     try:
         _base, _api_key, workspace = resolve_opik_config(s)
@@ -461,9 +458,9 @@ def test_oauth_client_omits_workspace_header() -> None:
 )
 def test_an_unfilled_workspace_placeholder_fails_with_a_usable_message(value: str) -> None:
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.config import MissingConfigError
 
-    s = Settings(opik_api_key="k", comet_workspace=value)
+    s = make_settings(opik_api_key="k", comet_workspace=value)
     with pytest.raises(MissingConfigError) as excinfo:
         resolve_opik_config(s)
     message = str(excinfo.value)
@@ -478,10 +475,10 @@ def test_an_unfilled_inbound_workspace_header_fails_the_same_way() -> None:
     """Hosted callers send their own config; a host with an unfilled template in
     its headers is just as broken as a local env var."""
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.config import MissingConfigError
     from opik_mcp.identity.context import inbound_workspace
 
-    s = Settings(opik_api_key="k", comet_workspace="real-ws")
+    s = make_settings(opik_api_key="k", comet_workspace="real-ws")
     token = inbound_workspace.set("${input:OPIK_WORKSPACE}")
     try:
         with pytest.raises(MissingConfigError):
@@ -528,9 +525,8 @@ def test_a_real_workspace_is_untouched(value: str) -> None:
     hard-failed every tool call for that install.
     """
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import Settings
 
-    s = Settings(opik_api_key="k", comet_workspace=value)
+    s = make_settings(opik_api_key="k", comet_workspace=value)
     _base, _api, ws = resolve_opik_config(s)
     assert ws == value
 
@@ -538,8 +534,8 @@ def test_a_real_workspace_is_untouched(value: str) -> None:
 def test_an_unset_workspace_still_falls_back_to_default() -> None:
     """Unchanged behaviour: OSS installs run without setting a workspace."""
     from opik_mcp.client.base import resolve_opik_config
-    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.config import DEFAULT_WORKSPACE
 
-    s = Settings(opik_api_key="k", comet_workspace=None)
+    s = make_settings(opik_api_key="k", comet_workspace=None)
     _base, _api, ws = resolve_opik_config(s)
     assert ws == DEFAULT_WORKSPACE

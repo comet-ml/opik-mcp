@@ -26,12 +26,12 @@ import respx
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.opik import OpikClient
-from opik_mcp.config import Settings
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
+from tests.factories import make_settings
 
 OPIK_BASE = "https://opik.test"
-SETTINGS = Settings(opik_api_key="k", comet_workspace="ws", opik_url=OPIK_BASE)
+SETTINGS = make_settings(opik_api_key="k", comet_workspace="ws", opik_url=OPIK_BASE)
 
 TRACE_ID = "11111111-1111-4111-8111-111111111111"
 PROJECT_ID = "22222222-2222-4222-8222-222222222222"

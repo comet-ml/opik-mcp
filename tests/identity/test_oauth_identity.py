@@ -160,7 +160,7 @@ async def test_derives_url_from_comet_url_override() -> None:
     )
     identity = (
         await introspect_oauth_token(
-            AUTH, Settings(opik_url=None, comet_url_override="https://demo.comet.com/")
+            AUTH, make_settings(opik_url=None, comet_url_override="https://demo.comet.com/")
         )
     ).identity
     assert identity is not None
@@ -172,7 +172,7 @@ async def test_derives_url_from_comet_url_override() -> None:
 async def test_returns_none_when_base_unconfigured() -> None:
     # No OPIK_URL and an explicitly empty COMET_URL_OVERRIDE → no base → skip
     # without any network call.
-    s = Settings(opik_url=None, comet_url_override="")
+    s = make_settings(opik_url=None, comet_url_override="")
     assert (await introspect_oauth_token(AUTH, s)).status == "unknown"
 
 

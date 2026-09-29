@@ -10,10 +10,10 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
-from opik_mcp.config import Settings
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.size import estimate_tokens
+from tests.factories import make_settings
 from tests.hermetic.fixtures import record
 
 
@@ -615,8 +615,10 @@ async def test_list_issues_empty_state() -> None:
 
 # --- the empty issue list explains the project's Diagnostics state -------- #
 
-_UI = Settings(opik_api_key="k", comet_workspace="demo-ws", opik_url="https://opik.test/api")
-_NO_UI = Settings(opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override="")
+_UI = make_settings(opik_api_key="k", comet_workspace="demo-ws", opik_url="https://opik.test/api")
+_NO_UI = make_settings(
+    opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
+)
 
 
 def _ago(hours: float) -> str:
