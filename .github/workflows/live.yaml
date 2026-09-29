@@ -102,6 +102,7 @@ jobs:
       # by default, and exits 1 naming the container that did not. A cold
       # backend on a runner has needed longer. OPIK_MAX_STARTUP_RETRIES is read
       # by opik.sh from Opik 2.2.81 on; older tags ignore it and wait 60.
+      # opik.sh calls it "not a supported user-facing knob": if upstream drops it, this is silently ignored and the 60/90 s default returns.
       - name: Start the Opik backend
         env:
           OPIK_VERSION: ${{ steps.release.outputs.version }}
