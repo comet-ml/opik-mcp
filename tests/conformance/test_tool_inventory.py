@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
-from typing import Any
 
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
@@ -125,7 +124,7 @@ SURFACE_BUDGET_BYTES = 24_000
 
 
 def surface_report(
-    advertised: Iterable[tuple[str, str, dict[str, Any], dict[str, Any]]],
+    advertised: Iterable[tuple[str, str, dict[str, object], dict[str, object]]],
 ) -> tuple[int, str]:
     """Total advertised bytes, plus a per-tool breakdown biggest-first.
 

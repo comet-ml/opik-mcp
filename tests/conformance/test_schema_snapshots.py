@@ -20,7 +20,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
@@ -47,7 +46,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-async def _fetch_input_schema(tool: str) -> dict[str, Any]:
+async def _fetch_input_schema(tool: str) -> dict[str, object]:
     """One MCP session per call. Function-scoped to play nicely with anyio's
     function-scoped backend fixture; sessions over the in-memory transport
     are sub-millisecond so the cost is invisible."""
@@ -63,7 +62,7 @@ def _snapshot_path(tool: str) -> Path:
     return SNAPSHOT_DIR / f"{tool}.json"
 
 
-def _canonicalize(value: Any) -> str:
+def _canonicalize(value: object) -> str:
     """Stable JSON form so a dict-order shuffle doesn't trigger a diff."""
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
 
