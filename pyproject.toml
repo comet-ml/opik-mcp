@@ -335,8 +335,6 @@ module = [
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
     "tests.server.test_error_tracking",
-    "tests.writes.test_recovery_envelope",
-    "tests.writes.test_registry",
     "tests.writes.test_write_links",
 ]
 disallow_any_explicit = false

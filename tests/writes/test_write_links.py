@@ -17,7 +17,6 @@ Two rules the tests pin, because both are easy to lose:
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
 from uuid import UUID
 
 import pytest
@@ -65,8 +64,10 @@ class _Item(BaseModel):
     target_id: str | None = None
 
 
-def _decorate(operation: str, items: Sequence[BaseModel], project_id: str | None) -> dict[str, Any]:
-    out: dict[str, Any] = {"ok": True, "operation": operation}
+def _decorate(
+    operation: str, items: Sequence[BaseModel], project_id: str | None
+) -> dict[str, object]:
+    out: dict[str, object] = {"ok": True, "operation": operation}
     op = get_operation(operation)
     assert op is not None, operation
     decorate_with_page(op, list(items), out, _settings(), project_id)
@@ -84,6 +85,7 @@ def test_a_batch_gets_one_link_to_the_page_not_one_per_row() -> None:
     items = [_Item(id=_uuid(n), project_id=_uuid(7)) for n in range(50)]
     out = _decorate("trace.create", items, str(_uuid(7)))
     assert out["url"] == f"https://opik.test/demo-ws/projects/{_uuid(7)}/logs?logsType=traces"
+    assert isinstance(out["url"], str)
     assert str(_uuid(0)) not in out["url"]
 
 
@@ -122,6 +124,7 @@ def test_the_project_is_read_off_the_payload_when_nothing_resolved_one() -> None
     """These operations resolve nothing before sending, so the request itself
     is where the project comes from."""
     out = _decorate("trace.create", [_Item(id=_uuid(1), project_id=_uuid(7))], None)
+    assert isinstance(out["url"], str)
     assert out["url"].startswith(f"https://opik.test/demo-ws/projects/{_uuid(7)}/")
 
 
