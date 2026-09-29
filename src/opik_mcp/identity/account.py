@@ -32,7 +32,7 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 from urllib.parse import urlparse
 
 import httpx
@@ -79,10 +79,19 @@ _RESOLVED_AT: dict[str, float] = {}
 _LAST_ATTEMPT: dict[str, float] = {}
 _ATTEMPT_LOCK = threading.Lock()
 
+
+class _CacheEntry(TypedDict, total=False):
+    """One credential's line in the disk cache, as ``_write_cache`` writes it."""
+
+    user_name: str | None
+    workspace_name: str | None
+    cached_at: float
+
+
 # The disk cache is read ONCE per process. ``_build_event`` runs on whichever
 # thread is emitting, so parsing a JSON file per event would put disk I/O on the
 # caller's path. After the first read, memory is the source of truth.
-_DISK_CACHE: dict[str, Any] | None = None
+_DISK_CACHE: dict[str, _CacheEntry] | None = None
 _DISK_LOCK = threading.Lock()
 
 # Live refresh threads, so ``reset_account_identity_for_tests`` can WAIT for
@@ -115,7 +124,7 @@ def _account_details_url(settings: Settings) -> str | None:
     return f"{parsed.scheme}://{parsed.netloc}{_ACCOUNT_DETAILS_PATH}"
 
 
-def _read_cache() -> dict[str, Any]:
+def _read_cache() -> dict[str, _CacheEntry]:
     try:
         loaded = json.loads(_cache_path().read_text())
     except Exception:
@@ -124,7 +133,7 @@ def _read_cache() -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
-def _disk_cache() -> dict[str, Any]:
+def _disk_cache() -> dict[str, _CacheEntry]:
     """The on-disk cache, read at most once per process."""
     global _DISK_CACHE
     with _DISK_LOCK:
@@ -162,14 +171,7 @@ def _write_cache(digest: str, user_name: str | None, workspace_name: str | None)
         logger.debug("identity cache not written", exc_info=True)
 
 
-def _entry_is_fresh(entry: dict[str, Any]) -> bool:
-    cached_at = entry.get("cached_at")
-    if not isinstance(cached_at, int | float):
-        return False
-    return (time.time() - cached_at) < CACHE_TTL_SECONDS
-
-
-def _identity_from_entry(entry: dict[str, Any]) -> ResolvedIdentity:
+def _identity_from_entry(entry: _CacheEntry) -> ResolvedIdentity:
     return ResolvedIdentity(
         user_name=entry.get("user_name") or None,
         workspace_name=entry.get("workspace_name") or None,

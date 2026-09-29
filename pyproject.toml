@@ -247,7 +247,6 @@ disallow_any_explicit = false
 [[tool.mypy.overrides]]
 module = [
     "opik_mcp.config",
-    "opik_mcp.identity.account",
     "opik_mcp.read_list.columns",
     "opik_mcp.read_list.decorations",
     "opik_mcp.read_list.entities.agent_insights_issue.availability",
