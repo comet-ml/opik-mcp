@@ -226,6 +226,7 @@ ignore_missing_imports = true
 # Raw backend JSON is the one place Any is honest. Type it once, at the edge.
 # Listed by name, not by glob, so a new module under client/ meets the full rule.
 module = [
+    "opik_mcp.client.ai_spend",
     "opik_mcp.client.annotations",
     "opik_mcp.client.base",
     "opik_mcp.client.dataset",
