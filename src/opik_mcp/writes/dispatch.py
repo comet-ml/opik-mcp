@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from collections.abc import Mapping
 
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -57,13 +57,13 @@ logger = logging.getLogger("opik_mcp.writes.dispatch")
 async def run_write(
     *,
     operation: str,
-    data: Any,
+    data: object,
     idempotency_key: str | None = None,
     dry_run: bool = False,
     scopes: frozenset[str] = ALL_WRITE_SCOPES,
     client: OpikClient | None = None,
     settings: Settings | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Execute a write. Returns the success envelope; raises ``WriteError`` on failure.
 
     Five stages, the same for every operation: look it up, validate the
@@ -94,7 +94,7 @@ async def run_write(
     method = request.method or op.method
 
     if dry_run:
-        would_call: dict[str, Any] = {
+        would_call: dict[str, object] = {
             "method": method,
             "path": request.path,
             "body_size": len(json.dumps(request.body)),
@@ -111,8 +111,9 @@ async def run_write(
         return {"dry_run": True, "would_call": would_call}
 
     assert http_client is not None  # set above whenever not dry_run
+    # ``write_json`` takes a dict, and mypy reads a TypedDict body only as a Mapping.
     resp = await http_client.write_json(
-        method, request.path, request.body, idempotency_key=effective_idem
+        method, request.path, dict(request.body), idempotency_key=effective_idem
     )
     if op.retry_fn is not None:
         request, resp = await op.retry_fn(op, http_client, request, resp)
@@ -156,7 +157,7 @@ def _stage1_lookup(operation: str) -> WriteOperation:
 # --- Stage 2 ------------------------------------------------------------- #
 
 
-def _stage2_validate(op: WriteOperation, data: Any) -> tuple[list[BaseModel], bool]:
+def _stage2_validate(op: WriteOperation, data: object) -> tuple[list[BaseModel], bool]:
     """Validate ``data`` against the operation's Pydantic model.
 
     Returns ``(validated_models, is_batch)``. Arrays past
@@ -255,10 +256,10 @@ def _stage3_authorize(op: WriteOperation, scopes: frozenset[str]) -> None:
 # --- Stage 4 finalize ---------------------------------------------------- #
 
 
-def _rows_sent(*, op: WriteOperation, items: list[BaseModel], body: Any) -> int:
+def _rows_sent(*, op: WriteOperation, items: list[BaseModel], body: Mapping[str, object]) -> int:
     """How many records the request carries, counting through an envelope."""
     key = op.envelope_items_key
-    if key is not None and isinstance(body, dict):
+    if key is not None:
         rows = body.get(key)
         if isinstance(rows, list):
             return len(rows)
@@ -273,7 +274,7 @@ def _stage4_finalize(
     method: str,
     path: str,
     item_count: int,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     status = resp.status_code
     if not (200 <= status < 300):
         if status == 401:

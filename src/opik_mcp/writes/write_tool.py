@@ -10,7 +10,6 @@ on the model's next turn, and the model self-corrects from the embedded
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -26,13 +25,13 @@ logger = logging.getLogger("opik_mcp.writes.write_tool")
 async def run_write(
     *,
     operation: str,
-    data: Any,
+    data: object,
     idempotency_key: str | None = None,
     dry_run: bool = False,
     scopes: frozenset[str] = ALL_WRITE_SCOPES,
     client: OpikClient | None = None,
     settings: Settings | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Execute a write. Returns the success envelope; raises ``ToolError`` on failure.
 
     The wrapped ``WriteError`` is serialized into the ``ToolError`` body so

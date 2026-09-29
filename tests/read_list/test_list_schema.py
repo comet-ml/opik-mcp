@@ -23,6 +23,7 @@ def test_list_trace_reference_carries_fields_operators_sort_window_search() -> N
     assert ref["operation"] == "list.trace"
     assert ref["entity_type"] == "trace"
 
+    assert isinstance(ref["filters"], dict)
     duration = ref["filters"]["fields"]["duration"]
     assert duration == {
         "type": "number",
@@ -39,6 +40,7 @@ def test_list_trace_reference_carries_fields_operators_sort_window_search() -> N
     assert len(ref["filters"]["examples"]) == 2
     assert ref["filters"]["default"] == 'source = "sdk" unless you name source'
 
+    assert isinstance(ref["sort"], dict)
     assert ref["sort"]["form"] == "<field> [asc|desc]"
     assert "feedback_scores.<name>" in ref["sort"]["fields"]
     assert ref["window"] is True
@@ -49,6 +51,7 @@ def test_list_experiment_reference_has_no_window_search_or_source_default() -> N
     ref = run_schema("list.experiment")
     assert ref["window"] is False
     assert ref["search"] is False
+    assert isinstance(ref["filters"], dict)
     assert "default" not in ref["filters"]
     assert set(ref["filters"]["fields"]) == set(VOCABULARIES["experiment"].filter_fields)
 
@@ -62,7 +65,9 @@ def test_a_field_the_backend_takes_as_a_parameter_lists_only_what_compiles() -> 
     cannot carry it. Advertising them here is the exact failure the values
     list was added to prevent, one field over.
     """
-    fields = run_schema("list.experiment")["filters"]["fields"]
+    ref = run_schema("list.experiment")
+    assert isinstance(ref["filters"], dict)
+    fields = ref["filters"]["fields"]
     assert fields["type"]["operators"] == ["=", "in"]
     assert fields["optimization_id"]["operators"] == ["="]
     assert fields["optimization_id"]["format"] == "UUID"
@@ -77,6 +82,7 @@ def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None
     keys are prompt ids — nothing filters by prompt version id at all. A
     caller who assumes otherwise gets a broader page that looks exact."""
     ref = run_schema("list.experiment")
+    assert isinstance(ref["filters"], dict)
     note = ref["filters"]["fields"]["prompt_ids"]["note"]
     assert "prompt ids" in note
     assert "version" in note
@@ -85,6 +91,7 @@ def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None
 @pytest.mark.parametrize("entity_type", ["trace", "span", "thread", "experiment"])
 def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> None:
     ref = run_schema(f"list.{entity_type}")
+    assert isinstance(ref["filters"], dict)
     fields = ref["filters"]["fields"]
     vocabulary = VOCABULARIES[entity_type]
     assert set(fields) == set(vocabulary.filter_fields)
@@ -99,6 +106,7 @@ def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> Non
             list(param.operators) if param is not None else list(OPERATORS_BY_TYPE[expected_type])
         )
         assert spec["operators"] == expected_ops
+    assert isinstance(ref["sort"], dict)
     assert ref["sort"]["fields"] == sortable_names(VOCABULARIES[entity_type])
 
 
@@ -114,7 +122,9 @@ def test_reference_lists_the_values_a_closed_enum_accepts() -> None:
     """The compiler refuses an unknown enum value, so the accepted set has to
     be discoverable here — otherwise the only way to learn it is to be
     rejected."""
-    fields = run_schema("list.span")["filters"]["fields"]
+    ref = run_schema("list.span")
+    assert isinstance(ref["filters"], dict)
+    fields = ref["filters"]["fields"]
     assert fields["type"]["values"] == ["general", "tool", "llm", "guardrail", "unknown"]
     assert fields["source"]["values"][0] == "sdk"
     # Open-ended: any deployment names its own environments, so no list.

@@ -12,13 +12,13 @@ ship — every model with tags inherits the same validator.
 
 The models are deliberately permissive about fields the BE accepts but the
 LLM rarely needs (``input``/``output`` are ``dict``-or-``list``, metadata
-is ``dict[str, Any]``, etc.) so that valid BE payloads from the SDKs round
+is ``dict[str, object]``, etc.) so that valid BE payloads from the SDKs round
 trip through the MCP tool without losing fidelity.
 """
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 from uuid import UUID
 
 from pydantic import (
@@ -31,9 +31,10 @@ from pydantic import (
 # --- shared types --------------------------------------------------------- #
 
 # Most write payloads accept either a list or a dict shape on input/output;
-# the BE preserves whichever the caller sent.
-InputOutput = dict[str, Any] | list[Any] | None
-Metadata = dict[str, Any] | None
+# the BE preserves whichever the caller sent. ``object``, not ``JsonValue``:
+# Pydantic reads it as Any, so the input schema stays unchanged.
+InputOutput = dict[str, object] | list[object] | None
+Metadata = dict[str, object] | None
 TagList = list[str]
 
 
