@@ -56,30 +56,11 @@ read('agent_insights_issue', '<issue id>', project_name='<project>')
 #     url: '<the issue's Diagnostics page>', trace_url_template: '<…/logs?trace={trace_id}>'}
 ```
 
-Each open issue becomes one shortlist item with `signal=diagnostics`: `trace_id` comes from the first `example_trace_ids` entry (read the top few issues to get them) and `trace_url` from `trace_url_template` with that id filled in; mention the issue's `url` so the user can open the Diagnostics page itself. `why` carries the issue name, severity, `latest_count` and the cause. The link fields are absent when the server cannot name the UI base or workspace — fall back to the trace link template from the session instructions then (step 6). Keep the list's order — it is the Diagnostics page's ranking (most recently seen first, then most occurrences). Counts are all-time to match the UI; pass `since` (e.g. `"7d"`) to narrow to the window.
+Turn each open issue into one shortlist item as `references/diagnostics-list.md` (**Issue to shortlist item**) describes.
 
-**An empty list is not an all-clear.** It says which case it is, and what to do about it. Act on the sentence you get:
-
-| The list says | Do this |
-| --- | --- |
-| no open issues, last scan `<time>` | Diagnostics is working and found nothing. Continue to step 3. |
-| enabled but has not scanned yet, or last scan older than a day | `write('agent_insights_job.trigger', {"project_name": "<project>"})`, report the Diagnostics page link, continue to step 3. No need to ask: a scan changes no data. |
-| not enabled for this project, or turned off | Ask the user once, in one sentence: "Enable daily Diagnostics for `<project>`? First results take a few minutes." On yes: `enable`, then `trigger`, report the link, continue. On no: continue and say the shortlist was built without Diagnostics. |
-| not available on this deployment | Continue, and say once that this deployment has no Diagnostics. Do not offer to enable it. |
+**An empty list is not an all-clear, and a non-empty list is not the whole answer either.** Act on the sentence the list gives you: `references/diagnostics-list.md` (**Empty list**, **Coverage line**) says what each one means and what to do; ask the user once before enabling Diagnostics.
 
 Never wait or poll for a scan. Hand back the page link, finish the triage from traces, and say the grouped report will be there in a few minutes. A shortlist built while a scan you started is still running reports `source=diagnostics_pending`.
-
-**A non-empty list is not the whole answer either.** It ends with what the
-report covers, `Report covers data through <time>`, because the issues are
-whatever the last scan grouped. With a daily scan, today is usually not in
-them. When the line goes on to name an uncovered tail, the window the user
-asked about runs past the report and the gap is missing from the answer:
-
-| The coverage line says | Do this |
-| --- | --- |
-| `Report covers data through <time>` and nothing else | The report is current. Continue to step 3 as usual. |
-| `The last <N> are not in it: write('agent_insights_job.trigger', …)` | Trigger it, then go to step 3 for the gap with the `since` the line names. Do not wait for the rescan, and do not present the issues as covering the window. Report `source=diagnostics_pending`. |
-| `… a trigger rescans the last 24 hours, so it cannot close this gap` | Skip the trigger and go straight to step 3 with the `since` the line names — a rescan would leave the middle of the gap missing while looking like the fix. |
 
 Say the as-of date in the report when it matters: a user who asked for a week
 and got issues through yesterday should learn that from you, not discover it.
@@ -90,46 +71,18 @@ whether a failure is dealt with is their call, and an issue marked resolved
 leaves the list everyone else reads. Surfacing an issue is this skill's job;
 retiring one is not.
 
-
-**Without the MCP**, the SDK REST client reads the same issues:
-
-```python
-import opik
-
-client = opik.Opik()
-# Needs the project_id (a uuid), not the name — read it off any trace from
-# search_traces (trace.project_id), or resolve it from the project name first.
-issues = client.rest_client.agent_insights.find_agent_insights_issues(project_id=project_id)
-```
+**Without the MCP**, the SDK REST client reads the same issues: `references/diagnostics-list.md` (**Without the MCP**).
 
 ### 4. Pull candidate traces to fill the gaps — MCP first, SDK fallback
 Diagnostics reports what its last run grouped. Anything newer, or below its grouping threshold — a single latency outlier, one low online-eval score, a regression versus the prior window — still needs a scan. Skip traces already covered by an issue's `example_trace_ids`; they are on the shortlist under that issue.
 
 - **MCP connected:** one `list` call per signal. The backend does the filtering and ordering, so each call returns a short, already-ranked page — no SDK, no client-side sorting. `since` takes `"1h"`, `"24h"`, `"7d"`; `filters` is an OQL string; `sort` is `"<field> [asc|desc]"` (desc by default). Trace lists hide evaluator/playground/experiment traces (`source = "sdk"`) unless you name `source`.
 
-  ```
-  list(entity_type="trace", project_name="<project>", since="24h",
-       filters="error_info is_not_empty", sort="start_time desc")         # errored
-  list(entity_type="span",  project_name="<project>", since="24h",
-       filters='type = "tool" AND error_info is_not_empty', sort="start_time desc")  # failed tool calls
-  list(entity_type="trace", project_name="<project>", since="24h",
-       sort="duration desc")                                              # latency outliers (ms)
-  list(entity_type="trace", project_name="<project>", since="24h",
-       filters="feedback_scores.<metric> < 0.5", sort="feedback_scores.<metric> asc")  # low online-eval score
-  list(entity_type="trace", project_name="<project>", since="7d", until="24h",
-       sort="duration desc")                                              # prior window, for regressions
-  ```
-
-  The table carries `duration`, `error_type` and cost by default plus every field you sorted or filtered on. A rejected filter comes back with what fixes it; `schema("list.trace")` is the full field reference.
+  The calls, one per signal, and the fields they return: `references/trace-queries.md` (**MCP**).
 
 - **No MCP:** fall back to the SDK.
 
-  ```python
-  traces = client.search_traces(project_name="<project>", max_results=200)  # recent window
-  # Narrow server-side with filter_string='error_info is_not_empty' when the volume is
-  # large; otherwise rank client-side (step 5). Each trace carries the fields you rank
-  # on: error info, duration, feedback_scores.
-  ```
+  The call: `references/trace-queries.md` (**SDK**).
 
 Skip traces already covered by an issue's `example_trace_ids`; they are on the shortlist under that issue.
 
@@ -160,24 +113,11 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 **User-facing:** a short human message — the ranked shortlist (a clickable Opik UI link per trace + its signal + one-line why, worst first), then the single next step. Not a raw dump of every trace, not JSON.
 
-**Underneath** (for composition / evals), one shape:
-- `status`: `found` | `empty` | `blocked`
-- `scope`: `project`, `window`
-- `shortlist`: list of `{trace_id, trace_url (the Opik UI link), signal (error|tool_call|latency|low_score|regression|diagnostics), why, rank}`
-- `source`: `sdk` | `mcp` | `diagnostics_pending` (a scan was triggered this run; the shortlist comes from traces)
-- `next_step`: exactly one (typically "explain the top trace")
-
-Invariants: `found` carries a non-empty `shortlist`, each item with a `signal`, a `trace_id`, and a clickable `trace_url`; `empty` = the read succeeded but nothing crossed a threshold; `blocked` carries exactly one `next_step`; the shortlist never contains offline experiment results; every path leaves the codebase unchanged.
+**Underneath** (for composition / evals), one shape, with its invariants: `references/output-shape.md`.
 
 ## Examples
 
-**Triage a project, MCP connected.** `/opik-diagnose`. `list('agent_insights_issue', project_name=…)` returns two open issues: a high-severity tool-call loop (12 occurrences yesterday) and a low-severity empty-answer issue. `read` on the first gives the cause, three example trace ids and the links. `list('trace', since="24h", sort="duration desc")` then finds one trace 5x the p90 that no issue covers. Shortlist = the tool-call loop (rank 1, `diagnostics`, first example trace), the latency outlier (2, `latency`), the empty-answer issue (3, `diagnostics`); next step = "explain the top trace". `source=mcp`. → **`found`**.
-
-**Triage a project, SDK only.** `/opik-diagnose`. `find_agent_insights_issues` returns nothing yet; `search_traces` on the project finds two errored traces, one 5x the p90 duration, one scored 0.2 on Hallucination. Shortlist = the two errors (rank 1-2), the latency outlier (3), the low-score trace (4), each with its signal; next step = "explain the top trace". `source=sdk`. → **`found`**.
-
-**Nothing wrong.** `/opik-diagnose`. Reads fine, but no trace errored, ran slow, or scored low. → **`empty`**: "No traces crossed a threshold in the recent window."
-
-**Blocked — no config.** `/opik-diagnose`. No `~/.opik.config`, no `OPIK_API_KEY`. → **`blocked`**: "run `opik configure`, then rerun `/opik-diagnose`." (No code touched.)
+Worked runs (MCP connected, SDK only, nothing wrong, blocked): `references/examples.md`.
 
 ## Anti-patterns
 Dumping every trace instead of a ranked shortlist; rebuilding the Diagnostics ranking from raw traces when `agent_insights_issue` (or the SDK `agent_insights` client) already lists the issues; surfacing offline experiment/`evaluate` results (out of scope); requiring the MCP (the SDK `agent_insights` path needs none); root-causing a trace here (hand it to `/opik-explain`); **editing code** (this skill only surfaces); ranking by recency instead of signal.

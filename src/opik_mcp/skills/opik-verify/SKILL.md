@@ -30,20 +30,7 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 
 ## The policy
 
-Every key is optional; missing keys take these defaults. Say in the report which source applied.
-
-```yaml
-# opik-release-policy.yaml — repo root or .opik/. Versioned with the code so the gate is reproducible.
-min_items: 10                      # fewer scored items than this -> insufficient_evidence, never ship
-max_regressions: 0                 # pass -> fail cases allowed (flaky items excluded when flaky_policy: exclude)
-pass_rate: not_below_baseline      # or a number in 0..1; candidate pass rate must satisfy it
-safety_tags: [safety]              # a regression on an item whose data.tags contains one of these -> hold, always
-subgroup_key: null                 # a data key (e.g. "category"); no subgroup's pass rate may fall
-latency_p90_max_increase: 0.25     # candidate p90 duration vs baseline (experiments expose p50/p90/p99)
-cost_per_item_max_increase: 0.25   # candidate mean cost per item vs baseline, as a fraction
-flaky_policy: exclude              # exclude | count — an item that flips between runs of the SAME code is flaky
-judge_validated: false             # set true once the suite's judge has been checked against human labels
-```
+Every key is optional; missing keys take the defaults listed in `references/policy.md`. Say in the report which source applied.
 
 `judge_validated: false` is the **human-review gate**: until someone has confirmed the judge agrees with people (`/opik-evaluate`'s `validate-evaluator` reference), a passing run yields `needs_review`, not `ship`. Flip it to `true` in the file once that is done — deliberately a human edit, never something this skill sets on its own.
 
@@ -53,58 +40,12 @@ judge_validated: false             # set true once the suite's judge has been ch
 Look for `opik-release-policy.yaml` at the repo root, then `.opik/`. Parse it; unknown keys → **Blocker** (name the key). No file → defaults, and say so. Never invent thresholds not in the file or the defaults.
 
 ### 2. Resolve the two runs
-Take them from `/opik-compare`'s output when it just ran. Otherwise:
-```python
-import opik
-
-client = opik.Opik()
-runs = sorted(
-    client.get_test_suite_experiments(name="<suite>", project_name="<project>"),
-    key=lambda e: e.get_experiment_data().created_at,
-)
-baseline, candidate = runs[-2], runs[-1]  # or the two ids the user gave
-```
+Take them from `/opik-compare`'s output when it just ran. Otherwise, the SDK read in `references/sdk-reads.md` (**Resolve the two runs**).
 Skip a **failed-judge run** (a run whose judge had no credential is not a candidate — `/opik-compare` explains how it happens). `scoring_failed` does not survive the read path; the read-back signal is: **every item failed and every assertion `reason` mentions a missing credential or an LLM infrastructure error**. Say which run you skipped and why. When the hosted MCP is connected, `list('experiment', name=…)` shows each run's averages and pass rate to pick from; the item-level read below stays on the SDK.
 
 ### 3. Read both runs, item by item
 An experiment holds **one item per run**: with `runs_per_item: 3` a dataset item appears three times, same `dataset_item_id`, different `trace_id`. Group — a dict keyed on `dataset_item_id` silently keeps one run and loses the counts.
-```python
-from collections import defaultdict
-
-
-def by_item(exp):
-    groups = defaultdict(list)
-    for i in exp.get_items():
-        groups[i.dataset_item_id].append(i)  # each: dataset_item_data (tags / subgroup key),
-    return groups  #       assertion_results [{passed, reason}], trace_id
-
-
-b, c = by_item(baseline), by_item(candidate)
-
-
-def run_passed(i):
-    return bool(i.assertion_results) and all(a.get("passed") for a in i.assertion_results)
-
-
-def counts(runs):
-    return sum(run_passed(r) for r in runs), len(runs)  # runs_passed, runs_total
-
-
-thresholds = {
-    it["id"]: (it.get("execution_policy") or suite.get_global_execution_policy() or {}).get(
-        "pass_threshold", 1
-    )
-    for it in suite.get_items()
-}  # the suite, not the experiment, holds the policy
-
-
-def passed(item_id, runs):
-    return counts(runs)[0] >= thresholds.get(item_id, 1)
-
-
-# experiment level (client.rest_client.experiments.get_experiment_by_id(id)): pass_rate,
-#            duration (p50/p90/p99), total_estimated_cost_avg, dataset_version_id
-```
+The SDK read, grouped per item, with the pass thresholds taken from the suite: `references/sdk-reads.md` (**Read both runs**).
 **Comparability first:** same `dataset_version_id`, same item set, same judge model (experiment config). Different → **Blocker** ("rerun the candidate on suite version X with judge Y, then `/opik-verify`") — a verdict on non-comparable runs is not a verdict.
 
 ### 4. Evaluate every criterion, in this order
@@ -131,18 +72,7 @@ Precedence, top to bottom — the first line that applies wins:
 Never round a `hold` up because the deltas are "mostly positive"; never round a `ship` down because of a hunch. The policy is the judgment; changing it is the user's move.
 
 ### 6. Report, and record only on request
-The table (criterion · threshold · observed · pass/fail), the regressions named with their assertion and trace link, the compare URL with both ids, the policy source, and one next step. With `--record`, write the verdict into the candidate experiment's config — read the existing config first and merge, `update_experiment` replaces it:
-```python
-exp = client.rest_client.experiments.get_experiment_by_id(candidate.id)
-cfg = dict(exp.metadata or {})
-cfg["verdict"] = {
-    "status": "hold",
-    "policy": "opik-release-policy.yaml",
-    "failed": ["regressions"],
-    "at": "<iso time>",
-}
-client.update_experiment(id=candidate.id, experiment_config=cfg)
-```
+The table (criterion · threshold · observed · pass/fail), the regressions named with their assertion and trace link, the compare URL with both ids, the policy source, and one next step. With `--record`, write the verdict into the candidate experiment's config — read the existing config first and merge, `update_experiment` replaces it: `references/sdk-reads.md` (**Record the verdict**).
 Offer — do not do — writing `opik-release-policy.yaml` with the defaults when no file existed, so the next verdict is reproducible.
 
 ## Blockers
@@ -158,31 +88,11 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 **User-facing:** the verdict in one line, the criteria table, the regressions (case, assertion, why, link), the policy source, the compare link, and the single next step. Not a narrative, not JSON.
 
-**Underneath** (for composition / evals), one shape:
-- `status`: `ship` | `hold` | `needs_review` | `insufficient_evidence` | `blocked`
-- `policy`: `source` (`file` | `defaults`), `path`, `values` (the effective policy)
-- `suite`: `name`, `id`, `version`
-- `baseline` / `candidate`: `experiment_id`, `name`, `url`, `items`, `pass_rate`
-- `criteria`: list of `{name, threshold, observed, passed, note}` — always all of them
-- `regressions`: list of `{dataset_item_id, input, assertion, reason, trace_url, safety: bool, flaky: bool}`
-- `flaky`: list of `{dataset_item_id, baseline_runs, candidate_runs}` excluded or counted per `flaky_policy`, or the string `not_evaluated` on a single-run suite
-- `review_items`: list of `{dataset_item_id, why}` (when `needs_review`)
-- `evidence`: `{items, fixes, regressions, sign_test_p}`
-- `compare_url`
-- `recorded`: `true|false`
-- `next_step`: exactly one
-
-Invariants: `ship` requires every gate criterion `passed` **and** `judge_validated: true`; `hold` carries at least one failed criterion and, when the failure is regressions, a non-empty `regressions`; `insufficient_evidence` carries `criteria` with `min_items` failed; `needs_review` carries a non-empty `review_items` or `judge_validated: false` in `policy.values`; `criteria` is never partial; the codebase is never modified; nothing is deployed.
+**Underneath** (for composition / evals), one shape, with its invariants: `references/output-shape.md`.
 
 ## Examples
 
-**Ship.** `/opik-verify` after compare: 24 scored items, 3 fixes, 0 regressions, pass rate 0.79 → 0.92, p90 latency +4%, cost +2%, sign test p = 0.25 ("too few flips to be more than noise — but nothing regressed"), policy file present with `judge_validated: true`. → **`ship`**; next step = "merge; `/opik-online-eval` watches the refund assertion in production".
-
-**Hold.** Same, but the "does not give legal advice" item flipped pass → fail and is tagged `safety`. Regressions 1 > 0 and safety fail. → **`hold`**, that case named first with its reason and trace link; next step = "`/opik-explain <trace>` for the legal-advice item".
-
-**Needs review.** All gates pass, no policy file (defaults), so `judge_validated` is false. → **`needs_review`**: "20 items pass the defaults; a person should check 5 judge decisions (linked) and then set `judge_validated: true` in `opik-release-policy.yaml` — want me to write the file with the defaults?"
-
-**Insufficient evidence.** A two-item suite, both fixed, nothing regressed. → **`insufficient_evidence`**: "2 items is below `min_items: 10` — add cases with `/opik-test` or lower `min_items` in the policy (your call, and it will be visible in the file)."
+Worked runs (ship, hold, needs review, insufficient evidence): `references/examples.md`.
 
 ## Anti-patterns
 A verdict without the criteria table; thresholds pulled from thin air rather than the file or the defaults; shipping on an unvalidated judge; treating a flaky item as a regression (or a regression as flaky) without the run data to say so; comparing runs on different suite versions; averaging away a safety regression; a p-value presented as a gate on six flips; rounding `hold` to `ship` because the aggregate went up; writing the policy file or recording the verdict without being asked; **editing application code**; deploying.

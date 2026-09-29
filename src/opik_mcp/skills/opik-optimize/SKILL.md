@@ -35,23 +35,10 @@ Ask only at a genuine, non-inferable blocker (see **Blockers**).
 - **Code:** grep for the system prompt / `messages=[...]`; read it verbatim. Note where it lives; you will not edit it.
 - **Trace:** the `llm` span's `input.messages` on a representative trace.
 
-The optimizer's `opik_optimizer.ChatPrompt` is a **different class** from the library's `opik.ChatPrompt` — build it from the raw messages yourself:
-```python
-from opik_optimizer import ChatPrompt
-
-prompt = ChatPrompt(
-    name="<name>", system="<system text>", user="{question}"
-)  # or messages=[...]; {var} names must match dataset keys
-```
+The optimizer's `opik_optimizer.ChatPrompt` is a **different class** from the library's `opik.ChatPrompt` — build it from the raw messages yourself: `references/sdk-snippets.md` (**Resolve the prompt**).
 
 ### 2. Resolve the dataset (and hold some out)
-The optimizer needs an `opik.Dataset` whose item keys match the prompt's `{variables}`.
-```python
-import opik
-
-client = opik.Opik()
-dataset = client.get_dataset(name="<dataset>", project_name="<project>")
-```
+The optimizer needs an `opik.Dataset` whose item keys match the prompt's `{variables}`: `references/sdk-snippets.md` (**Resolve the dataset**).
 - Only a **test suite** exists → export its items into a dataset once: `suite.get_items()` → `client.get_or_create_dataset("<suite>-optimize", project_name=…)` → `insert([{**it["data"]} …])`.
 - Nothing exists → build from traces (`search_traces` → `{"question": t.input[...], "expected_output": …}`) or run `/opik-evaluate` first.
 - **Hold out:** split into train and validation datasets and pass `validation_dataset=`. Note what it does: the optimizer **scores every trial on `validation_dataset`** and uses the train set to show the reasoning model examples — so the validation set is the selection set, and it needs ≥10 items or every candidate ties (a 4-item split logs `n_samples … larger than evaluation dataset size` and cannot separate prompts). If you need a gain measured on items the optimizer never saw, keep a third split and re-score the winner on it with `evaluate()`. Fewer than ~20 items in total → say the result will be noisy; below 10 → **Blocker**.
@@ -74,35 +61,14 @@ Never optimize against a judge nobody validated: an unvalidated judge is the eas
 
 ### 5. State the budget, then run
 `uv add opik-optimizer` (or `pip install opik-optimizer`) in a scratch environment, not the repo's lockfile unless the user wants it. Each trial evaluates `n_samples` items with the task model plus the reasoning model — tell the user the rough call count before running. Provider key absent → **Blocker**.
-```python
-from opik_optimizer import MetaPromptOptimizer
-
-optimizer = MetaPromptOptimizer(model="<task model>", verbose=1, seed=42)
-result = optimizer.optimize_prompt(
-    prompt=prompt,
-    dataset=train,
-    metric=metric,
-    validation_dataset=validation,
-    n_samples=50,
-    max_trials=10,
-    project_name="<project>",
-)
-```
+The `MetaPromptOptimizer` run, with the default budget: `references/sdk-snippets.md` (**Run the optimizer**).
 Write the runner as a temp file outside the repo. The run appears in Opik as an Optimization (`result.get_run_link()`).
 
 ### 6. Read the result honestly
 `result.initial_score` → `result.score` on the metric; `result.details["stop_reason"]` and `["trials_completed"]`; `result.llm_calls`, `result.llm_cost_total` (may be `None` when the provider returns no cost — say "cost unavailable", don't invent one). **Report the validation score**, not the training score. A gain within run-to-run noise (rerun the baseline once if in doubt) is "no measurable improvement" — say so rather than shipping a lateral move, and do **not** save a new version for it. The common cause of a flat result: the answers depend on context the prompt can't contain (retrieval, tools, account data) — then the prompt isn't the bottleneck and the next step is `/opik-explain` on the worst items, not more trials.
 
 ### 7. Save the winner (library prompts) and hand off
-```python
-messages = result.prompt.get_messages()  # optimizer ChatPrompt -> raw messages
-new_version = client.create_chat_prompt(
-    name="<name>",
-    messages=messages,
-    project_name="<project>",
-    change_description=f"opik-optimize: {result.optimizer}, {result.metric_name} {result.initial_score:.2f} -> {result.score:.2f} (validation)",
-)
-```
+For a library prompt, save the winner as a new version: `references/sdk-snippets.md` (**Save the winner**).
 For a prompt that lives in code, do **not** edit the file — return the optimized text and the diff as the next step. Then one next step (see **Output**): typically "`/opik-compare` the new version against the regression suite" or "point the app at version `vN`".
 
 ## Blockers
@@ -118,28 +84,11 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 
 **User-facing:** a short human message — baseline vs optimized score **on validation**, the run link, the cost, the algorithm, what changed in the prompt (one or two lines), the new version (or the diff for a code prompt), and the single next step. Not the full trial history.
 
-**Underneath** (for composition / evals), one shape:
-- `status`: `improved` | `no_improvement` | `blocked`
-- `prompt`: `name`, `source` (`library` | `code` | `trace`), `baseline_version`, `new_version` (when saved)
-- `dataset`: `train` `{name, count}`, `validation` `{name, count}`
-- `metric`: `name`, `kind` (`heuristic` | `judge`), `validated: true|false`
-- `optimizer`: `algorithm`, `n_samples`, `max_trials`, `stop_reason`
-- `scores`: `initial`, `optimized`, `validation`, `delta`
-- `cost`: `llm_calls`, `llm_cost_total`
-- `run_url`
-- `next_step`: exactly one
-
-Invariants: `improved` requires `scores.validation > scores.initial` beyond noise and carries a `run_url`; `no_improvement` still carries the `run_url` and the cost; a `judge` metric with `validated: false` is flagged in the report; the codebase is never modified; a library prompt is saved as a **new version**, never overwritten in place.
+**Underneath** (for composition / evals), one shape, with its invariants: `references/output-shape.md`.
 
 ## Examples
 
-**Library prompt, heuristic metric.** `/opik-optimize support-system-prompt`. Dataset `support-qa` (120 items with `expected_output`), 96/24 split, `LevenshteinRatio`. `MetaPromptOptimizer`, 50 samples × 10 trials, budget stated. Validation 0.62 → 0.79; cost $1.40. Saved as `v7`. → **`improved`**; next step = "`/opik-compare support-bot-regressions` with the app pointed at `v7`".
-
-**No real gain.** Validation 0.71 → 0.73, baseline rerun varies ±0.03. → **`no_improvement`**: "within noise — the prompt isn't the bottleneck; `/opik-explain` the worst items."
-
-**Prompt in code.** System prompt found in `agent.py`. Optimized text returned with a diff; file untouched. → **`improved`**; next step = "apply the diff (or move the prompt to the library so it can be versioned)".
-
-**Blocked.** No dataset and no traces. → **`blocked`**: "run `/opik-evaluate` to build a dataset first."
+Worked runs (library prompt with a heuristic metric, no real gain, prompt in code, blocked): `references/examples.md`.
 
 ## Anti-patterns
 Reporting the training-set score as the gain; optimizing against an unvalidated judge; spending an unbounded budget (no `n_samples`/`max_trials`) or not stating it; overwriting the prompt in place instead of a new version; **editing the prompt in the codebase**; treating `opik.ChatPrompt` and `opik_optimizer.ChatPrompt` as interchangeable; optimizing on fewer than ~20 items and calling it a result; choosing the algorithm by novelty rather than by the failure observed; using deprecated `optimize_mcp`.
