@@ -395,7 +395,7 @@ def readable_paths(skill: str) -> tuple[str, ...]:
     return ("SKILL.md", *(f.path for f in _references(skill)))
 
 
-def run_read_skill(skill_name: str, settings: Settings | None = None) -> str:
+def run_read_skill(skill_name: str, settings: Settings) -> str:
     """The `read_skill` tool body: one skill document, ready to act on.
 
     Output is a one-line `[read_skill: …]` header (mirroring the `read` tool's
@@ -406,8 +406,11 @@ def run_read_skill(skill_name: str, settings: Settings | None = None) -> str:
     Both the header and the footer quote the *resolved* file, not the caller's
     spelling: this output is documentation an agent imitates on its next call.
     """
-    features = enabled_features(settings) if settings else ()
-    requested = skill_name.strip().strip("/")
+    features = enabled_features(settings)
+    # A feature skill is one document, so its SKILL.md and URI forms name the same thing.
+    requested = (
+        skill_name.strip().strip("/").removeprefix(SKILLS_URI_PREFIX).removesuffix("/SKILL.md")
+    )
     for feature in features:
         if requested in feature.skills:
             text = feature.skills[requested]()

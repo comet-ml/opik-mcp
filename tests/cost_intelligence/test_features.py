@@ -51,5 +51,12 @@ def test_the_guide_is_served_only_when_the_feature_is_on() -> None:
     assert served.startswith(f"[read_skill: {GUIDE_NAME} bytes=")
     with pytest.raises(UnknownSkillError):
         run_read_skill(GUIDE_NAME, off)
-    with pytest.raises(UnknownSkillError):
-        run_read_skill(GUIDE_NAME)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [GUIDE_NAME, f"{GUIDE_NAME}/SKILL.md", f"opik://skills/{GUIDE_NAME}/SKILL.md"],
+)
+def test_the_guide_answers_to_every_form_a_bundled_skill_accepts(spelling: str) -> None:
+    on = make_settings(opik_workspace=SPEND_WORKSPACE, opik_mcp_transport="stdio")
+    assert run_read_skill(spelling, on).startswith(f"[read_skill: {GUIDE_NAME} bytes=")
