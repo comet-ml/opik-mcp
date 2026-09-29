@@ -246,11 +246,7 @@ disallow_any_explicit = false
 # never grows: explicit_any_findings in tests/repo/ratchets.json.
 [[tool.mypy.overrides]]
 module = [
-    "opik_mcp.analytics.client",
-    "opik_mcp.analytics.mcp_client_info",
-    "opik_mcp.analytics.wrappers",
     "opik_mcp.config",
-    "opik_mcp.error_tracking",
     "opik_mcp.identity.account",
     "opik_mcp.read_list.columns",
     "opik_mcp.read_list.decorations",

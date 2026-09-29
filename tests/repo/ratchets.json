@@ -2,7 +2,7 @@
   "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. One exception: a move that splits a file may replace its entry with one entry per new module that carries the same findings, and the PR says so. The total of findings never grows (explicit_any_findings). tests/repo/test_ratchets.py",
   "entity_names_at_root": {},
   "operation_names_at_root": {},
-  "explicit_any_findings": 637,
+  "explicit_any_findings": 611,
   "suppressions": {
     "src/opik_mcp/server/app/session.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
@@ -256,11 +256,7 @@
     ]
   },
   "mypy_baseline": [
-    "opik_mcp.analytics.client",
-    "opik_mcp.analytics.mcp_client_info",
-    "opik_mcp.analytics.wrappers",
     "opik_mcp.config",
-    "opik_mcp.error_tracking",
     "opik_mcp.identity.account",
     "opik_mcp.read_list.columns",
     "opik_mcp.read_list.decorations",

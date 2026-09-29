@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import contextlib
 import re
-from typing import Any
 from weakref import WeakKeyDictionary
 
 from opik_mcp.analytics.environment import cached_call_context_env
@@ -178,7 +177,7 @@ def bucket_mcp_protocol_version(raw: str | None) -> str:
     return raw if _PROTOCOL_DATE_RE.match(raw) else "unknown"
 
 
-def collect_session_props(session: Any) -> dict[str, str]:
+def collect_session_props(session: object) -> dict[str, str]:
     """Return the bucketed MCP-client property dict for a live session.
 
     Walks ``session.client_params.clientInfo`` / ``.capabilities`` and
@@ -225,7 +224,7 @@ def collect_session_props(session: Any) -> dict[str, str]:
 # off the hot path. ``WeakKeyDictionary`` so dead sessions are reclaimed;
 # stand-ins that don't support weak references (e.g. ``SimpleNamespace`` in
 # tests) skip the cache and recompute, which is cheap and pure.
-_session_host_cache: WeakKeyDictionary[Any, dict[str, str]] = WeakKeyDictionary()
+_session_host_cache: WeakKeyDictionary[object, dict[str, str]] = WeakKeyDictionary()
 
 
 _HOST_CONTEXT_KEYS: tuple[str, ...] = (
@@ -236,7 +235,7 @@ _HOST_CONTEXT_KEYS: tuple[str, ...] = (
 )
 
 
-def _host_context(session: Any) -> dict[str, str]:
+def _host_context(session: object) -> dict[str, str]:
     """The handshake-derived client fields, cached per session.
 
     Carries the frozen pair (``mcp_host`` / ``host_llm_family``) and the newer
@@ -261,7 +260,7 @@ def _host_context(session: Any) -> dict[str, str]:
     return host
 
 
-def call_context_props(session: Any) -> dict[str, str]:
+def call_context_props(session: object) -> dict[str, str]:
     """The session-context block stamped on every per-call analytics event.
 
     Six fields BI uses to segment ``tool_called`` by

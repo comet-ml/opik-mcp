@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from types import SimpleNamespace
 from typing import Any
 
@@ -191,8 +191,8 @@ async def test_cancelled_error_sets_error_kind_cancelled(recorder: _Recorder) ->
 
 @pytest.mark.anyio
 async def test_props_fn_merges_extras(recorder: _Recorder) -> None:
-    def props_fn(result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
-        return {"entity_type": kwargs.get("entity_type", "")}
+    def props_fn(result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
+        return {"entity_type": str(kwargs.get("entity_type", ""))}
 
     @instrument_tool("read", props_fn=props_fn)
     async def fn(*, entity_type: str) -> str:
@@ -602,13 +602,13 @@ async def test_sentry_capture_includes_props_fn_output_as_tags(
     Sentry tags — one source of truth for the low-card call shape.
     """
 
-    def props_fn(result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+    def props_fn(result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
         # All current real props_fn impls ignore ``result`` and read kwargs
         # only — verify the wrapper passes ``result=None`` on the failure
         # path so this contract stays intact.
         assert result is None
         return {
-            "entity_type": kwargs.get("entity_type", ""),
+            "entity_type": str(kwargs.get("entity_type", "")),
             "id_kind": "uuid",
         }
 
@@ -732,7 +732,7 @@ async def test_sentry_capture_survives_props_fn_failure(
     (no bucket tags) is better than no stack trace at all.
     """
 
-    def bad_props_fn(_result: Any, _kwargs: dict[str, Any]) -> dict[str, str]:
+    def bad_props_fn(_result: object, _kwargs: Mapping[str, object]) -> dict[str, str]:
         raise RuntimeError("props_fn bug")
 
     @instrument_tool("read", props_fn=bad_props_fn)

@@ -9,13 +9,14 @@ from __future__ import annotations
 import functools
 import logging
 import time
-from collections.abc import Awaitable, Callable
-from typing import Any, ParamSpec, TypeVar
+from collections.abc import Awaitable, Callable, Mapping
+from typing import ParamSpec, TypeVar
 from weakref import WeakSet
 
 import anyio
+from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import request_ctx
-from mcp.types import ListToolsRequest
+from mcp.types import ListToolsRequest, ServerResult
 
 from opik_mcp import error_tracking
 from opik_mcp.analytics import (
@@ -24,6 +25,7 @@ from opik_mcp.analytics import (
     get_analytics,
     transport_probe,
 )
+from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.errors import (
     bucket_exception,
     derive_http_status,
@@ -70,7 +72,7 @@ _USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (MissingConfigError,)
 
 
 # Indirection so tests can patch the singleton.
-def _client() -> Any:
+def _client() -> AnalyticsClient:
     return get_analytics()
 
 
@@ -84,7 +86,7 @@ def _client() -> Any:
 # NOTE: ``id()`` values can be reused after deallocation, so this fallback
 # is unsuitable for long-lived production use — but by construction it
 # never fires there.
-_seen_sessions: WeakSet[Any] = WeakSet()
+_seen_sessions: WeakSet[object] = WeakSet()
 _seen_session_ids: set[int] = set()
 
 
@@ -94,21 +96,21 @@ def _reset_seen_sessions_for_tests() -> None:
     _seen_session_ids.clear()
 
 
-def _session_is_seen(session: Any) -> bool:
+def _session_is_seen(session: object) -> bool:
     try:
         return session in _seen_sessions
     except TypeError:
         return id(session) in _seen_session_ids
 
 
-def _session_mark_seen(session: Any) -> None:
+def _session_mark_seen(session: object) -> None:
     try:
         _seen_sessions.add(session)
     except TypeError:
         _seen_session_ids.add(id(session))
 
 
-def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
+def _maybe_emit_session_initialized(kwargs: Mapping[str, object]) -> None:
     ctx = kwargs.get("ctx")
     if ctx is None:
         return
@@ -137,7 +139,7 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
 # `_write_props`, `_read_props`, `_list_props` for the bucketing pattern
 # (`is_batch`, `id_kind`, `had_name_filter`, …). The privacy guarantee is
 # enforced end-to-end by `tests/analytics/test_privacy.py`.
-PropsFn = Callable[[Any, dict[str, Any]], dict[str, str]]
+PropsFn = Callable[[object, Mapping[str, object]], dict[str, str]]
 
 
 def _report_to_sentry(
@@ -148,7 +150,7 @@ def _report_to_sentry(
     cause_type: str | None,
     duration_ms: int,
     props_fn: PropsFn | None,
-    kwargs: dict[str, Any],
+    kwargs: Mapping[str, object],
 ) -> None:
     """Capture a tool-call failure with the bucket context BI already tracks.
 
@@ -170,7 +172,7 @@ def _report_to_sentry(
     tags: dict[str, str] = {"tool_name": tool_name, "error_kind": error_kind}
     if cause_type:
         tags["cause_type"] = cause_type
-    extras: dict[str, Any] = {"duration_ms": duration_ms}
+    extras: dict[str, object] = {"duration_ms": duration_ms}
     if props_fn is not None:
         try:
             tags.update(props_fn(None, kwargs))
@@ -190,7 +192,7 @@ def _report_to_sentry(
     )
 
 
-def _attach_mcp_client_tags(kwargs: dict[str, Any], tags: dict[str, str]) -> None:
+def _attach_mcp_client_tags(kwargs: Mapping[str, object], tags: dict[str, str]) -> None:
     """Stamp Sentry tags with the SAME bucketed host/version BI uses.
 
     Reuses ``collect_session_props`` so a host stamping
@@ -314,7 +316,7 @@ def instrument_tool(
 # Per-process dedup for tools_listed. WeakSet keyed by the request context's
 # session when available; otherwise a process-global single-shot fallback.
 # Same shape as _seen_sessions for _maybe_emit_session_initialized.
-_seen_tools_listed_sessions: WeakSet[Any] = WeakSet()
+_seen_tools_listed_sessions: WeakSet[object] = WeakSet()
 _tools_listed_fired_processwide: bool = False
 
 
@@ -325,7 +327,7 @@ def _reset_seen_tools_listed_for_tests() -> None:
     _tools_listed_fired_processwide = False
 
 
-def _maybe_emit_tools_listed(result: Any) -> None:
+def _maybe_emit_tools_listed(result: object) -> None:
     """Emit tools_listed once per session (or once per process if no session
     is available in the request context).
 
@@ -359,7 +361,7 @@ def _maybe_emit_tools_listed(result: Any) -> None:
             return
         _tools_listed_fired_processwide = True
 
-    tools: list[Any] = []
+    tools: list[object] = []
     inner = getattr(result, "root", None) or result
     candidate = getattr(inner, "tools", None)
     if isinstance(candidate, list):
@@ -381,7 +383,7 @@ def _maybe_emit_tools_listed(result: Any) -> None:
         logger.debug("tools_listed emit failed", exc_info=True)
 
 
-def install_tools_listed_emitter(mcp: Any) -> None:
+def install_tools_listed_emitter(mcp: FastMCP[object]) -> None:
     """Replace the registered ListToolsRequest handler on a FastMCP instance.
 
     FastMCP wires its request handlers in ``_setup_handlers`` during
@@ -400,7 +402,7 @@ def install_tools_listed_emitter(mcp: Any) -> None:
         logger.debug("install_tools_listed_emitter: no ListToolsRequest handler registered")
         return
 
-    async def wrapped(req: Any) -> Any:
+    async def wrapped(req: ListToolsRequest) -> ServerResult:
         result = await original(req)
         try:
             _maybe_emit_tools_listed(result)
