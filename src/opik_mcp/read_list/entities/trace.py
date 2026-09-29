@@ -29,7 +29,7 @@ from opik_mcp.read_list.paging import (
     rest_of,
 )
 from opik_mcp.read_list.slim import count_cut, drop_bodies_past, dropped_notice, slim_notice
-from opik_mcp.read_list.ui_links import logs_page_url, trace_link_template
+from opik_mcp.read_list.ui_links import trace_link_template, trace_page_url
 from opik_mcp.read_list.uri import opik_uri, web_link
 
 # Inline caps for composite reads — match the previous resources.py
@@ -108,36 +108,10 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, object]:
     return result
 
 
-def trace_page_url(
-    settings: Settings,
-    project_id: str,
-    trace_id: str,
-    *,
-    span_id: str | None = None,
-) -> str | None:
-    """The Logs page with this trace open, or ``None`` when it cannot be built.
-
-    The direct address, for when the project and the workspace are both known.
-    :func:`trace_link_template` is the fallback for when they are not — it
-    costs a hop and lands on ``/traces``, which v2 keeps only to forward here.
-
-    ``span_id`` selects one span inside the opened trace. It is not an address
-    of its own: the UI treats it as panel state under the trace, and writes an
-    empty one into the query when a trace is opened without a span.
-    """
-    if not trace_id:
-        return None
-    if span_id:
-        return logs_page_url(
-            settings, project_id=project_id, logs_type="traces", trace=trace_id, span=span_id
-        )
-    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace=trace_id)
-
-
 def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     if not project_id:
         return None
-    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace="{id}")
+    return trace_page_url(settings, project_id, "{id}")
 
 
 def trace_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:

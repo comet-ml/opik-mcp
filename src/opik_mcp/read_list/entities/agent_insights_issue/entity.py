@@ -18,7 +18,7 @@ from opik_mcp.read_list.entities.agent_insights_issue.state import issue_page_no
 from opik_mcp.read_list.handler import EntityHandler, PageKwargs, ProjectScope, ReadWindow
 from opik_mcp.read_list.paging import well_formed
 from opik_mcp.read_list.project_scope import require_project_id, scope_of
-from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
+from opik_mcp.read_list.ui_links import ProjectArea, project_page_url, trace_page_url
 from opik_mcp.read_list.uri import opik_uri, web_link
 
 
@@ -104,12 +104,7 @@ def issue_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str
         return {}
     view: ProjectArea = "diagnostics" if issue.get("status") == "open" else "diagnostics/resolved"
     page = project_page_url(settings, project_id, view, query=f"issue={issue_id}")
-    # ``logsType`` as well as the id: without it the page opens on whichever
-    # view the reader last used, which for a link handed out as "open this
-    # trace" is a coin toss. Every other trace link on this server names it.
-    traces = project_page_url(
-        settings, project_id, "logs", query="logsType=traces&trace={trace_id}"
-    )
+    traces = trace_page_url(settings, project_id, "{trace_id}")
     if page is None or traces is None:
         return {}
     return {"url": page, "trace_url_template": traces}

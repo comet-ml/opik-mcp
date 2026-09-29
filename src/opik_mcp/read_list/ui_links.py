@@ -256,6 +256,38 @@ def logs_page_url(
     return project_page_url(settings, project_id, "logs", query=query)
 
 
+def trace_page_url(
+    settings: Settings,
+    project_id: str,
+    trace_id: str,
+    *,
+    span_id: str | None = None,
+) -> str | None:
+    """The Logs page with this trace open, or ``None`` when it cannot be built.
+
+    The one place a trace's address is written: every link that opens a
+    trace, or a span inside one, is built here. Either id may be a template
+    slot (``{id}``).
+
+    The direct address, for when the project and the workspace are both known.
+    :func:`trace_link_template` is the fallback for when they are not — it
+    costs a hop and lands on ``/traces``, which v2 keeps only to forward here.
+    ``logsType`` rides beside the id because without it the page opens on
+    whichever view the reader last used.
+
+    ``span_id`` selects one span inside the opened trace. It is not an address
+    of its own: the UI treats it as panel state under the trace, and writes an
+    empty one into the query when a trace is opened without a span.
+    """
+    if not trace_id:
+        return None
+    if span_id:
+        return logs_page_url(
+            settings, project_id=project_id, logs_type="traces", trace=trace_id, span=span_id
+        )
+    return logs_page_url(settings, project_id=project_id, logs_type="traces", trace=trace_id)
+
+
 def view_link(
     settings: Settings,
     view_page: ViewPage,
@@ -296,5 +328,6 @@ __all__ = [
     "project_page_url",
     "scoped_entity_links",
     "trace_link_template",
+    "trace_page_url",
     "view_link",
 ]
