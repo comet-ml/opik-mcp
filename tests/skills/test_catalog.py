@@ -126,33 +126,32 @@ def test_tool_description_gates_on_context_not_on_installing_anything() -> None:
     assert "install" not in description
 
 
-def test_tool_description_documents_every_accepted_form() -> None:
+def test_tool_description_documents_the_name_and_path_forms() -> None:
     """`skill_name` takes a name, a path, or a resource URI. A form the tool accepts
-    but never advertises is a form no agent uses."""
+    but never advertises is a form no agent uses. The URI form is documented on
+    the argument alone (`test_the_skill_name_argument_documents_the_uri_form`)."""
     description = catalog.read_skill_tool_description()
     assert "`opik`" in description
-    assert "opik/references/tracing-python.md" in description
-    assert catalog.SKILLS_URI_PREFIX in description
+    assert "`<skill>/references/<file>.md`" in description
 
 
-def test_tool_description_lists_every_readable_path() -> None:
-    """The inventory is the expensive part of this description — every path is
-    charged to every session — and it is there so a caller can fetch a reference
-    directly instead of reading a 5 KB SKILL.md to learn its name. A path that
-    exists but is unlisted is a document no agent will ask for."""
+def test_tool_description_names_no_reference_path() -> None:
+    """Every path here is charged to every session, and each SKILL.md footer
+    already lists its references, so the description names skills only."""
     description = catalog.read_skill_tool_description()
     for entry in catalog.iter_skill_files():
-        assert entry.path in description, f"{entry.skill}/{entry.path} is not advertised"
-    for name in catalog.skill_names():
-        assert f"- {name}: SKILL.md" in description
+        if entry.is_entry_point:
+            continue
+        short_form = f"{entry.skill}/{Path(entry.path).stem}"
+        assert entry.path not in description, f"{entry.skill}/{entry.path} is advertised"
+        assert short_form not in description, f"{short_form} is advertised"
 
 
 def test_tool_description_stays_within_a_sane_budget() -> None:
     """It ships on every tools/list, so growth should be a decision, not a drift.
-    The inventory is ~20 paths today; a jump means a skill grew a large reference
-    tree and the inventory may need summarising instead of enumerating."""
+    It grows by one routing line per skill; a jump means something else landed."""
     length = len(catalog.read_skill_tool_description())
-    assert length <= 4000, f"read_skill description is {length} chars — is the inventory too big?"
+    assert length <= 4000, f"read_skill description is {length} chars — what grew?"
 
 
 # NOTE: there is deliberately no test tying these summaries to the authored

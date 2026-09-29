@@ -1,0 +1,16 @@
+{
+  "id": "${issue_id}",
+  "project_id": "${project_id}",
+  "name": "Refund window stated wrongly",
+  "title": "Refund window stated wrongly",
+  "severity": "high",
+  "status": "open",
+  "total_occurrences": 42,
+  "latest_count": 22,
+  "last_seen": "2026-09-09",
+  "trace_count": 37,
+  "cause": "retrieve() returns nothing for refund questions",
+  "suggested_fix": "Widen the retriever's window to the policy docs",
+  "first_seen_at": "2026-09-01T09:00:00Z",
+  "last_seen_at": "2026-09-09T09:00:00Z"
+}

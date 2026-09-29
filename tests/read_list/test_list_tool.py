@@ -14,6 +14,7 @@ from opik_mcp.config import Settings
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.size import estimate_tokens
+from tests.hermetic.fixtures import record
 
 
 @pytest.fixture
@@ -25,23 +26,23 @@ def anyio_backend() -> str:
 class FakeOpikClient:
     """Just enough surface for the list tool to drive the registry."""
 
-    projects: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    experiments: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    prompts: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    datasets: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    traces: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    dataset_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    prompt_versions: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    threads: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    issues: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    score_names: dict[str, Any] = field(default_factory=lambda: {"scores": []})
-    automation_rules: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    projects: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    experiments: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    prompts: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    datasets: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    traces: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    dataset_items: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    prompt_versions: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    threads: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    issues: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    score_names: dict[str, Any] = field(default_factory=lambda: record("no_score_names"))
+    automation_rules: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     # The comparison surface: the experiments a call can name, the joined page
     # they come back on, and every joined request made, in order — the refetch
     # wave is only visible as a list.
     experiment_records: dict[str, Any] = field(default_factory=dict)
-    compared_items: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
-    compared_columns: dict[str, Any] = field(default_factory=lambda: {"columns": []})
+    compared_items: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    compared_columns: dict[str, Any] = field(default_factory=lambda: record("no_output_columns"))
     compare_calls: list[dict[str, Any]] = field(default_factory=list)
     column_calls: list[dict[str, Any]] = field(default_factory=list)
     compare_error: Exception | None = None
@@ -52,9 +53,7 @@ class FakeOpikClient:
     compared_stats: dict[Any, dict[str, Any]] = field(default_factory=dict)
     stats_calls: list[dict[str, Any]] = field(default_factory=list)
     stats_error: Exception | None = None
-    feedback_definitions: dict[str, Any] = field(
-        default_factory=lambda: {"content": [], "total": 0}
-    )
+    feedback_definitions: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     definition_calls: list[dict[str, Any]] = field(default_factory=list)
     definitions_error: Exception | None = None
 
@@ -70,7 +69,7 @@ class FakeOpikClient:
     job_reads: int = 0
     # Service toggles as the backend serves them; ``toggles_error`` mimics a
     # failed lookup, which must fail open (Diagnostics assumed available).
-    toggles: dict[str, Any] = field(default_factory=lambda: {"ollieEnabled": True})
+    toggles: dict[str, Any] = field(default_factory=lambda: record("toggles"))
     toggles_error: Exception | None = None
     toggles_reads: int = 0
     projects_error: Exception | None = None
@@ -115,17 +114,17 @@ class FakeOpikClient:
 
     async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
         self.last_kwargs = {"project_id": project_id}
-        return {"names": []}
+        return record("no_usage_keys")
 
     async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
         return self.automation_rules
 
     async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"results": []}
+        return record("no_metric_series")
 
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -186,7 +185,7 @@ class FakeOpikClient:
         keyed = self.compared_stats.get((experiment_id, kw.get("filters")))
         if keyed is not None:
             return keyed
-        return self.compared_stats.get(experiment_id, {"stats": []})
+        return self.compared_stats.get(experiment_id, record("no_compared_stats"))
 
     async def list_feedback_definitions(self, **kw: Any) -> dict[str, Any]:
         self.definition_calls.append(kw)
@@ -197,7 +196,7 @@ class FakeOpikClient:
     async def list_spans(self, **_: Any) -> dict[str, Any]:
         # Not exercised by the list tool (span has no list_fn) — included to
         # satisfy the OpikListClient Protocol structurally.
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
 
 # --- table format --------------------------------------------------------- #

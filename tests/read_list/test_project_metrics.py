@@ -27,6 +27,7 @@ from opik_mcp.read_list.entities.project_metric.catalog import (
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.size import estimate_tokens
 from opik_mcp.writes.schema_tool import run_schema
+from tests.hermetic.fixtures import record
 
 PROJECT = "01a08666-e863-76e8-809c-057f4aa151bc"
 OPIK_BASE = "https://opik.example.com/api"
@@ -53,7 +54,7 @@ class FakeOpikClient:
     """Only the metric endpoint, plus the project lookup the runner may need."""
 
     results: list[dict[str, Any]] = field(default_factory=list)
-    projects: dict[str, Any] = field(default_factory=lambda: {"content": [], "total": 0})
+    projects: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     last_body: dict[str, Any] = field(default_factory=dict)
     calls: int = 0
     # A rate or an average is charted with its entity's count alongside, so a

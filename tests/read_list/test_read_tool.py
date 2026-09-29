@@ -24,6 +24,7 @@ from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.paging import continuation, short_list
 from opik_mcp.read_list.read_tool import run_read
+from tests.hermetic.fixtures import record
 
 
 @pytest.fixture
@@ -58,14 +59,10 @@ class FakeOpikClient:
     kpi_stats: list[dict[str, Any]] = field(default_factory=list)
     last_kpi_kwargs: dict[str, Any] = field(default_factory=dict)
     fail_kpi_with: Exception | None = None
-    score_names: dict[str, Any] = field(default_factory=lambda: {"scores": []})
-    usage_keys: dict[str, Any] = field(default_factory=lambda: {"names": []})
-    automation_rules: dict[str, Any] = field(
-        default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
-    )
-    activities: dict[str, Any] = field(
-        default_factory=lambda: {"content": [], "page": 1, "size": 0, "total": 0}
-    )
+    score_names: dict[str, Any] = field(default_factory=lambda: record("no_score_names"))
+    usage_keys: dict[str, Any] = field(default_factory=lambda: record("no_usage_keys"))
+    automation_rules: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    activities: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     fail_score_names_with: Exception | None = None
     fail_activities_with: Exception | None = None
     in_flight: int = 0
@@ -139,16 +136,16 @@ class FakeOpikClient:
     # Not exercised by the read tool — the comparison is a list — but part of
     # the client protocol a read is handed.
     async def list_compared_dataset_items(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"columns": []}
+        return record("no_output_columns")
 
     async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"stats": []}
+        return record("no_compared_stats")
 
     async def list_feedback_definitions(self, **_kw: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def list_spans(
         self,
@@ -205,7 +202,7 @@ class FakeOpikClient:
         return dict(record)
 
     async def list_datasets(self, **_: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def get_prompt(self, prompt_id: str) -> dict[str, Any]:
         return self.prompts_by_id[prompt_id]
@@ -222,7 +219,7 @@ class FakeOpikClient:
         return {"content": content, "page": page, "size": len(content), "total": len(every)}
 
     async def list_prompts(self, **_: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def get_thread(
         self,
@@ -269,13 +266,13 @@ class FakeOpikClient:
     # OpikListClient surface the read tool doesn't exercise — present so the
     # fake satisfies the Protocol structurally.
     async def list_threads(self, **_: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def list_dataset_items(self, _dataset_id: str, **_kw: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def list_agent_insights_issues(self, **_: Any) -> dict[str, Any]:
-        return {"content": [], "page": 1, "size": 0, "total": 0}
+        return record("empty_page")
 
     async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
         if self.fail_score_names_with is not None:
@@ -294,13 +291,13 @@ class FakeOpikClient:
         return await self._concurrently(self.activities)
 
     async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"results": []}
+        return record("no_metric_series")
 
     async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
         raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
 
     async def get_service_toggles(self) -> dict[str, Any]:
-        return {"ollieEnabled": True}
+        return record("toggles")
 
     async def get_agent_insights_issue(
         self,

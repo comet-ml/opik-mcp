@@ -2,7 +2,7 @@
   "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. One exception: a move that splits a file may replace its entry with one entry per new module that carries the same findings, and the PR says so. The total of findings never grows (explicit_any_findings). tests/repo/test_ratchets.py",
   "entity_names_at_root": {},
   "operation_names_at_root": {},
-  "explicit_any_findings": 680,
+  "explicit_any_findings": 647,
   "suppressions": {
     "src/opik_mcp/server/app/session.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
@@ -136,14 +136,8 @@
     "tests/conftest.py": [
       "I002"
     ],
-    "tests/hermetic/test_compare_experiments_surface.py": [
-      "PT018"
-    ],
     "tests/hermetic/test_description_claims.py": [
       "PERF401",
-      "PT018"
-    ],
-    "tests/hermetic/test_project_overview_surface.py": [
       "PT018"
     ],
     "tests/identity/test_account_identity.py": [
@@ -345,9 +339,7 @@
     "tests.conformance.test_skill_resources",
     "tests.conformance.test_tool_inventory",
     "tests.hermetic.stub_backend",
-    "tests.hermetic.test_compare_experiments_surface",
     "tests.hermetic.test_description_claims",
-    "tests.hermetic.test_find_a_case_surface",
     "tests.identity.test_account_identity",
     "tests.identity.test_oauth_passthrough_mode",
     "tests.read_list.test_dataset_compare",

@@ -254,13 +254,16 @@ Boundaries:
 - OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
-  `tests/hermetic/test_entity_links_surface.py`.
+  and each entity's file in `tests/hermetic/reads/`, which also checks the size
+  header and that a refusal carries no backend body or REST path
+  (`tests/hermetic/reads/answers.py`).
 - Namespaces and description claims: `tests/read_list/test_modular.py`,
   `tests/hermetic/test_description_claims.py`.
 
 ## Log
 
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
+- 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).
 - 2026-09-23: a UI link on every answer; the duplicate `structuredContent` copy removed (#201).
 - 2026-09-22: inline budget on children's bodies, stated in the answer (#199).

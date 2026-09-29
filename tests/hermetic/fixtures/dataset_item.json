@@ -1,0 +1,18 @@
+{
+  "id": "${case_id}",
+  "dataset_id": "${suite_id}",
+  "source": "trace",
+  "trace_id": "${case_trace_id}",
+  "data": {
+    "question": "Case ${index}: what is the capital of France?",
+    "expected_answer": "Paris",
+    "notes": "Case ${index}: ${notes}"
+  },
+  "tags": [
+    "regression"
+  ],
+  "created_at": "2026-09-08T10:00:00Z",
+  "last_updated_at": "2026-09-08T10:00:00Z",
+  "created_by": "stub-user",
+  "last_updated_by": "stub-user"
+}

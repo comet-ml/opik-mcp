@@ -149,9 +149,11 @@ write dispatch.py -> hooks in src/opik_mcp/writes/operations/diagnostics.py
 - Toggle fails open: `test_deployment_gate_fails_open_when_toggles_cannot_be_read`;
   cache per credential: `test_list_issues_project_name_cache_is_per_credential`.
 - Read and links: `tests/read_list/test_read_tool.py`, `tests/read_list/test_uri.py`.
-- Writes, 409 follow-up, refusals, dry runs: `tests/writes/test_dispatch.py`.
+- Writes, 409 follow-up, refusals, dry runs: `tests/writes/test_dispatch.py`; over
+  stdio and HTTP: `tests/hermetic/writes/test_diagnostics.py`.
 - Client paths: `tests/client/test_read.py`. Over stdio:
-  `tests/hermetic/test_description_claims.py`, `tests/hermetic/test_entity_links_surface.py`.
+  `tests/hermetic/test_description_claims.py`,
+  `tests/hermetic/reads/test_agent_insights_issue.py`.
 
 ## Log
 

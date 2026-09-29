@@ -148,3 +148,22 @@ async def test_a_heavy_trace_declares_which_bodies_it_cut(mcp: Live, manifest: M
     note = record.get("spanBodies")
     assert isinstance(note, str), "cut span bodies must be declared"
     assert "read('span'" in note, "and the call that returns one whole"
+
+
+async def test_the_backend_cuts_a_span_body_where_the_read_counts_it(
+    mcp: Live, manifest: Manifest
+) -> None:
+    """The backend cuts at or below 10,001 characters, and the read counts it.
+
+    The heavy trace's span bodies are 20,000 characters and the typical
+    trace's are a few words. So this proves a cut somewhere between the two
+    is counted and nothing is counted when no body is long; it cannot tell a
+    cut at 10,001 from one at 15,000.
+    """
+    heavy = (await mcp.read("trace", manifest.heavy.id)).record().get("spanBodies")
+    typical = (await mcp.read("trace", manifest.typical.id)).record().get("spanBodies")
+    assert isinstance(heavy, str), "the heavy trace's cut must be declared"
+    assert isinstance(typical, str), "the typical trace's spans must be declared uncut"
+    count = f"{manifest.heavy.span_count} of {manifest.heavy.span_count} spans had a field cut"
+    assert count in heavy, heavy
+    assert "no span reached" in typical, typical
