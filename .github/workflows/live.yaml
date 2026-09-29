@@ -98,10 +98,15 @@ jobs:
             /deployment/docker-compose/
           sparse-checkout-cone-mode: false
 
+      # opik.sh waits for each container to turn healthy, 90 polls of about 1s
+      # by default, and exits 1 naming the container that did not. A cold
+      # backend on a runner has needed longer. OPIK_MAX_STARTUP_RETRIES is read
+      # by opik.sh from Opik 2.2.81 on; older tags ignore it and wait 60.
       - name: Start the Opik backend
         env:
           OPIK_VERSION: ${{ steps.release.outputs.version }}
           COMPOSE_BAKE: "false"
+          OPIK_MAX_STARTUP_RETRIES: "180"
         working-directory: opik
         run: ./opik.sh --backend --port-mapping
 
