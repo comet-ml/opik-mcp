@@ -21,6 +21,7 @@ from mcp.server.fastmcp.exceptions import ToolError
 from opik_mcp.opik_client import OpikNotFoundError
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
+from tests.hermetic.fixtures import record
 
 
 @pytest.fixture
@@ -41,11 +42,11 @@ def _applied(out: str) -> str:
 class FakeOpikClient:
     """Captures the kwargs each searchable list endpoint receives."""
 
-    traces: dict[str, Any] = field(default_factory=lambda: _page([]))
-    spans: dict[str, Any] = field(default_factory=lambda: _page([]))
-    threads: dict[str, Any] = field(default_factory=lambda: _page([]))
-    experiments: dict[str, Any] = field(default_factory=lambda: _page([]))
-    projects: dict[str, Any] = field(default_factory=lambda: _page([]))
+    traces: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    spans: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    threads: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    experiments: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    projects: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     last_kwargs: dict[str, Any] = field(default_factory=dict)
     list_calls: list[dict[str, Any]] = field(default_factory=list)
     """Every trace, span or thread listing call, in order. An empty page under
@@ -65,16 +66,16 @@ class FakeOpikClient:
 
     async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = {"dataset_id": dataset_id, **kw}
-        return {"content": [], "total": 0}
+        return record("empty_page")
 
     async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"columns": []}
+        return record("no_output_columns")
 
     async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"stats": []}
+        return record("no_compared_stats")
 
     async def list_feedback_definitions(self, **_kw: Any) -> dict[str, Any]:
-        return {"content": [], "total": 0}
+        return record("empty_page")
 
     async def list_spans(self, **kw: Any) -> dict[str, Any]:
         self.last_kwargs = kw
@@ -95,40 +96,40 @@ class FakeOpikClient:
         return self.projects
 
     async def list_prompts(self, **kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def list_datasets(self, **kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def list_dataset_items(self, dataset_id: str, **kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
-        return {"scores": []}
+        return record("no_score_names")
 
     async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
-        return {"names": []}
+        return record("no_usage_keys")
 
     async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return _page([])
+        return record("empty_page")
 
     async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return {"results": []}
+        return record("no_metric_series")
 
     async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
         raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
 
     async def get_service_toggles(self) -> dict[str, Any]:
-        return {"ollieEnabled": True}
+        return record("toggles")
 
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:

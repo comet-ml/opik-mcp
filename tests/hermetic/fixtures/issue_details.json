@@ -1,0 +1,21 @@
+[
+  {
+    "report_date": "2026-09-08",
+    "occurrence_count": 20,
+    "metadata": {
+      "example_trace_ids": [
+        "${trace_id}"
+      ]
+    }
+  },
+  {
+    "report_date": "2026-09-09",
+    "occurrence_count": 22,
+    "metadata": {
+      "example_trace_ids": [
+        "${trace_id}",
+        "${turn_trace_id}"
+      ]
+    }
+  }
+]

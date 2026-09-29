@@ -1,0 +1,24 @@
+{
+  "stats": [
+    {
+      "type": "count",
+      "current_value": 120.0,
+      "previous_value": 80.0
+    },
+    {
+      "type": "avg_duration",
+      "current_value": 431.5,
+      "previous_value": 502.0
+    },
+    {
+      "type": "total_cost",
+      "current_value": 3.2e-05,
+      "previous_value": 0.0
+    },
+    {
+      "type": "errors",
+      "current_value": 5.0,
+      "previous_value": 0.0
+    }
+  ]
+}

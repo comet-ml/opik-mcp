@@ -1,0 +1,9 @@
+{
+  "id": "${case_id}",
+  "dataset_item_id": "${case_id}",
+  "source": "manual",
+  "data": "${data}",
+  "experiment_items": "${experiment_items}",
+  "run_summaries_by_experiment": "${run_summaries}",
+  "created_at": "2026-09-08T10:00:00Z"
+}
