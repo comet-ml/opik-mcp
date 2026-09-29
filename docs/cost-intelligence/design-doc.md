@@ -19,15 +19,17 @@ keeps the default surface, byte for byte.
 
 ### What it adds
 
-Nothing is hidden or replaced: the five tools, every argument, every skill and
+Nothing is hidden or replaced: the default tools, every argument, every skill and
 the project handling are the default ones. The feature only adds:
 
 - Entity types whose handler sets `feature` to the AI Spend feature, in the
   `entity_type` enums of `read` and `list`, and their `list.<type>` keys in the
   `schema` operation enum. A workspace without the feature refuses such a type
   with the same wording as an unknown one.
-- One sentence at the front of the `read`, `list` and `read_skill`
-  descriptions.
+- One sentence at the front of the `read` and `list` descriptions. The
+  `read_skill` description stays as it is, because the host cuts a description
+  at a limit it already fills (`tests/conformance/test_tool_annotations.py`);
+  the instructions name the guide instead.
 - The `cost-intelligence` guide, as an extra name `read_skill` serves beside
   every bundled skill.
 - One paragraph in the `initialize` instructions, before `Tool selection:`.
@@ -71,12 +73,12 @@ Where to start:
 
 ## Proven by
 
-- `tests/cost_intelligence/test_mode.py`: when the feature turns on, and never
+- `tests/cost_intelligence/test_features.py`: when the feature turns on, and never
   on hosted HTTP.
 - `tests/read_list/test_visibility.py`: the default views, the types a feature
   adds, and the refusal of a feature type without it.
-- `tests/conformance/test_cost_intelligence_surface.py`: the five default
-  tools, the enums as default plus additions, the sentences, the budgets.
+- `tests/conformance/test_cost_intelligence_surface.py`: the default tools,
+  the enums as default plus additions, the sentences, the budgets.
 - `tests/hermetic/reads/test_cost_intelligence.py`: the real server over stdio
   against a stub backend: `test_the_workspace_still_offers_every_default_tool`,
   `test_the_guide_is_served_beside_every_bundled_skill`,
@@ -89,4 +91,4 @@ Where to start:
 
 ## Log
 
-- 2026-09-29: AI Spend feature for a local server on an AI Spend workspace: entity types behind a handler `feature`, one sentence per tool description, the guide as an extra skill, one instructions paragraph (#237).
+- 2026-09-29: AI Spend feature for a local server on an AI Spend workspace: entity types behind a handler `feature`, one sentence on `read` and `list`, the guide as an extra skill, one instructions paragraph (#237).

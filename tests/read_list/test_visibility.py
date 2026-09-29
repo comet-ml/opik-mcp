@@ -25,9 +25,7 @@ from opik_mcp.read_list.visibility import (
     list_schema_keys,
     listable_types,
     readable_types,
-    sortable_types,
     visible_handler,
-    windowed_types,
 )
 from opik_mcp.writes.schema_tool import run_schema
 from tests.cost_intelligence.build import FAKE_TYPE, add_fake_feature_entity
@@ -60,9 +58,6 @@ NO_BACKEND = cast("OpikReadClient", _NoBackend())
 def test_the_default_views_are_what_they_were_before_features_existed() -> None:
     assert readable_types(NONE) == registry.READABLE_TYPES
     assert listable_types(NONE) == registry.LISTABLE_TYPES
-    assert sortable_types(NONE) == registry.SORTABLE_TYPES
-    assert filterable_types(NONE) == registry.FILTERABLE_TYPES
-    assert windowed_types(NONE) == registry.WINDOWED_TYPES
     assert list_schema_keys(NONE) == LIST_SCHEMA_KEYS
     assert registry.READABLE_TYPES == (
         "project",

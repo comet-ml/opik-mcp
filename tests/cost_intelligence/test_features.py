@@ -8,7 +8,7 @@ from opik_mcp.cost_intelligence import (
     AI_SPEND_FEATURE,
     WORKSPACE_PREFIX,
     enabled_features,
-    is_cost_intelligence,
+    is_ai_spend_workspace,
 )
 from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
 from opik_mcp.skills_catalog import UnknownSkillError, run_read_skill
@@ -19,17 +19,17 @@ SPEND_WORKSPACE = f"{WORKSPACE_PREFIX}org123__"
 
 def test_a_local_server_on_a_spend_workspace_turns_the_feature_on() -> None:
     settings = make_settings(opik_workspace=SPEND_WORKSPACE, opik_mcp_transport="stdio")
-    assert is_cost_intelligence(settings)
+    assert is_ai_spend_workspace(settings)
     assert enabled_features(settings) == frozenset({AI_SPEND_FEATURE})
 
 
 def test_the_workspace_may_come_from_the_older_variable_name() -> None:
-    assert is_cost_intelligence(make_settings(comet_workspace=SPEND_WORKSPACE))
+    assert is_ai_spend_workspace(make_settings(comet_workspace=SPEND_WORKSPACE))
 
 
 def test_the_hosted_transport_never_turns_the_feature_on() -> None:
     settings = make_settings(opik_workspace=SPEND_WORKSPACE, opik_mcp_transport="streamable-http")
-    assert not is_cost_intelligence(settings)
+    assert not is_ai_spend_workspace(settings)
     assert enabled_features(settings) == frozenset()
 
 

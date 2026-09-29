@@ -8,6 +8,7 @@ from opik_mcp.server.tools import register_tools
 
 
 def build_server(settings: Settings) -> FastMCP[object]:
+    """The surface uses ``settings``; call-time gates use ``get_settings()``: pass the same."""
     # ``instructions`` (ADR 0004 D6) is FastMCP's surface for the MCP
     # InitializeResult.instructions field — hosts that support it inject the
     # blob as system-prompt context once per session. Rendered eagerly so the

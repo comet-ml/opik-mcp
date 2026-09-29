@@ -9,11 +9,11 @@ from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
     LISTABLE_TYPES,
     READABLE_TYPES,
-    SORTABLE_TYPES,
     VOCABULARIES,
     resolve_entity_type,
 )
 from opik_mcp.read_list.sorting import SortError, compile_sort
+from opik_mcp.read_list.visibility import sortable_types
 
 
 def test_list_only_entities_excluded_from_readable() -> None:
@@ -142,7 +142,7 @@ def test_every_vocabulary_is_named_after_its_entity_or_its_list_mode() -> None:
 
 def test_a_sort_on_an_entity_with_no_vocabulary_names_the_sortable_types() -> None:
     with pytest.raises(SortError) as refused:
-        compile_sort(Vocabulary(name="prompt"), "name", sortable_types=SORTABLE_TYPES)
+        compile_sort(Vocabulary(name="prompt"), "name", sortable_types=sortable_types(frozenset()))
     assert str(refused.value) == (
         "sort is not supported for 'prompt'. Sortable types: "
         "project, trace, span, thread, experiment, dataset_item."

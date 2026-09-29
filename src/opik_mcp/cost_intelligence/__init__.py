@@ -15,14 +15,14 @@ FIXED_PROJECT: Final = "claude-code"
 AI_SPEND_FEATURE: Final = "ai_spend"
 
 
-def is_cost_intelligence(settings: Settings) -> bool:
-    """Only the local stdio server enters it; the hosted HTTP server never does."""
+def is_ai_spend_workspace(settings: Settings) -> bool:
+    """True for the local stdio server in an AI Spend workspace; never for hosted HTTP."""
     workspace = settings.comet_workspace or ""
     return settings.opik_mcp_transport.lower() == "stdio" and workspace.startswith(WORKSPACE_PREFIX)
 
 
 def enabled_features(settings: Settings) -> frozenset[str]:
-    return frozenset({AI_SPEND_FEATURE}) if is_cost_intelligence(settings) else frozenset()
+    return frozenset({AI_SPEND_FEATURE}) if is_ai_spend_workspace(settings) else frozenset()
 
 
 __all__ = [
@@ -30,5 +30,5 @@ __all__ = [
     "FIXED_PROJECT",
     "WORKSPACE_PREFIX",
     "enabled_features",
-    "is_cost_intelligence",
+    "is_ai_spend_workspace",
 ]

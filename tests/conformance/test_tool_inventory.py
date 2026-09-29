@@ -121,9 +121,10 @@ from opik_mcp.server import mcp
 # to advertise. The table above has spent most of it since. At 23,495 the
 # headroom was 505 bytes; at 22,379 it is 1,621. Unused headroom is not in
 # anyone's context; only what is written is.
-# An AI Spend workspace only adds three sentences to the descriptions, plus the
-# names its types add: 22,586 bytes, 207 over the default surface, which is
-# unchanged at 22,379. The same cap measures it.
+# An AI Spend workspace adds one sentence each to the `read` and `list`
+# descriptions, plus the names its feature types add: 22,509 bytes with no
+# feature type, 130 over the default surface, which is unchanged at 22,379.
+# The same cap measures it.
 SURFACE_BUDGET_BYTES = 24_000
 
 
@@ -363,8 +364,8 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # purpose, with a note here.
 # This caps growth; the host's 2,048-character cut on the same text is pinned
 # in test_tool_annotations.py. Lower this to match once the text fits.
-# An AI Spend workspace adds one paragraph: 4,933 bytes with the longest
-# settings, +222 over the default text, which is unchanged at 4,711.
+# An AI Spend workspace adds one paragraph: 4,897 bytes with the longest
+# settings, +186 over the default text, which is unchanged at 4,711.
 INSTRUCTIONS_BUDGET_BYTES = 5_000
 
 

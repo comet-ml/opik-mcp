@@ -21,11 +21,11 @@ from opik_mcp.cost_intelligence.descriptions import (
     INSTRUCTIONS_PARAGRAPH,
     LIST_SENTENCE,
     READ_SENTENCE,
-    READ_SKILL_SENTENCE,
 )
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
 from opik_mcp.server import mcp as default_mcp
+from tests.conformance.test_tool_annotations import DESCRIPTION_LIMIT
 from tests.conformance.test_tool_inventory import (
     EXPECTED_TOOL_ORDER,
     INSTRUCTIONS_BUDGET_BYTES,
@@ -42,7 +42,7 @@ from tests.cost_intelligence.build import (
 from tests.factories import make_settings
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
-SENTENCES = {"read": READ_SENTENCE, "list": LIST_SENTENCE, "read_skill": READ_SKILL_SENTENCE}
+SENTENCES = {"read": READ_SENTENCE, "list": LIST_SENTENCE}
 
 
 @pytest.fixture
@@ -153,8 +153,18 @@ async def test_the_added_sentence_leads_the_tool_description(
 async def test_the_other_tool_descriptions_are_the_default(server: FastMCP[object]) -> None:
     default = await _tools(default_mcp)
     tools = await _tools(server)
-    for name in ("write", "schema"):
+    for name in ("write", "schema", "read_skill"):
         assert tools[name].description == default[name].description
+
+
+@pytest.mark.anyio
+async def test_the_list_description_still_fits_the_host_limit(server: FastMCP[object]) -> None:
+    text = (await _tools(server))["list"].description or ""
+    assert len(text) <= DESCRIPTION_LIMIT, (
+        f"list is {len(text)} characters in an AI Spend workspace, over the host's "
+        f"{DESCRIPTION_LIMIT}. Shorten LIST_SENTENCE in "
+        "src/opik_mcp/cost_intelligence/descriptions.py."
+    )
 
 
 @pytest.mark.anyio
@@ -209,3 +219,15 @@ def test_a_missing_enum_fails_loudly(server: FastMCP[object]) -> None:
     del tool.parameters["properties"]["entity_type"]["enum"]
     with pytest.raises(RuntimeError, match=r"read\.entity_type has no enum"):
         extend_advertised_schemas(server, frozenset({"ai_spend"}))
+
+
+@pytest.mark.anyio
+async def test_extending_the_surface_twice_changes_nothing(server: FastMCP[object]) -> None:
+    from opik_mcp.server.tools.feature_surface import extend_advertised_schemas
+
+    once = _advertised(await _tools(server))
+    extend_advertised_schemas(server, frozenset({"ai_spend"}))
+    assert _advertised(await _tools(server)) == once, (
+        "a second extend_advertised_schemas call changed the surface: keep it idempotent "
+        "in src/opik_mcp/server/tools/feature_surface.py."
+    )
