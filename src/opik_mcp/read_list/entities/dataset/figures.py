@@ -20,7 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from opik_mcp.read_list.entities.dataset.layout import Experiment, ScoreKinds, number
+from opik_mcp.read_list.entities.dataset.compared_row import Experiment, ScoreKinds, number
 
 #: Extra stats calls a page may spend counting categorical labels. Two
 #: experiments and a three-label verdict are six; two experiments and two

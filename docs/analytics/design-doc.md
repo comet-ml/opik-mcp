@@ -145,7 +145,7 @@ No ADR covers analytics. The reasons come from PRs.
 - `tool_called`, `session_initialized` and the Sentry skip list:
   `tests/analytics/test_wrappers.py`, `tests/analytics/test_tools_listed.py`.
 - Error bucketing and the fingerprint: `tests/analytics/test_errors.py`,
-  `tests/analytics/test_environment.py`.
+  `tests/analytics/test_environment.py`, `tests/analytics/test_process_ancestry.py`.
 - Startup, shutdown and lifecycle ownership: `tests/analytics/test_lifespan.py`,
   `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - No canary string or raw token reaches an event or Sentry:

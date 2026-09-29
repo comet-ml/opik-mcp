@@ -259,12 +259,12 @@ def test_parent_process_literal_matches_the_frozen_classifier() -> None:
     """
     from typing import get_args
 
-    from opik_mcp.analytics.environment import (
+    from opik_mcp.analytics.events import ParentProcess
+    from opik_mcp.analytics.process_ancestry import (
         _EXACT_PARENT_PATTERNS,
         _PARENT_PROCESS_PATTERNS,
         _classify_parent_process_name,
     )
-    from opik_mcp.analytics.events import ParentProcess
 
     declared = set(get_args(ParentProcess))
     produced = {_classify_parent_process_name(p) for p, _bucket in _PARENT_PROCESS_PATTERNS}
@@ -288,12 +288,12 @@ def test_host_process_literal_matches_the_ancestor_classifier() -> None:
     """
     from typing import get_args
 
-    from opik_mcp.analytics.environment import (
+    from opik_mcp.analytics.events import HostProcess, ParentProcess
+    from opik_mcp.analytics.process_ancestry import (
         _EXACT_PARENT_PATTERNS,
         _PARENT_PROCESS_PATTERNS,
         _classify_ancestor_name,
     )
-    from opik_mcp.analytics.events import HostProcess, ParentProcess
 
     declared = set(get_args(HostProcess))
     produced = {_classify_ancestor_name(p) for p, _bucket in _PARENT_PROCESS_PATTERNS}
@@ -315,8 +315,8 @@ def test_launcher_literal_matches_detector_outputs() -> None:
     `_safe` fallback the aggregator substitutes if the detector raises."""
     from typing import get_args
 
-    from opik_mcp.analytics.environment import _LAUNCHER_BUCKETS
     from opik_mcp.analytics.events import Launcher
+    from opik_mcp.analytics.process_ancestry import _LAUNCHER_BUCKETS
 
     declared = set(get_args(Launcher))
     # "none" = no runner involved; "unknown" = detector raised (see `_safe`).
