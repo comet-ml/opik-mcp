@@ -93,11 +93,10 @@ Where to start:
 - The feature is picked by the workspace prefix and the stdio transport, and
   by nothing else, so no other user sees a change and the hosted server cannot
   expose it.
-- Additive, not a second surface. An earlier design hid the Opik types,
-  arguments, `write` and skills and pinned every call to `claude-code`; that
-  needed a refusal and a test on every hidden path and would block a later
-  dual mode. Now a handler carries a `feature` and everything else is untouched.
-  A later dual mode changes only `Settings.features`.
+- Additive, not a second surface. A handler carries a `feature`, the surface
+  gains its names and sentences, and everything else is untouched. Hiding
+  types, arguments, `write` or skills would need a refusal and a test on every
+  hidden path. A later dual mode changes only `Settings.features`.
 - The toggle is resolved once, in settings, and has no environment variable.
 - Feature specifics reach the framework only through the feature registry, as
   entities do through the entity registry (`tests/repo/test_feature_boundary.py`).
