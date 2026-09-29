@@ -126,10 +126,15 @@ class Span(TypedDict, total=False):
 
 
 class TraceThread(TypedDict, total=False):
-    """``TraceThread``: one conversation, keyed by ``thread_id`` in a project."""
+    """``TraceThread``: one conversation, keyed by ``thread_id`` in a project.
+
+    ``id`` is the caller's ``thread_id`` string; ``thread_model_id`` is the
+    UUID the thread comment endpoint takes in its path.
+    """
 
     id: str
     project_id: str
+    thread_model_id: str
     start_time: str
     end_time: str
     duration: float
