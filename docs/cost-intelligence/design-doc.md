@@ -11,8 +11,8 @@ adds to what a host sees, and why the guide lives outside the skills folder.
 ### When it turns on
 
 The AI Spend feature is on when the transport is stdio and the workspace name
-starts with `__ai_spend_` (`enabled_features`,
-`src/opik_mcp/cost_intelligence/__init__.py`). The hosted HTTP server never
+starts with `__ai_spend_` (`Settings.features`, resolved once in
+`src/opik_mcp/config.py`). The hosted HTTP server never
 turns it on, whatever the workspace is called
 (`test_the_hosted_transport_never_turns_the_feature_on`). Every other workspace
 keeps the default surface, byte for byte.
@@ -45,15 +45,20 @@ outline a session. It is an unknown skill without the feature.
 ## How it works
 
 ```
-list/read → run_list/run_read → enabled_features(settings) → visibility (which types)
+list/read → run_list/run_read → settings.features → visibility (which types)
           → the entity's own handler → client/ → Opik backend
-register_tools → feature_surface.extend_advertised_schemas → descriptions.py (text)
+register_tools → feature_surface.extend_advertised_schemas → features/registry.py
+instructions, read_skill → features/registry.py (paragraph, guide)
 ```
+
+A feature is one `Feature` value in `src/opik_mcp/cost_intelligence/feature.py`
+(sentences, paragraph, guide loader), listed in the feature registry.
 
 Where to start:
 
-- The switch: `src/opik_mcp/cost_intelligence/__init__.py`.
-- The added sentences and paragraph: `src/opik_mcp/cost_intelligence/descriptions.py`.
+- The toggle: `Settings.features` in `src/opik_mcp/config.py`.
+- The feature registry: `src/opik_mcp/features/registry.py`.
+- The added sentences, paragraph and guide: `src/opik_mcp/cost_intelligence/feature.py`.
 - Which types a feature set shows: `src/opik_mcp/read_list/visibility.py`.
 - Extending the advertised schemas: `src/opik_mcp/server/tools/feature_surface.py`.
 
@@ -61,7 +66,10 @@ Where to start:
 
 - The feature is picked by the workspace prefix and the stdio transport, and by
   nothing else, so no other user sees a change and the hosted server cannot
-  expose it. A later dual mode changes only `enabled_features`.
+  expose it. A later dual mode changes only `Settings.features`.
+- The toggle is resolved once, in settings, and has no environment variable.
+- Feature specifics reach the framework only through the feature registry, as
+  entities do through the entity registry (`tests/repo/test_feature_boundary.py`).
 - The surface is extended, never narrowed: the same tool code runs, so the
   default surface and its byte budgets stay as they are (ADR 0001). What the
   workspace pays is measured in `tests/conformance/test_cost_intelligence_surface.py`.
@@ -75,6 +83,9 @@ Where to start:
 
 - `tests/cost_intelligence/test_features.py`: when the feature turns on, and never
   on hosted HTTP.
+- `tests/features/test_registry.py`: the registry is a table and every feature
+  declares what the framework reads.
+- `tests/repo/test_feature_boundary.py`: no generic module imports the feature package.
 - `tests/read_list/test_visibility.py`: the default views, the types a feature
   adds, and the refusal of a feature type without it.
 - `tests/conformance/test_cost_intelligence_surface.py`: the default tools,

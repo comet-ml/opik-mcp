@@ -6,8 +6,7 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp import FastMCP
 
-from opik_mcp.config import get_settings
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE
+from opik_mcp.config import AI_SPEND_FEATURE, get_settings
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.server.app.instance import build_server

@@ -17,7 +17,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from mcp.types import Tool
 
 from opik_mcp.config import get_settings
-from opik_mcp.cost_intelligence.descriptions import (
+from opik_mcp.cost_intelligence.feature import (
     INSTRUCTIONS_PARAGRAPH,
     LIST_SENTENCE,
     READ_SENTENCE,
@@ -163,7 +163,7 @@ async def test_the_list_description_still_fits_the_host_limit(server: FastMCP[ob
     assert len(text) <= DESCRIPTION_LIMIT, (
         f"list is {len(text)} characters in an AI Spend workspace, over the host's "
         f"{DESCRIPTION_LIMIT}. Shorten LIST_SENTENCE in "
-        "src/opik_mcp/cost_intelligence/descriptions.py."
+        "src/opik_mcp/cost_intelligence/feature.py."
     )
 
 
@@ -218,7 +218,7 @@ def test_a_missing_enum_fails_loudly(server: FastMCP[object]) -> None:
     assert tool is not None
     del tool.parameters["properties"]["entity_type"]["enum"]
     with pytest.raises(RuntimeError, match=r"read\.entity_type has no enum"):
-        extend_advertised_schemas(server, frozenset({"ai_spend"}))
+        extend_advertised_schemas(server, get_settings())
 
 
 @pytest.mark.anyio
@@ -226,7 +226,7 @@ async def test_extending_the_surface_twice_changes_nothing(server: FastMCP[objec
     from opik_mcp.server.tools.feature_surface import extend_advertised_schemas
 
     once = _advertised(await _tools(server))
-    extend_advertised_schemas(server, frozenset({"ai_spend"}))
+    extend_advertised_schemas(server, get_settings())
     assert _advertised(await _tools(server)) == once, (
         "a second extend_advertised_schemas call changed the surface: keep it idempotent "
         "in src/opik_mcp/server/tools/feature_surface.py."

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from opik_mcp.config import Settings
-from opik_mcp.cost_intelligence.descriptions import INSTRUCTIONS_PARAGRAPH
+from opik_mcp.cost_intelligence.feature import INSTRUCTIONS_PARAGRAPH
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.ui_links import trace_link_template
 from opik_mcp.server import mcp

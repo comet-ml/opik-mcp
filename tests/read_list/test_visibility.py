@@ -12,7 +12,7 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.protocols import OpikReadClient
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE, WORKSPACE_PREFIX
+from opik_mcp.config import AI_SPEND_FEATURE, AI_SPEND_WORKSPACE_PREFIX
 from opik_mcp.read_list import registry
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.anyio
 
 NONE = frozenset[str]()
 SPEND = frozenset({AI_SPEND_FEATURE})
-SPEND_SETTINGS = make_settings(opik_workspace=f"{WORKSPACE_PREFIX}org__", opik_api_key="k")
+SPEND_SETTINGS = make_settings(opik_workspace=f"{AI_SPEND_WORKSPACE_PREFIX}org__", opik_api_key="k")
 DEFAULT_SETTINGS = make_settings(opik_workspace="team", opik_api_key="k")
 UUID = "0190a3c4-1111-7000-8000-000000000001"
 

@@ -8,8 +8,7 @@ from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.config import get_settings
-from opik_mcp.cost_intelligence import enabled_features
-from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
+from opik_mcp.features.registry import FEATURE_REGISTRY
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
@@ -40,8 +39,9 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     requested = str(kwargs.get("skill_name", "")).strip().strip("/")
     skill = requested.removeprefix(SKILLS_URI_PREFIX).removeprefix("../").partition("/")[0]
     is_reference = not requested.endswith("SKILL.md") and "/" in requested.removeprefix("../")
+    feature_skills = (name for feature in FEATURE_REGISTRY.values() for name in feature.skills)
     return {
-        "skill": skill if skill in (*skill_names(), GUIDE_NAME) else "unknown",
+        "skill": skill if skill in (*skill_names(), *feature_skills) else "unknown",
         "request_shape": request_shape(requested),
         "is_reference": str(is_reference).lower(),
     }
@@ -90,7 +90,7 @@ async def read_skill(
 ) -> str:
     if ctx is not None:
         await ctx.info(f"read_skill.called skill_name={skill_name}")
-    return run_read_skill(skill_name, enabled_features(get_settings()))
+    return run_read_skill(skill_name, get_settings())
 
 
 def register(mcp: FastMCP[object]) -> None:

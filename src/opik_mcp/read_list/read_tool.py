@@ -31,7 +31,6 @@ from opik_mcp.client.base import (
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings, get_settings
-from opik_mcp.cost_intelligence import enabled_features
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
@@ -122,7 +121,7 @@ async def run_read(
     # into either slot. A parsed project-scoped URI/link also carries the
     # project, which overrides the explicit arg.
     resolved_settings = settings or get_settings()
-    features = enabled_features(resolved_settings)
+    features = resolved_settings.features
     record_id = id
     if looks_like_uri(record_id) or looks_like_opik_link(record_id, URI_PATTERNS):
         try:

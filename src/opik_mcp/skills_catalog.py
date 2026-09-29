@@ -31,9 +31,9 @@ from importlib.resources import files
 from importlib.resources.abc import Traversable
 from typing import ClassVar
 
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE
-from opik_mcp.cost_intelligence.descriptions import GUIDE_FILE, GUIDE_NAME
+from opik_mcp.config import Settings
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.features.registry import enabled_features
 
 #: URI prefix for every skill file served over MCP. Reuses the `opik://` scheme
 #: the read tool already parses (see `read_list/uri.py`) rather than inventing a
@@ -229,16 +229,6 @@ def skill_names() -> tuple[str, ...]:
     return tuple(sorted({f.skill for f in iter_skill_files()}))
 
 
-def _is_guide(requested: str) -> bool:
-    return requested in (GUIDE_NAME, GUIDE_FILE)
-
-
-def _read_guide() -> str:
-    """The guide lives outside the skills tree, so resources and the published
-    pack never see it."""
-    return (files("opik_mcp") / "cost_intelligence" / GUIDE_FILE).read_text(encoding="utf-8")
-
-
 @cache
 def _by_uri() -> dict[str, SkillFile]:
     return {f.uri: f for f in iter_skill_files()}
@@ -294,8 +284,8 @@ def _reference_names(skill: str) -> tuple[str, ...]:
     )
 
 
-def _name_list() -> str:
-    return ", ".join(skill_names())
+def _name_list(extra_skills: tuple[str, ...] = ()) -> str:
+    return ", ".join((*skill_names(), *extra_skills))
 
 
 def request_shape(skill_name: str) -> str:
@@ -312,7 +302,7 @@ def request_shape(skill_name: str) -> str:
     return "path" if "/" in requested.removeprefix("../") else "name"
 
 
-def resolve(skill_name: str) -> SkillFile:
+def resolve(skill_name: str, extra_skills: tuple[str, ...] = ()) -> SkillFile:
     """The file a caller named, in any of the forms the tool documents.
 
     One argument, four forms, because an agent arrives holding whichever one it
@@ -340,7 +330,9 @@ def resolve(skill_name: str) -> SkillFile:
     while requested.startswith("../"):
         requested = requested[3:]
     if not requested:
-        raise UnknownSkillError(f"skill_name is empty; available skills: {_name_list()}")
+        raise UnknownSkillError(
+            f"skill_name is empty; available skills: {_name_list(extra_skills)}"
+        )
 
     # A URI is the same (skill, document) pair wearing a prefix, so strip it and
     # take the one road out. Two roads is what made a bad URI answer with the skill
@@ -351,7 +343,9 @@ def resolve(skill_name: str) -> SkillFile:
 
     skill, _, relative = remainder.partition("/")
     if skill not in skill_names():
-        raise UnknownSkillError(f"unknown skill {skill!r}; available skills: {_name_list()}")
+        raise UnknownSkillError(
+            f"unknown skill {skill!r}; available skills: {_name_list(extra_skills)}"
+        )
 
     entry = resolve_uri(f"{SKILLS_URI_PREFIX}{skill}/{relative or 'SKILL.md'}")
     if entry is not None:
@@ -401,7 +395,7 @@ def readable_paths(skill: str) -> tuple[str, ...]:
     return ("SKILL.md", *(f.path for f in _references(skill)))
 
 
-def run_read_skill(skill_name: str, features: frozenset[str] = frozenset()) -> str:
+def run_read_skill(skill_name: str, settings: Settings | None = None) -> str:
     """The `read_skill` tool body: one skill document, ready to act on.
 
     Output is a one-line `[read_skill: …]` header (mirroring the `read` tool's
@@ -412,10 +406,13 @@ def run_read_skill(skill_name: str, features: frozenset[str] = frozenset()) -> s
     Both the header and the footer quote the *resolved* file, not the caller's
     spelling: this output is documentation an agent imitates on its next call.
     """
-    if AI_SPEND_FEATURE in features and _is_guide(skill_name.strip().strip("/")):
-        guide = _read_guide()
-        return f"[read_skill: {GUIDE_NAME} bytes={len(guide.encode('utf-8'))}]\n\n{guide}"
-    entry = resolve(skill_name)
+    features = enabled_features(settings) if settings else ()
+    requested = skill_name.strip().strip("/")
+    for feature in features:
+        if requested in feature.skills:
+            text = feature.skills[requested]()
+            return f"[read_skill: {requested} bytes={len(text.encode('utf-8'))}]\n\n{text}"
+    entry = resolve(skill_name, extra_skills=tuple(name for f in features for name in f.skills))
     content = read_skill_file(entry)
     header = (
         f"[read_skill: {entry.skill} path={entry.path} "
