@@ -40,7 +40,8 @@ ENTITY = "spend_user"
 ROUTING_FIELDS: Final[tuple[str, ...]] = get_args(SpendItemKind)
 MAX_ITEM_USERS: Final = 50
 _ROUTING_NOTE: Final = (
-    "lists who uses that item instead of the leaderboard; one routing filter at a time"
+    "lists who uses that item instead of the leaderboard; one routing filter at a time, "
+    "and the name must match the lane read's label exactly, case included"
 )
 VOCABULARY = Vocabulary(
     name=ENTITY,
@@ -58,7 +59,7 @@ VOCABULARY = Vocabulary(
         },
     },
     sort_fields=("total_tokens", "requests", "skills", "mcps", "mcp_calls"),
-    filter_examples=('mcp_server = "github"', 'skill = "review"', 'user_email = "dev@example.com"'),
+    filter_examples=('mcp_server = "GitHub"', 'skill = "review"', 'user_email = "dev@example.com"'),
     field_notes=dict.fromkeys(ROUTING_FIELDS, _ROUTING_NOTE),
 )
 _SORT_WORDS: Final = {"total_tokens": "tokens", "mcp_calls": "MCP calls"}
