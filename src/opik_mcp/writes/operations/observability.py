@@ -20,13 +20,13 @@ from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 from opik_mcp.writes.models import (
     EXAMPLE_TIME,
+    ClientIdMixin,
     InputOutput,
     Metadata,
-    _ClientIdMixin,
-    _ProjectMixin,
-    _RequiredProjectMixin,
-    _StrictBase,
-    _TagsMixin,
+    ProjectMixin,
+    RequiredProjectMixin,
+    StrictBase,
+    TagsMixin,
     example_uuid,
 )
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump
@@ -40,7 +40,7 @@ ScoreTarget = Literal["trace", "span", "thread"]
 forces the batch shape on the score endpoint — see spec §3.2."""
 
 
-class TraceCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
+class TraceCreate(StrictBase, ClientIdMixin, TagsMixin, ProjectMixin):
     """``POST /v1/private/traces`` — log a single trace."""
 
     name: str = Field(min_length=1, max_length=200, description="Display name.")
@@ -53,7 +53,7 @@ class TraceCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
     last_updated_at: datetime | None = Field(default=None)
 
 
-class TraceUpdate(_StrictBase, _TagsMixin, _ProjectMixin):
+class TraceUpdate(StrictBase, TagsMixin, ProjectMixin):
     """``PATCH /v1/private/traces/{id}`` — finalize or amend a trace.
 
     Project context (``project_name`` or ``project_id``) must match the
@@ -71,7 +71,7 @@ class TraceUpdate(_StrictBase, _TagsMixin, _ProjectMixin):
 SpanType = Literal["general", "llm", "tool"]
 
 
-class SpanCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
+class SpanCreate(StrictBase, ClientIdMixin, TagsMixin, ProjectMixin):
     """``POST /v1/private/spans`` — log a single span on an existing trace."""
 
     trace_id: UUID = Field(description="UUID of the parent trace.")
@@ -96,7 +96,7 @@ _TARGET_ID_DESC = (
 )
 
 
-class _AnnotationTarget(_StrictBase):
+class _AnnotationTarget(StrictBase):
     """Shared target fields + per-target id validation for score/comment.
 
     One uniform contract for the LLM: ``target_id`` is a UUID for trace/span
@@ -204,7 +204,7 @@ COMMENT_CREATE_EXAMPLE: Final[dict[str, Any]] = {
 # The thread lifecycle models sit here, not beside their builder in threads.py:
 # mypy reads every Pydantic model as explicit Any, and threads.py is typed
 # strictly while this module is still on the Any baseline.
-class _ThreadLifecycle(_StrictBase, _RequiredProjectMixin):
+class _ThreadLifecycle(StrictBase, RequiredProjectMixin):
     """Shared shape for thread status changes (close/open).
 
     A thread is keyed by ``thread_id`` within a project, so the BE's

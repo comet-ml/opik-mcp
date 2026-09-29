@@ -14,11 +14,11 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from opik_mcp.writes.models import (
+    ClientIdMixin,
     InputOutput,
     Metadata,
+    StrictBase,
     TagList,
-    _ClientIdMixin,
-    _StrictBase,
     example_uuid,
 )
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump
@@ -27,7 +27,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
 
 
-class PromptVersionSave(_StrictBase):
+class PromptVersionSave(StrictBase):
     """``POST /v1/private/prompts/versions`` — idempotent upsert.
 
     Creates the prompt if it doesn't exist (matched on ``name``) and
@@ -49,7 +49,7 @@ class PromptVersionSave(_StrictBase):
 # create never rides on the backend's default.
 
 
-class DatasetCreate(_StrictBase, _ClientIdMixin):
+class DatasetCreate(StrictBase, ClientIdMixin):
     """``POST /v1/private/datasets`` — create a dataset or a test suite."""
 
     name: str = Field(min_length=1, max_length=200)
@@ -96,7 +96,7 @@ class DatasetItem(BaseModel):
         return self
 
 
-class DatasetItemUpsert(_StrictBase):
+class DatasetItemUpsert(StrictBase):
     """``PUT /v1/private/datasets/items`` — always envelope form.
 
     Exactly one of ``dataset_name`` / ``dataset_id`` is required; spec §3.2.
@@ -121,7 +121,7 @@ class DatasetItemUpsert(_StrictBase):
         return self
 
 
-class ExperimentCreate(_StrictBase, _ClientIdMixin):
+class ExperimentCreate(StrictBase, ClientIdMixin):
     """``POST /v1/private/experiments`` — start a new experiment run."""
 
     dataset_name: str | None = Field(default=None, max_length=200)
@@ -156,7 +156,7 @@ class ExperimentItem(BaseModel):
     trace_id: UUID
 
 
-class ExperimentItemCreate(_StrictBase):
+class ExperimentItemCreate(StrictBase):
     """``POST /v1/private/experiments/items`` — array envelope only.
 
     The BE has no singleton route for this endpoint; the model rejects bare

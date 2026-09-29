@@ -34,14 +34,14 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
 from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
 from opik_mcp.writes.errors import BackendError
-from opik_mcp.writes.models import _RequiredProjectMixin, _StrictBase
+from opik_mcp.writes.models import RequiredProjectMixin, StrictBase
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
 
 
-class AgentInsightsJobAction(_StrictBase, _RequiredProjectMixin):
+class AgentInsightsJobAction(StrictBase, RequiredProjectMixin):
     """Shared shape for the Diagnostics (Agent Insights) job actions.
 
     The backend keys the job by project and takes the project in the path, so
@@ -66,7 +66,7 @@ class AgentInsightsJobTrigger(AgentInsightsJobAction):
     """``POST /v1/private/agent-insights/jobs/{projectId}/trigger`` — scan now."""
 
 
-class AgentInsightsIssueAction(_StrictBase, _RequiredProjectMixin):
+class AgentInsightsIssueAction(StrictBase, RequiredProjectMixin):
     """Shared shape for a Diagnostics (Agent Insights) issue's lifecycle moves.
 
     ``PATCH /v1/private/agent-insights/issues/{issue_id}`` takes the issue in
