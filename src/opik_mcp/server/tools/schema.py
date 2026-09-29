@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from collections.abc import Mapping
+from typing import Annotated
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -12,7 +13,7 @@ from opik_mcp.writes import SCHEMA_TOOL_DESCRIPTION, run_schema
 from opik_mcp.writes.schema_tool import SCHEMA_KEYS
 
 
-def _schema_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+def _schema_props(_result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
     return {"operation": str(kwargs.get("operation", ""))}
 
 
@@ -32,8 +33,8 @@ async def schema(
             json_schema_extra={"enum": SCHEMA_KEY_ENUM},
         ),
     ],
-    ctx: Context[ServerSession, None] | None = None,
-) -> dict[str, Any]:
+    ctx: Context[ServerSession, None, object] | None = None,
+) -> Mapping[str, object]:
     if ctx is not None:
         await ctx.info(f"schema.called operation={operation}")
     return run_schema(operation=operation)

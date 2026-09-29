@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal
+from collections.abc import Mapping
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -17,7 +18,7 @@ from opik_mcp.server.tools.fields import FIELDS_LIST_DESCRIPTION
 from opik_mcp.server.tools.hints import READS
 
 
-def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+def _list_props(_result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
     """Analytics labels for ``list``.
 
     The search surface (OPIK-8283) is recorded as *shape* only: which filter
@@ -27,29 +28,37 @@ def _list_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     a window / free-text search was present. Failed validations don't reach
     this function; they are bucketed by exception class in the wrapper.
     """
+    entity_type = str(kwargs.get("entity_type", ""))
     filters = kwargs.get("filters")
     sort = kwargs.get("sort")
+    fields = kwargs.get("fields")
     return {
         # What the page itself turned out to be, which the arguments cannot
         # say: an empty page under the sdk default is the shape of "the
         # default hid the traces", and a dashboard needs to see that apart
         # from "there were none".
         **page_facts(),
-        "entity_type": kwargs.get("entity_type", ""),
+        "entity_type": entity_type,
         "had_name_filter": str(kwargs.get("name") is not None).lower(),
         "page": str(kwargs.get("page", 1)),
         "size": str(kwargs.get("size", 25)),
         "has_filters": str(bool(filters)).lower(),
         "filter_fields": ",".join(
-            filter_field_names(kwargs.get("entity_type", ""), filters, VOCABULARIES.values())
+            filter_field_names(
+                entity_type,
+                filters if isinstance(filters, str) else None,
+                VOCABULARIES.values(),
+            )
         ),
         "has_sort": str(bool(sort)).lower(),
-        "sort_field": sort_field_label(sort, VOCABULARIES.values()),
+        "sort_field": sort_field_label(
+            sort if isinstance(sort, str) else None, VOCABULARIES.values()
+        ),
         "has_window": str(bool(kwargs.get("since") or kwargs.get("until"))).lower(),
         "has_search": str(bool(kwargs.get("search"))).lower(),
         # Count only — a column name here is a dataset's data key or a score
         # name, which is user vocabulary. See ``_read_props``.
-        "field_count": str(len(kwargs.get("fields") or [])),
+        "field_count": str(len(fields) if isinstance(fields, list) else 0),
     }
 
 
@@ -237,7 +246,7 @@ async def list_entities(
             max_length=200,
         ),
     ] = None,
-    ctx: Context[ServerSession, None] | None = None,
+    ctx: Context[ServerSession, None, object] | None = None,
 ) -> str:
     """List Opik entities with optional filters and pagination.
 

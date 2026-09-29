@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from collections.abc import Mapping
+from typing import Annotated
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -13,7 +14,7 @@ from opik_mcp.writes import WRITE_TOOL_DESCRIPTION, run_write
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 
-def _write_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+def _write_props(_result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
     """Analytics labels for the universal write tool.
 
     ``operation`` is the high-cardinality dimension that dashboards key off
@@ -56,7 +57,7 @@ async def write(
         ),
     ],
     data: Annotated[
-        dict[str, Any] | list[Any],
+        dict[str, object] | list[object],
         Field(
             description=(
                 "Payload for the operation. Object for a single write, or array "
@@ -86,8 +87,8 @@ async def write(
             ),
         ),
     ] = False,
-    ctx: Context[ServerSession, None] | None = None,
-) -> dict[str, Any]:
+    ctx: Context[ServerSession, None, object] | None = None,
+) -> Mapping[str, object]:
     if ctx is not None:
         is_batch = isinstance(data, list)
         await ctx.info(f"write.called operation={operation} batch={is_batch} dry_run={dry_run}")
