@@ -1,4 +1,4 @@
-"""The five AI Spend entities, through ``list`` and ``read`` in cost intelligence mode."""
+"""The five AI Spend entities, through ``list`` and ``read`` in an AI Spend workspace."""
 
 from __future__ import annotations
 
@@ -15,15 +15,23 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.ai_spend import SpendAdminRequiredError, SpendItemKind
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
-from opik_mcp.cost_intelligence import COST_INTELLIGENCE_MODE, FIXED_PROJECT
+from opik_mcp.cost_intelligence import AI_SPEND_FEATURE, FIXED_PROJECT, enabled_features
+from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
 from opik_mcp.read_list import registry
 from opik_mcp.read_list.entities.spend.lane import LANE_KEYS, TOP_ITEMS
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS
-from opik_mcp.read_list.visibility import listable_types, readable_types
+from opik_mcp.read_list.visibility import (
+    added_listable,
+    added_readable,
+    added_schema_keys,
+    listable_types,
+    readable_types,
+)
 from opik_mcp.read_list.window import parse_bound
+from opik_mcp.skills_catalog import run_read_skill
 from opik_mcp.writes.schema_tool import run_schema
 from tests.factories import make_settings
 
@@ -643,8 +651,11 @@ async def test_arguments_a_type_does_not_honor_are_refused_in_one_line(
     assert fake.calls == []
 
 
-def test_schema_answers_for_the_spend_types_with_their_fields() -> None:
-    reference = run_schema("list.spend_session", settings=SPEND)
+def test_schema_answers_for_the_spend_types_with_their_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("opik_mcp.writes.schema_tool.get_settings", lambda: SPEND)
+    reference = run_schema("list.spend_session")
     assert set(reference["filters"]["fields"]) == {
         "user_email",
         "turns",
@@ -655,7 +666,7 @@ def test_schema_answers_for_the_spend_types_with_their_fields() -> None:
     assert "last_activity" in reference["sort"]["fields"]
 
 
-# --- the default mode ------------------------------------------------------ #
+# --- a default workspace ------------------------------------------------------ #
 
 
 class _NoBackend:
@@ -664,14 +675,17 @@ class _NoBackend:
 
 
 @pytest.mark.parametrize("entity_type", SPEND_TYPES)
-async def test_the_default_mode_refuses_every_spend_type(entity_type: str) -> None:
+async def test_a_default_workspace_refuses_every_spend_type_as_unknown(entity_type: str) -> None:
     client = cast("OpikListClient", _NoBackend())
-    with pytest.raises(ToolError, match="Cannot list"):
+    with pytest.raises(ToolError, match="Cannot list") as listed:
         await run_list(entity_type, settings=DEFAULT, client=client)
-    with pytest.raises(ToolError, match="Invalid entity_type"):
+    with pytest.raises(ToolError, match="Invalid entity_type") as read:
         await run_read(
             entity_type, "x", settings=DEFAULT, client=cast("OpikReadClient", _NoBackend())
         )
+    for refusal in (listed, read):
+        assert "AI Spend" not in str(refusal.value)
+        assert "spend_" not in str(refusal.value).replace(repr(entity_type), "")
 
 
 def test_the_default_surface_names_no_spend_type() -> None:
@@ -684,17 +698,23 @@ def test_the_default_surface_names_no_spend_type() -> None:
         *LIST_SCHEMA_KEYS,
     )
     assert not [name for name in advertised if "spend" in name], (
-        "a spend type leaked into the default mode's advertised types: declare "
-        "modes=frozenset({COST_INTELLIGENCE_MODE}) on its handler in entities/spend."
+        "a spend type leaked into the default types: declare "
+        "feature=AI_SPEND_FEATURE on its handler in entities/spend."
     )
 
 
-def test_every_spend_handler_is_cost_intelligence_only_and_outside_any_project() -> None:
+def test_every_spend_handler_is_behind_the_feature() -> None:
     handlers = [registry.ENTITY_REGISTRY[name] for name in SPEND_TYPES]
-    assert all(h.modes == frozenset({COST_INTELLIGENCE_MODE}) for h in handlers)
-    assert all(h.project_scope == "none" for h in handlers)
-    assert set(SPEND_TYPES) <= set(listable_types(COST_INTELLIGENCE_MODE))
-    assert set(readable_types(COST_INTELLIGENCE_MODE)) >= {"spend_lane", "spend_session"}
+    assert all(h.feature == AI_SPEND_FEATURE for h in handlers)
+
+
+def test_the_spend_workspace_adds_exactly_the_spend_types() -> None:
+    features = enabled_features(SPEND)
+    assert added_readable(features) == ["spend_lane", "spend_session"]
+    assert sorted(added_listable(features)) == sorted(SPEND_TYPES)
+    assert added_schema_keys(features) == sorted(f"list.{name}" for name in SPEND_TYPES)
+    assert set(SPEND_TYPES) <= set(listable_types(features))
+    assert {"spend_lane", "spend_session"} <= set(readable_types(features))
 
 
 async def test_a_missing_dollar_field_reads_n_a_not_zero() -> None:
@@ -735,3 +755,43 @@ async def test_a_missing_total_falls_back_to_the_row_count() -> None:
     )
     assert "page 1/1 | 1 users" in _first_line(await _list(fake, "spend_user"))
     assert "page 1/1 | 1 sessions" in _first_line(await _list(fake, "spend_session"))
+
+
+async def test_a_lane_read_counts_the_hidden_items_from_what_the_backend_returned() -> None:
+    items = [{"label": f"item-{i}", "total_tokens": i, "cost_usd": float(i)} for i in range(30)]
+    fake = FakeSpend(breakdown={"title": "MCP servers", "item_count": 4_000, "items": items})
+    data = json.loads((await _read(fake, "spend_lane", "mcp_servers")).split("\n", 1)[1])
+    assert len(data["items"]) == TOP_ITEMS
+    assert data["more"].startswith("5 more items")
+
+
+async def test_the_guide_says_the_outline_filter_leaves_some_background_turns() -> None:
+    guide = run_read_skill(GUIDE_NAME, enabled_features(SPEND))
+    step = guide[guide.index("If the narrative isn't ready") :]
+    step = step[: step.index("**Which subagents")]
+    assert 'name not_contains "automated"' in step
+    for remaining in ("Status-line prompts", "recaps", "cross-session messages"):
+        assert remaining in step, f"the outline step no longer names {remaining!r}"
+    assert "without automated" not in guide
+
+
+async def test_session_rows_link_to_their_analysis_page_and_the_column_says_turns() -> None:
+    fake = FakeSpend(sessions={"total": 1, "content": [_session_row(SESSION)]})
+    answer = await _list(fake, "spend_session")
+    assert "| turns |" in answer.split("\n")[1]
+    (link,) = [line for line in answer.split("\n") if line.startswith("Open a row in Opik")]
+    assert "/__ai_spend_test__/ai-spend/session-analysis/{id}" in link
+    assert "Open in Opik" not in answer
+
+
+@pytest.mark.parametrize("filters", [None, 'mcp_server = "github"'])
+async def test_user_rows_link_to_the_leaderboard_not_home(filters: str | None) -> None:
+    fake = FakeSpend(
+        users={"total": 1, "content": [_user_row("a@example.com", 5)]},
+        item_users=[{"user_email": "a@example.com", "calls": 1}],
+    )
+    answer = await _list(fake, "spend_user", filters=filters)
+    (link,) = [line for line in answer.split("\n") if line.startswith("Open in Opik")]
+    assert "/__ai_spend_test__/ai-spend/leaderboard" in link
+    assert "Open a row" not in answer
+    assert "/ai-spend/home" not in answer

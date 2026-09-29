@@ -71,8 +71,9 @@ Categories, not an exhaustive key list:
 
 A thread is one Claude Code session. Its id is the session id the `spend_session` type
 uses. A trace is one turn; its name is the start of the prompt, or `automated…` for
-background calls (titles, suggestions, recaps). Skip automated turns when you describe
-what someone did.
+background calls (titles, suggestions). Status-line prompts, recaps and messages from
+other sessions are also logged as turns, under their own names. Skip all of these when
+you describe what someone did.
 
 ## Traps
 
@@ -100,10 +101,12 @@ who uses one of them.
 **What did the most expensive session do?**
 1. `list('spend_session', size=5)` lists sessions by tokens.
 2. `read('spend_session', '<id>')` gives the narrative: tasks, phases and a summary.
-3. If the narrative isn't ready, outline the session, oldest turn first, without automated
-   turns: `list('trace', filters='thread_id = "<id>" AND name not_contains "automated"',
-   fields=['name'], sort='start_time asc', size=50)`. Each name is the start of a prompt.
-   Then read only the turns that matter with `read('trace', '<trace id>')`.
+3. If the narrative isn't ready, outline the session, oldest turn first:
+   `list('trace', filters='thread_id = "<id>" AND name not_contains "automated"',
+   fields=['name'], sort='start_time asc', size=50)`. The filter drops only turns named
+   `automated…`. Status-line prompts, recaps and cross-session messages remain and show
+   in their names, so skim past them. Each other name is the start of a prompt. Then read
+   only the turns that matter with `read('trace', '<trace id>')`.
 
 **Which subagents cost the most?** `list('spend_agent')`.
 

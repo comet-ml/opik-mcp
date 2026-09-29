@@ -19,7 +19,6 @@ from typing import Any, Final
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.cost_intelligence import ALL_MODES
 from opik_mcp.read_list.entities.project.read import fetch_project, project_links
 from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow, Vocabulary
@@ -67,8 +66,6 @@ comparing two date columns by eye.
 
 HANDLER = EntityHandler(
     entity_type="project",
-    modes=ALL_MODES,
-    project_scope="self",
     is_name_searchable=True,
     uri_patterns=(opik_uri("projects/{id}"),),
     vocabularies=(VOCABULARY,),

@@ -1,4 +1,4 @@
-"""The stub's AI Spend routes: ``POST /v1/private/ai-spend/...`` for cost intelligence mode.
+"""The stub's AI Spend routes: ``POST /v1/private/ai-spend/...`` for the AI Spend types.
 
 Each route answers a fixture from ``fixtures/ai_spend_*.json``. A test may hand
 the stub a different body for a fixture (``StubBackend.spend_payloads``), keyed

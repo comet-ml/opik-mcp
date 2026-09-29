@@ -46,7 +46,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from opik_mcp.cost_intelligence import DEFAULT_MODE, FIXED_PROJECT
+from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from tests.hermetic.stub_backend import (
     CASE_ID,
@@ -327,7 +327,7 @@ CLAIMS: tuple[Claim, ...] = (
         "Counts are all-time unless since/until narrow the window (truncated to UTC report days)",
         "issue_counts_are_all_time_unless_windowed",
     ),
-    # -- spend_summary (cost intelligence mode) ------------------------------------ #
+    # -- spend_summary (AI Spend workspace) ------------------------------------ #
     Claim(
         "spend_summary",
         "Claude Code usage totals for the window against the window before it",
@@ -875,7 +875,7 @@ async def _issue_window(drive: Driver) -> None:
 
 # --- the coverage guard (runs in `make check`) ------------------------------- #
 
-# -- cost intelligence mode: the spend types ---------------------------------- #
+# -- AI Spend workspace: the spend types ---------------------------------- #
 
 _SPEND = "/v1/private/ai-spend"
 
@@ -1106,9 +1106,9 @@ def backend() -> Iterator[StubBackend]:
 
 
 def _workspace_for(entity: str) -> str:
-    """An entity only cost intelligence mode shows is probed inside that mode."""
-    modes = ENTITY_REGISTRY[entity].modes
-    return "stub-workspace" if DEFAULT_MODE in modes else "__ai_spend_test__"
+    """An entity behind a feature is probed in the workspace that turns it on."""
+    is_default = ENTITY_REGISTRY[entity].feature is None
+    return "stub-workspace" if is_default else "__ai_spend_test__"
 
 
 @asynccontextmanager
@@ -1146,7 +1146,7 @@ async def test_the_entitys_description_holds(entity: str, backend: StubBackend) 
     thirteen. Failures still name the claim, because that is what the message
     is built from.
     """
-    if DEFAULT_MODE not in ENTITY_REGISTRY[entity].modes:
+    if ENTITY_REGISTRY[entity].feature is not None:
         backend.project_name = FIXED_PROJECT
     claims = [claim for claim in CLAIMS if claim.entity == entity]
     assert claims, f"{entity} has no claims — the table test should have caught this"

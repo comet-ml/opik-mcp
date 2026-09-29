@@ -25,8 +25,8 @@ os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 # only defence. A crash in a test must never reach the real Sentry project.
 os.environ.setdefault("OPIK_MCP_SENTRY_ENABLED", "false")
 
-# A developer's own AI Spend workspace would flip the whole suite into cost
-# intelligence mode; tests that want the mode build their settings for it.
+# A developer's own AI Spend workspace would switch the AI Spend feature on
+# for the whole suite; tests that want it build their settings for it.
 for _workspace_var in ("OPIK_WORKSPACE", "COMET_WORKSPACE"):
     if os.environ.get(_workspace_var, "").startswith("__ai_spend_"):
         del os.environ[_workspace_var]
@@ -60,9 +60,8 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
     )
-    from opik_mcp.cost_intelligence import DEFAULT_MODE
     from opik_mcp.identity.store import reset_identities_for_tests
-    from opik_mcp.read_list.project_scope import enter_mode, reset_project_cache_for_tests
+    from opik_mcp.read_list.project_scope import reset_project_cache_for_tests
 
     _reset_process_caches()
     reset_analytics_for_tests()
@@ -75,7 +74,6 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     # test fakes carry no config, so without a reset one test's resolution
     # would satisfy the next test's lookup.
     reset_project_cache_for_tests()
-    enter_mode(DEFAULT_MODE)
     # main() sets this sentinel so the build_app() lifespan skips its own emit.
     # Clear it between tests or a test that calls main() leaves the build_app()
     # lifespan (e.g. the session http_client fixture) permanently muted.
@@ -87,7 +85,6 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
     reset_project_cache_for_tests()
-    enter_mode(DEFAULT_MODE)
     os.environ.pop(LIFECYCLE_SENTINEL, None)
     _reset_process_caches()
 

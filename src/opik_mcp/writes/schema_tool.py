@@ -11,8 +11,8 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.config import Settings, get_settings
-from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode, mode_of
+from opik_mcp.config import get_settings
+from opik_mcp.cost_intelligence import enabled_features
 from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS, list_reference
 from opik_mcp.read_list.visibility import list_schema_keys
 from opik_mcp.writes.errors import UnknownOperationError
@@ -40,23 +40,11 @@ SCHEMA_KEYS: tuple[str, ...] = (*WRITE_OPERATIONS, *LIST_SCHEMA_KEYS)
 """Everything ``schema`` answers for: write operations plus ``list.<entity>``."""
 
 
-def run_schema(
-    operation: str, settings: Settings | None = None, mode: Mode | None = None
-) -> dict[str, Any]:
+def run_schema(operation: str) -> dict[str, Any]:
     """Return ``{schema, example, oauth_scope, supports_batch, parent_id_fields,
     failure_modes, description}`` for a write operation, or the filter/sort
-    reference for a ``list.<entity>`` key. A mode without writes answers only
-    the ``list.<entity>`` keys it shows."""
-    mode = mode or mode_of(settings or get_settings())
-    if mode != DEFAULT_MODE:
-        available = list_schema_keys(mode)
-        if operation not in available:
-            raise ToolError(
-                f"{operation!r} is not available in this workspace. Available: "
-                f"{', '.join(available)}."
-            )
-        return list_reference(operation.removeprefix("list."))
-    if operation in LIST_SCHEMA_KEYS:
+    reference for a ``list.<entity>`` key."""
+    if operation in list_schema_keys(enabled_features(get_settings())):
         return list_reference(operation.removeprefix("list."))
     op = WRITE_REGISTRY.get(operation)
     if op is None:

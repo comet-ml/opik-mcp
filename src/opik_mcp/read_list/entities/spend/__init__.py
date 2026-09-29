@@ -1,14 +1,14 @@
-"""AI Spend in cost intelligence mode: summary, lanes, users, sessions and agents.
+"""AI Spend: summary, lanes, users, sessions and agents.
 
 Five entities in one namespace because they share the window, the client and
-the dollar labels, and entities may not import each other. All are hidden in
-the default mode and none belongs to a project (the backend is asked for the
+the dollar labels, and entities may not import each other. All exist only in an
+AI Spend workspace and none belongs to a project (the backend is asked for the
 fixed one). Lists answer through ``run_fn``; a lane and a session also read.
 """
 
 from __future__ import annotations
 
-from opik_mcp.read_list.entities.spend._backend import MODES
+from opik_mcp.cost_intelligence import AI_SPEND_FEATURE
 from opik_mcp.read_list.entities.spend.agent import VOCABULARY as AGENT_VOCABULARY
 from opik_mcp.read_list.entities.spend.agent import run_spend_agent
 from opik_mcp.read_list.entities.spend.lane import VOCABULARY as LANE_VOCABULARY
@@ -19,10 +19,11 @@ from opik_mcp.read_list.entities.spend.session import (
     run_spend_session,
     session_links,
 )
+from opik_mcp.read_list.entities.spend.session import row_link_template as session_row_link
 from opik_mcp.read_list.entities.spend.summary import VOCABULARY as SUMMARY_VOCABULARY
 from opik_mcp.read_list.entities.spend.summary import run_spend_summary
 from opik_mcp.read_list.entities.spend.user import VOCABULARY as USER_VOCABULARY
-from opik_mcp.read_list.entities.spend.user import run_spend_user
+from opik_mcp.read_list.entities.spend.user import leaderboard_note, run_spend_user
 from opik_mcp.read_list.handler import EntityHandler, ReadWindow
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
@@ -38,8 +39,7 @@ def _hint(entity_type: str) -> str:
 
 SUMMARY_HANDLER = EntityHandler(
     entity_type="spend_summary",
-    modes=MODES,
-    project_scope="none",
+    feature=AI_SPEND_FEATURE,
     fetch_fn=unsupported_fetch,
     run_fn=run_spend_summary,
     run_timeout_hint=_hint("spend_summary"),
@@ -52,8 +52,7 @@ SUMMARY_HANDLER = EntityHandler(
 
 LANE_HANDLER = EntityHandler(
     entity_type="spend_lane",
-    modes=MODES,
-    project_scope="none",
+    feature=AI_SPEND_FEATURE,
     fetch_fn=fetch_lane,
     id_only=True,
     read_window=_WINDOW,
@@ -69,10 +68,10 @@ LANE_HANDLER = EntityHandler(
 
 USER_HANDLER = EntityHandler(
     entity_type="spend_user",
-    modes=MODES,
-    project_scope="none",
+    feature=AI_SPEND_FEATURE,
     fetch_fn=unsupported_fetch,
     run_fn=run_spend_user,
+    page_note_fn=leaderboard_note,
     run_timeout_hint=_hint("spend_user"),
     vocabularies=(USER_VOCABULARY,),
     description=(
@@ -83,13 +82,13 @@ USER_HANDLER = EntityHandler(
 
 SESSION_HANDLER = EntityHandler(
     entity_type="spend_session",
-    modes=MODES,
-    project_scope="none",
+    feature=AI_SPEND_FEATURE,
     fetch_fn=fetch_session,
     id_only=True,
     read_window=_WINDOW,
     link_fn=session_links,
     run_fn=run_spend_session,
+    row_link_template=session_row_link,
     run_timeout_hint=_hint("spend_session"),
     vocabularies=(SESSION_VOCABULARY,),
     description=(
@@ -100,8 +99,7 @@ SESSION_HANDLER = EntityHandler(
 
 AGENT_HANDLER = EntityHandler(
     entity_type="spend_agent",
-    modes=MODES,
-    project_scope="none",
+    feature=AI_SPEND_FEATURE,
     fetch_fn=unsupported_fetch,
     run_fn=run_spend_agent,
     run_timeout_hint=_hint("spend_agent"),

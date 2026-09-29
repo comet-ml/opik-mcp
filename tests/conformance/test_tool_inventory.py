@@ -121,8 +121,9 @@ from opik_mcp.server import mcp
 # to advertise. The table above has spent most of it since. At 23,495 the
 # headroom was 505 bytes; at 22,379 it is 1,621. Unused headroom is not in
 # anyone's context; only what is written is.
-# Cost intelligence mode (four tools, no `write`) is measured against the same
-# cap: 7,991 bytes, far under it. The default surface is unchanged at 22,379.
+# An AI Spend workspace only adds three sentences to the descriptions, plus the
+# names its five spend types add: 22,878 bytes, 499 over the default surface,
+# which is unchanged at 22,379. The same cap measures it.
 SURFACE_BUDGET_BYTES = 24_000
 
 
@@ -362,9 +363,8 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # purpose, with a note here.
 # This caps growth; the host's 2,048-character cut on the same text is pinned
 # in test_tool_annotations.py. Lower this to match once the text fits.
-# Cost intelligence mode renders its own text under the same cap: 1,792 bytes
-# with a 40-character email and a long spend workspace name. The default text
-# is unchanged at 4,711 bytes with the longest settings.
+# An AI Spend workspace adds one paragraph: 4,933 bytes with the longest
+# settings, +222 over the default text, which is unchanged at 4,711.
 INSTRUCTIONS_BUDGET_BYTES = 5_000
 
 

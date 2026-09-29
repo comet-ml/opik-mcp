@@ -22,7 +22,6 @@ from opik_mcp.client.base import (
 )
 from opik_mcp.client.protocols import AiSpendClient, OpikReadClient
 from opik_mcp.config import Settings
-from opik_mcp.cost_intelligence import COST_INTELLIGENCE_MODE
 from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import ParamField, Vocabulary
@@ -36,7 +35,6 @@ from opik_mcp.read_list.window import (
     to_minute,
 )
 
-MODES: Final = frozenset({COST_INTELLIGENCE_MODE})
 DEFAULT_WINDOW_DAYS: Final = 30
 
 Row = Mapping[str, object]
@@ -78,7 +76,7 @@ def spend_window(since: str | None, until: str | None) -> SpendWindow:
 
 # --- arguments ----------------------------------------------------------- #
 
-_TOOL_INTERNALS: Final = frozenset({"vocabularies"})
+_TOOL_INTERNALS: Final = frozenset({"vocabularies", "settings"})
 
 
 def refuse_unhonored(entity_type: str, given: Mapping[str, object], *, why: str) -> None:
@@ -223,7 +221,6 @@ def no_usage(window: SpendWindow, scope: Scope | None = None) -> str:
 
 __all__ = [
     "DEFAULT_WINDOW_DAYS",
-    "MODES",
     "USER_EMAIL",
     "Row",
     "Scope",

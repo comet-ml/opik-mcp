@@ -174,7 +174,6 @@ async def fetch_lane(
         interval_end=window.end,
     )
     items = sorted(rows_of(body.get("items")), key=_by_list_value, reverse=True)
-    item_count = whole(body, "item_count") or len(items)
     record: dict[str, object] = {
         "lane": lane_key,
         "title": text(body, "title"),
@@ -189,7 +188,7 @@ async def fetch_lane(
         "item_unit": text(body, "item_unit") or None,
         "items": [_item(row) for row in items[:TOP_ITEMS]],
     }
-    hidden = item_count - min(len(items), TOP_ITEMS)
+    hidden = len(items) - TOP_ITEMS
     if hidden > 0:
         record["more"] = f"{hidden} more items not shown: the top {TOP_ITEMS} by list $ are above."
     return {key: value for key, value in record.items() if value is not None}

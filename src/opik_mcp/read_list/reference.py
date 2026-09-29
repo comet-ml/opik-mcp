@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from opik_mcp.cost_intelligence import DEFAULT_MODE
 from opik_mcp.read_list.oql_fields import (
     KEY_ALLOWED_TYPES,
     KEY_REQUIRED_TYPES,
@@ -25,7 +24,7 @@ from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 from opik_mcp.read_list.visibility import list_schema_keys
 
-LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = list_schema_keys(DEFAULT_MODE)
+LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = list_schema_keys(frozenset())
 
 
 def list_reference(entity_type: str) -> dict[str, Any]:

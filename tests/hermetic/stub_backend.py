@@ -143,8 +143,8 @@ class StubBackend:
     #: Replacement bodies for the AI Spend routes, keyed by fixture name
     #: (``ai_spend_agents``), for a probe that needs a different window.
     spend_payloads: dict[str, object] = field(default_factory=dict)
-    #: The project the Opik routes serve. Cost intelligence mode confines every
-    #: call to ``claude-code``, so its tests rename the one project here.
+    #: The project the Opik routes serve. The spend types send every call to
+    #: ``claude-code``, so their tests rename the one project here.
     project_name: str = PROJECT_NAME
     #: Score names the project has recorded.
     score_names: list[str] = field(default_factory=lambda: ["Hallucination", "Answer Relevance"])

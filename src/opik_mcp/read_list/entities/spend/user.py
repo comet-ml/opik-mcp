@@ -6,7 +6,7 @@ import json
 from typing import Final, cast, get_args
 
 from opik_mcp.client.ai_spend import SpendItemKind
-from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
@@ -15,10 +15,10 @@ from opik_mcp.read_list.entities.spend._backend import (
     SpendWindow,
     billed,
     count,
-    link_line,
     list_header,
     no_usage,
     number,
+    page_url,
     refuse_unhonored,
     rows_of,
     spend_client,
@@ -31,7 +31,7 @@ from opik_mcp.read_list.entities.spend._backend import (
     whole,
 )
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import ParamField, Vocabulary
+from opik_mcp.read_list.handler import PageContext, ParamField, Vocabulary
 from opik_mcp.read_list.oql import compile_filters, render_filters, split_param_clauses
 from opik_mcp.read_list.paging import clamp_size
 from opik_mcp.read_list.sorting import compile_sort
@@ -73,6 +73,13 @@ def _sort_label(field: str, direction: str) -> str:
     )
 
 
+async def leaderboard_note(
+    _client: OpikListClient, settings: Settings, _ctx: PageContext
+) -> str | None:
+    """Users have no page of their own; the page ends with the leaderboard link."""
+    return f"Open in Opik: the AI Spend leaderboard — {page_url(settings, 'leaderboard')}"
+
+
 async def run_spend_user(
     client: OpikReadClient,
     *,
@@ -83,7 +90,6 @@ async def run_spend_user(
     until: str | None = None,
     page: int | None = None,
     size: int | None = None,
-    settings: Settings,
     **unhonored: object,
 ) -> str:
     refuse_unhonored(
@@ -107,9 +113,7 @@ async def run_spend_user(
             {"name": name, "sort": sort, "page": page, "size": size},
             why="the users of one item come back whole, by tokens.",
         )
-        return await _item_users(
-            client, routing, window, user_email=user_email, echo=echo, settings=settings
-        )
+        return await _item_users(client, routing, window, user_email=user_email, echo=echo)
 
     field, direction = compile_sort(VOCABULARY, sort) if sort else ("total_tokens", "DESC")
     current_page, page_size = max(1, page or 1), clamp_size(size)
@@ -143,8 +147,7 @@ async def run_spend_user(
     lines = [header, _leaderboard(rows)]
     if current_page < pages:
         lines.append(f"{total - current_page * page_size} more users: page={current_page + 1}.")
-    link = link_line(settings, "leaderboard", "the AI Spend leaderboard")
-    return "\n".join([*lines, *([link] if link else [])])
+    return "\n".join(lines)
 
 
 def _nothing_here(window: SpendWindow, *, total: int, page: int, name: str | None) -> str:
@@ -207,7 +210,6 @@ async def _item_users(
     *,
     user_email: str | None,
     echo: str | None,
-    settings: Settings,
 ) -> str:
     ((kind, item),) = routing.items()
     with spend_errors():
@@ -259,8 +261,7 @@ async def _item_users(
             f"{len(rows) - MAX_ITEM_USERS} more users not shown; narrow with "
             "filters='user_email = \"…\"'."
         )
-    link = link_line(settings, "home", "the AI Spend home page")
-    return "\n".join([*lines, *([link] if link else [])])
+    return "\n".join(lines)
 
 
-__all__ = ["ENTITY", "ROUTING_FIELDS", "VOCABULARY", "run_spend_user"]
+__all__ = ["ENTITY", "ROUTING_FIELDS", "VOCABULARY", "leaderboard_note", "run_spend_user"]

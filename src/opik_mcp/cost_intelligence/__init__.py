@@ -1,22 +1,18 @@
-"""Cost intelligence mode: a local server pointed at an AI Spend workspace.
+"""Cost intelligence: a local server pointed at an AI Spend workspace.
 
 A leaf package: it reads the settings and nothing else, so any layer may ask
-which mode it is in.
+which features the workspace turns on.
 """
 
 from __future__ import annotations
 
-from typing import Final, Literal
+from typing import Final
 
 from opik_mcp.config import Settings
 
 WORKSPACE_PREFIX: Final = "__ai_spend_"
 FIXED_PROJECT: Final = "claude-code"
-
-Mode = Literal["default", "cost_intelligence"]
-DEFAULT_MODE: Final[Mode] = "default"
-COST_INTELLIGENCE_MODE: Final[Mode] = "cost_intelligence"
-ALL_MODES: Final[frozenset[Mode]] = frozenset({DEFAULT_MODE, COST_INTELLIGENCE_MODE})
+AI_SPEND_FEATURE: Final = "ai_spend"
 
 
 def is_cost_intelligence(settings: Settings) -> bool:
@@ -25,17 +21,14 @@ def is_cost_intelligence(settings: Settings) -> bool:
     return settings.opik_mcp_transport.lower() == "stdio" and workspace.startswith(WORKSPACE_PREFIX)
 
 
-def mode_of(settings: Settings) -> Mode:
-    return COST_INTELLIGENCE_MODE if is_cost_intelligence(settings) else DEFAULT_MODE
+def enabled_features(settings: Settings) -> frozenset[str]:
+    return frozenset({AI_SPEND_FEATURE}) if is_cost_intelligence(settings) else frozenset()
 
 
 __all__ = [
-    "ALL_MODES",
-    "COST_INTELLIGENCE_MODE",
-    "DEFAULT_MODE",
+    "AI_SPEND_FEATURE",
     "FIXED_PROJECT",
     "WORKSPACE_PREFIX",
-    "Mode",
+    "enabled_features",
     "is_cost_intelligence",
-    "mode_of",
 ]

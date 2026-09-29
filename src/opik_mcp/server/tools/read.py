@@ -8,8 +8,6 @@ from mcp.server.session import ServerSession
 from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
-from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode
-from opik_mcp.cost_intelligence.descriptions import READ_DESCRIPTION
 from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.registry import READABLE_TYPES, URI_PATTERNS
 from opik_mcp.read_list.uri import looks_like_opik_link
@@ -168,10 +166,5 @@ async def read(
     )
 
 
-def register(mcp: FastMCP[object], mode: Mode = DEFAULT_MODE) -> None:
-    mcp.tool(
-        description=READ_DESCRIPTION if mode != DEFAULT_MODE else None,
-        title="Read an Opik record",
-        annotations=READS,
-        structured_output=False,
-    )(read)
+def register(mcp: FastMCP[object]) -> None:
+    mcp.tool(title="Read an Opik record", annotations=READS, structured_output=False)(read)

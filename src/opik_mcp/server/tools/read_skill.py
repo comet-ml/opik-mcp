@@ -8,7 +8,7 @@ from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.config import get_settings
-from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode, mode_of
+from opik_mcp.cost_intelligence import enabled_features
 from opik_mcp.cost_intelligence.descriptions import GUIDE_NAME
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.skills_catalog import (
@@ -71,40 +71,32 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
 # and reject valid calls at the host's schema check.
 
 
-def _build(mode: Mode | None = None) -> Any:
-    """The tool bound to the registration mode; unbound, it asks the settings per call."""
-
-    @instrument_tool("read_skill", props_fn=_read_skill_props)
-    async def read_skill(
-        skill_name: Annotated[
-            str,
-            Field(
-                description=(
-                    "A skill name ('opik-instrument'), a path inside a skill "
-                    "('opik/references/tracing-python.md'), or a resource URI "
-                    "('opik://skills/opik/SKILL.md'). A SKILL.md ends with the list of "
-                    "its references."
-                ),
-                min_length=1,
-                max_length=512,
+@instrument_tool("read_skill", props_fn=_read_skill_props)
+async def read_skill(
+    skill_name: Annotated[
+        str,
+        Field(
+            description=(
+                "A skill name ('opik-instrument'), a path inside a skill "
+                "('opik/references/tracing-python.md'), or a resource URI "
+                "('opik://skills/opik/SKILL.md'). A SKILL.md ends with the list of "
+                "its references."
             ),
-        ],
-        ctx: Context[ServerSession, None] | None = None,
-    ) -> str:
-        if ctx is not None:
-            await ctx.info(f"read_skill.called skill_name={skill_name}")
-        return run_read_skill(skill_name, mode or mode_of(get_settings()))
-
-    return read_skill
-
-
-read_skill = _build()
+            min_length=1,
+            max_length=512,
+        ),
+    ],
+    ctx: Context[ServerSession, None] | None = None,
+) -> str:
+    if ctx is not None:
+        await ctx.info(f"read_skill.called skill_name={skill_name}")
+    return run_read_skill(skill_name, enabled_features(get_settings()))
 
 
-def register(mcp: FastMCP[object], mode: Mode = DEFAULT_MODE) -> None:
+def register(mcp: FastMCP[object]) -> None:
     mcp.tool(
-        description=read_skill_tool_description(mode),
+        description=read_skill_tool_description(),
         title="Read an Opik agent skill",
         annotations=READS,
         structured_output=False,
-    )(_build(mode))
+    )(read_skill)

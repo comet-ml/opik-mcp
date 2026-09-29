@@ -16,10 +16,10 @@ from opik_mcp.read_list.entities.spend._backend import (
     child,
     count,
     link_fields,
-    link_line,
     list_header,
     no_usage,
     number,
+    page_url,
     refuse_unhonored,
     rows_of,
     spend_client,
@@ -102,7 +102,6 @@ async def run_spend_session(
     search: str | None = None,
     page: int | None = None,
     size: int | None = None,
-    settings: Settings,
     **unhonored: object,
 ) -> str:
     refuse_unhonored(
@@ -147,8 +146,7 @@ async def run_spend_session(
     lines = [header, _rows(rows)]
     if current_page < pages:
         lines.append(f"{total - current_page * page_size} more sessions: page={current_page + 1}.")
-    link = link_line(settings, "session-analysis", "the AI Spend session analysis page")
-    return "\n".join([*lines, *([link] if link else [])])
+    return "\n".join(lines)
 
 
 def _nothing_here(window: SpendWindow, *, total: int, page: int, narrowed: bool) -> str:
@@ -225,6 +223,10 @@ async def fetch_session(
     return _not_ready(session_id, body)
 
 
+def row_link_template(settings: Settings, _project_id: str | None) -> str | None:
+    return page_url(settings, "session-analysis/{id}")
+
+
 def session_links(settings: Settings, data: dict[str, object]) -> dict[str, str]:
     session_id = data.get("session_id")
     if not isinstance(session_id, str):
@@ -236,4 +238,11 @@ def session_links(settings: Settings, data: dict[str, object]) -> dict[str, str]
     )
 
 
-__all__ = ["ENTITY", "VOCABULARY", "fetch_session", "run_spend_session", "session_links"]
+__all__ = [
+    "ENTITY",
+    "VOCABULARY",
+    "fetch_session",
+    "row_link_template",
+    "run_spend_session",
+    "session_links",
+]

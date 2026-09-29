@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from opik_mcp.config import Settings
+from opik_mcp.cost_intelligence.descriptions import INSTRUCTIONS_PARAGRAPH
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.ui_links import trace_link_template
 from opik_mcp.server import mcp
@@ -21,6 +22,9 @@ from tests.factories import make_settings
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+_TODAY = datetime(2026, 1, 2, tzinfo=UTC)
 
 
 def _settings(**overrides: object) -> Settings:
@@ -190,34 +194,29 @@ def test_the_handshake_advertises_no_address_the_ui_has_retired() -> None:
     assert "/traces" not in blob
 
 
-# --- cost intelligence mode ------------------------------------------------ #
+# --- AI Spend workspace ---------------------------------------------------- #
 
 
 def _spend_settings() -> Settings:
     return _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="stdio")
 
 
-def test_the_cost_intelligence_blob_names_only_the_tools_that_mode_advertises() -> None:
-    out = render_instructions(_spend_settings())
-    assert re.search(r"(?<!\w)write(?!\w)", out) is None
-    for tool in ("read", "list", "schema", "read_skill"):
-        assert re.search(rf"(?<!\w){tool}(?!\w)", out), f"{tool} is advertised but not named"
-
-
-def test_the_cost_intelligence_blob_scopes_to_claude_code_and_points_at_the_guide() -> None:
+def test_the_ai_spend_paragraph_is_in_a_spend_workspace_before_tool_selection() -> None:
     out = render_instructions(_spend_settings(), user_email="me@example.com")
-    assert "claude-code" in out
-    assert "read_skill('cost-intelligence')" in out
-    assert "me@example.com" in out
+    assert INSTRUCTIONS_PARAGRAPH in out
+    assert out.index(INSTRUCTIONS_PARAGRAPH) < out.index("Tool selection:")
 
 
-def test_the_cost_intelligence_blob_names_no_hidden_type() -> None:
-    out = render_instructions(_spend_settings())
-    for hidden in ("dataset", "experiment", "agent_insights_issue", "prompt_version"):
-        assert hidden not in out, hidden
+def test_a_spend_workspace_blob_is_the_default_blob_plus_the_paragraph() -> None:
+    spend = render_instructions(_spend_settings(), today=_TODAY)
+    default = render_instructions(
+        _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="streamable-http"),
+        today=_TODAY,
+    )
+    assert spend.replace(f"\n{INSTRUCTIONS_PARAGRAPH}\n", "", 1) == default
 
 
-def test_the_default_blob_is_not_the_cost_intelligence_blob() -> None:
+def test_the_default_blob_has_no_ai_spend_paragraph_and_keeps_write() -> None:
     out = render_instructions(_settings())
     assert "claude-code" not in out
     assert "cost-intelligence" not in out
@@ -228,4 +227,4 @@ def test_the_hosted_transport_keeps_the_default_blob_on_a_spend_workspace() -> N
     out = render_instructions(
         _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="streamable-http")
     )
-    assert "cost-intelligence" not in out
+    assert INSTRUCTIONS_PARAGRAPH not in out
