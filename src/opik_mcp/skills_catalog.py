@@ -215,8 +215,9 @@ def iter_skill_files() -> tuple[SkillFile, ...]:
             continue
         if not (skill_dir / "SKILL.md").is_file():
             continue
-        for parts in _walk(skill_dir, ()):
-            entries.append(SkillFile(skill=skill_dir.name, path="/".join(parts)))
+        entries.extend(
+            SkillFile(skill=skill_dir.name, path="/".join(parts)) for parts in _walk(skill_dir, ())
+        )
     entries.sort(key=lambda e: (e.skill, not e.is_entry_point, e.path))
     return tuple(entries)
 

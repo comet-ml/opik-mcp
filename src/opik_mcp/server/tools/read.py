@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from collections.abc import Mapping
+from typing import Annotated
 from uuid import UUID
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -23,7 +24,7 @@ def _looks_like_uuid(s: str) -> bool:
         return False
 
 
-def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+def _read_props(_result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
     raw_id = str(kwargs.get("id", ""))
     if raw_id.startswith("opik://") or looks_like_opik_link(raw_id, URI_PATTERNS):
         id_kind = "uri"
@@ -31,14 +32,15 @@ def _read_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
         id_kind = "uuid"
     else:
         id_kind = "name"
+    fields = kwargs.get("fields")
     return {
-        "entity_type": kwargs.get("entity_type", ""),
+        "entity_type": str(kwargs.get("entity_type", "")),
         "id_kind": id_kind,
         # How many fields, never which: a path is ``data.<key>`` or
         # ``metadata.<key>``, which is the user's vocabulary and not ours to
         # put on an event. The count answers the question the feature will be
         # judged on — whether agents ask for one field or for most of them.
-        "field_count": str(len(kwargs.get("fields") or [])),
+        "field_count": str(len(fields) if isinstance(fields, list) else 0),
     }
 
 
@@ -106,7 +108,7 @@ async def read(
         list[str] | None,
         Field(description=FIELDS_READ_DESCRIPTION, max_length=50),
     ] = None,
-    ctx: Context[ServerSession, None] | None = None,
+    ctx: Context[ServerSession, None, object] | None = None,
 ) -> str:
     """Read any Opik entity by ID, name, or opik:// URI.
 

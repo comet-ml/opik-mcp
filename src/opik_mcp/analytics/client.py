@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import TypedDict
 
 import httpx
 
@@ -47,7 +47,13 @@ from opik_mcp.identity.store import (
 
 logger = logging.getLogger("opik_mcp.analytics")
 
-_QUEUE_SENTINEL: Any = object()
+
+class AnalyticsEvent(TypedDict):
+    """The body comet-stats receives for one event."""
+
+    user_id: str
+    event_type: str
+    event_properties: dict[str, str]
 
 
 class AnalyticsClient:
@@ -77,7 +83,8 @@ class AnalyticsClient:
                 pool=settings.opik_mcp_analytics_total_timeout_s,
             )
         )
-        self._queue: queue.Queue[Any] = queue.Queue(maxsize=max_queue_size)
+        # ``None`` tells the worker to stop.
+        self._queue: queue.Queue[AnalyticsEvent | None] = queue.Queue(maxsize=max_queue_size)
         self._worker: threading.Thread | None = None
         self._closed = False
         self._closed_lock = threading.Lock()
@@ -159,7 +166,7 @@ class AnalyticsClient:
         if self._worker is None:
             self._http.close()
             return
-        self._queue.put(_QUEUE_SENTINEL)
+        self._queue.put(None)
         self._worker.join(timeout=2.0)
         self._http.close()
 
@@ -180,13 +187,13 @@ class AnalyticsClient:
         while True:
             event = self._queue.get()
             try:
-                if event is _QUEUE_SENTINEL:
+                if event is None:
                     return
                 self._dispatch_with_retry(event)
             finally:
                 self._queue.task_done()
 
-    def _dispatch_with_retry(self, event: dict[str, Any]) -> None:
+    def _dispatch_with_retry(self, event: AnalyticsEvent) -> None:
         """POST one event, retrying transient failures per ``_retry_backoff_s``.
 
         The first cold POST routinely loses the DNS+TLS race; a retry on the
@@ -207,10 +214,10 @@ class AnalyticsClient:
         logger.warning(
             "analytics POST failed after %d attempt(s) for event_type=%s",
             len(self._retry_backoff_s),
-            event.get("event_type"),
+            event["event_type"],
         )
 
-    def _build_event(self, event_type: str, properties: dict[str, str]) -> dict[str, Any]:
+    def _build_event(self, event_type: str, properties: dict[str, str]) -> AnalyticsEvent:
         common: dict[str, str] = {
             "environment": self._settings.opik_mcp_analytics_environment,
             "opik_mcp_version": OPIK_MCP_VERSION,

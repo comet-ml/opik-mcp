@@ -161,7 +161,6 @@ extend-allowed-calls = ["pytest.param"]
 "src/opik_mcp/skills/opik-test/evals/run_evals.py" = ["PLC0415", "T201"]
 "src/opik_mcp/skills/opik-verify/evals/fixtures/gate/seed.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-verify/evals/run_evals.py" = ["PLC0415", "T201"]
-"src/opik_mcp/skills_catalog.py" = ["PERF401"]
 "src/opik_mcp/writes/__init__.py" = ["I002"]
 "tests/analytics/test_boot_props.py" = ["PT006"]
 "tests/analytics/test_client.py" = ["ARG002", "I002"]
@@ -246,12 +245,7 @@ disallow_any_explicit = false
 # never grows: explicit_any_findings in tests/repo/ratchets.json.
 [[tool.mypy.overrides]]
 module = [
-    "opik_mcp.analytics.client",
-    "opik_mcp.analytics.mcp_client_info",
-    "opik_mcp.analytics.wrappers",
     "opik_mcp.config",
-    "opik_mcp.error_tracking",
-    "opik_mcp.identity.account",
     "opik_mcp.read_list.columns",
     "opik_mcp.read_list.decorations",
     "opik_mcp.read_list.entities.agent_insights_issue.availability",
@@ -294,14 +288,6 @@ module = [
     "opik_mcp.read_list.size",
     "opik_mcp.read_list.slim",
     "opik_mcp.read_list.unsupported",
-    "opik_mcp.server.app.lifespan",
-    "opik_mcp.server.app.session",
-    "opik_mcp.server.tools.list",
-    "opik_mcp.server.tools.read",
-    "opik_mcp.server.tools.read_skill",
-    "opik_mcp.server.tools.schema",
-    "opik_mcp.server.tools.write",
-    "opik_mcp.skills_resources",
     "opik_mcp.writes.dispatch",
     "opik_mcp.writes.errors",
     "opik_mcp.writes.models",
@@ -312,7 +298,6 @@ module = [
     "opik_mcp.writes.schema_tool",
     "opik_mcp.writes.wire",
     "opik_mcp.writes.write_tool",
-    "scripts.build_skills_pack",
     "tests.analytics.test_auth_rejected",
     "tests.analytics.test_call_context",
     "tests.analytics.test_client",

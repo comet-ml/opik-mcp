@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from collections.abc import Mapping
+from typing import Annotated
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.session import ServerSession
@@ -17,7 +18,7 @@ from opik_mcp.skills_catalog import (
 )
 
 
-def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
+def _read_skill_props(_result: object, kwargs: Mapping[str, object]) -> dict[str, str]:
     """Analytics labels for ``read_skill``.
 
     Three low-cardinality labels, three distinct questions.
@@ -83,7 +84,7 @@ async def read_skill(
             max_length=512,
         ),
     ],
-    ctx: Context[ServerSession, None] | None = None,
+    ctx: Context[ServerSession, None, object] | None = None,
 ) -> str:
     if ctx is not None:
         await ctx.info(f"read_skill.called skill_name={skill_name}")
