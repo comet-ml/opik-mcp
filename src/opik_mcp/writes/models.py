@@ -12,13 +12,13 @@ ship — every model with tags inherits the same validator.
 
 The models are deliberately permissive about fields the BE accepts but the
 LLM rarely needs (``input``/``output`` are ``dict``-or-``list``, metadata
-is ``dict[str, Any]``, etc.) so that valid BE payloads from the SDKs round
+is ``dict[str, object]``, etc.) so that valid BE payloads from the SDKs round
 trip through the MCP tool without losing fidelity.
 """
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
+from typing import ClassVar
 from uuid import UUID
 
 from pydantic import (
@@ -31,16 +31,17 @@ from pydantic import (
 # --- shared types --------------------------------------------------------- #
 
 # Most write payloads accept either a list or a dict shape on input/output;
-# the BE preserves whichever the caller sent.
-InputOutput = dict[str, Any] | list[Any] | None
-Metadata = dict[str, Any] | None
+# the BE preserves whichever the caller sent. ``object``, not ``JsonValue``:
+# Pydantic reads it as Any, so the input schema stays unchanged.
+InputOutput = dict[str, object] | list[object] | None
+Metadata = dict[str, object] | None
 TagList = list[str]
 
 
 # --- mixins --------------------------------------------------------------- #
 
 
-class _StrictBase(BaseModel):
+class StrictBase(BaseModel):
     """Common config. ``extra='forbid'`` matches the spec's
     ``additionalProperties: false`` and surfaces typos as validation errors
     instead of letting them silently round-trip to the BE.
@@ -49,7 +50,7 @@ class _StrictBase(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class _TagsMixin(BaseModel):
+class TagsMixin(BaseModel):
     """Replace-vs-patch tag handling — spec §3.3 'Tags'.
 
     Mixing ``tags`` (replace) with either patch field is rejected with the
@@ -75,7 +76,7 @@ class _TagsMixin(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _validate_tag_modes(self) -> _TagsMixin:
+    def _validate_tag_modes(self) -> TagsMixin:
         replace_set = self.tags is not None
         patch_set = self.tags_to_add is not None or self.tags_to_remove is not None
         if replace_set and patch_set:
@@ -86,7 +87,7 @@ class _TagsMixin(BaseModel):
         return self
 
 
-class _RequiredProjectMixin(BaseModel):
+class RequiredProjectMixin(BaseModel):
     """Project scope that must be present, for BE routes that reject a request
     without it.
 
@@ -94,7 +95,7 @@ class _RequiredProjectMixin(BaseModel):
     because the field the LLM has to add is the same but the reason differs (a
     thread's project, a Diagnostics job's project, an issue's project). So the
     fields and the check live here once and the subclass supplies the message.
-    ``_ProjectMixin`` below is the opposite case: optional, xor-checked.
+    ``ProjectMixin`` below is the opposite case: optional, xor-checked.
     """
 
     project_name: str | None = Field(default=None, max_length=200)
@@ -106,13 +107,13 @@ class _RequiredProjectMixin(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _require_project(self) -> _RequiredProjectMixin:
+    def _require_project(self) -> RequiredProjectMixin:
         if self.project_name is None and self.project_id is None:
             raise ValueError(self._missing_project_error)
         return self
 
 
-class _ProjectMixin(BaseModel):
+class ProjectMixin(BaseModel):
     """``project_name`` xor ``project_id`` — spec §3.3 'Project resolution'.
 
     Both unset is fine (BE falls back to a default project for workspaces
@@ -127,13 +128,13 @@ class _ProjectMixin(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _validate_project_xor(self) -> _ProjectMixin:
+    def _validate_project_xor(self) -> ProjectMixin:
         if self.project_name is not None and self.project_id is not None:
             raise ValueError("project_xor: pass either `project_name` or `project_id`, not both.")
         return self
 
 
-class _ClientIdMixin(BaseModel):
+class ClientIdMixin(BaseModel):
     """Optional client-side id for idempotency — spec §3.3 'IDs'.
 
     The top-level ``idempotency_key`` parameter (handed to the dispatcher)

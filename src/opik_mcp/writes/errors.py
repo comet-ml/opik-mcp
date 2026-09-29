@@ -11,10 +11,11 @@ from __future__ import annotations
 import difflib
 import json
 from dataclasses import dataclass
-from typing import Any, ClassVar, Final, Literal
+from typing import ClassVar, Final, Literal, NotRequired, TypedDict
 
 from opik_mcp.error_kinds import ErrorKind
 from opik_mcp.identity.context import oauth_token_expired_hint
+from opik_mcp.json_types import JsonObject
 
 ErrorCode = Literal[
     "validation_failed",
@@ -36,13 +37,40 @@ CODE_BATCH_TOO_LARGE: Final = "batch_too_large"
 CODE_BATCH_PARTIAL_FAILURE: Final = "batch_partial_failure"
 
 
+class IssueFields(TypedDict):
+    field: str
+    message: NotRequired[str]
+    code: str
+
+
+class BackendStatus(TypedDict):
+    status: int
+
+
+class ErrorExtra(TypedDict, total=False):
+    """Every field a write error adds to its envelope, besides error, operation
+    and message. Each error class sets its own few."""
+
+    valid_operations: list[str]
+    did_you_mean: str
+    issues: list[IssueFields]
+    example: JsonObject | list[JsonObject]
+    required_scope: str
+    backend_error: BackendStatus
+    backend_message: str
+    size: int
+    limit: int
+    successes: list[JsonObject]
+    failures: list[JsonObject]
+
+
 @dataclass(frozen=True)
 class ValidationIssue:
     field: str
     message: str
     code: str
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> IssueFields:
         # A precondition's issue has no message of its own: its sentence is
         # the envelope's lead, and a copy here would say it twice.
         if not self.message:
@@ -64,17 +92,17 @@ class WriteError(Exception):
         self,
         operation: str | None = None,
         message: str = "",
-        extra: dict[str, Any] | None = None,
+        extra: ErrorExtra | None = None,
     ) -> None:
         # ``args`` mirrors the signature so pickling and copying rebuild the
         # same error.
         self.operation = operation
         self.message = message
-        self.extra: dict[str, Any] = {} if extra is None else extra
+        self.extra: ErrorExtra = {} if extra is None else extra
         super().__init__(operation, message, self.extra)
 
-    def to_dict(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"error": self.error}
+    def to_dict(self) -> dict[str, object]:
+        out: dict[str, object] = {"error": self.error}
         if self.operation is not None:
             out["operation"] = self.operation
         if self.message:
@@ -97,7 +125,7 @@ class UnknownOperationError(WriteError):
 
     @classmethod
     def build(cls, operation: str, valid: tuple[str, ...]) -> UnknownOperationError:
-        extra: dict[str, Any] = {"valid_operations": list(valid)}
+        extra: ErrorExtra = {"valid_operations": list(valid)}
         # Closest valid match (Levenshtein-ish via difflib) — lets the
         # model self-correct from typos in one shot instead of bisecting
         # the full list.
@@ -122,7 +150,7 @@ class ValidationFailedError(WriteError):
         operation: str,
         issues: list[ValidationIssue],
         *,
-        example: dict[str, Any] | list[Any],
+        example: JsonObject | list[JsonObject],
         message: str | None = None,
     ) -> ValidationFailedError:
         # The JSON Schema is not inlined: it is one schema() call away, and
@@ -181,7 +209,7 @@ class BackendError(WriteError):
         # analytics bucket. ``backend_message`` is the backend's own capped
         # reason on a 400, 409 or 422 (``client.base.backend_reason``), kept in its
         # own field so it is never read as ours.
-        extra: dict[str, Any] = {"backend_error": {"status": status}}
+        extra: ErrorExtra = {"backend_error": {"status": status}}
         if backend_message:
             extra["backend_message"] = backend_message
         return cls(
@@ -241,8 +269,8 @@ class BatchPartialFailureError(WriteError):
     def build(
         cls,
         operation: str,
-        successes: list[dict[str, Any]],
-        failures: list[dict[str, Any]],
+        successes: list[JsonObject],
+        failures: list[JsonObject],
     ) -> BatchPartialFailureError:
         return cls(
             operation=operation,

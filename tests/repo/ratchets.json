@@ -2,7 +2,7 @@
   "_rule": "Only delete entries: pay the debt off, then remove its line here and in pyproject.toml where the test says. Never add one; a change that needs a new entry adds a hook or fixes the finding instead. One exception: a move that splits a file may replace its entry with one entry per new module that carries the same findings, and the PR says so. The total of findings never grows (explicit_any_findings). tests/repo/test_ratchets.py",
   "entity_names_at_root": {},
   "operation_names_at_root": {},
-  "explicit_any_findings": 647,
+  "explicit_any_findings": 592,
   "suppressions": {
     "src/opik_mcp/server/app/session.py": 1,
     "tests/writes/test_recovery_envelope.py": 2,
@@ -129,9 +129,6 @@
     ],
     "src/opik_mcp/skills_catalog.py": [
       "PERF401"
-    ],
-    "src/opik_mcp/writes/__init__.py": [
-      "I002"
     ],
     "tests/conftest.py": [
       "I002"
@@ -312,16 +309,10 @@
     "opik_mcp.server.tools.schema",
     "opik_mcp.server.tools.write",
     "opik_mcp.skills_resources",
-    "opik_mcp.writes.dispatch",
-    "opik_mcp.writes.errors",
     "opik_mcp.writes.models",
     "opik_mcp.writes.operations.diagnostics",
     "opik_mcp.writes.operations.evaluation",
     "opik_mcp.writes.operations.observability",
-    "opik_mcp.writes.registry",
-    "opik_mcp.writes.schema_tool",
-    "opik_mcp.writes.wire",
-    "opik_mcp.writes.write_tool",
     "scripts.build_skills_pack",
     "tests.analytics.test_auth_rejected",
     "tests.analytics.test_call_context",
@@ -352,8 +343,6 @@
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
     "tests.server.test_error_tracking",
-    "tests.writes.test_recovery_envelope",
-    "tests.writes.test_registry",
     "tests.writes.test_write_links"
   ]
 }

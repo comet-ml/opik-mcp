@@ -400,6 +400,7 @@ async def test_thread_close_dry_run_reports_fixed_path() -> None:
             dry_run=True,
             client=_client(),
         )
+    assert isinstance(result["would_call"], dict)
     assert result["would_call"]["method"] == "PUT"
     assert result["would_call"]["path"] == "/v1/private/traces/threads/close"
     assert not route.called
@@ -468,6 +469,7 @@ async def test_job_enable_creates_the_job() -> None:
     assert route.called
     assert out["ok"] is True
     assert out["status"] == 201
+    assert isinstance(out["backend_body"], dict)
     assert out["backend_body"]["status"] == "enabled"
 
 
@@ -489,6 +491,7 @@ async def test_job_enable_flips_an_existing_disabled_job() -> None:
         )
     assert json.loads(patch.calls.last.request.content) == {"status": "enabled"}
     assert out["ok"] is True
+    assert isinstance(out["backend_body"], dict)
     assert out["backend_body"]["status"] == "enabled"
 
 
@@ -606,6 +609,7 @@ async def test_job_enable_dry_run_previews_the_real_path_for_an_id() -> None:
             dry_run=True,
             client=_client(),
         )
+    assert isinstance(out["would_call"], dict)
     assert out["would_call"]["path"] == f"/v1/private/agent-insights/jobs/{PROJECT}"
 
 
@@ -617,6 +621,7 @@ async def test_job_enable_dry_run_says_a_name_is_resolved_at_execution() -> None
         dry_run=True,
         client=_client(),
     )
+    assert isinstance(out["would_call"], dict)
     assert "{project_id}" in out["would_call"]["path"]
     assert "resolve" in out["would_call"]["note"]
 
@@ -649,6 +654,7 @@ async def test_job_enable_twice_in_a_row_is_safe() -> None:
     assert first["method"] == "POST"
     assert second["ok"] is True
     assert second["method"] == "PATCH"
+    assert isinstance(second["backend_body"], dict)
     assert second["backend_body"]["status"] == "enabled"
 
 
@@ -779,6 +785,7 @@ async def test_job_trigger_starts_a_scan_and_reports_where_to_watch_it() -> None
     assert out["ok"] is True
     assert out["status"] == 202
     assert out["url"] == f"https://opik.test/ws/projects/{PROJECT}/diagnostics"
+    assert isinstance(out["note"], str)
     assert "last 24 hours" in out["note"]
 
 
@@ -949,6 +956,7 @@ async def test_dry_run_returns_would_call_without_be() -> None:
             client=_client(),
         )
     assert result["dry_run"] is True
+    assert isinstance(result["would_call"], dict)
     assert result["would_call"]["method"] == "POST"
     assert result["would_call"]["path"] == "/v1/private/traces"
     assert result["would_call"]["body_size"] > 0
@@ -1382,6 +1390,7 @@ async def test_resolving_an_issue_links_the_view_it_moved_to() -> None:
             client=_client(),
             settings=_UI_SETTINGS,
         )
+    assert isinstance(out["url"], str)
     assert out["url"].endswith(f"/diagnostics/resolved?issue={ISSUE}")
 
     with respx.mock(base_url=OPIK_BASE) as mock:
@@ -1394,6 +1403,7 @@ async def test_resolving_an_issue_links_the_view_it_moved_to() -> None:
             client=_client(),
             settings=_UI_SETTINGS,
         )
+    assert isinstance(out["url"], str)
     assert out["url"].endswith(f"/diagnostics?issue={ISSUE}")
 
 
@@ -1405,6 +1415,7 @@ async def test_issue_lifecycle_dry_run_shows_the_real_path_and_body() -> None:
         dry_run=True,
     )
     call = out["would_call"]
+    assert isinstance(call, dict)
     assert call["method"] == "PATCH"
     assert call["path"] == f"/v1/private/agent-insights/issues/{ISSUE}"
     assert call["body"] == {"project_id": PROJECT, "status": "closed"}
@@ -1424,6 +1435,7 @@ async def test_an_envelope_upsert_counts_its_cases_not_its_envelope() -> None:
         dry_run=True,
         client=_client(),
     )
+    assert isinstance(result["would_call"], dict)
     assert result["would_call"]["item_count"] == 5
     assert len(result["would_call"]["body"]["items"]) == 5
 
@@ -1445,6 +1457,7 @@ async def test_experiment_items_are_counted_through_their_own_envelope() -> None
         dry_run=True,
         client=_client(),
     )
+    assert isinstance(result["would_call"], dict)
     assert result["would_call"]["item_count"] == 2
 
 
@@ -1459,4 +1472,5 @@ async def test_a_top_level_payload_still_counts_itself() -> None:
         dry_run=True,
         client=_client(),
     )
+    assert isinstance(result["would_call"], dict)
     assert result["would_call"]["item_count"] == 2

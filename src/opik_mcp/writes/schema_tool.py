@@ -7,8 +7,6 @@ names this call for the schema, rather than inlining it.
 
 from __future__ import annotations
 
-from typing import Any
-
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS, list_reference
@@ -37,7 +35,7 @@ SCHEMA_KEYS: tuple[str, ...] = (*WRITE_OPERATIONS, *LIST_SCHEMA_KEYS)
 """Everything ``schema`` answers for: write operations plus ``list.<entity>``."""
 
 
-def run_schema(operation: str) -> dict[str, Any]:
+def run_schema(operation: str) -> dict[str, object]:
     """Return ``{schema, example, oauth_scope, supports_batch, parent_id_fields,
     failure_modes, description}`` for a write operation, or the filter/sort
     reference for a ``list.<entity>`` key."""

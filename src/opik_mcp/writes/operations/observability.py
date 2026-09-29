@@ -8,25 +8,26 @@ encodes an id in the path.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
 from opik_mcp.config import Settings
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.entities.thread import thread_page_url
 from opik_mcp.read_list.entities.trace import trace_page_url
 from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 from opik_mcp.writes.models import (
     EXAMPLE_TIME,
+    ClientIdMixin,
     InputOutput,
     Metadata,
-    _ClientIdMixin,
-    _ProjectMixin,
-    _RequiredProjectMixin,
-    _StrictBase,
-    _TagsMixin,
+    ProjectMixin,
+    RequiredProjectMixin,
+    StrictBase,
+    TagsMixin,
     example_uuid,
 )
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump
@@ -40,7 +41,7 @@ ScoreTarget = Literal["trace", "span", "thread"]
 forces the batch shape on the score endpoint — see spec §3.2."""
 
 
-class TraceCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
+class TraceCreate(StrictBase, ClientIdMixin, TagsMixin, ProjectMixin):
     """``POST /v1/private/traces`` — log a single trace."""
 
     name: str = Field(min_length=1, max_length=200, description="Display name.")
@@ -53,7 +54,7 @@ class TraceCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
     last_updated_at: datetime | None = Field(default=None)
 
 
-class TraceUpdate(_StrictBase, _TagsMixin, _ProjectMixin):
+class TraceUpdate(StrictBase, TagsMixin, ProjectMixin):
     """``PATCH /v1/private/traces/{id}`` — finalize or amend a trace.
 
     Project context (``project_name`` or ``project_id``) must match the
@@ -71,7 +72,7 @@ class TraceUpdate(_StrictBase, _TagsMixin, _ProjectMixin):
 SpanType = Literal["general", "llm", "tool"]
 
 
-class SpanCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
+class SpanCreate(StrictBase, ClientIdMixin, TagsMixin, ProjectMixin):
     """``POST /v1/private/spans`` — log a single span on an existing trace."""
 
     trace_id: UUID = Field(description="UUID of the parent trace.")
@@ -85,7 +86,7 @@ class SpanCreate(_StrictBase, _ClientIdMixin, _TagsMixin, _ProjectMixin):
     metadata: Metadata = Field(default=None)
     model: str | None = Field(default=None, max_length=200)
     provider: str | None = Field(default=None, max_length=200)
-    usage: dict[str, Any] | None = Field(default=None)
+    usage: dict[str, object] | None = Field(default=None)
 
 
 _TARGET_ID_DESC = (
@@ -96,7 +97,7 @@ _TARGET_ID_DESC = (
 )
 
 
-class _AnnotationTarget(_StrictBase):
+class _AnnotationTarget(StrictBase):
     """Shared target fields + per-target id validation for score/comment.
 
     One uniform contract for the LLM: ``target_id`` is a UUID for trace/span
@@ -163,21 +164,21 @@ class CommentCreate(_AnnotationTarget):
     text: str = Field(min_length=1, max_length=10_000)
 
 
-TRACE_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+TRACE_CREATE_EXAMPLE: Final[JsonObject] = {
     "name": "openai.chat",
     "start_time": EXAMPLE_TIME,
     "project_name": "demo",
     "input": {"messages": [{"role": "user", "content": "hi"}]},
 }
 
-TRACE_UPDATE_EXAMPLE: Final[dict[str, Any]] = {
+TRACE_UPDATE_EXAMPLE: Final[JsonObject] = {
     "id": example_uuid("01"),
     "end_time": EXAMPLE_TIME,
     "output": {"text": "hello!"},
     "tags_to_add": ["regression"],
 }
 
-SPAN_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+SPAN_CREATE_EXAMPLE: Final[JsonObject] = {
     "trace_id": example_uuid("01"),
     "name": "openai.chat",
     "type": "llm",
@@ -186,7 +187,7 @@ SPAN_CREATE_EXAMPLE: Final[dict[str, Any]] = {
     "provider": "openai",
 }
 
-SCORE_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+SCORE_CREATE_EXAMPLE: Final[JsonObject] = {
     "target": "trace",
     "target_id": example_uuid("01"),
     "name": "helpfulness",
@@ -194,7 +195,7 @@ SCORE_CREATE_EXAMPLE: Final[dict[str, Any]] = {
     "reason": "user-confirmed",
 }
 
-COMMENT_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+COMMENT_CREATE_EXAMPLE: Final[JsonObject] = {
     "target": "span",
     "target_id": example_uuid("01"),
     "text": "retry with temperature=0",
@@ -204,7 +205,7 @@ COMMENT_CREATE_EXAMPLE: Final[dict[str, Any]] = {
 # The thread lifecycle models sit here, not beside their builder in threads.py:
 # mypy reads every Pydantic model as explicit Any, and threads.py is typed
 # strictly while this module is still on the Any baseline.
-class _ThreadLifecycle(_StrictBase, _RequiredProjectMixin):
+class _ThreadLifecycle(StrictBase, RequiredProjectMixin):
     """Shared shape for thread status changes (close/open).
 
     A thread is keyed by ``thread_id`` within a project, so the BE's
@@ -231,12 +232,12 @@ class ThreadOpen(_ThreadLifecycle):
     """``POST /v1/private/traces/threads/open`` — reopen a thread (→ active)."""
 
 
-THREAD_CLOSE_EXAMPLE: Final[dict[str, str]] = {
+THREAD_CLOSE_EXAMPLE: Final[JsonObject] = {
     "thread_id": "conversation-42",
     "project_name": "demo",
 }
 
-THREAD_OPEN_EXAMPLE: Final[dict[str, str]] = {
+THREAD_OPEN_EXAMPLE: Final[JsonObject] = {
     "thread_id": "conversation-42",
     "project_name": "demo",
 }
@@ -250,11 +251,38 @@ TARGET_PATH: Final[dict[str, str]] = {
 }
 
 
+# The batch and comment bodies, as Opik's OpenAPI spec names them. Each row
+# is the dump of a validated model, whose own fields say what it holds.
+class TraceBatchBody(TypedDict):
+    """``TraceBatch_Write``."""
+
+    traces: list[JsonObject]
+
+
+class SpanBatchBody(TypedDict):
+    """``SpanBatch_Write``."""
+
+    spans: list[JsonObject]
+
+
+class FeedbackScoreBatchBody(TypedDict):
+    """``FeedbackScoreBatch``, or ``FeedbackScoreBatchThread`` on the thread route."""
+
+    scores: list[JsonObject]
+
+
+class CommentBody(TypedDict):
+    """``Comment``, the fields a caller may write."""
+
+    text: str
+
+
 def build_trace_create(
     op: WriteOperation, items: list[BaseModel], ctx: BuildContext
 ) -> WireRequest:
     if ctx.is_batch:
-        return WireRequest(op.batch_endpoint or op.endpoint, {"traces": [dump(m) for m in items]})
+        batch: TraceBatchBody = {"traces": [dump(m) for m in items]}
+        return WireRequest(op.batch_endpoint or op.endpoint, batch)
     return WireRequest(op.endpoint, dump(items[0]))
 
 
@@ -268,11 +296,8 @@ def build_trace_update(
     override lives here rather than as a rule in the dispatcher.
     """
     if ctx.is_batch:
-        return WireRequest(
-            op.batch_endpoint or op.endpoint,
-            {"traces": [dump(m) for m in items]},
-            method="POST",
-        )
+        batch: TraceBatchBody = {"traces": [dump(m) for m in items]}
+        return WireRequest(op.batch_endpoint or op.endpoint, batch, method="POST")
     single = dump(items[0])
     trace_id = single.pop("id")
     return WireRequest(op.endpoint.format(id=trace_id), single)
@@ -280,11 +305,12 @@ def build_trace_update(
 
 def build_span_create(op: WriteOperation, items: list[BaseModel], ctx: BuildContext) -> WireRequest:
     if ctx.is_batch:
-        return WireRequest(op.batch_endpoint or op.endpoint, {"spans": [dump(m) for m in items]})
+        batch: SpanBatchBody = {"spans": [dump(m) for m in items]}
+        return WireRequest(op.batch_endpoint or op.endpoint, batch)
     return WireRequest(op.endpoint, dump(items[0]))
 
 
-def _score_batch_item(item: dict[str, Any], target: str) -> dict[str, Any]:
+def _score_batch_item(item: JsonObject, target: str) -> JsonObject:
     """Reshape a per-target batch item into the BE's expected per-target body.
 
     The trace/span batch endpoints take ``id`` (the trace/span id); the thread
@@ -311,8 +337,10 @@ def build_score_create(
     target = first.target
     target_path = TARGET_PATH[target]
     if ctx.is_batch:
-        scores = [_score_batch_item(dump(m), target) for m in items]
-        return WireRequest(f"/v1/private/{target_path}/feedback-scores", {"scores": scores})
+        batch: FeedbackScoreBatchBody = {
+            "scores": [_score_batch_item(dump(m), target) for m in items]
+        }
+        return WireRequest(f"/v1/private/{target_path}/feedback-scores", batch)
     single = dump(first)
     target_id = single.pop("target_id")
     single.pop("target", None)
@@ -331,14 +359,13 @@ def build_comment_create(
 ) -> WireRequest:
     """A thread comment's path takes the model UUID ``prepare_fn`` resolved.
     A dry run has none and shows the caller's thread_id in its place."""
-    single = dump(items[0])
-    target = single.pop("target")
-    target_id = single.pop("target_id")
-    if target == "thread" and ctx.prepared is not None:
+    comment = items[0]
+    assert isinstance(comment, CommentCreate)
+    target_id = comment.target_id
+    if comment.target == "thread" and ctx.prepared is not None:
         target_id = ctx.prepared
-    return WireRequest(
-        f"/v1/private/{TARGET_PATH[target]}/{target_id}/comments", {"text": single["text"]}
-    )
+    body: CommentBody = {"text": comment.text}
+    return WireRequest(f"/v1/private/{TARGET_PATH[comment.target]}/{target_id}/comments", body)
 
 
 def validate_scores(
@@ -346,7 +373,7 @@ def validate_scores(
     items: list[BaseModel],
     *,
     is_batch: bool,
-    example: dict[str, Any],
+    example: JsonObject,
 ) -> None:
     """The two rules the score model cannot express on its own.
 
@@ -378,7 +405,7 @@ def validate_scores(
     model = items[0]
     if not isinstance(model, ScoreCreate) or model.target != "thread":
         return
-    thread_example: dict[str, Any] = {
+    thread_example: JsonObject = {
         "target": "thread",
         "target_id": model.target_id,
         "name": model.name,
@@ -456,7 +483,7 @@ def _annotation_url(settings: Settings, project_id: str, item: BaseModel) -> str
 def decorate_with_page(
     op: WriteOperation,
     items: list[BaseModel],
-    out: dict[str, Any],
+    out: dict[str, object],
     settings: Settings,
     project_id: str | None,
 ) -> None:
@@ -511,7 +538,7 @@ def decorate_with_page(
 def decorate_comment(
     op: WriteOperation,
     items: list[BaseModel],
-    out: dict[str, Any],
+    out: dict[str, object],
     settings: Settings,
     _prepared: str | None,
 ) -> None:

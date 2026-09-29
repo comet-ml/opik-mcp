@@ -8,17 +8,18 @@ re-shaped into the backend's ``{source, data}`` envelope.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Final, Literal
+from typing import TYPE_CHECKING, Final, Literal, NotRequired, TypedDict
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from opik_mcp.json_types import JsonObject
 from opik_mcp.writes.models import (
+    ClientIdMixin,
     InputOutput,
     Metadata,
+    StrictBase,
     TagList,
-    _ClientIdMixin,
-    _StrictBase,
     example_uuid,
 )
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump
@@ -27,7 +28,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
 
 
-class PromptVersionSave(_StrictBase):
+class PromptVersionSave(StrictBase):
     """``POST /v1/private/prompts/versions`` — idempotent upsert.
 
     Creates the prompt if it doesn't exist (matched on ``name``) and
@@ -49,7 +50,7 @@ class PromptVersionSave(_StrictBase):
 # create never rides on the backend's default.
 
 
-class DatasetCreate(_StrictBase, _ClientIdMixin):
+class DatasetCreate(StrictBase, ClientIdMixin):
     """``POST /v1/private/datasets`` — create a dataset or a test suite."""
 
     name: str = Field(min_length=1, max_length=200)
@@ -78,7 +79,7 @@ class DatasetItem(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     id: UUID | None = Field(default=None)
-    data: dict[str, Any] | None = Field(default=None)
+    data: dict[str, object] | None = Field(default=None)
     input: InputOutput = Field(default=None)
     expected_output: InputOutput = Field(default=None)
     metadata: Metadata = Field(default=None)
@@ -96,7 +97,7 @@ class DatasetItem(BaseModel):
         return self
 
 
-class DatasetItemUpsert(_StrictBase):
+class DatasetItemUpsert(StrictBase):
     """``PUT /v1/private/datasets/items`` — always envelope form.
 
     Exactly one of ``dataset_name`` / ``dataset_id`` is required; spec §3.2.
@@ -121,14 +122,14 @@ class DatasetItemUpsert(_StrictBase):
         return self
 
 
-class ExperimentCreate(_StrictBase, _ClientIdMixin):
+class ExperimentCreate(StrictBase, ClientIdMixin):
     """``POST /v1/private/experiments`` — start a new experiment run."""
 
     dataset_name: str | None = Field(default=None, max_length=200)
     dataset_id: UUID | None = Field(default=None)
     name: str | None = Field(default=None, max_length=200)
     metadata: Metadata = Field(default=None)
-    prompt_versions: list[dict[str, Any]] | None = Field(default=None)
+    prompt_versions: list[dict[str, object]] | None = Field(default=None)
 
     @model_validator(mode="after")
     def _validate_dataset_xor(self) -> ExperimentCreate:
@@ -156,7 +157,7 @@ class ExperimentItem(BaseModel):
     trace_id: UUID
 
 
-class ExperimentItemCreate(_StrictBase):
+class ExperimentItemCreate(StrictBase):
     """``POST /v1/private/experiments/items`` — array envelope only.
 
     The BE has no singleton route for this endpoint; the model rejects bare
@@ -167,34 +168,34 @@ class ExperimentItemCreate(_StrictBase):
     experiment_items: list[ExperimentItem] = Field(min_length=1, max_length=1000)
 
 
-PROMPT_VERSION_SAVE_EXAMPLE: Final[dict[str, Any]] = {
+PROMPT_VERSION_SAVE_EXAMPLE: Final[JsonObject] = {
     "name": "support_reply",
     "template": "Hi {{name}}, …",
     "commit": "v3",
     "change_description": "tighten greeting",
 }
 
-DATASET_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+DATASET_CREATE_EXAMPLE: Final[JsonObject] = {
     "name": "eval_q3",
     "type": "test_suite",
     "description": "Q3 regression set",
     "tags": ["regression"],
 }
 
-DATASET_ITEM_UPSERT_EXAMPLE: Final[dict[str, Any]] = {
+DATASET_ITEM_UPSERT_EXAMPLE: Final[JsonObject] = {
     "dataset_name": "eval_q3",
     "items": [
         {"input": {"query": "what is opik?"}, "expected_output": {"text": "an LLM eval tool"}},
     ],
 }
 
-EXPERIMENT_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+EXPERIMENT_CREATE_EXAMPLE: Final[JsonObject] = {
     "dataset_name": "eval_q3",
     "name": "gpt-4o-baseline",
     "metadata": {"git_sha": "abc123"},
 }
 
-EXPERIMENT_ITEM_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+EXPERIMENT_ITEM_CREATE_EXAMPLE: Final[JsonObject] = {
     "experiment_items": [
         {
             "experiment_id": example_uuid("01"),
@@ -215,15 +216,27 @@ DATASET_TYPE_TO_WIRE: Final[dict[str, str]] = {
 }
 
 
+class CreatePromptVersionBody(TypedDict):
+    """``CreatePromptVersion_Detail``; ``version`` holds its ``PromptVersion_Detail``."""
+
+    name: str
+    version: JsonObject
+    # The backend reads change_description only inside ``version`` and ignores
+    # unknown fields here.
+    change_description: NotRequired[str]
+
+
 def build_prompt_version_save(
     op: WriteOperation, items: list[BaseModel], _ctx: BuildContext
 ) -> WireRequest:
-    d = dump(items[0])
+    prompt = items[0]
+    assert isinstance(prompt, PromptVersionSave)
+    d = dump(prompt)
     version_keys = ("template", "commit", "tags", "metadata")
     version = {k: d[k] for k in version_keys if k in d and d[k] is not None}
-    body: dict[str, Any] = {"name": d["name"], "version": version}
-    if d.get("change_description") is not None:
-        body["change_description"] = d["change_description"]
+    body: CreatePromptVersionBody = {"name": prompt.name, "version": version}
+    if prompt.change_description is not None:
+        body["change_description"] = prompt.change_description
     return WireRequest(op.endpoint, body)
 
 
@@ -237,8 +250,10 @@ def build_dataset_create(
     before this, the operation named ``test_suite.create`` hard-coded
     ``evaluation_suite``, which left no way to create a plain dataset at all.
     """
-    body = dump(items[0])
-    body["type"] = DATASET_TYPE_TO_WIRE[body.get("type", "dataset")]
+    dataset = items[0]
+    assert isinstance(dataset, DatasetCreate)
+    body = dump(dataset)
+    body["type"] = DATASET_TYPE_TO_WIRE[dataset.type]
     return WireRequest(op.endpoint, body)
 
 
@@ -249,10 +264,12 @@ def build_dataset_item_upsert(
     2). Re-shape each item into the BE's
     ``{source, data: {input, expected_output, metadata}}`` envelope."""
     body = dump(items[0])
-    for item in body.get("items", []):
+    rows = body.get("items")
+    for item in rows if isinstance(rows, list) else []:
         if not isinstance(item, dict):
             continue
-        inner: dict[str, Any] = item.pop("data", None) or {}
+        data = item.pop("data", None)
+        inner: JsonObject = data if isinstance(data, dict) else {}
         for k in ("input", "expected_output", "metadata"):
             if k in item:
                 inner.setdefault(k, item.pop(k))

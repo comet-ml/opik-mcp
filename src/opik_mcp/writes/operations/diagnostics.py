@@ -17,7 +17,7 @@ exists.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar, Final
+from typing import TYPE_CHECKING, ClassVar, Final, Literal, TypedDict
 from uuid import UUID
 
 import httpx
@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field
 from opik_mcp.client.base import backend_reason, note_backend_401
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,
@@ -34,14 +35,14 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
 from opik_mcp.read_list.ui_links import ProjectArea, project_page_url
 from opik_mcp.writes.errors import BackendError
-from opik_mcp.writes.models import _RequiredProjectMixin, _StrictBase
+from opik_mcp.writes.models import RequiredProjectMixin, StrictBase
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
 
 
-class AgentInsightsJobAction(_StrictBase, _RequiredProjectMixin):
+class AgentInsightsJobAction(StrictBase, RequiredProjectMixin):
     """Shared shape for the Diagnostics (Agent Insights) job actions.
 
     The backend keys the job by project and takes the project in the path, so
@@ -66,7 +67,7 @@ class AgentInsightsJobTrigger(AgentInsightsJobAction):
     """``POST /v1/private/agent-insights/jobs/{projectId}/trigger`` — scan now."""
 
 
-class AgentInsightsIssueAction(_StrictBase, _RequiredProjectMixin):
+class AgentInsightsIssueAction(StrictBase, RequiredProjectMixin):
     """Shared shape for a Diagnostics (Agent Insights) issue's lifecycle moves.
 
     ``PATCH /v1/private/agent-insights/issues/{issue_id}`` takes the issue in
@@ -97,24 +98,24 @@ class AgentInsightsIssueReopen(AgentInsightsIssueAction):
     """``PATCH …/issues/{issue_id}`` with ``status=open`` — back on the list."""
 
 
-AGENT_INSIGHTS_JOB_ENABLE_EXAMPLE: Final[dict[str, str]] = {"project_name": "demo"}
+AGENT_INSIGHTS_JOB_ENABLE_EXAMPLE: Final[JsonObject] = {"project_name": "demo"}
 
-AGENT_INSIGHTS_ISSUE_RESOLVE_EXAMPLE: Final[dict[str, str]] = {
+AGENT_INSIGHTS_ISSUE_RESOLVE_EXAMPLE: Final[JsonObject] = {
     "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
     "project_name": "demo",
 }
 
-AGENT_INSIGHTS_ISSUE_CLOSE_EXAMPLE: Final[dict[str, str]] = {
+AGENT_INSIGHTS_ISSUE_CLOSE_EXAMPLE: Final[JsonObject] = {
     "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
     "project_name": "demo",
 }
 
-AGENT_INSIGHTS_ISSUE_REOPEN_EXAMPLE: Final[dict[str, str]] = {
+AGENT_INSIGHTS_ISSUE_REOPEN_EXAMPLE: Final[JsonObject] = {
     "issue_id": "0193d1f6-1f5c-7f2a-9d1e-2b3c4d5e6f70",
     "project_name": "demo",
 }
 
-AGENT_INSIGHTS_JOB_TRIGGER_EXAMPLE: Final[dict[str, str]] = {"project_name": "demo"}
+AGENT_INSIGHTS_JOB_TRIGGER_EXAMPLE: Final[JsonObject] = {"project_name": "demo"}
 
 
 #: The job operations. Both take the project in the path as a UUID and are
@@ -125,12 +126,27 @@ JOB_OPS = frozenset({"agent_insights_job.enable", "agent_insights_job.trigger"})
 #: Issue lifecycle moves, and the status each one writes. One backend route
 #: with three verbs in front of it: the caller says what they mean and this
 #: supplies the value, so nobody has to remember the enum.
-ISSUE_STATUS = {
+IssueStatus = Literal["open", "resolved", "closed"]
+ISSUE_STATUS: Final[dict[str, IssueStatus]] = {
     "agent_insights_issue.resolve": "resolved",
     "agent_insights_issue.close": "closed",
     "agent_insights_issue.reopen": "open",
 }
 ISSUE_OPS = frozenset(ISSUE_STATUS)
+
+
+class AgentInsightsIssueUpdateBody(TypedDict):
+    """``AgentInsightsIssueUpdate``."""
+
+    project_id: str
+    status: IssueStatus
+
+
+class AgentInsightsJobUpdateBody(TypedDict):
+    """``AgentInsightsJobUpdate``."""
+
+    status: Literal["enabled", "disabled"]
+
 
 _NOT_ENABLED = (
     "Diagnostics is not enabled for this project (or this backend has no "
@@ -176,10 +192,8 @@ def build_issue_action(
     """The issue is in the path; the body is the project and the new status."""
     single = dump(items[0])
     scope = ctx.prepared or _passed_project_id(items) or "{project_id}"
-    return WireRequest(
-        op.endpoint.format(issue_id=single["issue_id"]),
-        {"project_id": scope, "status": ISSUE_STATUS[op.name]},
-    )
+    body: AgentInsightsIssueUpdateBody = {"project_id": scope, "status": ISSUE_STATUS[op.name]}
+    return WireRequest(op.endpoint.format(issue_id=single["issue_id"]), body)
 
 
 def _passed_project_id(items: list[BaseModel]) -> str | None:
@@ -209,8 +223,9 @@ async def retry(
     a lost resource, so name the fix.
     """
     if op.name == "agent_insights_job.enable" and resp.status_code == 409:
-        request = WireRequest(request.path, {"status": "enabled"}, method="PATCH")
-        resp = await client.write_json(request.method or op.method, request.path, request.body)
+        body: AgentInsightsJobUpdateBody = {"status": "enabled"}
+        request = WireRequest(request.path, body, method="PATCH")
+        resp = await client.write_json(request.method or op.method, request.path, dict(body))
         if not (200 <= resp.status_code < 300):
             if resp.status_code == 401:
                 note_backend_401()
@@ -225,7 +240,7 @@ async def retry(
 def decorate(
     op: WriteOperation,
     items: list[BaseModel],
-    out: dict[str, Any],
+    out: dict[str, object],
     settings: Settings,
     project_id: str | None,
 ) -> None:
