@@ -210,7 +210,6 @@ def _traces_call(project_id: str, start: datetime, end: datetime) -> str:
 
 async def diagnostics_coverage_note(
     client: OpikListClient,
-    settings: Settings,
     project_id: str,
     *,
     window_end: datetime | None = None,
@@ -296,9 +295,7 @@ async def issue_page_note(
                 windowed=ctx.is_windowed,
                 window_end=ctx.window_end,
             )
-        return await diagnostics_coverage_note(
-            client, settings, project_id, window_end=ctx.window_end
-        )
+        return await diagnostics_coverage_note(client, project_id, window_end=ctx.window_end)
     except Exception:
         logger.debug("Diagnostics note for the issue list failed", exc_info=True)
         return None

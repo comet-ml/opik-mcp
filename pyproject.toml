@@ -134,9 +134,6 @@ extend-allowed-calls = ["pytest.param"]
 # move splitting a file may replace its line with one per new module that
 # carries the same findings; the PR says so.
 "src/opik_mcp/__main__.py" = ["PLC0415"]
-"src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
-"src/opik_mcp/read_list/entities/agent_insights_issue/state.py" = ["ARG001"]
-"src/opik_mcp/read_list/read_tool.py" = ["ARG001"]
 "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/agent.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-compare/evals/fixtures/regress/seed.py" = ["I002", "T201"]
 "src/opik_mcp/skills/opik-compare/evals/run_evals.py" = ["PLC0415", "T201"]

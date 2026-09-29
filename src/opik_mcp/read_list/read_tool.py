@@ -111,7 +111,7 @@ async def run_read(
     fields: list[str] | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
-    **entity_kwargs: object,
+    **_entity_kwargs: object,
 ) -> str:
     """Read tool entrypoint. See ``server/tools/read.py`` for the registered tool.
 
