@@ -67,15 +67,20 @@ class OpikNotFoundError(RuntimeError):
 class OpikValidationError(RuntimeError):
     """Opik rejected the request body (400/422).
 
-    ``backend_reason`` is the backend's own capped reason, for a caller that
-    reports it in a field of its own rather than inside this message.
+    ``status`` is the one the backend answered with, and ``backend_reason`` its
+    own capped reason, for a caller that reports them in fields of their own
+    rather than inside this message. ``http_status`` stays 400: it is the
+    class's analytics bucket, not the response.
     """
 
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
 
-    def __init__(self, message: str, *, backend_reason: str | None = None) -> None:
+    def __init__(
+        self, message: str, *, status: int = 400, backend_reason: str | None = None
+    ) -> None:
         super().__init__(message)
+        self.status = status
         self.backend_reason = backend_reason
 
 
@@ -458,6 +463,7 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
         raise OpikValidationError(
             f"Opik rejected the request for {entity_hint} ({status}). Check the "
             f"arguments passed.{said}",
+            status=status,
             backend_reason=reason,
         )
     if status >= 500:

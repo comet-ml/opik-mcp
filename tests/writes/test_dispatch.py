@@ -238,6 +238,23 @@ async def test_a_thread_resolve_400_carries_the_backends_reason() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_thread_resolve_422_is_reported_as_422() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/threads/retrieve").mock(
+            return_value=httpx.Response(422, json={"errors": ["thread_id is blank"]})
+        )
+        with pytest.raises(BackendError) as exc_info:
+            await run_write(
+                operation="comment.create",
+                data={"target": "thread", "target_id": "t", "text": "x", "project_name": "p"},
+                client=_client(),
+            )
+    body = json.loads(exc_info.value.to_json())
+    assert body["backend_error"] == {"status": 422}
+    assert body["backend_message"] == "thread_id is blank"
+
+
+@pytest.mark.anyio
 async def test_a_thread_with_no_model_id_names_the_retry() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post("/v1/private/traces/threads/retrieve").mock(
