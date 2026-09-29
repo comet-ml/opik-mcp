@@ -47,7 +47,7 @@ def test_an_unknown_skill_names_the_guide_only_with_the_feature() -> None:
     with pytest.raises(catalog.UnknownSkillError) as spend:
         catalog.run_read_skill("nonexistent-skill", SPEND)
     with pytest.raises(catalog.UnknownSkillError) as default:
-        catalog.run_read_skill("nonexistent-skill")
+        catalog.run_read_skill("nonexistent-skill", DEFAULT)
     listed = str(spend.value).split("available skills: ")[1].split(", ")
     assert GUIDE_NAME in listed
     assert listed == sorted(listed)
