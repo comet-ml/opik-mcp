@@ -217,3 +217,15 @@ async def test_a_path_segment_that_could_reroute_or_break_oql_is_refused(segment
         with pytest.raises(OpikValidationError, match="is not a valid id"):
             await _client().get_spend_lane_breakdown(segment, **WINDOW)
     assert not route.called
+
+
+@pytest.mark.anyio
+async def test_a_read_of_a_dot_session_is_a_one_line_refusal() -> None:
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from opik_mcp.read_list.read_tool import run_read
+    from tests.factories import make_settings
+
+    settings = make_settings(comet_workspace="__ai_spend_t__", opik_mcp_transport="stdio")
+    with pytest.raises(ToolError, match=r"Session '\.\.' is not a valid id"):
+        await run_read("spend_session", "..", settings=settings, client=_client())

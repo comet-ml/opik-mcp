@@ -22,6 +22,7 @@ from opik_mcp.read_list.entities import (
     prompt,
     score_name,
     span,
+    spend,
     thread,
     trace,
 )
@@ -45,6 +46,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         score_name.HANDLER,
         online_rule.HANDLER,
         agent_insights_issue.HANDLER,
+        *spend.HANDLERS,
     )
 }
 

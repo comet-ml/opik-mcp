@@ -122,7 +122,7 @@ from opik_mcp.server import mcp
 # headroom was 505 bytes; at 22,379 it is 1,621. Unused headroom is not in
 # anyone's context; only what is written is.
 # Cost intelligence mode (four tools, no `write`) is measured against the same
-# cap: 7,256 bytes, far under it. The default surface is unchanged at 22,379.
+# cap: 7,991 bytes, far under it. The default surface is unchanged at 22,379.
 SURFACE_BUDGET_BYTES = 24_000
 
 
@@ -362,7 +362,7 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # purpose, with a note here.
 # This caps growth; the host's 2,048-character cut on the same text is pinned
 # in test_tool_annotations.py. Lower this to match once the text fits.
-# Cost intelligence mode renders its own text under the same cap: 1,021 bytes
+# Cost intelligence mode renders its own text under the same cap: 1,792 bytes
 # with a 40-character email and a long spend workspace name. The default text
 # is unchanged at 4,711 bytes with the longest settings.
 INSTRUCTIONS_BUDGET_BYTES = 5_000

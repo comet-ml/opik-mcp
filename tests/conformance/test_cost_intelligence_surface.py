@@ -37,6 +37,8 @@ EXPECTED_TOOL_ORDER = ("read", "list", "schema", "read_skill")
 EXPECTED_READABLE = (
     "project",
     "span",
+    "spend_lane",
+    "spend_session",
     "thread",
     "trace",
 )
@@ -44,6 +46,11 @@ EXPECTED_LISTABLE = (
     "project",
     "project_metric",
     "span",
+    "spend_agent",
+    "spend_lane",
+    "spend_session",
+    "spend_summary",
+    "spend_user",
     "thread",
     "trace",
 )

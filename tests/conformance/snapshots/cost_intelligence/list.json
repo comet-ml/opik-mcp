@@ -15,11 +15,16 @@
       "title": "Breakdown"
     },
     "entity_type": {
-      "description": "One of: project, project_metric, span, thread, trace.",
+      "description": "One of: project, project_metric, span, spend_agent, spend_lane, spend_session, spend_summary, spend_user, thread, trace.",
       "enum": [
         "project",
         "project_metric",
         "span",
+        "spend_agent",
+        "spend_lane",
+        "spend_session",
+        "spend_summary",
+        "spend_user",
         "thread",
         "trace"
       ],
@@ -54,7 +59,7 @@
         }
       ],
       "default": null,
-      "description": "OQL filter for trace, span, thread, project_metric: <field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in; strings quoted, numbers bare (duration in ms). E.g. 'error_info is_not_empty AND duration > 5000'. trace/span/thread default to source = \"sdk\". Reference: schema(\"list.trace\").",
+      "description": "OQL filter for trace, span, thread, project_metric: <field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in; strings quoted, numbers bare (duration in ms). E.g. 'error_info is_not_empty AND duration > 5000'. trace/span/thread default to source = \"sdk\". The spend types take their own: user_email = \"\u2026\", mcp_server = \"\u2026\". Reference: schema(\"list.trace\").",
       "title": "Filters"
     },
     "interval": {
@@ -172,7 +177,7 @@
         }
       ],
       "default": null,
-      "description": "Start of the time window for trace, span, thread, project_metric: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone.",
+      "description": "Start of the time window for trace, span, thread, project_metric and the spend types: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Spend types default to 30 days.",
       "title": "Since"
     },
     "size": {

@@ -165,7 +165,12 @@ async def _run_whole(
             "page (size=…).",
         ):
             await verify_project_id(opik, handler, mode, tool_args.get("project_id"))
-            answer = await run(cast("OpikReadClient", opik), vocabularies=VOCABULARIES, **tool_args)
+            answer = await run(
+                cast("OpikReadClient", opik),
+                vocabularies=VOCABULARIES,
+                settings=resolved_settings,
+                **tool_args,
+            )
         page_note = page_note_of(handler)
         if page_note is None:
             return with_list_size(entity_type, answer)

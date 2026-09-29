@@ -133,7 +133,7 @@ async def test_a_refusal_in_the_mode_names_no_hidden_type(
 
 async def test_a_window_refusal_on_read_names_the_modes_types_only() -> None:
     text = await _refusal(_read("trace", since="1h"))
-    assert text.endswith("on read a window is taken by: project.")
+    assert text.endswith("on read a window is taken by: project, spend_lane, spend_session.")
 
 
 async def test_a_window_refusal_on_read_is_what_it_was_in_the_default_mode() -> None:

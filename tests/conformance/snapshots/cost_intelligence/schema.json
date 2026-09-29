@@ -6,6 +6,11 @@
         "list.trace",
         "list.span",
         "list.thread",
+        "list.spend_summary",
+        "list.spend_lane",
+        "list.spend_user",
+        "list.spend_session",
+        "list.spend_agent",
         "list.project_metric"
       ],
       "title": "Operation",

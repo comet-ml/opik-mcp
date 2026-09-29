@@ -33,9 +33,13 @@ pytestmark = pytest.mark.anyio
 
 SPEND = make_settings(opik_workspace=f"{WORKSPACE_PREFIX}org__", opik_api_key="k")
 DEFAULT = make_settings(opik_workspace="team", opik_api_key="k")
-VISIBLE = ("project", "trace", "span", "thread", "project_metric")
+SPEND_TYPES = ("spend_summary", "spend_lane", "spend_user", "spend_session", "spend_agent")
+VISIBLE = ("project", "trace", "span", "thread", "project_metric", *SPEND_TYPES)
 HIDDEN = ("experiment", "dataset", "prompt", "agent_insights_issue", "score_name", "online_rule")
-_LISTABLE = "Listable types: project, project_metric, span, thread, trace"
+_LISTABLE = (
+    "Listable types: project, project_metric, span, spend_agent, spend_lane, "
+    "spend_session, spend_summary, spend_user, thread, trace"
+)
 UUID = "0190a3c4-1111-7000-8000-000000000001"
 
 
@@ -102,18 +106,33 @@ def test_the_default_views_are_what_they_were_before_modes_existed() -> None:
     )
 
 
-def test_cost_intelligence_shows_the_project_data_only() -> None:
+def test_cost_intelligence_shows_the_project_data_and_spend_types_only() -> None:
     mode = COST_INTELLIGENCE_MODE
-    assert set(readable_types(mode)) == {"project", "trace", "span", "thread"}
+    assert set(readable_types(mode)) == {
+        "project",
+        "trace",
+        "span",
+        "thread",
+        "spend_lane",
+        "spend_session",
+    }
     assert set(listable_types(mode)) == set(VISIBLE)
-    assert set(filterable_types(mode)) == {"trace", "span", "thread"}
-    assert set(sortable_types(mode)) == {"project", "trace", "span", "thread"}
+    assert set(filterable_types(mode)) == {"trace", "span", "thread", *SPEND_TYPES}
+    assert set(sortable_types(mode)) == {
+        "project",
+        "trace",
+        "span",
+        "thread",
+        "spend_user",
+        "spend_session",
+    }
     assert set(windowed_types(mode)) == {"trace", "span", "thread"}
     assert set(list_schema_keys(mode)) == {
         "list.trace",
         "list.span",
         "list.thread",
         "list.project_metric",
+        *(f"list.{name}" for name in SPEND_TYPES),
     }
 
 
@@ -126,7 +145,7 @@ async def test_read_refuses_a_hidden_type_and_names_only_visible_ones(entity_typ
     with pytest.raises(ToolError) as exc:
         await run_read(entity_type, "x", settings=SPEND, client=NO_BACKEND)
     text = _refusal(exc).replace(repr(entity_type), "")
-    assert "Readable types: project, span, thread, trace" in text
+    assert "Readable types: project, span, spend_lane, spend_session, thread, trace" in text
     assert not any(hidden in text for hidden in ("dataset", "experiment", "prompt", "issue"))
 
 
@@ -134,7 +153,9 @@ async def test_read_refuses_a_pasted_link_to_a_hidden_type() -> None:
     link = f"opik://experiments/{UUID}"
     with pytest.raises(ToolError) as exc:
         await run_read("trace", link, settings=SPEND, client=NO_BACKEND)
-    assert "Readable types: project, span, thread, trace" in _refusal(exc)
+    assert "Readable types: project, span, spend_lane, spend_session, thread, trace" in _refusal(
+        exc
+    )
 
 
 async def test_read_in_the_default_mode_still_reaches_the_type() -> None:
@@ -184,8 +205,11 @@ def test_a_missing_record_offers_the_listing_the_mode_has() -> None:
     from opik_mcp.read_list.read_tool import _format_client_error
 
     for entity_type, mode in (
+        ("spend_lane", COST_INTELLIGENCE_MODE),
         ("trace", COST_INTELLIGENCE_MODE),
         ("trace", DEFAULT_MODE),
     ):
         text = _format_client_error(entity_type, "x", OpikNotFoundError("m"), mode)
         assert f"find it with list({entity_type!r}" in text
+    default = _format_client_error("spend_lane", "x", OpikNotFoundError("m"), DEFAULT_MODE)
+    assert "find it with" not in default
