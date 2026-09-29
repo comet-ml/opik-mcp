@@ -31,13 +31,8 @@ from importlib.resources import files
 from importlib.resources.abc import Traversable
 from typing import ClassVar
 
-from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode
-from opik_mcp.cost_intelligence.descriptions import (
-    GUIDE_FILE,
-    GUIDE_NAME,
-    OFFERED_SKILLS,
-    READ_SKILL_DESCRIPTION,
-)
+from opik_mcp.cost_intelligence import AI_SPEND_FEATURE
+from opik_mcp.cost_intelligence.descriptions import GUIDE_FILE, GUIDE_NAME
 from opik_mcp.error_kinds import ErrorKind
 
 #: URI prefix for every skill file served over MCP. Reuses the `opik://` scheme
@@ -234,18 +229,13 @@ def skill_names() -> tuple[str, ...]:
     return tuple(sorted({f.skill for f in iter_skill_files()}))
 
 
-def visible_skill_names(mode: Mode = DEFAULT_MODE) -> tuple[str, ...]:
-    """The skills a mode offers; the cost intelligence guide is one of them there."""
-    return skill_names() if mode == DEFAULT_MODE else OFFERED_SKILLS
-
-
 def _is_guide(requested: str) -> bool:
     return requested in (GUIDE_NAME, GUIDE_FILE)
 
 
 def _read_guide() -> str:
-    """The guide lives beside the mode, outside the skills tree, so resources and
-    the published pack never see it."""
+    """The guide lives outside the skills tree, so resources and the published
+    pack never see it."""
     return (files("opik_mcp") / "cost_intelligence" / GUIDE_FILE).read_text(encoding="utf-8")
 
 
@@ -304,8 +294,8 @@ def _reference_names(skill: str) -> tuple[str, ...]:
     )
 
 
-def _name_list(mode: Mode = DEFAULT_MODE) -> str:
-    return ", ".join(visible_skill_names(mode))
+def _name_list() -> str:
+    return ", ".join(skill_names())
 
 
 def request_shape(skill_name: str) -> str:
@@ -322,7 +312,7 @@ def request_shape(skill_name: str) -> str:
     return "path" if "/" in requested.removeprefix("../") else "name"
 
 
-def resolve(skill_name: str, mode: Mode = DEFAULT_MODE) -> SkillFile:
+def resolve(skill_name: str) -> SkillFile:
     """The file a caller named, in any of the forms the tool documents.
 
     One argument, four forms, because an agent arrives holding whichever one it
@@ -350,7 +340,7 @@ def resolve(skill_name: str, mode: Mode = DEFAULT_MODE) -> SkillFile:
     while requested.startswith("../"):
         requested = requested[3:]
     if not requested:
-        raise UnknownSkillError(f"skill_name is empty; available skills: {_name_list(mode)}")
+        raise UnknownSkillError(f"skill_name is empty; available skills: {_name_list()}")
 
     # A URI is the same (skill, document) pair wearing a prefix, so strip it and
     # take the one road out. Two roads is what made a bad URI answer with the skill
@@ -361,11 +351,7 @@ def resolve(skill_name: str, mode: Mode = DEFAULT_MODE) -> SkillFile:
 
     skill, _, relative = remainder.partition("/")
     if skill not in skill_names():
-        raise UnknownSkillError(f"unknown skill {skill!r}; available skills: {_name_list(mode)}")
-    if skill not in visible_skill_names(mode):
-        raise UnknownSkillError(
-            f"{skill!r} is not offered in this workspace. Available: {_name_list(mode)}."
-        )
+        raise UnknownSkillError(f"unknown skill {skill!r}; available skills: {_name_list()}")
 
     entry = resolve_uri(f"{SKILLS_URI_PREFIX}{skill}/{relative or 'SKILL.md'}")
     if entry is not None:
@@ -415,7 +401,7 @@ def readable_paths(skill: str) -> tuple[str, ...]:
     return ("SKILL.md", *(f.path for f in _references(skill)))
 
 
-def run_read_skill(skill_name: str, mode: Mode = DEFAULT_MODE) -> str:
+def run_read_skill(skill_name: str, features: frozenset[str] = frozenset()) -> str:
     """The `read_skill` tool body: one skill document, ready to act on.
 
     Output is a one-line `[read_skill: …]` header (mirroring the `read` tool's
@@ -426,10 +412,10 @@ def run_read_skill(skill_name: str, mode: Mode = DEFAULT_MODE) -> str:
     Both the header and the footer quote the *resolved* file, not the caller's
     spelling: this output is documentation an agent imitates on its next call.
     """
-    if mode != DEFAULT_MODE and _is_guide(skill_name.strip().strip("/")):
+    if AI_SPEND_FEATURE in features and _is_guide(skill_name.strip().strip("/")):
         guide = _read_guide()
         return f"[read_skill: {GUIDE_NAME} bytes={len(guide.encode('utf-8'))}]\n\n{guide}"
-    entry = resolve(skill_name, mode)
+    entry = resolve(skill_name)
     content = read_skill_file(entry)
     header = (
         f"[read_skill: {entry.skill} path={entry.path} "
@@ -447,7 +433,7 @@ def run_read_skill(skill_name: str, mode: Mode = DEFAULT_MODE) -> str:
     return "\n\n".join(parts)
 
 
-def read_skill_tool_description(mode: Mode = DEFAULT_MODE) -> str:
+def read_skill_tool_description() -> str:
     """The `read_skill` tool description, rendered from the bundled skills.
 
     Rendered rather than hand-written so a skill can never be bundled and left
@@ -464,8 +450,6 @@ def read_skill_tool_description(mode: Mode = DEFAULT_MODE) -> str:
     that cites a reference ends with a footer listing its paths, so the caller
     learns the name from the document that tells it to read one.
     """
-    if mode != DEFAULT_MODE:
-        return READ_SKILL_DESCRIPTION
     catalog = "\n".join(
         f"- {name}: {SKILL_SUMMARIES[name]}" for name in skill_names() if name in SKILL_SUMMARIES
     )

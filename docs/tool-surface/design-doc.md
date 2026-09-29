@@ -25,8 +25,8 @@ a read or a list promises, what is refused, and which test holds each promise.
   without warning. Tools over it today are strict expected failures in
   `OVER_THE_LIMIT` (`tests/conformance/test_tool_annotations.py`).
 
-- In cost intelligence mode the surface is four tools, a narrowed type set,
-  and its own instructions under the same caps; the default surface is
+- An AI Spend workspace adds entity types, one sentence per tool description
+  and one instructions paragraph; nothing is hidden and the default surface is
   unchanged ([cost-intelligence](../cost-intelligence/design-doc.md)).
 
 ### initialize

@@ -14,7 +14,6 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.cost_intelligence import DEFAULT_MODE, Mode
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql import OQLError, compile_filters, render_filters, split_param_clauses
@@ -76,11 +75,11 @@ def resolve_list_args(
     dataset_id: str | None,
     prompt_id: str | None,
     status: str | None,
-    mode: Mode = DEFAULT_MODE,
+    features: frozenset[str],
 ) -> ListArgs:
     """Every argument refusal after the entity type is known is raised here,
     as a ``ToolError``, before a connection is opened. The type lists in the
-    refusals are the ones ``mode`` shows."""
+    refusals are the ones ``features`` turn on."""
     size = clamp_size(size)
     page = max(1, page)
 
@@ -133,7 +132,7 @@ def resolve_list_args(
     if vocabulary.filter_fields or filters:
         try:
             clauses = compile_filters(
-                vocabulary, filters or "", filterable_types=filterable_types(mode)
+                vocabulary, filters or "", filterable_types=filterable_types(features)
             )
         except OQLError as err:
             raise ToolError(str(err)) from err
@@ -172,7 +171,7 @@ def resolve_list_args(
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
         if not handler.is_windowed and not day_windowed:
-            windowed = ", ".join((*windowed_types(mode), *day_windowed_types(mode)))
+            windowed = ", ".join((*windowed_types(features), *day_windowed_types(features)))
             why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
@@ -204,7 +203,7 @@ def resolve_list_args(
             # skims the header reads thirty-two rows as the result of the
             # search it asked for. A page that is not what was asked for is
             # worse than an error, and the error can name what would work.
-            refusal = EntityArgValidationError(_search_refusal(handler, vocabulary, mode))
+            refusal = EntityArgValidationError(_search_refusal(handler, vocabulary, features))
             raise ToolError(str(refusal)) from refusal
         list_kwargs["search"] = search
         applied.append(f'search: "{search}"')
@@ -214,7 +213,7 @@ def resolve_list_args(
     if sort is not None:
         try:
             sort_field, direction = compile_sort(
-                vocabulary, sort, sortable_types=sortable_types(mode)
+                vocabulary, sort, sortable_types=sortable_types(features)
             )
         except SortError as err:
             raise ToolError(str(err)) from err
@@ -243,7 +242,9 @@ def _vocabulary(name: str) -> Vocabulary:
     return VOCABULARIES.get(name) or Vocabulary(name=name)
 
 
-def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary, mode: Mode) -> str:
+def _search_refusal(
+    handler: EntityHandler, vocabulary: Vocabulary, features: frozenset[str]
+) -> str:
     """Why free text does not apply here, and the nearest thing that does.
 
     Every workspace-wide list takes a ``name`` substring, and the filterable
@@ -270,7 +271,7 @@ def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary, mode: Mode) 
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
         f"search is not supported for {vocabulary.entity_type!r}: "
-        f"only {', '.join(windowed_types(mode))} take free text.{how}"
+        f"only {', '.join(windowed_types(features))} take free text.{how}"
     )
 
 

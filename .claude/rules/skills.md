@@ -9,8 +9,8 @@ paths:
   `.agents/skills/` are read by `npx skills add` and would ship to users. A
   hook blocks the file tools there; don't route around it with the shell.
   One deliberate exception: the cost intelligence guide at
-  `src/opik_mcp/cost_intelligence/cost-intelligence.md`, served only in that
-  mode and never published. Don't move it.
+  `src/opik_mcp/cost_intelligence/cost-intelligence.md`, served only in an
+  AI Spend workspace and never published. Don't move it.
 - The name is `opik` or `opik-<verb>` and matches the folder. The spec validator in
   `tests/skills/test_spec_compliance.py` is the contract.
 - The description is the trigger. It says when to use this skill and when to

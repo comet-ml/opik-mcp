@@ -11,7 +11,6 @@ through.
 
 from __future__ import annotations
 
-from opik_mcp.cost_intelligence import DEFAULT_MODE
 from opik_mcp.read_list.entities import (
     agent_insights_issue,
     dataset,
@@ -73,15 +72,15 @@ def resolve_entity_type(entity_type: str) -> str:
     return ENTITY_ALIASES.get(entity_type, entity_type)
 
 
-# The advertised tuples below mean the default mode; ``visibility`` has the
-# same views for any mode.
+# The advertised tuples below leave out feature types; ``visibility`` has the
+# same views for any feature set.
 READABLE_TYPES: tuple[str, ...] = tuple(
     t
     for t, h in ENTITY_REGISTRY.items()
-    if DEFAULT_MODE in h.modes and h.fetch_fn is not unsupported_fetch
+    if h.feature is None and h.fetch_fn is not unsupported_fetch
 )
 LISTABLE_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if DEFAULT_MODE in h.modes and h.lists
+    t for t, h in ENTITY_REGISTRY.items() if h.feature is None and h.lists
 )
 
 #: Every field table a ``list`` call can be checked against, by name, in
@@ -94,23 +93,21 @@ VOCABULARIES: dict[str, Vocabulary] = {
 SORTABLE_TYPES: tuple[str, ...] = tuple(
     v.name
     for v in VOCABULARIES.values()
-    if v.sort_fields and DEFAULT_MODE in ENTITY_REGISTRY[v.entity_type].modes
+    if v.sort_fields and ENTITY_REGISTRY[v.entity_type].feature is None
 )
 #: The entity types ``filters`` applies to. A mode of an entity is not a type.
 FILTERABLE_TYPES: tuple[str, ...] = tuple(
     v.name
     for v in VOCABULARIES.values()
-    if v.filter_fields
-    and v.mode_of is None
-    and DEFAULT_MODE in ENTITY_REGISTRY[v.entity_type].modes
+    if v.filter_fields and v.mode_of is None and ENTITY_REGISTRY[v.entity_type].feature is None
 )
 WINDOWED_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if DEFAULT_MODE in h.modes and h.is_windowed
+    t for t, h in ENTITY_REGISTRY.items() if h.feature is None and h.is_windowed
 )
 
 #: Every address ``read`` accepts as an id, with the entity it names, in the
-#: order ``uri.parse`` tries them. Every mode: a link to an entity the mode
-#: hides is parsed, so it can be refused by name.
+#: order ``uri.parse`` tries them. Feature types included: a link to one
+#: is parsed, so a workspace without the feature can refuse it by name.
 URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
     (handler.entity_type, pattern)
     for handler in sorted(ENTITY_REGISTRY.values(), key=lambda h: -h.uri_precedence)
