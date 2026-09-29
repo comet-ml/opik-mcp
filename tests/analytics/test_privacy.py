@@ -740,6 +740,24 @@ def test_read_skill_props_collapse_an_unknown_skill_to_a_constant() -> None:
     assert FORBIDDEN[9] not in json.dumps(props)
 
 
+@pytest.mark.parametrize(
+    ("workspace", "expected"),
+    [("__ai_spend_org__", "cost-intelligence"), ("my-team", "unknown")],
+)
+def test_read_skill_props_label_a_feature_skill_only_where_it_is_served(
+    monkeypatch: pytest.MonkeyPatch, workspace: str, expected: str
+) -> None:
+    from opik_mcp.server.tools import read_skill
+
+    monkeypatch.setattr(
+        read_skill,
+        "get_settings",
+        lambda: make_settings(opik_workspace=workspace, opik_mcp_transport="stdio"),
+    )
+    props = read_skill._read_skill_props(None, {"skill_name": "cost-intelligence"})
+    assert props["skill"] == expected
+
+
 @pytest.mark.anyio
 async def test_read_skill_emits_the_validation_error_kind_on_a_bad_argument(
     recorder: _Recorder,

@@ -14,6 +14,7 @@ from tests.cost_intelligence.build import SPEND_WORKSPACE, build_cost_intelligen
 from tests.factories import make_settings
 
 SPEND = make_settings(opik_workspace=SPEND_WORKSPACE, opik_mcp_transport="stdio")
+DEFAULT = make_settings(opik_workspace="my-team")
 
 
 @pytest.fixture
@@ -29,14 +30,14 @@ def test_the_guide_is_served_with_the_feature() -> None:
 
 def test_every_bundled_skill_is_still_served_with_the_feature() -> None:
     for name in catalog.skill_names():
-        assert catalog.run_read_skill(name, SPEND) == catalog.run_read_skill(name)
+        assert catalog.run_read_skill(name, SPEND) == catalog.run_read_skill(name, DEFAULT)
 
 
 def test_the_guide_is_an_unknown_skill_without_the_feature() -> None:
     with pytest.raises(catalog.UnknownSkillError) as guide:
-        catalog.run_read_skill(GUIDE_NAME)
+        catalog.run_read_skill(GUIDE_NAME, DEFAULT)
     with pytest.raises(catalog.UnknownSkillError) as other:
-        catalog.run_read_skill("nope")
+        catalog.run_read_skill("nope", DEFAULT)
     assert str(guide.value).replace("'cost-intelligence'", "X") == str(other.value).replace(
         "'nope'", "X"
     )

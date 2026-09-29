@@ -8,7 +8,7 @@ from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.config import get_settings
-from opik_mcp.features.registry import FEATURE_REGISTRY
+from opik_mcp.features.registry import enabled_features
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
@@ -39,7 +39,9 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     requested = str(kwargs.get("skill_name", "")).strip().strip("/")
     skill = requested.removeprefix(SKILLS_URI_PREFIX).removeprefix("../").partition("/")[0]
     is_reference = not requested.endswith("SKILL.md") and "/" in requested.removeprefix("../")
-    feature_skills = (name for feature in FEATURE_REGISTRY.values() for name in feature.skills)
+    feature_skills = (
+        name for feature in enabled_features(get_settings()) for name in feature.skills
+    )
     return {
         "skill": skill if skill in (*skill_names(), *feature_skills) else "unknown",
         "request_shape": request_shape(requested),
