@@ -1,0 +1,86 @@
+{
+  "TRACE_ERROR_RATE": [
+    {
+      "name": "trace_error_rate",
+      "data": [
+        {
+          "time": "2026-09-01T00:00:00Z",
+          "value": 0
+        },
+        {
+          "time": "2026-09-02T00:00:00Z",
+          "value": 25
+        }
+      ]
+    }
+  ],
+  "TRACE_COUNT": [
+    {
+      "name": "traces",
+      "data": [
+        {
+          "time": "2026-09-01T00:00:00Z",
+          "value": 0
+        },
+        {
+          "time": "2026-09-02T00:00:00Z",
+          "value": 4
+        }
+      ]
+    }
+  ],
+  "DURATION": [
+    {
+      "name": "duration.p50",
+      "data": [
+        {
+          "time": "2026-09-01T00:00:00Z",
+          "value": null
+        },
+        {
+          "time": "2026-09-02T00:00:00Z",
+          "value": 120.0
+        }
+      ]
+    },
+    {
+      "name": "duration.p99",
+      "data": [
+        {
+          "time": "2026-09-01T00:00:00Z",
+          "value": null
+        },
+        {
+          "time": "2026-09-02T00:00:00Z",
+          "value": 980.0
+        }
+      ]
+    }
+  ],
+  "COST": [
+    {
+      "name": "cost",
+      "data": [
+        {
+          "time": "2026-09-01T00:00:00Z",
+          "value": 0.0
+        },
+        {
+          "time": "2026-09-02T00:00:00Z",
+          "value": 3.2e-05
+        }
+      ]
+    }
+  ],
+  "OTHER": [
+    {
+      "name": "${metric_type}",
+      "data": [
+        {
+          "time": "2026-09-02T00:00:00Z",
+          "value": 1
+        }
+      ]
+    }
+  ]
+}

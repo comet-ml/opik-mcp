@@ -151,8 +151,10 @@ Where to start:
 - `tests/read_list/test_project_metrics.py`: every `project_metric` rule.
 - `test_the_ungroupable_metrics_are_exactly_the_ones_the_backend_omits`: the
   copied grouping matrix.
-- `tests/hermetic/test_project_overview_surface.py`: the same over stdio against a
-  stub backend. `tests/client/test_read.py`: the name endpoints' wire shapes.
+- `tests/hermetic/reads/test_project.py`, `tests/hermetic/reads/test_project_metric.py`,
+  `tests/hermetic/reads/test_score_name.py`, `tests/hermetic/reads/test_online_rule.py`:
+  the same over stdio against a stub backend. The rate and cost arithmetic
+  against a real backend: `tests/live/test_project.py`. `tests/client/test_read.py`: the name endpoints' wire shapes.
 
 ## Log
 

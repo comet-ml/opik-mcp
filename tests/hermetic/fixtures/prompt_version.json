@@ -1,0 +1,8 @@
+{
+  "id": "0199c6a4-3a4c-7f1e-9d2b-00000000004${number}",
+  "prompt_id": "${prompt_id}",
+  "commit": "v${number}",
+  "template": "Answer the refund question, revision ${number}.",
+  "type": "mustache",
+  "created_at": "2026-09-0${number}T09:00:00Z"
+}

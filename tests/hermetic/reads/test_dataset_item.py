@@ -1,229 +1,151 @@
-"""Comparing two experiments case by case, end to end over stdio.
+"""read('dataset_item') and list('dataset_item'): finding a case, and comparing experiments.
 
-WHAT THIS COVERS THAT NOTHING ELSE DOES. The in-process suites drive
-``run_list`` against a fake client: they prove the wording and the refusals,
-and they cannot see whether the request we send is the one opik-backend
-answers. The joined endpoint is picky — the experiment ids ride in a query
-param as one JSON array, a filter on the runs comes back with the
-other runs stripped off the row — so the request shape is most of what can
-break here.
-
-The first section drives the stub over plain HTTP. It is the stub's own
-contract: everything below it, and the scaling scenario in particular, is
-only as trustworthy as the claim that a page of a 100,000-case suite costs
-what a page of a 20-case suite costs.
+The joined comparison endpoint is picky: the experiment ids ride in a query
+param as one JSON array, and a filter on the runs comes back with the other
+runs stripped off the row. The items route takes a ``filters`` array, and a
+case is addressed without its dataset. So the request shape is most of what
+can break here, and each test reads it back off the stub.
 """
 
 from __future__ import annotations
 
 import json
-import os
-import sys
-from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
-from typing import Any
 
-import anyio
-import httpx
 import pytest
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 
-from tests.hermetic.stub_backend import (
+from tests.hermetic.reads.answers import (
+    Call,
+    Http,
+    assert_refusals_hide_the_backend,
+    assert_sized_envelopes,
+    call,
+    refuse,
+)
+from tests.hermetic.servers import stdio_session
+from tests.hermetic.stub_backend import StubBackend
+from tests.hermetic.stub_compare import CompareSuite, ExperimentSpec
+from tests.hermetic.stub_records import (
+    CASE_ID,
+    CASE_TRACE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
     EXPERIMENT_OTHER_SUITE,
-    OTHER_SUITE_ID,
     SUITE_ID,
-    CompareSuite,
-    ExperimentSpec,
-    StubBackend,
 )
 
-_TIMEOUT_S = 60
-
-
-@pytest.fixture
-def anyio_backend() -> str:
-    return "asyncio"
-
-
-@pytest.fixture
-def backend() -> Iterator[StubBackend]:
-    stub = StubBackend()
-    stub.start()
-    try:
-        yield stub
-    finally:
-        stub.stop()
-
-
-@asynccontextmanager
-async def _session(stub: StubBackend) -> AsyncIterator[ClientSession]:
-    params = StdioServerParameters(
-        command=sys.executable,
-        args=["-m", "opik_mcp"],
-        env={
-            **os.environ,
-            "OPIK_URL": f"http://127.0.0.1:{stub.port}/api",
-            "OPIK_API_KEY": "stub-key",
-            "OPIK_WORKSPACE": "stub-workspace",
-            "OPIK_MCP_ANALYTICS_ENABLED": "false",
-            "OPIK_MCP_SENTRY_ENABLED": "false",
-            "OPIK_MCP_LOG_LEVEL": "WARNING",
-        },
-    )
-    with anyio.fail_after(_TIMEOUT_S):
-        async with (
-            stdio_client(params) as (read, write),
-            ClientSession(read, write) as session,
-        ):
-            await session.initialize()
-            yield session
-
-
-async def _call(session: ClientSession, tool: str, **args: object) -> str:
-    result = await session.call_tool(tool, args)
-    text = "\n".join(part.text for part in result.content if hasattr(part, "text"))
-    assert not result.isError, f"{tool}({args}) was refused: {text}"
-    return text
-
-
-async def _refuse(session: ClientSession, tool: str, **args: object) -> str:
-    result = await session.call_tool(tool, args)
-    text = "\n".join(part.text for part in result.content if hasattr(part, "text"))
-    assert result.isError, f"{tool}({args}) was answered, expected a refusal: {text}"
-    return text
-
-
-def _get(stub: StubBackend, path: str, **params: Any) -> dict[str, Any]:
-    """One GET against the stub, as opik-backend would be called."""
-    response = httpx.get(f"http://127.0.0.1:{stub.port}/api{path}", params=params, timeout=30)
-    response.raise_for_status()
-    body = response.json()
-    assert isinstance(body, dict)
-    return body
-
+pytestmark = [pytest.mark.hermetic, pytest.mark.anyio]
 
 _JOINED = f"/v1/private/datasets/{SUITE_ID}/items/experiments/items"
 #: The ids as the backend reads them: one JSON array, not comma-joined.
 _BOTH = json.dumps([EXPERIMENT_A, EXPERIMENT_B], separators=(",", ":"))
 
-
-# --- the stub's own contract ----------------------------------------------- #
-
-
-@pytest.mark.hermetic
-def test_the_joined_route_slices_the_suite_by_page_and_size(backend: StubBackend) -> None:
-    backend.suite = CompareSuite(case_count=100)
-
-    body = _get(backend, _JOINED, experiment_ids=_BOTH, page=2, size=25)
-
-    assert body["total"] == 100
-    ids = [row["id"] for row in body["content"]]
-    assert len(ids) == 25
-    # Rows 26-50 of the suite, and no others: the window is the page asked for.
-    assert ids[0].endswith("100000250000")
-    assert ids[-1].endswith("100000490000")
+CALLS: list[Call] = [
+    ("read", {"id": CASE_ID}),
+    ("list", {"dataset_id": SUITE_ID}),
+    ("list", {"experiment_ids": [EXPERIMENT_A, EXPERIMENT_B]}),
+]
 
 
-@pytest.mark.hermetic
-def test_a_hundred_thousand_case_suite_builds_only_the_page_asked_for(
+async def test_each_answer_is_a_sized_header_over_its_envelope(http: Http) -> None:
+    await assert_sized_envelopes(http, "dataset_item", CALLS)
+
+
+async def test_a_failing_backend_is_refused_without_its_body_or_path(http: Http) -> None:
+    await assert_refusals_hide_the_backend(http, "dataset_item", CALLS)
+
+
+# --- finding one case ------------------------------------------------------- #
+
+
+async def test_a_case_key_reaches_the_backend_as_the_maps_wire_form(
     backend: StubBackend,
 ) -> None:
-    """The scaling scenario rests on this: the suite is described, not stored."""
-    backend.suite = CompareSuite(case_count=100_000)
+    """The acceptance case: one filter, on a key the user named, arriving as
+    the MAP clause opik-backend deserializes — field ``data`` with the key
+    beside it, not spliced into the field name."""
+    backend.suite = CompareSuite(case_count=2_000)
 
-    body = _get(backend, _JOINED, experiment_ids=_BOTH, page=1, size=5)
+    async with stdio_session(backend) as session:
+        out = await call(
+            session,
+            "list",
+            entity_type="dataset_item",
+            dataset_id=SUITE_ID,
+            filters='data.question contains "install" AND tags contains "regression"',
+            size=5,
+        )
 
-    assert body["total"] == 100_000
-    assert [row["id"][-12:] for row in body["content"]] == [
-        f"1{index:07d}0000" for index in range(5)
+    assert backend.one("/items").filters() == [
+        {"field": "data", "key": "question", "operator": "contains", "value": "install"},
+        {"field": "tags", "key": "", "operator": "contains", "value": "regression"},
     ]
-
-
-@pytest.mark.hermetic
-def test_an_experiment_carries_its_suite_and_how_it_was_evaluated(backend: StubBackend) -> None:
-    backend.experiments[EXPERIMENT_A] = ExperimentSpec(name="rerank-v1")
-    backend.experiments["plain"] = ExperimentSpec(name="evaluate-run", evaluation_method="dataset")
-
-    suite_run = _get(backend, f"/v1/private/experiments/{EXPERIMENT_A}")
-    other = _get(backend, f"/v1/private/experiments/{EXPERIMENT_OTHER_SUITE}")
-    plain = _get(backend, "/v1/private/experiments/plain")
-
-    assert (suite_run["dataset_id"], suite_run["name"]) == (SUITE_ID, "rerank-v1")
-    assert suite_run["evaluation_method"] == "evaluation_suite"
-    assert other["dataset_id"] == OTHER_SUITE_ID
-    assert plain["evaluation_method"] == "dataset"
-
-
-@pytest.mark.hermetic
-def test_a_row_carries_every_runs_scores_assertions_and_run_summary(backend: StubBackend) -> None:
-    backend.experiments[EXPERIMENT_B] = ExperimentSpec(
-        name="rerank-v3", fails_every=4, runs_per_item=2
+    assert out.splitlines()[0].endswith(
+        ' tok | filters: data.question contains "install" AND tags contains "regression"]'
     )
-
-    body = _get(backend, _JOINED, experiment_ids=_BOTH, page=1, size=4)
-    regressed = body["content"][3]
-
-    runs = [item for item in regressed["experiment_items"] if item["experiment_id"] == EXPERIMENT_B]
-    assert [run["status"] for run in runs] == ["passed", "failed"]
-    assert runs[1]["assertion_results"][0]["passed"] is False
-    assert "names Lyon" in runs[1]["assertion_results"][0]["reason"]
-    assert regressed["run_summaries_by_experiment"][EXPERIMENT_B] == {
-        "passed_runs": 1,
-        "total_runs": 2,
-        "status": "failed",
-    }
-    assert regressed["run_summaries_by_experiment"][EXPERIMENT_A]["status"] == "passed"
+    assert "Found 2000 dataset_items (page 1, showing 5 of 2000)" in out
 
 
-@pytest.mark.hermetic
-def test_the_output_columns_route_names_the_runs_output_keys(backend: StubBackend) -> None:
-    body = _get(backend, f"{_JOINED}/output/columns", experiment_ids=_BOTH)
-
-    assert [column["name"] for column in body["columns"]] == ["input", "answer", "reasoning"]
-
-
-@pytest.mark.hermetic
-@pytest.mark.parametrize("route", ["", "/output/columns"])
-def test_comma_joined_ids_are_a_400_the_way_the_backend_answers_them(
-    backend: StubBackend, route: str
+async def test_the_source_trace_is_one_call_and_a_comparison_is_none(
+    backend: StubBackend,
 ) -> None:
-    """The bug this stub could not see once.
+    """``trace_id`` is how a case is found from the conversation it was made
+    from. A comparison on a map key is refused before anything is sent: the
+    backend answers 400 for the pair, and there is nothing to learn from it."""
+    async with stdio_session(backend) as session:
+        await call(
+            session,
+            "list",
+            entity_type="dataset_item",
+            dataset_id=SUITE_ID,
+            filters=f'trace_id = "{CASE_TRACE_ID}"',
+        )
+        refusal = await refuse(
+            session,
+            "list",
+            entity_type="dataset_item",
+            dataset_id=SUITE_ID,
+            filters="data.score > 0.5",
+        )
+        sort_refusal = await refuse(
+            session,
+            "list",
+            entity_type="dataset_item",
+            dataset_id=SUITE_ID,
+            sort="created_at desc",
+        )
 
-    ``ParamsValidator.getIds`` deserializes the param as JSON, so the
-    comma-separated list every other multi-value param takes is a 400 here.
-    The stub used to accept it, the suite went green, and the call failed
-    against the real backend with ``Invalid query param ids``.
-    """
-    response = httpx.get(
-        f"http://127.0.0.1:{backend.port}/api{_JOINED}{route}",
-        params={"experiment_ids": f"{EXPERIMENT_A},{EXPERIMENT_B}"},
-        timeout=30,
-    )
-
-    assert response.status_code == 400
-    assert "Invalid query param ids" in response.json()["message"]
+    assert backend.one("/items").filters() == [
+        {"field": "trace_id", "key": "", "operator": "=", "value": CASE_TRACE_ID}
+    ]
+    assert "not valid for 'data' (map)" in refusal
+    assert "sort is not supported" in sort_refusal
 
 
-@pytest.mark.hermetic
-def test_an_unknown_route_is_still_a_404(backend: StubBackend) -> None:
-    response = httpx.get(f"http://127.0.0.1:{backend.port}/api/v1/private/nope", timeout=30)
+async def test_read_returns_the_case_the_table_had_to_cut(backend: StubBackend) -> None:
+    """The listing cuts every cell to fit a row and says so; the read of the
+    id it printed is the same case with nothing taken out."""
+    async with stdio_session(backend) as session:
+        table = await call(
+            session, "list", entity_type="dataset_item", dataset_id=SUITE_ID, size=25
+        )
+        record = await call(session, "read", entity_type="dataset_item", id=CASE_ID)
 
-    assert response.status_code == 404
+    assert "values cut at" in table
+    assert "read('dataset_item', id) is the value whole" in table
+    notes = json.loads(record.split("\n", 1)[1])["data"]["notes"]
+    assert notes.startswith("Case 3: ")
+    assert len(notes) > 1_000
+    assert notes not in table
 
 
-# --- the comparison, over stdio -------------------------------------------- #
+# --- comparing experiments case by case -------------------------------------- #
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBackend) -> None:
     backend.suite = CompareSuite(case_count=8)
 
-    async with _session(backend) as session:
-        answer = await _call(
+    async with stdio_session(backend) as session:
+        answer = await call(
             session,
             "list",
             entity_type="dataset_item",
@@ -270,15 +192,14 @@ async def test_comparing_two_experiments_lines_their_cases_up(backend: StubBacke
     regressed = [line for line in answer.splitlines() if line.startswith("0199c6a4")][3]
     assert "0.9 / 0.4 Δ-0.5" in regressed
     assert "1/1·0/1" in regressed
-    assert "(E2)" in regressed and "names Lyon, not Paris." in regressed
+    assert "(E2)" in regressed
+    assert "names Lyon, not Paris." in regressed
     assert "Use page=2 for next 4 results." in answer
     # ``input`` is the suite's own case, echoed back by the run.
     assert "runs' output keys: answer, reasoning" in answer
     assert "case data keys: expected_answer, question" in answer
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_a_run_that_produced_nothing_reads_errored_end_to_end(
     backend: StubBackend,
 ) -> None:
@@ -290,8 +211,8 @@ async def test_a_run_that_produced_nothing_reads_errored_end_to_end(
     backend.suite = CompareSuite(case_count=4)
     backend.experiments[EXPERIMENT_B] = ExperimentSpec(name="rerank-v3", errors_every=4)
 
-    async with _session(backend) as session:
-        answer = await _call(
+    async with stdio_session(backend) as session:
+        answer = await call(
             session,
             "list",
             entity_type="dataset_item",
@@ -309,8 +230,6 @@ async def test_a_run_that_produced_nothing_reads_errored_end_to_end(
     assert "open its worst_trace for error_info" in answer
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_score(
     backend: StubBackend,
 ) -> None:
@@ -323,15 +242,15 @@ async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_
     """
     backend.suite = CompareSuite(case_count=8)
 
-    async with _session(backend) as session:
-        wide = await _call(
+    async with stdio_session(backend) as session:
+        wide = await call(
             session,
             "list",
             entity_type="dataset_item",
             experiment_ids=[EXPERIMENT_A, EXPERIMENT_B],
             size=4,
         )
-        narrow = await _call(
+        narrow = await call(
             session,
             "list",
             entity_type="dataset_item",
@@ -339,7 +258,7 @@ async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_
             size=4,
             fields=["data.question", "feedback_scores.correctness"],
         )
-        refusal = await _refuse(
+        refusal = await refuse(
             session,
             "list",
             entity_type="dataset_item",
@@ -374,8 +293,6 @@ async def test_naming_the_fields_narrows_the_comparison_to_one_question_and_one_
     assert "feedback_scores.correctness" in refusal
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_cases(
     backend: StubBackend,
 ) -> None:
@@ -390,8 +307,8 @@ async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_c
     for case_count in (20, 100_000):
         backend.suite = CompareSuite(case_count=case_count)
         backend.requests.clear()
-        async with _session(backend) as session:
-            answers[case_count] = await _call(
+        async with stdio_session(backend) as session:
+            answers[case_count] = await call(
                 session,
                 "list",
                 entity_type="dataset_item",
@@ -407,25 +324,22 @@ async def test_a_comparison_costs_the_same_on_twenty_and_on_a_hundred_thousand_c
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_experiments_from_two_datasets_are_refused_before_anything_is_joined(
     backend: StubBackend,
 ) -> None:
-    async with _session(backend) as session:
-        refusal = await _refuse(
+    async with stdio_session(backend) as session:
+        refusal = await refuse(
             session,
             "list",
             entity_type="dataset_item",
             experiment_ids=[EXPERIMENT_A, EXPERIMENT_OTHER_SUITE],
         )
 
-    assert "support-qa" in refusal and "billing-qa" in refusal
+    assert "support-qa" in refusal
+    assert "billing-qa" in refusal
     assert not backend.called("items/experiments/items")
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
     backend: StubBackend,
 ) -> None:
@@ -434,8 +348,8 @@ async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
     was always bad, so each matched case is fetched again without the clause."""
     backend.suite = CompareSuite(case_count=8, strip_to_experiment=EXPERIMENT_B)
 
-    async with _session(backend) as session:
-        answer = await _call(
+    async with stdio_session(backend) as session:
+        answer = await call(
             session,
             "list",
             entity_type="dataset_item",
@@ -466,8 +380,6 @@ async def test_a_filter_on_the_runs_comes_back_with_every_run_on_the_row(
     assert "figures over the runs matching the filter" in answer
 
 
-@pytest.mark.hermetic
-@pytest.mark.anyio
 async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
     backend: StubBackend,
 ) -> None:
@@ -476,8 +388,8 @@ async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
     for case_count in (20, 100_000):
         backend.suite = CompareSuite(case_count=case_count, strip_to_experiment=EXPERIMENT_B)
         backend.requests.clear()
-        async with _session(backend) as session:
-            answers[case_count] = await _call(
+        async with stdio_session(backend) as session:
+            answers[case_count] = await call(
                 session,
                 "list",
                 entity_type="dataset_item",
@@ -492,15 +404,3 @@ async def test_a_filtered_comparison_costs_the_same_on_a_hundred_thousand_cases(
     assert sorted(calls[20]) == sorted(calls[100_000])
     ratio = len(answers[100_000]) / len(answers[20])
     assert 1 / 1.2 <= ratio <= 1.2, f"answer grew {ratio:.2f}x with the suite"
-
-
-@pytest.mark.hermetic
-@pytest.mark.anyio
-async def test_reading_an_experiment_names_the_call_that_compares_it(
-    backend: StubBackend,
-) -> None:
-    async with _session(backend) as session:
-        answer = await _call(session, "read", entity_type="experiment", id=EXPERIMENT_A)
-
-    assert "list('dataset_item', experiment_ids=" in answer
-    assert EXPERIMENT_A in answer

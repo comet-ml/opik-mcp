@@ -116,3 +116,56 @@ async def test_the_summary_states_the_window_it_compared_against(
         instant(m.previous_since),
         instant(m.recent_since),
     )
+
+
+async def test_an_error_rate_bucket_is_the_share_of_its_traces_that_errored(
+    mcp: Live, manifest: Manifest
+) -> None:
+    """The rate is the backend's arithmetic: weighted by each bucket's trace
+    count, the buckets add back up to the errors the fixture logged, and a
+    bucket with no traces is left out rather than charted as 0%."""
+    m = manifest
+    window = {
+        "project_name": m.project_name,
+        "interval": "daily",
+        "since": m.recent_since,
+        "until": m.anchor,
+    }
+    rates = await mcp.list("project_metric", metric_type="trace_error_rate", **window)
+    counts = await mcp.list("project_metric", metric_type="trace_count", **window)
+    traces = {row["time"]: float(row["traces"] or 0) for row in counts.rows()}
+    rate_rows = rates.rows()
+    (rate_column,) = (column for column in rate_rows[0] if column != "time")
+    errored = sum(float(row[rate_column]) / 100 * traces[row["time"]] for row in rate_rows)
+    assert errored == pytest.approx(m.recent_errors, abs=0.5), rates.text
+    listed = {row["time"] for row in rate_rows}
+    assert listed == {day for day, count in traces.items() if count}, rates.text
+
+
+async def test_a_sub_cent_cost_survives_the_table(mcp: Live, manifest: Manifest) -> None:
+    """A cheap model costs fractions of a cent a day. Rounding it would read
+    as no cost; the daily buckets must add up to the summary's total."""
+    m = manifest
+    window = {
+        "project_name": m.project_name,
+        "interval": "daily",
+        "since": m.recent_since,
+        "until": m.anchor,
+    }
+    answer = await mcp.list("project_metric", metric_type="trace_cost", **window)
+    counts = await mcp.list("project_metric", metric_type="trace_count", **window)
+    traces = {row["time"]: float(row["traces"] or 0) for row in counts.rows()}
+    rows = answer.rows()
+    (cost_column,) = (column for column in rows[0] if column != "time")
+    costs = {row["time"]: float(row[cost_column] or 0) for row in rows}
+    busy = {day for day, count in traces.items() if count}
+    assert busy, f"the fixture logged no traces in the window: {counts.text[:500]}"
+    assert all(0 < costs.get(day, 0) < 0.01 for day in busy), answer.text
+    record = (
+        await mcp.read("project", m.project_name, since=m.recent_since, until=m.anchor)
+    ).record()
+    total = _part(record, "summary", "traces", "total_cost")["current"]
+    assert isinstance(total, float)
+    # Each cell is printed to a few significant digits, so the sum is as close
+    # as that rounding allows and no closer.
+    assert sum(costs.values()) == pytest.approx(total, rel=0.1), answer.text
