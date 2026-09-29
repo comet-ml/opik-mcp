@@ -122,7 +122,7 @@ from opik_mcp.server import mcp
 # headroom was 505 bytes; at 22,379 it is 1,621. Unused headroom is not in
 # anyone's context; only what is written is.
 # An AI Spend workspace adds one sentence each to the `read` and `list`
-# descriptions, plus the names its spend types add: 22,801 bytes, 422 over the
+# descriptions, plus the names its spend types add: 22,817 bytes, 438 over the
 # default surface, which is unchanged at 22,379. The same cap measures it.
 SURFACE_BUDGET_BYTES = 24_000
 

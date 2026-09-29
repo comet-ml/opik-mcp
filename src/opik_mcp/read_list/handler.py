@@ -484,6 +484,10 @@ class EntityHandler:
     is_windowed: bool = False
     """Does the list endpoint take ``from_time``/``to_time`` and free-text
     ``search``? The two capabilities ship together on the backend."""
+    run_takes_window: bool = False
+    """``run_fn`` reads since/until itself; ``schema`` reports a window."""
+    run_takes_search: bool = False
+    """``run_fn`` reads ``search`` itself; ``schema`` reports search."""
     is_name_searchable: bool = False
     """Does the workspace-wide list endpoint take a ``name`` substring? That is
     the match a caller who reached for ``search`` can have instead."""

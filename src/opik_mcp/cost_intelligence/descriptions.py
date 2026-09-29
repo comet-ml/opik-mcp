@@ -8,8 +8,8 @@ from typing import Final
 GUIDE_NAME: Final = "cost-intelligence"
 GUIDE_FILE: Final = "cost-intelligence.md"
 
-READ_SENTENCE: Final = "In this AI Spend workspace, the spend_* types are also readable."
-LIST_SENTENCE: Final = "In this AI Spend workspace, the spend_* types are also listable."
+READ_SENTENCE: Final = "In this AI Spend workspace, spend_lane and spend_session are also readable."
+LIST_SENTENCE: Final = "In this AI Spend workspace, the five spend_* types are also listable."
 
 INSTRUCTIONS_PARAGRAPH: Final = (
     "AI Spend workspace: Claude Code usage is logged to project `claude-code`. "

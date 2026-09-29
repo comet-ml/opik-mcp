@@ -22,7 +22,7 @@ from opik_mcp.read_list.entities.spend.lane import LANE_KEYS, TOP_ITEMS
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.read_tool import run_read
-from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS
+from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS, list_reference
 from opik_mcp.read_list.visibility import (
     added_listable,
     added_readable,
@@ -448,17 +448,59 @@ async def test_a_session_read_with_a_ready_analysis_returns_the_narrative() -> N
     assert data["url"].endswith(f"/__ai_spend_test__/ai-spend/session-analysis/{SESSION}")
 
 
-@pytest.mark.parametrize("status", ["running", "not_started", "failed", "skipped"])
+UNANALYSED = {
+    "session": {
+        "user_email": "dev@example.com",
+        "start_time": "2026-09-20T10:00:00Z",
+        "last_activity": "2026-09-20T11:12:00Z",
+        "total_tokens": 2_500_000,
+    },
+    "live_turns": 12,
+    "session_summary": "Refactored the parser.",
+}
+
+
+@pytest.mark.parametrize("status", ["processing", "not_started", "failed", "skipped"])
 async def test_a_session_read_without_an_analysis_names_the_outline_call(status: str) -> None:
-    fake = FakeSpend(narrative={"status": status, "failure_detail": "model timed out"})
+    body = {"status": status, "failure_detail": "model timed out", **UNANALYSED}
+    fake = FakeSpend(narrative=body)
     data = json.loads((await _read(fake, "spend_session", SESSION)).split("\n", 1)[1])
     assert data["status"] == status
-    assert (
+    call = (
         f"list('trace', filters='thread_id = \"{SESSION}\" AND name not_contains \"automated\"', "
-        "fields=['name'], sort='start_time asc', size=50)" in data["note"]
+        f"project_name='{FIXED_PROJECT}', fields=['name'], sort='start_time asc', size=50)"
     )
+    assert call in data["note"]
     assert data.get("detail") == "model timed out"
     assert "tasks" not in data
+
+
+async def test_the_guide_outline_call_names_the_fixed_project() -> None:
+    guide = run_read_skill(GUIDE_NAME, enabled_features(SPEND))
+    step = guide[guide.index("If the narrative isn't ready") :]
+    assert f"project_name='{FIXED_PROJECT}'" in step[: step.index("**Which subagents")]
+
+
+async def test_an_unknown_session_is_not_found_rather_than_not_started() -> None:
+    body: dict[str, object] = {"status": "not_started", "session": None, "turn_count": 0}
+    with pytest.raises(ToolError) as exc:
+        await _read(FakeSpend(narrative=body), "spend_session", SESSION)
+    assert str(exc.value) == (
+        f"No session '{SESSION}' in project claude-code for this window. "
+        "list('spend_session') lists sessions by tokens."
+    )
+
+
+async def test_a_session_read_without_an_analysis_shows_what_its_list_row_shows() -> None:
+    fake = FakeSpend(narrative={"status": "not_started", **UNANALYSED})
+    data = json.loads((await _read(fake, "spend_session", SESSION)).split("\n", 1)[1])
+    assert data["user"] == "dev@example.com"
+    assert data["start"] == "2026-09-20T10:00"
+    assert data["duration"] == "1h12m"
+    assert data["turns"] == 12
+    assert data["tokens"] == 2_500_000
+    assert data["summary"] == "Refactored the parser."
+    assert "outline" in data["note"].lower()
 
 
 # --- summary, lanes, agents ------------------------------------------------ #
@@ -822,6 +864,16 @@ async def test_the_guide_says_the_outline_filter_leaves_some_background_turns() 
     assert "without automated" not in guide
 
 
+async def test_the_guide_says_what_turn_names_look_like_without_capture() -> None:
+    guide = run_read_skill(GUIDE_NAME, enabled_features(SPEND))
+    step = guide[guide.index("If the narrative isn't ready") :]
+    step = step[: step.index("**Which subagents")]
+    assert "starts with its prompt" in step
+    assert "`user_turn`" in step
+    assert "`tool_continuation: <tool>`" in step
+    assert "Each other name is the start of a prompt" not in step
+
+
 async def test_session_rows_link_to_their_analysis_page_and_the_column_says_turns() -> None:
     fake = FakeSpend(sessions={"total": 1, "content": [_session_row(SESSION)]})
     answer = await _list(fake, "spend_session")
@@ -842,3 +894,30 @@ async def test_user_rows_link_to_the_leaderboard_not_home(filters: str | None) -
     assert "/__ai_spend_test__/ai-spend/leaderboard" in link
     assert "Open a row" not in answer
     assert "/ai-spend/home" not in answer
+
+
+@pytest.mark.parametrize("entity_type", SPEND_TYPES)
+def test_the_reference_says_every_spend_list_takes_a_window(
+    monkeypatch: pytest.MonkeyPatch, entity_type: str
+) -> None:
+    monkeypatch.setattr("opik_mcp.writes.schema_tool.get_settings", lambda: SPEND)
+    reference = run_schema(f"list.{entity_type}")
+    assert reference["window"] is True
+    assert reference["search"] is (entity_type == "spend_session")
+
+
+def test_the_spend_user_grammar_names_only_operators_its_fields_take(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("opik_mcp.writes.schema_tool.get_settings", lambda: SPEND)
+    grammar = run_schema("list.spend_user")["filters"]["grammar"]
+    assert "is_empty" not in grammar
+    assert "in/not_in" not in grammar
+    assert grammar.endswith("numbers bare.")
+    assert "is_empty" not in run_schema("list.spend_session")["filters"]["grammar"]
+
+
+def test_the_default_types_keep_the_full_grammar_and_no_spend_type_is_windowed() -> None:
+    assert not [t for t in windowed_types(frozenset()) if "spend" in t]
+    for entity_type in ("trace", "thread", "project"):
+        assert "in/not_in take" in list_reference(entity_type)["filters"]["grammar"]

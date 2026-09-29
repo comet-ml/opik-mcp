@@ -43,6 +43,20 @@ def test_the_guide_is_an_unknown_skill_without_the_feature() -> None:
     )
 
 
+def test_an_unknown_skill_names_the_guide_only_with_the_feature() -> None:
+    with pytest.raises(catalog.UnknownSkillError) as spend:
+        catalog.run_read_skill("nonexistent-skill", SPEND)
+    with pytest.raises(catalog.UnknownSkillError) as default:
+        catalog.run_read_skill("nonexistent-skill")
+    listed = str(spend.value).split("available skills: ")[1].split(", ")
+    assert GUIDE_NAME in listed
+    assert listed == sorted(listed)
+    assert GUIDE_NAME not in str(default.value)
+    assert str(default.value) == (
+        f"unknown skill 'nonexistent-skill'; available skills: {', '.join(catalog.skill_names())}"
+    )
+
+
 def test_the_guide_is_not_part_of_the_bundled_skills_or_their_uris() -> None:
     assert GUIDE_NAME not in catalog.skill_names()
     assert not any(GUIDE_NAME in f.uri for f in catalog.iter_skill_files())

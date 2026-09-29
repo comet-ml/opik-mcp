@@ -294,8 +294,8 @@ def _reference_names(skill: str) -> tuple[str, ...]:
     )
 
 
-def _name_list() -> str:
-    return ", ".join(skill_names())
+def _name_list(extra: tuple[str, ...] = ()) -> str:
+    return ", ".join(sorted((*skill_names(), *extra)))
 
 
 def request_shape(skill_name: str) -> str:
@@ -312,7 +312,7 @@ def request_shape(skill_name: str) -> str:
     return "path" if "/" in requested.removeprefix("../") else "name"
 
 
-def resolve(skill_name: str) -> SkillFile:
+def resolve(skill_name: str, extra_skills: tuple[str, ...] = ()) -> SkillFile:
     """The file a caller named, in any of the forms the tool documents.
 
     One argument, four forms, because an agent arrives holding whichever one it
@@ -334,13 +334,16 @@ def resolve(skill_name: str) -> SkillFile:
     so `..` and absolute paths miss rather than escaping the skills tree.
 
     Raises `UnknownSkillError` naming the valid alternatives: a wrong guess should
-    cost one turn, not a fishing expedition.
+    cost one turn, not a fishing expedition. `extra_skills` are served
+    elsewhere and only named in the unknown-skill lists.
     """
     requested = skill_name.strip().strip("/")
     while requested.startswith("../"):
         requested = requested[3:]
     if not requested:
-        raise UnknownSkillError(f"skill_name is empty; available skills: {_name_list()}")
+        raise UnknownSkillError(
+            f"skill_name is empty; available skills: {_name_list(extra_skills)}"
+        )
 
     # A URI is the same (skill, document) pair wearing a prefix, so strip it and
     # take the one road out. Two roads is what made a bad URI answer with the skill
@@ -351,7 +354,9 @@ def resolve(skill_name: str) -> SkillFile:
 
     skill, _, relative = remainder.partition("/")
     if skill not in skill_names():
-        raise UnknownSkillError(f"unknown skill {skill!r}; available skills: {_name_list()}")
+        raise UnknownSkillError(
+            f"unknown skill {skill!r}; available skills: {_name_list(extra_skills)}"
+        )
 
     entry = resolve_uri(f"{SKILLS_URI_PREFIX}{skill}/{relative or 'SKILL.md'}")
     if entry is not None:
@@ -415,7 +420,7 @@ def run_read_skill(skill_name: str, features: frozenset[str] = frozenset()) -> s
     if AI_SPEND_FEATURE in features and _is_guide(skill_name.strip().strip("/")):
         guide = _read_guide()
         return f"[read_skill: {GUIDE_NAME} bytes={len(guide.encode('utf-8'))}]\n\n{guide}"
-    entry = resolve(skill_name)
+    entry = resolve(skill_name, (GUIDE_NAME,) if AI_SPEND_FEATURE in features else ())
     content = read_skill_file(entry)
     header = (
         f"[read_skill: {entry.skill} path={entry.path} "

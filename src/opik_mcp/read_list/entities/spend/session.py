@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Final
 from urllib.parse import quote
+
+from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings
@@ -168,8 +171,33 @@ def _nothing_here(window: SpendWindow, *, total: int, page: int, narrowed: bool)
 def _outline_call(session_id: str) -> str:
     return (
         f"list('trace', filters='thread_id = \"{session_id}\" AND name not_contains "
-        f"\"automated\"', fields=['name'], sort='start_time asc', size=50)"
+        f"\"automated\"', project_name='{FIXED_PROJECT}', "
+        "fields=['name'], sort='start_time asc', size=50)"
     )
+
+
+def _span_ms(start: str, end: str) -> int | None:
+    try:
+        delta = datetime.fromisoformat(end) - datetime.fromisoformat(start)
+    except ValueError:
+        return None
+    return int(delta.total_seconds() * 1000)
+
+
+def _list_row_facts(body: Row) -> dict[str, object]:
+    """What the session's list row shows, so a read never says less than the list."""
+    meta = child(body, "session")
+    start, end = text(meta, "start_time"), text(meta, "last_activity")
+    span = _span_ms(start, end) if start and end else None
+    turns = whole(body, "live_turns") or whole(body, "turn_count")
+    return {
+        "user": text(meta, "user_email") or None,
+        "start": start[:16] or None,
+        "duration": _duration(span) if span is not None and span >= 0 else None,
+        "turns": turns or None,
+        "tokens": whole(meta, "total_tokens") or None,
+        "summary": text(body, "session_summary") or None,
+    }
 
 
 def _not_ready(session_id: str, body: Row) -> dict[str, object]:
@@ -177,6 +205,7 @@ def _not_ready(session_id: str, body: Row) -> dict[str, object]:
     record: dict[str, object] = {
         "session_id": session_id,
         "status": status,
+        **_list_row_facts(body),
         "detail": text(body, "failure_detail") or text(body, "failure_code") or None,
         "note": (
             f"No narrative: the session's analysis is {status}, and this server never starts one. "
@@ -228,6 +257,11 @@ async def fetch_session(
     )
     if text(body, "status") in NARRATED:
         return _narrative(session_id, body)
+    if not isinstance(body.get("session"), dict):
+        raise ToolError(
+            f"No session '{session_id}' in project {FIXED_PROJECT} for this window. "
+            f"list('{ENTITY}') lists sessions by tokens."
+        )
     return _not_ready(session_id, body)
 
 

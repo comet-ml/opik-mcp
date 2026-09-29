@@ -978,10 +978,14 @@ async def _spend_session_narrative(drive: Driver) -> None:
 
 @probe("spend_session_names_the_outline_call")
 async def _spend_session_outline(drive: Driver) -> None:
-    drive.backend.spend_payloads["ai_spend_narrative"] = {"status": "pending"}
+    drive.backend.spend_payloads["ai_spend_narrative"] = {
+        "status": "pending",
+        "session": {"user_email": "ops@example.com", "total_tokens": 400_000},
+    }
     payload = await drive.read_json(entity_type="spend_session", id="session-bbb")
     assert "tasks" not in payload
     assert 'AND name not_contains "automated"\'' in payload["note"]
+    assert "project_name='claude-code'" in payload["note"]
     assert "sort='start_time asc', size=50)" in payload["note"]
 
 

@@ -19,12 +19,29 @@ from opik_mcp.read_list.oql_fields import (
     MILLISECOND_FIELDS,
     OPERATORS_BY_TYPE,
 )
-from opik_mcp.read_list.oql_parser import GRAMMAR_LINE
+from opik_mcp.read_list.oql_parser import (
+    GRAMMAR_LINE,
+    LIST_VALUE_OPERATORS,
+    NO_VALUE_OPERATORS,
+)
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
 from opik_mcp.read_list.visibility import list_schema_keys
 
 LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = list_schema_keys(frozenset())
+
+
+def _grammar(fields: dict[str, dict[str, Any]], *, trim: bool) -> str:
+    """The grammar line; ``trim`` drops operator forms no field of the entity accepts."""
+    if not trim:
+        return GRAMMAR_LINE
+    offered = {op for spec in fields.values() for op in spec["operators"]}
+    line = GRAMMAR_LINE
+    if not offered & NO_VALUE_OPERATORS:
+        line = line.replace(" is_empty/is_not_empty take no value,", "")
+    if not offered & LIST_VALUE_OPERATORS:
+        line = line.replace(' in/not_in take ("a", "b").', "")
+    return line.rstrip(", ").rstrip() + ("." if not line.endswith(".") else "")
 
 
 def list_reference(entity_type: str) -> dict[str, Any]:
@@ -36,6 +53,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         # beside the data it describes.
         return handler.reference_fn()
     vocabulary = VOCABULARIES[entity_type]
+    entity = ENTITY_REGISTRY[vocabulary.entity_type]
     fields: dict[str, dict[str, Any]] = {}
     for name, ftype in vocabulary.filter_fields.items():
         # A field the backend takes as a query parameter accepts less than its
@@ -67,7 +85,7 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         fields[name] = spec
 
     filters: dict[str, Any] = {
-        "grammar": GRAMMAR_LINE,
+        "grammar": _grammar(fields, trim=entity.feature is not None),
         "fields": fields,
         "examples": list(vocabulary.filter_examples),
     }
@@ -95,7 +113,6 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         # that before they page through a dataset looking for one.
         sort["why"] = why
 
-    is_windowed = ENTITY_REGISTRY[vocabulary.entity_type].is_windowed
     return {
         "operation": f"list.{entity_type}",
         # What the caller types, which is not this key when the key is one of
@@ -103,8 +120,8 @@ def list_reference(entity_type: str) -> dict[str, Any]:
         "entity_type": vocabulary.entity_type,
         "filters": filters,
         "sort": sort,
-        "window": is_windowed,
-        "search": is_windowed,
+        "window": entity.is_windowed or entity.run_takes_window,
+        "search": entity.is_windowed or entity.run_takes_search,
     }
 
 
