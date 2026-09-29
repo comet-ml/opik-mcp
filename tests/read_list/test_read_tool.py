@@ -18,12 +18,12 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.config import Settings
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.paging import continuation, short_list
 from opik_mcp.read_list.read_tool import run_read
-from tests.factories import make_settings
 from tests.hermetic.fixtures import record
 
 
@@ -853,7 +853,7 @@ async def test_read_issue_via_canonical_uri() -> None:
 
 # --- UI links on the issue read ------------------------------------------ #
 
-_UI_SETTINGS = make_settings(
+_UI_SETTINGS = Settings(
     opik_api_key="k", comet_workspace="demo-ws", opik_url="https://opik.test/api"
 )
 
@@ -916,7 +916,7 @@ async def test_read_issue_omits_links_under_oauth_bearer_with_unknown_workspace(
 @pytest.mark.anyio
 async def test_read_issue_omits_links_when_opik_url_unconfigured() -> None:
     """No URL is better than a wrong one."""
-    bare = make_settings(
+    bare = Settings(
         opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
     )
     out = await run_read(
@@ -1667,7 +1667,7 @@ async def test_read_project_rejects_a_window_of_no_length() -> None:
 async def test_read_project_omits_the_link_when_opik_url_is_unconfigured() -> None:
     """No link beats a wrong one. The summary still arrives — the link is a
     convenience, the numbers are the answer."""
-    bare = make_settings(
+    bare = Settings(
         opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
     )
     body = _payload(await run_read("project", UUID, client=_project_fake(), settings=bare))
@@ -1776,7 +1776,7 @@ async def test_an_experiment_entry_gets_no_guessed_link() -> None:
 @pytest.mark.anyio
 async def test_no_ui_base_means_no_link_on_the_entry_either() -> None:
     """The same rule the project's own link follows, one level down."""
-    bare = make_settings(
+    bare = Settings(
         opik_api_key="k", comet_workspace="demo-ws", opik_url=None, comet_url_override=""
     )
     body = _payload(
@@ -2189,7 +2189,7 @@ async def test_an_experiment_without_a_dataset_gets_no_link() -> None:
 
 @pytest.mark.anyio
 async def test_links_are_absent_when_the_ui_is_unknown() -> None:
-    bare = make_settings(opik_api_key="k", comet_workspace="demo-ws", comet_url_override="")
+    bare = Settings(opik_api_key="k", comet_workspace="demo-ws", comet_url_override="")
     fake = FakeOpikClient(
         experiments_by_id={
             UUID: {"id": UUID, "name": "nightly", "dataset_id": "ds-7", "project_id": "p-1"}

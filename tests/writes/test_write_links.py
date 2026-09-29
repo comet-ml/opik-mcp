@@ -26,7 +26,6 @@ from pydantic import BaseModel
 from opik_mcp.config import Settings
 from opik_mcp.writes.operations.observability import decorate_with_page
 from opik_mcp.writes.registry import get_operation
-from tests.factories import make_settings
 
 
 def _uuid(n: int) -> UUID:
@@ -35,7 +34,7 @@ def _uuid(n: int) -> UUID:
 
 
 def _settings() -> Settings:
-    return make_settings(
+    return Settings(
         opik_api_key="k",
         comet_workspace="demo-ws",
         opik_url="https://opik.test/api/",
