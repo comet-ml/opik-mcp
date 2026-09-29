@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import cast
 
 from opik_mcp.client.base import OpikClientBase, _drop_none
-from opik_mcp.client.json_value import JsonObject
 from opik_mcp.client.shapes import (
     AgentInsightsIssue,
     AgentInsightsIssueWithDetails,
     AgentInsightsJob,
     Page,
 )
+from opik_mcp.json_types import JsonObject
 
 
 class DiagnosticsEndpoints(OpikClientBase):

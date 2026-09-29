@@ -19,7 +19,6 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError
-from opik_mcp.client.json_value import JsonObject
 from opik_mcp.client.shapes import (
     Activity,
     AgentInsightsIssue,
@@ -42,6 +41,7 @@ from opik_mcp.client.shapes import (
     Trace,
     TraceThread,
 )
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 from tests.hermetic.fixtures import record

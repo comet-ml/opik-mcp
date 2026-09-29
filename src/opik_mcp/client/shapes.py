@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import NotRequired, ReadOnly, TypedDict
 
-from opik_mcp.client.json_value import JsonObject, JsonValue
+from opik_mcp.json_types import JsonObject, JsonValue
 
 
 class Page[T](TypedDict):

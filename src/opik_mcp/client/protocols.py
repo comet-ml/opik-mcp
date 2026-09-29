@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from opik_mcp.client.json_value import JsonObject
 from opik_mcp.client.shapes import (
     Activity,
     AgentInsightsIssue,
@@ -30,6 +29,7 @@ from opik_mcp.client.shapes import (
     Trace,
     TraceThread,
 )
+from opik_mcp.json_types import JsonObject
 
 
 class OpikListClient(Protocol):

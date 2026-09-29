@@ -10,7 +10,6 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
-from opik_mcp.client.json_value import JsonObject
 from opik_mcp.client.shapes import (
     Activity,
     AgentInsightsIssue,
@@ -34,6 +33,7 @@ from opik_mcp.client.shapes import (
     TraceThread,
 )
 from opik_mcp.config import Settings
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.size import estimate_tokens

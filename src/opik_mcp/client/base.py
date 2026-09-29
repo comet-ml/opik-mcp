@@ -9,7 +9,6 @@ from typing import ClassVar, Final
 
 import httpx
 
-from opik_mcp.client.json_value import JsonObject
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     WORKSPACE_ENV_VARS,
@@ -27,6 +26,7 @@ from opik_mcp.identity.context import (
     oauth_token_expired_hint,
 )
 from opik_mcp.identity.store import forget_validation
+from opik_mcp.json_types import JsonObject
 
 # --- errors --------------------------------------------------------------- #
 #

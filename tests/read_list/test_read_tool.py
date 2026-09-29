@@ -18,7 +18,6 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
-from opik_mcp.client.json_value import JsonObject
 from opik_mcp.client.shapes import (
     Activity,
     AgentInsightsIssue,
@@ -45,6 +44,7 @@ from opik_mcp.client.shapes import (
     TraceThread,
 )
 from opik_mcp.config import Settings
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
 from opik_mcp.read_list.errors import EntityArgValidationError
