@@ -9,13 +9,15 @@ rather than against the collection.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal, TypedDict
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Page
 from opik_mcp.config import Settings
+from opik_mcp.read_list.paging import NameCandidate
 from opik_mcp.read_list.ui_links import ProjectArea, ViewPage
 from opik_mcp.read_list.uri import UriPattern
 
@@ -23,10 +25,79 @@ from opik_mcp.read_list.uri import UriPattern
 # today) can accept ``project_id`` / ``project_name`` kwargs. Every other
 # fetcher is still ``(client, id)`` and is called positionally; only the
 # ``needs_project`` branch in ``read_tool`` passes the extra kwargs.
-FetchFn = Callable[..., Awaitable[dict[str, Any]]]
-SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[dict[str, Any]]]]
-ListFn = Callable[..., Awaitable[dict[str, Any]]]
-LinkFn = Callable[[Settings, dict[str, Any]], dict[str, str]]
+FetchFn = Callable[..., Awaitable[Mapping[str, object]]]
+SearchByNameFn = Callable[[OpikReadClient, str], Awaitable[list[NameCandidate]]]
+ListFn = Callable[..., Awaitable[Page[Mapping[str, object]]]]
+"""Called as ``list_fn(client, **ListKwargs)``."""
+LinkFn = Callable[[Settings, Mapping[str, object]], Mapping[str, object]]
+
+
+ParamKwarg = Literal["types", "optimization_id", "experiment_ids"]
+"""The query parameters a filter field can become (``ParamField.param``)."""
+
+
+class PageKwargs(TypedDict, total=False):
+    """A list endpoint's paging."""
+
+    page: int
+    size: int
+
+
+class ProjectScope(TypedDict, total=False):
+    """A project-scoped list's project, by id or by name."""
+
+    project_id: str
+    project_name: str
+
+
+class ScopedPageKwargs(PageKwargs, ProjectScope, total=False):
+    """What a project-scoped list that takes nothing but paging receives."""
+
+
+class NamedPageKwargs(PageKwargs, total=False):
+    """What a workspace-wide list that matches names takes."""
+
+    name: str
+
+
+class SearchKwargs(PageKwargs, ProjectScope, total=False):
+    """What every project-scoped, windowed list endpoint takes."""
+
+    filters: str
+    sorting: str
+    search: str
+    from_time: str
+    to_time: str
+    should_truncate: bool
+
+
+class ListKwargs(SearchKwargs, NamedPageKwargs, total=False):
+    """The keyword arguments a ``list_fn`` can receive: the backend's query parameters.
+
+    ``list_args`` sends a key only when the handler declares it (a parent id,
+    project scope, a report-day window) or its capabilities imply it (a
+    filter, a sort, a window, free text, a name), so an entity's ``list_fn``
+    declares the narrower set its endpoint takes and forwards it unchanged.
+    """
+
+    dataset_id: str
+    prompt_id: str
+    status: str
+    from_date: str
+    to_date: str
+    types: str
+    optimization_id: str
+    experiment_ids: str
+
+
+def page_kwargs(kw: PageKwargs) -> PageKwargs:
+    """The page and size of ``kw``, where it names them."""
+    picked: PageKwargs = {}
+    if "page" in kw:
+        picked["page"] = kw["page"]
+    if "size" in kw:
+        picked["size"] = kw["size"]
+    return picked
 
 
 @dataclass(frozen=True)
@@ -81,7 +152,7 @@ class PageContext:
     name or not at all? Advice about filter fields is an answer to a question
     only a filtering caller asked."""
     sort_field: str | None = None
-    rows: tuple[dict[str, Any], ...] = ()
+    rows: tuple[Mapping[str, object], ...] = ()
     """The page as the backend sent it, and the field it was ordered by.
 
     ``is_empty`` is the fact most notes need. These are for a note that reads
@@ -92,10 +163,10 @@ class PageContext:
 
 
 PageNoteFn = Callable[[OpikListClient, Settings, PageContext], Awaitable[str | None]]
-LinkRowFn = Callable[[Settings, dict[str, Any]], str | None]
+LinkRowFn = Callable[[Settings, Mapping[str, object]], str | None]
 RunFn = Callable[..., Awaitable[str]]
 RowLinkTemplateFn = Callable[[Settings, str | None], str | None]
-ReferenceFn = Callable[[], dict[str, Any]]
+ReferenceFn = Callable[[], dict[str, object]]
 
 
 @dataclass(frozen=True)
@@ -125,8 +196,8 @@ class ListProjection:
     """How the caller lifts the cut, appended to the cut line."""
 
 
-ProjectionFn = Callable[[list[dict[str, Any]]], ListProjection]
-RowFn = Callable[[dict[str, Any]], dict[str, Any]]
+ProjectionFn = Callable[[Sequence[Mapping[str, object]]], ListProjection]
+RowFn = Callable[[Mapping[str, object]], Mapping[str, object]]
 
 
 FieldType = Literal[
@@ -163,7 +234,7 @@ class ParamField:
     cannot express a negation, and one identifier cannot express a set.
     """
 
-    param: str
+    param: ParamKwarg
     """The query parameter the clause becomes."""
     operators: tuple[str, ...]
     """Operators that translate. Anything else is refused with ``why``."""
@@ -536,17 +607,25 @@ __all__ = [
     "FieldType",
     "LinkFn",
     "ListFn",
+    "ListKwargs",
     "ListProjection",
+    "NamedPageKwargs",
     "PageContext",
+    "PageKwargs",
     "PageNoteFn",
     "ParamField",
+    "ParamKwarg",
     "ParentPage",
+    "ProjectScope",
     "ProjectionFn",
     "ReadWindow",
     "ReferenceFn",
     "RowFn",
     "RowLinkTemplateFn",
     "RunFn",
+    "ScopedPageKwargs",
     "SearchByNameFn",
+    "SearchKwargs",
     "Vocabulary",
+    "page_kwargs",
 ]

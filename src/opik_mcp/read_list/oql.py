@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import FieldType, ParamField, Vocabulary
+from opik_mcp.read_list.handler import FieldType, ListKwargs, ParamField, Vocabulary
 from opik_mcp.read_list.oql_fields import (
     DYNAMIC_TYPES,
     KEY_ALLOWED_TYPES,
@@ -388,7 +388,7 @@ def filter_field_names(
 
 def split_param_clauses(
     vocabulary: Vocabulary, clauses: list[dict[str, str]]
-) -> tuple[list[dict[str, str]], dict[str, str]]:
+) -> tuple[list[dict[str, str]], ListKwargs]:
     """Lift the clauses the backend wants as query parameters out of the array.
 
     Returns the clauses that still travel in ``filters`` and the query
@@ -406,7 +406,7 @@ def split_param_clauses(
         return clauses, {}
 
     remaining: list[dict[str, str]] = []
-    params: dict[str, str] = {}
+    params: ListKwargs = {}
     for clause in clauses:
         spec = specs.get(clause["field"])
         if spec is None:

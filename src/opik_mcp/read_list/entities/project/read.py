@@ -17,7 +17,7 @@ terms rather than in guesses.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from collections.abc import Mapping
 
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings
@@ -33,7 +33,7 @@ async def fetch_project(
     *,
     since: str | None = None,
     until: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """Project record + the figures, the vocabulary and the freshest work."""
     # The record first, on its own: it is the primary payload, and a bad id or
     # a project in another workspace should cost one call rather than fanning
@@ -55,12 +55,16 @@ async def fetch_project(
         project_contents(client, entity_id),
         return_exceptions=True,
     )
-    for leg in legs:
-        if isinstance(leg, BaseException):
-            raise leg
-    summary, scores, usage, rules, metadata_keys, contents = legs
+    summary, scores, usage, rules, metadata_keys, contents = (
+        _settled(legs[0]),
+        _settled(legs[1]),
+        _settled(legs[2]),
+        _settled(legs[3]),
+        _settled(legs[4]),
+        _settled(legs[5]),
+    )
 
-    data: dict[str, Any] = {
+    data: dict[str, object] = {
         "project": project,
         "summary": summary,
         # link_fn needs the project the read was addressed by; underscore keys
@@ -75,7 +79,14 @@ async def fetch_project(
     return data
 
 
-def project_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def _settled[T](leg: T | BaseException) -> T:
+    """A gathered leg's result, or its exception raised."""
+    if isinstance(leg, BaseException):
+        raise leg
+    return leg
+
+
+def project_links(settings: Settings, data: Mapping[str, object]) -> dict[str, object]:
     """Where the answer can be opened: the Logs page, and what ``contains``
     names but this tool cannot fetch.
 
@@ -87,7 +98,7 @@ def project_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
     project_id = data.get("_project_id")
     if not isinstance(project_id, str):
         return {}
-    links: dict[str, Any] = {}
+    links: dict[str, object] = {}
     page = project_page_url(settings, project_id, "logs")
     if page is not None:
         links["url"] = page

@@ -15,23 +15,39 @@ row, and :func:`fetch_item` is where the rest of one is.
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
-from opik_mcp.read_list.handler import ListProjection
+from opik_mcp.client.shapes import DatasetItem, DatasetItemPage
+from opik_mcp.read_list.handler import ListProjection, PageKwargs
 
 
-async def list_items(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+class ItemsQuery(PageKwargs, total=False):
+    filters: str
+
+
+class ListItemsKwargs(ItemsQuery, total=False):
+    dataset_id: str
+
+
+async def list_items(client: OpikListClient, **kw: Unpack[ListItemsKwargs]) -> DatasetItemPage:
     # opik-backend's items endpoint is ``/datasets/{id}/items`` — the dataset
-    # id is in the path, not a query param. Pull it out before forwarding.
-    dataset_id = kw.pop("dataset_id", None)
+    # id is in the path, not a query param.
+    dataset_id = kw.get("dataset_id")
     if not dataset_id:
         raise ValueError("list dataset_item requires dataset_id")
-    kw.pop("name", None)
-    return await client.list_dataset_items(dataset_id, **kw)
+    query: ItemsQuery = {}
+    if "filters" in kw:
+        query["filters"] = kw["filters"]
+    if "page" in kw:
+        query["page"] = kw["page"]
+    if "size" in kw:
+        query["size"] = kw["size"]
+    return await client.list_dataset_items(dataset_id, **query)
 
 
-async def fetch_item(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+async def fetch_item(client: OpikReadClient, entity_id: str) -> DatasetItem:
     """One case, from ``/datasets/items/{itemId}``, uncut.
 
     The listing cuts every cell to fit its row and says so; this is the id it
@@ -57,7 +73,9 @@ _CELL_FLOOR = 60
 _CELL_CEILING = 4_000
 
 
-def data_columns(content: list[dict[str, Any]], limit: int) -> tuple[list[str], list[str]]:
+def data_columns(
+    content: Sequence[Mapping[str, object]], limit: int
+) -> tuple[list[str], list[str]]:
     """The items' ``data`` keys, ranked, cut to ``limit``: (shown, omitted).
 
     Ranked with the SDK-documented keys first, then by how many rows on the
@@ -96,7 +114,7 @@ def cell_limit(*, rows: int, columns: int) -> int:
     return min(_CELL_CEILING, max(_CELL_FLOOR, per_cell))
 
 
-def project_items(content: list[dict[str, Any]]) -> ListProjection:
+def project_items(content: Sequence[Mapping[str, object]]) -> ListProjection:
     """The columns for one page of items: the keys of their ``data`` maps.
 
     A dataset item has no fixed fields. Its payload is ``data``, a map whose

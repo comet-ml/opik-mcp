@@ -32,10 +32,12 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from typing import Any, Final
+from collections.abc import Mapping
+from typing import Final
 
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.decorations import block
+from opik_mcp.read_list.paging import page_items
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,
     fetch_score_names,
@@ -60,7 +62,7 @@ written, not of each one: twenty-five recent runs say what the next filter
 can name, and a scan of the rest would say the same thing slower."""
 
 
-def _part(names: list[str]) -> dict[str, Any] | None:
+def _part(names: list[str]) -> dict[str, object] | None:
     """One whole vocabulary part, or ``None`` when there is nothing to say.
 
     ``total`` is reported here too, not only on a capped part: a total that
@@ -72,7 +74,7 @@ def _part(names: list[str]) -> dict[str, Any] | None:
 
 def _capped_part(
     names: list[str], *, cap: int, all_of_them: str, total: int | None = None
-) -> dict[str, Any] | None:
+) -> dict[str, object] | None:
     """A part cut to ``cap`` names, with the call that returns all of them.
 
     The pointer is not optional: a cap with nowhere to send the caller is a cut
@@ -81,7 +83,7 @@ def _capped_part(
     if not names:
         return None
     counted = total if total is not None else len(names)
-    part: dict[str, Any] = {"names": names[:cap], "total": counted}
+    part: dict[str, object] = {"names": names[:cap], "total": counted}
     # With no total to compare against, a list that fills the cap may or may
     # not be all of them; the pointer goes on rather than risk a cut that
     # says nothing. A list under the cap is complete either way.
@@ -90,8 +92,8 @@ def _capped_part(
     return part
 
 
-async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
-    async def load() -> dict[str, Any] | None:
+async def score_names(client: OpikReadClient, project_id: str) -> Mapping[str, object] | None:
+    async def load() -> dict[str, object] | None:
         return _capped_part(
             await fetch_score_names(client, project_id),
             cap=SCORE_NAMES_CAP,
@@ -101,18 +103,18 @@ async def score_names(client: OpikReadClient, project_id: str) -> dict[str, Any]
     return await block("this project's score names", load)
 
 
-async def usage_keys(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
-    async def load() -> dict[str, Any] | None:
+async def usage_keys(client: OpikReadClient, project_id: str) -> Mapping[str, object] | None:
+    async def load() -> dict[str, object] | None:
         return _part(await fetch_usage_keys(client, project_id))
 
     return await block("this project's usage keys", load)
 
 
-async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
+async def online_rules(client: OpikReadClient, project_id: str) -> Mapping[str, object] | None:
     """Rule names only — the kinds and sampling rates are one list call away,
     and the overview's job is to say that rules exist and what they are called."""
 
-    async def load() -> dict[str, Any] | None:
+    async def load() -> dict[str, object] | None:
         body = await client.list_automation_rules(project_id=project_id, size=RULES_CAP)
         total_raw = body.get("total")
         return _capped_part(
@@ -127,7 +129,7 @@ async def online_rules(client: OpikReadClient, project_id: str) -> dict[str, Any
 
 async def experiment_metadata_keys(
     client: OpikReadClient, project_id: str
-) -> dict[str, Any] | None:
+) -> Mapping[str, object] | None:
     """The top-level ``metadata`` keys the project's recent experiments carry,
     most common first — the names a ``metadata.<key>`` filter can take.
 
@@ -137,13 +139,12 @@ async def experiment_metadata_keys(
     a convention.
     """
 
-    async def load() -> dict[str, Any] | None:
+    async def load() -> dict[str, object] | None:
         scope = [{"field": "project_id", "operator": "=", "key": "", "value": project_id}]
         body = await client.list_experiments(
             filters=json.dumps(scope, separators=(",", ":")), size=METADATA_SAMPLE
         )
-        rows = body.get("content") if isinstance(body, dict) else None
-        rows = [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+        rows = page_items(body)
         seen: Counter[str] = Counter()
         for row in rows:
             metadata = row.get("metadata")
@@ -160,11 +161,11 @@ async def experiment_metadata_keys(
 
 
 def assemble(
-    scores: dict[str, Any] | None,
-    usage: dict[str, Any] | None,
-    rules: dict[str, Any] | None,
-    metadata_keys: dict[str, Any] | None,
-) -> dict[str, Any] | None:
+    scores: Mapping[str, object] | None,
+    usage: Mapping[str, object] | None,
+    rules: Mapping[str, object] | None,
+    metadata_keys: Mapping[str, object] | None,
+) -> dict[str, Mapping[str, object]] | None:
     """The vocabulary block, or ``None`` when the project has no vocabulary.
 
     A project that has never been scored, never reported usage, has no rules

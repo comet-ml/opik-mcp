@@ -11,7 +11,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -19,6 +19,7 @@ import respx
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.opik import OpikClient
+from opik_mcp.client.shapes import Page, Project, ProjectMetrics, ScoreNames, TokenUsageNames
 from opik_mcp.read_list.entities.project_metric.catalog import (
     METRICS,
     groupable_by,
@@ -72,33 +73,33 @@ class FakeOpikClient:
     _workspace: str | None = None
     _api_key: str | None = None
 
-    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
+    async def list_project_token_usage_names(self, project_id: str, /) -> TokenUsageNames:
         self.name_lookups += 1
         if self.usage_names is None:
             raise httpx.ReadTimeout("usage names timed out")
-        return {"names": self.usage_names}
+        return cast("TokenUsageNames", {"names": self.usage_names})
 
-    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:
+    async def list_project_score_names(self, project_id: str, /) -> ScoreNames:
         self.name_lookups += 1
         if self.score_names is None:
             raise httpx.ReadTimeout("score names timed out")
-        return {"scores": [{"name": name} for name in self.score_names]}
+        return cast("ScoreNames", {"scores": [{"name": name} for name in self.score_names]})
 
-    async def get_project_metrics(self, project_id: str, /, **body: Any) -> dict[str, Any]:
+    async def get_project_metrics(self, project_id: str, /, **body: Any) -> ProjectMetrics:
         self.calls += 1
         self.last_body = {"project_id": project_id, **body}
         self.bodies.append(self.last_body)
         kind = str(body.get("metric_type"))
         if kind in self.fails:
             raise httpx.ReadTimeout("companion timed out")
-        return {"results": self.by_metric.get(kind, self.results)}
+        return cast("ProjectMetrics", {"results": self.by_metric.get(kind, self.results)})
 
     def body_for(self, metric_type: str) -> dict[str, Any]:
         """The request sent for one metric — two go out for a rate."""
         return next(b for b in self.bodies if b.get("metric_type") == metric_type)
 
-    async def list_projects(self, **_kw: Any) -> dict[str, Any]:
-        return self.projects
+    async def list_projects(self, **_kw: Any) -> Page[Project]:
+        return cast("Page[Project]", self.projects)
 
 
 def _fake(**kw: Any) -> Any:

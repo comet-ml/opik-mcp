@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any
 
 #: ``ResponseFormattingConfig.truncationSize`` in opik-backend: a field this
 #: long or longer comes back cut to it. Deployment-configurable there, so
@@ -43,20 +42,20 @@ def was_cut(value: object) -> bool:
     return isinstance(value, str) and len(value) >= BACKEND_SLIM_THRESHOLD_CHARS
 
 
-def count_cut(children: Iterable[Mapping[str, Any]], fields: tuple[str, ...]) -> int:
+def count_cut(children: Iterable[Mapping[str, object]], fields: tuple[str, ...]) -> int:
     """How many of ``children`` lost bytes in at least one of ``fields``."""
     return sum(1 for child in children if any(was_cut(child.get(f)) for f in fields))
 
 
 def drop_bodies_past(
-    children: Sequence[Mapping[str, Any]], budget: int, fields: tuple[str, ...]
-) -> tuple[list[dict[str, Any]], int]:
+    children: Sequence[Mapping[str, object]], budget: int, fields: tuple[str, ...]
+) -> tuple[list[dict[str, object]], int]:
     """Bodies until ``budget`` is spent; children and their shape always survive.
 
     Returns the children and how many lost their bodies. The first child keeps
     its body whatever it costs. Every dropped body is one read away.
     """
-    kept: list[dict[str, Any]] = []
+    kept: list[dict[str, object]] = []
     spent = 0
     dropped = 0
     spending = True

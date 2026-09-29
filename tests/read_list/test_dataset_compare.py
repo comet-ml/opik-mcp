@@ -11,15 +11,16 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikServerError
+from opik_mcp.client.shapes import DatasetItemPage
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
-from opik_mcp.read_list.reference import list_reference
+from opik_mcp.read_list.reference import field_reference
 
 from .test_list_tool import FakeOpikClient
 
@@ -739,10 +740,10 @@ async def test_a_refetch_that_fails_keeps_the_row_it_could_not_complete() -> Non
     fake = _fake(_DEFAULT_CASE)
     calls: list[dict[str, Any]] = []
 
-    async def one_good_then_broken(dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def one_good_then_broken(dataset_id: str, /, **kw: Any) -> DatasetItemPage:
         calls.append(kw)
         if len(calls) == 1:
-            return fake.compared_items
+            return cast("DatasetItemPage", fake.compared_items)
         raise OpikServerError("refetch exploded (500).")
 
     fake.list_compared_dataset_items = one_good_then_broken  # type: ignore[method-assign]
@@ -772,10 +773,10 @@ async def test_a_backend_having_a_bad_minute_does_not_fill_the_note_with_ids() -
     fake = _fake(*cases)
     calls: list[dict[str, Any]] = []
 
-    async def one_good_then_broken(dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def one_good_then_broken(dataset_id: str, /, **kw: Any) -> DatasetItemPage:
         calls.append(kw)
         if len(calls) == 1:
-            return fake.compared_items
+            return cast("DatasetItemPage", fake.compared_items)
         raise OpikServerError("refetch exploded (500).")
 
     fake.list_compared_dataset_items = one_good_then_broken  # type: ignore[method-assign]
@@ -837,7 +838,7 @@ async def test_filters_the_backend_accepts_and_ignores_are_refused(unapplied: st
 
 
 def test_the_schema_publishes_the_fields_a_comparison_can_filter_and_sort_on() -> None:
-    reference = list_reference("dataset_item")
+    reference = field_reference("dataset_item")
 
     assert sorted(reference["filters"]["fields"]) == [
         "comments",

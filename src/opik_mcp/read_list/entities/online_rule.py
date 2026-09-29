@@ -7,20 +7,19 @@ their sampling rate.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.client.shapes import AutomationRule, Page
+from opik_mcp.read_list.handler import EntityHandler, ScopedPageKwargs, page_kwargs
 from opik_mcp.read_list.project_scope import scope_of
 from opik_mcp.read_list.ui_links import ViewPage
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[ScopedPageKwargs]) -> Page[AutomationRule]:
     project_id = await scope_of(client, kw, caller="list('online_rule')")
-    return await client.list_automation_rules(
-        project_id=project_id, page=kw.get("page", 1), size=kw.get("size", 10)
-    )
+    return await client.list_automation_rules(project_id=project_id, **page_kwargs(kw))
 
 
 HANDLER = EntityHandler(

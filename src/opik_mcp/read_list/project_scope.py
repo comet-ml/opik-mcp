@@ -21,7 +21,6 @@ import hashlib
 import logging
 import time
 from contextvars import ContextVar
-from typing import Any
 
 import httpx
 
@@ -32,7 +31,9 @@ from opik_mcp.client.base import (
     OpikValidationError,
 )
 from opik_mcp.client.protocols import OpikListClient
+from opik_mcp.client.shapes import Project
 from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import ProjectScope
 from opik_mcp.read_list.paging import short_list
 
 logger = logging.getLogger("opik_mcp.read_list.project_scope")
@@ -92,7 +93,7 @@ def _cache_put(key: _CacheKey, project_id: str) -> None:
     _cache[key] = (project_id, time.monotonic() + _CACHE_TTL_SECONDS)
 
 
-async def project_rows(client: OpikListClient, *, name: str | None = None) -> list[dict[str, Any]]:
+async def project_rows(client: OpikListClient, *, name: str | None = None) -> list[Project]:
     """One page of projects for the side lookups (did-you-mean, last-trace hint).
 
     ``name`` is the backend's substring filter, so the caller still matches
@@ -161,7 +162,7 @@ async def _lookup_project_id(client: OpikListClient, project_name: str) -> str:
     match wins over a case-insensitive one so ``demo`` and ``Demo`` can coexist;
     several case-insensitive matches are listed back rather than guessed."""
     page = await client.list_projects(name=project_name, page=1, size=_LOOKUP_PAGE_SIZE)
-    named: list[dict[str, Any]] = [
+    named: list[Project] = [
         item
         for item in page.get("content") or []
         if isinstance(item, dict)
@@ -231,7 +232,7 @@ async def require_project_id(
     return resolved
 
 
-async def scope_of(client: OpikListClient, kw: dict[str, Any], *, caller: str) -> str:
+async def scope_of(client: OpikListClient, kw: ProjectScope, *, caller: str) -> str:
     """The project a ``list_fn`` is scoped to, from whichever spelling arrived.
 
     Every project-scoped list takes ``project_id`` or ``project_name`` and

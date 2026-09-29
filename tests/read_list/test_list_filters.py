@@ -12,13 +12,36 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError
+from opik_mcp.client.shapes import (
+    Activity,
+    AgentInsightsIssue,
+    AgentInsightsJob,
+    AutomationRule,
+    Columns,
+    Dataset,
+    DatasetItemPage,
+    Experiment,
+    FeedbackDefinition,
+    Page,
+    Project,
+    ProjectMetrics,
+    Prompt,
+    PromptVersion,
+    ScoreNames,
+    Span,
+    Stats,
+    TokenUsageNames,
+    Trace,
+    TraceThread,
+)
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 from tests.hermetic.fixtures import record
@@ -56,80 +79,82 @@ class FakeOpikClient:
     """``list_projects`` records separately: the tool also calls it on the side
     (project-name recovery, last-trace hint) after the main list call."""
 
-    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+    async def list_traces(self, **kw: Any) -> Page[Trace]:
         self.last_kwargs = kw
         self.list_calls.append(kw)
-        return self.traces
+        return cast("Page[Trace]", self.traces)
 
-    async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]:
-        return {"id": experiment_id, "name": experiment_id, "dataset_id": "suite-1"}
+    async def get_experiment(self, experiment_id: str, /) -> Experiment:
+        return cast(
+            "Experiment", {"id": experiment_id, "name": experiment_id, "dataset_id": "suite-1"}
+        )
 
-    async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> DatasetItemPage:
         self.last_kwargs = {"dataset_id": dataset_id, **kw}
-        return record("empty_page")
+        return cast("DatasetItemPage", record("empty_page"))
 
-    async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_output_columns")
+    async def list_compared_output_columns(self, dataset_id: str, /, **_kw: Any) -> Columns:
+        return cast("Columns", record("no_output_columns"))
 
-    async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_compared_stats")
+    async def get_compared_stats(self, dataset_id: str, /, **_kw: Any) -> Stats:
+        return cast("Stats", record("no_compared_stats"))
 
-    async def list_feedback_definitions(self, **_kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_feedback_definitions(self, **_kw: Any) -> Page[FeedbackDefinition]:
+        return cast("Page[FeedbackDefinition]", record("empty_page"))
 
-    async def list_spans(self, **kw: Any) -> dict[str, Any]:
+    async def list_spans(self, **kw: Any) -> Page[Span]:
         self.last_kwargs = kw
         self.list_calls.append(kw)
-        return self.spans
+        return cast("Page[Span]", self.spans)
 
-    async def list_threads(self, **kw: Any) -> dict[str, Any]:
+    async def list_threads(self, **kw: Any) -> Page[TraceThread]:
         self.last_kwargs = kw
         self.list_calls.append(kw)
-        return self.threads
+        return cast("Page[TraceThread]", self.threads)
 
-    async def list_experiments(self, **kw: Any) -> dict[str, Any]:
+    async def list_experiments(self, **kw: Any) -> Page[Experiment]:
         self.last_kwargs = kw
-        return self.experiments
+        return cast("Page[Experiment]", self.experiments)
 
-    async def list_projects(self, **kw: Any) -> dict[str, Any]:
+    async def list_projects(self, **kw: Any) -> Page[Project]:
         self.project_kwargs = kw
-        return self.projects
+        return cast("Page[Project]", self.projects)
 
-    async def list_prompts(self, **kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_prompts(self, **kw: Any) -> Page[Prompt]:
+        return cast("Page[Prompt]", record("empty_page"))
 
-    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_datasets(self, **kw: Any) -> Page[Dataset]:
+        return cast("Page[Dataset]", record("empty_page"))
 
-    async def list_dataset_items(self, dataset_id: str, **kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_dataset_items(self, dataset_id: str, **kw: Any) -> DatasetItemPage:
+        return cast("DatasetItemPage", record("empty_page"))
 
-    async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> Page[PromptVersion]:
+        return cast("Page[PromptVersion]", record("empty_page"))
 
-    async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_agent_insights_issues(self, **kw: Any) -> Page[AgentInsightsIssue]:
+        return cast("Page[AgentInsightsIssue]", record("empty_page"))
 
-    async def list_project_score_names(self, _project_id: str, /) -> dict[str, Any]:
-        return record("no_score_names")
+    async def list_project_score_names(self, _project_id: str, /) -> ScoreNames:
+        return cast("ScoreNames", record("no_score_names"))
 
-    async def list_project_token_usage_names(self, _project_id: str, /) -> dict[str, Any]:
-        return record("no_usage_keys")
+    async def list_project_token_usage_names(self, _project_id: str, /) -> TokenUsageNames:
+        return cast("TokenUsageNames", record("no_usage_keys"))
 
-    async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_automation_rules(self, **kw: Any) -> Page[AutomationRule]:
+        return cast("Page[AutomationRule]", record("empty_page"))
 
-    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> Page[Activity]:
+        return cast("Page[Activity]", record("empty_page"))
 
-    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_metric_series")
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> ProjectMetrics:
+        return cast("ProjectMetrics", record("no_metric_series"))
 
-    async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
+    async def get_agent_insights_job(self, project_id: str) -> AgentInsightsJob:
         raise OpikNotFoundError(f"agent insights job for project {project_id!r} not found (404).")
 
-    async def get_service_toggles(self) -> dict[str, Any]:
-        return record("toggles")
+    async def get_service_toggles(self) -> JsonObject:
+        return cast("JsonObject", record("toggles"))
 
 
 def _sent_filters(fake: FakeOpikClient) -> list[dict[str, str]]:
@@ -153,19 +178,22 @@ class SourceAwareClient(FakeOpikClient):
 
     hidden: int = 20
 
-    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+    async def list_traces(self, **kw: Any) -> Page[Trace]:
         self.last_kwargs = kw
         self.list_calls.append(kw)
         raw = kw.get("filters")
         clauses = json.loads(raw) if isinstance(raw, str) else []
         if any(c == SDK_SOURCE for c in clauses):
-            return _page([])
-        return {
-            "content": [{"id": "t-1", "name": "eval"}],
-            "page": 1,
-            "size": 1,
-            "total": self.hidden,
-        }
+            return cast("Page[Trace]", _page([]))
+        return cast(
+            "Page[Trace]",
+            {
+                "content": [{"id": "t-1", "name": "eval"}],
+                "page": 1,
+                "size": 1,
+                "total": self.hidden,
+            },
+        )
 
 
 SDK_SOURCE = {"field": "source", "operator": "=", "key": "", "value": "sdk"}
@@ -370,7 +398,7 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
     that says what happened and how to narrow the query."""
 
     class TimingOut(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        async def list_traces(self, **kw: Any) -> Page[Trace]:
             raise httpx.ReadTimeout("")
 
     with pytest.raises(ToolError) as ei:
@@ -386,7 +414,7 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
 @pytest.mark.anyio
 async def test_backend_unreachable_is_reported_with_the_reason() -> None:
     class Unreachable(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        async def list_traces(self, **kw: Any) -> Page[Trace]:
             raise httpx.ConnectError("nodename nor servname provided")
 
     with pytest.raises(ToolError, match=r"Could not reach Opik.*nodename nor servname"):
@@ -467,7 +495,7 @@ async def test_a_404_for_a_project_that_exists_is_not_called_a_typo() -> None:
     the missing thing is asked of the projects endpoint instead."""
 
     class SomethingElseMissing(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        async def list_traces(self, **kw: Any) -> Page[Trace]:
             raise OpikNotFoundError("traces not found (404).")
 
     fake = SomethingElseMissing(projects=_page([{"id": "p-1", "name": "demo"}]))
@@ -635,7 +663,7 @@ async def test_empty_windowed_page_with_traffic_inside_the_window_adds_nothing()
 @pytest.mark.anyio
 async def test_unknown_project_name_suggests_the_closest_one() -> None:
     class NoSuchProject(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        async def list_traces(self, **kw: Any) -> Page[Trace]:
             raise OpikNotFoundError("traces not found (404).")
 
     fake = NoSuchProject(
@@ -1376,14 +1404,17 @@ class FilterOnlyEmptyClient(FakeOpikClient):
 
     in_scope: int = 164
 
-    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+    async def list_traces(self, **kw: Any) -> Page[Trace]:
         self.last_kwargs = kw
         self.list_calls.append(kw)
         raw = kw.get("filters")
         clauses = json.loads(raw) if isinstance(raw, str) else []
         if any(c != SDK_SOURCE for c in clauses):
-            return _page([])
-        return {"content": [{"id": "t-1"}], "page": 1, "size": 1, "total": self.in_scope}
+            return cast("Page[Trace]", _page([]))
+        return cast(
+            "Page[Trace]",
+            {"content": [{"id": "t-1"}], "page": 1, "size": 1, "total": self.in_scope},
+        )
 
 
 @pytest.mark.anyio
@@ -1427,11 +1458,14 @@ class NameSearchClient(FakeOpikClient):
 
     stock: int = 342
 
-    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
+    async def list_datasets(self, **kw: Any) -> Page[Dataset]:
         self.list_calls.append(kw)
         if kw.get("name"):
-            return _page([])
-        return {"content": [{"id": "ds-1"}], "page": 1, "size": 1, "total": self.stock}
+            return cast("Page[Dataset]", _page([]))
+        return cast(
+            "Page[Dataset]",
+            {"content": [{"id": "ds-1"}], "page": 1, "size": 1, "total": self.stock},
+        )
 
 
 @pytest.mark.anyio

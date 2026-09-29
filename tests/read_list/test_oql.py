@@ -13,7 +13,7 @@ import pytest
 
 from opik_mcp.read_list import oql
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import Vocabulary
+from opik_mcp.read_list.handler import ListKwargs, Vocabulary
 from opik_mcp.read_list.oql import OQLError
 from opik_mcp.read_list.registry import FILTERABLE_TYPES, VOCABULARIES
 
@@ -28,7 +28,7 @@ def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
 
 def split_param_clauses(
     entity_type: str, clauses: list[dict[str, str]]
-) -> tuple[list[dict[str, str]], dict[str, str]]:
+) -> tuple[list[dict[str, str]], ListKwargs]:
     return oql.split_param_clauses(_vocabulary(entity_type), clauses)
 
 

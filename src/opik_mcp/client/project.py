@@ -3,9 +3,19 @@
 from __future__ import annotations
 
 import json as _json
-from typing import Any
+from typing import cast
 
-from opik_mcp.client.base import OpikClientBase, _drop_none
+from opik_mcp.client.base import OpikClientBase, QueryParams, _drop_none
+from opik_mcp.client.shapes import (
+    Activity,
+    AutomationRule,
+    KpiCards,
+    Page,
+    Project,
+    ProjectMetrics,
+    ScoreNames,
+    TokenUsageNames,
+)
 
 
 class ProjectEndpoints(OpikClientBase):
@@ -16,25 +26,28 @@ class ProjectEndpoints(OpikClientBase):
         page: int = 1,
         size: int = 10,
         sorting: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> Page[Project]:
         """``GET /v1/private/projects`` — Spring Page envelope ``{content,page,size,total}``.
 
         ``name`` is a substring filter (case-insensitive on opik-backend) used
         for the read tool's name-lookup path. ``sorting`` is the same JSON
         array every other listable endpoint takes.
         """
-        params: dict[str, Any] = {"page": page, "size": size}
+        params: QueryParams = {"page": page, "size": size}
         if name is not None:
             params["name"] = name
         if sorting is not None:
             params["sorting"] = sorting
-        return await self._get_json(
-            "/v1/private/projects",
-            params=params,
-            entity_hint="projects",
+        return cast(
+            Page[Project],
+            await self._get_json(
+                "/v1/private/projects",
+                params=params,
+                entity_hint="projects",
+            ),
         )
 
-    async def get_project(self, project_id: str) -> dict[str, Any]:
+    async def get_project(self, project_id: str) -> Project:
         """``GET /v1/private/projects/{id}`` — single project record.
 
         Serves the ``View.Public`` projection: metadata and
@@ -42,10 +55,13 @@ class ProjectEndpoints(OpikClientBase):
         (``trace_count``, ``error_count``, cost, duration) — those live on
         ``View.Detailed``, which only ``GET /projects/stats`` returns.
         """
-        return await self._get_json(
-            f"/v1/private/projects/{project_id}",
-            params=None,
-            entity_hint=f"project {project_id!r}",
+        return cast(
+            Project,
+            await self._get_json(
+                f"/v1/private/projects/{project_id}",
+                params=None,
+                entity_hint=f"project {project_id!r}",
+            ),
         )
 
     async def get_project_kpi_cards(
@@ -57,7 +73,7 @@ class ProjectEndpoints(OpikClientBase):
         interval_start: str,
         interval_end: str | None = None,
         filters: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> KpiCards:
         """``POST /v1/private/projects/{id}/kpi-cards`` — the Logs page's four cards.
 
         Returns ``{stats: [{type, current_value, previous_value}]}`` for
@@ -80,10 +96,13 @@ class ProjectEndpoints(OpikClientBase):
                 "filters": filters,
             }
         )
-        return await self._post_json(
-            f"/v1/private/projects/{project_id}/kpi-cards",
-            json=body,
-            entity_hint=f"project {project_id!r} KPI cards",
+        return cast(
+            KpiCards,
+            await self._post_json(
+                f"/v1/private/projects/{project_id}/kpi-cards",
+                json=body,
+                entity_hint=f"project {project_id!r} KPI cards",
+            ),
         )
 
     async def get_project_metrics(
@@ -99,7 +118,7 @@ class ProjectEndpoints(OpikClientBase):
         span_filters: list[dict[str, str]] | None = None,
         thread_filters: list[dict[str, str]] | None = None,
         breakdown: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> ProjectMetrics:
         """``POST /v1/private/projects/{id}/metrics`` — one metric over time.
 
         Returns ``{project_id, metric_type, interval, results: [{name, data:
@@ -127,13 +146,16 @@ class ProjectEndpoints(OpikClientBase):
                 "breakdown": breakdown,
             }
         )
-        return await self._post_json(
-            f"/v1/private/projects/{project_id}/metrics",
-            json=body,
-            entity_hint=f"project {project_id!r} metrics",
+        return cast(
+            ProjectMetrics,
+            await self._post_json(
+                f"/v1/private/projects/{project_id}/metrics",
+                json=body,
+                entity_hint=f"project {project_id!r} metrics",
+            ),
         )
 
-    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:
+    async def list_project_score_names(self, project_id: str, /) -> ScoreNames:
         """``GET /v1/private/projects/feedback-scores/names`` — one project's score names.
 
         Returns ``{scores: [{name}]}``. The query is the multi-project one
@@ -145,23 +167,29 @@ class ProjectEndpoints(OpikClientBase):
         together), and it does not report a score's ``type`` — the service
         builds each entry from the name alone.
         """
-        return await self._get_json(
-            "/v1/private/projects/feedback-scores/names",
-            params={"project_ids": _json.dumps([project_id], separators=(",", ":"))},
-            entity_hint=f"project {project_id!r} score names",
+        return cast(
+            ScoreNames,
+            await self._get_json(
+                "/v1/private/projects/feedback-scores/names",
+                params={"project_ids": _json.dumps([project_id], separators=(",", ":"))},
+                entity_hint=f"project {project_id!r} score names",
+            ),
         )
 
-    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
+    async def list_project_token_usage_names(self, project_id: str, /) -> TokenUsageNames:
         """``GET /v1/private/projects/{id}/token-usage/names`` — ``{names: [...]}``.
 
         The usage keys actually recorded in this project — ``prompt_tokens``,
         ``completion_tokens``, whatever else the instrumentation reported. Empty
         for a project whose traces carry no usage.
         """
-        return await self._get_json(
-            f"/v1/private/projects/{project_id}/token-usage/names",
-            params=None,
-            entity_hint=f"project {project_id!r} token usage names",
+        return cast(
+            TokenUsageNames,
+            await self._get_json(
+                f"/v1/private/projects/{project_id}/token-usage/names",
+                params=None,
+                entity_hint=f"project {project_id!r} token usage names",
+            ),
         )
 
     async def list_project_activities(
@@ -171,7 +199,7 @@ class ProjectEndpoints(OpikClientBase):
         *,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[Activity]:
         """``GET /v1/private/projects/{id}/activities`` — recent activity, all kinds.
 
         One feed across experiments, dataset and test-suite versions, prompt
@@ -182,10 +210,13 @@ class ProjectEndpoints(OpikClientBase):
         than null, and the per-day trace entry carries the day's trace *count*
         in the field every other kind uses for a name.
         """
-        return await self._get_json(
-            f"/v1/private/projects/{project_id}/activities",
-            params={"page": page, "size": size},
-            entity_hint=f"project {project_id!r} activity",
+        return cast(
+            Page[Activity],
+            await self._get_json(
+                f"/v1/private/projects/{project_id}/activities",
+                params={"page": page, "size": size},
+                entity_hint=f"project {project_id!r} activity",
+            ),
         )
 
     async def list_automation_rules(
@@ -194,14 +225,17 @@ class ProjectEndpoints(OpikClientBase):
         project_id: str,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[AutomationRule]:
         """``GET /v1/private/automations/evaluators/`` — a project's online rules.
 
         The trailing slash is part of the mapped path; without it the backend
         answers 404.
         """
-        return await self._get_json(
-            "/v1/private/automations/evaluators/",
-            params={"project_id": project_id, "page": page, "size": size},
-            entity_hint=f"project {project_id!r} automation rules",
+        return cast(
+            Page[AutomationRule],
+            await self._get_json(
+                "/v1/private/automations/evaluators/",
+                params={"project_id": project_id, "page": page, "size": size},
+                entity_hint=f"project {project_id!r} automation rules",
+            ),
         )

@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any, Final
+from typing import Final, Literal, NotRequired, TypedDict
 
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import Vocabulary
@@ -104,7 +104,7 @@ METRICS: Final[dict[str, Metric]] = {
     )
 }
 
-_FILTER_ARRAY: Final = {
+_FILTER_ARRAY: Final[dict[str, Literal["trace_filters", "span_filters", "thread_filters"]]] = {
     "trace": "trace_filters",
     "span": "span_filters",
     "thread": "thread_filters",
@@ -454,6 +454,17 @@ def refuse_dropped_fields(metric: Metric, clauses: list[dict[str, str]]) -> None
     )
 
 
+class MetricsRequest(TypedDict):
+    metric_type: str
+    interval: str
+    interval_start: str
+    interval_end: str
+    trace_filters: NotRequired[list[dict[str, str]]]
+    span_filters: NotRequired[list[dict[str, str]]]
+    thread_filters: NotRequired[list[dict[str, str]]]
+    breakdown: NotRequired[dict[str, str]]
+
+
 def request_body(
     metric: Metric,
     *,
@@ -462,14 +473,14 @@ def request_body(
     until: str,
     clauses: list[dict[str, str]],
     breakdown: dict[str, str] | None = None,
-) -> dict[str, Any]:
+) -> MetricsRequest:
     """Keyword arguments for ``get_project_metrics``.
 
     The compiled filter goes into the array for the metric's own entity: the
     backend applies ``span_filters`` to spans and ``trace_filters`` to traces,
     so putting a span filter in the trace array silently filters nothing.
     """
-    body: dict[str, Any] = {
+    body: MetricsRequest = {
         "metric_type": metric.backend,
         "interval": interval.upper(),
         "interval_start": since,

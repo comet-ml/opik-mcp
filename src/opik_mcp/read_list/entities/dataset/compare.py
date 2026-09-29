@@ -22,9 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Final
+from typing import Final
 
 from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.shapes import DatasetItem, FeedbackDefinition, Page
 from opik_mcp.read_list.entities.dataset.compare_guards import dataset_of, guards
 from opik_mcp.read_list.entities.dataset.compare_notes import (
     how_to_read,
@@ -84,7 +85,7 @@ async def run_compare(
     fields: list[str] | None = None,
     page: int | None = None,
     size: int | None = None,
-    **_collection_args: Any,
+    **_collection_args: object,
 ) -> str:
     """The comparison, end to end: validate, resolve, ask, render."""
     ids = _validated_ids(experiment_ids)
@@ -117,7 +118,7 @@ async def run_compare(
     # once: the rows, the output keys (first page only), the score
     # definitions, and one stats call per experiment. Only the rows can fail
     # the call; the rest decorate an answer and say so when they are missing.
-    page_result, definitions_result, *rest = await asyncio.gather(
+    page_result, definitions_result, stats_results, column_results = await asyncio.gather(
         client.list_compared_dataset_items(
             ran_dataset_id,
             experiment_ids=ids,
@@ -128,24 +129,37 @@ async def run_compare(
             size=size,
         ),
         client.list_feedback_definitions(size=DEFINITIONS_PAGE),
-        *(
-            client.get_compared_stats(ran_dataset_id, experiment_ids=[one], filters=filters_json)
-            for one in ids
+        asyncio.gather(
+            *(
+                client.get_compared_stats(
+                    ran_dataset_id, experiment_ids=[one], filters=filters_json
+                )
+                for one in ids
+            ),
+            return_exceptions=True,
         ),
-        *(
-            [client.list_compared_output_columns(ran_dataset_id, experiment_ids=ids)]
-            if page == 1
-            else []
+        asyncio.gather(
+            *(
+                [client.list_compared_output_columns(ran_dataset_id, experiment_ids=ids)]
+                if page == 1
+                else []
+            ),
+            return_exceptions=True,
         ),
         return_exceptions=True,
     )
     if isinstance(page_result, BaseException):
         raise page_result
+    # The inner gathers keep their legs' failures; only cancelling the call
+    # itself can fail them.
+    if isinstance(stats_results, BaseException):
+        raise stats_results
+    if isinstance(column_results, BaseException):
+        raise column_results
     body = page_result
     rows = [row for row in body.get("content") or [] if isinstance(row, dict)]
     total_raw = body.get("total")
     total = total_raw if isinstance(total_raw, int) and total_raw >= 0 else len(rows)
-    stats_results, column_results = rest[: len(ids)], rest[len(ids) :]
 
     kinds = _kinds(definitions_result)
     figures: dict[str, Figures | BaseException] = {
@@ -240,10 +254,10 @@ async def run_compare(
 DEFINITIONS_PAGE: Final = 100
 
 
-def _kinds(definitions: Any) -> ScoreKinds:
+def _kinds(definitions: Page[FeedbackDefinition] | BaseException) -> ScoreKinds:
     """The score kinds, or none when the definitions could not be read —
     every score is then a number, which is what it was before OPIK-8394."""
-    if not isinstance(definitions, dict):
+    if isinstance(definitions, BaseException):
         return NO_KINDS
     content = definitions.get("content")
     return ScoreKinds.of([d for d in content or [] if isinstance(d, dict)])
@@ -308,8 +322,8 @@ async def _with_every_run(
     client: OpikReadClient,
     dataset_id: str,
     ids: list[str],
-    rows: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[str]]:
+    rows: list[DatasetItem],
+) -> tuple[list[DatasetItem], list[str]]:
     """Put the stripped experiments back, one request per matched case.
 
     The backend has no list operator for ``id`` on this endpoint — it is an
@@ -337,11 +351,13 @@ async def _with_every_run(
         ),
         return_exceptions=True,
     )
-    whole: list[dict[str, Any]] = []
+    whole: list[DatasetItem] = []
     unrestored: list[str] = []
     for row, result in zip(rows, fetched, strict=True):
         content = (
-            result.get("content") if isinstance(result, dict) and result.get("content") else None
+            result.get("content")
+            if not isinstance(result, BaseException) and result.get("content")
+            else None
         )
         if not content or not isinstance(content[0], dict):
             unrestored.append(str(row.get("id") or "?"))

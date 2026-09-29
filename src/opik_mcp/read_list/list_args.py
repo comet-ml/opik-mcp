@@ -10,12 +10,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Literal
 
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, Vocabulary
+from opik_mcp.read_list.handler import EntityHandler, ListKwargs, Vocabulary
 from opik_mcp.read_list.oql import OQLError, compile_filters, render_filters, split_param_clauses
 from opik_mcp.read_list.oql_fields import PARENT_ID_FIELDS, SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.paging import clamp_size
@@ -44,8 +44,8 @@ _DAY_WINDOWED_TYPES: tuple[str, ...] = tuple(
 )
 
 
-#: The keyword arguments a ``list_fn`` receives: the backend's query parameters.
-ListKwargs = dict[str, Any]
+#: The tool arguments that pass through to a ``list_fn`` unchanged, when it takes them.
+_PassedKwarg = Literal["project_id", "project_name", "dataset_id", "prompt_id", "status"]
 
 
 @dataclass(frozen=True)
@@ -91,7 +91,8 @@ def resolve_list_args(
     page = max(1, page)
 
     list_kwargs: ListKwargs = {"page": page, "size": size}
-    if name:
+    # Only an endpoint that matches names is sent one; the others have no such parameter.
+    if name and handler.is_name_searchable:
         list_kwargs["name"] = name
     # Entity-specific kwargs are forwarded only when the registry entry declares
     # them (required or optional). A parent id meant for another entity, or
@@ -101,16 +102,16 @@ def resolve_list_args(
     accepted = set(handler.list_required_kwargs) | set(handler.list_optional_kwargs)
     if "project_id" in accepted:
         accepted.add("project_name")
-    candidates: dict[str, Any] = {
+    candidates: dict[_PassedKwarg, str | None] = {
         "project_id": project_id,
         "project_name": project_name,
         "dataset_id": dataset_id,
         "prompt_id": prompt_id,
         "status": status,
     }
-    list_kwargs.update(
-        {key: value for key, value in candidates.items() if value is not None and key in accepted}
-    )
+    for key, value in candidates.items():
+        if value is not None and key in accepted:
+            list_kwargs[key] = value
 
     for required in handler.list_required_kwargs:
         if list_kwargs.get(required) is None:

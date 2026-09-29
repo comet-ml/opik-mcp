@@ -17,8 +17,8 @@ LLM's error-recovery prompting is portable.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -33,7 +33,7 @@ from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
-from opik_mcp.read_list.paging import short_list
+from opik_mcp.read_list.paging import NameCandidate, short_list
 from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
 from opik_mcp.read_list.registry import (
     ENTITY_REGISTRY,
@@ -50,7 +50,7 @@ from opik_mcp.read_list.window import WindowError, format_instant, resolve_windo
 logger = logging.getLogger("opik_mcp.read_list.read")
 
 
-def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, Any]]) -> str:
+def _format_ambiguous(entity_type: str, name: str, candidates: list[NameCandidate]) -> str:
     lines = [
         f"Multiple {entity_type}s match name {name!r}. "
         "Use read() with one of these UUIDs (or ask the user which they mean):",
@@ -84,8 +84,8 @@ def _format_client_error(
     return str(exc)
 
 
-def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
-    """What the header should say about this answer's link, if it has one.
+def _link_hint(entity_type: str, data: Mapping[str, object]) -> str | None:
+    """What the header should call this answer's link, or ``None`` when it has none.
 
     The name is the record's own, because that is the link text a person can
     act on: "baseline-seed", not a url and not "the experiment". A composite
@@ -93,11 +93,11 @@ def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
     name is looked for there first and at the top level second.
     """
     if not data.get("url"):
-        return {}
+        return None
     subject = data.get(entity_type)
     record = subject if isinstance(subject, dict) else data
     name = record.get("name")
-    return {"link_as": name if isinstance(name, str) and name else "Open in Opik"}
+    return name if isinstance(name, str) and name else "Open in Opik"
 
 
 async def run_read(
@@ -111,7 +111,7 @@ async def run_read(
     fields: list[str] | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
-    **entity_kwargs: Any,
+    **_entity_kwargs: object,
 ) -> str:
     """Read tool entrypoint. See ``server/tools/read.py`` for the registered tool.
 
@@ -166,7 +166,7 @@ async def run_read(
     # window: what used to arrive as free-form extras is now the declared
     # ``read_window``. Anything else the caller passed is dropped here rather
     # than reaching a fetcher that has no parameter for it.
-    extra: dict[str, Any] = {}
+    extra: dict[str, str] = {}
     if since is not None or until is not None:
         # Same since/until vocabulary as ``list``. Which entities take a window,
         # and in which shape, is declared on the registry entry — a Diagnostics
@@ -222,7 +222,10 @@ async def run_read(
         if wanted is None:
             payload = compact_json(data)
             header = size_header(
-                entity_type, record_id, estimate_tokens(payload), **_link_hint(entity_type, data)
+                entity_type,
+                record_id,
+                estimate_tokens(payload),
+                link_as=_link_hint(entity_type, data),
             )
             return f"{header}\n{payload}"
 
@@ -245,7 +248,7 @@ async def run_read(
             projected=True,
             # the projected record, not the whole one: a caller who did not
             # name `url` has no link in front of them, whatever the fetch found
-            **_link_hint(entity_type, projected),
+            link_as=_link_hint(entity_type, projected),
         )
         note = marker(
             kept=kept,
@@ -262,8 +265,8 @@ async def _fetch_with_name_lookup(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
-    extra: dict[str, Any] | None = None,
-) -> dict[str, Any]:
+    extra: dict[str, str] | None = None,
+) -> dict[str, object]:
     """Resolve name → id when the input doesn't look like a UUID.
 
     For ``id_only`` entities (trace, span, …) we skip the lookup and
@@ -294,10 +297,12 @@ async def _fetch_with_name_lookup(
     extra = extra or {}
     try:
         if handler.needs_project:
-            return await handler.fetch_fn(
-                client, entity_id, project_id=project_id, project_name=project_name, **extra
+            return dict(
+                await handler.fetch_fn(
+                    client, entity_id, project_id=project_id, project_name=project_name, **extra
+                )
             )
-        return await handler.fetch_fn(client, entity_id, **extra)
+        return dict(await handler.fetch_fn(client, entity_id, **extra))
     except EntityArgValidationError as e:
         # A fetcher may reject its own scope (e.g. a project_name that resolves
         # to no or several projects). Same typed cause as the tool's own

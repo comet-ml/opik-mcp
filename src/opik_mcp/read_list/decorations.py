@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, Final
+from typing import Final
 
 import httpx
 
@@ -77,7 +77,7 @@ missing one block beats a complete one the user gave up waiting for.
 """
 
 
-async def block[T](what: str, load: Callable[[], Awaitable[T]]) -> T | dict[str, Any]:
+async def block[T](what: str, load: Callable[[], Awaitable[T]]) -> T | dict[str, str]:
     """Run one decoration, or return ``{"error": …}`` describing why not.
 
     Wrapping each leg means a gathered fan-out cannot be brought down by one

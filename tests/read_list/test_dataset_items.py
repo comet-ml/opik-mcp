@@ -25,7 +25,7 @@ from opik_mcp.read_list.entities.dataset.items import (
 )
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
-from opik_mcp.read_list.reference import list_reference
+from opik_mcp.read_list.reference import field_reference
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, READABLE_TYPES
 
 from .test_list_tool import FakeOpikClient
@@ -489,8 +489,8 @@ def test_each_reference_names_the_fields_of_the_other_call() -> None:
     knows. Whichever it lands on has to say that the other call exists and
     what could be asked there — a bare pointer would cost a round trip to find
     out that ``data.question`` is available without experiments."""
-    compared = list_reference("dataset_item")["filters"]["see_also"]
-    case = list_reference("dataset_item_case")["filters"]["see_also"]
+    compared = field_reference("dataset_item")["filters"]["see_also"]
+    case = field_reference("dataset_item_case")["filters"]["see_also"]
 
     assert "full_data" in compared
     assert "trace_id" in compared
@@ -501,7 +501,7 @@ def test_each_reference_names_the_fields_of_the_other_call() -> None:
 
 
 def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> None:
-    reference = list_reference("dataset_item_case")
+    reference = field_reference("dataset_item_case")
     fields = reference["filters"]["fields"]
 
     assert sorted(fields) == [

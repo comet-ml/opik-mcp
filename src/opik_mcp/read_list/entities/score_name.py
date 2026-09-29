@@ -8,16 +8,17 @@ dropped, the page is cut here, and the listing says what a name cannot.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient
-from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.client.shapes import Page, ScoreName
+from opik_mcp.read_list.handler import EntityHandler, ScopedPageKwargs
 from opik_mcp.read_list.project_scope import scope_of
 from opik_mcp.read_list.ui_links import ViewPage
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[ScopedPageKwargs]) -> Page[ScoreName]:
     """A project's feedback score names, as a page the list tool can render.
 
     The endpoint answers ``{scores: [{name}]}`` rather than the Spring page

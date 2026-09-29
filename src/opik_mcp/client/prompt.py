@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
-from opik_mcp.client.base import OpikClientBase
+from opik_mcp.client.base import OpikClientBase, QueryParams
+from opik_mcp.client.shapes import Page, Prompt, PromptVersion
 
 
 class PromptEndpoints(OpikClientBase):
@@ -14,18 +15,21 @@ class PromptEndpoints(OpikClientBase):
         name: str | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[Prompt]:
         """``GET /v1/private/prompts`` — Spring Page envelope."""
-        params: dict[str, Any] = {"page": page, "size": size}
+        params: QueryParams = {"page": page, "size": size}
         if name is not None:
             params["name"] = name
-        return await self._get_json(
-            "/v1/private/prompts",
-            params=params,
-            entity_hint="prompts",
+        return cast(
+            Page[Prompt],
+            await self._get_json(
+                "/v1/private/prompts",
+                params=params,
+                entity_hint="prompts",
+            ),
         )
 
-    async def get_prompt(self, prompt_id: str) -> dict[str, Any]:
+    async def get_prompt(self, prompt_id: str) -> Prompt:
         """``GET /v1/private/prompts/{id}`` — singleton prompt record.
 
         opik-backend MAY include ``latestVersion`` inline but does not
@@ -33,10 +37,13 @@ class PromptEndpoints(OpikClientBase):
         without the field). Callers needing the full version history use
         ``list_prompt_versions`` — that's the single source of truth.
         """
-        return await self._get_json(
-            f"/v1/private/prompts/{prompt_id}",
-            params=None,
-            entity_hint=f"prompt {prompt_id!r}",
+        return cast(
+            Prompt,
+            await self._get_json(
+                f"/v1/private/prompts/{prompt_id}",
+                params=None,
+                entity_hint=f"prompt {prompt_id!r}",
+            ),
         )
 
     async def list_prompt_versions(
@@ -45,10 +52,13 @@ class PromptEndpoints(OpikClientBase):
         *,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[PromptVersion]:
         """``GET /v1/private/prompts/{id}/versions`` — full version history."""
-        return await self._get_json(
-            f"/v1/private/prompts/{prompt_id}/versions",
-            params={"page": page, "size": size},
-            entity_hint=f"prompt {prompt_id!r} versions",
+        return cast(
+            Page[PromptVersion],
+            await self._get_json(
+                f"/v1/private/prompts/{prompt_id}/versions",
+                params={"page": page, "size": size},
+                entity_hint=f"prompt {prompt_id!r} versions",
+            ),
         )

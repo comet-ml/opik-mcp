@@ -15,14 +15,20 @@ read fans out, and the parts are one file each:
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Final, Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Page, Project
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.project.read import fetch_project, project_links
 from opik_mcp.read_list.entities.project.summary import WINDOW_DAYS
-from opik_mcp.read_list.handler import EntityHandler, ReadWindow, Vocabulary
-from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.handler import (
+    EntityHandler,
+    NamedPageKwargs,
+    ReadWindow,
+    Vocabulary,
+)
+from opik_mcp.read_list.paging import NameCandidate, name_candidates
 from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.read_list.uri import opik_uri
 
@@ -31,11 +37,15 @@ from opik_mcp.read_list.uri import opik_uri
 _SLOT: Final = "0PROJECTSLOT0"
 
 
-async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
+async def search_by_name(client: OpikReadClient, name: str) -> list[NameCandidate]:
     return name_candidates(await client.list_projects(name=name, size=5))
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+class ListProjectsKwargs(NamedPageKwargs, total=False):
+    sorting: str
+
+
+async def list_page(client: OpikListClient, **kw: Unpack[ListProjectsKwargs]) -> Page[Project]:
     return await client.list_projects(**kw)
 
 

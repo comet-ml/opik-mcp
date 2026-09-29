@@ -4,13 +4,36 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.client.shapes import (
+    Activity,
+    AgentInsightsIssue,
+    AgentInsightsJob,
+    AutomationRule,
+    Columns,
+    Dataset,
+    DatasetItemPage,
+    Experiment,
+    FeedbackDefinition,
+    Page,
+    Project,
+    ProjectMetrics,
+    Prompt,
+    PromptVersion,
+    ScoreNames,
+    Span,
+    Stats,
+    TokenUsageNames,
+    Trace,
+    TraceThread,
+)
 from opik_mcp.config import Settings
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.size import estimate_tokens
@@ -79,13 +102,13 @@ class FakeOpikClient:
     _workspace: str | None = None
     _api_key: str | None = None
 
-    async def list_agent_insights_issues(self, **kw: Any) -> dict[str, Any]:
+    async def list_agent_insights_issues(self, **kw: Any) -> Page[AgentInsightsIssue]:
         self.last_kwargs = kw
         if self.fail_issues_with is not None:
             raise self.fail_issues_with
-        return self.issues
+        return cast("Page[AgentInsightsIssue]", self.issues)
 
-    async def get_agent_insights_job(self, project_id: str) -> dict[str, Any]:
+    async def get_agent_insights_job(self, project_id: str) -> AgentInsightsJob:
         self.job_reads += 1
         if self.job_error is not None:
             raise self.job_error
@@ -93,110 +116,110 @@ class FakeOpikClient:
             raise OpikNotFoundError(
                 f"agent insights job for project {project_id!r} not found (404)."
             )
-        return self.job
+        return cast("AgentInsightsJob", self.job)
 
-    async def get_service_toggles(self) -> dict[str, Any]:
+    async def get_service_toggles(self) -> JsonObject:
         self.toggles_reads += 1
         if self.toggles_error is not None:
             raise self.toggles_error
         return self.toggles
 
-    async def list_projects(self, **kw: Any) -> dict[str, Any]:
+    async def list_projects(self, **kw: Any) -> Page[Project]:
         self.last_kwargs = kw
         self.project_lookups += 1
         if self.projects_error is not None:
             raise self.projects_error
-        return self.projects
+        return cast("Page[Project]", self.projects)
 
-    async def list_project_score_names(self, project_id: str, /) -> dict[str, Any]:
+    async def list_project_score_names(self, project_id: str, /) -> ScoreNames:
         self.last_kwargs = {"project_id": project_id}
-        return self.score_names
+        return cast("ScoreNames", self.score_names)
 
-    async def list_project_token_usage_names(self, project_id: str, /) -> dict[str, Any]:
+    async def list_project_token_usage_names(self, project_id: str, /) -> TokenUsageNames:
         self.last_kwargs = {"project_id": project_id}
-        return record("no_usage_keys")
+        return cast("TokenUsageNames", record("no_usage_keys"))
 
-    async def list_automation_rules(self, **kw: Any) -> dict[str, Any]:
+    async def list_automation_rules(self, **kw: Any) -> Page[AutomationRule]:
         self.last_kwargs = kw
-        return self.automation_rules
+        return cast("Page[AutomationRule]", self.automation_rules)
 
-    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("empty_page")
+    async def list_project_activities(self, _project_id: str, /, **_kw: Any) -> Page[Activity]:
+        return cast("Page[Activity]", record("empty_page"))
 
-    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> dict[str, Any]:
-        return record("no_metric_series")
+    async def get_project_metrics(self, _project_id: str, /, **_kw: Any) -> ProjectMetrics:
+        return cast("ProjectMetrics", record("no_metric_series"))
 
-    async def list_experiments(self, **kw: Any) -> dict[str, Any]:
+    async def list_experiments(self, **kw: Any) -> Page[Experiment]:
         self.last_kwargs = kw
         # Every call, in order: an empty experiment page asks the backend how
         # many exist at all, so ``last_kwargs`` alone can no longer be trusted
         # to hold the listing a test meant to observe.
         self.experiment_calls.append(kw)
-        return self.experiments
+        return cast("Page[Experiment]", self.experiments)
 
-    async def list_prompts(self, **kw: Any) -> dict[str, Any]:
+    async def list_prompts(self, **kw: Any) -> Page[Prompt]:
         self.last_kwargs = kw
-        return self.prompts
+        return cast("Page[Prompt]", self.prompts)
 
-    async def list_datasets(self, **kw: Any) -> dict[str, Any]:
+    async def list_datasets(self, **kw: Any) -> Page[Dataset]:
         self.last_kwargs = kw
-        return self.datasets
+        return cast("Page[Dataset]", self.datasets)
 
-    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+    async def list_traces(self, **kw: Any) -> Page[Trace]:
         self.last_kwargs = kw
-        return self.traces
+        return cast("Page[Trace]", self.traces)
 
-    async def list_threads(self, **kw: Any) -> dict[str, Any]:
+    async def list_threads(self, **kw: Any) -> Page[TraceThread]:
         self.last_kwargs = kw
-        return self.threads
+        return cast("Page[TraceThread]", self.threads)
 
-    async def list_dataset_items(self, dataset_id: str, **kw: Any) -> dict[str, Any]:
+    async def list_dataset_items(self, dataset_id: str, **kw: Any) -> DatasetItemPage:
         self.last_kwargs = {"dataset_id": dataset_id, **kw}
-        return self.dataset_items
+        return cast("DatasetItemPage", self.dataset_items)
 
-    async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> dict[str, Any]:
+    async def list_prompt_versions(self, prompt_id: str, **kw: Any) -> Page[PromptVersion]:
         self.last_kwargs = {"prompt_id": prompt_id, **kw}
-        return self.prompt_versions
+        return cast("Page[PromptVersion]", self.prompt_versions)
 
-    async def get_experiment(self, experiment_id: str, /) -> dict[str, Any]:
+    async def get_experiment(self, experiment_id: str, /) -> Experiment:
         record = self.experiment_records.get(experiment_id)
         if record is None:
             raise OpikNotFoundError(f"experiment {experiment_id!r} not found (404).")
-        return dict(record)
+        return cast("Experiment", dict(record))
 
-    async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def list_compared_dataset_items(self, dataset_id: str, /, **kw: Any) -> DatasetItemPage:
         self.compare_calls.append({"dataset_id": dataset_id, **kw})
         self.last_kwargs = {"dataset_id": dataset_id, **kw}
         if self.compare_error is not None:
             raise self.compare_error
-        return self.compared_items
+        return cast("DatasetItemPage", self.compared_items)
 
-    async def list_compared_output_columns(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def list_compared_output_columns(self, dataset_id: str, /, **kw: Any) -> Columns:
         self.column_calls.append({"dataset_id": dataset_id, **kw})
         if self.columns_error is not None:
             raise self.columns_error
-        return self.compared_columns
+        return cast("Columns", self.compared_columns)
 
-    async def get_compared_stats(self, dataset_id: str, /, **kw: Any) -> dict[str, Any]:
+    async def get_compared_stats(self, dataset_id: str, /, **kw: Any) -> Stats:
         self.stats_calls.append({"dataset_id": dataset_id, **kw})
         if self.stats_error is not None:
             raise self.stats_error
         (experiment_id,) = kw["experiment_ids"]
         keyed = self.compared_stats.get((experiment_id, kw.get("filters")))
         if keyed is not None:
-            return keyed
-        return self.compared_stats.get(experiment_id, record("no_compared_stats"))
+            return cast("Stats", keyed)
+        return cast("Stats", self.compared_stats.get(experiment_id, record("no_compared_stats")))
 
-    async def list_feedback_definitions(self, **kw: Any) -> dict[str, Any]:
+    async def list_feedback_definitions(self, **kw: Any) -> Page[FeedbackDefinition]:
         self.definition_calls.append(kw)
         if self.definitions_error is not None:
             raise self.definitions_error
-        return self.feedback_definitions
+        return cast("Page[FeedbackDefinition]", self.feedback_definitions)
 
-    async def list_spans(self, **_: Any) -> dict[str, Any]:
+    async def list_spans(self, **_: Any) -> Page[Span]:
         # Not exercised by the list tool (span has no list_fn) — included to
         # satisfy the OpikListClient Protocol structurally.
-        return record("empty_page")
+        return cast("Page[Span]", record("empty_page"))
 
 
 # --- table format --------------------------------------------------------- #

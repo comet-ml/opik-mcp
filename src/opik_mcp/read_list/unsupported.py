@@ -12,12 +12,10 @@ along with the list function it declared and never called.
 
 from __future__ import annotations
 
-from typing import Any
-
 from opik_mcp.client.protocols import OpikReadClient
 
 
-async def unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, Any]:
+async def unsupported_fetch(_client: OpikReadClient, _entity_id: str) -> dict[str, object]:
     """Sentinel for list-only entities. The read tool raises before calling this."""
     raise NotImplementedError(
         "This entity is list-only — use list() with the parent id, or read the parent entity."
