@@ -111,7 +111,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, object]:
 def row_link_template(settings: Settings, project_id: str | None) -> str | None:
     if not project_id:
         return None
-    return trace_page_url(settings, project_id, "{id}")
+    return trace_page_url(settings, project_id=project_id, trace_id="{id}")
 
 
 def trace_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
@@ -130,7 +130,7 @@ def trace_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str
         return {}
     project_id = trace.get("project_id") if isinstance(trace, dict) else None
     if isinstance(project_id, str) and project_id:
-        direct = trace_page_url(settings, project_id, trace_id)
+        direct = trace_page_url(settings, project_id=project_id, trace_id=trace_id)
         if direct is not None:
             return {"url": direct}
     template = trace_link_template(settings)

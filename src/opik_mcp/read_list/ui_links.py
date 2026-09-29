@@ -258,9 +258,9 @@ def logs_page_url(
 
 def trace_page_url(
     settings: Settings,
+    *,
     project_id: str,
     trace_id: str,
-    *,
     span_id: str | None = None,
 ) -> str | None:
     """The Logs page with this trace open, or ``None`` when it cannot be built.

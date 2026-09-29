@@ -104,7 +104,7 @@ def issue_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str
         return {}
     view: ProjectArea = "diagnostics" if issue.get("status") == "open" else "diagnostics/resolved"
     page = project_page_url(settings, project_id, view, query=f"issue={issue_id}")
-    traces = trace_page_url(settings, project_id, "{trace_id}")
+    traces = trace_page_url(settings, project_id=project_id, trace_id="{trace_id}")
     if page is None or traces is None:
         return {}
     return {"url": page, "trace_url_template": traces}
