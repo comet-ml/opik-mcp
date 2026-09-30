@@ -1,9 +1,10 @@
 """Extend the advertised tools with what a workspace's features add.
 
-The tool functions are written once, for the default surface. A feature only
-adds: entity types, their ``schema`` keys and one sentence per description.
-Call-time gating (``read_list.visibility``) is what refuses; this only changes
-what the host is told.
+The tool functions are written once, for the default surface, so a feature's
+extra entity types cannot come from their signatures. Only the advertised enums
+are patched here; the description sentences go on at registration through
+FastMCP's own argument. Call-time gating (``read_list.visibility``) is what
+refuses; this only changes what the host is told.
 """
 
 from __future__ import annotations
@@ -57,9 +58,3 @@ def extend_advertised_schemas(mcp: FastMCP[object], toggles: FeatureToggles) -> 
     # ``schema`` also advertises every write operation, so this one extends.
     _, keys = _enum(mcp, "schema", "operation")
     keys.extend(key for key in list_schema_keys(toggles) if key not in keys)
-    for tool, sentence in toggles.tool_sentences:
-        registered = mcp._tool_manager.get_tool(tool)
-        if registered is None:
-            raise RuntimeError(f"{tool} is not registered; register_tools must add it first.")
-        if not registered.description.startswith(sentence):
-            registered.description = f"{sentence} {registered.description}"

@@ -8,6 +8,7 @@ from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.config import get_settings
+from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
@@ -93,9 +94,9 @@ async def read_skill(
     return run_read_skill(skill_name, get_settings())
 
 
-def register(mcp: FastMCP[object]) -> None:
+def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
-        description=read_skill_tool_description(),
+        description=described(sentence, read_skill_tool_description()),
         title="Read an Opik agent skill",
         annotations=READS,
         structured_output=False,

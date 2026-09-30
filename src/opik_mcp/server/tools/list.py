@@ -14,6 +14,7 @@ from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import VOCABULARIES
 from opik_mcp.read_list.sorting import sort_field_label
 from opik_mcp.read_list.visibility import DEFAULT_LISTABLE_TYPES
+from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.fields import FIELDS_LIST_DESCRIPTION
 from opik_mcp.server.tools.hints import READS
 
@@ -297,7 +298,11 @@ async def list_entities(
     )
 
 
-def register(mcp: FastMCP[object]) -> None:
-    mcp.tool(name="list", title="List Opik records", annotations=READS, structured_output=False)(
-        list_entities
-    )
+def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
+    mcp.tool(
+        name="list",
+        title="List Opik records",
+        annotations=READS,
+        structured_output=False,
+        description=described(sentence, list_entities.__doc__),
+    )(list_entities)

@@ -12,6 +12,7 @@ from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.registry import URI_PATTERNS
 from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.read_list.visibility import DEFAULT_READABLE_TYPES
+from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.fields import FIELDS_READ_DESCRIPTION
 from opik_mcp.server.tools.hints import READS
 
@@ -167,5 +168,10 @@ async def read(
     )
 
 
-def register(mcp: FastMCP[object]) -> None:
-    mcp.tool(title="Read an Opik record", annotations=READS, structured_output=False)(read)
+def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
+    mcp.tool(
+        title="Read an Opik record",
+        annotations=READS,
+        structured_output=False,
+        description=described(sentence, read.__doc__),
+    )(read)
