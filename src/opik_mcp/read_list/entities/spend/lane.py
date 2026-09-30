@@ -10,6 +10,7 @@ from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
     Row,
     child,
+    counted,
     link_fields,
     link_line,
     list_header,
@@ -130,10 +131,10 @@ async def run_spend_lane(
 def _item(row: Row) -> dict[str, object]:
     item: dict[str, object] = {
         "label": text(row, "label"),
-        "count": number(row, "count"),
-        "tokens": number(row, "total_tokens"),
-        "definition_tokens": number(row, "definition_tokens"),
-        "usage_tokens": number(row, "usage_tokens"),
+        "count": counted(row, "count"),
+        "tokens": counted(row, "total_tokens"),
+        "definition_tokens": counted(row, "definition_tokens"),
+        "usage_tokens": counted(row, "usage_tokens"),
         "list_usd": _dollars(row, "cost_usd"),
         "billed_usd": _dollars(row, "cash_cost_usd"),
         "recoverable_usd": _dollars(row, "recoverable_cost_usd"),
@@ -178,7 +179,7 @@ async def fetch_lane(
         "title": text(body, "title"),
         "subtitle": text(body, "subtitle") or None,
         "window": window.label,
-        "tokens": number(body, "total_tokens"),
+        "tokens": counted(body, "total_tokens"),
         "list_usd": _dollars(body, "cost_usd"),
         "billed_usd": _dollars(body, "cash_cost_usd"),
         "over_plan_usd": _dollars(body, "over_plan_cost_usd"),

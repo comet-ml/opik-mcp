@@ -153,6 +153,14 @@ def number(row: Row, key: str) -> float | None:
     return float(value)
 
 
+def counted(row: Row, key: str) -> int | None:
+    """A count for a JSON record: an int, or ``None`` when the backend did not send
+    it, so the key is dropped rather than rendered as ``0`` — or as ``0.0``, which
+    is what ``number`` would put in an answer that counts whole things."""
+    value = number(row, key)
+    return int(value) if value is not None else None
+
+
 def whole(row: Row, key: str) -> int:
     """A count as an int, with a missing field as ``0``. Only for sorting and
     arithmetic — anything an answer renders uses ``number`` so a missing figure
@@ -230,6 +238,7 @@ __all__ = [
     "billed",
     "child",
     "count",
+    "counted",
     "link_fields",
     "link_line",
     "list_header",

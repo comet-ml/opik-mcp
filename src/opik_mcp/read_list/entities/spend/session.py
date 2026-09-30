@@ -18,6 +18,7 @@ from opik_mcp.read_list.entities.spend._backend import (
     SpendWindow,
     child,
     count,
+    counted,
     link_fields,
     list_header,
     no_usage,
@@ -191,14 +192,16 @@ def _list_row_facts(body: Row) -> dict[str, object]:
     meta = child(body, "session")
     start, end = text(meta, "start_time"), text(meta, "last_activity")
     span = _span_ms(start, end) if start and end else None
-    turns = number(body, "live_turns")
-    turns = turns if turns is not None else number(body, "turn_count")
+    # ``live_turns`` is 0 on a session the analysis never finished, while the list
+    # row shows the real count; falling through on 0 is what keeps the read from
+    # saying less than the list.
+    turns = counted(body, "live_turns") or counted(body, "turn_count")
     return {
         "user": text(meta, "user_email") or None,
         "start": start[:16] or None,
         "duration": _duration(span) if span is not None and span >= 0 else None,
         "turns": turns,
-        "tokens": number(meta, "total_tokens"),
+        "tokens": counted(meta, "total_tokens"),
         "summary": text(body, "session_summary") or None,
     }
 
@@ -226,8 +229,8 @@ def _task(task: Row) -> dict[str, object]:
     record: dict[str, object] = {
         "name": text(task, "name") or None,
         "summary": text(task, "summary") or None,
-        "turns": number(task, "turns"),
-        "tokens": number(task, "tokens"),
+        "turns": counted(task, "turns"),
+        "tokens": counted(task, "tokens"),
         "open_first_trace": f"read('trace', '{trace_id}')" if trace_id else None,
     }
     return {key: value for key, value in record.items() if value is not None}
@@ -241,7 +244,7 @@ def _narrative(session_id: str, body: Row) -> dict[str, object]:
         "status": text(body, "status"),
         "user": text(meta, "user_email") or None,
         "model": text(meta, "primary_model") or None,
-        "tokens": number(meta, "total_tokens"),
+        "tokens": counted(meta, "total_tokens"),
         "summary": text(body, "session_summary") or None,
         "tasks": tasks,
     }
