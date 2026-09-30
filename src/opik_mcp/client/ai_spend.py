@@ -46,9 +46,14 @@ def _admin_only() -> Iterator[None]:
 
 
 def _segment(value: str, what: str) -> str:
-    """A path segment safe to send: httpx collapses dot-segments, and the id is
-    echoed into copy-paste OQL, so empty, dots-only and quoted ids are refused."""
-    if not value or not value.strip(".") or '"' in value:
+    """A path segment safe to send, and safe to echo back.
+
+    httpx collapses dot-segments; the id is echoed into copy-paste OQL, and into
+    the one-line ``[read: …]`` header, which a newline would split in two. So
+    empty, dots-only, quoted and control-character ids are refused.
+    """
+    has_control = any(char < " " or char == "\x7f" for char in value)
+    if not value or not value.strip(".") or '"' in value or has_control:
         raise OpikValidationError(f"{what} {value!r} is not a valid id.")
     return quote(value, safe="")
 

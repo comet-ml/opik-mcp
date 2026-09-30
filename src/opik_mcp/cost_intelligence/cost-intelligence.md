@@ -5,8 +5,9 @@ description: Answer questions about an organization's Claude Code spend from a c
 
 # Cost intelligence
 
-This workspace holds one organization's Claude Code usage. Every call is scoped to the
-`claude-code` project; other projects are refused.
+This workspace holds one organization's Claude Code usage, in the `claude-code`
+project. The spend_* types always query that project. Every other type takes any
+project, as in any workspace.
 
 ## Where the numbers come from
 

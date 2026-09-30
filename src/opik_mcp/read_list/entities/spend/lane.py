@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Final
 
-from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.protocols import AiSpendClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
@@ -17,7 +17,6 @@ from opik_mcp.read_list.entities.spend._backend import (
     number,
     refuse_unhonored,
     rows_of,
-    spend_client,
     spend_errors,
     spend_window,
     table,
@@ -87,7 +86,7 @@ def _side_rows(side_name: str, side: Row) -> tuple[list[list[str]], str]:
 
 
 async def run_spend_lane(
-    client: OpikReadClient,
+    client: AiSpendClient,
     *,
     filters: str | None = None,
     since: str | None = None,
@@ -104,7 +103,7 @@ async def run_spend_lane(
     scope = user_scope(VOCABULARY, filters)
     window = spend_window(since, until)
     with spend_errors():
-        body = await spend_client(client).get_spend_composition(
+        body = await client.get_spend_composition(
             project_name=FIXED_PROJECT,
             interval_start=window.start,
             interval_end=window.end,
@@ -131,10 +130,10 @@ async def run_spend_lane(
 def _item(row: Row) -> dict[str, object]:
     item: dict[str, object] = {
         "label": text(row, "label"),
-        "count": whole(row, "count"),
-        "tokens": whole(row, "total_tokens"),
-        "definition_tokens": whole(row, "definition_tokens"),
-        "usage_tokens": whole(row, "usage_tokens"),
+        "count": number(row, "count"),
+        "tokens": number(row, "total_tokens"),
+        "definition_tokens": number(row, "definition_tokens"),
+        "usage_tokens": number(row, "usage_tokens"),
         "list_usd": _dollars(row, "cost_usd"),
         "billed_usd": _dollars(row, "cash_cost_usd"),
         "recoverable_usd": _dollars(row, "recoverable_cost_usd"),
@@ -158,7 +157,7 @@ def _check_lane_key(lane_key: str) -> None:
 
 
 async def fetch_lane(
-    client: OpikReadClient,
+    client: AiSpendClient,
     lane_key: str,
     *,
     interval_start: str | None = None,
@@ -167,7 +166,7 @@ async def fetch_lane(
     lane_key = lane_key.strip()
     _check_lane_key(lane_key)
     window = spend_window(interval_start, interval_end)
-    body = await spend_client(client).get_spend_lane_breakdown(
+    body = await client.get_spend_lane_breakdown(
         lane_key,
         project_name=FIXED_PROJECT,
         interval_start=window.start,
@@ -179,7 +178,7 @@ async def fetch_lane(
         "title": text(body, "title"),
         "subtitle": text(body, "subtitle") or None,
         "window": window.label,
-        "tokens": whole(body, "total_tokens"),
+        "tokens": number(body, "total_tokens"),
         "list_usd": _dollars(body, "cost_usd"),
         "billed_usd": _dollars(body, "cash_cost_usd"),
         "over_plan_usd": _dollars(body, "over_plan_cost_usd"),
@@ -190,7 +189,14 @@ async def fetch_lane(
     }
     hidden = len(items) - TOP_ITEMS
     if hidden > 0:
-        record["more"] = f"{hidden} more items not shown: the top {TOP_ITEMS} by list $ are above."
+        # The endpoint has no paging: it returns the lane whole, and this answer
+        # keeps the top slice. So there is no call that returns the rest, and the
+        # message says where they can be seen instead of implying one exists.
+        record["more"] = (
+            f"{hidden} more items not shown. The backend returns this lane whole and "
+            f"this answer keeps the top {TOP_ITEMS} by list $; there is no call for the "
+            "rest. See them on the lane's AI Spend page (url below)."
+        )
     return {key: value for key, value in record.items() if value is not None}
 
 

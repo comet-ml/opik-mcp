@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Final, cast
+from typing import Final
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -20,7 +20,6 @@ from opik_mcp.client.base import (
     OpikServerError,
     OpikValidationError,
 )
-from opik_mcp.client.protocols import AiSpendClient, OpikReadClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -38,11 +37,6 @@ from opik_mcp.read_list.window import (
 DEFAULT_WINDOW_DAYS: Final = 30
 
 Row = Mapping[str, object]
-
-
-def spend_client(client: OpikReadClient) -> AiSpendClient:
-    """The concrete ``OpikClient`` implements both; the handler contract types only one."""
-    return cast("AiSpendClient", client)
 
 
 @contextmanager
@@ -160,6 +154,9 @@ def number(row: Row, key: str) -> float | None:
 
 
 def whole(row: Row, key: str) -> int:
+    """A count as an int, with a missing field as ``0``. Only for sorting and
+    arithmetic — anything an answer renders uses ``number`` so a missing figure
+    stays missing (see ``count``, ``tokens``, ``usd``)."""
     value = number(row, key)
     return int(value) if value is not None else 0
 
@@ -201,7 +198,11 @@ def tokens(count: float | int | None) -> str:
     return f"{int(count)}"
 
 
-def count(value: float | int) -> str:
+def count(value: float | int | None) -> str:
+    """``-`` for a figure the backend did not send, like ``tokens`` and ``usd``:
+    a count the answer invents cannot be told from one the backend reported."""
+    if value is None:
+        return "-"
     return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.2f}"
 
 
@@ -237,7 +238,6 @@ __all__ = [
     "page_url",
     "refuse_unhonored",
     "rows_of",
-    "spend_client",
     "spend_errors",
     "spend_window",
     "table",

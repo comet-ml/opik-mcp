@@ -445,7 +445,9 @@ async def test_a_session_read_with_a_ready_analysis_returns_the_narrative() -> N
     data = json.loads(payload)
     assert data["user"] == "dev@example.com"
     assert data["model"] == "claude-opus"
-    assert data["tasks"][0]["first_trace_id"] == "t-1"
+    # A bare id is not something the reader can act on, so the task names the call
+    # that opens the trace instead (a UI link would need the project's UUID).
+    assert data["tasks"][0]["open_first_trace"] == "read('trace', 't-1')"
     assert data["url"].endswith(f"/__ai_spend_test__/ai-spend/session-analysis/{SESSION}")
 
 

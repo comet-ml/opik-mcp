@@ -9,7 +9,7 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.protocols import AiSpendClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.columns import one_line
@@ -25,7 +25,6 @@ from opik_mcp.read_list.entities.spend._backend import (
     page_url,
     refuse_unhonored,
     rows_of,
-    spend_client,
     spend_errors,
     spend_window,
     table,
@@ -55,8 +54,11 @@ VOCABULARY = Vocabulary(
 )
 
 
-def _duration(milliseconds: int) -> str:
-    minutes, seconds = divmod(milliseconds // 1000, 60)
+def _duration(milliseconds: float | None) -> str:
+    """``-`` when the backend sent no duration: "0s" would read as a real session."""
+    if milliseconds is None:
+        return "-"
+    minutes, seconds = divmod(int(milliseconds) // 1000, 60)
     hours, minutes = divmod(minutes, 60)
     if hours:
         return f"{hours}h{minutes:02d}m"
@@ -84,8 +86,8 @@ def _rows(rows: list[Row]) -> str:
                 text(row, "session_id"),
                 text(row, "user_email"),
                 text(row, "start_time")[:16],
-                _duration(whole(row, "duration")),
-                count(whole(row, "turns")),
+                _duration(number(row, "duration")),
+                count(number(row, "turns")),
                 tokens(number(row, "total_tokens")),
                 text(row, "analysis_status"),
                 _cut(text(row, "summary")),
@@ -96,7 +98,7 @@ def _rows(rows: list[Row]) -> str:
 
 
 async def run_spend_session(
-    client: OpikReadClient,
+    client: AiSpendClient,
     *,
     filters: str | None = None,
     sort: str | None = None,
@@ -118,7 +120,7 @@ async def run_spend_session(
     current_page, page_size = max(1, page or 1), clamp_size(size)
     with spend_errors():
         # No user_email in the body: the backend answers 403 to it on this route.
-        body = await spend_client(client).list_spend_sessions(
+        body = await client.list_spend_sessions(
             project_name=FIXED_PROJECT,
             interval_start=window.start,
             interval_end=window.end,
@@ -189,13 +191,14 @@ def _list_row_facts(body: Row) -> dict[str, object]:
     meta = child(body, "session")
     start, end = text(meta, "start_time"), text(meta, "last_activity")
     span = _span_ms(start, end) if start and end else None
-    turns = whole(body, "live_turns") or whole(body, "turn_count")
+    turns = number(body, "live_turns")
+    turns = turns if turns is not None else number(body, "turn_count")
     return {
         "user": text(meta, "user_email") or None,
         "start": start[:16] or None,
         "duration": _duration(span) if span is not None and span >= 0 else None,
-        "turns": turns or None,
-        "tokens": whole(meta, "total_tokens") or None,
+        "turns": turns,
+        "tokens": number(meta, "total_tokens"),
         "summary": text(body, "session_summary") or None,
     }
 
@@ -215,24 +218,30 @@ def _not_ready(session_id: str, body: Row) -> dict[str, object]:
     return {key: value for key, value in record.items() if value is not None}
 
 
+def _task(task: Row) -> dict[str, object]:
+    """One task of the narrative. The trace is named as the call that opens it: a
+    UI link would need the project's UUID, which this path never resolves, and a
+    bare id is not something the reader can act on."""
+    trace_id = text(task, "first_trace_id")
+    record: dict[str, object] = {
+        "name": text(task, "name") or None,
+        "summary": text(task, "summary") or None,
+        "turns": number(task, "turns"),
+        "tokens": number(task, "tokens"),
+        "open_first_trace": f"read('trace', '{trace_id}')" if trace_id else None,
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
 def _narrative(session_id: str, body: Row) -> dict[str, object]:
     meta = child(body, "session")
-    tasks = [
-        {
-            "name": text(task, "name"),
-            "summary": text(task, "summary"),
-            "turns": whole(task, "turns"),
-            "tokens": whole(task, "tokens"),
-            "first_trace_id": text(task, "first_trace_id"),
-        }
-        for task in rows_of(body.get("tasks"))
-    ]
+    tasks = [_task(task) for task in rows_of(body.get("tasks"))]
     record: dict[str, object] = {
         "session_id": session_id,
         "status": text(body, "status"),
         "user": text(meta, "user_email") or None,
         "model": text(meta, "primary_model") or None,
-        "tokens": whole(meta, "total_tokens"),
+        "tokens": number(meta, "total_tokens"),
         "summary": text(body, "session_summary") or None,
         "tasks": tasks,
     }
@@ -242,14 +251,14 @@ def _narrative(session_id: str, body: Row) -> dict[str, object]:
 
 
 async def fetch_session(
-    client: OpikReadClient,
+    client: AiSpendClient,
     session_id: str,
     *,
     interval_start: str | None = None,
     interval_end: str | None = None,
 ) -> dict[str, object]:
     session_id = session_id.strip()
-    body = await spend_client(client).get_spend_session_narrative(
+    body = await client.get_spend_session_narrative(
         session_id,
         project_name=FIXED_PROJECT,
         interval_start=interval_start,

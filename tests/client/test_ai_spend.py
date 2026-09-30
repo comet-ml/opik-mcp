@@ -208,7 +208,7 @@ async def test_post_json_sends_params_as_query_string() -> None:
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("segment", ["", ".", "..", "...", 'a"b'])
+@pytest.mark.parametrize("segment", ["", ".", "..", "...", 'a"b', "a\nb", "a\rb", "a\tb", "a\x7fb"])
 async def test_a_path_segment_that_could_reroute_or_break_oql_is_refused(segment: str) -> None:
     with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
         route = mock.post(url__regex=".*").mock(return_value=httpx.Response(200, json={}))

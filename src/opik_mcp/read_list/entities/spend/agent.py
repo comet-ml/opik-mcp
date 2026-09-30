@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.protocols import AiSpendClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
@@ -13,7 +13,6 @@ from opik_mcp.read_list.entities.spend._backend import (
     number,
     refuse_unhonored,
     rows_of,
-    spend_client,
     spend_errors,
     spend_window,
     table,
@@ -30,7 +29,7 @@ VOCABULARY = user_email_vocabulary(ENTITY)
 
 
 async def run_spend_agent(
-    client: OpikReadClient,
+    client: AiSpendClient,
     *,
     filters: str | None = None,
     since: str | None = None,
@@ -47,7 +46,7 @@ async def run_spend_agent(
     scope = user_scope(VOCABULARY, filters)
     window = spend_window(since, until)
     with spend_errors():
-        body = await spend_client(client).get_spend_agents(
+        body = await client.get_spend_agents(
             project_name=FIXED_PROJECT,
             interval_start=window.start,
             interval_end=window.end,
@@ -75,8 +74,8 @@ async def run_spend_agent(
             [
                 [
                     text(row, "label"),
-                    count(whole(row, "calls")),
-                    count(whole(row, "invocations")),
+                    count(number(row, "calls")),
+                    count(number(row, "invocations")),
                     tokens(number(row, "total_tokens")),
                     usd(number(row, "cost_usd")),
                 ]

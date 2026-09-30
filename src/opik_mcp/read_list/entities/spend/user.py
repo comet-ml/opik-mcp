@@ -6,7 +6,7 @@ import json
 from typing import Final, cast, get_args
 
 from opik_mcp.client.ai_spend import SpendItemKind
-from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.protocols import AiSpendClient, OpikListClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
@@ -21,7 +21,6 @@ from opik_mcp.read_list.entities.spend._backend import (
     page_url,
     refuse_unhonored,
     rows_of,
-    spend_client,
     spend_errors,
     spend_window,
     table,
@@ -83,7 +82,7 @@ async def leaderboard_note(
 
 
 async def run_spend_user(
-    client: OpikReadClient,
+    client: AiSpendClient,
     *,
     name: str | None = None,
     filters: str | None = None,
@@ -120,7 +119,7 @@ async def run_spend_user(
     field, direction = compile_sort(VOCABULARY, sort) if sort else ("total_tokens", "DESC")
     current_page, page_size = max(1, page or 1), clamp_size(size)
     with spend_errors():
-        body = await spend_client(client).list_spend_users(
+        body = await client.list_spend_users(
             project_name=FIXED_PROJECT,
             interval_start=window.start,
             interval_end=window.end,
@@ -174,10 +173,10 @@ def _leaderboard(rows: list[Row]) -> str:
             usd(number(row, "over_plan_cost_usd")),
             usd(number(row, "api_cost_usd")),
             text(row, "seat_type") or "-",
-            count(whole(row, "requests")),
-            count(whole(row, "skills")),
-            count(whole(row, "mcps")),
-            count(whole(row, "mcp_calls")),
+            count(number(row, "requests")),
+            count(number(row, "skills")),
+            count(number(row, "mcps")),
+            count(number(row, "mcp_calls")),
         ]
         for row in rows
     ]
@@ -204,12 +203,12 @@ def _item_tokens(row: Row) -> int:
 
 def _calls_cell(kind: str, row: Row) -> str:
     if kind == "skill":
-        return f"{whole(row, 'loads')}/{whole(row, 'runs')}"
-    return count(whole(row, "calls"))
+        return f"{count(number(row, 'loads'))}/{count(number(row, 'runs'))}"
+    return count(number(row, "calls"))
 
 
 async def _item_users(
-    client: OpikReadClient,
+    client: AiSpendClient,
     routing: dict[str, str],
     window: SpendWindow,
     *,
@@ -218,7 +217,7 @@ async def _item_users(
 ) -> str:
     ((kind, item),) = routing.items()
     with spend_errors():
-        answer = await spend_client(client).list_spend_item_users(
+        answer = await client.list_spend_item_users(
             cast("SpendItemKind", kind),
             item,
             project_name=FIXED_PROJECT,
@@ -262,9 +261,13 @@ async def _item_users(
         ),
     ]
     if len(rows) > MAX_ITEM_USERS:
+        # No paging on this endpoint either: it answers with every user of the item
+        # in one array. Naming a page= that does not exist would be worse than saying so.
         lines.append(
-            f"{len(rows) - MAX_ITEM_USERS} more users not shown; narrow with "
-            "filters='user_email = \"…\"'."
+            f"{len(rows) - MAX_ITEM_USERS} more users not shown. The backend returns them "
+            f"whole and this answer keeps the top {MAX_ITEM_USERS} by tokens; there is no "
+            "call for the rest. To check one person, add "
+            "filters='user_email = \"…\"' to the same call."
         )
     return "\n".join(lines)
 
