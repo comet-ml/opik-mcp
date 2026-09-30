@@ -25,6 +25,12 @@ os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 # only defence. A crash in a test must never reach the real Sentry project.
 os.environ.setdefault("OPIK_MCP_SENTRY_ENABLED", "false")
 
+# A developer's own AI Spend workspace would switch the AI Spend feature on
+# for the whole suite; tests that want it build their settings for it.
+for _workspace_var in ("OPIK_WORKSPACE", "COMET_WORKSPACE"):
+    if os.environ.get(_workspace_var, "").startswith("__ai_spend_"):
+        del os.environ[_workspace_var]
+
 
 @pytest.fixture(autouse=True)
 def _reset_analytics_wrappers_state() -> Generator[None]:

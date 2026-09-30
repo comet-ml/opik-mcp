@@ -4,36 +4,35 @@ from __future__ import annotations
 
 import pytest
 
+from opik_mcp.features.toggles import NO_FEATURES
 from opik_mcp.read_list.handler import Vocabulary
-from opik_mcp.read_list.registry import (
-    ENTITY_REGISTRY,
-    LISTABLE_TYPES,
-    READABLE_TYPES,
-    SORTABLE_TYPES,
-    VOCABULARIES,
-    resolve_entity_type,
-)
+from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES, resolve_entity_type
 from opik_mcp.read_list.sorting import SortError, compile_sort
+from opik_mcp.read_list.visibility import (
+    DEFAULT_LISTABLE_TYPES,
+    DEFAULT_READABLE_TYPES,
+    sortable_types,
+)
 
 
 def test_list_only_entities_excluded_from_readable() -> None:
     """A prompt version is a sub-collection — it can only be listed under its
     prompt, never fetched by its own id through the read tool. A regression
-    that adds it to READABLE_TYPES would create an unusable code path (no
+    that adds it to DEFAULT_READABLE_TYPES would create an unusable code path (no
     get_* endpoint exists on the client)."""
-    assert "prompt_version" not in READABLE_TYPES
+    assert "prompt_version" not in DEFAULT_READABLE_TYPES
 
 
 def test_a_dataset_item_is_readable_because_the_backend_addresses_one() -> None:
     """The exception that proves the rule above: ``/datasets/items/{itemId}``
     takes the id on its own, so a case the listing cut can be read whole."""
-    assert "dataset_item" in READABLE_TYPES
+    assert "dataset_item" in DEFAULT_READABLE_TYPES
 
 
 def test_span_is_listable_with_project_scope() -> None:
     """``span`` is enumerable project-wide (OPIK-8283); the project requirement
     is what the ``list`` tool enforces before calling the backend."""
-    assert "span" in LISTABLE_TYPES
+    assert "span" in DEFAULT_LISTABLE_TYPES
     assert ENTITY_REGISTRY["span"].list_required_kwargs == ("project_id",)
 
 
@@ -62,8 +61,8 @@ def test_project_scoped_lists_declare_required_kwarg() -> None:
 
 
 def test_thread_is_both_readable_and_listable() -> None:
-    assert "thread" in READABLE_TYPES
-    assert "thread" in LISTABLE_TYPES
+    assert "thread" in DEFAULT_READABLE_TYPES
+    assert "thread" in DEFAULT_LISTABLE_TYPES
 
 
 def test_thread_needs_project_and_is_id_only() -> None:
@@ -105,8 +104,8 @@ def test_only_the_declared_entities_take_optional_kwargs() -> None:
 
 def test_agent_insights_issue_is_project_scoped_and_listable() -> None:
     handler = ENTITY_REGISTRY["agent_insights_issue"]
-    assert "agent_insights_issue" in LISTABLE_TYPES
-    assert "agent_insights_issue" in READABLE_TYPES
+    assert "agent_insights_issue" in DEFAULT_LISTABLE_TYPES
+    assert "agent_insights_issue" in DEFAULT_READABLE_TYPES
     assert handler.list_required_kwargs == ("project_id",)
     assert set(handler.list_optional_kwargs) == {"status", "from_date", "to_date"}
     # The read window is declared as a window, not as loose kwargs, so its
@@ -142,7 +141,7 @@ def test_every_vocabulary_is_named_after_its_entity_or_its_list_mode() -> None:
 
 def test_a_sort_on_an_entity_with_no_vocabulary_names_the_sortable_types() -> None:
     with pytest.raises(SortError) as refused:
-        compile_sort(Vocabulary(name="prompt"), "name", sortable_types=SORTABLE_TYPES)
+        compile_sort(Vocabulary(name="prompt"), "name", sortable_types=sortable_types(NO_FEATURES))
     assert str(refused.value) == (
         "sort is not supported for 'prompt'. Sortable types: "
         "project, trace, span, thread, experiment, dataset_item."

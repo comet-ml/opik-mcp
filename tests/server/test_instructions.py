@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from opik_mcp.config import Settings
+from opik_mcp.cost_intelligence.feature import INSTRUCTIONS_PARAGRAPH
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.ui_links import trace_link_template
 from opik_mcp.server import mcp
@@ -21,6 +22,9 @@ from tests.factories import make_settings
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+_TODAY = datetime(2026, 1, 2, tzinfo=UTC)
 
 
 def _settings(**overrides: object) -> Settings:
@@ -188,3 +192,39 @@ def test_the_handshake_advertises_no_address_the_ui_has_retired() -> None:
     blob = render_instructions(_settings(opik_url="https://opik.test/api/"))
     assert "session/redirect" not in blob
     assert "/traces" not in blob
+
+
+# --- AI Spend workspace ---------------------------------------------------- #
+
+
+def _spend_settings() -> Settings:
+    return _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="stdio")
+
+
+def test_the_ai_spend_paragraph_is_in_a_spend_workspace_before_tool_selection() -> None:
+    out = render_instructions(_spend_settings(), user_email="me@example.com")
+    assert INSTRUCTIONS_PARAGRAPH in out
+    assert out.index(INSTRUCTIONS_PARAGRAPH) < out.index("Tool selection:")
+
+
+def test_a_spend_workspace_blob_is_the_default_blob_plus_the_paragraph() -> None:
+    spend = render_instructions(_spend_settings(), today=_TODAY)
+    default = render_instructions(
+        _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="streamable-http"),
+        today=_TODAY,
+    )
+    assert spend.replace(f"\n{INSTRUCTIONS_PARAGRAPH}\n", "", 1) == default
+
+
+def test_the_default_blob_has_no_ai_spend_paragraph_and_keeps_write() -> None:
+    out = render_instructions(_settings())
+    assert "claude-code" not in out
+    assert "cost-intelligence" not in out
+    assert "write" in out
+
+
+def test_the_hosted_transport_keeps_the_default_blob_on_a_spend_workspace() -> None:
+    out = render_instructions(
+        _settings(comet_workspace="__ai_spend_test__", opik_mcp_transport="streamable-http")
+    )
+    assert INSTRUCTIONS_PARAGRAPH not in out

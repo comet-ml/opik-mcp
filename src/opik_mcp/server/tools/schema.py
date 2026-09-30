@@ -7,6 +7,7 @@ from mcp.server.session import ServerSession
 from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.writes import SCHEMA_TOOL_DESCRIPTION, run_schema
 from opik_mcp.writes.schema_tool import SCHEMA_KEYS
@@ -39,9 +40,9 @@ async def schema(
     return run_schema(operation=operation)
 
 
-def register(mcp: FastMCP[object]) -> None:
+def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
-        description=SCHEMA_TOOL_DESCRIPTION,
+        description=described(sentence, SCHEMA_TOOL_DESCRIPTION),
         title="Show a write operation's input",
         annotations=READS,
         structured_output=False,

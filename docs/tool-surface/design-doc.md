@@ -25,6 +25,10 @@ a read or a list promises, what is refused, and which test holds each promise.
   without warning. Tools over it today are strict expected failures in
   `OVER_THE_LIMIT` (`tests/conformance/test_tool_annotations.py`).
 
+- An AI Spend workspace adds entity types, one sentence per tool description
+  and one instructions paragraph; nothing is hidden and the default surface is
+  unchanged ([cost-intelligence](../cost-intelligence/design-doc.md)).
+
 ### initialize
 
 `initialize` returns the name `opik-mcp` and the text of `render_instructions`

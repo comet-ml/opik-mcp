@@ -51,6 +51,7 @@ from opik_mcp.client.base import (
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
@@ -69,13 +70,9 @@ from opik_mcp.read_list.project_scope import (
     resolve_project_id,
 )
 from opik_mcp.read_list.projection import normalise
-from opik_mcp.read_list.registry import (
-    ENTITY_REGISTRY,
-    LISTABLE_TYPES,
-    VOCABULARIES,
-    resolve_entity_type,
-)
+from opik_mcp.read_list.registry import VOCABULARIES, resolve_entity_type
 from opik_mcp.read_list.size import list_size_header, with_list_size
+from opik_mcp.read_list.visibility import listable_types, visible_handler
 from opik_mcp.read_list.window import parse_instant
 
 logger = logging.getLogger("opik_mcp.read_list.list")
@@ -137,7 +134,7 @@ async def _run_whole(
     handler: EntityHandler,
     entity_type: str,
     *,
-    settings: Settings | None,
+    settings: Settings,
     client: OpikListClient | None,
     **tool_args: Any,
 ) -> str:
@@ -153,7 +150,7 @@ async def _run_whole(
     got.
     """
     run = cast("RunFn", handler.run_fn)
-    resolved_settings = settings or get_settings()
+    resolved_settings = settings
     async with client_for_call(resolved_settings, client) as opik:
         with _as_tool_error(
             f"{handler.run_verb} {entity_type}",
@@ -161,7 +158,12 @@ async def _run_whole(
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
         ):
-            answer = await run(cast("OpikReadClient", opik), vocabularies=VOCABULARIES, **tool_args)
+            answer = await run(
+                cast("OpikReadClient", opik),
+                vocabularies=VOCABULARIES,
+                settings=resolved_settings,
+                **tool_args,
+            )
         page_note = page_note_of(handler)
         if page_note is None:
             return with_list_size(entity_type, answer)
@@ -219,13 +221,15 @@ async def run_list(
 ) -> str:
     """List tool entrypoint. See ``server/tools/list.py`` for the registered tool."""
     _PAGE_FACTS.set({})
+    resolved_settings = settings or get_settings()
+    features = FeatureToggles.resolve(resolved_settings)
     # Cleared per call for the same reason the page facts are: a project a
     # previous listing resolved is not a fact about this one, and a link
     # built from it would point into the wrong project — the exact failure
     # this whole feature exists to stop.
     remember_resolved_project(None)
     entity_type = resolve_entity_type(entity_type)
-    handler = ENTITY_REGISTRY.get(entity_type)
+    handler = visible_handler(entity_type, features)
     tool_args: dict[str, Any] = {
         "name": name,
         "filters": filters,
@@ -255,7 +259,7 @@ async def run_list(
         return await _run_whole(
             handler,
             entity_type,
-            settings=settings,
+            settings=resolved_settings,
             client=client,
             page=page if page != 1 else None,
             size=size if size != DEFAULT_PAGE_SIZE else None,
@@ -265,7 +269,7 @@ async def run_list(
     # Checked after the runner branch rather than before it, so that reaching
     # the collection path is what proves there is a ``list_fn`` to drive.
     if handler is None or handler.list_fn is None:
-        valid = ", ".join(sorted(LISTABLE_TYPES))
+        valid = ", ".join(sorted(listable_types(features)))
         err = EntityArgValidationError(f"Cannot list {entity_type!r}. Listable types: {valid}")
         raise ToolError(str(err)) from err
 
@@ -285,6 +289,7 @@ async def run_list(
         dataset_id=dataset_id,
         prompt_id=prompt_id,
         status=status,
+        features=features,
     )
     page, size, vocabulary = resolved.page, resolved.size, resolved.vocabulary
     list_kwargs, applied, clauses = resolved.list_kwargs, resolved.applied, resolved.clauses
@@ -298,9 +303,8 @@ async def run_list(
     #
     # Free-text search can take the backend >30 s on a cold cache (seen live:
     # 32 s); give only those calls a longer leash.
-    resolved_settings = settings or get_settings()
     search_timeout = _SEARCH_TIMEOUT_S if "search" in list_kwargs else None
-    async with client_for_call(settings, client, timeout=search_timeout) as opik:
+    async with client_for_call(resolved_settings, client, timeout=search_timeout) as opik:
         with _as_tool_error(
             f"list {entity_type}s",
             on_timeout=(

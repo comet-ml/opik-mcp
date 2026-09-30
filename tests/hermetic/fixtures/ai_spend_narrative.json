@@ -1,0 +1,18 @@
+{
+  "status": "ready",
+  "session_summary": "Refactored the billing module.",
+  "session": {
+    "user_email": "dev@example.com",
+    "primary_model": "claude-sonnet-4",
+    "total_tokens": 2500000
+  },
+  "tasks": [
+    {
+      "name": "Split the invoice code",
+      "summary": "Moved invoice logic into its own module.",
+      "turns": 30,
+      "tokens": 900000,
+      "first_trace_id": "0199c6a4-3a4c-7f1e-9d2b-000000000002"
+    }
+  ]
+}

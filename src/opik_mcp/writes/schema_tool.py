@@ -11,7 +11,10 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.config import get_settings
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS, list_reference
+from opik_mcp.read_list.visibility import list_schema_keys
 from opik_mcp.writes.errors import UnknownOperationError
 from opik_mcp.writes.registry import WRITE_OPERATIONS, WRITE_REGISTRY
 
@@ -41,7 +44,7 @@ def run_schema(operation: str) -> dict[str, Any]:
     """Return ``{schema, example, oauth_scope, supports_batch, parent_id_fields,
     failure_modes, description}`` for a write operation, or the filter/sort
     reference for a ``list.<entity>`` key."""
-    if operation in LIST_SCHEMA_KEYS:
+    if operation in list_schema_keys(FeatureToggles.resolve(get_settings())):
         return list_reference(operation.removeprefix("list."))
     op = WRITE_REGISTRY.get(operation)
     if op is None:

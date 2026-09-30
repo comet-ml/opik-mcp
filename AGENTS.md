@@ -82,6 +82,9 @@ errors.
   `.agents/skills/` are read by `npx skills add` and would ship to users. A
   hook and `Edit(...)` deny rules block Edit, Write, `tee` and `>` redirects
   there (checked live), but not `cp` or a script; `make skills-verify-source` in CI is the real check.
+  The one deliberate exception is the cost intelligence guide,
+  `src/opik_mcp/cost_intelligence/cost-intelligence.md`: served only in an
+  AI Spend workspace, never published. Don't move it.
 - Permission deny rules are guard rails, not a boundary (`git -C . push`
   gets past them). Branch protection on `main` is the real guard.
 - Start the Claude Code session inside the worktree you are changing. Hooks,

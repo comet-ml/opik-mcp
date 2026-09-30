@@ -65,6 +65,7 @@ from tests.hermetic.stub_records import (
     thread,
     traces,
 )
+from tests.hermetic.stub_spend import spend_answer
 
 #: The ids the probes import from here. New tests take them from stub_records.
 __all__ = [
@@ -136,6 +137,15 @@ class StubBackend:
     #: Paths that should answer 400 with an ``ErrorMessage`` and a key that is
     #: not one, to prove only the error strings reach the caller.
     rejecting: set[str] = field(default_factory=set)
+    #: Paths that should answer 403, as a key valid for the workspace but not
+    #: an admin's does for the spend routes.
+    forbidding: set[str] = field(default_factory=set)
+    #: Replacement bodies for the AI Spend routes, keyed by fixture name
+    #: (``ai_spend_agents``), for a probe that needs a different window.
+    spend_payloads: dict[str, object] = field(default_factory=dict)
+    #: The project the Opik routes serve. The spend types send every call to
+    #: ``claude-code``, so their tests rename the one project here.
+    project_name: str = PROJECT_NAME
     #: Score names the project has recorded.
     score_names: list[str] = field(default_factory=lambda: ["Hallucination", "Answer Relevance"])
     #: Usage keys the project has recorded.
@@ -238,8 +248,13 @@ class StubBackend:
             return 500, {"message": "stub failure"}
         if any(fragment in path for fragment in self.rejecting):
             return 400, {"errors": ["name must be unique"], "trace": "stub internals"}
+        if any(fragment in path for fragment in self.forbidding):
+            return 403, {"message": "stub forbids this path"}
         if method == "POST" and path == "/opik/auth-oauth":
             return 200, load("oauth_introspection", workspace=self.oauth_workspace)
+        spend = spend_answer(method, path, self.spend_payloads)
+        if spend is not None:
+            return spend
         written = self._write(method, path)
         if written is not None:
             return written
@@ -257,8 +272,8 @@ class StubBackend:
         versions = self.prompt_version_count
         routes: dict[str, Callable[[], object]] = {
             "/v1/private/feedback-definitions": lambda: page(self.feedback_definitions),
-            "/v1/private/projects": lambda: page([fill("project")]),
-            project: lambda: fill("project"),
+            "/v1/private/projects": lambda: page([fill("project", project_name=self.project_name)]),
+            project: lambda: fill("project", project_name=self.project_name),
             f"{project}/kpi-cards": lambda: load("kpi_cards"),
             f"{project}/metrics": lambda: metric_results(
                 body or {}, recorded={*self.usage_keys, *self.score_names}

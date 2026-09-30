@@ -46,6 +46,7 @@ import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from tests.hermetic.stub_backend import (
     CASE_ID,
@@ -62,6 +63,7 @@ from tests.hermetic.stub_backend import (
     SUITE_NAME,
     THREAD_ID,
     TRACE_ID,
+    Request,
     StubBackend,
 )
 
@@ -324,6 +326,67 @@ CLAIMS: tuple[Claim, ...] = (
         "agent_insights_issue",
         "Counts are all-time unless since/until narrow the window (truncated to UTC report days)",
         "issue_counts_are_all_time_unless_windowed",
+    ),
+    # -- spend_summary (AI Spend workspace) ------------------------------------ #
+    Claim(
+        "spend_summary",
+        "Claude Code usage totals for the window against the window before it",
+        "spend_summary_compares_two_windows",
+    ),
+    Claim(
+        "spend_summary",
+        "billed dollars split into seat, over-plan and API",
+        "spend_summary_splits_billed_dollars",
+    ),
+    # -- spend_lane ------------------------------------------------------------------ #
+    Claim(
+        "spend_lane",
+        "Where input and output tokens went, one row per lane with tokens and list-price dollars",
+        "spend_lane_is_one_row_per_lane",
+    ),
+    Claim(
+        "spend_lane",
+        "reading a lane returns its top 25 items by list-price dollars",
+        "spend_lane_read_returns_the_top_25",
+    ),
+    # -- spend_user ------------------------------------------------------------------ #
+    Claim(
+        "spend_user",
+        "The per-user leaderboard by total tokens, with billed dollars",
+        "spend_user_is_a_leaderboard_by_tokens",
+    ),
+    Claim(
+        "spend_user",
+        "a filter on mcp_server, skill or built_in_tool lists the users of that item instead",
+        "spend_user_item_filter_lists_that_items_users",
+    ),
+    # -- spend_session --------------------------------------------------------------- #
+    Claim(
+        "spend_session",
+        "Claude Code sessions by total tokens",
+        "spend_session_is_ranked_by_tokens",
+    ),
+    Claim(
+        "spend_session",
+        "reading one returns its analysed narrative",
+        "spend_session_read_returns_the_narrative",
+    ),
+    Claim(
+        "spend_session",
+        "names the call that outlines it when no analysis is ready",
+        "spend_session_names_the_outline_call",
+    ),
+    # -- spend_agent ----------------------------------------------------------------- #
+    Claim(
+        "spend_agent",
+        "Per-subagent calls, tokens and list-price dollars",
+        "spend_agent_is_one_row_per_subagent",
+    ),
+    Claim("spend_agent", "the unattributed share", "spend_agent_states_the_unattributed_share"),
+    Claim(
+        "spend_agent",
+        "how much of the window carries an agent label",
+        "spend_agent_states_its_label_coverage",
     ),
 )
 
@@ -813,6 +876,140 @@ async def _issue_window(drive: Driver) -> None:
 
 # --- the coverage guard (runs in `make check`) ------------------------------- #
 
+# -- AI Spend workspace: the spend types ---------------------------------- #
+
+_SPEND = "/v1/private/ai-spend"
+
+
+def _spend_sent(drive: Driver, route: str) -> Request:
+    """The one request sent to a spend route, matched on the exact path."""
+    (request,) = [r for r in drive.backend.requests if r.path == f"{_SPEND}{route}"]
+    return request
+
+
+@probe("spend_summary_compares_two_windows")
+async def _spend_summary_windows(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_summary")
+    assert "metric | current | previous" in text
+    assert "total_tokens | 4,200,000 | 3,100,000" in text
+    body = _spend_sent(drive, "/summary").payload
+    assert str(body["interval_start"]) < str(body["interval_end"]), "one closed window is asked for"
+
+
+@probe("spend_summary_splits_billed_dollars")
+async def _spend_summary_billed(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_summary")
+    assert "billed $79.75 = seat $60.00 + over-plan $12.50 + API $7.25" in text
+
+
+@probe("spend_lane_is_one_row_per_lane")
+async def _spend_lane_rows(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_lane")
+    assert "input | mcp_servers | MCP servers | 900K | $60.00" in text
+    assert "output | assistant_text | Assistant text | 1.2M | $110.40" in text
+    lanes = [line for line in text.splitlines() if line.startswith(("input | ", "output | "))]
+    assert len(lanes) == 4, "the stub has four lanes and each is one row"
+
+
+@probe("spend_lane_read_returns_the_top_25")
+async def _spend_lane_top_25(drive: Driver) -> None:
+    items = [
+        {"label": f"server-{n}", "count": 1, "total_tokens": 1000, "cost_usd": float(n)}
+        for n in range(30)
+    ]
+    drive.backend.spend_payloads["ai_spend_lane_breakdown"] = {
+        "title": "MCP servers",
+        "total_tokens": 30000,
+        "cost_usd": 435.0,
+        "item_count": 30,
+        "items": items,
+    }
+    payload = await drive.read_json(entity_type="spend_lane", id="mcp_servers")
+    shown = [item["list_usd"] for item in payload["items"]]
+    assert len(shown) == 25
+    assert shown == sorted(shown, reverse=True), "ranked by list-price dollars"
+    assert shown[0] == 29.0 and shown[-1] == 5.0, "the top 25 of 30, not the first 25"
+    assert "5 more items" in payload["more"]
+
+
+@probe("spend_user_is_a_leaderboard_by_tokens")
+async def _spend_user_leaderboard(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_user")
+    assert "| by tokens |" in text
+    assert "email | name | tokens | billed $ |" in text
+    assert "dev@example.com | Dev One | 3M | $52.00 |" in text, "billed = seat + over-plan + API"
+    sorting = _spend_sent(drive, "/users").query["sorting"][0]
+    assert json.loads(sorting) == [{"field": "total_tokens", "direction": "DESC"}]
+
+
+@probe("spend_user_item_filter_lists_that_items_users")
+async def _spend_user_item_users(drive: Driver) -> None:
+    routes = {
+        "mcp_server": ("/mcp-servers/users", "server"),
+        "skill": ("/skills/users", "skill"),
+        "built_in_tool": ("/built-in-tools/users", "tool"),
+    }
+    for field, (route, param) in routes.items():
+        drive.backend.requests.clear()
+        text = await drive.call("list", entity_type="spend_user", filters=f'{field} = "github"')
+        assert "email | name |" in text and "dev@example.com" in text
+        assert "page 1/" not in text, "an item's users are not the paged leaderboard"
+        assert _spend_sent(drive, route).query[param] == ["github"]
+        assert not [r for r in drive.backend.requests if r.path == f"{_SPEND}/users"], (
+            f"{field} must replace the leaderboard call, not add to it"
+        )
+
+
+@probe("spend_session_is_ranked_by_tokens")
+async def _spend_session_ranked(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_session")
+    assert "| by tokens |" in text
+    assert text.index("session-aaa") < text.index("session-bbb")
+    sorting = _spend_sent(drive, "/sessions").query["sorting"][0]
+    assert json.loads(sorting) == [{"field": "total_tokens", "direction": "DESC"}]
+
+
+@probe("spend_session_read_returns_the_narrative")
+async def _spend_session_narrative(drive: Driver) -> None:
+    payload = await drive.read_json(entity_type="spend_session", id="session-aaa")
+    assert payload["status"] == "ready"
+    assert payload["tasks"][0]["name"] == "Split the invoice code"
+    assert payload["summary"] == "Refactored the billing module."
+
+
+@probe("spend_session_names_the_outline_call")
+async def _spend_session_outline(drive: Driver) -> None:
+    drive.backend.spend_payloads["ai_spend_narrative"] = {
+        "status": "pending",
+        "session": {"user_email": "ops@example.com", "total_tokens": 400_000},
+    }
+    payload = await drive.read_json(entity_type="spend_session", id="session-bbb")
+    assert "tasks" not in payload
+    assert 'AND name not_contains "automated"\'' in payload["note"]
+    assert "project_name='claude-code'" in payload["note"]
+    assert "sort='start_time asc', size=50)" in payload["note"]
+
+
+@probe("spend_agent_is_one_row_per_subagent")
+async def _spend_agent_rows(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_agent")
+    assert "agent | calls | invocations | tokens | list $" in text
+    assert "general-purpose | 54 | 12 | 450K | $30.00" in text
+    assert "Explore | 40 | 8 | 300K | $15.00" in text
+
+
+@probe("spend_agent_states_the_unattributed_share")
+async def _spend_agent_unattributed(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_agent")
+    assert "unattributed: 50K tokens, 6 calls" in text
+
+
+@probe("spend_agent_states_its_label_coverage")
+async def _spend_agent_coverage(drive: Driver) -> None:
+    text = await drive.call("list", entity_type="spend_agent")
+    assert "coverage: 94% of 100 calls carry an agent label" in text
+
+
 #: A sentence ends at ``.``/``?``/``!`` followed by something that starts a new
 #: one. A lowercase ``list(``/``read(`` does too — the descriptions write a
 #: whole claim as a call, and treating that as a continuation would let it ride
@@ -913,8 +1110,14 @@ def backend() -> Iterator[StubBackend]:
         stub.stop()
 
 
+def _workspace_for(entity: str) -> str:
+    """An entity behind a feature is probed in the workspace that turns it on."""
+    is_default = ENTITY_REGISTRY[entity].shown_when is None
+    return "stub-workspace" if is_default else "__ai_spend_test__"
+
+
 @asynccontextmanager
-async def _session(stub: StubBackend) -> AsyncIterator[ClientSession]:
+async def _session(stub: StubBackend, workspace: str) -> AsyncIterator[ClientSession]:
     params = StdioServerParameters(
         command=sys.executable,
         args=["-m", "opik_mcp"],
@@ -922,7 +1125,7 @@ async def _session(stub: StubBackend) -> AsyncIterator[ClientSession]:
             **os.environ,
             "OPIK_URL": f"http://127.0.0.1:{stub.port}/api",
             "OPIK_API_KEY": "stub-key",
-            "OPIK_WORKSPACE": "stub-workspace",
+            "OPIK_WORKSPACE": workspace,
             "OPIK_MCP_ANALYTICS_ENABLED": "false",
             "OPIK_MCP_SENTRY_ENABLED": "false",
             "OPIK_MCP_LOG_LEVEL": "WARNING",
@@ -948,10 +1151,12 @@ async def test_the_entitys_description_holds(entity: str, backend: StubBackend) 
     thirteen. Failures still name the claim, because that is what the message
     is built from.
     """
+    if ENTITY_REGISTRY[entity].shown_when is not None:
+        backend.project_name = FIXED_PROJECT
     claims = [claim for claim in CLAIMS if claim.entity == entity]
     assert claims, f"{entity} has no claims — the table test should have caught this"
 
-    async with _session(backend) as session:
+    async with _session(backend, _workspace_for(entity)) as session:
         drive = Driver(session=session, backend=backend)
         for claim in claims:
             try:

@@ -21,11 +21,11 @@ from opik_mcp.read_list.entities import (
     prompt,
     score_name,
     span,
+    spend,
     thread,
     trace,
 )
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.unsupported import unsupported_fetch
 from opik_mcp.read_list.uri import UriPattern
 
 ENTITY_REGISTRY: dict[str, EntityHandler] = {
@@ -44,6 +44,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         score_name.HANDLER,
         online_rule.HANDLER,
         agent_insights_issue.HANDLER,
+        *spend.HANDLERS,
     )
 }
 
@@ -72,11 +73,6 @@ def resolve_entity_type(entity_type: str) -> str:
     return ENTITY_ALIASES.get(entity_type, entity_type)
 
 
-READABLE_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if h.fetch_fn is not unsupported_fetch
-)
-LISTABLE_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.lists)
-
 #: Every field table a ``list`` call can be checked against, by name, in
 #: registry order: ``schema("list.…")`` keys and refusals list them this way.
 VOCABULARIES: dict[str, Vocabulary] = {
@@ -84,15 +80,9 @@ VOCABULARIES: dict[str, Vocabulary] = {
     for handler in ENTITY_REGISTRY.values()
     for vocabulary in handler.vocabularies
 }
-SORTABLE_TYPES: tuple[str, ...] = tuple(v.name for v in VOCABULARIES.values() if v.sort_fields)
-#: The entity types ``filters`` applies to. A mode of an entity is not a type.
-FILTERABLE_TYPES: tuple[str, ...] = tuple(
-    v.name for v in VOCABULARIES.values() if v.filter_fields and v.mode_of is None
-)
-WINDOWED_TYPES: tuple[str, ...] = tuple(t for t, h in ENTITY_REGISTRY.items() if h.is_windowed)
-
 #: Every address ``read`` accepts as an id, with the entity it names, in the
-#: order ``uri.parse`` tries them.
+#: order ``uri.parse`` tries them. Feature types included: a link to one
+#: is parsed, so a workspace without the feature can refuse it by name.
 URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
     (handler.entity_type, pattern)
     for handler in sorted(ENTITY_REGISTRY.values(), key=lambda h: -h.uri_precedence)
@@ -102,12 +92,7 @@ URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
-    "FILTERABLE_TYPES",
-    "LISTABLE_TYPES",
-    "READABLE_TYPES",
-    "SORTABLE_TYPES",
     "URI_PATTERNS",
     "VOCABULARIES",
-    "WINDOWED_TYPES",
     "resolve_entity_type",
 ]

@@ -1,0 +1,27 @@
+{
+  "available": true,
+  "total_tokens": 800000,
+  "cost_usd": 45.0,
+  "unattributed_calls": 6,
+  "unattributed_tokens": 50000,
+  "coverage": {
+    "window_calls": 100,
+    "labelled_ratio": 0.94
+  },
+  "agents": [
+    {
+      "label": "Explore",
+      "calls": 40,
+      "invocations": 8,
+      "total_tokens": 300000,
+      "cost_usd": 15.0
+    },
+    {
+      "label": "general-purpose",
+      "calls": 54,
+      "invocations": 12,
+      "total_tokens": 450000,
+      "cost_usd": 30.0
+    }
+  ]
+}

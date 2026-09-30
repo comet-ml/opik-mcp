@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "name": "total_tokens",
+      "current": 4200000,
+      "previous": 3100000
+    },
+    {
+      "name": "sessions",
+      "current": 42,
+      "previous": 30
+    },
+    {
+      "name": "active_users",
+      "current": 3,
+      "previous": 2
+    }
+  ],
+  "subscription_seat_cost_usd": 60.0,
+  "spend_over_plan_usd": 12.5,
+  "spend_api_usd": 7.25,
+  "spend_current_usd": 310.4,
+  "spend_previous_usd": 220.1
+}

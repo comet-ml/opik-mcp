@@ -11,8 +11,10 @@ from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METR
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import filter_field_names
-from opik_mcp.read_list.registry import LISTABLE_TYPES, VOCABULARIES
+from opik_mcp.read_list.registry import VOCABULARIES
 from opik_mcp.read_list.sorting import sort_field_label
+from opik_mcp.read_list.visibility import DEFAULT_LISTABLE_TYPES
+from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.fields import FIELDS_LIST_DESCRIPTION
 from opik_mcp.server.tools.hints import READS
 
@@ -58,8 +60,8 @@ async def list_entities(
     entity_type: Annotated[
         str,
         Field(
-            description=f"One of: {', '.join(sorted(LISTABLE_TYPES))}.",
-            json_schema_extra={"enum": sorted(LISTABLE_TYPES)},
+            description=f"One of: {', '.join(sorted(DEFAULT_LISTABLE_TYPES))}.",
+            json_schema_extra={"enum": sorted(DEFAULT_LISTABLE_TYPES)},
         ),
     ],
     name: Annotated[
@@ -296,7 +298,11 @@ async def list_entities(
     )
 
 
-def register(mcp: FastMCP[object]) -> None:
-    mcp.tool(name="list", title="List Opik records", annotations=READS, structured_output=False)(
-        list_entities
-    )
+def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
+    mcp.tool(
+        name="list",
+        title="List Opik records",
+        annotations=READS,
+        structured_output=False,
+        description=described(sentence, list_entities.__doc__),
+    )(list_entities)
