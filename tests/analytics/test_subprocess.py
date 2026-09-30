@@ -27,7 +27,6 @@ import sys
 import threading
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -40,7 +39,7 @@ class _CaptureServer:
     """Tiny local listener that records POST bodies for assertion."""
 
     def __init__(self) -> None:
-        self.events: list[dict[str, Any]] = []
+        self.events: list[dict[str, object]] = []
         # Pass port 0 so the OS assigns a free port AND we bind it atomically.
         # The previous pattern (_free_port → close → HTTPServer rebinds the same
         # port number) had a TOCTOU window where the OS could give that port
@@ -65,7 +64,13 @@ class _CaptureServer:
         assert not self._thread.is_alive(), "_CaptureServer worker thread did not exit"
 
 
-def _build_handler(sink: list[dict[str, Any]]) -> type[http.server.BaseHTTPRequestHandler]:
+def _properties(event: dict[str, object]) -> dict[str, object]:
+    props = event["event_properties"]
+    assert isinstance(props, dict), f"event_properties is not an object: {event!r}"
+    return props
+
+
+def _build_handler(sink: list[dict[str, object]]) -> type[http.server.BaseHTTPRequestHandler]:
     class _Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length") or 0)
@@ -153,7 +158,7 @@ def test_invalid_config_emits_in_real_subprocess(capture: _CaptureServer) -> Non
         "fallback client must POST opik_mcp_startup_error before the subprocess unwinds; "
         f"captured events = {capture.events!r}"
     )
-    props = errors[0]["event_properties"]
+    props = _properties(errors[0])
     assert props["phase"] == "config"
     assert props["error_kind"] == "invalid_config"
     assert props["exception_type"] == "ValidationError"
@@ -232,7 +237,7 @@ def test_preflight_handles_ipv6_loopback_via_getaddrinfo(capture: _CaptureServer
 
     errors = [e for e in capture.events if e.get("event_type") == "opik_mcp_startup_error"]
     assert errors, "preflight must surface real OSError for IPv6 bind, not silently mis-classify"
-    props = errors[0]["event_properties"]
+    props = _properties(errors[0])
     # Must be transport_crash with OSError — NOT some other phase or "unknown".
     # An "Invalid argument" leak would still be OSError, but it would fire
     # even on a free port; the held-port setup proves we caught a real bind.
@@ -277,7 +282,7 @@ def test_port_in_use_emits_transport_crash_in_subprocess(capture: _CaptureServer
         "transport_crash must fire when uvicorn's port is already bound; "
         f"captured events = {capture.events!r}"
     )
-    props = errors[0]["event_properties"]
+    props = _properties(errors[0])
     assert props["phase"] == "transport_start"
     assert props["error_kind"] == "transport_crash"
     assert props["exception_type"] == "OSError"

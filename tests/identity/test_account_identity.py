@@ -63,7 +63,7 @@ def _cache_file(home: Path) -> Path:
 
 
 def _write_cache(
-    home: Path, *, key: str = API_KEY, age_seconds: float = 0.0, **fields: Any
+    home: Path, *, key: str = API_KEY, age_seconds: float = 0.0, **fields: object
 ) -> None:
     path = _cache_file(home)
     path.parent.mkdir(parents=True, exist_ok=True)

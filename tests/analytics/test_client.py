@@ -1,7 +1,6 @@
 import json
 import logging
 import threading
-from typing import Any
 
 import httpx
 import pytest
@@ -362,7 +361,7 @@ def test_queue_full_drops_silently(caplog: pytest.LogCaptureFixture) -> None:
     release = threading.Event()
 
     class BlockingClient:
-        def post(self, *args: Any, **kwargs: Any) -> None:
+        def post(self, *args: object, **kwargs: object) -> None:
             release.wait()
 
         def close(self) -> None:
@@ -392,7 +391,7 @@ def test_track_event_after_close_does_not_raise() -> None:
     """track_event called after close() must be silent and not enqueue."""
 
     class NullClient:
-        def post(self, *args: Any, **kwargs: Any) -> None:
+        def post(self, *args: object, **kwargs: object) -> None:
             pass
 
         def close(self) -> None:
@@ -872,7 +871,7 @@ def test_an_ordinary_workspace_name_is_not_mistaken_for_a_template() -> None:
 )
 @respx.mock
 def test_the_two_discriminators_are_always_stamped_together(
-    settings_kwargs: dict[str, Any],
+    settings_kwargs: dict[str, object],
 ) -> None:
     """BI totals workspace_kind against user_id_kind. If either can appear
     without the other, those totals disagree and nothing says why."""

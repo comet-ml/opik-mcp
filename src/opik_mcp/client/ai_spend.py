@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any
 from urllib.parse import quote
 
 from opik_mcp.client.base import (
@@ -13,10 +13,10 @@ from opik_mcp.client.base import (
     OpikValidationError,
     _drop_none,
 )
+from opik_mcp.client.protocols import SpendItemKind
 
 _PREFIX = "/v1/private/ai-spend"
 
-SpendItemKind = Literal["mcp_server", "skill", "built_in_tool"]
 # kind -> (route, query parameter that names the item)
 _ITEM_ROUTES: dict[SpendItemKind, tuple[str, str]] = {
     "mcp_server": ("mcp-servers", "server"),
@@ -29,20 +29,27 @@ class SpendAdminRequiredError(OpikPermissionError):
     """Spend endpoints answered 403: the key is valid but not an org admin's."""
 
 
-_ADMIN_MESSAGE = (
-    "Spend data needs an organization admin's API key for this workspace (403). "
-    "Use an admin's key in OPIK_API_KEY."
-)
+def _admin_message(entity_hint: str) -> str:
+    """The 403 sentence for spend, in the shape ``_raise_for_status`` uses.
+
+    It names no environment variable: the hosted HTTP transport forwards the
+    caller's inbound OAuth bearer, where there is no ``OPIK_API_KEY`` to set,
+    and a 403 can also mean the credential belongs to another workspace.
+    """
+    return (
+        f"Permission denied for {entity_hint} (403). Spend data for this workspace "
+        "needs an organization admin's credentials."
+    )
 
 
 @contextmanager
-def _admin_only() -> Iterator[None]:
+def _admin_only(entity_hint: str) -> Iterator[None]:
     try:
         yield
     except SpendAdminRequiredError:
         raise
     except OpikPermissionError as exc:
-        raise SpendAdminRequiredError(_ADMIN_MESSAGE) from exc
+        raise SpendAdminRequiredError(_admin_message(entity_hint)) from exc
 
 
 def _segment(value: str, what: str) -> str:
@@ -85,7 +92,7 @@ class AiSpendEndpoints(OpikClientBase):
         entity_hint: str,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        with _admin_only():
+        with _admin_only(entity_hint):
             return await self._post_json(
                 f"{_PREFIX}{path}",
                 json=body,
@@ -173,13 +180,17 @@ class AiSpendEndpoints(OpikClientBase):
         user_email: str | None = None,
     ) -> list[Any]:
         """Users of one MCP server, skill or built-in tool: a top-level array of rows."""
-        route, param = _ITEM_ROUTES[kind]
-        with _admin_only():
+        routed = _ITEM_ROUTES.get(kind)
+        if routed is None:
+            raise OpikValidationError(f"{kind!r} is not a spend item kind.")
+        route, param = routed
+        hint = f"AI Spend users of {kind.replace('_', ' ')} {item!r}"
+        with _admin_only(hint):
             return await self._post_json_list(
                 f"{_PREFIX}/{route}/users",
                 json=_window(project_name, interval_start, interval_end, user_email),
                 params={param: item},
-                entity_hint=f"AI Spend users of {kind.replace('_', ' ')} {item!r}",
+                entity_hint=hint,
             )
 
     async def list_spend_sessions(

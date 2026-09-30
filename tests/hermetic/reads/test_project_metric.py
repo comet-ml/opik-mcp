@@ -139,7 +139,9 @@ async def test_a_named_series_travels_verbatim(backend: StubBackend) -> None:
             series="Answer Relevance",
         )
 
-    assert backend.one("/metrics").payload["breakdown"]["sub_metric"] == "Answer Relevance"
+    breakdown = backend.one("/metrics").payload["breakdown"]
+    assert isinstance(breakdown, dict)
+    assert breakdown["sub_metric"] == "Answer Relevance"
 
 
 async def test_a_rate_is_charted_against_the_count_of_what_it_measures(
@@ -172,7 +174,7 @@ async def test_a_rate_is_charted_against_the_count_of_what_it_measures(
     # connection, which is the point of pairing them, so which lands first is
     # the event loop's business. Pinning the order here made this test fail
     # about one run in three.
-    kinds = sorted(r.payload["metric_type"] for r in backend.sent("/metrics"))
+    kinds = sorted((r.payload["metric_type"] for r in backend.sent("/metrics")), key=str)
     assert kinds == ["TRACE_COUNT", "TRACE_ERROR_RATE"], "the companion count went with it"
 
 

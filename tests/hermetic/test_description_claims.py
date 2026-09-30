@@ -87,19 +87,19 @@ class Driver:
     session: ClientSession
     backend: StubBackend
 
-    async def call(self, tool: str, **args: Any) -> str:
+    async def call(self, tool: str, **args: object) -> str:
         result = await self.session.call_tool(tool, args)
         text = "\n".join(part.text for part in result.content if hasattr(part, "text"))
         assert not result.isError, f"{tool}({args}) was refused: {text}"
         return text
 
-    async def refuse(self, tool: str, **args: Any) -> str:
+    async def refuse(self, tool: str, **args: object) -> str:
         result = await self.session.call_tool(tool, args)
         text = "\n".join(part.text for part in result.content if hasattr(part, "text"))
         assert result.isError, f"{tool}({args}) was answered, expected a refusal: {text}"
         return text
 
-    async def read_json(self, **args: Any) -> dict[str, Any]:
+    async def read_json(self, **args: object) -> dict[str, Any]:
         """A ``read``'s payload, past the token-count header line it carries."""
         text = await self.call("read", **args)
         body = text.split("\n", 1)[1] if text.startswith("[read:") else text
@@ -790,20 +790,21 @@ async def _issue_fields(drive: Driver) -> None:
 async def _issue_list_status(drive: Driver) -> None:
     from tests.hermetic.stub_backend import _issue
 
-    closed = {**_issue(), "id": ISSUE_ID.replace("50", "51"), "status": "closed"}
+    closed_id = ISSUE_ID.replace("50", "51")
+    closed = {**_issue(), "id": closed_id, "status": "closed"}
     drive.backend.issues = [_issue(), closed]
 
     default = await drive.call(
         "list", entity_type="agent_insights_issue", project_name=PROJECT_NAME
     )
-    assert ISSUE_ID in default and closed["id"] not in default
+    assert ISSUE_ID in default and closed_id not in default
     sent = drive.backend.sent("/v1/private/agent-insights/issues")[-1]
     assert sent.query.get("status") in (None, ["open"])
 
     rest = await drive.call(
         "list", entity_type="agent_insights_issue", project_name=PROJECT_NAME, status="closed"
     )
-    assert closed["id"] in rest
+    assert closed_id in rest
 
 
 @probe("issue_read_returns_its_five_keys")

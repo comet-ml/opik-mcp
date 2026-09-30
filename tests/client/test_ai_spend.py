@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import TypedDict
+from typing import TypedDict, cast
 
 import httpx
 import pytest
 import respx
 
-from opik_mcp.client.ai_spend import SpendAdminRequiredError, SpendItemKind
+from opik_mcp.client.ai_spend import SpendAdminRequiredError
 from opik_mcp.client.base import (
     OpikAuthError,
     OpikPermissionError,
@@ -15,6 +15,7 @@ from opik_mcp.client.base import (
     OpikValidationError,
 )
 from opik_mcp.client.opik import OpikClient
+from opik_mcp.client.protocols import AiSpendClient, SpendItemKind
 
 OPIK_BASE = "https://opik.test"
 SPEND = "/v1/private/ai-spend"
@@ -40,6 +41,14 @@ def anyio_backend() -> str:
 
 def _client() -> OpikClient:
     return OpikClient(base_url=OPIK_BASE, api_key="key-abc", workspace="ws")
+
+
+def test_the_concrete_client_satisfies_the_spend_protocol() -> None:
+    """mypy checks this assignment. The spend entities reach the client through a
+    ``cast`` to this Protocol, and a cast is not checked — so if ``AiSpendEndpoints``
+    and ``AiSpendClient`` drift apart, this is what fails instead of a live call."""
+    spend: AiSpendClient = _client()
+    assert spend is not None
 
 
 def _body(route: respx.Route) -> dict[str, object]:
@@ -168,9 +177,12 @@ async def test_403_becomes_spend_admin_required_error() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post(f"{SPEND}/summary").mock(return_value=httpx.Response(403))
         mock.post(f"{SPEND}/skills/users").mock(return_value=httpx.Response(403))
-        for call in (
-            _client().get_spend_summary(**WINDOW),
-            _client().list_spend_item_users("skill", "s", **WINDOW),
+        for call, hint in (
+            (_client().get_spend_summary(**WINDOW), "AI Spend summary"),
+            (
+                _client().list_spend_item_users("skill", "s", **WINDOW),
+                "AI Spend users of skill 's'",
+            ),
         ):
             with pytest.raises(SpendAdminRequiredError) as caught:
                 await call
@@ -178,7 +190,30 @@ async def test_403_becomes_spend_admin_required_error() -> None:
             assert isinstance(err, OpikPermissionError)
             assert err.error_kind == "permission"
             assert err.http_status == 403
-            assert "organization admin's API key" in str(err)
+            assert str(err) == (
+                f"Permission denied for {hint} (403). Spend data for this workspace "
+                "needs an organization admin's credentials."
+            )
+
+
+@pytest.mark.anyio
+async def test_the_403_names_no_environment_variable() -> None:
+    """The hosted HTTP transport forwards an inbound OAuth bearer, so there is no
+    ``OPIK_API_KEY`` for that caller to change."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post(f"{SPEND}/agents").mock(return_value=httpx.Response(403))
+        with pytest.raises(SpendAdminRequiredError) as caught:
+            await _client().get_spend_agents(**WINDOW)
+    assert "OPIK_API_KEY" not in str(caught.value)
+
+
+@pytest.mark.anyio
+async def test_an_unknown_item_kind_is_refused_before_the_request() -> None:
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        route = mock.post(url__regex=".*").mock(return_value=httpx.Response(200, json=[]))
+        with pytest.raises(OpikValidationError, match="is not a spend item kind"):
+            await _client().list_spend_item_users(cast("SpendItemKind", "agent"), "x", **WINDOW)
+    assert not route.called
 
 
 @pytest.mark.anyio

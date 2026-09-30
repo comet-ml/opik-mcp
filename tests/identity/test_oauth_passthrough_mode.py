@@ -8,11 +8,10 @@ contract (real resolver against a mocked backend) lives in
 ``test_oauth_token_validation.py``.
 """
 
-from typing import Any
-
 import pytest
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+from starlette.types import Scope
 
 from opik_mcp.identity.context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
@@ -31,7 +30,7 @@ from opik_mcp.server.http.middleware import BearerAuthMiddleware
 def _make_request(headers: dict[str, str], path: str = "/mcp") -> Request:
     """Build a minimal ASGI scope for the middleware under test."""
     raw_headers = [(k.lower().encode(), v.encode()) for k, v in headers.items()]
-    scope: dict[str, Any] = {
+    scope: Scope = {
         "type": "http",
         "method": "POST",
         "path": path,

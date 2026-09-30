@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Literal
 
 import pytest
 import sentry_sdk
+from sentry_sdk.types import Event, Hint
 
 from opik_mcp import error_tracking
 from opik_mcp.config import Settings, installation_type
@@ -25,7 +27,7 @@ def _disable_pytest_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(error_tracking, "_in_pytest", lambda: False)
 
 
-def _call_before_send(fn: Any, event: dict[str, Any]) -> Any:
+def _call_before_send(fn: Callable[[Event, Hint], Event | None], event: Event) -> Event | None:
     """Invoke a before_send callback with an empty Hint.
 
     The user-side / status-code filter is gone — capture sites in this
@@ -47,7 +49,9 @@ def test_before_send_caps_events_at_30() -> None:
 
 
 @pytest.mark.parametrize("level", ["fatal", "error", "warning", "info", "debug"])
-def test_before_send_caps_regardless_of_level(level: str) -> None:
+def test_before_send_caps_regardless_of_level(
+    level: Literal["fatal", "error", "warning", "info", "debug"],
+) -> None:
     """Cap applies to every Sentry level, not just ``error``.
 
     ``fatal`` is the case that mattered most before the fix — it's the
@@ -128,7 +132,7 @@ def test_settings_dsn_is_not_env_overridable(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_setup_sentry_returns_false_when_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    init_calls: list[Any] = []
+    init_calls: list[dict[str, object]] = []
     monkeypatch.setattr(sentry_sdk, "init", lambda **kw: init_calls.append(kw))
     monkeypatch.setattr(error_tracking, "_in_pytest", lambda: False)
 
@@ -138,7 +142,7 @@ def test_setup_sentry_returns_false_when_disabled(monkeypatch: pytest.MonkeyPatc
 
 def test_setup_sentry_skips_under_pytest(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests must never phone home; the in-pytest guard is the gate."""
-    init_calls: list[Any] = []
+    init_calls: list[dict[str, object]] = []
     monkeypatch.setattr(sentry_sdk, "init", lambda **kw: init_calls.append(kw))
     monkeypatch.setattr(error_tracking, "_in_pytest", lambda: True)
 
@@ -147,9 +151,9 @@ def test_setup_sentry_skips_under_pytest(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_setup_sentry_initializes_and_binds_scope(monkeypatch: pytest.MonkeyPatch) -> None:
-    init_calls: list[dict[str, Any]] = []
+    init_calls: list[dict[str, object]] = []
     tag_calls: list[tuple[str, str]] = []
-    user_calls: list[dict[str, Any]] = []
+    user_calls: list[dict[str, object]] = []
 
     monkeypatch.setattr(sentry_sdk, "init", lambda **kw: init_calls.append(kw))
     monkeypatch.setattr(sentry_sdk, "set_tag", lambda k, v: tag_calls.append((k, v)))
@@ -257,7 +261,7 @@ def test_setup_sentry_omits_workspace_tag_when_unset(
 def test_setup_sentry_user_id_prefers_workspace_uuid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    user_calls: list[dict[str, Any]] = []
+    user_calls: list[dict[str, object]] = []
     monkeypatch.setattr(sentry_sdk, "init", lambda **kw: None)
     monkeypatch.setattr(sentry_sdk, "set_tag", lambda k, v: None)
     monkeypatch.setattr(sentry_sdk, "set_user", lambda u: user_calls.append(u))
@@ -282,18 +286,18 @@ class _StubScope:
     """
 
     def __init__(self) -> None:
-        self.tags: dict[str, Any] = {}
-        self.extras: dict[str, Any] = {}
+        self.tags: dict[str, object] = {}
+        self.extras: dict[str, object] = {}
         self.transaction: str | None = None
         self.fingerprint: list[str] | None = None
 
-    def set_tag(self, key: str, value: Any) -> None:
+    def set_tag(self, key: str, value: object) -> None:
         self.tags[key] = value
 
-    def set_extra(self, key: str, value: Any) -> None:
+    def set_extra(self, key: str, value: object) -> None:
         self.extras[key] = value
 
-    def set_transaction_name(self, name: str, source: Any = None) -> None:
+    def set_transaction_name(self, name: str, source: object = None) -> None:
         self.transaction = name
 
 
@@ -304,7 +308,7 @@ class _StubScopeCtx:
     def __enter__(self) -> _StubScope:
         return self.scope
 
-    def __exit__(self, *_a: Any) -> None:
+    def __exit__(self, *_a: object) -> None:
         return None
 
 
@@ -389,7 +393,7 @@ def test_capture_exception_handles_empty_tags_and_extras(
 def test_capture_exception_swallows_sentry_failures(monkeypatch: pytest.MonkeyPatch) -> None:
     """Sentry-side failures must never break the caller's error path."""
 
-    def _raise(*_a: Any, **_kw: Any) -> None:
+    def _raise(*_a: object, **_kw: object) -> None:
         raise RuntimeError("sentry transport down")
 
     monkeypatch.setattr(sentry_sdk, "new_scope", _raise)
