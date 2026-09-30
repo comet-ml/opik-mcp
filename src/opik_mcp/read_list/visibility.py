@@ -7,63 +7,66 @@ views, so a workspace without a feature never hears of the entities behind it.
 
 from __future__ import annotations
 
+from typing import Final
+
+from opik_mcp.features.toggles import NO_FEATURES, FeatureToggles
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 
-def _is_on(handler: EntityHandler, features: frozenset[str]) -> bool:
-    return handler.feature is None or handler.feature in features
+def _is_shown(handler: EntityHandler, toggles: FeatureToggles) -> bool:
+    return handler.shown_when is None or handler.shown_when(toggles)
 
 
-def visible_handler(entity_type: str, features: frozenset[str]) -> EntityHandler | None:
+def visible_handler(entity_type: str, toggles: FeatureToggles) -> EntityHandler | None:
     """The handler for ``entity_type``, or ``None`` when it is unknown or its feature is off."""
     handler = ENTITY_REGISTRY.get(entity_type)
-    return handler if handler is not None and _is_on(handler, features) else None
+    return handler if handler is not None and _is_shown(handler, toggles) else None
 
 
-def readable_types(features: frozenset[str]) -> tuple[str, ...]:
+def readable_types(toggles: FeatureToggles) -> tuple[str, ...]:
     return tuple(
         t
         for t, h in ENTITY_REGISTRY.items()
-        if _is_on(h, features) and h.fetch_fn is not unsupported_fetch
+        if _is_shown(h, toggles) and h.fetch_fn is not unsupported_fetch
     )
 
 
-def listable_types(features: frozenset[str]) -> tuple[str, ...]:
-    return tuple(t for t, h in ENTITY_REGISTRY.items() if _is_on(h, features) and h.lists)
+def listable_types(toggles: FeatureToggles) -> tuple[str, ...]:
+    return tuple(t for t, h in ENTITY_REGISTRY.items() if _is_shown(h, toggles) and h.lists)
 
 
-def sortable_types(features: frozenset[str]) -> tuple[str, ...]:
+def sortable_types(toggles: FeatureToggles) -> tuple[str, ...]:
     return tuple(
         v.name
         for v in VOCABULARIES.values()
-        if v.sort_fields and visible_handler(v.entity_type, features) is not None
+        if v.sort_fields and visible_handler(v.entity_type, toggles) is not None
     )
 
 
-def filterable_types(features: frozenset[str]) -> tuple[str, ...]:
+def filterable_types(toggles: FeatureToggles) -> tuple[str, ...]:
     return tuple(
         v.name
         for v in VOCABULARIES.values()
-        if v.filter_fields and v.mode_of is None and visible_handler(v.entity_type, features)
+        if v.filter_fields and v.mode_of is None and visible_handler(v.entity_type, toggles)
     )
 
 
-def windowed_types(features: frozenset[str]) -> tuple[str, ...]:
-    return tuple(t for t, h in ENTITY_REGISTRY.items() if _is_on(h, features) and h.is_windowed)
+def windowed_types(toggles: FeatureToggles) -> tuple[str, ...]:
+    return tuple(t for t, h in ENTITY_REGISTRY.items() if _is_shown(h, toggles) and h.is_windowed)
 
 
-def day_windowed_types(features: frozenset[str]) -> tuple[str, ...]:
+def day_windowed_types(toggles: FeatureToggles) -> tuple[str, ...]:
     """The types whose backend takes a window as whole UTC days."""
     return tuple(
         t
         for t, h in ENTITY_REGISTRY.items()
-        if _is_on(h, features) and "from_date" in h.list_optional_kwargs
+        if _is_shown(h, toggles) and "from_date" in h.list_optional_kwargs
     )
 
 
-def list_schema_keys(features: frozenset[str]) -> tuple[str, ...]:
+def list_schema_keys(toggles: FeatureToggles) -> tuple[str, ...]:
     """The ``list.<entity>`` keys ``schema`` answers for with these features on."""
     return (
         # Every vocabulary, not only every entity type: a dataset item filtered
@@ -72,34 +75,25 @@ def list_schema_keys(features: frozenset[str]) -> tuple[str, ...]:
         *(
             f"list.{v.name}"
             for v in VOCABULARIES.values()
-            if v.filter_fields and visible_handler(v.entity_type, features) is not None
+            if v.filter_fields and visible_handler(v.entity_type, toggles) is not None
         ),
         # An entity whose reference is not a field table answers its own.
         *(
             f"list.{t}"
             for t, h in ENTITY_REGISTRY.items()
-            if _is_on(h, features) and h.reference_fn is not None
+            if _is_shown(h, toggles) and h.reference_fn is not None
         ),
     )
 
 
-def added_readable(features: frozenset[str]) -> list[str]:
-    """The readable types these features add over the default."""
-    return sorted(set(readable_types(features)) - set(readable_types(frozenset())))
-
-
-def added_listable(features: frozenset[str]) -> list[str]:
-    return sorted(set(listable_types(features)) - set(listable_types(frozenset())))
-
-
-def added_schema_keys(features: frozenset[str]) -> list[str]:
-    return sorted(set(list_schema_keys(features)) - set(list_schema_keys(frozenset())))
-
+#: What a workspace with no feature on shows. The tool signatures advertise these,
+#: so the base enum and the call-time view cannot drift apart.
+DEFAULT_READABLE_TYPES: Final[tuple[str, ...]] = readable_types(NO_FEATURES)
+DEFAULT_LISTABLE_TYPES: Final[tuple[str, ...]] = listable_types(NO_FEATURES)
 
 __all__ = [
-    "added_listable",
-    "added_readable",
-    "added_schema_keys",
+    "DEFAULT_LISTABLE_TYPES",
+    "DEFAULT_READABLE_TYPES",
     "day_windowed_types",
     "filterable_types",
     "list_schema_keys",

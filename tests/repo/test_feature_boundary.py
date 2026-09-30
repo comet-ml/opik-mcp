@@ -1,4 +1,4 @@
-"""Feature specifics reach the framework only through the feature registry.
+"""Feature specifics reach the framework only through the toggle config.
 
 Same rule as entities and the entity registry (docs/decisions/0004): a generic
 module that imports a feature package has started to know that feature.
@@ -7,16 +7,16 @@ module that imports a feature package has started to know that feature.
 from __future__ import annotations
 
 import ast
+from dataclasses import fields
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC = REPO_ROOT / "src" / "opik_mcp"
 FEATURE_PACKAGE = "opik_mcp.cost_intelligence"
-ALLOWED = (
-    SRC / "features" / "registry.py",
-    SRC / "cost_intelligence",
-    SRC / "read_list" / "entities" / "spend",
-)
+TOGGLES = SRC / "features" / "toggles.py"
+#: The toggle config is the one table that names features on purpose: it pairs each
+#: toggle with whatever that feature contributes. Everything else reads an accessor.
+ALLOWED = (TOGGLES, SRC / "cost_intelligence", SRC / "read_list" / "entities" / "spend")
 
 
 def _imports_feature_package(path: Path) -> bool:
@@ -33,9 +33,9 @@ def _imports_feature_package(path: Path) -> bool:
     return False
 
 
-def test_only_the_registry_and_the_feature_import_the_feature_package() -> None:
+def test_only_the_toggle_config_and_the_feature_import_the_feature_package() -> None:
     sources = sorted(SRC.rglob("*.py"))
-    assert (SRC / "features" / "registry.py") in sources
+    assert TOGGLES in sources
     offenders = [
         path.relative_to(REPO_ROOT).as_posix()
         for path in sources
@@ -44,10 +44,41 @@ def test_only_the_registry_and_the_feature_import_the_feature_package() -> None:
     ]
     assert not offenders, (
         f"{offenders} import opik_mcp.cost_intelligence: feature specifics reach the "
-        "framework only through opik_mcp.features.registry. Declare it on the feature's "
-        "Feature in src/opik_mcp/cost_intelligence/feature.py and read it from the registry."
+        "framework only through src/opik_mcp/features/toggles.py. Add what the feature "
+        "contributes as an accessor there, and read that accessor instead."
     )
 
 
 def test_the_guard_sees_the_one_import_that_is_allowed() -> None:
-    assert _imports_feature_package(SRC / "features" / "registry.py")
+    assert _imports_feature_package(TOGGLES)
+
+
+def test_no_root_module_spells_a_feature_name_out() -> None:
+    """The import guard above only sees imports, so a root module that *defines* a
+    feature's name or its workspace prefix slips past it. That is what config.py did:
+    it held the feature name and the ``__ai_spend_`` prefix, so nothing imported the
+    feature package and the guard stayed green while a root module named a feature."""
+    from opik_mcp.features.toggles import FeatureToggles
+
+    #: ``cost_intelligence_enabled`` -> ``cost_intelligence``.
+    names = [f.name.removesuffix("_enabled") for f in fields(FeatureToggles)]
+    assert names, "FeatureToggles declares no toggle; this guard would pass vacuously."
+    roots = [
+        SRC / "config.py",
+        SRC / "instructions.py",
+        SRC / "skills_catalog.py",
+        SRC / "read_list" / "visibility.py",
+        SRC / "read_list" / "handler.py",
+        SRC / "server" / "tools" / "feature_surface.py",
+    ]
+    offenders = [
+        f"{path.relative_to(REPO_ROOT).as_posix()} spells out {name!r}"
+        for path in roots
+        for name in names
+        if name in path.read_text()
+    ]
+    assert not offenders, (
+        f"{offenders}: a root module names a feature. The name, what turns it on and "
+        "what it contributes all belong to the feature's own package; the framework "
+        "reads them through an accessor on FeatureToggles."
+    )

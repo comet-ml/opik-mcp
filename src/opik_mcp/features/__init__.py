@@ -1,1 +1,1 @@
-"""Workspace features: what a toggle in ``Settings.features`` adds to the surface."""
+"""Workspace features: a toggle resolved from settings, and what it adds to the surface."""

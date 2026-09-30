@@ -15,8 +15,9 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.ai_spend import SpendAdminRequiredError, SpendItemKind
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE, FIXED_PROJECT
+from opik_mcp.cost_intelligence import FIXED_PROJECT, shows_spend_types
 from opik_mcp.cost_intelligence.feature import GUIDE_NAME
+from opik_mcp.features.toggles import NO_FEATURES, FeatureToggles
 from opik_mcp.read_list import registry
 from opik_mcp.read_list.entities.spend.lane import LANE_KEYS, TOP_ITEMS
 from opik_mcp.read_list.list_tool import run_list
@@ -24,10 +25,10 @@ from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS
 from opik_mcp.read_list.visibility import (
-    added_listable,
-    added_readable,
-    added_schema_keys,
+    DEFAULT_LISTABLE_TYPES,
+    DEFAULT_READABLE_TYPES,
     filterable_types,
+    list_schema_keys,
     listable_types,
     readable_types,
     sortable_types,
@@ -771,31 +772,34 @@ async def test_a_default_workspace_refuses_every_spend_type_as_unknown(entity_ty
 
 def test_the_default_surface_names_no_spend_type() -> None:
     advertised = (
-        *registry.READABLE_TYPES,
-        *registry.LISTABLE_TYPES,
-        *sortable_types(frozenset()),
-        *filterable_types(frozenset()),
-        *windowed_types(frozenset()),
+        *DEFAULT_READABLE_TYPES,
+        *DEFAULT_LISTABLE_TYPES,
+        *sortable_types(NO_FEATURES),
+        *filterable_types(NO_FEATURES),
+        *windowed_types(NO_FEATURES),
         *LIST_SCHEMA_KEYS,
     )
     assert not [name for name in advertised if "spend" in name], (
         "a spend type leaked into the default types: declare "
-        "feature=AI_SPEND_FEATURE on its handler in entities/spend."
+        "shown_when=shows_spend_types on its handler in entities/spend."
     )
 
 
 def test_every_spend_handler_is_behind_the_feature() -> None:
     handlers = [registry.ENTITY_REGISTRY[name] for name in SPEND_TYPES]
-    assert all(h.feature == AI_SPEND_FEATURE for h in handlers)
+    assert all(h.shown_when is shows_spend_types for h in handlers)
 
 
 def test_the_spend_workspace_adds_exactly_the_spend_types() -> None:
-    features = SPEND.features
-    assert added_readable(features) == ["spend_lane", "spend_session"]
-    assert sorted(added_listable(features)) == sorted(SPEND_TYPES)
-    assert added_schema_keys(features) == sorted(f"list.{name}" for name in SPEND_TYPES)
-    assert set(SPEND_TYPES) <= set(listable_types(features))
-    assert {"spend_lane", "spend_session"} <= set(readable_types(features))
+    toggles = FeatureToggles.resolve(SPEND)
+    assert sorted(set(readable_types(toggles)) - set(DEFAULT_READABLE_TYPES)) == [
+        "spend_lane",
+        "spend_session",
+    ]
+    assert sorted(set(listable_types(toggles)) - set(DEFAULT_LISTABLE_TYPES)) == sorted(SPEND_TYPES)
+    assert sorted(set(list_schema_keys(toggles)) - set(LIST_SCHEMA_KEYS)) == sorted(
+        f"list.{name}" for name in SPEND_TYPES
+    )
 
 
 async def test_a_missing_dollar_field_reads_n_a_not_zero() -> None:
@@ -907,4 +911,4 @@ def test_the_reference_says_every_spend_list_takes_a_window(
 
 
 def test_no_spend_type_is_windowed_in_the_default_views() -> None:
-    assert not [t for t in windowed_types(frozenset()) if "spend" in t]
+    assert not [t for t in windowed_types(NO_FEATURES) if "spend" in t]

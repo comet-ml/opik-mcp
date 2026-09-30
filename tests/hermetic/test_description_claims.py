@@ -1111,7 +1111,7 @@ def backend() -> Iterator[StubBackend]:
 
 def _workspace_for(entity: str) -> str:
     """An entity behind a feature is probed in the workspace that turns it on."""
-    is_default = ENTITY_REGISTRY[entity].feature is None
+    is_default = ENTITY_REGISTRY[entity].shown_when is None
     return "stub-workspace" if is_default else "__ai_spend_test__"
 
 
@@ -1150,7 +1150,7 @@ async def test_the_entitys_description_holds(entity: str, backend: StubBackend) 
     thirteen. Failures still name the claim, because that is what the message
     is built from.
     """
-    if ENTITY_REGISTRY[entity].feature is not None:
+    if ENTITY_REGISTRY[entity].shown_when is not None:
         backend.project_name = FIXED_PROJECT
     claims = [claim for claim in CLAIMS if claim.entity == entity]
     assert claims, f"{entity} has no claims — the table test should have caught this"

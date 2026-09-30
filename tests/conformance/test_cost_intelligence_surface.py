@@ -23,7 +23,7 @@ from opik_mcp.cost_intelligence.feature import (
     READ_SENTENCE,
 )
 from opik_mcp.instructions import render_instructions
-from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.visibility import DEFAULT_LISTABLE_TYPES, DEFAULT_READABLE_TYPES
 from opik_mcp.server import mcp as default_mcp
 from tests.conformance.test_tool_annotations import DESCRIPTION_LIMIT
 from tests.conformance.test_tool_inventory import (
@@ -102,8 +102,8 @@ async def test_the_entity_enums_are_the_default_plus_the_features_types(
     tools = await _tools(server)
     read = tools["read"].inputSchema["properties"]["entity_type"]
     listed = tools["list"].inputSchema["properties"]["entity_type"]
-    assert read["enum"] == sorted({*READABLE_TYPES, *SPEND_READABLE})
-    assert listed["enum"] == sorted({*LISTABLE_TYPES, *SPEND_TYPES})
+    assert read["enum"] == sorted({*DEFAULT_READABLE_TYPES, *SPEND_READABLE})
+    assert listed["enum"] == sorted({*DEFAULT_LISTABLE_TYPES, *SPEND_TYPES})
     assert read["description"] == f"One of: {', '.join(read['enum'])}."
     assert listed["description"] == f"One of: {', '.join(listed['enum'])}."
 
@@ -114,7 +114,9 @@ async def test_the_schema_operation_enum_is_the_default_plus_the_features_list_k
 ) -> None:
     keys = (await _tools(server))["schema"].inputSchema["properties"]["operation"]["enum"]
     default = cast("list[str]", _snapshot("schema")["properties"]["operation"]["enum"])
-    assert keys == [*default, *sorted(f"list.{name}" for name in SPEND_TYPES)]
+    # Registry order, like every other schema key and every refusal that lists types
+    # (read_list/reference.py), not alphabetical.
+    assert keys == [*default, *(f"list.{name}" for name in SPEND_TYPES)]
 
 
 @pytest.mark.anyio

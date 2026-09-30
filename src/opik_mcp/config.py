@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import Any, ClassVar, Final
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import AliasChoices, Field, PrivateAttr, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from opik_mcp.error_kinds import ErrorKind
@@ -22,9 +22,6 @@ from opik_mcp.error_kinds import ErrorKind
 # return the identical project set. So the fallback works, but it silently picks
 # a workspace rather than the named one a user may have meant.
 DEFAULT_WORKSPACE = "default"
-
-AI_SPEND_FEATURE: Final = "ai_spend"
-AI_SPEND_WORKSPACE_PREFIX: Final = "__ai_spend_"
 
 # Config-snippet placeholders users paste without filling in. `${…}` is the
 # VS Code / shell form (`${input:OPIK_WORKSPACE}`), `<…>` is the one our own
@@ -181,21 +178,6 @@ class Settings(BaseSettings):
     opik_mcp_allowed_origins: str = "http://127.0.0.1:*,http://localhost:*,http://[::1]:*"
 
     opik_mcp_reload: bool = False
-
-    _features: frozenset[str] = PrivateAttr(default_factory=frozenset)
-
-    @model_validator(mode="after")
-    def _resolve_features(self) -> Settings:
-        is_spend_workspace = self.opik_mcp_transport.lower() == "stdio" and (
-            self.comet_workspace or ""
-        ).startswith(AI_SPEND_WORKSPACE_PREFIX)
-        self._features = frozenset({AI_SPEND_FEATURE}) if is_spend_workspace else frozenset()
-        return self
-
-    @property
-    def features(self) -> frozenset[str]:
-        """The one place a feature toggle is resolved; deliberately no environment variable."""
-        return self._features
 
     @field_validator("opik_mcp_http_path", mode="before")
     @classmethod

@@ -8,7 +8,7 @@ fixed one). Lists answer through ``run_fn``; a lane and a session also read.
 
 from __future__ import annotations
 
-from opik_mcp.cost_intelligence import AI_SPEND_FEATURE
+from opik_mcp.cost_intelligence import shows_spend_types
 from opik_mcp.read_list.entities.spend.agent import VOCABULARY as AGENT_VOCABULARY
 from opik_mcp.read_list.entities.spend.agent import run_spend_agent
 from opik_mcp.read_list.entities.spend.lane import VOCABULARY as LANE_VOCABULARY
@@ -39,7 +39,7 @@ def _hint(entity_type: str) -> str:
 
 SUMMARY_HANDLER = EntityHandler(
     entity_type="spend_summary",
-    feature=AI_SPEND_FEATURE,
+    shown_when=shows_spend_types,
     fetch_fn=unsupported_fetch,
     run_fn=run_spend_summary,
     run_takes_window=True,
@@ -53,7 +53,7 @@ SUMMARY_HANDLER = EntityHandler(
 
 LANE_HANDLER = EntityHandler(
     entity_type="spend_lane",
-    feature=AI_SPEND_FEATURE,
+    shown_when=shows_spend_types,
     fetch_fn=fetch_lane,
     id_only=True,
     read_window=_WINDOW,
@@ -70,7 +70,7 @@ LANE_HANDLER = EntityHandler(
 
 USER_HANDLER = EntityHandler(
     entity_type="spend_user",
-    feature=AI_SPEND_FEATURE,
+    shown_when=shows_spend_types,
     fetch_fn=unsupported_fetch,
     run_fn=run_spend_user,
     run_takes_window=True,
@@ -85,7 +85,7 @@ USER_HANDLER = EntityHandler(
 
 SESSION_HANDLER = EntityHandler(
     entity_type="spend_session",
-    feature=AI_SPEND_FEATURE,
+    shown_when=shows_spend_types,
     fetch_fn=fetch_session,
     id_only=True,
     read_window=_WINDOW,
@@ -104,7 +104,7 @@ SESSION_HANDLER = EntityHandler(
 
 AGENT_HANDLER = EntityHandler(
     entity_type="spend_agent",
-    feature=AI_SPEND_FEATURE,
+    shown_when=shows_spend_types,
     fetch_fn=unsupported_fetch,
     run_fn=run_spend_agent,
     run_takes_window=True,
