@@ -893,7 +893,7 @@ async def _spend_summary_windows(drive: Driver) -> None:
     assert "metric | current | previous" in text
     assert "total_tokens | 4,200,000 | 3,100,000" in text
     body = _spend_sent(drive, "/summary").payload
-    assert body["interval_start"] < body["interval_end"], "one closed window is asked for"
+    assert str(body["interval_start"]) < str(body["interval_end"]), "one closed window is asked for"
 
 
 @probe("spend_summary_splits_billed_dollars")

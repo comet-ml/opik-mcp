@@ -13,8 +13,8 @@ from typing import cast
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.ai_spend import SpendAdminRequiredError, SpendItemKind
-from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.ai_spend import SpendAdminRequiredError
+from opik_mcp.client.protocols import OpikListClient, OpikReadClient, SpendItemKind
 from opik_mcp.cost_intelligence import FIXED_PROJECT, shows_spend_types
 from opik_mcp.cost_intelligence.feature import GUIDE_NAME
 from opik_mcp.features.toggles import NO_FEATURES, FeatureToggles

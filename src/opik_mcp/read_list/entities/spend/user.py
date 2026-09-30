@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 from typing import Final, cast, get_args
 
-from opik_mcp.client.ai_spend import SpendItemKind
-from opik_mcp.client.protocols import AiSpendClient, OpikListClient
+from opik_mcp.client.protocols import AiSpendClient, OpikListClient, SpendItemKind
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
