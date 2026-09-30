@@ -6,6 +6,7 @@ from opik_mcp.client.protocols import AiSpendClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
+    HOME_PAGE,
     count,
     link_line,
     list_header,
@@ -96,7 +97,7 @@ async def run_spend_agent(
             f"coverage: {ratio:.0%} of {count(window_calls)} calls carry an agent label, "
             "so these rows are a floor."
         )
-    link = link_line(settings, "home", "the AI Spend home page")
+    link = link_line(settings, *HOME_PAGE)
     return "\n".join([*lines, *([link] if link else [])])
 
 

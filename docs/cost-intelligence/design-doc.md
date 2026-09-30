@@ -122,6 +122,15 @@ Where to start:
   workspace pays is measured in `tests/conformance/test_cost_intelligence_surface.py`.
 - The spend types query `claude-code` themselves. The Opik types take any
   project, as elsewhere; the instructions name the project.
+- A figure the backend did not send is absent or `-`, never `0` (ADR 0002's
+  silence over false data). `number`/`counted` in `entities/spend/_backend.py`
+  carry that; `whole` returns `0` and is for sorting and arithmetic only.
+- Neither the lane breakdown nor the who-uses endpoint pages, so the two answers
+  that cut say there is no call for the rest and name the page that shows them,
+  rather than implying a `page=` that does not exist.
+- A trace inside a session narrative is named as the `read('trace', …)` call that
+  opens it: a UI link would need the project's UUID, which that path never
+  resolves, and a bare id is not something the reader can act on.
 - Rankings are by total tokens, which the backend can sort on; dollars are
   shown, not sorted.
 - The guide is outside `src/opik_mcp/skills/` on purpose. That folder is

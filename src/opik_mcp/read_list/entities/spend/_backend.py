@@ -133,6 +133,10 @@ def page_url(settings: Settings, page: str) -> str | None:
     return f"{base}/{workspace}/ai-spend/{page}"
 
 
+#: The page every spend answer links to unless it has one of its own.
+HOME_PAGE: Final = ("home", "the AI Spend home page")
+
+
 def link_line(settings: Settings, page: str, opens: str) -> str | None:
     url = page_url(settings, page)
     return f"Open in Opik: {opens} — {url}" if url is not None else None
@@ -230,7 +234,7 @@ def no_usage(window: SpendWindow, scope: Scope | None = None) -> str:
 
 
 __all__ = [
-    "DEFAULT_WINDOW_DAYS",
+    "HOME_PAGE",
     "USER_EMAIL",
     "Row",
     "Scope",

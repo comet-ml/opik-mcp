@@ -6,6 +6,7 @@ from opik_mcp.client.protocols import AiSpendClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
+    HOME_PAGE,
     Row,
     billed,
     count,
@@ -84,7 +85,7 @@ async def run_spend_summary(
         for row in rows_of(body.get("results"))
     ]
     lines = [header, table(["metric", "current", "previous"], metrics), _dollar_line(body)]
-    link = link_line(settings, "home", "the AI Spend home page")
+    link = link_line(settings, *HOME_PAGE)
     return "\n".join([*lines, *([link] if link else [])])
 
 

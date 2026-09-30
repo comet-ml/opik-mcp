@@ -271,4 +271,4 @@ async def _item_users(
     return "\n".join(lines)
 
 
-__all__ = ["ENTITY", "ROUTING_FIELDS", "VOCABULARY", "leaderboard_note", "run_spend_user"]
+__all__ = ["ENTITY", "VOCABULARY", "leaderboard_note", "run_spend_user"]

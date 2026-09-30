@@ -14,9 +14,6 @@ from opik_mcp.config import Settings
 if TYPE_CHECKING:
     from opik_mcp.features.toggles import FeatureToggles
 
-#: The toggle's name, as the toggle config's field spells it.
-COST_INTELLIGENCE_FEATURE: Final = "cost_intelligence"
-
 #: opik-backend provisions a cost intelligence workspace with this name prefix, so
 #: the workspace the caller already points at is what selects the feature. There is
 #: deliberately no environment variable of our own.
@@ -44,7 +41,6 @@ def shows_spend_types(toggles: FeatureToggles) -> bool:
 
 __all__ = [
     "AI_SPEND_WORKSPACE_PREFIX",
-    "COST_INTELLIGENCE_FEATURE",
     "FIXED_PROJECT",
     "is_cost_intelligence_enabled",
     "shows_spend_types",

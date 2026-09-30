@@ -8,6 +8,7 @@ from opik_mcp.client.protocols import AiSpendClient
 from opik_mcp.config import Settings
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
+    HOME_PAGE,
     Row,
     child,
     counted,
@@ -124,7 +125,7 @@ async def run_spend_lane(
         f"{input_total} | {output_total}",
         "read('spend_lane', '<key>') lists a lane's top items.",
     ]
-    link = link_line(settings, "home", "the AI Spend home page")
+    link = link_line(settings, *HOME_PAGE)
     return "\n".join([*lines, *([link] if link else [])])
 
 
@@ -202,7 +203,7 @@ async def fetch_lane(
 
 
 def lane_links(settings: Settings, _data: dict[str, object]) -> dict[str, str]:
-    return link_fields(settings, "home", "the AI Spend home page")
+    return link_fields(settings, *HOME_PAGE)
 
 
 __all__ = ["ENTITY", "LANE_KEYS", "VOCABULARY", "fetch_lane", "lane_links", "run_spend_lane"]
