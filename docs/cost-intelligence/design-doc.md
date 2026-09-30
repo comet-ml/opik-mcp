@@ -72,8 +72,9 @@ skill in every other workspace.
 ```
 list/read → run_list/run_read → FeatureToggles.resolve(settings) → visibility (which types)
           → the entity's handler (entities/spend/*) → client/ai_spend.py → AI Spend endpoints
-build_server(settings) → register_tools → feature_surface → toggles.tool_sentences
-instructions → toggles.instructions_paragraphs; read_skill → toggles.extra_skills
+build_server(settings) → register_tools → contributions.tool_sentences (at registration)
+          → feature_surface (the advertised enums only)
+instructions → contributions.instructions_paragraphs; read_skill → contributions.extra_skills
 ```
 
 A feature contributes through accessors on the toggle config. There is no "what a
@@ -84,10 +85,12 @@ else.
 Where to start:
 
 - The toggle config: `FeatureToggles` in `src/opik_mcp/features/toggles.py` —
-  one named boolean per feature, resolved once by `FeatureToggles.resolve`, plus
-  one accessor per concern for what the on toggles contribute. Shaped after
-  opik-backend's `ServiceTogglesConfig`, whose matching toggle is
-  `serviceToggles.costIntelligenceEnabled`.
+  one named boolean per feature, resolved once by `FeatureToggles.resolve`, and
+  nothing else. Shaped after opik-backend's `ServiceTogglesConfig`, whose
+  matching toggle is `serviceToggles.costIntelligenceEnabled`.
+- What an enabled feature adds: `src/opik_mcp/features/contributions.py`, one
+  function per concern. Apart from the toggles on purpose: a toggle is
+  configuration, this is the material a concern renders.
 - What turns this feature on: `is_cost_intelligence_enabled` in
   `src/opik_mcp/cost_intelligence/__init__.py`. `config.py` names no feature.
 - What this feature contributes: `src/opik_mcp/cost_intelligence/feature.py`.
@@ -113,8 +116,9 @@ Where to start:
   either one out is a finding
   (`test_no_root_module_spells_a_feature_name_out`), because the import guard
   above cannot see a name that is never imported.
-- Feature specifics reach the framework only through the toggle config, as
-  entities do through the entity registry (`tests/repo/test_feature_boundary.py`).
+- Feature specifics reach the framework only through `features/`: `toggles.py`
+  for whether a feature is on, `contributions.py` for what it adds, as entities
+  do through the entity registry (`tests/repo/test_feature_boundary.py`).
 - An entity behind a toggle declares `shown_when`, a predicate over the toggles,
   the way it already declares `fetch_fn` and `list_fn`. No feature name is matched.
 - The surface is extended, never narrowed: the same tool code runs, so the

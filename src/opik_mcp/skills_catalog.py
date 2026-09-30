@@ -33,6 +33,7 @@ from typing import ClassVar
 
 from opik_mcp.config import Settings
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.features.contributions import extra_skills
 from opik_mcp.features.toggles import FeatureToggles
 
 #: URI prefix for every skill file served over MCP. Reuses the `opik://` scheme
@@ -287,7 +288,7 @@ def _reference_names(skill: str) -> tuple[str, ...]:
 def feature_skill_names(settings: Settings) -> tuple[str, ...]:
     """The skills this workspace's features add. Skill routing lives here, so the
     tool layer asks this rather than reading the feature declarations itself."""
-    return tuple(FeatureToggles.resolve(settings).extra_skills)
+    return tuple(extra_skills(FeatureToggles.resolve(settings)))
 
 
 def _name_list(extra_skills: tuple[str, ...] = ()) -> str:
@@ -416,7 +417,7 @@ def run_read_skill(skill_name: str, settings: Settings) -> str:
     requested = (
         skill_name.strip().strip("/").removeprefix(SKILLS_URI_PREFIX).removesuffix("/SKILL.md")
     )
-    load = FeatureToggles.resolve(settings).extra_skills.get(requested)
+    load = extra_skills(FeatureToggles.resolve(settings)).get(requested)
     if load is not None:
         text = load()
         return f"[read_skill: {requested} bytes={len(text.encode('utf-8'))}]\n\n{text}"

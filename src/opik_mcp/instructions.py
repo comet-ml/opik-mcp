@@ -29,6 +29,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.features.contributions import instructions_paragraphs
 from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.ui_links import (
     current_workspace,
@@ -159,7 +160,7 @@ def render_instructions(
         date=date,
         default_project_clause=default_project_clause,
         feature_clause="".join(
-            f"\n{paragraph}\n" for paragraph in FeatureToggles.resolve(s).instructions_paragraphs
+            f"\n{paragraph}\n" for paragraph in instructions_paragraphs(FeatureToggles.resolve(s))
         ),
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
         skill_names=", ".join(skill_names()),
