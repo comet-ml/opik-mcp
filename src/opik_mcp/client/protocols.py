@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
-from opik_mcp.client.ai_spend import SpendItemKind
+# The client's own vocabulary, declared with the contract rather than with the
+# endpoint module, so this module keeps depending on nothing under ``client/``.
+SpendItemKind = Literal["mcp_server", "skill", "built_in_tool"]
 
 
 class OpikListClient(Protocol):
