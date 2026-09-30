@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from opik_mcp.features.toggles import NO_FEATURES
 from opik_mcp.read_list import oql
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import Vocabulary
@@ -25,7 +26,7 @@ def _vocabulary(entity_type: str) -> Vocabulary:
 
 def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
     return oql.compile_filters(
-        _vocabulary(entity_type), query, filterable_types=filterable_types(frozenset())
+        _vocabulary(entity_type), query, filterable_types=filterable_types(NO_FEATURES)
     )
 
 

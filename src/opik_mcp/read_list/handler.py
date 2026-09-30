@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.ui_links import ProjectArea, ViewPage
 from opik_mcp.read_list.uri import UriPattern
 
@@ -528,9 +529,10 @@ class EntityHandler:
     project_id=…, project_name=…)`` and requires one of them; otherwise it
     calls ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
     """
-    feature: str | None = None
-    """The workspace feature that turns this entity on; ``None`` is always on.
-    Without the feature the entity is refused as unknown and no list names it."""
+    shown_when: Callable[[FeatureToggles], bool] | None = None
+    """The toggle that shows this entity, asked as a predicate; ``None`` is always
+    shown. While it answers False the entity is refused as unknown and no list
+    names it."""
 
 
 __all__ = [

@@ -14,6 +14,7 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql import OQLError, compile_filters, render_filters, split_param_clauses
@@ -75,7 +76,7 @@ def resolve_list_args(
     dataset_id: str | None,
     prompt_id: str | None,
     status: str | None,
-    features: frozenset[str],
+    features: FeatureToggles,
 ) -> ListArgs:
     """Every argument refusal after the entity type is known is raised here,
     as a ``ToolError``, before a connection is opened. The type lists in the
@@ -243,7 +244,7 @@ def _vocabulary(name: str) -> Vocabulary:
 
 
 def _search_refusal(
-    handler: EntityHandler, vocabulary: Vocabulary, features: frozenset[str]
+    handler: EntityHandler, vocabulary: Vocabulary, features: FeatureToggles
 ) -> str:
     """Why free text does not apply here, and the nearest thing that does.
 

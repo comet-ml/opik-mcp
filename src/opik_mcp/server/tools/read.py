@@ -9,8 +9,9 @@ from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.read_list.read_tool import run_read
-from opik_mcp.read_list.registry import READABLE_TYPES, URI_PATTERNS
+from opik_mcp.read_list.registry import URI_PATTERNS
 from opik_mcp.read_list.uri import looks_like_opik_link
+from opik_mcp.read_list.visibility import DEFAULT_READABLE_TYPES
 from opik_mcp.server.tools.fields import FIELDS_READ_DESCRIPTION
 from opik_mcp.server.tools.hints import READS
 
@@ -47,8 +48,8 @@ async def read(
     entity_type: Annotated[
         str,
         Field(
-            description=f"One of: {', '.join(sorted(READABLE_TYPES))}.",
-            json_schema_extra={"enum": sorted(READABLE_TYPES)},
+            description=f"One of: {', '.join(sorted(DEFAULT_READABLE_TYPES))}.",
+            json_schema_extra={"enum": sorted(DEFAULT_READABLE_TYPES)},
         ),
     ],
     id: Annotated[

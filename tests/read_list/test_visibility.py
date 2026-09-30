@@ -12,15 +12,15 @@ import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.protocols import OpikReadClient
-from opik_mcp.config import AI_SPEND_FEATURE, AI_SPEND_WORKSPACE_PREFIX
+from opik_mcp.cost_intelligence import AI_SPEND_WORKSPACE_PREFIX, shows_spend_types
+from opik_mcp.features.toggles import NO_FEATURES, FeatureToggles
 from opik_mcp.read_list import registry
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.reference import LIST_SCHEMA_KEYS
 from opik_mcp.read_list.visibility import (
-    added_listable,
-    added_readable,
-    added_schema_keys,
+    DEFAULT_LISTABLE_TYPES,
+    DEFAULT_READABLE_TYPES,
     filterable_types,
     list_schema_keys,
     listable_types,
@@ -33,8 +33,8 @@ from tests.factories import make_settings
 
 pytestmark = pytest.mark.anyio
 
-NONE = frozenset[str]()
-SPEND = frozenset({AI_SPEND_FEATURE})
+NONE = NO_FEATURES
+SPEND = FeatureToggles(cost_intelligence_enabled=True)
 SPEND_SETTINGS = make_settings(opik_workspace=f"{AI_SPEND_WORKSPACE_PREFIX}org__", opik_api_key="k")
 DEFAULT_SETTINGS = make_settings(opik_workspace="team", opik_api_key="k")
 UUID = "0190a3c4-1111-7000-8000-000000000001"
@@ -56,10 +56,10 @@ NO_BACKEND = cast("OpikReadClient", _NoBackend())
 
 
 def test_the_default_views_are_what_they_were_before_features_existed() -> None:
-    assert readable_types(NONE) == registry.READABLE_TYPES
-    assert listable_types(NONE) == registry.LISTABLE_TYPES
+    assert readable_types(NONE) == DEFAULT_READABLE_TYPES
+    assert listable_types(NONE) == DEFAULT_LISTABLE_TYPES
     assert list_schema_keys(NONE) == LIST_SCHEMA_KEYS
-    assert registry.READABLE_TYPES == (
+    assert DEFAULT_READABLE_TYPES == (
         "project",
         "trace",
         "span",
@@ -70,7 +70,7 @@ def test_the_default_views_are_what_they_were_before_features_existed() -> None:
         "prompt",
         "agent_insights_issue",
     )
-    assert registry.LISTABLE_TYPES == (
+    assert DEFAULT_LISTABLE_TYPES == (
         "project",
         "trace",
         "span",
@@ -97,23 +97,22 @@ def test_the_default_views_are_what_they_were_before_features_existed() -> None:
 
 
 def test_a_feature_set_with_no_entity_of_its_own_adds_nothing() -> None:
-    assert added_readable(SPEND) == []
-    assert added_listable(SPEND) == []
-    assert added_schema_keys(SPEND) == []
-    assert readable_types(SPEND) == registry.READABLE_TYPES
+    assert readable_types(SPEND) == DEFAULT_READABLE_TYPES
+    assert listable_types(SPEND) == DEFAULT_LISTABLE_TYPES
+    assert list_schema_keys(SPEND) == list_schema_keys(NO_FEATURES)
 
 
 def test_a_feature_entity_is_added_by_its_feature_and_by_no_other(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     add_fake_feature_entity(monkeypatch)
-    assert added_readable(SPEND) == [FAKE_TYPE]
-    assert added_listable(SPEND) == [FAKE_TYPE]
-    assert added_schema_keys(SPEND) == [f"list.{FAKE_TYPE}"]
+    assert set(readable_types(SPEND)) - set(DEFAULT_READABLE_TYPES) == {FAKE_TYPE}
+    assert set(listable_types(SPEND)) - set(DEFAULT_LISTABLE_TYPES) == {FAKE_TYPE}
+    assert f"list.{FAKE_TYPE}" in list_schema_keys(SPEND)
     for views in (readable_types, listable_types, filterable_types):
         assert FAKE_TYPE in views(SPEND), views.__name__
         assert FAKE_TYPE not in views(NONE), views.__name__
-        assert FAKE_TYPE not in views(frozenset({"other"})), views.__name__
+        assert FAKE_TYPE not in views(NO_FEATURES), views.__name__
     assert f"list.{FAKE_TYPE}" not in list_schema_keys(NONE)
     assert visible_handler(FAKE_TYPE, SPEND) is not None
     assert visible_handler(FAKE_TYPE, NONE) is None
@@ -123,10 +122,10 @@ def test_the_default_registry_tuples_leave_a_feature_entity_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     add_fake_feature_entity(monkeypatch)
-    assert registry.ENTITY_REGISTRY[FAKE_TYPE].feature == AI_SPEND_FEATURE
+    assert registry.ENTITY_REGISTRY[FAKE_TYPE].shown_when is shows_spend_types
     assert FAKE_TYPE in readable_types(SPEND)
-    assert FAKE_TYPE not in registry.READABLE_TYPES
-    assert FAKE_TYPE not in registry.LISTABLE_TYPES
+    assert FAKE_TYPE not in DEFAULT_READABLE_TYPES
+    assert FAKE_TYPE not in DEFAULT_LISTABLE_TYPES
 
 
 async def test_read_refuses_a_feature_type_by_name_without_the_feature(

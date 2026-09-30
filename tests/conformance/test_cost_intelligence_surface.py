@@ -23,7 +23,7 @@ from opik_mcp.cost_intelligence.feature import (
     READ_SENTENCE,
 )
 from opik_mcp.instructions import render_instructions
-from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+from opik_mcp.read_list.visibility import DEFAULT_LISTABLE_TYPES, DEFAULT_READABLE_TYPES
 from opik_mcp.server import mcp as default_mcp
 from tests.conformance.test_tool_annotations import DESCRIPTION_LIMIT
 from tests.conformance.test_tool_inventory import (
@@ -106,8 +106,8 @@ async def test_the_entity_enums_are_the_default_plus_the_features_types(
     tools = await _tools(server)
     read = tools["read"].inputSchema["properties"]["entity_type"]
     listed = tools["list"].inputSchema["properties"]["entity_type"]
-    assert read["enum"] == sorted({*READABLE_TYPES, FAKE_TYPE})
-    assert listed["enum"] == sorted({*LISTABLE_TYPES, FAKE_TYPE})
+    assert read["enum"] == sorted({*DEFAULT_READABLE_TYPES, FAKE_TYPE})
+    assert listed["enum"] == sorted({*DEFAULT_LISTABLE_TYPES, FAKE_TYPE})
     assert read["description"] == f"One of: {', '.join(read['enum'])}."
     assert listed["description"] == f"One of: {', '.join(listed['enum'])}."
 

@@ -31,6 +31,7 @@ from opik_mcp.client.base import (
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
@@ -60,7 +61,7 @@ def _format_client_error(
     entity_type: str,
     entity_id: str,
     exc: BaseException,
-    features: frozenset[str],
+    features: FeatureToggles,
 ) -> str:
     """One sentence on what was asked, and the call to change.
 
@@ -121,7 +122,7 @@ async def run_read(
     # into either slot. A parsed project-scoped URI/link also carries the
     # project, which overrides the explicit arg.
     resolved_settings = settings or get_settings()
-    features = resolved_settings.features
+    features = FeatureToggles.resolve(resolved_settings)
     record_id = id
     if looks_like_uri(record_id) or looks_like_opik_link(record_id, URI_PATTERNS):
         try:
@@ -269,7 +270,7 @@ async def _fetch_with_name_lookup(
     project_id: str | None = None,
     project_name: str | None = None,
     extra: dict[str, Any] | None = None,
-    features: frozenset[str],
+    features: FeatureToggles,
 ) -> dict[str, Any]:
     """Resolve name → id when the input doesn't look like a UUID.
 

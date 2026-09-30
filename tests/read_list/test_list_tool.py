@@ -1300,11 +1300,11 @@ async def test_issue_is_accepted_as_a_short_name_for_the_entity() -> None:
 async def test_the_alias_is_not_advertised_as_a_type_of_its_own() -> None:
     """The enum is the closed set an agent picks from; the same entity under
     two names there would only raise the question of which one is real."""
-    from opik_mcp.read_list.registry import LISTABLE_TYPES, READABLE_TYPES
+    from opik_mcp.read_list.visibility import DEFAULT_LISTABLE_TYPES, DEFAULT_READABLE_TYPES
 
-    assert "issue" not in LISTABLE_TYPES
-    assert "issue" not in READABLE_TYPES
-    assert "agent_insights_issue" in LISTABLE_TYPES
+    assert "issue" not in DEFAULT_LISTABLE_TYPES
+    assert "issue" not in DEFAULT_READABLE_TYPES
+    assert "agent_insights_issue" in DEFAULT_LISTABLE_TYPES
 
 
 # --- a window that ends in the past ------------------------------------- #

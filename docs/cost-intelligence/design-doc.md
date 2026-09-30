@@ -11,8 +11,10 @@ adds to what a host sees, and why the guide lives outside the skills folder.
 ### When it turns on
 
 The AI Spend feature is on when the transport is stdio and the workspace name
-starts with `__ai_spend_` (`Settings.features`, resolved once in
-`src/opik_mcp/config.py`). The hosted HTTP server never
+starts with `__ai_spend_`. That predicate is the feature's own
+(`is_cost_intelligence_enabled` in `src/opik_mcp/cost_intelligence/__init__.py`);
+the toggle config calls it once at startup and stores the answer as a named
+boolean, `FeatureToggles.cost_intelligence_enabled`. The hosted HTTP server never
 turns it on, whatever the workspace is called
 (`test_the_hosted_transport_never_turns_the_feature_on`). Every other workspace
 keeps the default surface, byte for byte.
@@ -45,20 +47,28 @@ outline a session. It is an unknown skill without the feature.
 ## How it works
 
 ```
-list/read → run_list/run_read → settings.features → visibility (which types)
+list/read → run_list/run_read → FeatureToggles.resolve(settings) → visibility (which types)
           → the entity's own handler → client/ → Opik backend
-register_tools → feature_surface.extend_advertised_schemas → features/registry.py
-instructions, read_skill → features/registry.py (paragraph, guide)
+register_tools → feature_surface.extend_advertised_schemas → toggles.tool_sentences
+instructions → toggles.instructions_paragraphs; read_skill → toggles.extra_skills
 ```
 
-A feature is one `Feature` value in `src/opik_mcp/cost_intelligence/feature.py`
-(sentences, paragraph, guide loader), listed in the feature registry.
+A feature contributes through accessors on the toggle config. There is no "what a
+feature adds" contract: a toggle touches the concerns it happens to touch, so a
+later one that has nothing to do with tools or skills adds a boolean and nothing
+else.
 
 Where to start:
 
-- The toggle: `Settings.features` in `src/opik_mcp/config.py`.
-- The feature registry: `src/opik_mcp/features/registry.py`.
-- The added sentences, paragraph and guide: `src/opik_mcp/cost_intelligence/feature.py`.
+- The toggle config: `FeatureToggles` in `src/opik_mcp/features/toggles.py` —
+  one named boolean per feature, resolved once by `FeatureToggles.resolve`, plus
+  one accessor per concern for what the on toggles contribute. Shaped after
+  opik-backend's `ServiceTogglesConfig`, whose matching toggle is
+  `serviceToggles.costIntelligenceEnabled`.
+- What turns this feature on: `is_cost_intelligence_enabled` in
+  `src/opik_mcp/cost_intelligence/__init__.py`. `config.py` names no feature.
+- What this feature contributes: `src/opik_mcp/cost_intelligence/feature.py`.
+
 - Which types a feature set shows: `src/opik_mcp/read_list/visibility.py`.
 - Extending the advertised schemas: `src/opik_mcp/server/tools/feature_surface.py`.
 
@@ -66,10 +76,17 @@ Where to start:
 
 - The feature is picked by the workspace prefix and the stdio transport, and by
   nothing else, so no other user sees a change and the hosted server cannot
-  expose it. A later dual mode changes only `Settings.features`.
-- The toggle is resolved once, in settings, and has no environment variable.
-- Feature specifics reach the framework only through the feature registry, as
+  expose it. A later dual mode changes only `is_cost_intelligence_enabled`.
+- The toggle is resolved once, from settings, and has no environment variable of
+  its own: the workspace the caller already points at is what selects it.
+- A feature owns its own name and its own predicate. A root module that spells
+  either one out is a finding
+  (`test_no_root_module_spells_a_feature_name_out`), because the import guard
+  above cannot see a name that is never imported.
+- Feature specifics reach the framework only through the toggle config, as
   entities do through the entity registry (`tests/repo/test_feature_boundary.py`).
+- An entity behind a toggle declares `shown_when`, a predicate over the toggles,
+  the way it already declares `fetch_fn` and `list_fn`. No feature name is matched.
 - The surface is extended, never narrowed: the same tool code runs, so the
   default surface and its byte budgets stay as they are (ADR 0001). What the
   workspace pays is measured in `tests/conformance/test_cost_intelligence_surface.py`.
@@ -83,7 +100,7 @@ Where to start:
 
 - `tests/cost_intelligence/test_features.py`: when the feature turns on, and never
   on hosted HTTP.
-- `tests/features/test_registry.py`: the registry is a table and every feature
+- `tests/repo/test_feature_boundary.py`: the registry is a table and every feature
   declares what the framework reads.
 - `tests/repo/test_feature_boundary.py`: no generic module imports the feature package.
 - `tests/read_list/test_visibility.py`: the default views, the types a feature

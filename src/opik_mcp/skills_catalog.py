@@ -33,7 +33,7 @@ from typing import ClassVar
 
 from opik_mcp.config import Settings
 from opik_mcp.error_kinds import ErrorKind
-from opik_mcp.features.registry import enabled_features
+from opik_mcp.features.toggles import FeatureToggles
 
 #: URI prefix for every skill file served over MCP. Reuses the `opik://` scheme
 #: the read tool already parses (see `read_list/uri.py`) rather than inventing a
@@ -284,6 +284,12 @@ def _reference_names(skill: str) -> tuple[str, ...]:
     )
 
 
+def feature_skill_names(settings: Settings) -> tuple[str, ...]:
+    """The skills this workspace's features add. Skill routing lives here, so the
+    tool layer asks this rather than reading the feature declarations itself."""
+    return tuple(FeatureToggles.resolve(settings).extra_skills)
+
+
 def _name_list(extra_skills: tuple[str, ...] = ()) -> str:
     return ", ".join((*skill_names(), *extra_skills))
 
@@ -406,16 +412,15 @@ def run_read_skill(skill_name: str, settings: Settings) -> str:
     Both the header and the footer quote the *resolved* file, not the caller's
     spelling: this output is documentation an agent imitates on its next call.
     """
-    features = enabled_features(settings)
     # A feature skill is one document, so its SKILL.md and URI forms name the same thing.
     requested = (
         skill_name.strip().strip("/").removeprefix(SKILLS_URI_PREFIX).removesuffix("/SKILL.md")
     )
-    for feature in features:
-        if requested in feature.skills:
-            text = feature.skills[requested]()
-            return f"[read_skill: {requested} bytes={len(text.encode('utf-8'))}]\n\n{text}"
-    entry = resolve(skill_name, extra_skills=tuple(name for f in features for name in f.skills))
+    load = FeatureToggles.resolve(settings).extra_skills.get(requested)
+    if load is not None:
+        text = load()
+        return f"[read_skill: {requested} bytes={len(text.encode('utf-8'))}]\n\n{text}"
+    entry = resolve(skill_name, extra_skills=feature_skill_names(settings))
     content = read_skill_file(entry)
     header = (
         f"[read_skill: {entry.skill} path={entry.path} "

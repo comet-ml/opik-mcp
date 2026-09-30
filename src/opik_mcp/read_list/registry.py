@@ -25,7 +25,6 @@ from opik_mcp.read_list.entities import (
     trace,
 )
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.unsupported import unsupported_fetch
 from opik_mcp.read_list.uri import UriPattern
 
 ENTITY_REGISTRY: dict[str, EntityHandler] = {
@@ -72,17 +71,6 @@ def resolve_entity_type(entity_type: str) -> str:
     return ENTITY_ALIASES.get(entity_type, entity_type)
 
 
-# The advertised tuples below leave out feature types; ``visibility`` has the
-# same views for any feature set.
-READABLE_TYPES: tuple[str, ...] = tuple(
-    t
-    for t, h in ENTITY_REGISTRY.items()
-    if h.feature is None and h.fetch_fn is not unsupported_fetch
-)
-LISTABLE_TYPES: tuple[str, ...] = tuple(
-    t for t, h in ENTITY_REGISTRY.items() if h.feature is None and h.lists
-)
-
 #: Every field table a ``list`` call can be checked against, by name, in
 #: registry order: ``schema("list.…")`` keys and refusals list them this way.
 VOCABULARIES: dict[str, Vocabulary] = {
@@ -102,8 +90,6 @@ URI_PATTERNS: tuple[tuple[str, UriPattern], ...] = tuple(
 __all__ = [
     "ENTITY_ALIASES",
     "ENTITY_REGISTRY",
-    "LISTABLE_TYPES",
-    "READABLE_TYPES",
     "URI_PATTERNS",
     "VOCABULARIES",
     "resolve_entity_type",

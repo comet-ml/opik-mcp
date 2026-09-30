@@ -11,8 +11,8 @@ from __future__ import annotations
 from mcp.server.fastmcp import FastMCP
 
 from opik_mcp.config import Settings
-from opik_mcp.features.registry import enabled_features
-from opik_mcp.read_list.visibility import added_listable, added_readable, added_schema_keys
+from opik_mcp.features.toggles import FeatureToggles
+from opik_mcp.read_list.visibility import list_schema_keys, listable_types, readable_types
 
 
 def _mapping(value: object, where: str) -> dict[str, object]:
@@ -39,26 +39,29 @@ def _enum(mcp: FastMCP[object], tool: str, name: str) -> tuple[dict[str, object]
     return prop, values
 
 
-def _merge_entity_types(mcp: FastMCP[object], tool: str, added: list[str]) -> None:
-    prop, values = _enum(mcp, tool, "entity_type")
-    merged = sorted({*map(str, values), *added})
-    prop["enum"] = merged
-    prop["description"] = f"One of: {', '.join(merged)}."
+def _set_entity_types(mcp: FastMCP[object], tool: str, types: tuple[str, ...]) -> None:
+    """The advertised enum is the visible view, not the base enum plus a delta: the
+    tool signature already advertises the no-feature view, so one source decides it."""
+    prop, _ = _enum(mcp, tool, "entity_type")
+    visible = sorted(types)
+    prop["enum"] = visible
+    prop["description"] = f"One of: {', '.join(visible)}."
 
 
 def extend_advertised_schemas(mcp: FastMCP[object], settings: Settings) -> None:
     """Idempotent; ``register_tools`` calls it once per server."""
-    features = settings.features
-    if not features:
+    toggles = FeatureToggles.resolve(settings)
+    # No feature on means the advertised surface is left exactly as registered.
+    if not toggles:
         return
-    _merge_entity_types(mcp, "read", added_readable(features))
-    _merge_entity_types(mcp, "list", added_listable(features))
+    _set_entity_types(mcp, "read", readable_types(toggles))
+    _set_entity_types(mcp, "list", listable_types(toggles))
+    # ``schema`` also advertises every write operation, so this one extends.
     _, keys = _enum(mcp, "schema", "operation")
-    keys.extend(key for key in added_schema_keys(features) if key not in keys)
-    for feature in enabled_features(settings):
-        for tool, sentence in feature.tool_sentences.items():
-            registered = mcp._tool_manager.get_tool(tool)
-            if registered is None:
-                raise RuntimeError(f"{tool} is not registered; register_tools must add it first.")
-            if not registered.description.startswith(sentence):
-                registered.description = f"{sentence} {registered.description}"
+    keys.extend(key for key in list_schema_keys(toggles) if key not in keys)
+    for tool, sentence in toggles.tool_sentences:
+        registered = mcp._tool_manager.get_tool(tool)
+        if registered is None:
+            raise RuntimeError(f"{tool} is not registered; register_tools must add it first.")
+        if not registered.description.startswith(sentence):
+            registered.description = f"{sentence} {registered.description}"
