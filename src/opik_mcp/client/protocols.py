@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
+
+# The client's own vocabulary, declared with the contract rather than with the
+# endpoint module, so this module keeps depending on nothing under ``client/``.
+SpendItemKind = Literal["mcp_server", "skill", "built_in_tool"]
 
 
 class OpikListClient(Protocol):
@@ -226,4 +230,91 @@ class OpikReadClient(OpikListClient, Protocol):
         project_id: str,
         from_date: str | None = None,
         to_date: str | None = None,
+    ) -> dict[str, Any]: ...
+
+
+class AiSpendClient(Protocol):
+    """The AI Spend endpoints; spend entities narrow a client to this with a cast."""
+
+    async def list_spend_users(
+        self,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        user_email: str | None = None,
+        page: int = 1,
+        size: int = 10,
+        name: str | None = None,
+        sorting: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def list_spend_item_users(
+        self,
+        kind: SpendItemKind,
+        item: str,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        user_email: str | None = None,
+    ) -> list[Any]: ...
+
+    async def list_spend_sessions(
+        self,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        page: int = 1,
+        size: int = 10,
+        filters: str | None = None,
+        sorting: str | None = None,
+        search: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def get_spend_summary(
+        self,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        user_email: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def get_spend_composition(
+        self,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        user_email: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def get_spend_lane_breakdown(
+        self,
+        lane_key: str,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        user_email: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def get_spend_session_narrative(
+        self,
+        session_id: str,
+        *,
+        project_name: str,
+        interval_start: str | None = None,
+        interval_end: str | None = None,
+    ) -> dict[str, Any]: ...
+
+    async def get_spend_agents(
+        self,
+        *,
+        project_name: str,
+        interval_start: str,
+        interval_end: str,
+        user_email: str | None = None,
     ) -> dict[str, Any]: ...

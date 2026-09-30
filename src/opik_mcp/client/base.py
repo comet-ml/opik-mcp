@@ -214,6 +214,7 @@ class OpikClientBase:
         *,
         json: dict[str, Any],
         entity_hint: str,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """POST a JSON body, expect 200, return the parsed object.
 
@@ -221,24 +222,51 @@ class OpikClientBase:
         POST-with-body rather than ``GET /{id}`` (thread ``retrieve``). Same
         typed error mapping via ``_raise_for_status`` so callers don't translate.
         """
+        body = await self._post_parsed(path, json, params, entity_hint)
+        if not isinstance(body, dict):
+            raise OpikServerError(
+                f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
+            )
+        return body
+
+    async def _post_json_list(
+        self,
+        path: str,
+        *,
+        json: dict[str, Any],
+        entity_hint: str,
+        params: dict[str, Any] | None = None,
+    ) -> list[Any]:
+        """``_post_json`` for endpoints whose answer is a top-level JSON array."""
+        body = await self._post_parsed(path, json, params, entity_hint)
+        if not isinstance(body, list):
+            raise OpikServerError(
+                f"Opik returned non-array JSON for {entity_hint}: {type(body).__name__}."
+            )
+        return body
+
+    async def _post_parsed(
+        self,
+        path: str,
+        json: dict[str, Any],
+        params: dict[str, Any] | None,
+        entity_hint: str,
+    ) -> object:
         url = f"{self._base_url}{path}"
         content = _json.dumps(json, separators=(",", ":")).encode()
         async with self._http() as http:
-            resp = await http.request("POST", url, content=content, headers=self._headers())
+            resp = await http.request(
+                "POST", url, params=params, content=content, headers=self._headers()
+            )
         _raise_for_status(resp, entity_hint)
         if resp.status_code != 200:
             raise OpikServerError(
                 f"Unexpected status {resp.status_code} for {entity_hint} (expected 200)."
             )
         try:
-            body = resp.json()
+            return resp.json()
         except ValueError as exc:
             raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
-        if not isinstance(body, dict):
-            raise OpikServerError(
-                f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
-            )
-        return body
 
     async def _request(
         self,
