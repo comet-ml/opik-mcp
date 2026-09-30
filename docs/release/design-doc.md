@@ -12,15 +12,26 @@ the version comes from, and how to finish a release that failed halfway.
 
 `version.txt` holds the next unreleased version, `x.y.z`. `bump-version` in
 `release.yaml` increments its patch after a release; edit it by hand to choose
-another. `make version` generates the package's git-ignored `_version.py`,
-which `pyproject.toml` reads and packs into the wheel. Every build runs it
-first. The stamp depends on where the build runs:
+another.
 
-| Build | `__version__` | Set by |
+**There are two version stamps, and both read `$VERSION`.** `make version`
+generates the git-ignored `_version.py`, which the running server reports
+(`analytics/identity.py`). Hatch computes the *distribution's* version
+separately, from `get_version()` in `scripts/_build_version.py`
+(`[tool.hatch.version]`), so that `uv build` and `uv lock` work on a checkout
+where `make version` never ran. Each falls back to `<version.txt>.dev0` when
+`$VERSION` is unset, so a release has to put it in the environment for both —
+`env:` on the step, not a per-command assignment
+(`test_the_release_build_gives_uv_build_the_version`).
+
+| Build | `__version__` and the dist | Set by |
 |---|---|---|
 | Local, PR, branch, manual CI run | `x.y.z.dev0` | `make version` default; `pyver` in `ci.yaml` |
 | Image from a push to `main` | `x.y.z` | `pyver` in `ci.yaml` |
-| PyPI wheel from a release | `x.y.z` | `VERSION=<version> make version` in the `pypi` job |
+| PyPI wheel from a release | `x.y.z` | `VERSION` on the `pypi` job's build step |
+
+The `pypi` job checks each built file carries the released version before
+publishing, because a stamp that silently fell back cannot be unpublished.
 
 A `main` image is stamped plain `x.y.z` because a release promotes that digest
 unchanged, so its stamp is what production reports.
@@ -151,6 +162,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 
 ## Log
 
+- 2026-09-30: the release build gave `$VERSION` to `make version` only, so hatch fell back and published `0.2.37.dev0` as a release. Step-level `env:`, a check on the built filenames, and a guard test (#239).
 - 2026-09-24: TypeScript tree removed, Dependabot moved to uv, to stop maintaining the old server (#203).
 - 2026-09-24: `make install-branch` runs a worktree as a local MCP server, to try a branch in a real host (#202).
 - 2026-09-23: skill `evals/` excluded from the wheel, with a test that builds one, so eval fixtures do not ship (#176).
@@ -158,3 +170,4 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - 2026-09-01: release made replayable after a partial failure: `reuse_existing_tag`, PyPI `skip-existing` (#178).
 - 2026-09-01: the release workflow creates the tag and bumps `version.txt`; CI stops tagging every merge (#177).
 - 2026-06-01: image, chart and PyPI release pipeline added, to host the server (#138).
+
