@@ -538,6 +538,10 @@ class EntityHandler:
     shown. While it answers False the entity is refused as unknown and no list
     names it."""
 
+    def feature_shown(self, toggles: FeatureToggles) -> bool:
+        """Does this workspace show the entity? ``shown_when`` asked, or always."""
+        return self.shown_when is None or self.shown_when(toggles)
+
 
 __all__ = [
     "EntityHandler",

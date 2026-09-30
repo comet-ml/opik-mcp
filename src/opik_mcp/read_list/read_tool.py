@@ -36,11 +36,16 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
 from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
-from opik_mcp.read_list.registry import ENTITY_REGISTRY, URI_PATTERNS, resolve_entity_type
+from opik_mcp.read_list.registry import URI_PATTERNS, resolve_entity_type
 from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.uri import InvalidURI, is_uuid, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
-from opik_mcp.read_list.visibility import listable_types, readable_types, visible_handler
+from opik_mcp.read_list.visibility import (
+    listable_types,
+    read_windowed_types,
+    readable_types,
+    visible_handler,
+)
 from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
@@ -172,12 +177,7 @@ async def run_read(
         # issue wants whole UTC report days, a project's metrics want instants.
         window = handler.read_window
         if window is None:
-            takes_window = sorted(
-                name
-                for name in ENTITY_REGISTRY
-                if (shown := visible_handler(name, features)) is not None
-                and shown.read_window is not None
-            )
+            takes_window = sorted(read_windowed_types(features))
             err = WindowError(
                 f"since/until are not supported for read({entity_type!r}); "
                 f"on read a window is taken by: {', '.join(takes_window)}."

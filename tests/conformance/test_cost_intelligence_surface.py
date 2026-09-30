@@ -22,6 +22,7 @@ from opik_mcp.cost_intelligence.feature import (
     LIST_SENTENCE,
     READ_SENTENCE,
 )
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.instructions import render_instructions
 from opik_mcp.read_list.visibility import DEFAULT_LISTABLE_TYPES, DEFAULT_READABLE_TYPES
 from opik_mcp.server import mcp as default_mcp
@@ -216,7 +217,7 @@ def test_a_missing_enum_fails_loudly(server: FastMCP[object]) -> None:
     assert tool is not None
     del tool.parameters["properties"]["entity_type"]["enum"]
     with pytest.raises(RuntimeError, match=r"read\.entity_type has no enum"):
-        extend_advertised_schemas(server, get_settings())
+        extend_advertised_schemas(server, FeatureToggles.resolve(get_settings()))
 
 
 @pytest.mark.anyio
@@ -224,7 +225,7 @@ async def test_extending_the_surface_twice_changes_nothing(server: FastMCP[objec
     from opik_mcp.server.tools.feature_surface import extend_advertised_schemas
 
     once = _advertised(await _tools(server))
-    extend_advertised_schemas(server, get_settings())
+    extend_advertised_schemas(server, FeatureToggles.resolve(get_settings()))
     assert _advertised(await _tools(server)) == once, (
         "a second extend_advertised_schemas call changed the surface: keep it idempotent "
         "in src/opik_mcp/server/tools/feature_surface.py."

@@ -15,26 +15,22 @@ from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.unsupported import unsupported_fetch
 
 
-def _is_shown(handler: EntityHandler, toggles: FeatureToggles) -> bool:
-    return handler.shown_when is None or handler.shown_when(toggles)
-
-
 def visible_handler(entity_type: str, toggles: FeatureToggles) -> EntityHandler | None:
     """The handler for ``entity_type``, or ``None`` when it is unknown or its feature is off."""
     handler = ENTITY_REGISTRY.get(entity_type)
-    return handler if handler is not None and _is_shown(handler, toggles) else None
+    return handler if handler is not None and handler.feature_shown(toggles) else None
 
 
 def readable_types(toggles: FeatureToggles) -> tuple[str, ...]:
     return tuple(
         t
         for t, h in ENTITY_REGISTRY.items()
-        if _is_shown(h, toggles) and h.fetch_fn is not unsupported_fetch
+        if h.feature_shown(toggles) and h.fetch_fn is not unsupported_fetch
     )
 
 
 def listable_types(toggles: FeatureToggles) -> tuple[str, ...]:
-    return tuple(t for t, h in ENTITY_REGISTRY.items() if _is_shown(h, toggles) and h.lists)
+    return tuple(t for t, h in ENTITY_REGISTRY.items() if h.feature_shown(toggles) and h.lists)
 
 
 def sortable_types(toggles: FeatureToggles) -> tuple[str, ...]:
@@ -54,7 +50,9 @@ def filterable_types(toggles: FeatureToggles) -> tuple[str, ...]:
 
 
 def windowed_types(toggles: FeatureToggles) -> tuple[str, ...]:
-    return tuple(t for t, h in ENTITY_REGISTRY.items() if _is_shown(h, toggles) and h.is_windowed)
+    return tuple(
+        t for t, h in ENTITY_REGISTRY.items() if h.feature_shown(toggles) and h.is_windowed
+    )
 
 
 def day_windowed_types(toggles: FeatureToggles) -> tuple[str, ...]:
@@ -62,7 +60,15 @@ def day_windowed_types(toggles: FeatureToggles) -> tuple[str, ...]:
     return tuple(
         t
         for t, h in ENTITY_REGISTRY.items()
-        if _is_shown(h, toggles) and "from_date" in h.list_optional_kwargs
+        if h.feature_shown(toggles) and "from_date" in h.list_optional_kwargs
+    )
+
+
+def read_windowed_types(toggles: FeatureToggles) -> tuple[str, ...]:
+    """The types whose ``read`` takes since/until, named in the refusal when one
+    that does not is given a window."""
+    return tuple(
+        t for t, h in ENTITY_REGISTRY.items() if h.feature_shown(toggles) and h.read_window
     )
 
 
@@ -81,7 +87,7 @@ def list_schema_keys(toggles: FeatureToggles) -> tuple[str, ...]:
         *(
             f"list.{t}"
             for t, h in ENTITY_REGISTRY.items()
-            if _is_shown(h, toggles) and h.reference_fn is not None
+            if h.feature_shown(toggles) and h.reference_fn is not None
         ),
     )
 
@@ -98,6 +104,7 @@ __all__ = [
     "filterable_types",
     "list_schema_keys",
     "listable_types",
+    "read_windowed_types",
     "readable_types",
     "sortable_types",
     "visible_handler",

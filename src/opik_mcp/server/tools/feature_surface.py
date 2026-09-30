@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from opik_mcp.config import Settings
 from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.visibility import list_schema_keys, listable_types, readable_types
 
@@ -48,9 +47,8 @@ def _set_entity_types(mcp: FastMCP[object], tool: str, types: tuple[str, ...]) -
     prop["description"] = f"One of: {', '.join(visible)}."
 
 
-def extend_advertised_schemas(mcp: FastMCP[object], settings: Settings) -> None:
+def extend_advertised_schemas(mcp: FastMCP[object], toggles: FeatureToggles) -> None:
     """Idempotent; ``register_tools`` calls it once per server."""
-    toggles = FeatureToggles.resolve(settings)
     # No feature on means the advertised surface is left exactly as registered.
     if not toggles:
         return
