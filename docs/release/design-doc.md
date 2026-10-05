@@ -67,6 +67,23 @@ Never delete the tag. `validate` then releases the tagged commit even if `main`
 has moved. Every publish step can run twice (PyPI via `skip-existing`), and
 `bump-version` runs only after all of them succeed.
 
+### The MCP Registry entry
+
+`server.json` is the entry for `io.github.comet-ml/opik-mcp` in the official
+MCP Registry, which galleries and registry-aware clients install from. It lists
+the PyPI package run with `uvx`, the hosted server as a remote, and the env
+vars the server reads. Its `version` is the placeholder `0.0.0`, as in
+`Chart.yaml`.
+
+`mcp-registry` in `release.yaml` stamps the release version into it and
+publishes it after `pypi`: the registry accepts a PyPI package only when that
+version's PyPI description has the README's `mcp-name` line. It logs in with
+GitHub OIDC, which proves the `io.github.comet-ml` namespace, and retries for a
+few minutes while PyPI's JSON catches up. A version already in the registry,
+deleted ones included, is left alone, so a replay is a no-op. `github-release`
+does not wait for it. CI's `server-json` job validates the file on every pull
+request with the same pinned `mcp-publisher`.
+
 ### The image and the chart
 
 - The entrypoint is `python -m opik_mcp` under `tini`, so `main()` runs in
@@ -79,7 +96,9 @@ has moved. Every publish step can run twice (PyPI via `skip-existing`), and
 
 The TypeScript server lives at the tag `legacy-typescript-final` (#203). To
 publish, tag a branch off it `npm-v<version>` and dispatch
-`legacy-ts-deploy.yml` from that tag. Delete the workflow after 2026-11-15.
+`legacy-ts-deploy.yml` from that tag. It publishes to npm only; the registry
+entry comes from the Python release (Traps). Delete the workflow after
+2026-11-15.
 
 ### Installing a branch
 
@@ -94,12 +113,13 @@ a config-file key is stored, with a note. Telemetry is off in that server.
 ```
 merge to main
   ci.yaml: version -> build-image => opik-mcp:sha-<commit>, :main
-           python-checks, hermetic, helm-lint, skills-pack (in parallel)
+           python-checks, hermetic, helm-lint, server-json, skills-pack (in parallel)
 
 manual dispatch of release.yaml
   validate -> create-git-tag -> promote-image  => :<version>, :latest
                              -> publish-chart  => charts/opik-mcp:<version>
                              -> pypi           => opik-mcp <version>
+                                  -> mcp-registry => io.github.comet-ml/opik-mcp <version>
   all three succeed          -> github-release -> bump-version (commit to main)
 ```
 
@@ -128,6 +148,15 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - A test builds a real wheel to prove skill `evals/` stay out, since the
   editable install cannot show what a wheel holds (#176).
 - Not built: `--locked` installs in CI (OPIK-8486); only `Dockerfile` has it.
+- Only the Python release publishes the registry entry. The registry marks a
+  version latest by version order, so a TypeScript 2.x outranks every Python
+  0.x and would send registry clients to the deprecated server (OPIK-8684).
+- The registry version is the package version. To make the first Python
+  version latest, the npm versions are marked `deleted` after it is published:
+  `deprecated` versions still count in the order, deleted ones do not
+  (OPIK-8684).
+- `mcp-registry` is not in `github-release`'s needs. The registry is a preview
+  service, and a release already on PyPI should not wait on it (OPIK-8684).
 
 ### Traps
 
@@ -151,17 +180,31 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - With no `OPIK_URL`, an environment `OPIK_WORKSPACE` overrides the config
   file's (`test_config_file_supplies_what_the_environment_does_not`).
 - `tests/hermetic/test_wheel_contents.py` skips silently when `uv` is not on PATH.
+- A workflow dispatched from a tag runs that tag's copy of the file, and
+  `legacy-typescript-final` still has the registry steps. A TypeScript release
+  branch must delete them; if one publishes anyway, mark that version
+  `deleted` with `mcp-publisher status`.
+- The registry takes each version once and never edits it, so a wrong field in
+  `server.json` costs a new release.
+- `mcp-publisher validate` sends the file to the registry's API, so
+  `server-json` fails when the registry is down.
 
 ## Proven by
 
 - The wheel holds exactly the served skills: `tests/hermetic/test_wheel_contents.py`.
 - Install-branch naming, credentials and redaction: `tests/repo/test_install_branch.py`.
 - Chart render and image build: `helm-lint` and `build-image` in `ci.yaml`.
-- No test runs or parses `.github/workflows/`; a broken release step shows up
-  only in a release.
+- The registry entry lists the PyPI package run with uvx, only env vars the
+  server reads, and publishes after `pypi` from the release alone:
+  `tests/repo/test_server_json.py`. Its schema: `server-json` in `ci.yaml`.
+- Tests read workflow text for a few guards
+  (`test_the_release_build_gives_uv_build_the_version`,
+  `test_the_release_publishes_to_the_registry_only_after_pypi`). Nothing runs
+  a workflow, so a broken step still shows up only in a run.
 
 ## Log
 
+- 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (OPIK-8684).
 - 2026-09-30: the release build gave `$VERSION` to `make version` only, so hatch fell back and published `0.2.37.dev0` as a release. Step-level `env:`, a check on the built filenames, and a guard test (#239).
 - 2026-09-24: TypeScript tree removed, Dependabot moved to uv, to stop maintaining the old server (#203).
 - 2026-09-24: `make install-branch` runs a worktree as a local MCP server, to try a branch in a real host (#202).

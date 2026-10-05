@@ -760,3 +760,6 @@ opik-mcp/
 ## License
 
 Apache-2.0.
+
+<!-- The MCP Registry accepts server.json only if the PyPI description has the next line. Keep it. -->
+<!-- mcp-name: io.github.comet-ml/opik-mcp -->

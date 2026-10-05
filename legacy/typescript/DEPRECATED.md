@@ -7,6 +7,7 @@ This implementation is in maintenance-only mode. The Python implementation at th
 - **End of life:** **2026-11-15**
 - **Migration:** install via `uvx opik-mcp` instead of `npx -y opik-mcp`. Tools, transports, and config env vars are renamed/restructured — see the root [`README.md`](../../README.md) and `docs/` for the new surface.
 - **Releases:** publish by dispatching `.github/workflows/legacy-ts-deploy.yml` from an `npm-v*` tag (e.g. `npm-v2.0.2`) on a branch off `legacy-typescript-final`. The workflow stays on `main` until the end of life so the dispatch exists.
+- **No MCP Registry publish:** a dispatch runs the workflow file from the tag, and the copy at `legacy-typescript-final` still publishes to the MCP Registry. Delete its "Install MCP Publisher", "Login to MCP Registry" and "Publish to MCP Registry" steps on the release branch before tagging. A 2.x registry version would outrank the Python server's entry, which `release.yaml` publishes.
 
 The TypeScript source was removed from `main` on 2026-09-24. It lives at the
 git tag `legacy-typescript-final`. To work on a sunset release:

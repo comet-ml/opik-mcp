@@ -290,6 +290,28 @@ jobs:
       - name: Helm template
         run: helm template opik-mcp helm/opik-mcp -f helm/opik-mcp/values.yaml > /dev/null
 
+  # release.yaml publishes server.json to the MCP Registry, which takes each
+  # version once and only after PyPI has it. An invalid file found there costs
+  # a release, so it is checked here. The pin matches release.yaml's
+  # (tests/repo/test_server_json.py).
+  server-json:
+    runs-on: ubuntu-latest
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      # mcp-publisher_linux_amd64.tar.gz in registry_1.8.1_checksums.txt.
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Validate server.json
+        run: ./mcp-publisher validate server.json
+
   build-image:
     needs: version
     runs-on: ubuntu-latest
