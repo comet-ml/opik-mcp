@@ -121,11 +121,25 @@ def test_the_pypi_description_carries_the_line_the_registry_checks() -> None:
 def test_the_typescript_workflow_on_main_has_no_registry_step() -> None:
     workflow = (WORKFLOWS / "legacy-ts-deploy.yml").read_text()
     assert "mcp-publisher" not in workflow, (
-        "main's .github/workflows/legacy-ts-deploy.yml runs mcp-publisher again. Its 2.x "
-        "versions outrank every 0.x Python version, so a TypeScript release would make the "
-        "registry point clients at the deprecated server. release.yaml is the only publisher. "
+        "main's .github/workflows/legacy-ts-deploy.yml runs mcp-publisher again, so a "
+        "TypeScript release would add another npm version to the registry entry. "
+        "release.yaml is the only publisher. "
         "This test cannot see the copy at an npm-v tag, which a release actually runs; "
         "legacy/typescript/DEPRECATED.md says to delete the steps there."
+    )
+
+
+def test_the_package_version_outranks_the_npm_registry_entries() -> None:
+    version = (REPO_ROOT / "version.txt").read_text().strip()
+    major = int(version.split(".")[0])
+    # The registry marks the highest version latest. The npm entries go up to
+    # 2.0.2, with a 2.1.0 stub planned, so a 2.x or lower Python version hands
+    # `latest` back to the deprecated TypeScript server.
+    assert major >= 3, (
+        f"version.txt is {version}, below 3.0.0. The MCP Registry marks the highest "
+        "version of io.github.comet-ml/opik-mcp latest, and the deprecated npm entries "
+        "are 2.x, so this release would not reach registry clients. Keep version.txt at "
+        "3.0.0 or above (docs/release/design-doc.md, Decisions)."
     )
 
 
