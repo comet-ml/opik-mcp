@@ -51,26 +51,31 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 | `OPIK_SELF_HOSTED` | _(removed)_ | Worked out from the URL. |
 | `DEBUG_MODE=true` | `OPIK_MCP_LOG_LEVEL=DEBUG` | Also `INFO`, `WARNING`, `ERROR`. |
 | `TRANSPORT` | `OPIK_MCP_TRANSPORT` | `stdio` or `streamable-http`. |
-| `STREAMABLE_HTTP_PORT` | `OPIK_MCP_PORT` | |
+| `STREAMABLE_HTTP_PORT` | `OPIK_MCP_PORT` | The default moved from 3001 to 8080. |
 | `STREAMABLE_HTTP_HOST` | `OPIK_MCP_HOST` | |
 | `OPIK_TOOLSETS` | _(removed)_ | The tool set is fixed; drop the variable. |
+| `MCP_DEFAULT_WORKSPACE` | _(removed)_ | It set the TypeScript SDK's default project, not the workspace. The nearest setting is `OPIK_DEFAULT_PROJECT_NAME`. |
+| `MCP_NAME`, `MCP_VERSION`, `MCP_PORT`, `MCP_LOGGING`, `STREAMABLE_HTTP_LOG_PATH`, `STREAMABLE_HTTP_ACCESS_LOG`, `STREAMABLE_HTTP_CORS_ORIGINS`, `STREAMABLE_HTTP_RATE_LIMIT_MAX`, `STREAMABLE_HTTP_RATE_LIMIT_WINDOW_MS`, `STREAMABLE_HTTP_REQUIRE_AUTH`, `STREAMABLE_HTTP_TRUST_WORKSPACE_HEADERS`, `STREAMABLE_HTTP_VALIDATE_REMOTE_AUTH`, `REMOTE_TOKEN_WORKSPACE_MAP` | _(removed)_ | Drop them. The HTTP transport's settings are in the README's [Server / transport](https://github.com/comet-ml/opik-mcp#server--transport) table. |
 
 ## Command-line flags are not read
 
 The Python server takes its settings from env vars only. A flag left in your
 client config, such as `--apiKey`, is ignored without a warning, and the server
 starts without that setting: usually a 401 on the first call. Move each flag
-into the `env` block:
+into the `env` block. The TypeScript server also took each flag in kebab case
+(`--api-key`, `--api-url`, `--streamable-http-port`, …); those map the same
+way.
 
 | TypeScript flag | Python env var |
 |---|---|
 | `--apiKey`, `--key` | `OPIK_API_KEY` |
 | `--apiUrl`, `--url` | `OPIK_URL` (see the table above) |
-| `--workspace`, `--ws`, `--mcpDefaultWorkspace` | `OPIK_WORKSPACE` |
+| `--workspace`, `--ws` | `OPIK_WORKSPACE` |
 | `--debug` | `OPIK_MCP_LOG_LEVEL=DEBUG` |
-| `--transport` | `OPIK_MCP_TRANSPORT` |
-| `--streamableHttpPort` | `OPIK_MCP_PORT` |
+| `--transport`, `-t` | `OPIK_MCP_TRANSPORT` |
+| `--streamableHttpPort`, `--port`, `-p` | `OPIK_MCP_PORT` |
 | `--streamableHttpHost` | `OPIK_MCP_HOST` |
+| `--mcpDefaultWorkspace` | none: it set the TypeScript SDK's default project, not the workspace. The nearest setting is `OPIK_DEFAULT_PROJECT_NAME`. |
 | `--selfHosted`, `--toolsets`, `--streamableHttpLogPath`, `--mcpName`, `--mcpVersion`, `--mcpPort`, `--mcpLogging` | none; drop them |
 
 ## `~/.opik.config` is not read
