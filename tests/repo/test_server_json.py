@@ -14,9 +14,7 @@ import tomllib
 from pathlib import Path
 from typing import NotRequired, TypedDict
 
-from pydantic import AliasChoices
-
-from opik_mcp.config import Settings
+from tests.repo.settings_env import env_names_the_server_reads
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
@@ -53,19 +51,6 @@ def _project() -> _Project:
     return project
 
 
-def _env_names_the_server_reads() -> set[str]:
-    names: set[str] = set()
-    for field_name, field in Settings.model_fields.items():
-        names.add(field_name.upper())
-        if isinstance(field.validation_alias, AliasChoices):
-            names.update(
-                choice.upper()
-                for choice in field.validation_alias.choices
-                if isinstance(choice, str)
-            )
-    return names
-
-
 def _mcp_publisher_pin(workflow: str) -> tuple[str, str] | None:
     version = re.search(r'MCP_PUBLISHER_VERSION: "([^"]+)"', workflow)
     checksum = re.search(r"MCP_PUBLISHER_SHA256: (\w+)", workflow)
@@ -98,7 +83,7 @@ def test_every_registry_env_var_is_one_the_server_reads() -> None:
         "A gallery asks only for the variables listed under `environmentVariables`, so a "
         "missing or misspelled list leaves Cloud users with no way to enter their key."
     )
-    unread = advertised - _env_names_the_server_reads()
+    unread = advertised - env_names_the_server_reads()
     assert not unread, (
         f"server.json advertises env vars that Settings in src/opik_mcp/config.py never reads: "
         f"{sorted(unread)}. A gallery prompts the user for each one, so remove them or rename "
