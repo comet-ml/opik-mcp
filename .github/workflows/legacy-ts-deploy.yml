@@ -42,24 +42,19 @@ jobs:
       - name: Build project
         run: npm run build
 
-      - name: Sync server.json version with tag
+      - name: Require an npm-v tag
         run: |
           if [[ "${GITHUB_REF}" != refs/tags/npm-v* ]]; then
             echo "This workflow must be triggered from a tag that starts with npm-v"
             exit 1
           fi
-          VERSION="${GITHUB_REF#refs/tags/npm-v}"
-          tmp_file="$(mktemp)"
-          jq --arg v "$VERSION" '
-            .version = $v
-            | (if has("packages") and (.packages | length > 0) then
-                .packages = (.packages | map(.version = $v))
-              else
-                .
-              end)
-          ' server.json > "$tmp_file"
-          mv "$tmp_file" server.json
 
+      # No MCP Registry publish here. release.yaml publishes
+      # io.github.comet-ml/opik-mcp from the Python release, and a 2.x version
+      # from this workflow would outrank every 0.x Python version and point
+      # registry clients back at this server. A dispatch runs the workflow file
+      # at the tag it is dispatched from, so a release branch off
+      # legacy-typescript-final must delete its registry steps as well.
       - name: Publish to NPM
         run: |
           set -euo pipefail
@@ -70,14 +65,3 @@ jobs:
             # Trusted Publishing via GitHub OIDC (id-token: write) - no npm token needed.
             npm publish --provenance --access public
           fi
-
-      - name: Install MCP Publisher
-        run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
-            | tar xz mcp-publisher
-
-      - name: Login to MCP Registry
-        run: ./mcp-publisher login github-oidc
-
-      - name: Publish to MCP Registry
-        run: ./mcp-publisher publish --file server.json
