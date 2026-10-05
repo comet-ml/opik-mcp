@@ -5,14 +5,12 @@ from __future__ import annotations
 import io
 import logging
 import sys
-from collections.abc import Iterator
 
 import pytest
 
 from opik_mcp import __main__ as main_mod
 from opik_mcp import command_line
 from opik_mcp.analytics.identity import OPIK_MCP_VERSION
-from opik_mcp.config import get_settings
 
 HOSTED_URL = "https://www.comet.com/opik/api/v1/mcp"
 
@@ -32,13 +30,6 @@ class _Terminal(io.StringIO):
 
 def _refuse(*_args: object, **_kwargs: object) -> None:
     raise AssertionError("--help and --version must answer before settings and analytics")
-
-
-@pytest.fixture(autouse=True)
-def _fresh_settings() -> Iterator[None]:
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
 
 
 @pytest.fixture
@@ -102,7 +93,13 @@ def test_a_typescript_flag_is_named_with_its_env_var_and_its_value_is_not_logged
     monkeypatch.setattr(
         sys,
         "argv",
-        ["opik-mcp", "--apiKey", "sk-canary-value", "--api-url=https://canary.example/api"],
+        [
+            "opik-mcp",
+            "--apiKey",
+            "sk-canary-spaced",
+            "--api-url=https://canary.example/api",
+            "-ksk-canary-glued",
+        ],
     )
 
     with caplog.at_level(logging.WARNING, logger="opik_mcp"):
@@ -110,7 +107,7 @@ def test_a_typescript_flag_is_named_with_its_env_var_and_its_value_is_not_logged
 
     assert "--apiKey (use OPIK_API_KEY)" in caplog.text
     assert "--api-url (use OPIK_URL)" in caplog.text
-    assert "sk-canary-value" not in caplog.text
+    assert "sk-canary" not in caplog.text
     assert "canary.example" not in caplog.text
     assert served.transports == ["stdio"]
 
@@ -136,7 +133,10 @@ def test_a_host_on_a_pipe_starts_without_a_warning(
     with caplog.at_level(logging.WARNING, logger="opik_mcp"):
         main_mod.main()
 
-    assert command_line.TERMINAL_HINT not in caplog.messages
+    warnings = [
+        record.getMessage() for record in caplog.records if record.name.startswith("opik_mcp")
+    ]
+    assert warnings == []
     assert served.transports == ["stdio"]
 
 

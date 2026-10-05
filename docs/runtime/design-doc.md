@@ -146,8 +146,8 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - Unknown arguments are warned about, not refused, so a client config migrated
   from `npx opik-mcp` with its flags still starts (#243).
 - The help text is written for an agent asked to install the server. It
-  repeats the README's install commands, and a test keeps the two equal
-  (#243).
+  repeats the README's install commands, and a test checks that each one is
+  in the README (#243).
 
 ### Traps
 
@@ -181,7 +181,6 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 ## Log
 
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
-
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
 - 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).
 - 2026-08-14: an unfilled workspace placeholder fails with a message that names the setting (#162).

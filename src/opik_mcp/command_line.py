@@ -43,7 +43,8 @@ it, register it with the client, for the case that matches the user's Opik:
 Not sure which applies? Ask the user. A failed localhost check can mean the
 shell has no network access, as in a sandbox, rather than that Opik is down.
 Don't ask the user to paste an API key into the chat; pass it from the shell,
-as --env OPIK_API_KEY="$OPIK_API_KEY". Don't guess the workspace: it is the
+as --env OPIK_API_KEY="$OPIK_API_KEY", or, if it is not set there, let the
+user run the command. Don't guess the workspace: it is the
 segment after /opik/ in the user's Opik URL. If opik-mcp is already
 registered, tell the user before replacing it. Claude Code refuses to add
 over it until it is removed:
@@ -55,7 +56,8 @@ env, API key included:
 Clients load MCP servers when a session starts: ask the user to start a new
 session, then try "list my Opik projects".
 
-Several clients at once, with the Opik skill pack:
+Several clients at once, with the Opik skill pack (without a terminal, add
+--ai-client <client>):
   uvx opik mcp configure
 Every client and setting: https://github.com/comet-ml/opik-mcp#readme
 """
@@ -85,8 +87,8 @@ TYPESCRIPT_FLAG_ENV_VARS = {
 
 TERMINAL_HINT = (
     "opik-mcp is an MCP server: an MCP client starts it and talks to it over "
-    "stdin/stdout, and it is waiting for one now. Run `opik-mcp --help` for how "
-    "to install it."
+    "stdin/stdout, and it is waiting for one now. Run `uvx opik-mcp --help` for "
+    "how to install it."
 )
 
 
@@ -114,19 +116,26 @@ def startup_warnings(arguments: Sequence[str], *, stdin_is_a_terminal: bool) -> 
 
 
 def _describe_ignored_arguments(arguments: Sequence[str]) -> str:
-    # Only flag names are repeated. A value can be the API key itself.
-    flags = []
-    values = 0
+    # Only flag names are repeated. A value can be the API key itself, also
+    # when it is glued to the flag: --apiKey=<key>, -k<key>.
+    described_arguments = []
+    ignored_value_count = 0
     for argument in arguments:
-        if argument.startswith("-") and argument != "--":
+        if argument == "--":
+            continue
+        if argument.startswith("--"):
             flag = argument.split("=", 1)[0]
-            env_var = TYPESCRIPT_FLAG_ENV_VARS.get(_camel_case(flag))
-            flags.append(f"{flag} (use {env_var})" if env_var else flag)
-        elif argument != "--":
-            values += 1
-    if values:
-        flags.append(f"{values} other value{'s' if values > 1 else ''}")
-    return ", ".join(flags)
+        elif argument.startswith("-"):
+            flag = argument[:2]
+        else:
+            ignored_value_count += 1
+            continue
+        env_var = TYPESCRIPT_FLAG_ENV_VARS.get(_camel_case(flag))
+        described_arguments.append(f"{flag} (use {env_var})" if env_var else flag)
+    if ignored_value_count:
+        plural = "s" if ignored_value_count > 1 else ""
+        described_arguments.append(f"{ignored_value_count} other value{plural}")
+    return ", ".join(described_arguments)
 
 
 def _camel_case(flag: str) -> str:
