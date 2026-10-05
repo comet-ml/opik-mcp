@@ -154,13 +154,14 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - A test builds a real wheel to prove skill `evals/` stay out, since the
   editable install cannot show what a wheel holds (#176).
 - Not built: `--locked` installs in CI (OPIK-8486); only `Dockerfile` has it.
-- Only the Python release publishes the registry entry. The registry marks a
-  version latest by version order, so a TypeScript 2.x outranks every Python
-  0.x and would send registry clients to the deprecated server (#240).
-- The registry version is the package version. To make the first Python
-  version latest, the npm versions are marked `deleted` after it is published:
-  `deprecated` versions still count in the order, deleted ones do not
-  (#240).
+- Only the Python release publishes the registry entry. A TypeScript publish
+  would list the deprecated server again (#240).
+- The package version jumped from 0.2.40 to 3.0.0. The registry marks the
+  highest version latest, deprecated ones included, so a 0.x Python entry sat
+  below npm 2.0.2 and registry clients still got the TypeScript server. 3.x
+  outranks every TypeScript version while the registry version stays the
+  package version. Deleting the npm entries instead needs a comet-ml org owner
+  (#242).
 - `mcp-registry` is not in `github-release`'s needs. The registry is a preview
   service, and a release already on PyPI should not wait on it (#240).
 
@@ -188,8 +189,8 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - `tests/hermetic/test_wheel_contents.py` skips silently when `uv` is not on PATH.
 - A workflow dispatched from a tag runs that tag's copy of the file, and
   `legacy-typescript-final` still has the registry steps. A TypeScript release
-  branch must delete them; if one publishes anyway, mark that version
-  `deleted` with `mcp-publisher status`.
+  branch must delete them. A 2.x that publishes anyway no longer takes
+  `latest` from 3.x, but it lists the deprecated server again.
 - The registry takes each version once and never edits it, so a wrong field in
   `server.json` costs a new release.
 - `mcp-publisher validate` sends the file to the registry's API, so
@@ -212,6 +213,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 
 ## Log
 
+- 2026-10-05: version 3.0.0 after 0.2.40, so the Python registry entry outranks the npm 2.x ones and becomes `latest` (#242).
 - 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (#240).
 - 2026-09-30: the release build gave `$VERSION` to `make version` only, so hatch fell back and published `0.2.37.dev0` as a release. Step-level `env:`, a check on the built filenames, and a guard test (#239).
 - 2026-09-24: TypeScript tree removed, Dependabot moved to uv, to stop maintaining the old server (#203).

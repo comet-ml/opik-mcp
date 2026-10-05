@@ -121,9 +121,9 @@ def test_the_pypi_description_carries_the_line_the_registry_checks() -> None:
 def test_the_typescript_workflow_on_main_has_no_registry_step() -> None:
     workflow = (WORKFLOWS / "legacy-ts-deploy.yml").read_text()
     assert "mcp-publisher" not in workflow, (
-        "main's .github/workflows/legacy-ts-deploy.yml runs mcp-publisher again. Its 2.x "
-        "versions outrank every 0.x Python version, so a TypeScript release would make the "
-        "registry point clients at the deprecated server. release.yaml is the only publisher. "
+        "main's .github/workflows/legacy-ts-deploy.yml runs mcp-publisher again, so a "
+        "TypeScript release would list the deprecated server in the registry again. "
+        "release.yaml is the only publisher. "
         "This test cannot see the copy at an npm-v tag, which a release actually runs; "
         "legacy/typescript/DEPRECATED.md says to delete the steps there."
     )
