@@ -67,6 +67,11 @@ Never delete the tag. `validate` then releases the tagged commit even if `main`
 has moved. Every publish step can run twice (PyPI via `skip-existing`), and
 `bump-version` runs only after all of them succeed.
 
+`mcp-registry` is the exception: `bump-version` does not wait for it, so when
+it fails `version.txt` may already name the next version, and a new dispatch
+would release that one. Re-run the failed `mcp-registry` job inside the same
+run instead.
+
 ### The MCP Registry entry
 
 `server.json` is the entry for `io.github.comet-ml/opik-mcp` in the official
@@ -79,9 +84,10 @@ vars the server reads. Its `version` is the placeholder `0.0.0`, as in
 publishes it after `pypi`: the registry accepts a PyPI package only when that
 version's PyPI description has the README's `mcp-name` line. It logs in with
 GitHub OIDC, which proves the `io.github.comet-ml` namespace, and retries for a
-few minutes while PyPI's JSON catches up. A version already in the registry,
-deleted ones included, is left alone, so a replay is a no-op. `github-release`
-does not wait for it. CI's `server-json` job validates the file on every pull
+few minutes while PyPI's JSON catches up, logging in again on each attempt. A
+version already in the registry as this PyPI package, deleted ones included, is
+left alone, so a replay is a no-op; the same number held by another package,
+such as an old npm entry, fails the job. `github-release` does not wait for it. CI's `server-json` job validates the file on every pull
 request with the same pinned `mcp-publisher`.
 
 ### The image and the chart
@@ -150,13 +156,13 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - Not built: `--locked` installs in CI (OPIK-8486); only `Dockerfile` has it.
 - Only the Python release publishes the registry entry. The registry marks a
   version latest by version order, so a TypeScript 2.x outranks every Python
-  0.x and would send registry clients to the deprecated server (OPIK-8684).
+  0.x and would send registry clients to the deprecated server (#240).
 - The registry version is the package version. To make the first Python
   version latest, the npm versions are marked `deleted` after it is published:
   `deprecated` versions still count in the order, deleted ones do not
-  (OPIK-8684).
+  (#240).
 - `mcp-registry` is not in `github-release`'s needs. The registry is a preview
-  service, and a release already on PyPI should not wait on it (OPIK-8684).
+  service, and a release already on PyPI should not wait on it (#240).
 
 ### Traps
 
@@ -194,9 +200,11 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 - The wheel holds exactly the served skills: `tests/hermetic/test_wheel_contents.py`.
 - Install-branch naming, credentials and redaction: `tests/repo/test_install_branch.py`.
 - Chart render and image build: `helm-lint` and `build-image` in `ci.yaml`.
-- The registry entry lists the PyPI package run with uvx, only env vars the
-  server reads, and publishes after `pypi` from the release alone:
-  `tests/repo/test_server_json.py`. Its schema: `server-json` in `ci.yaml`.
+- The registry entry lists the PyPI package run with uvx and only env vars the
+  server reads, and `mcp-registry` publishes it after `pypi`. `main`'s
+  TypeScript workflow has no registry step; the copy at the TypeScript tag
+  still has one (Traps). All in `tests/repo/test_server_json.py`. Its schema:
+  `server-json` in `ci.yaml`.
 - Tests read workflow text for a few guards
   (`test_the_release_build_gives_uv_build_the_version`,
   `test_the_release_publishes_to_the_registry_only_after_pypi`). Nothing runs
@@ -204,7 +212,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 
 ## Log
 
-- 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (OPIK-8684).
+- 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (#240).
 - 2026-09-30: the release build gave `$VERSION` to `make version` only, so hatch fell back and published `0.2.37.dev0` as a release. Step-level `env:`, a check on the built filenames, and a guard test (#239).
 - 2026-09-24: TypeScript tree removed, Dependabot moved to uv, to stop maintaining the old server (#203).
 - 2026-09-24: `make install-branch` runs a worktree as a local MCP server, to try a branch in a real host (#202).

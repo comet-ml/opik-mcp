@@ -48,7 +48,7 @@
         },
         {
           "name": "OPIK_WORKSPACE",
-          "description": "Workspace name: the segment after comet.com/ in your Opik URL. Leave unset for open-source Opik.",
+          "description": "Workspace name: the segment after comet.com/opik/ in your Opik URL. Leave unset for open-source Opik.",
           "isRequired": false
         },
         {

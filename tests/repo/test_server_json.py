@@ -93,6 +93,11 @@ def test_every_registry_env_var_is_one_the_server_reads() -> None:
         for package in _registry_entry()["packages"]
         for variable in package.get("environmentVariables", [])
     }
+    assert "OPIK_API_KEY" in advertised, (
+        f"server.json advertises the env vars {sorted(advertised)}, without OPIK_API_KEY. "
+        "A gallery asks only for the variables listed under `environmentVariables`, so a "
+        "missing or misspelled list leaves Cloud users with no way to enter their key."
+    )
     unread = advertised - _env_names_the_server_reads()
     assert not unread, (
         f"server.json advertises env vars that Settings in src/opik_mcp/config.py never reads: "
@@ -113,12 +118,14 @@ def test_the_pypi_description_carries_the_line_the_registry_checks() -> None:
     )
 
 
-def test_the_typescript_workflow_cannot_publish_the_registry_entry() -> None:
+def test_the_typescript_workflow_on_main_has_no_registry_step() -> None:
     workflow = (WORKFLOWS / "legacy-ts-deploy.yml").read_text()
     assert "mcp-publisher" not in workflow, (
-        ".github/workflows/legacy-ts-deploy.yml runs mcp-publisher. Its 2.x versions outrank "
-        "every 0.x Python version, so a TypeScript release would make the registry point "
-        "clients at the deprecated server again. release.yaml is the only publisher."
+        "main's .github/workflows/legacy-ts-deploy.yml runs mcp-publisher again. Its 2.x "
+        "versions outrank every 0.x Python version, so a TypeScript release would make the "
+        "registry point clients at the deprecated server. release.yaml is the only publisher. "
+        "This test cannot see the copy at an npm-v tag, which a release actually runs; "
+        "legacy/typescript/DEPRECATED.md says to delete the steps there."
     )
 
 

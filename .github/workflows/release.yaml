@@ -259,18 +259,30 @@ jobs:
           set -euo pipefail
           NAME=$(jq -r .name server.json)
           ENCODED=$(jq -rn --arg n "$NAME" '$n | @uri')
-          # A version can be published once, so a replay confirms it instead of
-          # failing on the duplicate. Deleted versions count: they cannot be
-          # published again either.
-          if curl -fs -o /dev/null \
-              "https://registry.modelcontextprotocol.io/v0.1/servers/${ENCODED}/versions/${VERSION}?include_deleted=true"; then
-            echo "::notice title=mcp-registry::${NAME} ${VERSION} is already in the registry; leaving it as is."
-            exit 0
-          fi
-          ./mcp-publisher login github-oidc
+          VERSION_URL="https://registry.modelcontextprotocol.io/v0.1/servers/${ENCODED}/versions/${VERSION}?include_deleted=true"
+          # A version can be published once, deleted ones included, so a replay,
+          # or an attempt whose response was lost, finds it and stops. Only this
+          # PyPI package counts: the npm entries hold 0.1.3 and 2.0.0 to 2.0.2,
+          # and a Python release with one of those numbers must fail rather
+          # than pass as already published.
+          is_published() {
+            local entry
+            entry=$(curl -fs "$VERSION_URL") || return 1
+            if ! jq -e '.server.packages | any(.registryType == "pypi")' <<< "$entry" > /dev/null; then
+              echo "::error::${NAME} ${VERSION} is already in the registry as another package. Release under a version it does not have."
+              exit 1
+            fi
+          }
           # PyPI's JSON API can trail the upload by a few minutes, and the
-          # ownership check reads it.
+          # ownership check reads it. The registry token lasts 5 minutes, so
+          # every attempt logs in again.
           for attempt in 1 2 3 4 5 6; do
+            if is_published; then
+              echo "::notice title=mcp-registry::${NAME} ${VERSION} is in the registry."
+              echo "### MCP Registry: \`${NAME}\` ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            ./mcp-publisher login github-oidc
             if ./mcp-publisher publish server.json; then
               echo "### MCP Registry: \`${NAME}\` ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
               exit 0
