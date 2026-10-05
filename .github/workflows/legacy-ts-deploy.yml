@@ -51,10 +51,10 @@ jobs:
 
       # No MCP Registry publish here. release.yaml publishes
       # io.github.comet-ml/opik-mcp from the Python release, and a 2.x version
-      # from this workflow would list this deprecated server in the registry
-      # again. A dispatch runs the workflow file at the tag it is dispatched
-      # from, so a release branch off legacy-typescript-final must delete its
-      # registry steps as well.
+      # from this workflow would add another npm version to that entry. A
+      # dispatch runs the workflow file at the tag it is dispatched from, so a
+      # release branch off legacy-typescript-final must delete its registry
+      # steps as well.
       - name: Publish to NPM
         run: |
           set -euo pipefail
