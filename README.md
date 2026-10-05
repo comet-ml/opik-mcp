@@ -127,9 +127,11 @@ A client that can only start local commands can reach it through
 
 ### Opik Cloud with an API key
 
-Where no sign-in can run, as in CI, run [the local
-server](#self-hosted-and-open-source-opik-the-local-server) against Opik Cloud
-with an API key from [`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/):
+Where nobody can complete the browser sign-in, as when an agent runs unattended
+from a script or a client has no MCP OAuth support, use an API key from
+[`comet.com/api/my/settings/`](https://www.comet.com/api/my/settings/) instead,
+with [the local server](#self-hosted-and-open-source-opik-the-local-server)
+pointed at Opik Cloud:
 
 ```bash
 claude mcp add --scope user opik-mcp \
