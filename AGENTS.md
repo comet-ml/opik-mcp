@@ -1,5 +1,9 @@
 # opik-mcp
 
+Installing the server to use it? Follow
+[README.md](README.md#install-with-a-coding-agent); this file is for changing
+the code.
+
 IMPORTANT: every token this server puts into a host's context has to pay for
 itself. Before adding output, a tool, a field or description text, say what it
 costs (bytes on the surface, tokens in a typical answer) and what the user gets
