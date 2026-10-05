@@ -142,28 +142,28 @@ def test_help_and_version_exit_with_stdin_open_and_send_no_event(
 ) -> None:
     """An agent probing the command leaves stdin open, as a host would. The server
     used to start and wait on it, and every probe counted as a session in BI."""
+    # communicate() closes a stdin=PIPE at once, so the test holds its own
+    # write end open for as long as the process runs.
+    stdin_read_end, stdin_write_end = os.pipe()
     process = subprocess.Popen(
         [sys.executable, "-m", "opik_mcp", argument],
         env=_clean_env({"OPIK_MCP_ANALYTICS_URL": capture.url}),
         cwd=REPO_ROOT,
-        stdin=subprocess.PIPE,
+        stdin=stdin_read_end,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    os.close(stdin_read_end)
     try:
-        returncode = process.wait(timeout=15)
+        printed, _ = process.communicate(timeout=15)
     finally:
         if process.poll() is None:
             process.kill()
-            process.wait()
-    assert process.stdout is not None
-    printed = process.stdout.read().decode()
-    for stream in (process.stdin, process.stdout, process.stderr):
-        if stream is not None:
-            stream.close()
+            process.communicate()
+        os.close(stdin_write_end)
 
-    assert returncode == 0, f"opik-mcp {argument} exited {returncode}"
-    assert printed.startswith("opik-mcp")
+    assert process.returncode == 0, f"opik-mcp {argument} exited {process.returncode}"
+    assert printed.decode().startswith("opik-mcp")
     assert capture.events == [], f"opik-mcp {argument} sent analytics events: {capture.events!r}"
 
 
