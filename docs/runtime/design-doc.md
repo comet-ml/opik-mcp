@@ -19,6 +19,24 @@ does the process refuse to start, and why does no tool take a workspace?
   `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI`, or when the HTTP port
   cannot be bound (`_preflight_bind_check`).
 
+### Command line
+
+Settings come from env vars only; an MCP client starts the server with no
+arguments. `src/opik_mcp/command_line.py` handles what a person or an agent
+types anyway:
+
+- `-h` / `--help` prints `HELP_TEXT`, how to install the server for each kind
+  of Opik, and exits 0. `-V` / `--version` prints `opik-mcp <version>`. Both
+  answer before settings, Sentry and analytics, so a bad setting doesn't block
+  them and a probe sends no event.
+- Any other argument is ignored, as before. One warning names each flag, with
+  the env var for the TypeScript server's flags (`TYPESCRIPT_FLAG_ENV_VARS`),
+  and counts the values without repeating them, since a value can be the API
+  key.
+- On stdio, a terminal on stdin means a person ran the command, so a warning
+  points at `--help` before the server waits on stdin. Hosts start it on a pipe
+  and never see it.
+
 ### Credential and workspace
 
 `resolve_opik_config()` in `src/opik_mcp/client/base.py` returns
@@ -125,6 +143,11 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   call (#187).
 - Writes share `write_json` with templated paths, so a new write operation
   needs no client change ([ADR 0003](../decisions/0003-five-tool-surface.md)).
+- Unknown arguments are warned about, not refused, so a client config migrated
+  from `npx opik-mcp` with its flags still starts (#243).
+- The help text is written for an agent asked to install the server. It
+  repeats the README's install commands, and a test checks that each one is
+  in the README (#243).
 
 ### Traps
 
@@ -149,9 +172,15 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
+- Help, version, the flag warning and the terminal hint: `tests/server/test_command_line.py`.
+  The real process exits on `--help` with stdin open and sends no event:
+  `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
+  matches the README and names only real settings:
+  `tests/repo/test_help_matches_readme.py`.
 
 ## Log
 
+- 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
 - 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).
 - 2026-08-14: an unfilled workspace placeholder fails with a message that names the setting (#162).

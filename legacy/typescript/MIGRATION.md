@@ -60,8 +60,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 ## Command-line flags are not read
 
 The Python server takes its settings from env vars only. A flag left in your
-client config, such as `--apiKey`, is ignored without a warning, and the server
-starts without that setting: usually a 401 on the first call. Move each flag
+client config, such as `--apiKey`, is ignored, and the server starts without
+that setting: usually a 401 on the first call. The server logs a warning that
+names the flag, on stderr, where few clients show it. Move each flag
 into the `env` block. The TypeScript server also took each flag in kebab case
 (`--api-key`, `--api-url`, `--streamable-http-port`, …); those map the same
 way.

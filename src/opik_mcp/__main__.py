@@ -9,7 +9,7 @@ import time
 import uvicorn
 from pydantic import ValidationError
 
-from opik_mcp import error_tracking
+from opik_mcp import command_line, error_tracking
 from opik_mcp.analytics import (
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
@@ -240,6 +240,13 @@ def _emit_server_shutdown(
 
 
 def main() -> None:
+    # Before settings, Sentry and analytics: help must not depend on a valid
+    # environment, and an agent probing the command is not a server session.
+    reply = command_line.reply_for(sys.argv[1:])
+    if reply is not None:
+        sys.stdout.write(reply.rstrip("\n") + "\n")
+        return
+
     try:
         settings = get_settings()
     except ValidationError as e:
@@ -267,6 +274,12 @@ def main() -> None:
 
     _configure_logging(settings.opik_mcp_log_level)
     transport = settings.opik_mcp_transport.lower()
+    # Hosts start the stdio server on a pipe, so a terminal on stdin is a person.
+    stdin_is_a_terminal = transport == "stdio" and sys.stdin is not None and sys.stdin.isatty()
+    for warning in command_line.startup_warnings(
+        sys.argv[1:], stdin_is_a_terminal=stdin_is_a_terminal
+    ):
+        logger.warning(warning)
 
     # Initialize Sentry BEFORE the first track_event / any user code path
     # that might raise. No-op when OPIK_MCP_SENTRY_ENABLED=false; see

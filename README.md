@@ -307,7 +307,8 @@ OPIK_URL=http://localhost:5173/api npx @modelcontextprotocol/inspector uvx opik-
 ## Install with a coding agent
 
 For an AI agent asked to install the server. The commands are in the two
-sections above; these rules pick which one to run.
+sections above; these rules pick which one to run. `uvx opik-mcp --help`
+prints these rules and the commands for each case.
 
 1. If Opik runs on this machine — `curl -s http://localhost:5173/api/is-alive/ping`
    answers — use [the local server](#self-hosted-and-open-source-opik-the-local-server)

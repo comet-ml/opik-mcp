@@ -107,6 +107,16 @@ def _run_opik_mcp(
     The env is built from a clean baseline (no inheriting of the dev's
     OPIK_API_KEY or COMET_WORKSPACE) so failures are deterministic.
     """
+    return subprocess.run(
+        [sys.executable, "-m", "opik_mcp"],
+        env=_clean_env(extra_env),
+        cwd=REPO_ROOT,
+        timeout=timeout,
+        capture_output=True,
+    )
+
+
+def _clean_env(extra_env: dict[str, str]) -> dict[str, str]:
     base_env = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": os.environ.get("HOME", ""),
@@ -123,13 +133,38 @@ def _run_opik_mcp(
         # real project. These tests deliberately crash the process.
         "OPIK_MCP_SENTRY_ENABLED": "false",
     }
-    return subprocess.run(
-        [sys.executable, "-m", "opik_mcp"],
-        env={**base_env, **extra_env},
+    return {**base_env, **extra_env}
+
+
+@pytest.mark.parametrize("argument", ["--help", "--version"])
+def test_help_and_version_exit_with_stdin_open_and_send_no_event(
+    argument: str, capture: _CaptureServer
+) -> None:
+    """An agent probing the command leaves stdin open, as a host would. The server
+    used to start and wait on it, and every probe counted as a session in BI."""
+    # communicate() closes a stdin=PIPE at once, so the test holds its own
+    # write end open for as long as the process runs.
+    stdin_read_end, stdin_write_end = os.pipe()
+    process = subprocess.Popen(
+        [sys.executable, "-m", "opik_mcp", argument],
+        env=_clean_env({"OPIK_MCP_ANALYTICS_URL": capture.url}),
         cwd=REPO_ROOT,
-        timeout=timeout,
-        capture_output=True,
+        stdin=stdin_read_end,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    os.close(stdin_read_end)
+    try:
+        printed, _ = process.communicate(timeout=15)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
+        os.close(stdin_write_end)
+
+    assert process.returncode == 0, f"opik-mcp {argument} exited {process.returncode}"
+    assert printed.decode().startswith("opik-mcp")
+    assert capture.events == [], f"opik-mcp {argument} sent analytics events: {capture.events!r}"
 
 
 def test_invalid_config_emits_in_real_subprocess(capture: _CaptureServer) -> None:
