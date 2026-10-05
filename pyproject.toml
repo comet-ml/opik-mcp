@@ -10,6 +10,16 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Comet ML" }]
+keywords = ["mcp", "model-context-protocol", "opik", "comet", "llm", "observability", "tracing", "evaluation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "mcp[cli]>=1.27,<2",
     "httpx>=0.28",
@@ -37,6 +47,14 @@ dev = [
 
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
+
+# Shown on PyPI, where an agent often lands first and otherwise finds no link back.
+[project.urls]
+Homepage = "https://github.com/comet-ml/opik-mcp"
+Documentation = "https://www.comet.com/docs/opik/mcp-server"
+Repository = "https://github.com/comet-ml/opik-mcp"
+Issues = "https://github.com/comet-ml/opik-mcp/issues"
+Changelog = "https://github.com/comet-ml/opik-mcp/releases"
 
 # The exact uv that CI runs. `setup-uv` reads this when no `version` is given,
 # so the resolver in CI is the one the lockfile was written with.

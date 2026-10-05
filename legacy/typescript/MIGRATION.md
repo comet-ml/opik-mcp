@@ -1,11 +1,23 @@
 # Migrating from `npx opik-mcp` to `uvx opik-mcp`
 
-The TypeScript MCP server (npm `opik-mcp@2.0.x`) is **deprecated** and will
-stop serving requests on **2026-11-15**. The supported implementation is the
-Python server (PyPI `opik-mcp`), launched via `uvx`. This guide covers the
-two things that change for users: the launch command and the env vars.
+> **Installing the Opik MCP server for the first time?** You don't need this
+> page. Follow the [README](https://github.com/comet-ml/opik-mcp#quick-start).
 
-## TL;DR
+The TypeScript MCP server (npm `opik-mcp@2`) is **deprecated** and stops serving
+requests on **2026-11-15**. The supported server is the Python one, published
+on PyPI as `opik-mcp`. This page covers what changes for an existing install:
+the launch command, the env vars, command-line flags and `~/.opik.config`.
+
+## On Opik Cloud: switch to the hosted server
+
+On Opik Cloud (`www.comet.com`) you can drop the local server and the API key.
+Point your MCP client at `https://www.comet.com/opik/api/v1/mcp` and sign in in
+the browser when it asks. The
+[README](https://github.com/comet-ml/opik-mcp#opik-cloud-the-hosted-server) has
+the command for each client. The rest of this page is for keeping a local
+server.
+
+## The launch command
 
 In your MCP client config, replace:
 
@@ -16,8 +28,11 @@ In your MCP client config, replace:
 with:
 
 ```jsonc
-{ "command": "uvx", "args": ["opik-mcp@latest"] }
+{ "command": "uvx", "args": ["opik-mcp"] }
 ```
+
+`opik-mcp@latest`, which the npm notice shows, works too. It asks PyPI for the
+newest version on every start, so the server starts more slowly.
 
 If you don't have `uv` yet, install it once:
 
@@ -26,49 +41,54 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 # or: winget install astral-sh.uv                  # Windows
 ```
 
-That's the whole client-side change. Everything below covers env var renames
-for users with non-default configs.
+## Env vars
 
-## Env var rename map
+| TypeScript | Python | Notes |
+|---|---|---|
+| `OPIK_API_KEY` | `OPIK_API_KEY` | Unchanged. |
+| `OPIK_WORKSPACE_NAME` | `OPIK_WORKSPACE` | The segment after `comet.com/opik/` in your Opik URL. Leave it unset on open-source Opik. `COMET_WORKSPACE` still works as an alias. |
+| `OPIK_API_BASE_URL` | `OPIK_URL` | The Opik REST API: `http://localhost:5173/api` for a local open-source Opik, `https://<host>/api` for one on a server. Leave it unset on Opik Cloud. On a self-hosted Comet platform, set `COMET_URL_OVERRIDE=https://<host>` instead; the server adds `/opik/api`. |
+| `OPIK_SELF_HOSTED` | _(removed)_ | Worked out from the URL. |
+| `DEBUG_MODE=true` | `OPIK_MCP_LOG_LEVEL=DEBUG` | Also `INFO`, `WARNING`, `ERROR`. |
+| `TRANSPORT` | `OPIK_MCP_TRANSPORT` | `stdio` or `streamable-http`. |
+| `STREAMABLE_HTTP_PORT` | `OPIK_MCP_PORT` | |
+| `STREAMABLE_HTTP_HOST` | `OPIK_MCP_HOST` | |
+| `OPIK_TOOLSETS` | _(removed)_ | The tool set is fixed; drop the variable. |
 
-| TypeScript (legacy)                       | Python (current)              | Notes |
-|-------------------------------------------|-------------------------------|-------|
-| `OPIK_API_KEY`                            | `OPIK_API_KEY` ✓               | Unchanged. |
-| `OPIK_API_BASE_URL`                       | `OPIK_URL`                    | For Opik Cloud, leave unset. For self-hosted, set to the base URL of your install. |
-| `OPIK_WORKSPACE_NAME`                     | `COMET_WORKSPACE`             | Aligns with the rest of the Comet SDK. |
-| `OPIK_SELF_HOSTED`                        | _(removed)_                   | Detected from `OPIK_URL`; no separate flag needed. |
-| `DEBUG_MODE=true`                         | `OPIK_MCP_LOG_LEVEL=DEBUG`    | Standard log-level levels (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
-| `TRANSPORT`                               | `OPIK_MCP_TRANSPORT`          | Same values (`stdio`, `streamable-http`). |
-| `STREAMABLE_HTTP_PORT`                    | `OPIK_MCP_PORT`               | |
-| `STREAMABLE_HTTP_HOST`                    | `OPIK_MCP_HOST`               | |
-| `OPIK_TOOLSETS`                           | _(removed — see below)_       | Tool surface is fixed in the Python server. |
+## Command-line flags are not read
 
-## Tool surface
+The Python server takes its settings from env vars only. A flag left in your
+client config, such as `--apiKey`, is ignored without a warning, and the server
+starts without that setting: usually a 401 on the first call. Move each flag
+into the `env` block:
 
-The TS server exposed many narrow tools grouped into toolsets (`core`,
-`expert-prompts`, `expert-datasets`, `metrics`, ...). The Python server
-consolidates everything into a handful of tools driven by a JSON-Schema dispatcher:
-
-| Python tool | What it does |
+| TypeScript flag | Python env var |
 |---|---|
-| `read`       | Fetch a single entity by id / name / URI (`trace`, `span`, `project`, `experiment`, `prompt`, `test_suite`). |
-| `list`       | Page through a collection. |
-| `write`      | Mutating operations (scores, comments, prompt versions, experiments, ...) — uses an `operation` discriminator. |
-| `schema`     | Returns the JSON Schema + example payload for any `write` operation. |
-| `read_skill` | Reads one of the Opik agent skills bundled with the server. |
+| `--apiKey`, `--key` | `OPIK_API_KEY` |
+| `--apiUrl`, `--url` | `OPIK_URL` (see the table above) |
+| `--workspace`, `--ws`, `--mcpDefaultWorkspace` | `OPIK_WORKSPACE` |
+| `--debug` | `OPIK_MCP_LOG_LEVEL=DEBUG` |
+| `--transport` | `OPIK_MCP_TRANSPORT` |
+| `--streamableHttpPort` | `OPIK_MCP_PORT` |
+| `--streamableHttpHost` | `OPIK_MCP_HOST` |
+| `--selfHosted`, `--toolsets`, `--streamableHttpLogPath`, `--mcpName`, `--mcpVersion`, `--mcpPort`, `--mcpLogging` | none; drop them |
 
-If you previously referenced toolset names in `OPIK_TOOLSETS`, you can drop
-that variable — there's nothing equivalent to set.
+## `~/.opik.config` is not read
 
-## Verification
+The TypeScript server fell back to the Opik SDK's `~/.opik.config` for the key,
+URL and workspace. The Python server does not read it. If your install relied
+on it, put those values in the client's `env` block, or run
+`uvx opik mcp configure`, which reads the file and writes the client config for
+you.
 
-After updating your MCP client config and restarting the host:
+## Check the result
 
-1. Open the MCP tool palette in your host (Claude Desktop / Cursor / VS Code).
-2. Confirm you see `read`, `list`, `write`, `schema`, `read_skill`
-   instead of the older `get-trace`, `list-prompts`, etc.
-3. Try one read: ask the assistant *"list the first 3 traces in
-   `<your-project>`"* — it should call `list` and return JSON.
+Clients read their MCP config when a session starts, so start a new one. The
+client should list the tools `read`, `list`, `write`, `schema` and
+`read_skill` instead of the older `get-trace`, `list-prompts` and so on. Ask
+the assistant to *"list my Opik projects"*; it calls `list` and shows your
+projects. The [README](https://github.com/comet-ml/opik-mcp#tools) describes
+every tool.
 
 ## Timeline
 
@@ -80,8 +100,8 @@ After updating your MCP client config and restarting the host:
 - **2026-11-15** — TS server `opik-mcp@2.1.0` ships as a stub: prints the
   migration message and exits without serving requests.
 
-After 2026-11-15 you **must** be on `uvx opik-mcp@latest` for the integration
-to work.
+After 2026-11-15 the npm package no longer works; use `uvx opik-mcp` or the
+hosted server.
 
 ## Questions / problems
 
