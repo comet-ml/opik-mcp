@@ -42,6 +42,10 @@ process serves one connection, so there it means once per process.
   (`user_id_kind=comet_user`), else the install id. The login appears in no
   other field. `identity_lookup` separates `none_expected` (no credential)
   from `miss` (a credential that did not resolve).
+- A configured API key resolves through `account-details` on cloud and on
+  self-hosted Comet (`src/opik_mcp/identity/account.py`). A local Opik is
+  not asked; an open source one answers 404 once. Both count as
+  `none_expected`.
 - `tool_called` adds `tool_name`, `success`, `duration_ms` and the per-call
   host and environment context. A failure adds `error_kind`,
   `exception_type`, `cause_type` and `http_status`. The tool's own props
@@ -155,6 +159,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
+- 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).
 - 2026-05-25: Sentry error tracking, for failures that need a stack trace (#125).

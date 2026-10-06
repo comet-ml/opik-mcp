@@ -145,7 +145,7 @@ def _disable_api_key_identity() -> Generator[None]:
     """Stub API-key identity resolution to a no-op by default.
 
     ``_build_event`` resolves the install's own identity from Comet's
-    account-details endpoint for cloud deployments. Left live, any test that
+    account-details endpoint unless it is local. Left live, any test that
     builds an event with an ``opik_api_key`` set would spawn a background
     refresh thread pointed at www.comet.com — a real network call escaping into
     whatever ``@respx.mock`` window happened to be open, from a thread whose

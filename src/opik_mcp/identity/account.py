@@ -12,9 +12,10 @@ ever being felt by a user:
 - **Startup never waits.** Boot reads a disk cache and moves on. A miss or a
   stale entry triggers a refresh on a background daemon thread; the events
   emitted before it lands are reported anonymously and say so.
-- **Only where it can work.** Cloud deployments only. This endpoint does not
-  exist on a self-hosted Opik, and a self-hosted install must not pay a timeout
-  for an answer it can never get.
+- **Only where it can work.** Cloud, and self-hosted Comet, which serves the
+  same endpoint (``opik configure`` reads the default workspace from it there).
+  A local Opik is never asked. An open source self-hosted Opik has no accounts
+  and answers 404; that answer is remembered, so it is asked once per process.
 - **Failure is silent.** Unreachable host, non-200, malformed body, unreadable
   or unwritable cache — every one of them degrades to "we don't know", never to
   an error and never to a retry storm.
@@ -94,6 +95,11 @@ _DISK_LOCK = threading.Lock()
 # finished threads; ``_INFLIGHT`` already caps this at one entry per credential.
 _REFRESH_THREADS: list[threading.Thread] = []
 _THREADS_LOCK = threading.Lock()
+
+# Account-details URLs that answered 404: an open source Opik, which has no
+# accounts. Not asked again by this process, and reported as anonymous by
+# design rather than as a failed lookup.
+_NOT_SERVED: set[str] = set()
 
 
 def _cache_path() -> Path:
@@ -186,6 +192,8 @@ def _fetch(url: str, api_key: str) -> tuple[str | None, str | None] | None:
             response = client.get(url, headers={"Authorization": api_key})
         if response.status_code != 200:
             logger.debug("account-details returned %s", response.status_code)
+            if response.status_code == 404:
+                _NOT_SERVED.add(url)
             return None
         body = response.json()
     except Exception:
@@ -227,6 +235,19 @@ def _refresh(*, url: str, api_key: str, digest: str) -> None:
             _INFLIGHT.discard(digest)
 
 
+def account_details_served(settings: Settings) -> bool:
+    """Whether this deployment can answer account-details at all.
+
+    False for a local Opik, for a config with no URL, and for a deployment that
+    already answered 404. ``identity.caller`` reports those as anonymous by
+    design, not as a miss.
+    """
+    if installation_type(settings) == "local":
+        return False
+    url = _account_details_url(settings)
+    return url is not None and url not in _NOT_SERVED
+
+
 def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
     """Identity for this install's API key, if we have one; refresh if we don't.
 
@@ -237,9 +258,7 @@ def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
     api_key = settings.opik_api_key
     if not api_key:
         return None
-    # Self-hosted and local deployments have no account-details endpoint. Skip
-    # entirely rather than spending a timeout to learn that every time.
-    if installation_type(settings) != "cloud":
+    if not account_details_served(settings):
         return None
 
     digest = credential_digest(api_key)
@@ -309,12 +328,14 @@ def reset_account_identity_for_tests() -> None:
     with _ATTEMPT_LOCK:
         _RESOLVED_AT.clear()
         _LAST_ATTEMPT.clear()
+    _NOT_SERVED.clear()
     with _DISK_LOCK:
         _DISK_CACHE = None
 
 
 __all__ = [
     "CACHE_TTL_SECONDS",
+    "account_details_served",
     "reset_account_identity_for_tests",
     "resolve_api_key_identity",
 ]

@@ -313,8 +313,8 @@ InstallIdKind = Literal["file", "fallback"]
 #
 # - "resolved"        — an identity was found; ``user_id`` is a Comet login.
 # - "none_expected"   — no inbound credential, so anonymity is CORRECT, not a
-#                       fault. Local and self-hosted Opik run with auth disabled
-#                       by design; ~60% of all tool calls are this.
+#                       fault. Local and open source self-hosted Opik run with
+#                       auth disabled by design; ~60% of all tool calls are this.
 # - "miss"            — a credential WAS presented and we still could not resolve
 #                       it. This is a DEFECT, and it is the one number that says
 #                       whether hosted identity is actually working. Causes:
