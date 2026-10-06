@@ -271,6 +271,7 @@ class StubBackend:
         project = f"/v1/private/projects/{PROJECT_ID}"
         versions = self.prompt_version_count
         routes: dict[str, Callable[[], object]] = {
+            "/is-alive/ping": lambda: {"message": "Healthy Server", "healthy": True},
             "/v1/private/feedback-definitions": lambda: page(self.feedback_definitions),
             "/v1/private/projects": lambda: page([fill("project", project_name=self.project_name)]),
             project: lambda: fill("project", project_name=self.project_name),

@@ -47,6 +47,7 @@ from opik_mcp.client.base import (
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
+    OpikWrongURLError,
     opik_rest_base,
 )
 from opik_mcp.client.opik import client_for_call
@@ -121,6 +122,9 @@ def _as_tool_error(what: str, *, on_timeout: str, base_url: str | None) -> Itera
         raise
     except (EntityArgValidationError, OQLError) as err:
         # Already written for the agent, with the valid values in it.
+        raise ToolError(str(err)) from err
+    except OpikWrongURLError as err:
+        # Already says what was asked, what is wrong and what to set.
         raise ToolError(str(err)) from err
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
         raise ToolError(f"Failed to {what}: {err}") from err

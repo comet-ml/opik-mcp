@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import opik_rest_base
+from opik_mcp.client.base import OpikWrongURLError, opik_rest_base
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.client.setup_hints import unreachable
 from opik_mcp.config import Settings, get_settings
@@ -58,6 +58,8 @@ async def run_write(
         raise ToolError(we.to_json()) from we
     # Below, no answer came back from Opik, so there is no envelope to give: the
     # sentence says where the write went and what to change.
+    except OpikWrongURLError as e:
+        raise ToolError(str(e)) from e
     except httpx.ConnectTimeout as e:
         # Never connected, so never sent: the URL is the question.
         base_url = opik_rest_base(settings or get_settings())

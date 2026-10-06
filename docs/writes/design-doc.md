@@ -80,8 +80,9 @@ promises, what comes back on success and failure, and where to change or add an 
   `unauthorized_hint`), as the main write path does.
 - A 401, 403 or 5xx to a write carries the same setup hint as a read
   (`setup_hint`; see [runtime](../runtime/design-doc.md#setup-errors)).
-- A write that got no answer from Opik (a failed connection, a timeout) is a
-  plain sentence, not an envelope, since there is no backend answer to carry. A timeout says the write may have been
+- A write that got no answer from Opik (a failed connection, a timeout) or
+  reached a URL that is not Opik is a plain sentence, not an envelope, since
+  there is no backend answer to carry. A timeout says the write may have been
   applied. See [runtime](../runtime/design-doc.md#setup-errors).
 
 Each code is a plain exception class in `src/opik_mcp/writes/errors.py`,

@@ -14,12 +14,15 @@ change nor to see.
 
 from __future__ import annotations
 
-from urllib.parse import urlsplit, urlunsplit
+import logging
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 import httpx
 
 from opik_mcp.config import Settings, destination_kind, looks_unsubstituted
 from opik_mcp.identity.context import inbound_authorization
+
+logger = logging.getLogger("opik_mcp.client.setup_hints")
 
 #: Where open-source Opik serves its REST API on the machine it runs on.
 OPEN_SOURCE_LOCAL_API = "http://localhost:5173/api"
@@ -27,6 +30,17 @@ OPEN_SOURCE_LOCAL_API = "http://localhost:5173/api"
 CLOUD_KEY_PAGE = "https://www.comet.com/api/my/settings/"
 HOSTED_SERVER_URL = "https://www.comet.com/opik/api/v1/mcp"
 RESTART = "Env changes take effect only after the MCP client restarts."
+
+# Opik's health check, under its REST base. It needs no credential, and every
+# Opik answers it with a ``healthy`` field, healthy or not. A gateway may still
+# forward only the API paths, so a failed check is confirmed on one of those.
+_PING_PATH = "/is-alive/ping"
+_API_PATH = "/v1/private/projects"
+_PROBE_TIMEOUT_S = 5.0
+
+# Base URLs that answered as Opik. Only "yes" is kept: a "no" can come from a
+# portal or gateway that changes, so it is asked again on the next failure.
+_OPIK_BASE_URLS: set[str] = set()
 
 
 def redact_url(url: str) -> str:
@@ -111,6 +125,97 @@ def status_hint(resp: httpx.Response) -> str | None:
     return None
 
 
+def moved_to(resp: httpx.Response, base_url: str) -> str | None:
+    """The base URL a 3xx sends the call to, when that is outside ``base_url``."""
+    request = _request_of(resp)
+    location = resp.headers.get("location")
+    if request is None or not location or not 300 <= resp.status_code < 400:
+        return None
+    base = base_url.rstrip("/")
+    asked = str(request.url).split("?", 1)[0]
+    target = urljoin(asked, location).split("?", 1)[0]
+    if target.startswith(f"{base}/"):
+        return None  # An endpoint's own redirect, not a move of the API.
+    # The same path at the new place gives the new base.
+    path = asked.removeprefix(base)
+    return redact_url(target.removesuffix(path) if path and target.endswith(path) else target)
+
+
+def redirected(what: str, base_url: str, new_base: str) -> str:
+    """The request was redirected away from the configured base URL."""
+    url = redact_url(base_url).rstrip("/")
+    return (
+        f"The request for {what} was redirected from {url} to {new_base}: set OPIK_URL "
+        f"to {new_base}. {RESTART}"
+    )
+
+
+def wrong_url(what: str, base_url: str) -> str:
+    """The request failed because the base URL is not Opik's REST API."""
+    url = redact_url(base_url).rstrip("/")
+    return (
+        f"The request for {what} failed because {url} is not Opik's REST API: neither "
+        f"{url}{_PING_PATH} nor its API paths answer as Opik does. Set OPIK_URL to the "
+        f"API ({OPEN_SOURCE_LOCAL_API} by default for open-source Opik on this machine, "
+        f"https://<host>/opik/api for a Comet deployment). {RESTART}"
+    )
+
+
+def answer_suggests_wrong_url(resp: httpx.Response) -> bool:
+    """A 404, a 405 or a 200 that is not JSON: what a URL that is not Opik answers.
+
+    Each alone reads as "not found", "check the data" or "bad answer", and the
+    agent would chase the id or the data instead of the setting. Opik itself
+    answers 405 to no call this server makes.
+    """
+    if resp.status_code in (404, 405):
+        return True
+    return resp.status_code == 200 and "json" not in resp.headers.get("content-type", "")
+
+
+async def base_url_is_opik(
+    http: httpx.AsyncClient, base_url: str, headers: dict[str, str]
+) -> bool | None:
+    """Whether ``base_url`` is Opik's REST API; ``None`` when unsure.
+
+    Asked only after ``answer_suggests_wrong_url``. "No" needs both the health
+    check and an API path (sent with ``headers``, the call's own) to answer as
+    something else; a 5xx or a proxy's 401 on the health check says nothing.
+    """
+    if base_url in _OPIK_BASE_URLS:
+        return True
+    try:
+        ping = await http.get(f"{base_url}{_PING_PATH}", timeout=_PROBE_TIMEOUT_S)
+        if _says_healthy(ping):
+            verdict = True
+        elif ping.status_code not in (200, 404):
+            return None
+        else:
+            api = await http.get(
+                f"{base_url}{_API_PATH}",
+                params={"size": 1},
+                headers=headers,
+                timeout=_PROBE_TIMEOUT_S,
+            )
+            if api.status_code >= 500:
+                return None
+            verdict = not answer_suggests_wrong_url(api)
+    except Exception:
+        logger.debug("base URL check failed", exc_info=True)
+        return None
+    if verdict:
+        _OPIK_BASE_URLS.add(base_url)
+    return verdict
+
+
+def _says_healthy(resp: httpx.Response) -> bool:
+    try:
+        body = resp.json()
+    except ValueError:
+        return False
+    return isinstance(body, dict) and "healthy" in body
+
+
 def url_warnings(settings: Settings) -> list[str]:
     """Startup warnings for a URL setting that cannot reach Opik."""
     override = settings.comet_url_override
@@ -124,15 +229,26 @@ def url_warnings(settings: Settings) -> list[str]:
     ]
 
 
+def reset_setup_hints_for_tests() -> None:
+    """Forget every base URL check. Test-only."""
+    _OPIK_BASE_URLS.clear()
+
+
 __all__ = [
     "CLOUD_KEY_PAGE",
     "HOSTED_SERVER_URL",
     "OPEN_SOURCE_LOCAL_API",
     "RESTART",
+    "answer_suggests_wrong_url",
+    "base_url_is_opik",
     "credential_hint",
+    "moved_to",
     "own_env",
     "redact_url",
+    "redirected",
+    "reset_setup_hints_for_tests",
     "status_hint",
     "unreachable",
     "url_warnings",
+    "wrong_url",
 ]

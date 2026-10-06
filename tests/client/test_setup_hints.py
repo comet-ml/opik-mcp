@@ -33,6 +33,7 @@ from tests.factories import make_settings
 
 CLOUD_API = "https://www.comet.com/opik/api"
 TRACE_ID = "0197a6f0-0000-7000-8000-000000000001"
+HEALTHY = {"message": "Healthy Server", "healthy": True}
 
 Call = Callable[[Settings], Awaitable[str]]
 
@@ -202,6 +203,23 @@ async def test_a_host_that_never_answers_names_the_url_not_the_call_size(call: C
 
 
 @pytest.mark.anyio
+@TOOLS
+async def test_a_redirect_away_from_the_base_url_names_where_to_point_opik_url(
+    call: Call,
+) -> None:
+    base = "http://www.comet.com/opik/api"
+    with respx.mock(base_url=base) as mock:
+        mock.route().mock(
+            side_effect=lambda request: httpx.Response(
+                301, headers={"location": str(request.url).replace("http://", "https://")}
+            )
+        )
+        message = str(await _error(call, _settings(base)))
+
+    assert "set OPIK_URL to https://www.comet.com/opik/api." in message
+
+
+@pytest.mark.anyio
 async def test_the_url_in_an_error_never_carries_its_password() -> None:
     base = "https://user:s3cret-pass@opik.acme.example/api"
     with respx.mock() as mock:
@@ -231,6 +249,106 @@ async def test_a_write_that_timed_out_says_it_may_have_landed() -> None:
         message = str(await _error(_write, _settings(CLOUD_API)))
 
     assert "may have been applied" in message
+
+
+# --- the URL is not Opik's REST API --------------------------------------- #
+
+
+@pytest.mark.anyio
+@TOOLS
+async def test_a_404_from_a_url_that_is_not_opik_says_to_fix_opik_url(call: Call) -> None:
+    """Without the health check every read says "not found", and the agent
+    chases the id instead of the setting."""
+    base = "https://www.comet.com/api"
+    with respx.mock(base_url=base) as mock:
+        mock.get("/is-alive/ping").mock(return_value=httpx.Response(404, json={"code": 404}))
+        mock.route().mock(return_value=httpx.Response(404, json={"code": 404}))
+        error = await _error(call, _settings(base))
+
+    message = str(error)
+    for needed in (base, "OPIK_URL", OPEN_SOURCE_LOCAL_API, RESTART):
+        assert needed in message, f"{needed!r} missing from: {message}"
+    assert "Not found" not in message
+    assert bucket_exception(error) == "validation"
+
+
+@pytest.mark.anyio
+async def test_an_html_page_from_a_url_that_is_not_opik_says_to_fix_opik_url() -> None:
+    base = "https://www.comet.com/opik"
+    page = httpx.Response(200, text="<!doctype html>", headers={"content-type": "text/html"})
+    with respx.mock(base_url=base) as mock:
+        mock.route().mock(return_value=page)
+        message = str(await _error(_list, _settings(base)))
+
+    assert "OPIK_URL" in message
+    assert "non-JSON" not in message
+
+
+@pytest.mark.anyio
+async def test_a_real_404_from_opik_still_says_not_found() -> None:
+    with respx.mock(base_url=CLOUD_API) as mock:
+        mock.get("/is-alive/ping").mock(return_value=httpx.Response(200, json=HEALTHY))
+        mock.route().mock(return_value=httpx.Response(404, json={"errors": ["not found"]}))
+        message = str(await _error(_read, _settings(CLOUD_API)))
+
+    assert message.startswith("Not found: trace")
+
+
+@pytest.mark.anyio
+async def test_a_gateway_that_hides_the_health_check_does_not_make_opik_look_wrong() -> None:
+    """Some gateways forward only Opik's API paths; the ping 404s there."""
+    with respx.mock(base_url=CLOUD_API) as mock:
+        mock.get("/is-alive/ping").mock(return_value=httpx.Response(404, text="no route"))
+        mock.get("/v1/private/projects").mock(return_value=httpx.Response(200, json={}))
+        mock.route().mock(return_value=httpx.Response(404, json={"errors": ["not found"]}))
+        message = str(await _error(_read, _settings(CLOUD_API)))
+
+    assert message.startswith("Not found: trace")
+
+
+@pytest.mark.anyio
+async def test_a_url_found_wrong_is_checked_again_next_time() -> None:
+    """Only "this is Opik" is remembered; a portal or gateway can change."""
+    base = "https://www.comet.com/api"
+    with respx.mock(base_url=base) as mock:
+        ping = mock.get("/is-alive/ping").mock(return_value=httpx.Response(404))
+        mock.route().mock(return_value=httpx.Response(404, json={"code": 404}))
+        for _ in range(2):
+            await _error(_read, _settings(base))
+
+    assert ping.call_count == 2
+
+
+@pytest.mark.anyio
+async def test_the_health_check_is_asked_once_per_url() -> None:
+    with respx.mock(base_url=CLOUD_API) as mock:
+        ping = mock.get("/is-alive/ping").mock(return_value=httpx.Response(200, json=HEALTHY))
+        mock.route().mock(return_value=httpx.Response(404, json={"errors": ["not found"]}))
+        for _ in range(3):
+            await _error(_read, _settings(CLOUD_API))
+
+    assert ping.call_count == 1
+
+
+@pytest.mark.anyio
+async def test_a_health_check_that_says_nothing_leaves_the_original_error() -> None:
+    """A proxy's 503 page says nothing about the path, so nothing is claimed."""
+    with respx.mock(base_url=CLOUD_API) as mock:
+        mock.get("/is-alive/ping").mock(return_value=httpx.Response(503, text="busy"))
+        mock.route().mock(return_value=httpx.Response(404, json={"errors": ["not found"]}))
+        message = str(await _error(_read, _settings(CLOUD_API)))
+
+    assert message.startswith("Not found: trace")
+
+
+@pytest.mark.anyio
+async def test_a_hosted_server_never_asks_the_health_check() -> None:
+    with respx.mock(base_url=CLOUD_API, assert_all_called=False) as mock, _hosted_caller():
+        ping = mock.get("/is-alive/ping").mock(return_value=httpx.Response(404))
+        mock.route().mock(return_value=httpx.Response(404, json={"errors": ["not found"]}))
+        await _error(_read, _settings(CLOUD_API))
+
+    assert not ping.called
 
 
 # --- startup -------------------------------------------------------------- #

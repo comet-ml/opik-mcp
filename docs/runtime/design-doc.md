@@ -80,11 +80,12 @@ with an entity hint and an excerpt of the backend's message.
 | 404 | `OpikNotFoundError` | `not_found` |
 | 400, 422 | `OpikValidationError` | `validation` |
 | 5xx, other | `OpikServerError` | `upstream_5xx` |
+| 404, 405 or a non-JSON 200 from a URL that is not Opik | `OpikWrongURLError` (subclass of `OpikServerError`) | `validation` |
 
 A 2xx other than 200, or a body that is not a JSON object, is also
 `OpikServerError`. Writes get the raw response from `OpikClient.write_json`,
-which never raises on status; [writes](../writes/design-doc.md) builds the
-error.
+which raises only `OpikWrongURLError`; [writes](../writes/design-doc.md) builds
+every other error.
 
 Transport errors stay `httpx` exceptions in the client. Each tool turns them
 into one sentence: a timeout in `list` says how to narrow the call, in `read`
@@ -113,9 +114,17 @@ bearer), the error names the URL, without `user:password`, and ends with
   loopback host asks whether Opik is running and gives
   `OPEN_SOURCE_LOCAL_API`; any other host names `OPIK_URL` and
   `COMET_URL_OVERRIDE`.
+- A 3xx to a place outside the base URL names the new base to put in
+  `OPIK_URL` (`moved_to`), since `httpx` does not follow redirects here.
+- A 404, a 405 or a non-JSON 200 can mean the base URL is not Opik's REST
+  API. The client asks `<base>/is-alive/ping`, and when that does not answer
+  as Opik, one API path with the call's own headers. Only when both answer
+  like a different server does it raise `OpikWrongURLError`, which says to
+  set `OPIK_URL`. A "yes" is cached per base URL; a "no" is asked again.
 
 On a hosted server none of this applies: the backend URL is not the caller's
-to change or to see, so errors name no URL and no env var.
+to change or to see, so errors name no URL and no env var, and the base URL is
+never checked.
 
 ### Timeouts and connections
 
@@ -175,10 +184,16 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - The help text is written for an agent asked to install the server. It
   repeats the README's install commands, and a test checks that each one is
   in the README (#243).
+- The base URL check runs only after an answer a wrong URL gives, not at
+  startup: a call that works costs nothing. A failed health check is
+  confirmed on an API path because a gateway may forward only those, and
+  only a "yes" is cached, so a wrong verdict cannot stick (OPIK-8688).
 - A transport error in `read` or `write` is a `ToolError` with the `httpx`
   error as its cause, as in `list`: its `error_kind` did not change, its
   `exception_type` is `ToolError` and its `cause_type` the `httpx` class
   (OPIK-8688).
+- `OpikWrongURLError` buckets as `validation`, like `MissingConfigError`: the
+  user fixes it in a setting (OPIK-8688).
 
 ### Traps
 
@@ -201,8 +216,9 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - One connection per call: `tests/client/test_connection_per_tool_call.py`.
 - Timeout and unreachable messages in `list`: `tests/read_list/test_list_filters.py`.
 - Setup errors in `list`, `read` and `write` (each 401 case, 403, 5xx,
-  unreachable host, connect timeout, the URL redacted, nothing named on a
-  hosted server) and the startup warning: `tests/client/test_setup_hints.py`.
+  unreachable host, connect timeout, redirect, wrong URL and the gateway that
+  hides the health check, the URL redacted, nothing named on a hosted server)
+  and the startup warning: `tests/client/test_setup_hints.py`.
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
@@ -214,6 +230,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-06: a wrong base URL or a redirect away from it says what to set `OPIK_URL` to, instead of reading as "not found" (OPIK-8688).
 - 2026-10-06: setup errors name the URL, the setting to change and the restart (OPIK-8688).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).

@@ -17,7 +17,8 @@ without touching the backend.
 
 Every backend answer that is not a success raises a ``WriteError`` subclass;
 the tool layer converts those into MCP-friendly error envelopes. A write with
-no answer (a transport error) passes through for the tool to word.
+no answer (a transport error) or from a URL that is not Opik
+(``OpikWrongURLError``) passes through for the tool to word.
 """
 
 from __future__ import annotations

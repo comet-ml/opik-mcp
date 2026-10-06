@@ -86,6 +86,18 @@ class OpikServerError(RuntimeError):
     http_status: ClassVar[int | None] = 500
 
 
+class OpikWrongURLError(OpikServerError):
+    """The base URL is not Opik's REST API: its health check does not answer as Opik.
+
+    A setup problem the user fixes in OPIK_URL, so it buckets as ``validation``
+    like ``MissingConfigError``. Subclasses ``OpikServerError`` so every handler
+    that already turns a bad answer into a tool error keeps catching it.
+    """
+
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = None
+
+
 # --- client --------------------------------------------------------------- #
 
 _DEFAULT_TIMEOUT: Final = 30.0
@@ -194,6 +206,7 @@ class OpikClientBase:
         url = f"{self._base_url}{path}"
         async with self._http() as http:
             resp = await http.request("GET", url, params=params, headers=self._headers())
+            await self._raise_if_not_opik(http, resp, entity_hint)
         _raise_for_status(resp, entity_hint)
         if resp.status_code != 200:
             raise OpikServerError(
@@ -259,6 +272,7 @@ class OpikClientBase:
             resp = await http.request(
                 "POST", url, params=params, content=content, headers=self._headers()
             )
+            await self._raise_if_not_opik(http, resp, entity_hint)
         _raise_for_status(resp, entity_hint)
         if resp.status_code != 200:
             raise OpikServerError(
@@ -285,6 +299,7 @@ class OpikClientBase:
         content = _json.dumps(json, separators=(",", ":")).encode()
         async with self._http() as http:
             resp = await http.request(method, url, content=content, headers=self._headers())
+            await self._raise_if_not_opik(http, resp, entity_hint)
         _raise_for_status(resp, entity_hint)
         if resp.status_code != expected_status:
             # Body present but wrong code (e.g. 200 instead of 204) — not fatal
@@ -305,7 +320,8 @@ class OpikClientBase:
     ) -> httpx.Response:
         """Generic write — used by the universal write tool's dispatcher.
 
-        Unlike ``_request``, this does NOT raise on 4xx/5xx; the dispatcher
+        Unlike ``_request``, this does NOT raise on 4xx/5xx, except
+        ``OpikWrongURLError`` when the answer came from a URL that is not Opik; the dispatcher
         wraps non-2xx responses into structured ``BackendError`` envelopes
         so the model sees the BE's body verbatim alongside the request
         shape. 2xx with non-empty body is returned as-is for the caller to
@@ -324,7 +340,28 @@ class OpikClientBase:
         if idempotency_key is not None:
             headers["Idempotency-Key"] = idempotency_key
         async with self._http() as http:
-            return await http.request(method, url, content=content, headers=headers)
+            resp = await http.request(method, url, content=content, headers=headers)
+            # The one non-2xx this does raise: a wrong URL is not a backend answer.
+            await self._raise_if_not_opik(http, resp, "the write")
+            return resp
+
+    async def _raise_if_not_opik(
+        self, http: httpx.AsyncClient, resp: httpx.Response, entity_hint: str
+    ) -> None:
+        """Raise ``OpikWrongURLError`` when the answer came from a URL that is not Opik.
+
+        Only on the server's own env: a hosted server's URL is not the caller's
+        to fix. The health check is asked once per base URL (``setup_hints``).
+        """
+        if not setup_hints.own_env():
+            return
+        new_base = setup_hints.moved_to(resp, self._base_url)
+        if new_base is not None:
+            raise OpikWrongURLError(setup_hints.redirected(entity_hint, self._base_url, new_base))
+        if not setup_hints.answer_suggests_wrong_url(resp):
+            return
+        if await setup_hints.base_url_is_opik(http, self._base_url, self._headers()) is False:
+            raise OpikWrongURLError(setup_hints.wrong_url(entity_hint, self._base_url))
 
 
 def resolve_opik_config(settings: Settings) -> tuple[str, str | None, str | None]:

@@ -92,17 +92,19 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
 def _reset_process_caches() -> None:
     """Clear the module-level caches that would otherwise carry one test's
     environment into the next: settings read from env, the install id read
-    from HOME, the per-session host context, and the account identity (its
-    disk read, in-flight refreshes and bookkeeping)."""
+    from HOME, the per-session host context, the account identity (its disk
+    read, in-flight refreshes and bookkeeping), and the base URL health checks."""
     from opik_mcp import config
     from opik_mcp.analytics import identity
     from opik_mcp.analytics.mcp_client_info import _reset_call_context_cache_for_tests
+    from opik_mcp.client.setup_hints import reset_setup_hints_for_tests
     from opik_mcp.identity.account import reset_account_identity_for_tests
 
     config.get_settings.cache_clear()
     identity._get_install_id.cache_clear()
     _reset_call_context_cache_for_tests()
     reset_account_identity_for_tests()
+    reset_setup_hints_for_tests()
 
 
 @pytest.fixture(autouse=True)
