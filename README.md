@@ -799,9 +799,11 @@ Keep the default `127.0.0.1` bind (and prefer stdio) on shared networks.
 
 ### Telemetry
 
-Anonymous usage events (event type + timing only — no query content). A SHA-256
-digest of your API key is included so support can find your account; the raw
-key never leaves the process. **Opt out:** `OPIK_MCP_ANALYTICS_ENABLED=false`.
+Usage events (event type + timing only — no query content). When your API key
+belongs to a Comet account, on cloud or self-hosted Comet, events carry your
+Comet login; otherwise an install id. A SHA-256 digest of your API key is
+included so support can find your account; the raw key never leaves the
+process. **Opt out:** `OPIK_MCP_ANALYTICS_ENABLED=false`.
 
 | Variable | Default | Notes |
 |---|---|---|

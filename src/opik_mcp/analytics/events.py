@@ -290,7 +290,9 @@ LifecycleSource = Literal["main", "lifespan"]
 # is ``client._build_event``. BI counts real users with
 # ``WHERE user_id_kind = 'comet_user'``; the field's ABSENCE marks events emitted
 # before identity resolution shipped, when ``user_id`` was a workspace name
-# falling back to an install id.
+# falling back to an install id. A login is unique only within its deployment:
+# a self-hosted Comet login can equal a different person's cloud login, so counts
+# and joins must also match ``installation_type``.
 UserIdKind = Literal["comet_user", "install_id"]
 
 # ``install_id_kind``: whether ``install_id`` is a real on-disk id ("file") or the
