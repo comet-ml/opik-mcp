@@ -152,6 +152,40 @@ def test_open_source_self_hosted_is_asked_once(monkeypatch: pytest.MonkeyPatch) 
 
 
 @respx.mock
+def test_a_404_on_cloud_is_a_passing_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cloud always serves account-details, so one 404 (a deploy, a misroute)
+    must not stop the asking or turn a miss into by-design anonymity."""
+    import opik_mcp.identity.account as mod
+
+    monkeypatch.setattr(mod, "_MIN_RETRY_INTERVAL_SECONDS", 0.0)
+    route = respx.get(ACCOUNT_URL).mock(return_value=httpx.Response(404))
+    settings = _cloud_settings()
+
+    for _ in range(2):
+        assert resolve_api_key_identity(settings) is None
+        _settle()
+
+    assert route.call_count == 2
+    assert caller_identity_with_outcome(settings) == (None, "miss")
+
+
+@respx.mock
+def test_a_known_login_survives_a_404(_fresh_home: Path) -> None:
+    """A 404 stops the asking, not the answer already in hand."""
+    respx.get(SELF_HOSTED_ACCOUNT_URL).mock(return_value=httpx.Response(404))
+    _write_cache(_fresh_home, age_seconds=CACHE_TTL_SECONDS + 60)
+    settings = _cloud_settings(opik_url=SELF_HOSTED_URL)
+
+    first = resolve_api_key_identity(settings)
+    _settle()
+    after = resolve_api_key_identity(settings)
+
+    assert first is not None
+    assert after is not None
+    assert after.user_name == "cached-user"
+
+
+@respx.mock
 def test_a_self_hosted_key_that_does_not_resolve_is_a_miss() -> None:
     """Self-hosted used to report none_expected for every key, so a broken
     lookup there looked the same as one that could never work."""

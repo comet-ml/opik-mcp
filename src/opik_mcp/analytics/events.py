@@ -155,9 +155,9 @@ HostProcess = Literal[
 # HOME, so a reinstall mints a brand-new identity (inflating "new installs") and
 # an unwritable HOME collapses it to the nil sentinel, merging every such
 # deployment into one row. A machine id survives both. It is also the only
-# identity available to local / self-hosted users, who run with auth disabled and
-# so can never resolve a username — ~18k successful tool calls across ~36
-# installs in a 30-day window.
+# identity available to local / open source self-hosted users, who run with auth
+# disabled and so can never resolve a username — ~18k successful tool calls
+# across ~36 installs in a 30-day window.
 #
 # Machine-scoped by design: the digest deliberately excludes the OS username, so
 # two people sharing a box merge and no user-derived data enters the hash. A

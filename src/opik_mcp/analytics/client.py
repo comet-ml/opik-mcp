@@ -269,8 +269,9 @@ class AnalyticsClient:
         # wrote. install_id is a UUID under HOME: a reinstall mints a new one
         # (inflating "new installs") and an unwritable HOME collapses it to the
         # nil sentinel, merging every such deployment into one row. This survives
-        # both. It is also the only identity available to local / self-hosted
-        # users, who run with auth disabled and so can never resolve a username.
+        # both. It is also the only identity available to local / open source
+        # self-hosted users, who run with auth disabled and so can never resolve
+        # a username.
         #
         # ALWAYS stamps the kind so "we could not read one" is countable rather
         # than a silent absence; the digest itself is omitted when there is none,

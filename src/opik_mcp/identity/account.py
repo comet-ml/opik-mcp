@@ -238,14 +238,18 @@ def _refresh(*, url: str, api_key: str, digest: str) -> None:
 def account_details_served(settings: Settings) -> bool:
     """Whether this deployment can answer account-details at all.
 
-    False for a local Opik, for a config with no URL, and for a deployment that
-    already answered 404. ``identity.caller`` reports those as anonymous by
-    design, not as a miss.
+    False for a local Opik, for a config with no URL, and for a self-hosted
+    deployment that already answered 404. ``identity.caller`` reports those as
+    anonymous by design, not as a miss. Cloud always serves it, so a 404 there
+    is a passing fault and stays a miss.
     """
-    if installation_type(settings) == "local":
+    kind = installation_type(settings)
+    if kind == "local":
         return False
     url = _account_details_url(settings)
-    return url is not None and url not in _NOT_SERVED
+    if url is None:
+        return False
+    return kind == "cloud" or url not in _NOT_SERVED
 
 
 def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
@@ -256,9 +260,7 @@ def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
     refresh whose result lands on a later event.
     """
     api_key = settings.opik_api_key
-    if not api_key:
-        return None
-    if not account_details_served(settings):
+    if not api_key or installation_type(settings) == "local":
         return None
 
     digest = credential_digest(api_key)
@@ -276,7 +278,9 @@ def resolve_api_key_identity(settings: Settings) -> ResolvedIdentity | None:
     if known is not None and (now - _RESOLVED_AT.get(digest, 0.0)) < CACHE_TTL_SECONDS:
         return known
 
-    _maybe_refresh(settings, api_key, digest, now)
+    # A 404 stops the asking, not the answer: a login already known is kept.
+    if account_details_served(settings):
+        _maybe_refresh(settings, api_key, digest, now)
     # Whatever we have right now — possibly nothing, possibly a stale answer
     # that is still far better than none.
     return known
