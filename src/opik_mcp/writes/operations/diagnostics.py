@@ -23,7 +23,7 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel, Field
 
-from opik_mcp.client.base import backend_reason, note_backend_401
+from opik_mcp.client.base import backend_reason, setup_hint
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.agent_insights_issue.availability import (
@@ -212,10 +212,9 @@ async def retry(
         request = WireRequest(request.path, {"status": "enabled"}, method="PATCH")
         resp = await client.write_json(request.method or op.method, request.path, request.body)
         if not (200 <= resp.status_code < 300):
-            if resp.status_code == 401:
-                note_backend_401()
+            hint = setup_hint(resp)
             raise BackendError.build(
-                op.name, resp.status_code, backend_message=backend_reason(resp)
+                op.name, resp.status_code, backend_message=backend_reason(resp), setup_hint=hint
             )
     if op.name == "agent_insights_job.trigger" and resp.status_code == 404:
         raise refuse(op, "", _NOT_ENABLED, "diagnostics_not_enabled")

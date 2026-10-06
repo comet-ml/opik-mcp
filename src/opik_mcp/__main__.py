@@ -20,6 +20,7 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
+from opik_mcp.client import setup_hints
 from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
@@ -276,9 +277,10 @@ def main() -> None:
     transport = settings.opik_mcp_transport.lower()
     # Hosts start the stdio server on a pipe, so a terminal on stdin is a person.
     stdin_is_a_terminal = transport == "stdio" and sys.stdin is not None and sys.stdin.isatty()
-    for warning in command_line.startup_warnings(
-        sys.argv[1:], stdin_is_a_terminal=stdin_is_a_terminal
-    ):
+    for warning in [
+        *command_line.startup_warnings(sys.argv[1:], stdin_is_a_terminal=stdin_is_a_terminal),
+        *setup_hints.url_warnings(settings),
+    ]:
         logger.warning(warning)
 
     # Initialize Sentry BEFORE the first track_event / any user code path

@@ -47,9 +47,11 @@ from opik_mcp.client.base import (
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
+    opik_rest_base,
 )
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.setup_hints import unreachable
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.decorations import page_note_of
@@ -102,7 +104,7 @@ _SEARCH_TIMEOUT_S = 60.0
 
 
 @contextmanager
-def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
+def _as_tool_error(what: str, *, on_timeout: str, base_url: str | None) -> Iterator[None]:
     """Turn a failed call into the one sentence the agent will read.
 
     The two paths through this tool — a collection page and a metric series —
@@ -122,12 +124,16 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
         raise ToolError(str(err)) from err
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
         raise ToolError(f"Failed to {what}: {err}") from err
+    except httpx.ConnectTimeout as err:
+        # No connection at all (a VPN off, a firewall that drops): the URL is
+        # the question, not the size of the call.
+        raise ToolError(unreachable(what, err, base_url)) from err
     except httpx.TimeoutException as err:
         # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
         # sees an error with no text at all.
         raise ToolError(on_timeout) from err
     except httpx.HTTPError as err:
-        raise ToolError(f"Could not reach Opik to {what}: {err}") from err
+        raise ToolError(unreachable(what, err, base_url)) from err
 
 
 async def _run_whole(
@@ -154,6 +160,7 @@ async def _run_whole(
     async with client_for_call(resolved_settings, client) as opik:
         with _as_tool_error(
             f"{handler.run_verb} {entity_type}",
+            base_url=opik_rest_base(resolved_settings),
             on_timeout=handler.run_timeout_hint
             or f"Opik did not answer in time for list({entity_type!r}, …). Retry with a smaller "
             "page (size=…).",
@@ -307,6 +314,7 @@ async def run_list(
     async with client_for_call(resolved_settings, client, timeout=search_timeout) as opik:
         with _as_tool_error(
             f"list {entity_type}s",
+            base_url=opik_rest_base(resolved_settings),
             on_timeout=(
                 f"Opik did not answer in time for list({entity_type!r}, …). Narrow the query — "
                 "a shorter since window, fewer filters, a smaller size, or drop search — "

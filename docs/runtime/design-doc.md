@@ -18,6 +18,9 @@ does the process refuse to start, and why does no tool take a workspace?
 - The process refuses to start when a setting fails validation, when HTTP has
   `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI`, or when the HTTP port
   cannot be bound (`_preflight_bind_check`).
+- A `COMET_URL_OVERRIDE` on a loopback host with no `OPIK_URL` logs a warning
+  to set `OPIK_URL=<that host>/api` instead (`setup_hints.url_warnings`). That
+  setup is open-source Opik, which serves its API at `/api`, not `/opik/api`.
 
 ### Command line
 
@@ -83,12 +86,36 @@ A 2xx other than 200, or a body that is not a JSON object, is also
 which never raises on status; [writes](../writes/design-doc.md) builds the
 error.
 
-Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
-into a tool error that says how to narrow the call, and any other
-`httpx.HTTPError` into "Could not reach Opik" (`_as_tool_error`). `read`
-catches only the typed errors around its main fetch. The optional blocks of a
-composite read also catch `httpx.HTTPError` and give up after
-`DEADLINE_SECONDS` (`src/opik_mcp/read_list/decorations.py`).
+Transport errors stay `httpx` exceptions in the client. Each tool turns them
+into one sentence: a timeout in `list` says how to narrow the call, in `read`
+to retry, and in `write` that the write may have been applied. Any other
+`httpx.HTTPError` becomes "Could not reach Opik" (`setup_hints.unreachable`).
+The optional blocks of a composite read also catch `httpx.HTTPError` and give
+up after `DEADLINE_SECONDS` (`src/opik_mcp/read_list/decorations.py`).
+
+### Setup errors
+
+A broken setup shows up as the agent's first failed call, and that error is
+all the agent has. `src/opik_mcp/client/setup_hints.py` writes the part of it
+that says what to fix. When the call runs on the server's own env (no inbound
+`Authorization`, which in practice is stdio, since the HTTP server requires a
+bearer), the error names the URL, without `user:password`, and ends with
+`RESTART`: the MCP client reads env only at startup.
+
+- A 401 with no key sent: set `OPIK_API_KEY`. On cloud it names the key page
+  and the hosted server, which signs in without a key. With a key sent: the
+  host the key must come from, or that the key is an unfilled placeholder
+  (`looks_unsubstituted`). An OAuth bearer keeps its own hint
+  (`unauthorized_hint`).
+- A 403 names the workspace the call used. A 5xx from a host that is not
+  cloud says to check that Opik's backend is running (`status_hint`).
+- A connection that failed, or a connect timeout: the URL and the cause. A
+  loopback host asks whether Opik is running and gives
+  `OPEN_SOURCE_LOCAL_API`; any other host names `OPIK_URL` and
+  `COMET_URL_OVERRIDE`.
+
+On a hosted server none of this applies: the backend URL is not the caller's
+to change or to see, so errors name no URL and no env var.
 
 ### Timeouts and connections
 
@@ -148,6 +175,10 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - The help text is written for an agent asked to install the server. It
   repeats the README's install commands, and a test checks that each one is
   in the README (#243).
+- A transport error in `read` or `write` is a `ToolError` with the `httpx`
+  error as its cause, as in `list`: its `error_kind` did not change, its
+  `exception_type` is `ToolError` and its `cause_type` the `httpx` class
+  (OPIK-8688).
 
 ### Traps
 
@@ -169,6 +200,9 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - Read paths, queries and the error mapping: `tests/client/test_read.py`, `tests/client/test_search.py`.
 - One connection per call: `tests/client/test_connection_per_tool_call.py`.
 - Timeout and unreachable messages in `list`: `tests/read_list/test_list_filters.py`.
+- Setup errors in `list`, `read` and `write` (each 401 case, 403, 5xx,
+  unreachable host, connect timeout, the URL redacted, nothing named on a
+  hosted server) and the startup warning: `tests/client/test_setup_hints.py`.
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
@@ -180,6 +214,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-06: setup errors name the URL, the setting to change and the restart (OPIK-8688).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
 - 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).

@@ -174,7 +174,12 @@ class BackendError(WriteError):
 
     @classmethod
     def build(
-        cls, operation: str, status: int, *, backend_message: str | None = None
+        cls,
+        operation: str,
+        status: int,
+        *,
+        backend_message: str | None = None,
+        setup_hint: str | None = None,
     ) -> BackendError:
         # The backend's body is untrusted text and the REST path is not a name
         # the caller can use, so neither is carried; the status is, for the
@@ -186,21 +191,26 @@ class BackendError(WriteError):
             extra["backend_message"] = backend_message
         return cls(
             operation=operation,
-            message=_backend_sentence(operation, status),
+            message=_backend_sentence(operation, status, setup_hint),
             extra=extra,
         )
 
 
-def _backend_sentence(operation: str, status: int) -> str:
-    """What the status means for this write, and the call to retry."""
+def _backend_sentence(operation: str, status: int, setup_hint: str | None) -> str:
+    """What the status means for this write, and the call to retry.
+
+    ``setup_hint`` is ``client.base.setup_hint`` for a 401, 403 or 5xx, from
+    the caller that holds the response.
+    """
     retry = f"write({operation!r}, data=…)"
+    also = f" {setup_hint}" if setup_hint else ""
     if status == 401:
-        hint = oauth_token_expired_hint() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+        hint = setup_hint or oauth_token_expired_hint() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
         return f"Opik rejected the credential for {operation!r} (401). {hint}"
     if status == 403:
         return (
             f"Permission denied for {operation!r} (403); retry {retry} with a credential "
-            "for the workspace that owns the target."
+            f"for the workspace that owns the target.{also}"
         )
     if status == 404:
         return f"The target of {operation!r} was not found (404); check its ids and retry {retry}."
@@ -212,7 +222,7 @@ def _backend_sentence(operation: str, status: int) -> str:
     if status in (400, 422):
         return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."
     if status >= 500:
-        return f"Opik server error ({status}) on {operation!r}; retry the same {retry}."
+        return f"Opik server error ({status}) on {operation!r}; retry the same {retry}.{also}"
     return f"Opik answered {status} to {operation!r}; check the data and retry {retry}."
 
 

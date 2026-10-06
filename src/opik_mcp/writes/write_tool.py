@@ -12,10 +12,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.client.base import opik_rest_base
 from opik_mcp.client.opik import OpikClient
-from opik_mcp.config import Settings
+from opik_mcp.client.setup_hints import unreachable
+from opik_mcp.config import Settings, get_settings
 from opik_mcp.writes.dispatch import run_write as _dispatch
 from opik_mcp.writes.errors import WriteError
 from opik_mcp.writes.scopes import ALL_WRITE_SCOPES
@@ -53,6 +56,20 @@ async def run_write(
     except WriteError as we:
         logger.info("write.failed operation=%s code=%s", operation, we.error)
         raise ToolError(we.to_json()) from we
+    # Below, no answer came back from Opik, so there is no envelope to give: the
+    # sentence says where the write went and what to change.
+    except httpx.ConnectTimeout as e:
+        # Never connected, so never sent: the URL is the question.
+        base_url = opik_rest_base(settings or get_settings())
+        raise ToolError(unreachable(f"write {operation!r}", e, base_url)) from e
+    except httpx.TimeoutException as e:
+        raise ToolError(
+            f"Opik did not answer in time for write({operation!r}, …). It may have been "
+            "applied: read the target before retrying."
+        ) from e
+    except httpx.HTTPError as e:
+        base_url = opik_rest_base(settings or get_settings())
+        raise ToolError(unreachable(f"write {operation!r}", e, base_url)) from e
 
 
 __all__ = ["run_write"]

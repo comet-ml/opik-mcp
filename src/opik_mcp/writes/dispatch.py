@@ -15,8 +15,9 @@ Stages, fail-fast:
 ``dry_run=True`` runs stages 1-3 and returns ``{dry_run, would_call}``
 without touching the backend.
 
-All non-success outcomes raise a ``WriteError`` subclass; the tool layer
-converts those into MCP-friendly error envelopes.
+Every backend answer that is not a success raises a ``WriteError`` subclass;
+the tool layer converts those into MCP-friendly error envelopes. A write with
+no answer (a transport error) passes through for the tool to word.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from opik_mcp.client.base import backend_reason, note_backend_401
+from opik_mcp.client.base import backend_reason, setup_hint
 from opik_mcp.client.opik import OpikClient, make_opik_client
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.writes.errors import (
@@ -276,11 +277,13 @@ def _stage4_finalize(
 ) -> dict[str, Any]:
     status = resp.status_code
     if not (200 <= status < 300):
-        if status == 401:
-            # Drop the cached OAuth validation so the next request re-validates
-            # and meets the 401 that triggers the host's refresh (OPIK-8252).
-            note_backend_401()
-        raise BackendError.build(op.name, status, backend_message=backend_reason(resp))
+        # On a 401 this also drops the cached OAuth validation, so the next
+        # request re-validates and meets the 401 that triggers the host's
+        # refresh (OPIK-8252).
+        hint = setup_hint(resp)
+        raise BackendError.build(
+            op.name, status, backend_message=backend_reason(resp), setup_hint=hint
+        )
     body = safe_body(resp)
     return {
         "ok": True,

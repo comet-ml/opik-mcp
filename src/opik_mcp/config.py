@@ -285,7 +285,12 @@ def installation_type(settings: Settings) -> str:
     raw = settings.opik_url or settings.comet_url_override or ""
     if not raw:
         return "self-hosted"
-    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    return destination_kind(raw)
+
+
+def destination_kind(url: str) -> str:
+    """``cloud`` / ``local`` / ``self-hosted`` for one URL, by its host."""
+    parsed = urlparse(url if "://" in url else f"https://{url}")
     host = (parsed.hostname or "").lower()
     if host in _CLOUD_HOSTS:
         return "cloud"

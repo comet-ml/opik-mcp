@@ -20,6 +20,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
 from opik_mcp.client.base import (
@@ -27,9 +28,11 @@ from opik_mcp.client.base import (
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
+    opik_rest_base,
 )
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.setup_hints import unreachable
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -207,15 +210,27 @@ async def run_read(
     # its metrics), so the connection is owned for the span of this call and
     # every leg reuses it.
     async with client_for_call(resolved_settings, client) as opik:
-        data = await _fetch_with_name_lookup(
-            handler,
-            opik,
-            record_id,
-            project_id=project_id,
-            project_name=project_name,
-            extra=extra,
-            features=features,
-        )
+        try:
+            data = await _fetch_with_name_lookup(
+                handler,
+                opik,
+                record_id,
+                project_id=project_id,
+                project_name=project_name,
+                extra=extra,
+                features=features,
+            )
+        except httpx.TimeoutException as e:
+            if isinstance(e, httpx.ConnectTimeout):
+                base_url = opik_rest_base(resolved_settings)
+                raise ToolError(unreachable(f"read the {entity_type}", e, base_url)) from e
+            # ``str(httpx.ReadTimeout)`` is often empty: say what timed out.
+            raise ToolError(
+                f"Opik did not answer in time for read({entity_type!r}, …). Retry the call."
+            ) from e
+        except httpx.HTTPError as e:
+            base_url = opik_rest_base(resolved_settings)
+            raise ToolError(unreachable(f"read the {entity_type}", e, base_url)) from e
         if handler.link_fn is not None:
             # UI links are session facts (UI base, workspace), so they are
             # attached here rather than inside the fetcher.

@@ -76,8 +76,13 @@ promises, what comes back on success and failure, and where to change or add an 
   A 400 or 422 while a comment resolves its thread carries it too.
 - A Diagnostics enable whose 409 follow-up PATCH fails reports the PATCH's
   status, so a 401 keeps the credential hint and a 5xx says retry. A 401
-  there also drops the cached OAuth validation (`note_backend_401`), as the
-  main write path does.
+  there also drops the cached OAuth validation (`note_backend_401`, through
+  `unauthorized_hint`), as the main write path does.
+- A 401, 403 or 5xx to a write carries the same setup hint as a read
+  (`setup_hint`; see [runtime](../runtime/design-doc.md#setup-errors)).
+- A write that got no answer from Opik (a failed connection, a timeout) is a
+  plain sentence, not an envelope, since there is no backend answer to carry. A timeout says the write may have been
+  applied. See [runtime](../runtime/design-doc.md#setup-errors).
 
 Each code is a plain exception class in `src/opik_mcp/writes/errors.py`,
 whose `args` rebuild it when pickled or copied. Other codes: `unknown_operation` (with

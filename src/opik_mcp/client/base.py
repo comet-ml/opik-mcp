@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Final
 
 import httpx
 
+from opik_mcp.client import setup_hints
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     WORKSPACE_ENV_VARS,
@@ -409,10 +410,10 @@ def note_backend_401() -> str | None:
     the NEXT MCP request re-asks the backend and gets the ``invalid_token`` 401
     that triggers the host's refresh — now, not after the cache TTL. Returns the
     tool-error hint for that bearer (``None`` for an API key); see
-    ``identity.context.oauth_token_expired_hint``. Called from every place a backend
-    401 is turned into an error: here for reads/lists, ``writes.dispatch`` for
-    writes, and the Diagnostics follow-up PATCH in
-    ``writes.operations.diagnostics``.
+    ``identity.context.oauth_token_expired_hint``. Called through
+    ``unauthorized_hint`` from every place a backend 401 is turned into an
+    error: here for reads/lists, ``writes.dispatch`` for writes, and the
+    Diagnostics follow-up PATCH in ``writes.operations.diagnostics``.
     """
     auth = inbound_authorization.get()
     if auth:
@@ -420,6 +421,25 @@ def note_backend_401() -> str | None:
         if mode == "oauth":
             forget_validation(token)
     return oauth_token_expired_hint()
+
+
+def unauthorized_hint(resp: httpx.Response) -> str:
+    """What to change after a 401: the OAuth hint, else what is wrong with the key.
+
+    Runs ``note_backend_401`` first, for its side effect as much as its answer.
+    """
+    return (
+        note_backend_401()
+        or setup_hints.credential_hint(resp)
+        or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+    )
+
+
+def setup_hint(resp: httpx.Response) -> str | None:
+    """The sentence a 401, 403 or 5xx adds about the setup; ``None`` for the rest."""
+    if resp.status_code == 401:
+        return unauthorized_hint(resp)
+    return setup_hints.status_hint(resp)
 
 
 #: Room for a validation reason or two; a longer one is cut and ends in "…".
@@ -464,12 +484,14 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
     if 200 <= status < 300:
         return
     if status == 401:
-        hint = note_backend_401() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+        hint = unauthorized_hint(resp)
         raise OpikAuthError(f"Opik rejected the credential for {entity_hint} (401). {hint}")
+    status_hint = setup_hints.status_hint(resp)
+    also = f" {status_hint}" if status_hint else ""
     if status == 403:
         raise OpikPermissionError(
             f"Permission denied for {entity_hint} (403). Use a credential for the "
-            "workspace that owns it."
+            f"workspace that owns it.{also}"
         )
     if status == 404:
         raise OpikNotFoundError(
@@ -485,7 +507,7 @@ def _raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
         )
     if status >= 500:
         raise OpikServerError(
-            f"Opik server error ({status}) for {entity_hint}. Retry the same call."
+            f"Opik server error ({status}) for {entity_hint}. Retry the same call.{also}"
         )
     # 3xx / unexpected 2xx are already handled by the caller.
     raise OpikServerError(f"Unexpected status {status} for {entity_hint}.")
