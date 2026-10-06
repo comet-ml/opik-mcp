@@ -155,9 +155,9 @@ HostProcess = Literal[
 # HOME, so a reinstall mints a brand-new identity (inflating "new installs") and
 # an unwritable HOME collapses it to the nil sentinel, merging every such
 # deployment into one row. A machine id survives both. It is also the only
-# identity available to local / self-hosted users, who run with auth disabled and
-# so can never resolve a username — ~18k successful tool calls across ~36
-# installs in a 30-day window.
+# identity available to local / open source self-hosted users, who run with auth
+# disabled and so can never resolve a username — ~18k successful tool calls
+# across ~36 installs in a 30-day window.
 #
 # Machine-scoped by design: the digest deliberately excludes the OS username, so
 # two people sharing a box merge and no user-derived data enters the hash. A
@@ -290,7 +290,9 @@ LifecycleSource = Literal["main", "lifespan"]
 # is ``client._build_event``. BI counts real users with
 # ``WHERE user_id_kind = 'comet_user'``; the field's ABSENCE marks events emitted
 # before identity resolution shipped, when ``user_id`` was a workspace name
-# falling back to an install id.
+# falling back to an install id. A login is unique only within its deployment:
+# a self-hosted Comet login can equal a different person's cloud login, so counts
+# and joins must also match ``installation_type``.
 UserIdKind = Literal["comet_user", "install_id"]
 
 # ``install_id_kind``: whether ``install_id`` is a real on-disk id ("file") or the
@@ -313,8 +315,8 @@ InstallIdKind = Literal["file", "fallback"]
 #
 # - "resolved"        — an identity was found; ``user_id`` is a Comet login.
 # - "none_expected"   — no inbound credential, so anonymity is CORRECT, not a
-#                       fault. Local and self-hosted Opik run with auth disabled
-#                       by design; ~60% of all tool calls are this.
+#                       fault. Local and open source self-hosted Opik run with
+#                       auth disabled by design; ~60% of all tool calls are this.
 # - "miss"            — a credential WAS presented and we still could not resolve
 #                       it. This is a DEFECT, and it is the one number that says
 #                       whether hosted identity is actually working. Causes:

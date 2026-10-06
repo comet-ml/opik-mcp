@@ -797,21 +797,6 @@ Note for local OSS installs: the OSS backend does not authenticate requests,
 so an HTTP opik-mcp in front of it is as open as the OSS REST API itself.
 Keep the default `127.0.0.1` bind (and prefer stdio) on shared networks.
 
-### Telemetry
-
-Anonymous usage events (event type + timing only — no query content). A SHA-256
-digest of your API key is included so support can find your account; the raw
-key never leaves the process. **Opt out:** `OPIK_MCP_ANALYTICS_ENABLED=false`.
-
-| Variable | Default | Notes |
-|---|---|---|
-| `OPIK_MCP_ANALYTICS_ENABLED` | `true` | Set to `false` to disable all telemetry. |
-| `OPIK_MCP_ANALYTICS_URL` | `https://stats.comet.com/notify/event/` | Override for staging. |
-| `OPIK_MCP_ANALYTICS_ENVIRONMENT` | `prod` | Tag on every event (`prod` / `staging` / `dev`). |
-| `OPIK_MCP_ANALYTICS_SOURCE` | `comet.com` | Receiver uses this to mark `on_prem=False`. On-prem installs should override to `""` or their own domain. |
-| `OPIK_MCP_ANALYTICS_CONNECT_TIMEOUT_S` | `5.0` | HTTP connect timeout. |
-| `OPIK_MCP_ANALYTICS_TOTAL_TIMEOUT_S` | `10.0` | HTTP total request timeout. |
-
 ---
 
 ## Known host limits

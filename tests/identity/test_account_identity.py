@@ -1,7 +1,7 @@
 """Identity resolution for API-key installs.
 
 The behaviour that matters is not "does it fetch" — it is that a user never
-waits for it, a deployment that cannot answer is never asked, and every failure
+waits for it, a deployment that cannot answer is asked at most once, and every failure
 lands on "we don't know" rather than on an exception or a wrong answer.
 
 Every test runs against a throwaway HOME so the developer's real cache is never
@@ -28,6 +28,7 @@ from opik_mcp.identity.account import (
     reset_account_identity_for_tests,
     resolve_api_key_identity,
 )
+from opik_mcp.identity.caller import caller_identity_with_outcome
 from opik_mcp.identity.store import (
     credential_digest,
     lookup_identity,
@@ -37,6 +38,8 @@ from tests.factories import make_settings
 
 API_KEY = "sk-test-key"
 ACCOUNT_URL = "https://www.comet.com/api/rest/v2/account-details"
+SELF_HOSTED_URL = "https://comet.acme.example/opik/api"
+SELF_HOSTED_ACCOUNT_URL = "https://comet.acme.example/api/rest/v2/account-details"
 
 
 @pytest.fixture(autouse=True)
@@ -107,14 +110,90 @@ def _settle(timeout_s: float = 3.0) -> None:
 
 
 @respx.mock
-def test_self_hosted_never_asks() -> None:
-    """This endpoint does not exist on a self-hosted Opik; asking costs a
-    timeout on every install that can never be attributed anyway."""
-    route = respx.get(ACCOUNT_URL).mock(return_value=httpx.Response(200))
-    settings = _cloud_settings(opik_url="https://opik.acme-internal.example/api")
+def test_a_local_opik_is_never_asked() -> None:
+    """A local Opik has no accounts, so there is nothing to ask."""
+    route = respx.get("http://localhost:5173/api/rest/v2/account-details").mock(
+        return_value=httpx.Response(200)
+    )
+    settings = _cloud_settings(opik_url="http://localhost:5173/api")
     assert resolve_api_key_identity(settings) is None
     _settle()
     assert not route.called
+
+
+@respx.mock
+def test_self_hosted_comet_resolves_from_its_own_host() -> None:
+    """Self-hosted Comet serves account-details as cloud does; ``opik
+    configure`` reads the default workspace from it there."""
+    respx.get(SELF_HOSTED_ACCOUNT_URL).mock(
+        return_value=httpx.Response(200, json={"userName": "jdoe", "defaultWorkspaceName": "acme"})
+    )
+    identity = _await_resolution(_cloud_settings(opik_url=SELF_HOSTED_URL))
+    assert identity is not None
+    assert identity.user_name == "jdoe"
+
+
+@respx.mock
+def test_open_source_self_hosted_is_asked_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An open source Opik answers 404, which is final: even with no retry floor
+    it is not asked again, and its key counts as anonymous by design."""
+    import opik_mcp.identity.account as mod
+
+    monkeypatch.setattr(mod, "_MIN_RETRY_INTERVAL_SECONDS", 0.0)
+    route = respx.get(SELF_HOSTED_ACCOUNT_URL).mock(return_value=httpx.Response(404))
+    settings = _cloud_settings(opik_url=SELF_HOSTED_URL)
+
+    for _ in range(5):
+        assert resolve_api_key_identity(settings) is None
+        _settle()
+
+    assert route.call_count == 1
+    assert caller_identity_with_outcome(settings) == (None, "none_expected")
+
+
+@respx.mock
+def test_a_404_on_cloud_is_a_passing_fault(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cloud always serves account-details, so one 404 (a deploy, a misroute)
+    must not stop the asking or turn a miss into by-design anonymity."""
+    import opik_mcp.identity.account as mod
+
+    monkeypatch.setattr(mod, "_MIN_RETRY_INTERVAL_SECONDS", 0.0)
+    route = respx.get(ACCOUNT_URL).mock(return_value=httpx.Response(404))
+    settings = _cloud_settings()
+
+    for _ in range(2):
+        assert resolve_api_key_identity(settings) is None
+        _settle()
+
+    assert route.call_count == 2
+    assert caller_identity_with_outcome(settings) == (None, "miss")
+
+
+@respx.mock
+def test_a_known_login_survives_a_404(_fresh_home: Path) -> None:
+    """A 404 stops the asking, not the answer already in hand."""
+    respx.get(SELF_HOSTED_ACCOUNT_URL).mock(return_value=httpx.Response(404))
+    _write_cache(_fresh_home, age_seconds=CACHE_TTL_SECONDS + 60)
+    settings = _cloud_settings(opik_url=SELF_HOSTED_URL)
+
+    first = resolve_api_key_identity(settings)
+    _settle()
+    after = resolve_api_key_identity(settings)
+
+    assert first is not None
+    assert after is not None
+    assert after.user_name == "cached-user"
+
+
+@respx.mock
+def test_a_self_hosted_key_that_does_not_resolve_is_a_miss() -> None:
+    """Self-hosted used to report none_expected for every key, so a broken
+    lookup there looked the same as one that could never work."""
+    respx.get(SELF_HOSTED_ACCOUNT_URL).mock(return_value=httpx.Response(401))
+    settings = _cloud_settings(opik_url=SELF_HOSTED_URL)
+    resolve_api_key_identity(settings)
+    _settle()
+    assert caller_identity_with_outcome(settings) == (None, "miss")
 
 
 @respx.mock

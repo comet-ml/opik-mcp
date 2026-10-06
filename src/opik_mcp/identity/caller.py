@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import logging
 
-from opik_mcp.config import Settings, installation_type
-from opik_mcp.identity.account import resolve_api_key_identity
+from opik_mcp.config import Settings
+from opik_mcp.identity.account import account_details_served, resolve_api_key_identity
 from opik_mcp.identity.context import classify_bearer, inbound_authorization
 from opik_mcp.identity.store import ResolvedIdentity, lookup_identity
 
@@ -45,8 +45,8 @@ def caller_identity_with_outcome(settings: Settings) -> tuple[ResolvedIdentity |
     The second element feeds the ``identity_lookup`` BI field, and it exists
     because ``None`` has two meanings that must never be summed:
 
-    - Nobody presented a credential, so anonymity is correct. Local and
-      self-hosted Opik run with auth disabled by design.
+    - Nobody presented a credential, so anonymity is correct. Local and open
+      source self-hosted Opik run with auth disabled by design.
     - A credential WAS presented and we still could not resolve it. That is a
       defect, and it is the number that says whether hosted identity works.
 
@@ -55,7 +55,7 @@ def caller_identity_with_outcome(settings: Settings) -> tuple[ResolvedIdentity |
     could not be verified from its own telemetry.
 
     One honest imprecision on the settings-API-key path: resolution is
-    asynchronous, so the first events of a fresh cloud process can report "miss"
+    asynchronous, so the first events of a fresh process can report "miss"
     while the background refresh is still in flight. It self-corrects within the
     session. Read "miss" per transport rather than fleet-wide.
     """
@@ -81,7 +81,7 @@ def caller_identity_with_outcome(settings: Settings) -> tuple[ResolvedIdentity |
         identity = resolve_api_key_identity(settings)
         if identity is not None and identity.user_name:
             return (identity, "resolved")
-        if not settings.opik_api_key or installation_type(settings) != "cloud":
+        if not settings.opik_api_key or not account_details_served(settings):
             # No credential, or a deployment with no account-details endpoint to
             # ask. Anonymous by construction, not by failure.
             return (None, "none_expected")
