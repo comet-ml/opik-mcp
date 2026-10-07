@@ -23,7 +23,7 @@ from typing import Any, Final
 
 import httpx
 
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikServerError,

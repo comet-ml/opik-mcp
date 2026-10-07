@@ -443,7 +443,7 @@ async def test_tool_called_failure_strips_exception_message(
     text in the analytics event — only the class-keyed bucket and class name.
     Drives ``server.read`` so ``_read_props`` + the wrapper's error-emit arm
     both execute on the real tool surface."""
-    from opik_mcp.client.base import OpikAuthError
+    from opik_mcp.client.errors import OpikAuthError
     from opik_mcp.server.tools.read import read
 
     canary = "raw-error-message-UNIQUE-CANARY-7e1f2a3b"
@@ -515,7 +515,7 @@ async def test_tool_called_cause_type_is_class_only(
     ``real.args`` could silently exfiltrate exception messages into BI."""
     from mcp.server.fastmcp.exceptions import ToolError
 
-    from opik_mcp.client.base import OpikAuthError
+    from opik_mcp.client.errors import OpikAuthError
     from opik_mcp.server.tools.read import read
 
     wrapper_canary = "tool-error-wrapper-msg-UNIQUE-CANARY-1f2e3d4c"
@@ -955,7 +955,7 @@ async def test_sentry_capture_path_carries_no_forbidden_substring(
     from types import SimpleNamespace
 
     from opik_mcp.analytics.wrappers import instrument_tool
-    from opik_mcp.client.base import OpikServerError
+    from opik_mcp.client.errors import OpikServerError
 
     captured_tags: dict[str, str] = {}
     captured_extras: dict[str, Any] = {}

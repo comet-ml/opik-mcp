@@ -250,6 +250,16 @@ def get_settings() -> Settings:
     return Settings()
 
 
+#: Where an error that needs a setup change points: the local server's settings,
+#: the hosted server's setup, and picking the workspace.
+DOCS_LOCAL_SERVER = "https://www.comet.com/docs/opik/mcp-server/advanced-setup#local-server"
+DOCS_HOSTED_SERVER = "https://www.comet.com/docs/opik/mcp-server/advanced-setup#hosted-server"
+DOCS_WORKSPACE = (
+    "https://www.comet.com/docs/opik/mcp-server/faq"
+    "#it-sees-no-data-or-data-from-the-wrong-workspace"
+)
+
+
 def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
     """The one message for an unfilled workspace, wherever it is noticed.
 
@@ -260,13 +270,30 @@ def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
     return MissingConfigError(
         f"{source} is {value!r}, which looks like a config placeholder that was "
         "never filled in. Set it to your workspace name — the segment in your "
-        "Opik URL, e.g. https://www.comet.com/acme-ai/... -> acme-ai."
+        "Opik URL after /opik/, e.g. https://www.comet.com/opik/acme-ai/... -> acme-ai. "
+        f"See {DOCS_WORKSPACE}"
     )
 
 
 # Named for the error message. Pydantic resolves the alias for us and does not
 # report which spelling matched, so name both rather than guess wrong.
 WORKSPACE_ENV_VARS = "OPIK_WORKSPACE (or COMET_WORKSPACE)"
+
+
+def opik_rest_base(settings: Settings) -> str | None:
+    """Resolve Opik's REST API base URL from settings, or ``None`` if unconfigured.
+
+    Single source of truth for the rule: an explicit ``OPIK_URL`` override wins;
+    otherwise derive from ``COMET_URL_OVERRIDE + "/opik/api"``. Shared by
+    ``resolve_opik_config`` (which treats ``None`` as a fatal misconfig) and
+    ``identity.oauth.introspect_oauth_token`` (which treats ``None`` as "skip,
+    fall back to the static workspace"), so both agree on where Opik lives.
+    """
+    if settings.opik_url:
+        return settings.opik_url.rstrip("/")
+    if settings.comet_url_override:
+        return f"{settings.comet_url_override.rstrip('/')}/opik/api"
+    return None
 
 
 def installation_type(settings: Settings) -> str:

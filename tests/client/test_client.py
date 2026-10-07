@@ -3,7 +3,7 @@ import pytest
 import respx
 
 from opik_mcp.client.annotations import FeedbackScore
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
@@ -221,7 +221,7 @@ async def test_write_path_propagates_read_timeout_unchanged() -> None:
     httpx.TimeoutException` directly) can't happen silently.
 
     A regression that started swallowing the timeout (e.g. inside
-    `_raise_for_status`) would surface as `expected_exc` no longer firing.
+    `errors.raise_for_status`) would surface as `expected_exc` no longer firing.
     """
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.put("/v1/private/traces/tr-1/feedback-scores").mock(
@@ -381,6 +381,50 @@ async def test_no_api_key_against_authenticated_backend_surfaces_401() -> None:
     assert route.called
     sent = {k.lower() for k in route.calls.last.request.headers}
     assert "authorization" not in sent
+
+
+def _opik_env(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
+    for name in ("OPIK_API_KEY", "OPIK_URL", "COMET_URL_OVERRIDE"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+
+async def _a_401_message() -> str:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/traces/tr-1").mock(return_value=httpx.Response(401))
+        with pytest.raises(OpikAuthError) as err:
+            await OpikClient(base_url=OPIK_BASE, api_key=None, workspace="ws").get_trace("tr-1")
+    return str(err.value)
+
+
+@pytest.mark.anyio
+async def test_a_401_with_no_key_for_opik_cloud__names_the_key_page_and_the_hosted_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _opik_env(monkeypatch)
+
+    message = await _a_401_message()
+
+    assert "https://www.comet.com/api/my/settings/" in message
+    assert "https://www.comet.com/opik/api/v1/mcp" in message
+    assert "/docs/opik/mcp-server/advanced-setup#hosted-server" in message
+    assert "Restart the MCP client" in message
+
+
+@pytest.mark.parametrize("env", [{"OPIK_API_KEY": "k"}, {"OPIK_URL": "http://localhost:5173/api"}])
+@pytest.mark.anyio
+async def test_a_401_with_a_key_or_off_cloud__names_the_settings(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str]
+) -> None:
+    _opik_env(monkeypatch, **env)
+
+    message = await _a_401_message()
+
+    assert message.endswith(
+        "Check OPIK_API_KEY and OPIK_WORKSPACE: "
+        "https://www.comet.com/docs/opik/mcp-server/advanced-setup#local-server"
+    )
 
 
 def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:

@@ -25,7 +25,7 @@ from opik_mcp.analytics.wrappers import (
     _reset_seen_sessions_for_tests,
     instrument_tool,
 )
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,

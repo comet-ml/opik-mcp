@@ -24,8 +24,7 @@ from dataclasses import dataclass
 from typing import Final, Literal, get_args
 from urllib.parse import quote
 
-from opik_mcp.client.base import opik_rest_base
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+from opik_mcp.config import DEFAULT_WORKSPACE, Settings, opik_rest_base
 from opik_mcp.identity.context import (
     classify_bearer,
     inbound_authorization,

@@ -42,12 +42,13 @@ from typing import Any, cast
 import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.errors.hints import unreachable
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings, get_settings
@@ -127,7 +128,7 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
         # sees an error with no text at all.
         raise ToolError(on_timeout) from err
     except httpx.HTTPError as err:
-        raise ToolError(f"Could not reach Opik to {what}: {err}") from err
+        raise ToolError(f"Could not reach Opik to {what}: {unreachable(err)}") from err
 
 
 async def _run_whole(

@@ -8,7 +8,7 @@ import pytest
 import respx
 
 from opik_mcp.client.ai_spend import SpendAdminRequiredError
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikPermissionError,
     OpikServerError,

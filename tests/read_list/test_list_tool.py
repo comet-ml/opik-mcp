@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.client.errors import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.config import Settings
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.list_tool import run_list

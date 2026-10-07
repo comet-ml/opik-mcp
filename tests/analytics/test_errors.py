@@ -20,7 +20,7 @@ from opik_mcp.analytics.errors import (
     derive_http_status,
     unwrap_to_real_cause,
 )
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,

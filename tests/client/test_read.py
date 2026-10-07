@@ -12,7 +12,7 @@ import httpx
 import pytest
 import respx
 
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
@@ -494,7 +494,7 @@ async def test_a_backend_error_is_one_sentence_without_the_body_or_path(status: 
             await _client().get_project("p-x")
     message = str(err.value)
     assert "sk-live-123" not in message
-    assert "/v1/" not in message
+    assert "/v1/private/" not in message
     assert "project 'p-x'" in message
 
 

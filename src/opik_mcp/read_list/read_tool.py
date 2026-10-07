@@ -20,14 +20,16 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikServerError,
     OpikValidationError,
 )
+from opik_mcp.client.errors.hints import unreachable
 from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings, get_settings
@@ -72,7 +74,7 @@ def _format_client_error(
 
     A missing record is the read's own case: the entity is named in the
     caller's words and the listing that finds it is offered. Every other
-    status already reads that way from the client (``_raise_for_status``),
+    status already reads that way from the client (``errors.raise_for_status``),
     which names the part of the read that failed; a second copy of it here
     would say the same thing twice. A 401 is about the credential, never the
     workspace, and that sentence says which credential and what to do.
@@ -313,6 +315,10 @@ async def _fetch_with_name_lookup(
         raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e, features)) from e
+    except httpx.HTTPError as e:
+        raise ToolError(
+            f"Could not reach Opik to read the {handler.entity_type}: {unreachable(e)}"
+        ) from e
 
 
 __all__ = ["run_read"]
