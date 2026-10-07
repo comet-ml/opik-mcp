@@ -203,7 +203,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
-- 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#246).
+- 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#247).
 - 2026-10-07: a 401 with no key for Opik Cloud and an unreachable Opik say what to fix; `read` and `write` catch connection errors (#245).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
