@@ -31,6 +31,15 @@ types anyway:
   of Opik, and exits 0. `-V` / `--version` prints `opik-mcp <version>`. Both
   answer before settings, Sentry and analytics, so a bad setting doesn't block
   them and a probe sends no event.
+- `--check` makes one call with the settings in its own env (`run_check`):
+  the smallest page of projects, with a 10 s timeout. It prints "OK: Opik at
+  <url>, workspace <ws>, N projects visible." and exits 0, or the error a tool
+  would give and exits 1; never the key. A 404 or a web page where the API
+  should be says "No Opik API at <url>" with the path each kind of Opik
+  serves on, and an unset workspace on a Comet platform is named as the
+  account default. An agent runs it before registering
+  the local server, with the env it is about to pass: it cannot see the env a
+  client has stored. No Sentry, no analytics event.
 - Any other argument is ignored, as before. One warning names each flag, with
   the env var for the TypeScript server's flags (`TYPESCRIPT_FLAG_ENV_VARS`),
   and counts the values without repeating them, since a value can be the API
@@ -189,9 +198,12 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
   matches the README and names only real settings:
   `tests/repo/test_help_matches_readme.py`.
+- `--check`, OK, rejected and unreachable, against the real process:
+  `tests/hermetic/test_check.py`.
 
 ## Log
 
+- 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#247).
 - 2026-10-07: a 401 with no key for Opik Cloud and an unreachable Opik say what to fix; `read` and `write` catch connection errors (#245).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
