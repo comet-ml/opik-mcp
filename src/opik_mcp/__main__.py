@@ -248,6 +248,8 @@ def main() -> None:
     if reply is not None:
         sys.stdout.write(reply.rstrip("\n") + "\n")
         return
+    if command_line.CHECK_ARGUMENT in sys.argv[1:]:
+        sys.exit(command_line.run_check())
 
     try:
         settings = get_settings()

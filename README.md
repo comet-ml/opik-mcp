@@ -325,6 +325,12 @@ prints these rules and the commands for each case.
   the user run the command.
 - Don't guess the workspace. It is the segment after `comet.com/opik/` (or
   `/opik/` on a self-hosted Comet) in the user's Opik URL.
+- Before registering the local server, run it with the env you will pass and
+  `--check`, with `OPIK_API_KEY` exported in the shell rather than written on
+  the command: `OPIK_URL=http://localhost:5173/api uvx opik-mcp --check`. It
+  exits 0 and names the workspace it sees, or prints what to fix. Once
+  registered, Claude Code reports Connected even with a wrong key, and Codex
+  has no check.
 - An `opik-mcp` entry may already exist, from the old npx setup or an earlier
   attempt. Tell the user before replacing it. Claude Code refuses to add over
   it, so remove it first with `claude mcp remove opik-mcp --scope user`;
