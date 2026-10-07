@@ -6,10 +6,12 @@ import io
 import logging
 import sys
 
+import httpx
 import pytest
+import respx
 
 from opik_mcp import __main__ as main_mod
-from opik_mcp import command_line
+from opik_mcp import command_line, error_tracking
 from opik_mcp.analytics.identity import OPIK_MCP_VERSION
 
 HOSTED_URL = "https://www.comet.com/opik/api/v1/mcp"
@@ -187,3 +189,93 @@ def test_a_local_opik_set_up_as_a_comet_platform__is_told_to_set_opik_url(
         main_mod.main()
 
     assert ("Set OPIK_URL=http://localhost:5173/api instead" in caplog.text) is warned
+
+
+_CHECKED = "http://opik.test/api"
+
+
+def _check(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    answer: httpx.Response | Exception,
+    base: str = _CHECKED,
+    **env: str,
+) -> tuple[object, str]:
+    """`opik-mcp --check` with ``env``, the backend at ``base`` answering ``answer``."""
+    for name in ("OPIK_API_KEY", "COMET_URL_OVERRIDE", "OPIK_WORKSPACE", "COMET_WORKSPACE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPIK_URL", base)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "argv", ["opik-mcp", "--check"])
+    # A check is not a server session.
+    monkeypatch.setattr(main_mod, "track_event", _refuse)
+    monkeypatch.setattr(error_tracking, "setup_sentry", _refuse)
+    with respx.mock(base_url=base, assert_all_called=False) as mock:
+        route = mock.get("/v1/private/projects")
+        if isinstance(answer, Exception):
+            route.mock(side_effect=answer)
+        else:
+            route.mock(return_value=answer)
+        with pytest.raises(SystemExit) as exited:
+            main_mod.main()
+    return exited.value.code, capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("answer", "status", "said"),
+    [
+        (
+            httpx.Response(200, json={"content": [], "total": 3}),
+            0,
+            f"OK: Opik at {_CHECKED}, workspace default, 3 projects visible.",
+        ),
+        (httpx.Response(401), 1, "Opik rejected the credential for projects (401). Check"),
+        # A Comet-platform address on open-source Opik: a 404, or its web page.
+        (httpx.Response(404), 1, f"No Opik API at {_CHECKED}. Open-source Opik serves"),
+        (httpx.Response(200, text="<html></html>"), 1, f"No Opik API at {_CHECKED}."),
+        (
+            httpx.ConnectError("All connection attempts failed"),
+            1,
+            f"Could not reach Opik to list projects: All connection attempts failed "
+            f"(tried {_CHECKED})",
+        ),
+    ],
+)
+def test_check__one_line_and_an_exit_status_never_the_key(
+    answer: httpx.Response | Exception,
+    status: int,
+    said: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code, out = _check(monkeypatch, capsys, answer, OPIK_API_KEY="sk-canary-key")
+
+    assert code == status
+    assert said in out
+    assert out.count("\n") == 1
+    assert "sk-canary-key" not in out
+
+
+def test_check__a_setting_that_fails_validation_is_named(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out = _check(monkeypatch, capsys, httpx.Response(200), COMET_WORKSPACE_ID="not-a-uuid")
+
+    assert code == 1
+    assert out == "An opik-mcp setting is invalid: COMET_WORKSPACE_ID.\n"
+
+
+def test_check__an_unset_workspace_on_a_comet_platform_is_named(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """It is the account's default there, which may not be the one meant."""
+    code, out = _check(
+        monkeypatch,
+        capsys,
+        httpx.Response(200, json={"content": [], "total": 3}),
+        base="https://comet.example.com/opik/api",
+    )
+
+    assert code == 0
+    assert "workspace default (OPIK_WORKSPACE not set, so the account default)" in out

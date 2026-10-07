@@ -3,17 +3,37 @@
 The server takes its settings from env vars, and an MCP client starts it with
 no arguments. ``--help`` and ``--version`` answer and exit, so an agent that
 probes the command learns how to install it instead of starting a server that
-waits on stdin. Any other argument is ignored, as before, with a warning.
+waits on stdin; ``--check`` tries the settings in its env and exits. Any other
+argument is ignored, as before, with a warning.
 """
 
 from __future__ import annotations
 
+import asyncio
+import sys
 from collections.abc import Sequence
 
+import httpx
+from pydantic import ValidationError
+
 from opik_mcp.analytics.identity import OPIK_MCP_VERSION
+from opik_mcp.client.base import resolve_opik_config
+from opik_mcp.client.errors import (
+    OpikAuthError,
+    OpikNotFoundError,
+    OpikServerError,
+    OpikValidationError,
+)
+from opik_mcp.client.errors.hints import address, no_api_at, unreachable
+from opik_mcp.client.opik import make_opik_client
+from opik_mcp.config import MissingConfigError, get_settings
 
 HELP_ARGUMENTS = frozenset({"-h", "--help"})
 VERSION_ARGUMENTS = frozenset({"-V", "--version"})
+CHECK_ARGUMENT = "--check"
+
+#: Long enough for a cold backend, short enough for an agent's shell command.
+CHECK_TIMEOUT_SECONDS = 10.0
 
 # Written for a coding agent asked to install the server. The command lines
 # also appear in README.md (tests/repo/test_help_matches_readme.py).
@@ -39,6 +59,10 @@ it, register it with the client, for the case that matches the user's Opik:
    open-source Opik:  OPIK_URL=https://<host>/api
    a Comet platform:  COMET_URL_OVERRIDE=https://<host>, OPIK_WORKSPACE
                       and OPIK_API_KEY
+
+Before registering 1 or 3, check the env you will pass, OPIK_API_KEY from
+the shell. It exits 0 or says what to fix:
+  OPIK_URL=http://localhost:5173/api uvx opik-mcp --check
 
 Not sure which applies? Ask the user. A failed localhost check can mean the
 shell has no network access, as in a sandbox, rather than that Opik is down.
@@ -99,6 +123,49 @@ def reply_for(arguments: Sequence[str]) -> str | None:
     if VERSION_ARGUMENTS.intersection(arguments):
         return f"opik-mcp {OPIK_MCP_VERSION}"
     return None
+
+
+def run_check() -> int:
+    """`--check`: one authenticated call with the settings in this process's env.
+
+    For an agent to run before registering the local server, with the env it is
+    about to pass: Claude Code reports Connected even with a wrong key, and Codex
+    starts nothing before a session. Prints one line; returns the exit status.
+    """
+    try:
+        settings = get_settings()
+        base_url, _, workspace = resolve_opik_config(settings)
+        client = make_opik_client(settings, timeout=CHECK_TIMEOUT_SECONDS)
+        page = asyncio.run(client.list_projects(size=1))
+    except ValidationError as err:
+        invalid = ", ".join(str(error["loc"][0]).upper() for error in err.errors())
+        return _report(f"An opik-mcp setting is invalid: {invalid}.", status=1)
+    except (
+        MissingConfigError,
+        OpikAuthError,
+        OpikNotFoundError,
+        OpikServerError,
+        OpikValidationError,
+    ) as err:
+        # A 404, or a web page where the API should be: the path is not Opik's.
+        wrong_path = isinstance(err, OpikNotFoundError) or isinstance(err.__cause__, ValueError)
+        return _report(no_api_at(base_url) if wrong_path else str(err), status=1)
+    except httpx.HTTPError as err:
+        return _report(f"Could not reach Opik to list projects: {unreachable(err)}", status=1)
+    # On a Comet platform an unset workspace is the account's default, which may
+    # not be the one meant.
+    unset = not settings.comet_workspace and base_url.endswith("/opik/api")
+    return _report(
+        f"OK: Opik at {address(base_url)}, workspace {workspace}"
+        f"{' (OPIK_WORKSPACE not set, so the account default)' if unset else ''}, "
+        f"{page.get('total', 0)} projects visible.",
+        status=0,
+    )
+
+
+def _report(line: str, *, status: int) -> int:
+    sys.stdout.write(f"{line}\n")
+    return status
 
 
 def startup_warnings(arguments: Sequence[str], *, stdin_is_a_terminal: bool) -> list[str]:

@@ -19,7 +19,9 @@ README = Path(__file__).resolve().parents[2] / "README.md"
 #: paid for in context once per probe.
 HELP_BUDGET_BYTES = 2_500
 
-_COMMAND_LINE = re.compile(r"^\s*((?:claude|codex) mcp \S.*|uvx \S.*)$", re.MULTILINE)
+_COMMAND_LINE = re.compile(
+    r"^\s*((?:[A-Z_]+=\S+ )*(?:(?:claude|codex) mcp|uvx) \S.*)$", re.MULTILINE
+)
 _ENV_VAR = re.compile(r"\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b")
 
 

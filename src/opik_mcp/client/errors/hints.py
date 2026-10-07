@@ -37,6 +37,22 @@ def credential_hint() -> str:
     )
 
 
+def address(url: str) -> str:
+    """``url`` without any user:password, for a message to name."""
+    return str(httpx.URL(url).copy_with(username=None, password=None))
+
+
+def no_api_at(base_url: str) -> str:
+    """An address that answered, but not as Opik's API: the two paths it serves on."""
+    url = httpx.URL(address(base_url))
+    host = f"{url.scheme}://{url.netloc.decode()}"
+    return (
+        f"No Opik API at {address(base_url)}. Open-source Opik serves it at {host}/api "
+        f"(set OPIK_URL); a Comet platform at {host}/opik/api (set "
+        f"COMET_URL_OVERRIDE={host}). Setup: {DOCS_LOCAL_SERVER}"
+    )
+
+
 def unreachable(err: httpx.HTTPError) -> str:
     """Why a call got no answer and, on a local server, where it went (without
     any user:password) and whether Opik is running there."""
@@ -44,8 +60,8 @@ def unreachable(err: httpx.HTTPError) -> str:
     if inbound_authorization.get():
         # The hosted server: its backend address is not the caller's to fix.
         return reason
-    base = httpx.URL(opik_rest_base(get_settings()) or "")
-    text = f"{reason} (tried {base.copy_with(username=None, password=None)})"
-    if base.host in LOOPBACK_HOSTS:
+    base = opik_rest_base(get_settings()) or ""
+    text = f"{reason} (tried {address(base)})"
+    if httpx.URL(base).host in LOOPBACK_HOSTS:
         text += ". Is Opik running? Open-source Opik serves its API at http://localhost:5173/api"
     return f"{text}. Setup: {DOCS_LOCAL_SERVER}"

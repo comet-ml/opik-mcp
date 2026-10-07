@@ -188,6 +188,16 @@ Env vars point the server at your Opik:
 - `OPIK_MCP_ANALYTICS_SOURCE=""` in the `env` block opts a self-hosted install
   out of the cloud-Comet source label on telemetry events.
 
+Before adding the server to a client, check the settings: run it with the same
+env and `--check`. It makes one call to Opik and prints the workspace and how
+many projects it sees, or what to fix with a link to the docs, and exits 0 or 1.
+A client can't tell you this before a new session: Claude Code shows Connected
+even with a wrong key, and Codex starts nothing until then.
+
+```bash
+OPIK_URL=http://localhost:5173/api uvx opik-mcp --check
+```
+
 The examples use a local open-source Opik. For a self-hosted Comet, swap in the
 three variables from the table. After adding the server, start a new session
 and ask: **"list my Opik projects"**.
@@ -226,8 +236,8 @@ Or edit `~/.claude.json` directly:
 ```
 
 `claude mcp get opik-mcp` shows `✔ Connected` once the server starts. That does
-not prove the URL or key are right, because only a tool call reaches Opik. It
-also prints the `env` block, API key included.
+not prove the URL or key are right, because only a tool call reaches Opik;
+`--check`, above, does. It also prints the `env` block, API key included.
 
 ### Codex
 
@@ -325,6 +335,12 @@ prints these rules and the commands for each case.
   the user run the command.
 - Don't guess the workspace. It is the segment after `comet.com/opik/` (or
   `/opik/` on a self-hosted Comet) in the user's Opik URL.
+- Before registering the local server, run it with the env you will pass and
+  `--check`, with `OPIK_API_KEY` exported in the shell rather than written on
+  the command: `OPIK_URL=http://localhost:5173/api uvx opik-mcp --check`. It
+  exits 0 and names the workspace it sees, or prints what to fix. Once
+  registered, Claude Code reports Connected even with a wrong key, and Codex
+  has no check.
 - An `opik-mcp` entry may already exist, from the old npx setup or an earlier
   attempt. Tell the user before replacing it. Claude Code refuses to add over
   it, so remove it first with `claude mcp remove opik-mcp --scope user`;
@@ -815,6 +831,11 @@ If a call gets stuck, set `OPIK_MCP_LOG_LEVEL=DEBUG` for the full request log.
 
 ## Troubleshooting
 
+**Does the setup work?** Run the server with the env from its client config and
+`--check`: `OPIK_URL=http://localhost:5173/api uvx opik-mcp --check`. It names
+the workspace and the projects it sees, or says what to fix. The server's own
+errors also say what to change, and link the docs page for it.
+
 **`OPIK_API_KEY` isn't picked up** — the var isn't reaching the server
 process. In Claude Code / Cursor / VS Code, env vars only apply when inside
 the `env` block of the MCP server config, not your shell; Codex also forwards
@@ -823,14 +844,16 @@ clients read the config when a session starts.
 
 **Requests go to `/opik/api` on an open-source Opik** — `COMET_URL_OVERRIDE` is
 for a self-hosted Comet platform. Open source serves its API at `/api`: set
-`OPIK_URL=http://localhost:5173/api` (or `https://<host>/api`) instead.
+`OPIK_URL=http://localhost:5173/api` (or `https://<host>/api`) instead. The
+server warns about this at startup when the host is this machine, and `--check`
+answers "No Opik API at …".
 
 **Cursor call times out at 60s** — Cursor's known bug, not `opik-mcp`. Either
 narrow the call (smaller `size`, a tighter window), or run the same operation
 on Claude Code which has no hard cap.
 
 **Server not showing, sign-in not opening, wrong workspace, `uvx` not found.**
-These are covered in the [troubleshooting section of the docs](https://www.comet.com/docs/opik/mcp-server#troubleshooting).
+These are covered in the [troubleshooting section of the docs](https://www.comet.com/docs/opik/mcp-server/faq#troubleshooting).
 `opik mcp status` (from the same `uvx opik` CLI) lists every client that has the
 server configured and whether its config has drifted.
 
