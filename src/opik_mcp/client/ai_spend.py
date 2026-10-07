@@ -7,12 +7,8 @@ from contextlib import contextmanager
 from typing import Any
 from urllib.parse import quote
 
-from opik_mcp.client.base import (
-    OpikClientBase,
-    OpikPermissionError,
-    OpikValidationError,
-    _drop_none,
-)
+from opik_mcp.client.base import OpikClientBase, _drop_none
+from opik_mcp.client.errors import OpikPermissionError, OpikValidationError
 from opik_mcp.client.protocols import SpendItemKind
 
 _PREFIX = "/v1/private/ai-spend"
@@ -30,7 +26,7 @@ class SpendAdminRequiredError(OpikPermissionError):
 
 
 def _admin_message(entity_hint: str) -> str:
-    """The 403 sentence for spend, in the shape ``_raise_for_status`` uses.
+    """The 403 sentence for spend, in the shape ``errors.raise_for_status`` uses.
 
     It names no environment variable: the hosted HTTP transport forwards the
     caller's inbound OAuth bearer, where there is no ``OPIK_API_KEY`` to set,

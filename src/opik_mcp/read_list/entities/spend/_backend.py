@@ -14,7 +14,7 @@ from typing import Final
 
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikServerError,

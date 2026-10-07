@@ -82,7 +82,7 @@ project if set, tool selection, the link rule, and today's UTC date.
   the id. It is marked `| projected` in the header and on the line under it.
   An unknown path is refused with the valid ones.
 - A backend failure is one sentence: what was asked and what to change
-  (`_raise_for_status` in `src/opik_mcp/client/base.py`). A missing record
+  (`raise_for_status` in `src/opik_mcp/client/errors/__init__.py`). A missing record
   adds the `list('<type>', …)` call for a listable type
   (`_format_client_error`). A 400 or 422 ends with `Backend said: "…"`: the
   strings under the body's `errors` or `message`, on one line, cut at

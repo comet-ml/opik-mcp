@@ -13,6 +13,8 @@ import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
+from opik_mcp.client.errors.hints import credential_hint
+from opik_mcp.config import DOCS_WORKSPACE
 from opik_mcp.error_kinds import ErrorKind
 from opik_mcp.identity.context import oauth_token_expired_hint
 
@@ -179,7 +181,7 @@ class BackendError(WriteError):
         # The backend's body is untrusted text and the REST path is not a name
         # the caller can use, so neither is carried; the status is, for the
         # analytics bucket. ``backend_message`` is the backend's own capped
-        # reason on a 400, 409 or 422 (``client.base.backend_reason``), kept in its
+        # reason on a 400, 409 or 422 (``client.errors.backend_reason``), kept in its
         # own field so it is never read as ours.
         extra: dict[str, Any] = {"backend_error": {"status": status}}
         if backend_message:
@@ -195,12 +197,12 @@ def _backend_sentence(operation: str, status: int) -> str:
     """What the status means for this write, and the call to retry."""
     retry = f"write({operation!r}, data=…)"
     if status == 401:
-        hint = oauth_token_expired_hint() or "Check OPIK_API_KEY and OPIK_WORKSPACE."
+        hint = oauth_token_expired_hint() or credential_hint()
         return f"Opik rejected the credential for {operation!r} (401). {hint}"
     if status == 403:
         return (
             f"Permission denied for {operation!r} (403); retry {retry} with a credential "
-            "for the workspace that owns the target."
+            f"for the workspace that owns the target: {DOCS_WORKSPACE}"
         )
     if status == 404:
         return f"The target of {operation!r} was not found (404); check its ids and retry {retry}."

@@ -6,6 +6,7 @@ import socket
 import sys
 import time
 
+import httpx
 import uvicorn
 from pydantic import ValidationError
 
@@ -20,7 +21,8 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
-from opik_mcp.config import Settings, get_settings
+from opik_mcp.client.errors.hints import LOOPBACK_HOSTS
+from opik_mcp.config import DOCS_LOCAL_SERVER, Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
 
@@ -280,6 +282,14 @@ def main() -> None:
         sys.argv[1:], stdin_is_a_terminal=stdin_is_a_terminal
     ):
         logger.warning(warning)
+    if not settings.opik_url and httpx.URL(settings.comet_url_override).host in LOOPBACK_HOSTS:
+        # Open-source Opik on this machine, set up as a Comet platform: every call
+        # would go to /opik/api, which it does not serve.
+        logger.warning(
+            "COMET_URL_OVERRIDE points at this machine, where open-source Opik serves "
+            f"its API at /api. Set OPIK_URL={settings.comet_url_override.rstrip('/')}"
+            f"/api instead: {DOCS_LOCAL_SERVER}"
+        )
 
     # Initialize Sentry BEFORE the first track_event / any user code path
     # that might raise. No-op when OPIK_MCP_SENTRY_ENABLED=false; see

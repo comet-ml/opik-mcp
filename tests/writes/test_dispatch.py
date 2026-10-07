@@ -1460,3 +1460,21 @@ async def test_a_top_level_payload_still_counts_itself() -> None:
         client=_client(),
     )
     assert result["would_call"]["item_count"] == 2
+
+
+@pytest.mark.anyio
+async def test_an_unreachable_backend__is_one_sentence_naming_the_write() -> None:
+    """It used to reach the host as a bare `httpx` error."""
+    from mcp.server.fastmcp.exceptions import ToolError
+
+    from opik_mcp.writes import write_tool
+    from opik_mcp.writes.registry import WRITE_REGISTRY
+
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.route().mock(side_effect=httpx.ConnectError("All connection attempts failed"))
+        with pytest.raises(ToolError, match=r"^Could not reach Opik to run 'trace.create'"):
+            await write_tool.run_write(
+                operation="trace.create",
+                data=WRITE_REGISTRY["trace.create"].example,
+                client=_client(),
+            )

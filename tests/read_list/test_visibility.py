@@ -182,7 +182,7 @@ def test_schema_answers_a_feature_list_key_only_with_the_feature(
 
 
 def test_a_missing_record_offers_the_listing_the_features_have() -> None:
-    from opik_mcp.client.base import OpikNotFoundError
+    from opik_mcp.client.errors import OpikNotFoundError
     from opik_mcp.read_list.read_tool import _format_client_error
 
     text = _format_client_error("trace", "x", OpikNotFoundError("m"), NONE)

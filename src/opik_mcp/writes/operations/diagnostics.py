@@ -23,7 +23,7 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel, Field
 
-from opik_mcp.client.base import backend_reason, note_backend_401
+from opik_mcp.client.errors import backend_reason, note_backend_401
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.agent_insights_issue.availability import (

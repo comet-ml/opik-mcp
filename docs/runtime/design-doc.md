@@ -18,6 +18,8 @@ does the process refuse to start, and why does no tool take a workspace?
 - The process refuses to start when a setting fails validation, when HTTP has
   `OPIK_MCP_AS_URL` but no `OPIK_MCP_RESOURCE_URI`, or when the HTTP port
   cannot be bound (`_preflight_bind_check`).
+- A `COMET_URL_OVERRIDE` on this machine with no `OPIK_URL` logs a warning to
+  set `OPIK_URL`: open-source Opik serves `/api`, not `/opik/api`.
 
 ### Command line
 
@@ -67,7 +69,8 @@ environment fallback when the caller supplied a value; does a missing header cou
 
 ### Errors
 
-Reads and lists map a non-2xx answer to a typed error in `_raise_for_status`,
+Reads and lists map a non-2xx answer to a typed error in `raise_for_status`
+(`src/opik_mcp/client/errors/__init__.py`),
 with an entity hint and an excerpt of the backend's message.
 
 | Status | Error | `error_kind` |
@@ -78,15 +81,22 @@ with an entity hint and an excerpt of the backend's message.
 | 400, 422 | `OpikValidationError` | `validation` |
 | 5xx, other | `OpikServerError` | `upstream_5xx` |
 
-A 2xx other than 200, or a body that is not a JSON object, is also
+A 401 that no OAuth bearer explains says "Check OPIK_API_KEY and
+OPIK_WORKSPACE", or, with no key sent to Opik Cloud, names the key page and the
+keyless hosted server and says to restart the client (`credential_hint` in
+`src/opik_mcp/client/errors/hints.py`).
+Writes say the same. An error a setup change fixes (401, 403, no answer, a
+missing or placeholder setting) links the docs page for it (`DOCS_*` in
+`config.py`). A 2xx other than 200, or a body that is not a JSON object, is also
 `OpikServerError`. Writes get the raw response from `OpikClient.write_json`,
 which never raises on status; [writes](../writes/design-doc.md) builds the
 error.
 
 Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
-into a tool error that says how to narrow the call, and any other
-`httpx.HTTPError` into "Could not reach Opik" (`_as_tool_error`). `read`
-catches only the typed errors around its main fetch. The optional blocks of a
+into a tool error that says how to narrow the call. `list`, `read` and `write`
+turn any other `httpx.HTTPError` into "Could not reach Opik", which on a local
+server names the base URL without any user:password and, on this machine, asks
+whether Opik is running (`hints.unreachable`). The optional blocks of a
 composite read also catch `httpx.HTTPError` and give up after
 `DEADLINE_SECONDS` (`src/opik_mcp/read_list/decorations.py`).
 
@@ -105,7 +115,7 @@ composite read also catch `httpx.HTTPError` and give up after
 
 ```
 read/list -> client_for_call -> make_opik_client -> resolve_opik_config
-          -> OpikClient.get_* / list_* -> _get_json | _post_json -> _raise_for_status
+          -> OpikClient.get_* / list_* -> _get_json | _post_json -> errors.raise_for_status
 write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 ```
 
@@ -172,6 +182,8 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
+- The 401 hint: `test_a_401_with_no_key_for_opik_cloud__names_the_key_page_and_the_hosted_server`.
+- Unreachable Opik, and the password kept out: `test_backend_unreachable__names_where_without_the_password`.
 - Help, version, the flag warning and the terminal hint: `tests/server/test_command_line.py`.
   The real process exits on `--help` with stdin open and sends no event:
   `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
@@ -180,6 +192,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-07: a 401 with no key for Opik Cloud and an unreachable Opik say what to fix; `read` and `write` catch connection errors (#245).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
 - 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).

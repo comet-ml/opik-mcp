@@ -154,3 +154,36 @@ def test_the_http_server_at_a_terminal_gets_no_hint(
 
     assert started == ["streamable-http"]
     assert command_line.TERMINAL_HINT not in caplog.messages
+
+
+@pytest.mark.parametrize(
+    ("env", "warned"),
+    [
+        ({"COMET_URL_OVERRIDE": "http://localhost:5173"}, True),
+        (
+            {
+                "COMET_URL_OVERRIDE": "http://localhost:5173",
+                "OPIK_URL": "http://localhost:5173/api",
+            },
+            False,
+        ),
+        ({"COMET_URL_OVERRIDE": "https://comet.example.com"}, False),
+    ],
+)
+def test_a_local_opik_set_up_as_a_comet_platform__is_told_to_set_opik_url(
+    env: dict[str, str],
+    warned: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    served: _StubMcp,
+) -> None:
+    """Every call would go to /opik/api, which open-source Opik does not serve."""
+    monkeypatch.delenv("OPIK_URL", raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(sys, "argv", ["opik-mcp"])
+
+    with caplog.at_level(logging.WARNING, logger="opik_mcp"):
+        main_mod.main()
+
+    assert ("Set OPIK_URL=http://localhost:5173/api instead" in caplog.text) is warned
