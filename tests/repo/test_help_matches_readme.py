@@ -17,7 +17,9 @@ README = Path(__file__).resolve().parents[2] / "README.md"
 
 #: An agent reads the whole help when it runs `opik-mcp --help`, so it is
 #: paid for in context once per probe.
-HELP_BUDGET_BYTES = 2_500
+#: 2026-10-07: 2_500 -> 3_000 for the agent steps: find the user's Opik before
+#: asking, ask about the skill pack, run `opik mcp configure`.
+HELP_BUDGET_BYTES = 3_000
 
 _COMMAND_LINE = re.compile(
     r"^\s*((?:[A-Z_]+=\S+ )*(?:(?:claude|codex) mcp|uvx) \S.*)$", re.MULTILINE

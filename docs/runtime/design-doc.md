@@ -27,8 +27,8 @@ Settings come from env vars only; an MCP client starts the server with no
 arguments. `src/opik_mcp/command_line.py` handles what a person or an agent
 types anyway:
 
-- `-h` / `--help` prints `HELP_TEXT`, how to install the server for each kind
-  of Opik, and exits 0. `-V` / `--version` prints `opik-mcp <version>`. Both
+- `-h` / `--help` prints `HELP_TEXT`, the steps an agent follows to install
+  the server, and exits 0. `-V` / `--version` prints `opik-mcp <version>`. Both
   answer before settings, Sentry and analytics, so a bad setting doesn't block
   them and a probe sends no event.
 - `--check` makes one call with the settings in its own env (`run_check`):
@@ -167,6 +167,17 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - The help text is written for an agent asked to install the server. It
   repeats the README's install commands, and a test checks that each one is
   in the README (#243).
+- The agent steps run `opik mcp configure`, which finds the Opik saved in
+  `~/.opik.config` or running on localhost and installs the skill pack in the
+  same run. The installer adds the pack unless told not to, and the pack loads
+  into later sessions as instructions, so the agent asks first and always
+  passes `--skills` or `--no-skills`. It asks which Opik only when the machine
+  names none, and asks before the installer replaces an `opik-mcp` entry. All
+  questions come before the run, one per message. The sign-in is left to the
+  user, since it waits on the browser. The by-hand commands stay for clients
+  the installer doesn't know. The steps were checked by running agents on
+  machines with a saved Cloud config, a self-hosted config with an old npx
+  entry, nothing, and a server under another name.
 
 ### Traps
 
@@ -203,6 +214,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-07: install steps for agents run `opik mcp configure` after asking about the skill pack, and look for the user's Opik before asking which (#PR).
 - 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#247).
 - 2026-10-07: a 401 with no key for Opik Cloud and an unreachable Opik say what to fix; `read` and `write` catch connection errors (#245).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).

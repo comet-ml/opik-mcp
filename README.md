@@ -20,6 +20,9 @@ Claude: → write(score.create) → done
 
 ## Quick start
 
+Asking a coding agent to set it up? It follows
+[Install with a coding agent](#install-with-a-coding-agent).
+
 One command registers the server with the AI clients on your machine, installs
 the Opik skill pack, and verifies the connection. It needs [`uv`](https://docs.astral.sh/uv/)
 and no Opik SDK:
@@ -39,8 +42,9 @@ the server that fits your Opik:
 Clients load MCP servers when a session starts, so start a new session
 afterwards. Without a terminal, as from a coding agent or a script, name the
 client: `uvx opik mcp configure --ai-client claude-code` (or `codex`, `cursor`,
-`vscode`, `opencode`). Run that way it needs an existing `~/.opik.config` or
-`OPIK_API_KEY` in the environment; without either, use the commands below.
+`vscode`, `opencode`). Run that way it connects to the Opik saved in
+`~/.opik.config` or one answering on localhost, and otherwise stops and asks for
+`--deployment`; `--no-skills` leaves out the skill pack.
 
 Setup guide, troubleshooting and FAQ: [comet.com/docs/opik/mcp-server](https://www.comet.com/docs/opik/mcp-server).
 
@@ -316,43 +320,112 @@ OPIK_URL=http://localhost:5173/api npx @modelcontextprotocol/inspector uvx opik-
 
 ## Install with a coding agent
 
-For an AI agent asked to install the server. The commands are in the two
-sections above; these rules pick which one to run. `uvx opik-mcp --help`
-prints these rules and the commands for each case.
+For an AI agent asked to install the server, as in "install opik mcp". The aim
+is the server registered for the user's Opik, the skill pack if they want it,
+and the user signed in. Work out which Opik from this machine, and ask the user
+only what it can't tell you: one question per message, each answer before the
+next. The installer in step 4 does the whole setup in one run, so settle steps
+1 to 3 before you run it. `uvx opik-mcp --help` prints these steps.
 
-1. If Opik runs on this machine — `curl -s http://localhost:5173/api/is-alive/ping`
-   answers — use [the local server](#self-hosted-and-open-source-opik-the-local-server)
-   with `OPIK_URL=http://localhost:5173/api`. In a sandboxed shell, such as
-   Codex's, a failed check can mean the shell has no network access rather than
-   that Opik is down; ask the user.
-2. If the user is on Opik Cloud (`www.comet.com`), use
-   [the hosted server](#opik-cloud-the-hosted-server).
-3. Otherwise ask the user for their Opik URL, and use the local server with the
-   env vars for that deployment.
+1. **See what is there.**
+
+   ```bash
+   uvx opik mcp status
+   ```
+
+   It shows the Opik saved in `~/.opik.config` (URL and workspace, never the
+   key) and the clients that already have the server. In Claude Code, also run
+   `claude mcp list`: it shows claude.ai connectors and entries under other
+   names. It also prints each entry's command, which for an old npx entry can
+   hold an API key: don't repeat it.
+   - A server for `https://www.comet.com/opik/api/v1/mcp` under any name, such
+     as a claude.ai connector, means it is registered: don't add a second one.
+     If the user wants the skill pack (step 3), install it on its own with
+     `npx skills add comet-ml/opik-skills -g --all`. Go to step 5 if the
+     server shows `! Needs authentication`.
+   - The installer replaces an existing `opik-mcp` entry without asking, such
+     as one for the old npx server. Ask the user before you run it.
+2. **Find the user's Opik.**
+   - Saved in `~/.opik.config`: use it, and tell the user which one you are
+     setting up. The installer reads it, API key included, so don't ask for a
+     key.
+   - Nothing saved: `curl -s http://localhost:5173/api/is-alive/ping`. An
+     answer is an open-source Opik on this machine. In a sandboxed shell, such
+     as Codex's, no answer can mean the shell has no network rather than no
+     Opik.
+   - Nothing found: ask, and don't pick one yourself. An Opik URL in the
+     project, such as `OPIK_URL_OVERRIDE` in `.env`, makes it a yes-or-no
+     question. Otherwise: "Which Opik do you use: Opik Cloud (www.comet.com),
+     an open-source Opik (its URL), or a self-hosted Comet platform (its URL
+     and workspace)?"
+3. **Ask about the skill pack**, every time: the installer adds it unless told
+   not to. Say what it is: the
+   [Opik skills](https://github.com/comet-ml/opik-skills#skills-in-this-pack),
+   which teach the agent to instrument, evaluate and debug with Opik. They are
+   installed for every project and load into later sessions as instructions to
+   the agent.
+4. **Run the installer** for the client you run in, once the user has
+   answered. Pass `--skills` or `--no-skills` from their answer, never neither,
+   also in a command you give the user to run later. On Opik Cloud it opens the
+   browser sign-in and waits a minute for it, so tell the user first.
+
+   ```bash
+   uvx opik mcp configure --ai-client claude-code --skills
+   ```
+
+   `--ai-client` also takes `codex`, `cursor`, `vscode` and `opencode`. For an
+   Opik saved in `~/.opik.config` or running on localhost, run it as it is:
+   `--deployment` sets the saved config aside, API key included. Only for an
+   Opik the user named in step 2, add:
+
+   | The user's Opik | Add |
+   |---|---|
+   | Opik Cloud, `www.comet.com` | `--deployment cloud` |
+   | Open-source Opik | `--deployment local`, and `--url <url>` when it is not on localhost |
+   | A self-hosted Comet platform, `/opik/` in its URL | `--deployment self-hosted --url <url> --workspace <workspace>`, with `OPIK_API_KEY` in the shell |
+
+   If it fails, as when the Opik doesn't answer, tell the user what it printed
+   and what to check, such as a VPN or the URL. Don't switch to another Opik.
+5. **Sign-in, for Opik Cloud.** If the installer reports the server as not
+   signed in yet, give the user `claude mcp login opik-mcp` to run, or `/mcp`
+   in a Claude Code session, rather than running it yourself: it waits on the
+   browser. A claude.ai connector signs in from `/mcp`. The sign-in asks for a
+   workspace; name the one saved in `~/.opik.config`, if any.
+6. **Finish.** Say what was installed and what is left. Clients load MCP
+   servers and skills when a session starts: ask the user to start a new
+   session, then try **"list my Opik projects"**.
+
+On every path:
 
 - Don't ask the user to paste an API key into the chat. The hosted server needs
   none; otherwise take it from the shell environment (`"$OPIK_API_KEY"`), or let
   the user run the command.
 - Don't guess the workspace. It is the segment after `comet.com/opik/` (or
   `/opik/` on a self-hosted Comet) in the user's Opik URL.
+- If a permission check blocks a command, don't work around it. Give the user
+  the command to run (in Claude Code, `!` before it runs it from the prompt).
+
+For a client the installer doesn't know, register by hand with the commands in
+the two sections above:
+[the hosted server](#opik-cloud-the-hosted-server) for Opik Cloud,
+[the local server](#self-hosted-and-open-source-opik-the-local-server) for the
+rest.
+
 - Before registering the local server, run it with the env you will pass and
   `--check`, with `OPIK_API_KEY` exported in the shell rather than written on
   the command: `OPIK_URL=http://localhost:5173/api uvx opik-mcp --check`. It
   exits 0 and names the workspace it sees, or prints what to fix. Once
   registered, Claude Code reports Connected even with a wrong key, and Codex
   has no check.
-- An `opik-mcp` entry may already exist, from the old npx setup or an earlier
-  attempt. Tell the user before replacing it. Claude Code refuses to add over
-  it, so remove it first with `claude mcp remove opik-mcp --scope user`;
-  Codex's `add` replaces it.
+- Claude Code refuses to add over an existing `opik-mcp` entry, so remove it
+  first with `claude mcp remove opik-mcp --scope user`; Codex's `add` replaces
+  it.
 - After registering, in Claude Code, read only the status line:
   `claude mcp get opik-mcp | grep Status`. The full output prints the `env`
   block, API key included. The hosted server shows `! Needs authentication`
   until `claude mcp login opik-mcp` has run. Codex has nothing that starts the
   server before a session; `codex mcp get opik-mcp` shows what was stored, with
   env values masked.
-- Clients load MCP servers when a session starts. Ask the user to start a new
-  session, then try **"list my Opik projects"**.
 
 ---
 
