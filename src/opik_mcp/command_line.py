@@ -46,8 +46,9 @@ Cursor, VS Code, ...) starts it and talks to it over stdin/stdout.
 To install it for the user, the installer does the work:
   uvx opik@latest mcp configure --ai-client claude-code --skills
 It finds their Opik, registers the server and adds the Opik skill pack.
-Settle steps 1-2 first, asking only what this machine can't tell you, one
-question per message:
+Don't print ~/.claude.json or ~/.opik.config (they hold keys), and leave the
+browser sign-in to the user. Settle steps 1-2 first, asking only what this
+machine can't tell you, one question per message:
 
 1. See what is there:
      uvx opik@latest mcp status
@@ -85,8 +86,6 @@ Other Opik: this package, OPIK_API_KEY from the shell, never the chat
 (a Comet platform sets COMET_URL_OVERRIDE and OPIK_WORKSPACE, not OPIK_URL):
   OPIK_URL=http://localhost:5173/api uvx opik-mcp@latest --check
   claude mcp add --scope user opik-mcp --env OPIK_URL=http://localhost:5173/api -- uvx opik-mcp
-Read only the status line; the full output prints the API key:
-  claude mcp get opik-mcp | grep Status
 Every client and setting: https://github.com/comet-ml/opik-mcp#readme
 """
 
