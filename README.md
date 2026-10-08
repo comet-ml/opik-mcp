@@ -169,8 +169,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 half. Codex waits `mcp_optional_startup_grace_ms` (1 s by default) for servers
 before it builds the first tool list, so a slower start can leave the tools out
 of the first turn. The one-off commands in this README (`opik mcp configure`,
-`--help`, `--check`) carry `@latest`, so a copy cached months ago never runs
-them.
+`opik mcp status`, `--help`, `--check`) carry `@latest`, so they never run a
+copy uv cached months ago.
 
 Env vars point the server at your Opik:
 
@@ -926,8 +926,8 @@ on Claude Code which has no hard cap.
 
 **Server not showing, sign-in not opening, wrong workspace, `uvx` not found.**
 These are covered in the [troubleshooting section of the docs](https://www.comet.com/docs/opik/mcp-server/faq#troubleshooting).
-`opik mcp status` (from the same `uvx opik` CLI) lists every client that has the
-server configured and whether its config has drifted.
+`uvx opik@latest mcp status` lists every client that has the server configured
+and whether its config has drifted.
 
 ---
 

@@ -216,6 +216,8 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
   matches the README and names only real settings:
   `tests/repo/test_help_matches_readme.py`.
+- One-off commands carry `@latest` and the launch command doesn't:
+  `tests/repo/test_one_off_commands_use_latest.py`.
 - `--check`, OK, rejected and unreachable, against the real process:
   `tests/hermetic/test_check.py`.
 
