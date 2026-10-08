@@ -47,7 +47,7 @@ To install it for the user, ask only what this machine can't tell you, one
 question per message, each answer before the next, all before step 3:
 
 1. See what is there:
-     uvx opik mcp status
+     uvx opik@latest mcp status
    It shows the Opik saved in ~/.opik.config (not the key) and the clients
    with the server. In Claude Code, claude mcp list also shows claude.ai
    connectors. A server for https://www.comet.com/opik/api/v1/mcp under any
@@ -62,7 +62,7 @@ question per message, each answer before the next, all before step 3:
 3. Run the installer for your client (or codex, cursor, vscode, opencode).
    It installs the Opik skill pack too, with or without --skills. On Opik
    Cloud it opens a browser sign-in and waits a minute: tell the user first.
-     uvx opik mcp configure --ai-client claude-code --skills
+     uvx opik@latest mcp configure --ai-client claude-code --skills
    In ~/.opik.config or on localhost: run it as is (--deployment drops the
    saved config and its key). Neither: add --deployment for the user's
    answer:
@@ -83,7 +83,7 @@ For a client the installer doesn't know, register by hand. Opik Cloud:
   claude mcp add --scope user --transport http opik-mcp https://www.comet.com/opik/api/v1/mcp
 Other Opik: this package, OPIK_API_KEY from the shell, never the chat
 (a Comet platform sets COMET_URL_OVERRIDE and OPIK_WORKSPACE, not OPIK_URL):
-  OPIK_URL=http://localhost:5173/api uvx opik-mcp --check
+  OPIK_URL=http://localhost:5173/api uvx opik-mcp@latest --check
   claude mcp add --scope user opik-mcp --env OPIK_URL=http://localhost:5173/api -- uvx opik-mcp
 Read only the status line; the full output prints the API key:
   claude mcp get opik-mcp | grep Status
@@ -115,7 +115,7 @@ TYPESCRIPT_FLAG_ENV_VARS = {
 
 TERMINAL_HINT = (
     "opik-mcp is an MCP server: an MCP client starts it and talks to it over "
-    "stdin/stdout, and it is waiting for one now. Run `uvx opik-mcp --help` for "
+    "stdin/stdout, and it is waiting for one now. Run `uvx opik-mcp@latest --help` for "
     "how to install it."
 )
 

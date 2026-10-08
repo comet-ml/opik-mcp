@@ -28,7 +28,7 @@ the Opik skill pack, and verifies the connection. It needs [`uv`](https://docs.a
 and no Opik SDK:
 
 ```bash
-uvx opik mcp configure
+uvx opik@latest mcp configure
 ```
 
 It detects Claude Code, Cursor, VS Code Copilot, Codex and opencode, and sets up
@@ -41,8 +41,8 @@ the server that fits your Opik:
 
 Clients load MCP servers when a session starts, so start a new session
 afterwards. Without a terminal, as from a coding agent or a script, name the
-client: `uvx opik mcp configure --ai-client claude-code` (or `codex`, `cursor`,
-`vscode`, `opencode`). Run that way it connects to the Opik saved in
+client: `uvx opik@latest mcp configure --ai-client claude-code` (or `codex`,
+`cursor`, `vscode`, `opencode`). Run that way it connects to the Opik saved in
 `~/.opik.config` or one answering on localhost, and otherwise stops and asks for
 `--deployment`; `--no-skills` leaves out the skill pack.
 
@@ -168,7 +168,9 @@ curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS / Linux
 `uvx opik-mcp@latest` asks PyPI on every start, which adds about a second and a
 half. Codex waits `mcp_optional_startup_grace_ms` (1 s by default) for servers
 before it builds the first tool list, so a slower start can leave the tools out
-of the first turn.
+of the first turn. The one-off commands in this README (`opik mcp configure`,
+`--help`, `--check`) carry `@latest`, so a copy cached months ago never runs
+them.
 
 Env vars point the server at your Opik:
 
@@ -199,7 +201,7 @@ A client can't tell you this before a new session: Claude Code shows Connected
 even with a wrong key, and Codex starts nothing until then.
 
 ```bash
-OPIK_URL=http://localhost:5173/api uvx opik-mcp --check
+OPIK_URL=http://localhost:5173/api uvx opik-mcp@latest --check
 ```
 
 The examples use a local open-source Opik. For a self-hosted Comet, swap in the
@@ -325,12 +327,12 @@ is the server registered for the user's Opik, the Opik skill pack installed,
 and the user signed in. Work out which Opik from this machine, and ask the user
 only what it can't tell you: one question per message, each answer before the
 next. The installer in step 3 does the whole setup in one run, so settle steps
-1 and 2 before you run it. `uvx opik-mcp --help` prints these steps.
+1 and 2 before you run it. `uvx opik-mcp@latest --help` prints these steps.
 
 1. **See what is there.**
 
    ```bash
-   uvx opik mcp status
+   uvx opik@latest mcp status
    ```
 
    It shows the Opik saved in `~/.opik.config` (URL and workspace, never the
@@ -364,7 +366,7 @@ next. The installer in step 3 does the whole setup in one run, so settle steps
    sign-in and waits a minute for it, so tell the user first.
 
    ```bash
-   uvx opik mcp configure --ai-client claude-code --skills
+   uvx opik@latest mcp configure --ai-client claude-code --skills
    ```
 
    `--ai-client` also takes `codex`, `cursor`, `vscode` and `opencode`. For an
@@ -410,10 +412,10 @@ rest.
 
 - Before registering the local server, run it with the env you will pass and
   `--check`, with `OPIK_API_KEY` exported in the shell rather than written on
-  the command: `OPIK_URL=http://localhost:5173/api uvx opik-mcp --check`. It
-  exits 0 and names the workspace it sees, or prints what to fix. Once
-  registered, Claude Code reports Connected even with a wrong key, and Codex
-  has no check.
+  the command:
+  `OPIK_URL=http://localhost:5173/api uvx opik-mcp@latest --check`. It exits 0
+  and names the workspace it sees, or prints what to fix. Once registered,
+  Claude Code reports Connected even with a wrong key, and Codex has no check.
 - Claude Code refuses to add over an existing `opik-mcp` entry, so remove it
   first with `claude mcp remove opik-mcp --scope user`; Codex's `add` replaces
   it.
@@ -902,9 +904,9 @@ If a call gets stuck, set `OPIK_MCP_LOG_LEVEL=DEBUG` for the full request log.
 ## Troubleshooting
 
 **Does the setup work?** Run the server with the env from its client config and
-`--check`: `OPIK_URL=http://localhost:5173/api uvx opik-mcp --check`. It names
-the workspace and the projects it sees, or says what to fix. The server's own
-errors also say what to change, and link the docs page for it.
+`--check`: `OPIK_URL=http://localhost:5173/api uvx opik-mcp@latest --check`. It
+names the workspace and the projects it sees, or says what to fix. The server's
+own errors also say what to change, and link the docs page for it.
 
 **`OPIK_API_KEY` isn't picked up** — the var isn't reaching the server
 process. In Claude Code / Cursor / VS Code, env vars only apply when inside

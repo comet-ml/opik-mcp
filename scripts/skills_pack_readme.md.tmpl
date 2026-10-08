@@ -44,7 +44,7 @@ this skill pack together with the server for Claude Code, Cursor, VS Code Copilo
 and needs no Opik SDK:
 
 ```bash
-uvx opik mcp configure
+uvx opik@latest mcp configure
 ```
 
 ## Skills in this pack

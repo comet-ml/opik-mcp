@@ -179,6 +179,12 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   checked by running agents on machines with a saved Cloud config, a
   self-hosted config with an old npx entry, nothing, and a server under
   another name.
+- One-off commands in the steps and the help (`opik mcp configure`,
+  `opik mcp status`, `--help`, `--check`) carry `@latest`. Without it uvx
+  reuses the copy it cached on the first run, so a machine that ran an old
+  release keeps printing its steps, and 3.0.0 serves on `--check` instead of
+  checking. The launch command stays `uvx opik-mcp`, since `@latest` adds
+  about a second and a half to every start.
 
 ### Traps
 
