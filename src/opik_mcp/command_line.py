@@ -43,8 +43,12 @@ opik-mcp: the MCP server for Opik, Comet's LLM observability platform.
 This is not an interactive command. An MCP client (Claude Code, Codex,
 Cursor, VS Code, ...) starts it and talks to it over stdin/stdout.
 
-To install it for the user, ask only what this machine can't tell you, one
-question per message, each answer before the next, all before step 3:
+To install it for the user, the installer does the work:
+  uvx opik@latest mcp configure --ai-client claude-code --skills
+It finds their Opik, registers the server and adds the Opik skill pack.
+Don't print ~/.claude.json or ~/.opik.config (they hold keys), and leave the
+browser sign-in to the user. Settle steps 1-2 first, asking only what this
+machine can't tell you, one question per message:
 
 1. See what is there:
      uvx opik@latest mcp status
@@ -59,13 +63,11 @@ question per message, each answer before the next, all before step 3:
    http://localhost:5173/api/is-alive/ping (a sandboxed shell may have no
    network). Neither: ask, and don't pick one yourself: Opik Cloud, an
    open-source Opik (URL), or a self-hosted Comet (URL and workspace)?
-3. Run the installer for your client (or codex, cursor, vscode, opencode).
-   It installs the Opik skill pack too, with or without --skills. On Opik
-   Cloud it opens a browser sign-in and waits a minute: tell the user first.
-     uvx opik@latest mcp configure --ai-client claude-code --skills
-   In ~/.opik.config or on localhost: run it as is (--deployment drops the
-   saved config and its key). Neither: add --deployment for the user's
-   answer:
+3. Run the installer above for your client (or codex, cursor, vscode,
+   opencode). On Opik Cloud it opens a browser sign-in and waits a minute:
+   tell the user first. In ~/.opik.config or on localhost: run it as is
+   (--deployment drops the saved config and its key). Neither: add
+   --deployment for the user's answer:
      cloud                              Opik Cloud, www.comet.com
      local --url <url>                  open-source Opik
      self-hosted --url <url> --workspace <segment after /opik/ in the URL>
@@ -74,8 +76,7 @@ question per message, each answer before the next, all before step 3:
 4. If it says "not signed in yet", give the user this to run rather than
    running it; it waits on the browser:
      claude mcp login opik-mcp
-5. Say what was installed, the skill pack too: skills for every project
-   that load into later sessions as instructions. Clients load servers and
+5. Say what was installed, naming the skill pack. Clients load servers and
    skills when a session starts: ask the user to start one, then try
    "list my Opik projects".
 
@@ -85,8 +86,6 @@ Other Opik: this package, OPIK_API_KEY from the shell, never the chat
 (a Comet platform sets COMET_URL_OVERRIDE and OPIK_WORKSPACE, not OPIK_URL):
   OPIK_URL=http://localhost:5173/api uvx opik-mcp@latest --check
   claude mcp add --scope user opik-mcp --env OPIK_URL=http://localhost:5173/api -- uvx opik-mcp
-Read only the status line; the full output prints the API key:
-  claude mcp get opik-mcp | grep Status
 Every client and setting: https://github.com/comet-ml/opik-mcp#readme
 """
 
