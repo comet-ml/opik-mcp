@@ -169,15 +169,16 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   in the README (#243).
 - The agent steps run `opik mcp configure`, which finds the Opik saved in
   `~/.opik.config` or running on localhost and installs the skill pack in the
-  same run. The installer adds the pack unless told not to, and the pack loads
-  into later sessions as instructions, so the agent asks first and always
-  passes `--skills` or `--no-skills`. It asks which Opik only when the machine
-  names none, and asks before the installer replaces an `opik-mcp` entry. All
-  questions come before the run, one per message. The sign-in is left to the
-  user, since it waits on the browser. The by-hand commands stay for clients
-  the installer doesn't know. The steps were checked by running agents on
-  machines with a saved Cloud config, a self-hosted config with an old npx
-  entry, nothing, and a server under another name.
+  same run. The pack is always installed, so the agent doesn't ask about it:
+  it passes `--skills` and, since the pack loads into later sessions as
+  instructions, names it when it says what was installed. It asks which Opik
+  only when the machine names none, and asks before the installer replaces an
+  `opik-mcp` entry. All questions come before the run, one per message. The
+  sign-in is left to the user, since it waits on the browser. The by-hand
+  commands stay for clients the installer doesn't know. The #248 steps were
+  checked by running agents on machines with a saved Cloud config, a
+  self-hosted config with an old npx entry, nothing, and a server under
+  another name.
 
 ### Traps
 
@@ -214,6 +215,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).
 - 2026-10-07: install steps for agents run `opik mcp configure` after asking about the skill pack, and look for the user's Opik before asking which (#248).
 - 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#247).
 - 2026-10-07: a 401 with no key for Opik Cloud and an unreachable Opik say what to fix; `read` and `write` catch connection errors (#245).
