@@ -84,8 +84,8 @@ way.
 The TypeScript server fell back to the Opik SDK's `~/.opik.config` for the key,
 URL and workspace. The Python server does not read it. If your install relied
 on it, put those values in the client's `env` block, or run
-`uvx opik mcp configure`, which reads the file and writes the client config for
-you.
+`uvx opik@latest mcp configure`, which reads the file and writes the client
+config for you.
 
 ## Check the result
 

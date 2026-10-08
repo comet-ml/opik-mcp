@@ -179,6 +179,12 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   checked by running agents on machines with a saved Cloud config, a
   self-hosted config with an old npx entry, nothing, and a server under
   another name.
+- One-off commands in the steps and the help (`opik mcp configure`,
+  `opik mcp status`, `--help`, `--check`) carry `@latest`. Without it uvx
+  reuses the copy it cached on the first run, so a machine that ran an old
+  release keeps printing its steps, and 3.0.0 serves on `--check` instead of
+  checking. The launch command stays `uvx opik-mcp`, since `@latest` adds
+  about a second and a half to every start.
 
 ### Traps
 
@@ -210,11 +216,14 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
   matches the README and names only real settings:
   `tests/repo/test_help_matches_readme.py`.
+- One-off commands carry `@latest` and the launch command doesn't:
+  `tests/repo/test_one_off_commands_use_latest.py`.
 - `--check`, OK, rejected and unreachable, against the real process:
   `tests/hermetic/test_check.py`.
 
 ## Log
 
+- 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).
 - 2026-10-07: install steps for agents run `opik mcp configure` after asking about the skill pack, and look for the user's Opik before asking which (#248).
 - 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#247).
