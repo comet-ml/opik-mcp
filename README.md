@@ -46,7 +46,7 @@ to ask the user, from `uvx opik-mcp@latest --help`. They are the same as
 [Install with a coding agent](#install-with-a-coding-agent) below.
 
 Registering the server by hand, with the client commands under
-[Set it up by hand](#set-it-up-by-hand), skips the check of which Opik you use
+[Set it up by hand](#set-it-up-by-hand-no-opik-check-no-skill-pack), skips the check of which Opik you use
 and the skill pack, so it is for clients the installer doesn't support.
 
 | Your Opik | Server | Transport | Sign-in |
@@ -72,7 +72,7 @@ ask: **"list my Opik projects"**.
 The [Quick start](#quick-start) command sets this up for Claude Code, Codex,
 Cursor, VS Code Copilot and opencode, with the skill pack. The buttons below add
 it to Cursor or VS Code in one click; other ways to register it by hand are under
-[Set it up by hand](#set-it-up-by-hand).
+[Set it up by hand](#set-it-up-by-hand-no-opik-check-no-skill-pack).
 
 [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=opik-mcp&config=eyJ1cmwiOiJodHRwczovL3d3dy5jb21ldC5jb20vb3Bpay9hcGkvdjEvbWNwIn0%3D)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=opik-mcp&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fwww.comet.com%2Fopik%2Fapi%2Fv1%2Fmcp%22%7D)
@@ -84,7 +84,7 @@ it to Cursor or VS Code in one click; other ways to register it by hand are unde
 `opik-mcp` runs on your machine: the client starts it with `uvx opik-mcp` and
 talks to it over stdio. The [Quick start](#quick-start) command sets it up from
 your `~/.opik.config` or a local Opik; to register it by hand, see
-[Set it up by hand](#set-it-up-by-hand). Install [`uv`](https://docs.astral.sh/uv/) once; it
+[Set it up by hand](#set-it-up-by-hand-no-opik-check-no-skill-pack). Install [`uv`](https://docs.astral.sh/uv/) once; it
 fetches the package, and Python 3.13 if needed, on first use:
 
 ```bash
@@ -225,7 +225,7 @@ On every path:
   the command to run (in Claude Code, `!` before it runs it from the prompt).
 
 For a client the installer doesn't know, register by hand with the commands in
-[Set it up by hand](#set-it-up-by-hand): the hosted server for Opik Cloud, the
+[Set it up by hand](#set-it-up-by-hand-no-opik-check-no-skill-pack): the hosted server for Opik Cloud, the
 local server for the rest.
 
 - Before registering the local server, run it with the env you will pass and
@@ -246,7 +246,7 @@ local server for the rest.
 
 ---
 
-## Set it up by hand
+## Set it up by hand (no Opik check, no skill pack)
 
 The [Quick start](#quick-start) command does all of this for Claude Code, Codex,
 Cursor, VS Code Copilot and opencode, and also checks which Opik you use and
@@ -262,9 +262,9 @@ installer: see [Install with a coding agent](#install-with-a-coding-agent).
 claude mcp add --scope user --transport http opik-mcp https://www.comet.com/opik/api/v1/mcp
 ```
 
-Then sign in. It opens a browser, so the person at the keyboard does it: run
-`claude mcp login opik-mcp` in a terminal, or `/mcp` → **Authenticate** in a
-session. `--scope user` makes the server available in every project; without
+Then sign in from `/mcp` → **Authenticate** in a Claude Code session. It opens
+a browser, so the person at the keyboard does it; from their own terminal,
+`claude mcp login opik-mcp` does the same. `--scope user` makes the server available in every project; without
 it, Claude Code registers it for the current directory only. Over SSH,
 `claude mcp login opik-mcp --no-browser` prints the sign-in URL to open on your
 own machine; the last step needs an interactive terminal (`ssh -t`).
