@@ -358,10 +358,10 @@ next. The installer in step 3 does the whole setup in one run, so settle steps
      question. Otherwise: "Which Opik do you use: Opik Cloud (www.comet.com),
      an open-source Opik (its URL), or a self-hosted Comet platform (its URL
      and workspace)?"
-3. **Run the installer** for the client you run in, once the user has
-   answered. `--skills` installs the Opik skill pack with the server; keep it
-   in a command you give the user to run later. On Opik Cloud it opens the
-   browser sign-in and waits a minute for it, so tell the user first.
+3. **Run the installer** for the client you run in. It installs the Opik
+   skill pack with the server, with or without `--skills`; keep the flag in a
+   command you give the user to run later. On Opik Cloud it opens the browser
+   sign-in and waits a minute for it, so tell the user first.
 
    ```bash
    uvx opik mcp configure --ai-client claude-code --skills

@@ -171,13 +171,14 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   `~/.opik.config` or running on localhost and installs the skill pack in the
   same run. The pack is always installed, so the agent doesn't ask about it:
   it passes `--skills` and, since the pack loads into later sessions as
-  instructions, names it when it says what was installed. It asks which Opik only when the machine
-  names none, and asks before the installer replaces an `opik-mcp` entry. All
-  questions come before the run, one per message. The sign-in is left to the
-  user, since it waits on the browser. The by-hand commands stay for clients
-  the installer doesn't know. The steps were checked by running agents on
-  machines with a saved Cloud config, a self-hosted config with an old npx
-  entry, nothing, and a server under another name.
+  instructions, names it when it says what was installed. It asks which Opik
+  only when the machine names none, and asks before the installer replaces an
+  `opik-mcp` entry. All questions come before the run, one per message. The
+  sign-in is left to the user, since it waits on the browser. The by-hand
+  commands stay for clients the installer doesn't know. The #248 steps were
+  checked by running agents on machines with a saved Cloud config, a
+  self-hosted config with an old npx entry, nothing, and a server under
+  another name.
 
 ### Traps
 

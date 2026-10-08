@@ -60,8 +60,8 @@ question per message, each answer before the next, all before step 3:
    network). Neither: ask, and don't pick one yourself: Opik Cloud, an
    open-source Opik (URL), or a self-hosted Comet (URL and workspace)?
 3. Run the installer for your client (or codex, cursor, vscode, opencode).
-   --skills installs the Opik skill pack with the server. On Opik Cloud it
-   opens a browser sign-in and waits a minute: tell the user first.
+   It installs the Opik skill pack too, with or without --skills. On Opik
+   Cloud it opens a browser sign-in and waits a minute: tell the user first.
      uvx opik mcp configure --ai-client claude-code --skills
    In ~/.opik.config or on localhost: run it as is (--deployment drops the
    saved config and its key). Neither: add --deployment for the user's
