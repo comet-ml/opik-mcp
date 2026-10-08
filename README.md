@@ -321,11 +321,11 @@ OPIK_URL=http://localhost:5173/api npx @modelcontextprotocol/inspector uvx opik-
 ## Install with a coding agent
 
 For an AI agent asked to install the server, as in "install opik mcp". The aim
-is the server registered for the user's Opik, the skill pack if they want it,
+is the server registered for the user's Opik, the Opik skill pack installed,
 and the user signed in. Work out which Opik from this machine, and ask the user
 only what it can't tell you: one question per message, each answer before the
-next. The installer in step 4 does the whole setup in one run, so settle steps
-1 to 3 before you run it. `uvx opik-mcp --help` prints these steps.
+next. The installer in step 3 does the whole setup in one run, so settle steps
+1 and 2 before you run it. `uvx opik-mcp --help` prints these steps.
 
 1. **See what is there.**
 
@@ -340,8 +340,8 @@ next. The installer in step 4 does the whole setup in one run, so settle steps
    hold an API key: don't repeat it.
    - A server for `https://www.comet.com/opik/api/v1/mcp` under any name, such
      as a claude.ai connector, means it is registered: don't add a second one.
-     If the user wants the skill pack (step 3), install it on its own with
-     `npx skills add comet-ml/opik-skills -g --all`. Go to step 5 if the
+     Install the skill pack on its own with
+     `npx skills add comet-ml/opik-skills -g --all`. Go to step 4 if the
      server shows `! Needs authentication`.
    - The installer replaces an existing `opik-mcp` entry without asking, such
      as one for the old npx server. Ask the user before you run it.
@@ -349,24 +349,18 @@ next. The installer in step 4 does the whole setup in one run, so settle steps
    - Saved in `~/.opik.config`: use it, and tell the user which one you are
      setting up. The installer reads it, API key included, so don't ask for a
      key.
-   - Nothing saved: `curl -s http://localhost:5173/api/is-alive/ping`. An
-     answer is an open-source Opik on this machine. In a sandboxed shell, such
-     as Codex's, no answer can mean the shell has no network rather than no
-     Opik.
-   - Nothing found: ask, and don't pick one yourself. An Opik URL in the
+   - No `~/.opik.config`: `curl -s http://localhost:5173/api/is-alive/ping`.
+     An answer is an open-source Opik on this machine. In a sandboxed shell,
+     such as Codex's, no answer can mean the shell has no network rather than
+     no Opik.
+   - Neither: ask, and don't pick one yourself. An Opik URL in the
      project, such as `OPIK_URL_OVERRIDE` in `.env`, makes it a yes-or-no
      question. Otherwise: "Which Opik do you use: Opik Cloud (www.comet.com),
      an open-source Opik (its URL), or a self-hosted Comet platform (its URL
      and workspace)?"
-3. **Ask about the skill pack**, every time: the installer adds it unless told
-   not to. Say what it is: the
-   [Opik skills](https://github.com/comet-ml/opik-skills#skills-in-this-pack),
-   which teach the agent to instrument, evaluate and debug with Opik. They are
-   installed for every project and load into later sessions as instructions to
-   the agent.
-4. **Run the installer** for the client you run in, once the user has
-   answered. Pass `--skills` or `--no-skills` from their answer, never neither,
-   also in a command you give the user to run later. On Opik Cloud it opens the
+3. **Run the installer** for the client you run in, once the user has
+   answered. `--skills` installs the Opik skill pack with the server; keep it
+   in a command you give the user to run later. On Opik Cloud it opens the
    browser sign-in and waits a minute for it, so tell the user first.
 
    ```bash
@@ -375,8 +369,8 @@ next. The installer in step 4 does the whole setup in one run, so settle steps
 
    `--ai-client` also takes `codex`, `cursor`, `vscode` and `opencode`. For an
    Opik saved in `~/.opik.config` or running on localhost, run it as it is:
-   `--deployment` sets the saved config aside, API key included. Only for an
-   Opik the user named in step 2, add:
+   `--deployment` sets the saved config aside, API key included. With neither,
+   add the flag for the Opik the user named in step 2:
 
    | The user's Opik | Add |
    |---|---|
@@ -386,14 +380,17 @@ next. The installer in step 4 does the whole setup in one run, so settle steps
 
    If it fails, as when the Opik doesn't answer, tell the user what it printed
    and what to check, such as a VPN or the URL. Don't switch to another Opik.
-5. **Sign-in, for Opik Cloud.** If the installer reports the server as not
+4. **Sign-in, for Opik Cloud.** If the installer reports the server as not
    signed in yet, give the user `claude mcp login opik-mcp` to run, or `/mcp`
    in a Claude Code session, rather than running it yourself: it waits on the
    browser. A claude.ai connector signs in from `/mcp`. The sign-in asks for a
    workspace; name the one saved in `~/.opik.config`, if any.
-6. **Finish.** Say what was installed and what is left. Clients load MCP
-   servers and skills when a session starts: ask the user to start a new
-   session, then try **"list my Opik projects"**.
+5. **Finish.** Say what was installed and what is left. Name the skill pack:
+   the [Opik skills](https://github.com/comet-ml/opik-skills#skills-in-this-pack),
+   installed for every project, which teach the agent to instrument, evaluate
+   and debug with Opik. Clients load MCP servers and skills when a session
+   starts: ask the user to start a new session, then try
+   **"list my Opik projects"**.
 
 On every path:
 

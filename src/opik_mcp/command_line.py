@@ -44,39 +44,40 @@ This is not an interactive command. An MCP client (Claude Code, Codex,
 Cursor, VS Code, ...) starts it and talks to it over stdin/stdout.
 
 To install it for the user, ask only what this machine can't tell you, one
-question per message, each answer before the next, all before step 4:
+question per message, each answer before the next, all before step 3:
 
 1. See what is there:
      uvx opik mcp status
    It shows the Opik saved in ~/.opik.config (not the key) and the clients
    with the server. In Claude Code, claude mcp list also shows claude.ai
    connectors. A server for https://www.comet.com/opik/api/v1/mcp under any
-   name is it: don't add another (for the skill pack alone, run
-   npx skills add comet-ml/opik-skills -g --all). The installer replaces an
+   name is it: don't add another; add the skill pack alone with
+   npx skills add comet-ml/opik-skills -g --all. The installer replaces an
    opik-mcp entry without asking: ask the user first.
-2. Find their Opik. Saved: use it, and say which; the installer reads its
-   key. Else try http://localhost:5173/api/is-alive/ping (a sandboxed shell
-   may have no network). Else ask, and don't pick one yourself: Opik Cloud,
-   an open-source Opik (URL), or a self-hosted Comet (URL and workspace)?
-3. Always ask whether to install the Opik skill pack: skills for every
-   project that load into later sessions as instructions.
-4. Run the installer for your client (or codex, cursor, vscode, opencode),
-   with --skills or --no-skills from the answer, never neither: it adds the
-   pack by default. On Opik Cloud it opens a browser sign-in and waits a
-   minute: tell the user first.
+2. Find their Opik. In ~/.opik.config: use it, and say which; the
+   installer reads its key. No config: try
+   http://localhost:5173/api/is-alive/ping (a sandboxed shell may have no
+   network). Neither: ask, and don't pick one yourself: Opik Cloud, an
+   open-source Opik (URL), or a self-hosted Comet (URL and workspace)?
+3. Run the installer for your client (or codex, cursor, vscode, opencode).
+   --skills installs the Opik skill pack with the server. On Opik Cloud it
+   opens a browser sign-in and waits a minute: tell the user first.
      uvx opik mcp configure --ai-client claude-code --skills
-   Saved or local Opik: run it as is (--deployment drops the saved config
-   and its key). Only for an Opik the user named, add --deployment:
+   In ~/.opik.config or on localhost: run it as is (--deployment drops the
+   saved config and its key). Neither: add --deployment for the user's
+   answer:
      cloud                              Opik Cloud, www.comet.com
      local --url <url>                  open-source Opik
      self-hosted --url <url> --workspace <segment after /opik/ in the URL>
                                         a Comet platform; key from the shell
    If it fails, tell the user what it printed; don't switch to another Opik.
-5. If it says "not signed in yet", give the user this to run rather than
+4. If it says "not signed in yet", give the user this to run rather than
    running it; it waits on the browser:
      claude mcp login opik-mcp
-6. Say what was installed. Clients load servers and skills when a session
-   starts: ask the user to start one, then try "list my Opik projects".
+5. Say what was installed, the skill pack too: skills for every project
+   that load into later sessions as instructions. Clients load servers and
+   skills when a session starts: ask the user to start one, then try
+   "list my Opik projects".
 
 For a client the installer doesn't know, register by hand. Opik Cloud:
   claude mcp add --scope user --transport http opik-mcp https://www.comet.com/opik/api/v1/mcp

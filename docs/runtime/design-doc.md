@@ -169,9 +169,9 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   in the README (#243).
 - The agent steps run `opik mcp configure`, which finds the Opik saved in
   `~/.opik.config` or running on localhost and installs the skill pack in the
-  same run. The installer adds the pack unless told not to, and the pack loads
-  into later sessions as instructions, so the agent asks first and always
-  passes `--skills` or `--no-skills`. It asks which Opik only when the machine
+  same run. The pack is always installed, so the agent doesn't ask about it:
+  it passes `--skills` and, since the pack loads into later sessions as
+  instructions, names it when it says what was installed. It asks which Opik only when the machine
   names none, and asks before the installer replaces an `opik-mcp` entry. All
   questions come before the run, one per message. The sign-in is left to the
   user, since it waits on the browser. The by-hand commands stay for clients
