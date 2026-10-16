@@ -70,39 +70,12 @@ workspace you pick when you sign in. After adding it, start a new session and
 ask: **"list my Opik projects"**.
 
 The [Quick start](#quick-start) command sets this up for Claude Code, Codex,
-Cursor, VS Code Copilot and opencode, with the skill pack. In Claude Code, the
-[plugin](#claude-code-plugin) does the same in two commands. The buttons below add
+Cursor, VS Code Copilot and opencode, with the skill pack. The buttons below add
 it to Cursor or VS Code in one click; other ways to register it by hand are under
 [Set it up by hand](#set-it-up-by-hand-no-opik-check-no-skill-pack).
 
 [![Add to Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=opik-mcp&config=eyJ1cmwiOiJodHRwczovL3d3dy5jb21ldC5jb20vb3Bpay9hcGkvdjEvbWNwIn0%3D)
 [![Install in VS Code](https://img.shields.io/badge/VS_Code-Install_Server-0098FF?style=flat-square&logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=opik-mcp&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Fwww.comet.com%2Fopik%2Fapi%2Fv1%2Fmcp%22%7D)
-
-### Claude Code plugin
-
-In Claude Code, the `opik` plugin installs the Opik skills and registers the
-hosted server:
-
-```
-/plugin marketplace add comet-ml/opik-mcp
-/plugin install opik@opik
-```
-
-On Claude Code 2.1.275 or later, `/plugin install opik --marketplace comet-ml/opik-mcp`
-does both. The skills load as `opik:<skill>`, such as `opik:opik-instrument`,
-and `/mcp` shows the server as `plugin:opik:opik-mcp`. Start a new session,
-then sign in from `/mcp` → **Authenticate**. The plugin is for Opik Cloud only;
-for a self-hosted or open-source Opik, use the [Quick start](#quick-start)
-command. Claude Code does not update a plugin from this marketplace on its
-own: run `/plugin marketplace update opik`, then `/plugin update opik@opik`,
-or turn on auto-update for the marketplace in `/plugin`.
-
-If you added `opik-mcp` before, by hand or with the Quick start command, at
-the same URL, Claude Code keeps your copy and skips the plugin's. If yours is
-another server, such as the local `uvx opik-mcp`, both load: run
-`claude mcp remove opik-mcp` to keep only the plugin's. Skills from the skill
-pack also load next to the plugin's copies; remove them with
-`npx skills remove --global --agent claude-code`, which asks which ones.
 
 ---
 
