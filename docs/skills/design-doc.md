@@ -3,9 +3,10 @@
 ## Purpose
 
 This repo authors the Opik agent skills. The server serves them through the
-`read_skill` tool and as MCP resources, and CI publishes the same bytes as the
-pack that `npx skills add comet-ml/opik-skills` installs. This doc answers how
-an agent gets a skill, how the pack is built, and how to add a skill.
+`read_skill` tool and as MCP resources, CI publishes the same bytes as the
+pack that `npx skills add comet-ml/opik-skills` installs, and the Claude Code
+plugin `opik@opik` loads them from this repo. This doc answers how an agent
+gets a skill, how the pack and the plugin are built, and how to add a skill.
 
 ## What it does now
 
@@ -76,6 +77,25 @@ In CI the `skills-pack` job runs `make skills-verify` and
 the verified artifact to the pre-release tag `skills-pack`, where
 `comet-ml/opik-skills` pulls it. This repo holds no credentials for that repo.
 
+### The Claude Code plugin
+
+`/plugin marketplace add comet-ml/opik-mcp` then `/plugin install opik@opik`
+installs the plugin `opik` from `.claude-plugin/marketplace.json`. Its root is
+`src/opik_mcp`, so it loads `skills/` as is, with no copy, as `opik:<skill>`.
+It also registers the hosted server `opik-mcp` (`type: http`, OAuth in the
+browser, no key), which `/mcp` shows as `plugin:opik:opik-mcp`. It is for Opik
+Cloud only. A server the user added by hand at the same URL wins, and Claude
+Code skips the plugin's copy.
+
+- The marketplace entry is the manifest. There is no `plugin.json` and no
+  `.mcp.json`, so the wheel, the sdist and the image gain no file.
+- The entry sets no `version`, so Claude Code versions the plugin by commit.
+  A third-party marketplace does not auto-update by default: a user gets a
+  newer commit from `/plugin marketplace update opik` and
+  `/plugin update opik@opik`, or with auto-update on.
+- `npx skills add comet-ml/opik-mcp` reads the same entry and resolves the
+  same `skills/`.
+
 ### Adding a skill
 
 1. Create `src/opik_mcp/skills/opik-<verb>/SKILL.md` with `last_updated` and
@@ -109,6 +129,8 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   `_run_transport` in `src/opik_mcp/__main__.py`.
 - The pack: `scripts/build_skills_pack.py` and the `skills-*` targets in
   `Makefile`. `tests/hermetic/test_stdio_session.py` checks the forms over stdio.
+- The plugin: the `opik` entry in `.claude-plugin/marketplace.json`, and
+  `plugin-validate` in `Makefile`.
 - Budgets: [tool-surface](../tool-surface/design-doc.md). Analytics:
   [analytics](../analytics/design-doc.md). Evaluation reads: [experiment-flows](../experiment-flows/design-doc.md).
 
@@ -133,6 +155,22 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   that changes no skill opens no pull request in the consumer (#163).
 - The `opik-` prefix exists because the installer overwrites a same-named
   skill without asking (#171).
+- The plugin lives in this repo, so a skill and the tool it calls ship in one
+  PR. It is declared on the marketplace entry, not in a `plugin.json` under
+  `src/opik_mcp`, because that directory is the Python package and a manifest
+  there ships to PyPI unless excluded. The cost: `claude plugin validate` does
+  not check an MCP server on an entry, and `--plugin-dir src/opik_mcp` loads
+  the skills without the server.
+- The plugin root is the whole package, so the plugin copy holds the Python
+  code and each skill's `evals/`, which the pack and the wheel leave out
+  (#176). Claude Code loads only the skills from it, and no manifest field
+  excludes a directory. A root outside the package would need a copy or a
+  build step, which this plugin exists to avoid.
+- No plugin `version`. `version.txt` names the next, unreleased version, and a
+  pinned version keeps every user on it until it changes.
+- The plugin registers only the hosted server. A self-hosted or open-source
+  Opik needs stdio `uvx opik-mcp` with `OPIK_URL`, and a plugin cannot choose
+  the server at install time.
 
 ### Traps
 
@@ -146,6 +184,13 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   `.claude/hooks/protect_paths.py` and deny rules block the usual ways in, but
   not `cp` or a script. `make skills-verify-source` compares the installed
   names with `src/opik_mcp/skills/` and fails CI on any difference.
+- Claude Code ignores `metadata.pluginRoot` for a `source` that starts with
+  `./`, and `npx skills` joins the two. With `"pluginRoot": "./src/opik_mcp"`
+  and `"source": "./"`, the skills installer worked and the plugin loaded 0
+  skills. Put the root in `source` alone.
+- `src/opik_mcp` is the plugin root, so a new `agents/`, `commands/`, `hooks/`
+  or other default plugin path there loads into every plugin user's session.
+  `tests/skills/test_claude_plugin.py` fails on one.
 
 ## Proven by
 
@@ -159,6 +204,9 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - The hook blocks writes to the skill folders: `tests/repo/test_agent_hooks.py`.
 - The installer reproduces the pack and finds only the authored skills:
   `make skills-verify`, `make skills-verify-source`.
+- The plugin resolves the authored skills, registers the hosted server, adds no
+  file to the package and pins no version: `tests/skills/test_claude_plugin.py`.
+  Its manifests pass `claude plugin validate --strict`: `make plugin-validate`.
 
 ## Log
 

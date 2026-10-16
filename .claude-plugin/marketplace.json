@@ -4,15 +4,27 @@
     "name": "Comet ML",
     "url": "https://github.com/comet-ml"
   },
-  "metadata": {
-    "description": "Opik agent skills, authored here and published as the opik-skills pack.",
-    "pluginRoot": "./src/opik_mcp"
-  },
+  "description": "The Opik plugin for Claude Code: the Opik agent skills and the hosted Opik MCP server.",
   "plugins": [
     {
       "name": "opik",
-      "source": "./",
-      "description": "Skills that teach a coding agent to instrument, trace and evaluate LLM applications with Opik."
+      "source": "./src/opik_mcp",
+      "displayName": "Opik",
+      "description": "Skills that teach a coding agent to instrument, trace and evaluate LLM applications with Opik, and the hosted Opik MCP server to read traces, threads, experiments and Diagnostics issues.",
+      "author": {
+        "name": "Comet ML",
+        "url": "https://www.comet.com"
+      },
+      "homepage": "https://www.comet.com/docs/opik/",
+      "repository": "https://github.com/comet-ml/opik-mcp",
+      "license": "Apache-2.0",
+      "keywords": ["opik", "comet", "llm", "observability", "tracing", "evaluation", "mcp", "skills"],
+      "mcpServers": {
+        "opik-mcp": {
+          "type": "http",
+          "url": "https://www.comet.com/opik/api/v1/mcp"
+        }
+      }
     }
   ]
 }
