@@ -289,3 +289,20 @@ async def test_read_skill_is_described_because_it_is_always_advertised() -> None
     async with _handshake() as (init, tools):
         assert "read_skill" in {t.name for t in tools}
         assert "read_skill" in _bulleted_tool_names(init.instructions or "")
+
+
+@pytest.mark.hermetic
+@pytest.mark.anyio
+async def test_the_blob_names_only_real_parameters() -> None:
+    """`read takes (entity_type, id_or_name_or_uri)` shipped while the parameter
+    was `id`, so every agent that followed the blob failed its first read."""
+    async with _handshake() as (init, tools):
+        params = {t.name: set((t.inputSchema or {}).get("properties", {})) for t in tools}
+        signatures = re.findall(r"\b([a-z_]+) takes \(([^)]*)\)", init.instructions or "")
+
+    assert signatures, "no `<tool> takes (...)` signatures found — update this test"
+    for tool, args in signatures:
+        # Only bare identifiers are parameter names; "optional name filter" is prose.
+        named = {a.strip() for a in args.split(",") if re.fullmatch(r"[a-z_]+", a.strip())}
+        unknown = named - params.get(tool, set())
+        assert not unknown, f"the instructions say {tool} takes {sorted(unknown)}; it does not"
