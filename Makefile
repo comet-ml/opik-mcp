@@ -191,9 +191,8 @@ skills-verify-source:
 	echo "repository resolves exactly the authored skills: $$authored"
 
 # The Claude Code plugin is the `opik` entry in `.claude-plugin/marketplace.json`,
-# rooted at src/opik_mcp. `--strict` fails on warnings too. The validator does not
-# check an MCP server declared on a marketplace entry; tests/skills/test_claude_plugin.py
-# does. Throwaway HOME, so the CLI reads and writes no user config.
+# rooted at src/opik_mcp. `--strict` fails on warnings too. Throwaway HOME, so the
+# CLI reads and writes no user config.
 plugin-validate:
 	@set -euo pipefail; \
 	tmp=$$(mktemp -d); \

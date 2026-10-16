@@ -190,7 +190,6 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   skills. Put the root in `source` alone.
 - `src/opik_mcp` is the plugin root, so a new `agents/`, `commands/`, `hooks/`
   or other default plugin path there loads into every plugin user's session.
-  `tests/skills/test_claude_plugin.py` fails on one.
 
 ## Proven by
 
@@ -204,9 +203,9 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - The hook blocks writes to the skill folders: `tests/repo/test_agent_hooks.py`.
 - The installer reproduces the pack and finds only the authored skills:
   `make skills-verify`, `make skills-verify-source`.
-- The plugin resolves the authored skills, registers the hosted server, adds no
-  file to the package and pins no version: `tests/skills/test_claude_plugin.py`.
-  Its manifests pass `claude plugin validate --strict`: `make plugin-validate`.
+- Claude Code and `npx skills` resolve the same skills directory:
+  `tests/skills/test_claude_plugin.py`. The manifests pass
+  `claude plugin validate --strict`: `make plugin-validate`.
 
 ## Log
 
