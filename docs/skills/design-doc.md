@@ -210,6 +210,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 
 ## Log
 
+- 2026-10-16: the marketplace entry is the Claude Code plugin, with the hosted server; it had loaded 0 skills because Claude Code ignores `pluginRoot` for a `./` source (#254).
 - 2026-09-24: a hook and deny rules block writes to `.claude/skills/` and `.agents/skills/`, which would ship to users (#202).
 - 2026-09-23: skill `evals/` excluded from the wheel so eval fixtures do not ship (#176).
 - 2026-09-21: quality-drop questions routed to `opik-compare` (#198).
