@@ -44,7 +44,8 @@ in workspace "{workspace}". The Opik UI is at {opik_url}.
 {default_project_clause}{feature_clause}
 Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
-reads. read takes (entity_type, id); list takes (entity_type, \
+reads. read takes (entity_type, id): a UUID, a project/experiment/prompt/dataset \
+name, or an opik:// URI; list takes (entity_type, \
 page, size, and a name substring for workspace-wide types). For trace, span \
 and thread, list also takes filters (OQL, the same language as \
 search_traces(filter_string=…)), sort, since/until and search; for experiment, \
