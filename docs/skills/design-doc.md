@@ -4,8 +4,9 @@
 
 This repo authors the Opik agent skills. The server serves them through the
 `read_skill` tool and as MCP resources, and CI publishes the same bytes as the
-pack that `npx skills add comet-ml/opik-skills` installs. This doc answers how
-an agent gets a skill, how the pack is built, and how to add a skill.
+pack that `npx skills add comet-ml/opik-skills` installs, and the Claude Code
+plugin `opik` installs them from this repo. This doc answers how an agent gets
+a skill, how the pack and the plugin are built, and how to add a skill.
 
 ## What it does now
 
@@ -80,6 +81,24 @@ In CI the `skills-pack` job runs `make skills-verify` and
 the verified artifact to the pre-release tag `skills-pack`, where
 `comet-ml/opik-skills` pulls it. This repo holds no credentials for that repo.
 
+### The Claude Code plugin
+
+`plugins/opik/` is the plugin folder. It holds `.claude-plugin/plugin.json`,
+`.mcp.json`, a `README.md` and `skills/`, and nothing it loads lives outside
+it, because Anthropic's directory installs and scans only that folder.
+
+- `/plugin install opik --marketplace comet-ml/opik-mcp` installs it from
+  `.claude-plugin/marketplace.json`. The skills load as `opik:<skill>`.
+- `.mcp.json` registers the hosted server `opik-mcp` (`type: http`, a fixed
+  URL, OAuth, no key). `/mcp` shows it as `plugin:opik:opik-mcp`. A server
+  the user added by hand at the same URL wins, and Claude Code skips the
+  plugin's.
+- `plugin.json` carries the version in `version.txt`. `bump-version` in
+  `release.yaml` moves both, and the `version` job in `ci.yaml` fails when
+  they differ.
+- The plugin is for Opik Cloud. Self-hosted and open-source users set up the
+  local server with `uvx opik@latest mcp configure`.
+
 ### Adding a skill
 
 1. Create `plugins/opik/skills/opik-<verb>/SKILL.md` with `last_updated` and
@@ -138,6 +157,13 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   that changes no skill opens no pull request in the consumer (#163).
 - The `opik-` prefix exists because the installer overwrites a same-named
   skill without asking (#171).
+- The skills live in the plugin folder, with a symlink back from the package,
+  and not the other way round. The directory blocks a symlink the plugin
+  loads, and a Claude Code install from GitHub drops a link that leaves the
+  plugin folder (OPIK-8848).
+- The plugin registers only the hosted server. claude.ai chat ignores a local
+  server and a URL built from a setting, and the directory holds every
+  version of a plugin that runs `uvx` for a reviewer (OPIK-8848).
 
 ### Traps
 
@@ -169,9 +195,11 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - The installer reproduces the pack and finds only the authored skills:
   `make skills-verify`, `make skills-verify-source`.
 - Evals stay out of the plugin folder: `tests/skills/test_catalog.py`.
+- The manifests pass `claude plugin validate --strict`: `make plugin-validate`.
 
 ## Log
 
+- 2026-10-17: the plugin folder gains `plugin.json`, `.mcp.json` with the hosted server, and a README, so it can be listed in Anthropic's directory (OPIK-8848).
 - 2026-10-17: skills moved to `plugins/opik/skills` and evals to `evals/skills`, so the Claude Code plugin folder holds the skills as real files (OPIK-8848).
 - 2026-09-24: a hook and deny rules block writes to `.claude/skills/` and `.agents/skills/`, which would ship to users (#202).
 - 2026-09-23: skill `evals/` excluded from the wheel so eval fixtures do not ship (#176).

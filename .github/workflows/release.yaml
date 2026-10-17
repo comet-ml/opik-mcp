@@ -351,9 +351,11 @@ jobs:
           fi
           NEXT="${RELEASED%.*}.$(( ${RELEASED##*.} + 1 ))"
           printf '%s\n' "$NEXT" > version.txt
+          # The Claude Code plugin carries the same version; ci.yaml checks they match.
+          sed -i "s/\"version\": \"$RELEASED\"/\"version\": \"$NEXT\"/" plugins/opik/.claude-plugin/plugin.json
           git config --local user.email "github-actions@comet.com"
           git config --local user.name "github-actions"
-          git add version.txt
+          git add version.txt plugins/opik/.claude-plugin/plugin.json
           git commit -m "Bump version.txt to $NEXT after releasing $RELEASED"
           git push origin main
           echo "### Next version: \`$NEXT\` (was \`$RELEASED\`)" >> "$GITHUB_STEP_SUMMARY"

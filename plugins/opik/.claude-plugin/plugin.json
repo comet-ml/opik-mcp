@@ -1,0 +1,16 @@
+{
+  "name": "opik",
+  "displayName": "Opik",
+  "version": "3.0.6",
+  "description": "Opik agent skills and the hosted Opik MCP server: instrument, trace, evaluate and debug LLM applications with Opik.",
+  "author": {
+    "name": "Comet ML",
+    "url": "https://www.comet.com"
+  },
+  "homepage": "https://www.comet.com/docs/opik/",
+  "repository": "https://github.com/comet-ml/opik-mcp",
+  "license": "Apache-2.0",
+  "keywords": ["opik", "comet", "llm", "observability", "tracing", "evaluation", "mcp", "skills"],
+  "documentationUrl": "https://www.comet.com/docs/opik/mcp-server",
+  "supportUrl": "https://github.com/comet-ml/opik-mcp/issues"
+}
