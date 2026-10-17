@@ -324,6 +324,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Anthropic's directory tracks the `claude-plugin` branch for new versions of
+  # plugins/opik, so the listed plugin changes with each release, together with
+  # PyPI and the image, not with each merge. A fast-forward only: a push that
+  # is not one fails, and re-running a release pushes the same commit again.
+  claude-plugin-branch:
+    needs: [validate, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          fetch-depth: 0
+      - name: Fast-forward claude-plugin to the released commit
+        env:
+          SHA: ${{ needs.validate.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git push origin "$SHA:refs/heads/claude-plugin"
+          echo "### claude-plugin: \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
   # Closes the loop: version.txt always names an UNRELEASED version, so the next
   # release has nothing to type and cannot collide with a published one. Runs
   # last and only on success — bumping after a failed release would strand the

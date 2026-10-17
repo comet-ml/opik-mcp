@@ -12,7 +12,9 @@ the version comes from, and how to finish a release that failed halfway.
 
 `version.txt` holds the next unreleased version, `x.y.z`. `bump-version` in
 `release.yaml` increments its patch after a release; edit it by hand to choose
-another.
+another. The Claude Code plugin's `plugins/opik/.claude-plugin/plugin.json`
+carries the same version: `bump-version` moves both, and the `version` job in
+`ci.yaml` fails when they differ.
 
 **There are two version stamps, and both read `$VERSION`.** `make version`
 generates the git-ignored `_version.py`, which the running server reports
@@ -59,6 +61,12 @@ the tests, so check CI on that commit first. `publish-chart` sets `--version`
 and `--app-version` to the release version. `pypi` uses Trusted Publishing; the only secret read is
 `GITHUB_TOKEN`. Release permissions, `pypi` approvals and the hosted rollout
 live outside this repo.
+
+After `github-release`, `claude-plugin-branch` fast-forwards the
+`claude-plugin` branch to the released commit. Anthropic's directory tracks
+that branch for new versions of the plugin, so the listing changes with each
+release, not with each merge. A push that is not a fast-forward fails; a
+re-run pushes the same commit again.
 
 ### Replaying a failed release
 
@@ -127,6 +135,7 @@ manual dispatch of release.yaml
                              -> pypi           => opik-mcp <version>
                                   -> mcp-registry => io.github.comet-ml/opik-mcp <version>
   all three succeed          -> github-release -> bump-version (commit to main)
+                                               -> claude-plugin-branch (fast-forward)
 ```
 
 To change stamps or image tags, start in `ci.yaml`; release steps, in
@@ -216,6 +225,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 
 ## Log
 
+- 2026-10-17: each release fast-forwards `claude-plugin`, the branch Anthropic's directory tracks for the plugin, and bumps the plugin version with `version.txt` (OPIK-8848).
 - 2026-10-05: version 3.0.0 after 0.2.39, so the Python registry entry outranks the npm 2.x ones and becomes `latest` (#242).
 - 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (#240).
 - 2026-09-30: the release build gave `$VERSION` to `make version` only, so hatch fell back and published `0.2.37.dev0` as a release. Step-level `env:`, a check on the built filenames, and a guard test (#239).
