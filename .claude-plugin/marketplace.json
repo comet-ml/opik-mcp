@@ -5,13 +5,12 @@
     "url": "https://github.com/comet-ml"
   },
   "metadata": {
-    "description": "Opik agent skills, authored here and published as the opik-skills pack.",
-    "pluginRoot": "./src/opik_mcp"
+    "description": "Opik agent skills, authored here and published as the opik-skills pack."
   },
   "plugins": [
     {
       "name": "opik",
-      "source": "./",
+      "source": "./plugins/opik",
       "description": "Skills that teach a coding agent to instrument, trace and evaluate LLM applications with Opik."
     }
   ]

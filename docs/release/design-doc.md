@@ -151,8 +151,10 @@ No ADR covers release; the reasons come from workflow comments and PRs.
   race for its image (#178).
 - hermetic is a job in `ci.yaml`: a separate workflow needs a `paths:` filter,
   which can leave a required check pending (#175).
-- A test builds a real wheel to prove skill `evals/` stay out, since the
-  editable install cannot show what a wheel holds (#176).
+- A test builds a real wheel to prove it holds exactly the served skills,
+  since the editable install cannot show what a wheel holds (#176). The skills
+  come from `plugins/opik/skills` through `force-include`; see
+  [skills](../skills/design-doc.md).
 - Not built: `--locked` installs in CI (OPIK-8486); only `Dockerfile` has it.
 - Only the Python release publishes the registry entry. A TypeScript publish
   would add another npm version to it (#240).

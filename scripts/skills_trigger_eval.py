@@ -35,7 +35,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILLS = ROOT / "src" / "opik_mcp" / "skills"
+SKILLS = ROOT / "plugins" / "opik" / "skills"
 # The trailing comment on a should_not_trigger line names the owner: "# compare" -> opik-compare.
 OWNER_RE = re.compile(r"#\s*([a-z][a-z-]*)\s*$")
 

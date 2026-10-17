@@ -176,7 +176,7 @@ skills-verify-source:
 	  echo "::error::installer failed against the repository"; echo "$$out"; exit 1; \
 	fi; \
 	resolved=$$(cd "$$tmp/.agents/skills" 2>/dev/null && ls -1 | sort | tr '\n' ' ' || true); \
-	authored=$$(cd src/opik_mcp/skills && \
+	authored=$$(cd plugins/opik/skills && \
 	  find . -mindepth 2 -maxdepth 2 -name SKILL.md -exec dirname {} \; \
 	  | sed 's|^\./||' | sort | tr '\n' ' '); \
 	if [ "$$resolved" != "$$authored" ]; then \

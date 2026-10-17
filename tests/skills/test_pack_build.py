@@ -5,7 +5,7 @@ onboarding installs it globally with `--all`. So the contract under test is "wha
 lands on a user's disk", and every assertion here is about the emitted directory —
 never about how the builder gets there.
 
-Tests run against fixture trees, never against `src/opik_mcp/skills`. Four more
+Tests run against fixture trees, never against `plugins/opik/skills`. Four more
 skills already have open scaffolding PRs (OPIK-7648/7649/7650/7651); a suite pinned
 to today's set would fail on each arrival, and would stop telling us anything about
 the builder.

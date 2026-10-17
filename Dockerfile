@@ -37,6 +37,9 @@ COPY pyproject.toml uv.lock README.md version.txt ./
 # before the build), which is what the running server reports.
 COPY scripts/_build_version.py ./scripts/
 COPY src ./src
+# The wheel maps the skills in from the plugin folder (`src/opik_mcp/skills` is a
+# symlink to it); see `force-include` in pyproject.toml.
+COPY plugins/opik/skills ./plugins/opik/skills
 
 # Install the project itself into the venv; --no-editable so the runtime
 # stage doesn't need the source tree mounted.

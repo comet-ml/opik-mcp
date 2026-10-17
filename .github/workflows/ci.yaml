@@ -250,7 +250,7 @@ jobs:
           # indentation inside quotes would ship as leading spaces and render
           # every line after the first as an indented code block.
           cat > notes.md <<EOF
-          Rolling build of the \`opik-skills\` pack, generated from \`src/opik_mcp/skills\`.
+          Rolling build of the \`opik-skills\` pack, generated from \`plugins/opik/skills\`.
 
           Source commit: \`${SHA}\`
           Pack version: \`${VERSION}\`

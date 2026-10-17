@@ -1,28 +1,32 @@
 #!/usr/bin/env python3
 # mypy: ignore-errors
-"""Test-automation harness for the `/opik-diagnose` skill.
+"""Test-automation harness for the `/opik-compare` skill.
 
 Flows:
 
   1. Manual (default):
-        uv run --with pyyaml python run_evals.py prepare   # seed a project with known traces
-        # ...run the /opik-diagnose skill on the project named in _work/triage/PROMPT.txt;
-        #    it should write result.json = {status, scope, shortlist, source, next_step}...
-        uv run --with pyyaml python run_evals.py grade     # score shortlist vs planted ids
+        uv run --with pyyaml python run_evals.py prepare   # seed a suite + baseline per case
+        # ...run the /opik-compare skill in each _work/<case>/ with the prompt in PROMPT.txt;
+        #    it should write result.json = {status, suite, baseline, candidate, deltas,
+        #    regressions, fixes, compare_url, next_step}...
+        uv run --with pyyaml python run_evals.py grade     # score vs planted.json, offline
 
   2. Triggering (selection_accuracy):
         uv run --with pyyaml python run_evals.py trigger-prepare
         uv run --with pyyaml python run_evals.py trigger-grade
 
-`prepare` runs the seeder (fixtures/seed) to plant known traces in a fresh
-project and records their ids by role in planted.json. Requires Opik configured
-(`~/.opik.config` or OPIK_API_KEY) + network. Grading is offline.
+`prepare` runs the seeder (fixtures/regress/seed.py): a unique suite with four
+items and — for the functional case — a baseline experiment with known pass/fail.
+Requires Opik configured (`~/.opik.config` or OPIK_API_KEY), network, and a judge
+model for assertions (OPIK_EVAL_JUDGE_MODEL, default gpt-4o-mini, plus its key).
+Grading is offline.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -33,36 +37,40 @@ import grader
 import metrics
 
 HERE = Path(__file__).resolve().parent
-SKILL = HERE.parent / "SKILL.md"
+SKILL = HERE.parents[2] / "plugins" / "opik" / "skills" / HERE.name / "SKILL.md"
 FIXTURES = HERE / "fixtures"
 WORK = HERE / "_work"
 TRIG = WORK / "triggering"
 
 DECOY_SKILLS = [
     {
-        "name": "opik-explain",
-        "description": "Root-cause a specific Opik trace and return a "
-        "grounded explanation. Use to debug ONE trace you already have, not to discover which.",
+        "name": "opik-verify",
+        "description": "Decide ship or hold for a candidate against a release policy, from "
+        "the compare skill's numbers. The DECISION, not the numbers.",
     },
     {
-        "name": "opik-instrument",
-        "description": "Add Opik tracing to an existing app and verify a "
-        "real trace lands. Use to add observability, not to find existing traces.",
+        "name": "opik-test",
+        "description": "Turn a failing trace into a regression check — a test-suite item "
+        "with assertions. Use to ADD a case, not to run the suite.",
     },
     {
         "name": "opik-evaluate",
-        "description": "Build an Opik evaluation and run it, returning an "
-        "experiment with scores. Offline experiment results, not live production triage.",
+        "description": "Build an LLM evaluation from scratch and run it, returning a first "
+        "experiment with scores. A new eval, not a before/after on an existing suite.",
     },
     {
-        "name": "opik",
-        "description": "Reference for how Opik works — tracing concepts and SDK "
-        "options. Use to look up the product, not to triage traces.",
+        "name": "opik-diagnose",
+        "description": "Surface the live production traces worth attention, ranked by "
+        "signal. Online traffic, not offline experiments.",
     },
     {
-        "name": "code-review",
-        "description": "Review code and report findings without changing "
-        "it — a general audit, unrelated to traces.",
+        "name": "opik-explain",
+        "description": "Root-cause one specific Opik trace and return a grounded explanation.",
+    },
+    {
+        "name": "opik-optimize",
+        "description": "Improve a prompt with the Agent Optimizer against a dataset and "
+        "metric. Changes the prompt, does not compare two runs of the app.",
     },
 ]
 
@@ -73,18 +81,21 @@ def load_cases() -> dict:
     return yaml.safe_load((HERE / "cases.yaml").read_text())
 
 
-def functional(cases: dict) -> list[dict]:
-    return cases.get("functional", [])
+def _all_cases(cases: dict) -> list[tuple[str, dict]]:
+    return [("functional", c) for c in cases.get("functional", [])] + [
+        ("edge", c) for c in cases.get("edge", [])
+    ]
 
 
-def _seed(wd: Path) -> dict | None:
+def _seed(wd: Path, env: dict) -> dict | None:
     try:
         out = subprocess.run(
             ["uv", "run", "--quiet", "python", "seed.py"],
             cwd=wd,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=900,
+            env={**os.environ, **env},
         )
     except Exception as e:
         print(f"  ! seed failed for {wd.name}: {e}")
@@ -100,19 +111,24 @@ def prepare() -> None:
     cases = load_cases()
     WORK.mkdir(exist_ok=True)
     lines = [f"skill: {SKILL}", ""]
-    for c in functional(cases):
+    for area, c in _all_cases(cases):
         wd = WORK / c["id"]
         if wd.exists():
             shutil.rmtree(wd)
         shutil.copytree(FIXTURES / c["fixture"], wd)
-        planted = _seed(wd)
-        project = (planted or {}).get("project", "<seed-failed>")
-        prompt = c["prompt"].replace("<PROJECT>", project)
+        planted = _seed(wd, {k: str(v) for k, v in (c.get("seed_env") or {}).items()})
+        suite = (planted or {}).get("suite", "<seed-failed>")
+        prompt = c["prompt"].replace("<SUITE>", suite)
         (wd / "PROMPT.txt").write_text(prompt)
-        lines.append(f"## {c['id']}\n- workdir: {wd}\n- project: {project}\n- prompt: {prompt}\n")
+        # The seeder is not part of the candidate under test; drop it so the
+        # read-only check compares only what the skill may touch.
+        (wd / "seed.py").unlink(missing_ok=True)
+        lines.append(
+            f"## {c['id']}  ({area})\n- workdir: {wd}\n- suite: {suite}\n- prompt: {prompt}\n"
+        )
     (WORK / "PROMPTS.md").write_text("\n".join(lines))
-    print(f"Prepared {len(functional(cases))} workdir(s) under {WORK}")
-    print("Run /opik-diagnose on the project in each PROMPT.txt, write result.json, then `grade`.")
+    print(f"Prepared {len(_all_cases(cases))} workdir(s) under {WORK}")
+    print("Run /opik-compare in each workdir (cwd = the workdir), write result.json, then `grade`.")
 
 
 def _read_json(wd: Path, name: str) -> dict | None:
@@ -128,14 +144,15 @@ def _read_json(wd: Path, name: str) -> dict | None:
 def grade() -> int:
     cases = load_cases()
     results = []
-    for c in functional(cases):
+    for area, c in _all_cases(cases):
         wd = WORK / c["id"]
         if not wd.exists():
             print(f"  ! skip {c['id']}: no workdir (run `prepare` + the skill first)")
             continue
         result = _read_json(wd, "result.json")
         planted = _read_json(wd, "planted.json")
-        results.append(grader.grade_case(c, FIXTURES / c["fixture"], wd, result, planted))
+        fixture = FIXTURES / c["fixture"]
+        results.append(grader.grade_case(c, fixture, wd, result, planted, area=area))
     m = metrics.compute(results)
     rep = metrics.report(results, m)
     (WORK / "report.md").write_text(rep)
@@ -155,9 +172,9 @@ def _skill_description() -> str:
 def trigger_prepare() -> None:
     trig = load_cases().get("triggering", {})
     TRIG.mkdir(parents=True, exist_ok=True)
-    menu = [{"name": "opik-diagnose", "description": _skill_description()}, *DECOY_SKILLS]
-    phrases = [{"phrase": p, "expect": "opik-diagnose"} for p in trig.get("should_trigger", [])] + [
-        {"phrase": p, "expect": "not-opik-diagnose"} for p in trig.get("should_not_trigger", [])
+    menu = [{"name": "opik-compare", "description": _skill_description()}, *DECOY_SKILLS]
+    phrases = [{"phrase": p, "expect": "opik-compare"} for p in trig.get("should_trigger", [])] + [
+        {"phrase": p, "expect": "not-opik-compare"} for p in trig.get("should_not_trigger", [])
     ]
     (TRIG / "phrases.json").write_text(json.dumps(phrases, indent=2))
     lines = [
@@ -190,15 +207,11 @@ def trigger_grade() -> int:
     if not f.exists():
         print(f"  ! no {f}: run trigger-prepare + a judge first")
         return 2
-    loaded = json.loads(f.read_text())
-    # judge_input.md asks for {"verdicts": {phrase: skill}}, so unwrap that
-    # key; a judge that returns the flat map instead is also accepted, since
-    # both readings of "STRICT JSON" show up in practice and neither is wrong
-    # enough to score a skill at 0.36 for.
-    verdicts = loaded.get("verdicts", loaded) if isinstance(loaded, dict) else {}
+    verdicts = json.loads(f.read_text())
+    verdicts = verdicts.get("verdicts", verdicts)
     trig = load_cases().get("triggering", {})
-    st = {p: (verdicts.get(p) == "opik-diagnose") for p in trig.get("should_trigger", [])}
-    sn = {p: (verdicts.get(p) == "opik-diagnose") for p in trig.get("should_not_trigger", [])}
+    st = {p: (verdicts.get(p) == "opik-compare") for p in trig.get("should_trigger", [])}
+    sn = {p: (verdicts.get(p) == "opik-compare") for p in trig.get("should_not_trigger", [])}
     m = metrics.compute([], triggering={"should_trigger": st, "should_not_trigger": sn})
     for p, did in st.items():
         print(f"[{'PASS' if did else 'FAIL'}] should_trigger:     {p!r} -> {verdicts.get(p)}")
@@ -209,10 +222,10 @@ def trigger_grade() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Eval harness for the /opik-diagnose skill")
+    ap = argparse.ArgumentParser(description="Eval harness for the /opik-compare skill")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("prepare", help="seed a project with known traces")
-    sub.add_parser("grade", help="grade result.json shortlist vs planted ids")
+    sub.add_parser("prepare", help="seed a suite + baseline per case")
+    sub.add_parser("grade", help="grade result.json vs planted.json (offline)")
     sub.add_parser("trigger-prepare", help="emit the triggering judge input")
     sub.add_parser("trigger-grade", help="score verdicts.json -> selection_accuracy")
     args = ap.parse_args()

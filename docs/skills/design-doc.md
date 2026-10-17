@@ -11,16 +11,20 @@ an agent gets a skill, how the pack is built, and how to add a skill.
 
 ### The tree
 
-- A skill is a directory under `src/opik_mcp/skills/` that holds a `SKILL.md`.
+- A skill is a directory under `plugins/opik/skills/` that holds a `SKILL.md`.
+  That folder is the Claude Code plugin folder, so it holds real files.
+  `src/opik_mcp/skills` is a symlink to it, so an editable install reads the
+  skills live; the wheel maps the folder in with `force-include`.
   Its `name` is `opik` or starts with `opik-`, and matches the directory.
 - `opik` is the SDK reference. Each `opik-<verb>` skill does one task. Rules for
   the frontmatter `description` are in `.claude/rules/skills.md`.
 - Only this tree is served (`_skills_root`) and packed (`DEFAULT_SRC`). A skill
   authored elsewhere is in neither, but can still ship; see Traps.
-- `evals/` inside a skill is run by hand (see its `HARNESS.md`) and never
-  ships. Exclusion is one rule, `EXCLUDED_DIRS` plus dotfiles, in
-  `src/opik_mcp/skills_catalog.py`; the pack builder imports it. The wheel
-  rule is in [release](../release/design-doc.md).
+- A skill's evals live in `evals/skills/<skill>/`, outside the plugin folder,
+  and are run by hand (see its `HARNESS.md`). A file under the skills tree is
+  served and packed unless one rule, `EXCLUDED_DIRS` plus dotfiles, in
+  `src/opik_mcp/skills_catalog.py`, drops it; the pack builder imports it.
+  The plugin installs the folder as is, with no rule.
 
 ### read_skill
 
@@ -78,7 +82,7 @@ the verified artifact to the pre-release tag `skills-pack`, where
 
 ### Adding a skill
 
-1. Create `src/opik_mcp/skills/opik-<verb>/SKILL.md` with `last_updated` and
+1. Create `plugins/opik/skills/opik-<verb>/SKILL.md` with `last_updated` and
    `source_commit` under `metadata:`. `tests/skills/test_spec_compliance.py`
    checks the name and the provenance.
 2. Add a line to `SKILL_SUMMARIES`, or the skill is missing from the routing
@@ -127,8 +131,9 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - Names resolve by lookup in the enumerated file set, never by a path join, so
   `..` and absolute paths find nothing. `read_skill_file` rechecks the set.
 - Exclusion is by rule, so a new `scripts/` folder ships without editing an
-  allow-list. `evals/` stays out because the pack installs with `--all` and
-  fixtures would land on every user's machine (#176).
+  allow-list. Evals stay out of the skills tree because the pack installs with
+  `--all` and the plugin installs the whole folder, so fixtures would land on
+  every user's machine (#176).
 - `content_digest` leaves out `pack_version` and `source_commit`, so a merge
   that changes no skill opens no pull request in the consumer (#163).
 - The `opik-` prefix exists because the installer overwrites a same-named
@@ -145,7 +150,11 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   installer searches, ships instead of the authored ones. `.gitignore`,
   `.claude/hooks/protect_paths.py` and deny rules block the usual ways in, but
   not `cp` or a script. `make skills-verify-source` compares the installed
-  names with `src/opik_mcp/skills/` and fails CI on any difference.
+  names with `plugins/opik/skills/` and fails CI on any difference.
+- A build from the source tree follows the `src/opik_mcp/skills` symlink and
+  adds each skill twice, which fails the build. The wheel `exclude` in
+  `pyproject.toml` skips it; `tests/hermetic/test_wheel_contents.py` builds
+  that way. The Docker build copies `plugins/opik/skills` for the same map.
 
 ## Proven by
 
@@ -159,9 +168,11 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 - The hook blocks writes to the skill folders: `tests/repo/test_agent_hooks.py`.
 - The installer reproduces the pack and finds only the authored skills:
   `make skills-verify`, `make skills-verify-source`.
+- Evals stay out of the plugin folder: `tests/skills/test_catalog.py`.
 
 ## Log
 
+- 2026-10-17: skills moved to `plugins/opik/skills` and evals to `evals/skills`, so the Claude Code plugin folder holds the skills as real files (OPIK-8848).
 - 2026-09-24: a hook and deny rules block writes to `.claude/skills/` and `.agents/skills/`, which would ship to users (#202).
 - 2026-09-23: skill `evals/` excluded from the wheel so eval fixtures do not ship (#176).
 - 2026-09-21: quality-drop questions routed to `opik-compare` (#198).

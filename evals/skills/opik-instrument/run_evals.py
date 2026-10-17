@@ -32,7 +32,7 @@ import grader
 import metrics
 
 HERE = Path(__file__).resolve().parent
-SKILL = HERE.parent / "SKILL.md"
+SKILL = HERE.parents[2] / "plugins" / "opik" / "skills" / HERE.name / "SKILL.md"
 FIXTURES = HERE / "fixtures"
 WORK = HERE / "_work"
 TRIG = WORK / "triggering"

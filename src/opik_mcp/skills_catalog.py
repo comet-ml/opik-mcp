@@ -1,6 +1,7 @@
 """Read the skills bundled in the wheel, for serving over MCP (OPIK-7472).
 
-`src/opik_mcp/skills/` is the canonical home of the Opik agent skills (OPIK-7471).
+`plugins/opik/skills/` is the canonical home of the Opik agent skills (OPIK-7471); the
+wheel packs it as `opik_mcp/skills`.
 This module is the only runtime reader of that tree: it enumerates the publishable
 files, maps each to an `opik://skills/...` URI, and reads one back. Both MCP entry
 points — the `resources/*` handlers in `skills_resources` and the `read_skill`
