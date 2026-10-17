@@ -61,7 +61,7 @@ def test_protect_blocks_with_a_reason(repo: Path, relative: str, tool: str) -> N
 @pytest.mark.parametrize(
     "relative",
     [
-        "src/opik_mcp/skills/opik/SKILL.md",
+        "plugins/opik/skills/opik/SKILL.md",
         "src/opik_mcp/read_list/uri.py",
         ".claude/rules/python.md",
         "docs/decisions/0001-context-budget-first.md",

@@ -50,7 +50,7 @@ from skills_ref import SkillProperties, read_properties, validate
 from opik_mcp.skills_catalog import EXCLUDED_DIRS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_SRC = REPO_ROOT / "src" / "opik_mcp" / "skills"
+DEFAULT_SRC = REPO_ROOT / "plugins" / "opik" / "skills"
 DEFAULT_OUT = REPO_ROOT / "dist" / "opik-skills"
 README_TEMPLATE = Path(__file__).resolve().parent / "skills_pack_readme.md.tmpl"
 

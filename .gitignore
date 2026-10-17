@@ -43,7 +43,7 @@ coverage/
 #
 # `npx skills add` installs into these directories, and the skills CLI treats
 # them as priority search locations: a committed skill here would be resolved
-# *instead of* the ones under src/opik_mcp/skills. Since the product's onboarding
+# *instead of* the ones under plugins/opik/skills. Since the product's onboarding
 # installs globally with `--all`, a stray commit would push an unrelated
 # third-party skill onto users' machines.
 .agents/skills/

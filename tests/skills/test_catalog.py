@@ -22,7 +22,7 @@ from skills_ref import validate
 from opik_mcp import skills_catalog as catalog
 from tests.factories import make_settings
 
-SKILLS_SRC = Path(__file__).resolve().parents[2] / "src" / "opik_mcp" / "skills"
+SKILLS_SRC = Path(__file__).resolve().parents[2] / "plugins" / "opik" / "skills"
 
 
 # --- listing ------------------------------------------------------------- #
@@ -63,10 +63,14 @@ def test_excluded_directories_are_never_served() -> None:
         leaked = [u for u in served if f"/{excluded}/" in u]
         assert not leaked, f"{excluded}/ leaked into the catalog: {leaked}"
     assert not [u for u in served if "/." in u], "a dotfile leaked into the catalog"
-    # The exclusions must actually be doing work — if `evals/` disappeared from
-    # the source tree this test would otherwise pass vacuously forever.
-    assert any(d.is_dir() for d in SKILLS_SRC.glob("*/evals")), (
-        "no evals/ directory in the source tree; this test no longer proves anything"
+
+
+def test_evals_stay_out_of_the_plugin_folder() -> None:
+    """The Claude Code plugin installs the whole skills folder, which no exclusion
+    rule filters, so fixture apps and graders there would land on users' machines."""
+    stray = sorted(str(d.relative_to(SKILLS_SRC)) for d in SKILLS_SRC.glob("*/evals"))
+    assert not stray, (
+        f"{stray} under {SKILLS_SRC}: move them to evals/skills/<skill>/, outside the plugin"
     )
 
 

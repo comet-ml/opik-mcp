@@ -37,7 +37,9 @@ How a call flows:
   operation from `writes/registry.py` through its hooks in `writes/operations/`
   → `client/` → backend. `schema(operation)` returns one operation's
   input on demand.
-- `read_skill`: serves `src/opik_mcp/skills/` from `skills_catalog.py`.
+- `read_skill`: serves the skills from `skills_catalog.py`. They are authored in
+  `plugins/opik/skills/` (the Claude Code plugin) and shipped in the wheel as
+  `opik_mcp/skills`.
 - `instructions.py` renders the text a host receives on `initialize`.
   `analytics/` sends product events; it is off in tests.
 
@@ -49,6 +51,7 @@ How a call flows:
 | `make hermetic` | the real server process over stdio and HTTP, against a stub backend; not part of `make check` | yes, own job |
 | `make slow` | the tests that spawn hooks, scripts, git, ruff and mypy; not part of `make check` | yes |
 | `make skills-verify-source` | installing from this repo resolves exactly the authored skills | yes |
+| `make plugin-validate` | `claude plugin validate --strict` passes on the marketplace and `plugins/opik` | yes |
 | `make conformance` | the MCP wire contract only, for fast iteration | inside `check` |
 | `make live` | the tools against a seeded real Opik; needs `OPIK_URL` | yes, `live.yaml` |
 | `make user-flows` | real agent (OPIK-8491) | not yet |
@@ -82,7 +85,8 @@ errors.
 
 - A new module-level cache or flag needs a reset in the autouse fixture in
   `tests/conftest.py`, or tests pass or fail by run order.
-- Never author a skill outside `src/opik_mcp/skills/`. `.claude/skills/` and
+- Never author a skill outside `plugins/opik/skills/`. `src/opik_mcp/skills`
+  is a symlink to it for the editable install. `.claude/skills/` and
   `.agents/skills/` are read by `npx skills add` and would ship to users. A
   hook and `Edit(...)` deny rules block Edit, Write, `tee` and `>` redirects
   there (checked live), but not `cp` or a script; `make skills-verify-source` in CI is the real check.

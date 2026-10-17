@@ -27,7 +27,7 @@ from opik_mcp import skills_catalog as catalog
 from opik_mcp.server import mcp
 from opik_mcp.skills_resources import install_skill_resources
 
-SKILLS_SRC = Path(__file__).resolve().parents[2] / "src" / "opik_mcp" / "skills"
+SKILLS_SRC = Path(__file__).resolve().parents[2] / "plugins" / "opik" / "skills"
 
 # The handlers are installed by `build_app()` / `__main__` in production; neither
 # runs under test, so install them here against the shared server instance. The
