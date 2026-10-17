@@ -78,7 +78,9 @@ artifacts = ["src/opik_mcp/_version.py"]
 # The skills live in the Claude Code plugin folder, which must hold real files.
 # `src/opik_mcp/skills` is a symlink to it, so an editable install reads them
 # live. The wheel maps the folder in with `force-include` and skips the symlink,
-# which a build from the source tree would otherwise add a second time.
+# which a build from the source tree would otherwise add a second time. The
+# editable build also copies the folder into site-packages; `src/opik_mcp` is a
+# regular package, so imports and `importlib.resources` still read the live one.
 [tool.hatch.build.targets.wheel]
 packages = ["src/opik_mcp"]
 exclude = ["src/opik_mcp/skills"]
@@ -233,9 +235,6 @@ warn_unreachable = true
 warn_redundant_casts = true
 disallow_any_explicit = true     # the "no Any" rule, enforced
 files = ["src", "tests", "scripts"]
-# Skill `evals/` dirs hold dev-only harnesses and fixture apps that never ship in
-# the pack; their entry points share module names mypy would reject.
-exclude = ["/evals/"]
 
 [[tool.mypy.overrides]]
 module = ["mcp.shared.memory"]

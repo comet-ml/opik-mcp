@@ -60,5 +60,5 @@ says so. The honest fallbacks are still accepted:
 
 ## Note
 
-`evals/` is **development tooling** — `build_skills_pack.py` excludes it
-(`EXCLUDED_DIRS`), so it never ships in the public pack.
+This folder is **development tooling**. It lives in `evals/skills/`, outside the
+plugin folder, so it never ships in the plugin, the pack or the wheel.

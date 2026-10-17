@@ -64,6 +64,6 @@ must never modify app code.
 
 ## Note
 
-`evals/` is **development tooling** — `build_skills_pack.py` already excludes it
-(`EXCLUDED_DIRS`), so it never ships in the public pack. It travels with the skill
-in-repo, matching the `/opik-instrument` harness (OPIK-7800).
+This folder is **development tooling**. It lives in `evals/skills/`, outside the
+plugin folder, so it never ships in the plugin, the pack or the wheel. It matches the `/opik-instrument`
+harness (OPIK-7800).

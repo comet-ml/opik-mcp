@@ -375,6 +375,10 @@ jobs:
           printf '%s\n' "$NEXT" > version.txt
           # The Claude Code plugin carries the same version; ci.yaml checks they match.
           sed -i "s/\"version\": \"$RELEASED\"/\"version\": \"$NEXT\"/" plugins/opik/.claude-plugin/plugin.json
+          if [ "$(jq -r .version plugins/opik/.claude-plugin/plugin.json)" != "$NEXT" ]; then
+            echo "::error title=bump-version::plugins/opik/.claude-plugin/plugin.json was not moved to $NEXT; nothing pushed."
+            exit 1
+          fi
           git config --local user.email "github-actions@comet.com"
           git config --local user.name "github-actions"
           git add version.txt plugins/opik/.claude-plugin/plugin.json

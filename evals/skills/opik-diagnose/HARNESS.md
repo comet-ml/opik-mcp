@@ -58,6 +58,6 @@ A fresh project name per run keeps precision honest (no accumulation from earlie
 
 ## Note
 
-`evals/` is **development tooling** — `build_skills_pack.py` excludes it
-(`EXCLUDED_DIRS`), so it never ships in the public pack. Matches the `/opik-instrument`
+This folder is **development tooling**. It lives in `evals/skills/`, outside the
+plugin folder, so it never ships in the plugin, the pack or the wheel. Matches the `/opik-instrument`
 (OPIK-7800) and `/opik-explain` harnesses.

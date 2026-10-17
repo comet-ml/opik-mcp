@@ -38,7 +38,8 @@ How a call flows:
   → `client/` → backend. `schema(operation)` returns one operation's
   input on demand.
 - `read_skill`: serves the skills from `skills_catalog.py`. They are authored in
-  `plugins/opik/skills/` (the Claude Code plugin) and packed as `opik_mcp/skills`.
+  `plugins/opik/skills/` (the Claude Code plugin) and shipped in the wheel as
+  `opik_mcp/skills`.
 - `instructions.py` renders the text a host receives on `initialize`.
   `analytics/` sends product events; it is off in tests.
 

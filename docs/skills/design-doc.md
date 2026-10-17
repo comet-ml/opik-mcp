@@ -93,6 +93,9 @@ it, because Anthropic's directory installs and scans only that folder.
   URL, OAuth, no key). `/mcp` shows it as `plugin:opik:opik-mcp`. A server
   the user added by hand at the same URL wins, and Claude Code skips the
   plugin's.
+- This repo's marketplace serves `main`. Anthropic's directory tracks the
+  `claude-plugin` branch, which each release moves forward (see
+  [release](../release/design-doc.md)).
 - `plugin.json` carries the version in `version.txt`. `bump-version` in
   `release.yaml` moves both, and the `version` job in `ci.yaml` fails when
   they differ.

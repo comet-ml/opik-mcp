@@ -94,7 +94,8 @@ is for Opik Cloud; for a self-hosted or open-source Opik, use the
 [Quick start](#quick-start) command. Claude Code does not update a plugin from
 this marketplace on its own: run `/plugin marketplace update opik`, then
 `/plugin update opik@opik`, or turn on auto-update for the marketplace in
-`/plugin`.
+`/plugin`. This marketplace serves `main`, which can be ahead of the last
+release.
 
 If you added `opik-mcp` before at the same URL, Claude Code keeps your copy and
 skips the plugin's. If yours is another server, such as the local

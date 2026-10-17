@@ -94,8 +94,6 @@ def test_suppressions_only_shrink() -> None:
     found: dict[str, int] = {}
     for root in ("src", "tests", "scripts"):
         for path in sorted((REPO_ROOT / root).rglob("*.py")):
-            if "/evals/" in path.as_posix():
-                continue
             count = len(SUPPRESSION.findall(path.read_text()))
             if count:
                 found[path.relative_to(REPO_ROOT).as_posix()] = count
