@@ -42,14 +42,26 @@ def address(url: str) -> str:
     return str(httpx.URL(url).copy_with(username=None, password=None))
 
 
+def _origin(base_url: str) -> str:
+    url = httpx.URL(address(base_url))
+    return f"{url.scheme}://{url.netloc.decode()}"
+
+
 def no_api_at(base_url: str) -> str:
     """An address that answered, but not as Opik's API: the two paths it serves on."""
-    url = httpx.URL(address(base_url))
-    host = f"{url.scheme}://{url.netloc.decode()}"
+    host = _origin(base_url)
     return (
         f"No Opik API at {address(base_url)}. Open-source Opik serves it at {host}/api "
         f"(set OPIK_URL); a Comet platform at {host}/opik/api (set "
         f"COMET_URL_OVERRIDE={host}). Setup: {DOCS_LOCAL_SERVER}"
+    )
+
+
+def open_source_serves_api(base_url: str) -> str:
+    """For a Comet-platform address (``/opik/api``) that may be open-source Opik."""
+    return (
+        "If this is open-source Opik, it serves its API at /api, not /opik/api: "
+        f"set OPIK_URL={_origin(base_url)}/api. Setup: {DOCS_LOCAL_SERVER}"
     )
 
 

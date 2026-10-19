@@ -98,13 +98,16 @@ Writes say the same. An error a setup change fixes (401, 403, no answer, a
 missing or placeholder setting) links the docs page for it (`DOCS_*` in
 `config.py`). A 2xx other than 200, or a body that is not a JSON object, is also
 `OpikServerError`. A web page in its place (`text/html`, or a body that
-opens with `<!doctype html` or `<html`) on a local server whose base URL does
-not end in `/api` is `OpikNotAnApiError`, a subclass bucketed `validation` so
-it never reaches Sentry: Opik's nginx serves the UI with a 200 for every path
-outside `/api/`, so a base URL without it gets the UI. Its message gives the
-same "No Opik API at <url>" fix as `--check` (`hints.no_api_at`). Under a base
-that ends in `/api` the page came from a proxy, and on the hosted server the
-backend address is ours, so both stay `OpikServerError`. Writes
+opens with `<!doctype html` or `<html`) on a local server is
+`OpikNotAnApiError`, a subclass bucketed `validation` so it never reaches
+Sentry: Opik's nginx serves the UI with a 200 for every path outside `/api/`.
+A base URL with no `/api` gets the UI, and the message gives the same
+"No Opik API at <url>" fix as `--check` (`hints.no_api_at`). A base ending in
+`/opik/api` (`COMET_URL_OVERRIDE` on open-source Opik) gets the sentence the
+startup warning gives: if this is open-source Opik, set `OPIK_URL=<host>/api`
+(`hints.open_source_serves_api`). Under a base ending in `/api` but not
+`/opik/api` the page came from a proxy, and on the hosted server the backend
+address is ours, so both stay `OpikServerError`. Writes
 get the raw response from `OpikClient.write_json`, which never raises on
 status; [writes](../writes/design-doc.md) builds the error.
 

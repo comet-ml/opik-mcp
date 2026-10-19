@@ -21,8 +21,8 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
-from opik_mcp.client.errors.hints import LOOPBACK_HOSTS
-from opik_mcp.config import DOCS_LOCAL_SERVER, Settings, get_settings
+from opik_mcp.client.errors.hints import LOOPBACK_HOSTS, open_source_serves_api
+from opik_mcp.config import Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
 
@@ -288,9 +288,8 @@ def main() -> None:
         # Open-source Opik on this machine, set up as a Comet platform: every call
         # would go to /opik/api, which it does not serve.
         logger.warning(
-            "COMET_URL_OVERRIDE points at this machine, where open-source Opik serves "
-            f"its API at /api. Set OPIK_URL={settings.comet_url_override.rstrip('/')}"
-            f"/api instead: {DOCS_LOCAL_SERVER}"
+            "COMET_URL_OVERRIDE points at this machine. "
+            + open_source_serves_api(settings.comet_url_override)
         )
 
     # Initialize Sentry BEFORE the first track_event / any user code path

@@ -11,7 +11,7 @@ from typing import Any, Final
 import httpx
 
 from opik_mcp.client.errors import OpikNotAnApiError, OpikServerError, raise_for_status
-from opik_mcp.client.errors.hints import no_api_at
+from opik_mcp.client.errors.hints import no_api_at, open_source_serves_api
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     DOCS_LOCAL_SERVER,
@@ -45,9 +45,15 @@ def _is_web_page(resp: httpx.Response) -> bool:
     return start.startswith((b"<!doctype html", b"<html"))
 
 
-def _ends_in_api(base_url: str) -> bool:
-    """A base already on an ``/api`` path, where a web page means a proxy, not the UI."""
-    return httpx.URL(base_url).path.rstrip("/").endswith("/api")
+def _web_page_fix(base_url: str) -> str | None:
+    """What to change when ``base_url`` answered with a web page; ``None`` under
+    open-source Opik's own ``/api`` path, where the page came from a proxy."""
+    path = httpx.URL(base_url).path.rstrip("/")
+    if path.endswith("/opik/api"):
+        return open_source_serves_api(base_url)
+    if path.endswith("/api"):
+        return None
+    return f"It is the Opik UI rather than its API. {no_api_at(base_url)}"
 
 
 def _ids_param(ids: list[str]) -> str:
@@ -223,14 +229,10 @@ class OpikClientBase:
             return resp.json()
         except ValueError as exc:
             # On the hosted server the backend address is ours, not the caller's to fix.
-            if (
-                _is_web_page(resp)
-                and not _ends_in_api(self._base_url)
-                and not inbound_authorization.get()
-            ):
+            fix = _web_page_fix(self._base_url) if _is_web_page(resp) else None
+            if fix and not inbound_authorization.get():
                 raise OpikNotAnApiError(
-                    f"Opik answered {entity_hint} with a web page, the Opik UI rather "
-                    f"than its API. {no_api_at(self._base_url)}"
+                    f"Opik answered {entity_hint} with a web page. {fix}"
                 ) from exc
             raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
 

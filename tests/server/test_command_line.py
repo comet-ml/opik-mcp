@@ -188,7 +188,7 @@ def test_a_local_opik_set_up_as_a_comet_platform__is_told_to_set_opik_url(
     with caplog.at_level(logging.WARNING, logger="opik_mcp"):
         main_mod.main()
 
-    assert ("Set OPIK_URL=http://localhost:5173/api instead" in caplog.text) is warned
+    assert ("set OPIK_URL=http://localhost:5173/api" in caplog.text) is warned
 
 
 _CHECKED = "http://opik.test/api"

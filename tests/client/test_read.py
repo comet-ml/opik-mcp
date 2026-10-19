@@ -628,16 +628,31 @@ async def test_the_opik_ui_where_the_api_should_be_names_the_setting_to_fix(
         assert "key-abc" not in message
 
 
-@pytest.mark.parametrize("base_url", ["http://opik.test:5173/api", "https://opik.test/opik/api/"])
+@pytest.mark.parametrize("base_url", ["http://opik.test:5173/api", "http://opik.test:5173/api/"])
 @pytest.mark.anyio
 async def test_a_web_page_under_an_api_base_is_not_called_the_ui(base_url: str) -> None:
-    """The setting already names an API path, so the page came from something in between."""
+    """The setting already names open-source Opik's API path, so a proxy sent the page."""
     with respx.mock(base_url=base_url.rstrip("/")) as mock:
         mock.get("/v1/private/projects").mock(return_value=httpx.Response(200, text=_UI_PAGE))
         client = OpikClient(base_url=base_url, api_key="key-abc", workspace="ws")
         with pytest.raises(OpikServerError, match="non-JSON") as err:
             await client.list_projects(size=1)
     assert not isinstance(err.value, OpikNotAnApiError)
+
+
+@pytest.mark.anyio
+async def test_a_web_page_under_a_comet_platform_base_names_the_open_source_path() -> None:
+    """COMET_URL_OVERRIDE on open-source Opik: calls go to /opik/api, which it does not serve."""
+    base_url = "http://localhost:5173/opik/api"
+    with respx.mock(base_url=base_url) as mock:
+        mock.get("/v1/private/projects").mock(return_value=httpx.Response(200, text=_UI_PAGE))
+        client = OpikClient(base_url=base_url, api_key="key-abc", workspace="ws")
+        with pytest.raises(OpikNotAnApiError) as err:
+            await client.list_projects(size=1)
+    message = str(err.value)
+    assert "If this is open-source Opik" in message
+    assert "set OPIK_URL=http://localhost:5173/api." in message
+    assert "COMET_URL_OVERRIDE" not in message, "the setting it already has is not offered"
 
 
 @pytest.mark.anyio
