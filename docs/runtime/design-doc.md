@@ -227,7 +227,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
-- 2026-10-19: FastMCP no longer reads `.env` from the working directory; a non-UTF-8 file there stopped the server from starting (#PR).
+- 2026-10-19: FastMCP no longer reads `.env` from the working directory; a non-UTF-8 file there stopped the server from starting (#255).
 - 2026-10-08: `--help` names the installer command, and the two rules agents broke most (printing config files, running the sign-in), before the steps, so `--help | head -30` shows them even after uv's download lines (#251).
 - 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).
