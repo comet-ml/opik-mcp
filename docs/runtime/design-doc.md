@@ -88,12 +88,19 @@ with an entity hint and an excerpt of the backend's message.
 | 403 | `OpikPermissionError` (subclass of `OpikAuthError`) | `permission` |
 | 404 | `OpikNotFoundError` | `not_found` |
 | 400, 422 | `OpikValidationError` | `validation` |
+| 429 | `OpikRateLimitError` (subclass of `OpikServerError`) | `rate_limited` |
 | 5xx, other | `OpikServerError` | `upstream_5xx` |
 
 A 401 that no OAuth bearer explains says "Check OPIK_API_KEY and
 OPIK_WORKSPACE", or, with no key sent to Opik Cloud, names the key page and the
 keyless hosted server and says to restart the client (`credential_hint` in
 `src/opik_mcp/client/errors/hints.py`).
+A 429 says the limit is per workspace and shared with the Opik UI and SDK,
+gives the wait from `RateLimit-Reset` (Opik sends no `Retry-After`; "about a
+minute" without it), and asks for one project-wide filtered `list` instead of
+one call per trace, pages one at a time. It is not retried: the wait can
+outlast the client timeout, and parallel retries collide again
+(`tests/client/test_rate_limited.py`).
 Writes say the same. An error a setup change fixes (401, 403, no answer, a
 missing or placeholder setting) links the docs page for it (`DOCS_*` in
 `config.py`). A 2xx other than 200, or a body that is not a JSON object, is also
@@ -223,6 +230,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-19: a 429 is `OpikRateLimitError` that says how long to wait and how to batch, instead of an unexpected-status 500 the agent retried at once (#PR).
 - 2026-10-08: `--help` names the installer command, and the two rules agents broke most (printing config files, running the sign-in), before the steps, so `--help | head -30` shows them even after uv's download lines (#251).
 - 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).

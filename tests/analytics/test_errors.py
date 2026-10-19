@@ -24,6 +24,7 @@ from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
+    OpikRateLimitError,
     OpikServerError,
     OpikValidationError,
 )
@@ -75,7 +76,8 @@ def _http_status_error(status: int) -> httpx.HTTPStatusError:
         (400, "validation"),
         (409, "validation"),
         (422, "validation"),
-        (429, "validation"),
+        # 429 is the workspace's rate limit, its own bucket.
+        (429, "rate_limited"),
         # 5xx → upstream_5xx (excluding 504 above, which is a timeout).
         (500, "upstream_5xx"),
         (502, "upstream_5xx"),
@@ -109,6 +111,8 @@ def test_bucket_http_status_boundaries(status: int, expected: str) -> None:
         (OpikNotFoundError("x"), 404),
         (OpikValidationError("x"), 400),
         (OpikServerError("x"), 500),
+        # Subclass of ``OpikServerError``; must not read as a 500.
+        (OpikRateLimitError("x"), 429),
         (MissingConfigError("x"), 400),
         # Exceptions without a canonical status return None — the BI receiver
         # is expected to treat the absent property as "no status known".
@@ -141,6 +145,7 @@ def test_derive_http_status_reads_httpx_response() -> None:
         (OpikNotFoundError("x"), "not_found"),
         (OpikValidationError("x"), "validation"),
         (OpikServerError("x"), "upstream_5xx"),
+        (OpikRateLimitError("x"), "rate_limited"),
         # Pydantic argument validation lands in the same bucket as Opik's
         # typed validation error — analytics keeps them apart via
         # ``exception_type``.
@@ -460,8 +465,7 @@ def test_bucket_exception_unwraps_http_status_error_through_wrapper() -> None:
     response = httpx.Response(429, request=request)
     inner = httpx.HTTPStatusError("rate-limited", request=request, response=response)
     chain = _raise_chain(ToolError("rate limited"), inner)
-    # 429 → 4xx that isn't auth/permission/not-found/timeout → validation.
-    assert bucket_exception(chain) == "validation"
+    assert bucket_exception(chain) == "rate_limited"
     assert derive_http_status(chain) == 429
 
 
@@ -512,7 +516,7 @@ def _backend_error(status: int) -> BackendError:
         (404, "not_found", 404),
         (408, "timeout", 408),
         (422, "validation", 422),
-        (429, "validation", 429),
+        (429, "rate_limited", 429),
         (500, "upstream_5xx", 500),
         (502, "upstream_5xx", 502),
         (503, "upstream_5xx", 503),

@@ -76,6 +76,35 @@ class OpikServerError(RuntimeError):
     http_status: ClassVar[int | None] = 500
 
 
+class OpikRateLimitError(OpikServerError):
+    """Opik refused the call for the workspace's rate limit (429).
+
+    A subclass of ``OpikServerError`` so every handler that turns a client
+    error into a tool error keeps catching it; the ClassVars shadow the
+    parent's, as ``OpikPermissionError`` does for ``OpikAuthError``.
+    """
+
+    error_kind: ClassVar[ErrorKind] = "rate_limited"
+    http_status: ClassVar[int | None] = 429
+
+
+#: The backend's read windows are 60 s; a larger reset is a self-hosted
+#: setting or a bad header, and is capped rather than repeated.
+_MAX_RATE_LIMIT_WAIT_S = 600
+
+
+def _rate_limit_wait(resp: httpx.Response) -> str:
+    """How long to wait, from ``RateLimit-Reset`` (whole seconds, never below 1).
+
+    Opik sends no ``Retry-After``; without the header the window is a minute.
+    """
+    try:
+        seconds = int(resp.headers.get("RateLimit-Reset", ""))
+    except ValueError:
+        return "about a minute"
+    return f"{min(max(seconds, 1), _MAX_RATE_LIMIT_WAIT_S)} s"
+
+
 def note_backend_401() -> str | None:
     """opik-backend just answered 401 to the call this request is forwarding.
 
@@ -156,6 +185,16 @@ def raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
             f"Opik rejected the request for {entity_hint} ({status}). Check the "
             f"arguments passed.{said}",
             backend_reason=reason,
+        )
+    if status == 429:
+        # The read buckets are per workspace and small (30 a minute for traces
+        # and spans by default), so parallel calls hit them. No retry here: the
+        # wait can outlast the client timeout, and parallel retries collide again.
+        raise OpikRateLimitError(
+            f"Opik rate-limited {entity_hint} (429); the limit is per workspace and "
+            f"shared with the Opik UI and SDK. Wait {_rate_limit_wait(resp)}, then use one "
+            "list(…, project_name=…, filters=…) across the project instead of one call "
+            "per trace, and fetch pages one at a time."
         )
     if status >= 500:
         raise OpikServerError(

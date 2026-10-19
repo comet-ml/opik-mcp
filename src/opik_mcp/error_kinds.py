@@ -25,6 +25,8 @@ ErrorKind = Literal[
     "timeout",
     "network",
     "upstream_5xx",
+    # 429: the workspace's rate limit, which it shares with the Opik UI and SDK.
+    "rate_limited",
     "cancelled",
     "unknown",
     # Startup-only bucket emitted by ``__main__._emit_startup_error`` when

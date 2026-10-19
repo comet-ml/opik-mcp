@@ -213,6 +213,12 @@ def _backend_sentence(operation: str, status: int) -> str:
         )
     if status in (400, 422):
         return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."
+    if status == 429:
+        return (
+            f"Opik rate-limited {operation!r} (429); the limit is per workspace and shared "
+            f"with the Opik UI and SDK. Wait about a minute, then retry {retry} once, with "
+            "the records in one list rather than one call each."
+        )
     if status >= 500:
         return f"Opik server error ({status}) on {operation!r}; retry the same {retry}."
     return f"Opik answered {status} to {operation!r}; check the data and retry {retry}."
