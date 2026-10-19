@@ -58,6 +58,8 @@ class ListArgs:
     applied: list[str]
     clauses: list[dict[str, str]]
     is_source_defaulted: bool
+    #: ``SEARCH_DEFAULT_SINCE`` was applied because the search named no window.
+    is_search_window_defaulted: bool
     #: Where the sort label goes in ``applied`` once the response says
     #: whether the backend kept the sort.
     sort_slot: int
@@ -175,14 +177,14 @@ def resolve_list_args(
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)
 
-    is_search_windowed = (
+    is_search_window_defaulted = (
         handler.is_windowed
         and search is not None
         and bool(search.strip())
         and since is None
         and until is None
     )
-    if is_search_windowed:
+    if is_search_window_defaulted:
         since = SEARCH_DEFAULT_SINCE
 
     to_time: str | None = None
@@ -210,7 +212,7 @@ def resolve_list_args(
             if since is not None and from_time is not None:
                 list_kwargs["from_time"] = from_time
                 since_echo = f"since: {_window_echo(since, from_time)}"
-                if is_search_windowed:
+                if is_search_window_defaulted:
                     # Said where the window is, so a miss is not read as
                     # "nowhere in the project" (ADR 0002).
                     since_echo += ", default for search; pass since=… to widen"
@@ -252,6 +254,7 @@ def resolve_list_args(
         applied=applied,
         clauses=clauses,
         is_source_defaulted=source_defaulted,
+        is_search_window_defaulted=is_search_window_defaulted,
         sort_slot=sort_slot,
         sort_label=sort_label,
         sort_field=sort_field,
