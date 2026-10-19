@@ -20,7 +20,6 @@ from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
-    MAX_PAGE_SIZE,
     collection_total,
     collection_truncated,
     continuation,
@@ -42,6 +41,11 @@ SPANS_INLINE_CHARS = 14_000
 #: The span fields ``truncate=true`` acts on, in the order the backend cuts
 #: them. Used to count what actually lost bytes, not to cut anything here.
 SLIM_SPAN_FIELDS = ("input", "output", "metadata")
+
+#: Page size of the list call ``spanBodies`` names. Smaller than ``LIST_PAGE``
+#: because these rows carry bodies, each field up to the backend's 10,001
+#: characters, where a continuation's rows carry none.
+SPAN_BODIES_PAGE = 10
 
 
 async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
@@ -83,10 +87,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             "spans",
             inlined=len(spans),
             total=collection_total(spans_page),
-            call=(
-                f"list('span', project_id='{project_id}', "
-                f"filters='trace_id = \"{entity_id}\"', {continuation(SPANS_INLINE_LIMIT)})"
-            ),
+            call=_spans_call(project_id, entity_id, continuation(SPANS_INLINE_LIMIT)),
         )
     if spans:
         several = (
@@ -113,22 +114,27 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     return result
 
 
+def _spans_call(project_id: str, trace_id: str, rest: str) -> str:
+    """The ``list`` call for one trace's spans, which every pointer here shares."""
+    return f"list('span', project_id='{project_id}', filters='trace_id = \"{trace_id}\"', {rest})"
+
+
 def _bodies_call(spans: list[dict[str, Any]], *, project_id: str, trace_id: str) -> str | None:
     """One call for the bodies of many spans, named beside read('span', id).
 
     A caller told only about the one-span read read every span of a trace at
     once, and the backend's per-workspace limit refused most of the reads.
-    ``fields`` names only the bodies the spans carry, since ``list`` refuses a
-    field no row has.
+    The list keeps the backend's cut, so a row is bounded the way an inlined
+    span is, and the page is small because every row carries its bodies.
+    ``fields`` names the bodies these spans carry; the span entity's
+    ``list_body_fields`` keeps a later page without one from being refused.
     """
-    carried = [f for f in ("input", "output") if any(f in span for span in spans)]
+    carried = [f for f in SLIM_SPAN_FIELDS if any(f in span for span in spans)]
     if not carried:
         return None
     named = ",".join(f"'{f}'" for f in carried)
-    return (
-        f"list('span', project_id='{project_id}', filters='trace_id = \"{trace_id}\"', "
-        f"fields=[{named}], size={MAX_PAGE_SIZE}) up to {MAX_PAGE_SIZE}"
-    )
+    call = _spans_call(project_id, trace_id, f"fields=[{named}], size={SPAN_BODIES_PAGE}")
+    return f"{call} the first {SPAN_BODIES_PAGE} spans with bodies cut as above"
 
 
 def trace_page_url(
@@ -282,7 +288,6 @@ HANDLER = EntityHandler(
     # Triage columns: what a "which traces need attention" list needs
     # without a read() per row. error_type is derived from error_info.
     list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
-    list_slim_fields=("input", "output", "metadata"),
     list_required_kwargs=("project_id",),
     id_only=True,
     description=(

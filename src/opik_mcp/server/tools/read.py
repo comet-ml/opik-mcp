@@ -152,7 +152,7 @@ async def read(
     back slim: a field over ~10 KB is cut and base64 images are replaced with
     "[image]", which is what keeps one attachment from costing more than the
     other 199 spans together. The read says so in `spanBodies` /
-    `messageBodies`, with the calls that return them whole.
+    `messageBodies`, with the calls that return them.
     """
     if ctx is not None:
         await ctx.info(f"read.called entity_type={entity_type} id={id}")

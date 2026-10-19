@@ -465,6 +465,31 @@ async def test_list_refuses_an_unknown_field_and_names_the_valid_ones() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_span_body_no_row_carries_is_an_empty_column_not_a_refusal() -> None:
+    """A trace read names one list call for its spans' bodies, written from
+    the spans it inlined. The next page of that call may hold no span with
+    ``metadata``, and a refusal there would break a call the server wrote."""
+    fake = FakeReadClient(trace_spans={TRACE: [{"id": "s-1", "name": "step", "output": "done"}]})
+    out = await run_list(
+        "span",
+        project_id=PROJECT,
+        filters=f'trace_id = "{TRACE}"',
+        fields=["output", "metadata"],
+        client=fake,
+    )
+    assert "done" in out
+
+    with pytest.raises(ToolError, match="'outptu'"):
+        await run_list(
+            "span",
+            project_id=PROJECT,
+            filters=f'trace_id = "{TRACE}"',
+            fields=["outptu"],
+            client=fake,
+        )
+
+
+@pytest.mark.anyio
 async def test_an_experiment_row_keeps_the_prompt_version_it_was_not_asked_for() -> None:
     """The id that opens the next level for an experiment is the version of
     the prompt it ran; without it the row cannot be traced back to one."""

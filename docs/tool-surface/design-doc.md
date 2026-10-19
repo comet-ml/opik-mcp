@@ -74,9 +74,10 @@ project if set, tool selection, the link rule, and today's UTC date.
   - `trace`: spans cut by the backend's `truncate=true`, bodies dropped past
     `SPANS_INLINE_CHARS` (the first span keeps its body), `spanBodies`, and
     `moreSpans` past `SPANS_INLINE_LIMIT`. When more than one span may be
-    missing a body, `spanBodies` names one `list('span', …, fields=[…])` call
-    for them beside `read('span', id)`, so the caller does not read each span
-    and hit the backend's per-workspace rate limit.
+    missing a body, `spanBodies` names one `list('span', …, fields=[…],
+    size=10)` call for them beside `read('span', id)`, so the caller does not
+    read each span and hit the backend's per-workspace rate limit. The list
+    keeps the backend's cut, so a row is bounded like an inlined span.
   - `thread`: one message per trace, sorted by `start_time`, same body budget,
     and `messagesError` when the traces call fails.
   - `prompt`: versions up to `VERSIONS_INLINE_LIMIT`, then `moreVersions`.
@@ -121,9 +122,9 @@ project if set, tool selection, the link rule, and today's UTC date.
 - An entity with its own runner (`project_metric`, the dataset comparison) takes the call from `run_list`.
 - Columns are id, name, `list_extra_fields`, then the sort and filter fields.
   Cells past `_TRUNCATE_AT` are cut and counted; `url` cells never are.
-  `fields=[…]` picks the columns and lifts the cut. A body it names
-  (`input`, `output`, `metadata` on trace and span, the handler's
-  `list_slim_fields`) is fetched without the backend's `truncate=true`.
+  `fields=[…]` picks the columns and lifts the cut. A body in the handler's
+  `list_body_fields` (`input`, `output`, `metadata` on span) is taken even
+  on a page where no row has it, as an empty column.
 - No default column is a trace body: `list('thread')` leaves out
   `first_message`, and `fields=["first_message"]` still returns it.
 - The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`);
@@ -271,7 +272,7 @@ Boundaries:
 
 ## Log
 
-- 2026-10-19: the trace read's `spanBodies` names one `list('span', …, fields=[…])` call for many spans, and `list` fetches a body named in `fields` uncut; agents read each span and hit the backend's rate limit (#266).
+- 2026-10-19: the trace read's `spanBodies` names one `list('span', …, fields=[…], size=10)` call for many spans' bodies; agents read each span and hit the backend's rate limit (#266).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).

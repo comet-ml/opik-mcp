@@ -2128,36 +2128,46 @@ async def test_the_bodies_a_trace_left_out_are_one_list_call_away() -> None:
     """Seen in Sentry (OPIK-MCP-9B): told only that read('span', id) returns
     one span whole, an agent read every span of a trace at once and the
     backend's per-workspace limit refused most of the reads. The notice names
-    one call for many, and that call has to return the bodies the read left
-    out, uncut."""
+    one call for many. It returns the bodies the read dropped, under the same
+    backend cut, a small page at a time, and its next page runs too."""
     from opik_mcp.read_list.list_tool import run_list
 
+    spans = [_fat_span(f"sp-{n:02}", 9_000) for n in range(12)]
+    spans[0]["metadata"] = {"model": "m"}
     fake = FakeOpikClient(
         traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
-        trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
+        trace_spans={UUID: spans},
     )
     note = _payload(await run_read("trace", UUID, client=fake))["spanBodies"]
     assert "read('span', id)" in note, "one span is still one read"
     found = re.search(
         r"list\('span', project_id='([^']+)', filters='([^']+)', "
-        r"fields=\[([^\]]+)\], size=(\d+)\)",
+        r"fields=\[([^\]]+)\], size=(\d+)\) the first (\d+) spans",
         note,
     )
     assert found is not None, f"no list call in {note!r}"
-    project_id, filters, fields, size = found.groups()
+    project_id, filters, named, size, first = found.groups()
+    fields = [f.strip(" '") for f in named.split(",")]
+    assert fields == ["output", "metadata"], "the bodies the spans carry, metadata included"
+    assert size == first == "10"
 
-    out = await run_list(
-        "span",
-        project_id=project_id,
-        filters=filters,
-        fields=[f.strip(" '") for f in fields.split(",")],
-        size=int(size),
-        client=fake,
-    )
+    async def page(number: int) -> str:
+        return await run_list(
+            "span",
+            project_id=project_id,
+            filters=filters,
+            fields=fields,
+            page=number,
+            size=int(size),
+            client=fake,
+        )
 
-    assert "should_truncate" not in fake.last_list_spans_kwargs, "asked for uncut"
-    assert all(f"sp-{n}" in out for n in range(6)), "every span of the trace"
-    assert out.count("x" * 9_000) == 6, "with every body, the dropped ones included"
+    out = await page(1)
+    assert fake.last_list_spans_kwargs["should_truncate"] is True, "bounded by the backend's cut"
+    assert out.count("x" * 9_000) == 10, "the first ten spans, each with its body"
+    assert "page=2" in out, "and the page says how to go on"
+    rest = await page(2)
+    assert rest.count("x" * 9_000) == 2, "a page with no metadata is not refused"
 
 
 @pytest.mark.anyio

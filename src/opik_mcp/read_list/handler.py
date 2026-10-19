@@ -319,13 +319,13 @@ class EntityHandler:
     Returns a new mapping; the page the backend sent is left alone for
     everything else that reads it.
     """
-    list_slim_fields: tuple[str, ...] = ()
-    """The bodies the backend's ``truncate=true`` cuts on this entity's list page.
+    list_body_fields: tuple[str, ...] = ()
+    """Bodies a record may lack, which ``fields`` takes on any page.
 
-    A windowed list asks for the cut, because its default columns hold no
-    body. A ``fields`` entry under one of these names puts a body in the
-    table, and then the page is asked for without the cut: ``fields`` returns
-    what it names uncut.
+    ``fields`` refuses a name no row on the page carries. A call written from
+    one page (a trace read naming the list call for its spans' bodies) runs
+    on others, where no row may have, say, ``metadata``; for these names the
+    column is left empty instead.
     """
     list_identity_fields: tuple[str, ...] = ()
     """Columns a projected row keeps beyond its id, even unasked for.

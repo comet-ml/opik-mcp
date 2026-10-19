@@ -189,7 +189,12 @@ def format_table(
     dropped: tuple[str, ...] = ()
     columns: tuple[str, ...]
     if fields is not None:
-        check_fields(fields, available, whole=f"list({entity_type!r}, …)")
+        check_fields(
+            fields,
+            available,
+            whole=f"list({entity_type!r}, …)",
+            accepts=lambda name: name in handler.list_body_fields,
+        )
         columns = _projected_columns(handler, content, fields)
         # No cut: the caller named these fields to read them, and a value cut
         # to sixty characters is not the field, it is a prefix of it.
