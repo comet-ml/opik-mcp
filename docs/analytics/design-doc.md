@@ -73,7 +73,9 @@ Host cancellation is `cancelled`. The classifier never reads `str(exc)` or
 `exc.args`. `invalid_config` is used only by the startup error.
 
 `instrument_tool` sends a failure to Sentry unless its kind is in
-`_USER_SIDE_ERROR_KINDS` or the cause is a `MissingConfigError`. Sentry sends
+`_USER_SIDE_ERROR_KINDS` or the cause is a `MissingConfigError`. A `network`
+failure pages only on the hosted HTTP server; on stdio it is the user's own
+machine or network (`_USER_SIDE_ON_STDIO_ERROR_KINDS`). Sentry sends
 no PII, and `before_send` caps events per process at `_MAX_EVENTS`
 (`src/opik_mcp/error_tracking.py`).
 
@@ -165,6 +167,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
+- 2026-10-19: `network` failures stop paging Sentry on stdio, where a stopped local Opik or a proxy is the user's to fix; the hosted server still pages (#PR).
 - 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).

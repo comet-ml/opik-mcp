@@ -501,8 +501,9 @@ def sentry_recorder(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Se
     "exc, expected_kind",
     [
         # Server-side bugs and infrastructure failures — Sentry's bread and butter.
+        # Network failures depend on the transport: see
+        # test_a_network_failure_pages_sentry_only_on_the_hosted_server.
         (OpikServerError("x"), "upstream_5xx"),
-        (httpx.ConnectError("x"), "network"),
         (ValueError("x"), "unknown"),
     ],
 )
@@ -917,7 +918,6 @@ async def test_sentry_skips_user_side_failures_through_tool_error_wrapper(
         # Server-side bugs and infra failures — Sentry's intended payload.
         # Each one is the wrapped equivalent of the bare-cause tests above.
         (OpikServerError("x"), "upstream_5xx"),
-        (httpx.ConnectError("x"), "network"),
         # An unexpected RuntimeError carrying nothing typed — the classic
         # "real bug" shape. Even through a wrapper, must reach Sentry.
         (RuntimeError("unexpected"), "unknown"),
@@ -945,6 +945,40 @@ async def test_sentry_captures_non_user_side_failures_through_tool_error_wrapper
     assert isinstance(captured_exc, ToolError)
     # But the bucket tag reflects the unwrapped cause.
     assert tags["error_kind"] == expected_kind
+
+
+@pytest.mark.parametrize(
+    "transport, pages_sentry",
+    [
+        # The user's own machine or network: a stopped local Opik, a proxy.
+        ("stdio", False),
+        # The hosted server: our backend is down.
+        ("streamable-http", True),
+    ],
+)
+@pytest.mark.anyio
+async def test_a_network_failure_pages_sentry_only_on_the_hosted_server(
+    sentry_recorder: _SentryRecorder,
+    recorder: _Recorder,
+    monkeypatch: pytest.MonkeyPatch,
+    transport: str,
+    pages_sentry: bool,
+) -> None:
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", transport)
+    inner = httpx.ConnectError("All connection attempts failed")
+
+    @instrument_tool("list")
+    async def fn() -> str:
+        raise _wrap_with_cause(ToolError("Could not reach Opik"), inner)
+
+    with pytest.raises(ToolError):
+        await fn()
+
+    assert len(sentry_recorder.calls) == (1 if pages_sentry else 0), (
+        f"a network failure on {transport} paged Sentry {len(sentry_recorder.calls)} times"
+    )
+    # BI counts it either way.
+    assert recorder.events[-1][1]["error_kind"] == "network"
 
 
 # --- End-to-end: BackendError instance-status routing -------------------- #

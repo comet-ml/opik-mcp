@@ -954,6 +954,17 @@ the `env` block of the MCP server config, not your shell; Codex also forwards
 the names listed in `env_vars`. Start a new session after editing, since
 clients read the config when a session starts.
 
+**"The TLS certificate was not trusted"** — a proxy or a self-signed
+certificate sits between the server and Opik. Point `SSL_CERT_FILE` at a PEM
+file with your CA, in the same `env` block as `OPIK_URL`:
+
+```json
+"env": {
+  "OPIK_URL": "https://opik.example.com/api",
+  "SSL_CERT_FILE": "/path/to/ca.pem"
+}
+```
+
 **Requests go to `/opik/api` on an open-source Opik** — `COMET_URL_OVERRIDE` is
 for a self-hosted Comet platform. Open source serves its API at `/api`: set
 `OPIK_URL=http://localhost:5173/api` (or `https://<host>/api`) instead. The

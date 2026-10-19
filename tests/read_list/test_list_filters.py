@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import ssl
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -419,6 +420,55 @@ async def test_backend_unreachable__on_the_hosted_server__names_no_address() -> 
         inbound_authorization.reset(token)
 
     assert str(err.value).endswith("All connection attempts failed")
+
+
+_SELF_SIGNED = (
+    "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+    "self-signed certificate in certificate chain (_ssl.c:1032)"
+)
+
+
+def _rejected_certificate_from_ssl() -> httpx.ConnectError:
+    """The shape httpx raises: its ConnectError over the ``ssl`` error."""
+    try:
+        try:
+            raise ssl.SSLCertVerificationError(1, _SELF_SIGNED)
+        except ssl.SSLError as cause:
+            raise httpx.ConnectError(str(cause)) from cause
+    except httpx.ConnectError as err:
+        return err
+
+
+class _CertificateRejected(FakeOpikClient):
+    def __init__(self, error: httpx.ConnectError) -> None:
+        super().__init__()
+        self._error = error
+
+    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(_rejected_certificate_from_ssl(), id="ssl-cause"),
+        pytest.param(httpx.ConnectError(_SELF_SIGNED), id="message-only"),
+    ],
+)
+@pytest.mark.anyio
+async def test_a_rejected_certificate__names_ssl_cert_file_instead_of_the_ssl_text(
+    monkeypatch: pytest.MonkeyPatch, error: httpx.ConnectError
+) -> None:
+    monkeypatch.setenv("OPIK_URL", "https://opik.internal.test/api")
+
+    with pytest.raises(ToolError) as err:
+        await run_list("trace", project_id="p-1", client=_CertificateRejected(error))
+
+    message = str(err.value)
+    assert message.startswith("Could not reach Opik to list traces:")
+    assert "SSL_CERT_FILE=" in message
+    assert "https://opik.internal.test/api" in message
+    assert "CERTIFICATE_VERIFY_FAILED" not in message, "the raw ssl text is replaced"
 
 
 # --- default columns ----------------------------------------------------- #

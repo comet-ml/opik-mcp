@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ssl
 from typing import Final
 
 import httpx
@@ -61,7 +62,27 @@ def unreachable(err: httpx.HTTPError) -> str:
         # The hosted server: its backend address is not the caller's to fix.
         return reason
     base = opik_rest_base(get_settings()) or ""
+    if _is_certificate_rejected(err):
+        # The raw ssl text names the failure but not the fix. Never suggest
+        # turning verification off.
+        return (
+            f"the TLS certificate was not trusted (tried {address(base)}). A proxy or a "
+            "self-signed certificate is in the chain: set SSL_CERT_FILE=/path/to/ca.pem in "
+            "the MCP server's env block and restart the MCP client."
+        )
     text = f"{reason} (tried {address(base)})"
     if httpx.URL(base).host in LOOPBACK_HOSTS:
         text += ". Is Opik running? Open-source Opik serves its API at http://localhost:5173/api"
     return f"{text}. Setup: {DOCS_LOCAL_SERVER}"
+
+
+def _is_certificate_rejected(err: httpx.HTTPError) -> bool:
+    """httpx wraps the ``ssl`` error twice (httpcore, then httpx), so look down the chain."""
+    seen: set[int] = set()
+    cause: BaseException | None = err
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, ssl.SSLCertVerificationError):
+            return True
+        seen.add(id(cause))
+        cause = cause.__cause__ or cause.__context__
+    return "CERTIFICATE_VERIFY_FAILED" in str(err)

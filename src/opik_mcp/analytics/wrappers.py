@@ -31,7 +31,7 @@ from opik_mcp.analytics.errors import (
 )
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
 from opik_mcp.analytics.mcp_client_info import call_context_props, collect_session_props
-from opik_mcp.config import MissingConfigError
+from opik_mcp.config import MissingConfigError, get_settings
 
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
@@ -42,8 +42,8 @@ P = ParamSpec("P")
 # Sentry skip-list: buckets representing user-input or user-config problems.
 # These are surfaced to the host LLM as a tool error and counted in BI under
 # their explicit ``error_kind``; Sentry only carries the kinds that need a
-# human stack trace (server errors, network failures, contract drifts,
-# unexpected bugs).
+# human stack trace (server errors, network failures on the hosted server,
+# contract drifts, unexpected bugs).
 #
 # Lives next to the wrapper's capture site rather than inside
 # ``error_tracking.py`` because every Sentry capture in this codebase is
@@ -67,6 +67,20 @@ _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
 # This list stays as a defensive backstop — a future re-classification of the
 # class (e.g. to ``"unknown"``) would silently start paging Sentry otherwise.
 _USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (MissingConfigError,)
+
+
+# On stdio, a network failure is the user's own machine or network: a local
+# Opik that is not running, a proxy with its own certificate. The tool error
+# already says what to change. On the hosted HTTP server the same failure means
+# our backend is down, so it still pages.
+_USER_SIDE_ON_STDIO_ERROR_KINDS: frozenset[str] = frozenset({"network"})
+
+
+def _is_user_side(error_kind: str, real: BaseException) -> bool:
+    if error_kind in _USER_SIDE_ERROR_KINDS or isinstance(real, _USER_SIDE_EXCEPTIONS):
+        return True
+    is_stdio = get_settings().opik_mcp_transport.lower() == "stdio"
+    return is_stdio and error_kind in _USER_SIDE_ON_STDIO_ERROR_KINDS
 
 
 # Indirection so tests can patch the singleton.
@@ -263,9 +277,7 @@ def instrument_tool(
                     # The class-level skip-list runs against ``real`` so a
                     # ToolError wrapping ``MissingConfigError`` is recognized
                     # as user-side and not paged to Sentry.
-                    if error_kind not in _USER_SIDE_ERROR_KINDS and not isinstance(
-                        real, _USER_SIDE_EXCEPTIONS
-                    ):
+                    if not _is_user_side(error_kind, real):
                         _report_to_sentry(
                             exc,
                             tool_name=name,

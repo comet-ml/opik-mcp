@@ -105,7 +105,9 @@ Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
 into a tool error that says how to narrow the call. `list`, `read` and `write`
 turn any other `httpx.HTTPError` into "Could not reach Opik", which on a local
 server names the base URL without any user:password and, on this machine, asks
-whether Opik is running (`hints.unreachable`). The optional blocks of a
+whether Opik is running (`hints.unreachable`). A rejected TLS certificate
+replaces the `ssl` text with one sentence naming `SSL_CERT_FILE`, which httpx
+reads when it builds its default context. The optional blocks of a
 composite read also catch `httpx.HTTPError` and give up after
 `DEADLINE_SECONDS` (`src/opik_mcp/read_list/decorations.py`).
 
@@ -211,6 +213,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
 - The 401 hint: `test_a_401_with_no_key_for_opik_cloud__names_the_key_page_and_the_hosted_server`.
 - Unreachable Opik, and the password kept out: `test_backend_unreachable__names_where_without_the_password`.
+- A rejected certificate names `SSL_CERT_FILE`: `test_a_rejected_certificate__names_ssl_cert_file_instead_of_the_ssl_text`.
 - Help, version, the flag warning and the terminal hint: `tests/server/test_command_line.py`.
   The real process exits on `--help` with stdin open and sends no event:
   `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
@@ -223,6 +226,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-19: a rejected TLS certificate names `SSL_CERT_FILE` instead of the raw `ssl` text; a proxy in the path left the agent no way forward (#PR).
 - 2026-10-08: `--help` names the installer command, and the two rules agents broke most (printing config files, running the sign-in), before the steps, so `--help | head -30` shows them even after uv's download lines (#251).
 - 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).
