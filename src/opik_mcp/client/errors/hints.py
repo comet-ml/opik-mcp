@@ -62,7 +62,8 @@ def unreachable(err: httpx.HTTPError) -> str:
         # The hosted server: its backend address is not the caller's to fix.
         return reason
     base = opik_rest_base(get_settings()) or ""
-    if _is_certificate_rejected(err):
+    certificate_error = _certificate_error(err)
+    if _is_untrusted_issuer(err, certificate_error):
         # The raw ssl text names the failure but not the fix. Never suggest
         # turning verification off.
         return (
@@ -70,19 +71,40 @@ def unreachable(err: httpx.HTTPError) -> str:
             "self-signed certificate is in the chain: set SSL_CERT_FILE=/path/to/ca.pem in "
             "the MCP server's env block and restart the MCP client."
         )
+    verify_message = getattr(certificate_error, "verify_message", None)
+    if verify_message:
+        reason = f"the TLS certificate was rejected: {verify_message}"
     text = f"{reason} (tried {address(base)})"
-    if httpx.URL(base).host in LOOPBACK_HOSTS:
+    if certificate_error is None and httpx.URL(base).host in LOOPBACK_HOSTS:
         text += ". Is Opik running? Open-source Opik serves its API at http://localhost:5173/api"
     return f"{text}. Setup: {DOCS_LOCAL_SERVER}"
 
 
-def _is_certificate_rejected(err: httpx.HTTPError) -> bool:
+#: OpenSSL verify codes for a chain whose root is not trusted: a self-signed
+#: certificate, or an issuer missing from the bundle. A CA file fixes these; it
+#: does not fix an expired certificate or a hostname mismatch.
+_UNTRUSTED_ISSUER_CODES: Final = frozenset({18, 19, 20, 21})
+_UNTRUSTED_ISSUER_TEXTS: Final = ("self-signed", "self signed", "unable to get local issuer")
+
+
+def _certificate_error(err: httpx.HTTPError) -> ssl.SSLCertVerificationError | None:
     """httpx wraps the ``ssl`` error twice (httpcore, then httpx), so look down the chain."""
     seen: set[int] = set()
     cause: BaseException | None = err
     while cause is not None and id(cause) not in seen:
         if isinstance(cause, ssl.SSLCertVerificationError):
-            return True
+            return cause
         seen.add(id(cause))
         cause = cause.__cause__ or cause.__context__
-    return "CERTIFICATE_VERIFY_FAILED" in str(err)
+    return None
+
+
+def _is_untrusted_issuer(
+    err: httpx.HTTPError, certificate_error: ssl.SSLCertVerificationError | None
+) -> bool:
+    if certificate_error is not None:
+        return getattr(certificate_error, "verify_code", None) in _UNTRUSTED_ISSUER_CODES
+    text = str(err)
+    return "CERTIFICATE_VERIFY_FAILED" in text and any(
+        untrusted in text for untrusted in _UNTRUSTED_ISSUER_TEXTS
+    )

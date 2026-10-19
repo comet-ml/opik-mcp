@@ -502,7 +502,7 @@ def sentry_recorder(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Se
     [
         # Server-side bugs and infrastructure failures — Sentry's bread and butter.
         # Network failures depend on the transport: see
-        # test_a_network_failure_pages_sentry_only_on_the_hosted_server.
+        # test_a_failed_connection_pages_sentry_only_on_the_hosted_server.
         (OpikServerError("x"), "upstream_5xx"),
         (ValueError("x"), "unknown"),
     ],
@@ -948,24 +948,29 @@ async def test_sentry_captures_non_user_side_failures_through_tool_error_wrapper
 
 
 @pytest.mark.parametrize(
-    "transport, pages_sentry",
+    "inner, transport, pages_sentry",
     [
         # The user's own machine or network: a stopped local Opik, a proxy.
-        ("stdio", False),
+        (httpx.ConnectError("All connection attempts failed"), "stdio", False),
+        (httpx.ProxyError("x"), "stdio", False),
         # The hosted server: our backend is down.
-        ("streamable-http", True),
+        (httpx.ConnectError("All connection attempts failed"), "streamable-http", True),
+        # The rest of the network bucket can be our bug, so it pages on stdio too.
+        (httpx.LocalProtocolError("x"), "stdio", True),
+        (httpx.DecodingError("x"), "stdio", True),
+        (httpx.TooManyRedirects("x"), "stdio", True),
     ],
 )
 @pytest.mark.anyio
-async def test_a_network_failure_pages_sentry_only_on_the_hosted_server(
+async def test_a_failed_connection_pages_sentry_only_on_the_hosted_server(
     sentry_recorder: _SentryRecorder,
     recorder: _Recorder,
     monkeypatch: pytest.MonkeyPatch,
+    inner: httpx.RequestError,
     transport: str,
     pages_sentry: bool,
 ) -> None:
     monkeypatch.setenv("OPIK_MCP_TRANSPORT", transport)
-    inner = httpx.ConnectError("All connection attempts failed")
 
     @instrument_tool("list")
     async def fn() -> str:
@@ -975,7 +980,8 @@ async def test_a_network_failure_pages_sentry_only_on_the_hosted_server(
         await fn()
 
     assert len(sentry_recorder.calls) == (1 if pages_sentry else 0), (
-        f"a network failure on {transport} paged Sentry {len(sentry_recorder.calls)} times"
+        f"{type(inner).__name__} on {transport} paged Sentry "
+        f"{len(sentry_recorder.calls)} times, expected {int(pages_sentry)}"
     )
     # BI counts it either way.
     assert recorder.events[-1][1]["error_kind"] == "network"

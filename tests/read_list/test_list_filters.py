@@ -422,19 +422,24 @@ async def test_backend_unreachable__on_the_hosted_server__names_no_address() -> 
     assert str(err.value).endswith("All connection attempts failed")
 
 
-_SELF_SIGNED = (
-    "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
-    "self-signed certificate in certificate chain (_ssl.c:1032)"
-)
+def _ssl_text(verify_message: str) -> str:
+    return (
+        "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+        f"{verify_message} (_ssl.c:1032)"
+    )
 
 
-def _rejected_certificate_from_ssl() -> httpx.ConnectError:
-    """The shape httpx raises: its ConnectError over the ``ssl`` error."""
+def _rejected_certificate(*, verify_code: int, verify_message: str) -> httpx.ConnectError:
+    """The shape httpx raises: its ConnectError over the ``ssl`` error, which
+    carries OpenSSL's verify code and message."""
+    cause = ssl.SSLCertVerificationError(1, _ssl_text(verify_message))
+    cause.verify_code = verify_code
+    cause.verify_message = verify_message
     try:
         try:
-            raise ssl.SSLCertVerificationError(1, _SELF_SIGNED)
-        except ssl.SSLError as cause:
-            raise httpx.ConnectError(str(cause)) from cause
+            raise cause
+        except ssl.SSLError as raised:
+            raise httpx.ConnectError(str(raised)) from raised
     except httpx.ConnectError as err:
         return err
 
@@ -448,27 +453,78 @@ class _CertificateRejected(FakeOpikClient):
         raise self._error
 
 
+async def _list_message(monkeypatch: pytest.MonkeyPatch, error: httpx.ConnectError) -> str:
+    monkeypatch.setenv("OPIK_URL", "https://opik.internal.test/api")
+    with pytest.raises(ToolError) as err:
+        await run_list("trace", project_id="p-1", client=_CertificateRejected(error))
+    return str(err.value)
+
+
 @pytest.mark.parametrize(
     "error",
     [
-        pytest.param(_rejected_certificate_from_ssl(), id="ssl-cause"),
-        pytest.param(httpx.ConnectError(_SELF_SIGNED), id="message-only"),
+        pytest.param(
+            _rejected_certificate(
+                verify_code=19, verify_message="self-signed certificate in certificate chain"
+            ),
+            id="self-signed-in-chain",
+        ),
+        pytest.param(
+            _rejected_certificate(
+                verify_code=20, verify_message="unable to get local issuer certificate"
+            ),
+            id="unknown-issuer",
+        ),
+        pytest.param(
+            httpx.ConnectError(_ssl_text("self-signed certificate in certificate chain")),
+            id="message-only",
+        ),
     ],
 )
 @pytest.mark.anyio
-async def test_a_rejected_certificate__names_ssl_cert_file_instead_of_the_ssl_text(
+async def test_an_untrusted_issuer__names_ssl_cert_file_instead_of_the_ssl_text(
     monkeypatch: pytest.MonkeyPatch, error: httpx.ConnectError
 ) -> None:
-    monkeypatch.setenv("OPIK_URL", "https://opik.internal.test/api")
+    message = await _list_message(monkeypatch, error)
 
-    with pytest.raises(ToolError) as err:
-        await run_list("trace", project_id="p-1", client=_CertificateRejected(error))
-
-    message = str(err.value)
     assert message.startswith("Could not reach Opik to list traces:")
     assert "SSL_CERT_FILE=" in message
     assert "https://opik.internal.test/api" in message
     assert "CERTIFICATE_VERIFY_FAILED" not in message, "the raw ssl text is replaced"
+
+
+@pytest.mark.parametrize(
+    ("error", "named"),
+    [
+        pytest.param(
+            _rejected_certificate(verify_code=10, verify_message="certificate has expired"),
+            "certificate has expired",
+            id="expired",
+        ),
+        pytest.param(
+            _rejected_certificate(
+                verify_code=62,
+                verify_message="Hostname mismatch, certificate is not valid for 'x.test'.",
+            ),
+            "Hostname mismatch",
+            id="hostname-mismatch",
+        ),
+        pytest.param(
+            httpx.ConnectError(_ssl_text("certificate has expired")),
+            "certificate has expired",
+            id="message-only",
+        ),
+    ],
+)
+@pytest.mark.anyio
+async def test_a_certificate_a_ca_file_cannot_fix__names_the_failure_not_ssl_cert_file(
+    monkeypatch: pytest.MonkeyPatch, error: httpx.ConnectError, named: str
+) -> None:
+    message = await _list_message(monkeypatch, error)
+
+    assert "SSL_CERT_FILE" not in message, "a CA file fixes neither expiry nor hostname"
+    assert named in message
+    assert "https://opik.internal.test/api" in message
 
 
 # --- default columns ----------------------------------------------------- #

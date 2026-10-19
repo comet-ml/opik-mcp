@@ -956,7 +956,9 @@ clients read the config when a session starts.
 
 **"The TLS certificate was not trusted"** — a proxy or a self-signed
 certificate sits between the server and Opik. Point `SSL_CERT_FILE` at a PEM
-file with your CA, in the same `env` block as `OPIK_URL`:
+bundle, in the same `env` block as `OPIK_URL`. It replaces the default roots
+for every connection, so the bundle must hold your CA appended to the usual
+roots (the system bundle, or `python -m certifi`), not your CA alone:
 
 ```json
 "env": {

@@ -14,6 +14,7 @@ from typing import Any, ParamSpec, TypeVar
 from weakref import WeakSet
 
 import anyio
+import httpx
 from mcp.server.lowlevel.server import request_ctx
 from mcp.types import ListToolsRequest
 
@@ -69,18 +70,22 @@ _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
 _USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (MissingConfigError,)
 
 
-# On stdio, a network failure is the user's own machine or network: a local
+# On stdio, a failed connection is the user's own machine or network: a local
 # Opik that is not running, a proxy with its own certificate. The tool error
 # already says what to change. On the hosted HTTP server the same failure means
-# our backend is down, so it still pages.
-_USER_SIDE_ON_STDIO_ERROR_KINDS: frozenset[str] = frozenset({"network"})
+# our backend is down, so it still pages. The rest of the ``network`` bucket
+# (protocol, decoding, redirect errors) can be our bug, so it pages everywhere.
+_USER_SIDE_ON_STDIO_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    httpx.ConnectError,
+    httpx.ProxyError,
+)
 
 
 def _is_user_side(error_kind: str, real: BaseException) -> bool:
     if error_kind in _USER_SIDE_ERROR_KINDS or isinstance(real, _USER_SIDE_EXCEPTIONS):
         return True
     is_stdio = get_settings().opik_mcp_transport.lower() == "stdio"
-    return is_stdio and error_kind in _USER_SIDE_ON_STDIO_ERROR_KINDS
+    return is_stdio and isinstance(real, _USER_SIDE_ON_STDIO_EXCEPTIONS)
 
 
 # Indirection so tests can patch the singleton.
