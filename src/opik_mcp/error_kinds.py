@@ -25,7 +25,7 @@ ErrorKind = Literal[
     "timeout",
     "network",
     "upstream_5xx",
-    # 429: the workspace's rate limit, which it shares with the Opik UI and SDK.
+    # 429: a workspace or API key rate limit, shared with the Opik UI and SDK.
     "rate_limited",
     "cancelled",
     "unknown",

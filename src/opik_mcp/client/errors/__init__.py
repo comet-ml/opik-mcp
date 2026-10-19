@@ -77,7 +77,7 @@ class OpikServerError(RuntimeError):
 
 
 class OpikRateLimitError(OpikServerError):
-    """Opik refused the call for the workspace's rate limit (429).
+    """Opik refused the call for a workspace or API key rate limit (429).
 
     A subclass of ``OpikServerError`` so every handler that turns a client
     error into a tool error keeps catching it; the ClassVars shadow the
@@ -191,10 +191,10 @@ def raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
         # and spans by default), so parallel calls hit them. No retry here: the
         # wait can outlast the client timeout, and parallel retries collide again.
         raise OpikRateLimitError(
-            f"Opik rate-limited {entity_hint} (429); the limit is per workspace and "
-            f"shared with the Opik UI and SDK. Wait {_rate_limit_wait(resp)}, then use one "
-            "list(…, project_name=…, filters=…) across the project instead of one call "
-            "per trace, and fetch pages one at a time."
+            f"Opik rate-limited {entity_hint} (429); the limit is per workspace or API "
+            f"key and shared with the Opik UI and SDK. Wait {_rate_limit_wait(resp)}, then "
+            "use one list(…, project_name=…, filters=…) across the project instead of one "
+            "call per trace, and fetch pages one at a time."
         )
     if status >= 500:
         raise OpikServerError(

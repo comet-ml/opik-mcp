@@ -97,7 +97,7 @@ async def test_a_429_says_how_long_to_wait_and_to_batch_and_does_not_page(
 
     assert "rate-limited spans (429)" in text
     assert wait in text
-    assert "per workspace" in text
+    assert "per workspace or API key" in text
     assert "list(…, project_name=…, filters=…)" in text
     assert "secret-body-text" not in text
     props = _tool_called(recorder)

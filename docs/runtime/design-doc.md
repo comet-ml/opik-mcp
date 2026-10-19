@@ -95,9 +95,9 @@ A 401 that no OAuth bearer explains says "Check OPIK_API_KEY and
 OPIK_WORKSPACE", or, with no key sent to Opik Cloud, names the key page and the
 keyless hosted server and says to restart the client (`credential_hint` in
 `src/opik_mcp/client/errors/hints.py`).
-A 429 says the limit is per workspace and shared with the Opik UI and SDK,
-gives the wait from `RateLimit-Reset` (Opik sends no `Retry-After`; "about a
-minute" without it), and asks for one project-wide filtered `list` instead of
+A 429 says the limit is per workspace or API key and shared with the Opik UI
+and SDK, gives the wait from `RateLimit-Reset` (Opik sends no `Retry-After`;
+"about a minute" without it), and asks for one project-wide filtered `list` instead of
 one call per trace, pages one at a time. It is not retried: the wait can
 outlast the client timeout, and parallel retries collide again
 (`tests/client/test_rate_limited.py`).
