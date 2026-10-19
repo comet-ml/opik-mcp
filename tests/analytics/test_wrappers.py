@@ -27,6 +27,7 @@ from opik_mcp.analytics.wrappers import (
 )
 from opik_mcp.client.errors import (
     OpikAuthError,
+    OpikNotAnApiError,
     OpikNotFoundError,
     OpikPermissionError,
     OpikServerError,
@@ -95,6 +96,8 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
         (OpikNotFoundError("x"), "not_found", 404),
         (OpikValidationError("x"), "validation", 400),
         (OpikServerError("x"), "upstream_5xx", 500),
+        # A web page where the API should be: a setting to fix, not an outage.
+        (OpikNotAnApiError("x"), "validation", None),
         (MissingConfigError("x"), "validation", 400),
         (httpx.ReadTimeout("read timed out"), "timeout", None),
         (httpx.ConnectError("connect refused"), "network", None),
@@ -783,6 +786,7 @@ def _wrap_with_cause(wrapper: Exception, inner: Exception) -> Exception:
         (OpikNotFoundError("x"), "not_found", 404),
         (OpikValidationError("x"), "validation", 400),
         (OpikServerError("x"), "upstream_5xx", 500),
+        (OpikNotAnApiError("x"), "validation", None),
         (httpx.ReadTimeout("x"), "timeout", None),
         (httpx.ConnectError("x"), "network", None),
         # MissingConfigError buckets "validation" through the wrapper — and the
@@ -884,6 +888,7 @@ async def test_tool_error_wrapping_http_status_error_routes_by_wire_status(
         OpikPermissionError("x"),
         OpikValidationError("x"),
         OpikNotFoundError("x"),
+        OpikNotAnApiError("x"),
         # Class-level user-side skip via _USER_SIDE_EXCEPTIONS. Pre-unwrap
         # the isinstance check ran against the wrapper class and failed open
         # — Sentry got paged for every MissingConfigError-via-ToolError.

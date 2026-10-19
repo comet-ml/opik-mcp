@@ -10,7 +10,8 @@ from typing import Any, Final
 
 import httpx
 
-from opik_mcp.client.errors import OpikServerError, raise_for_status
+from opik_mcp.client.errors import OpikNotAnApiError, OpikServerError, raise_for_status
+from opik_mcp.client.errors.hints import no_api_at
 from opik_mcp.config import (
     DEFAULT_WORKSPACE,
     DOCS_LOCAL_SERVER,
@@ -34,6 +35,11 @@ _DEFAULT_TIMEOUT: Final = 30.0
 
 def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _is_web_page(resp: httpx.Response) -> bool:
+    content_type = resp.headers.get("content-type", "")
+    return content_type.startswith("text/html") or resp.content.lstrip().startswith(b"<")
 
 
 def _ids_param(ids: list[str]) -> str:
@@ -140,10 +146,7 @@ class OpikClientBase:
             raise OpikServerError(
                 f"Unexpected status {resp.status_code} for {entity_hint} (expected 200)."
             )
-        try:
-            body = resp.json()
-        except ValueError as exc:
-            raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
+        body = self._parse(resp, entity_hint)
         if not isinstance(body, dict):
             raise OpikServerError(
                 f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
@@ -205,9 +208,18 @@ class OpikClientBase:
             raise OpikServerError(
                 f"Unexpected status {resp.status_code} for {entity_hint} (expected 200)."
             )
+        return self._parse(resp, entity_hint)
+
+    def _parse(self, resp: httpx.Response, entity_hint: str) -> object:
         try:
             return resp.json()
         except ValueError as exc:
+            # On the hosted server the backend address is ours, not the caller's to fix.
+            if _is_web_page(resp) and not inbound_authorization.get():
+                raise OpikNotAnApiError(
+                    f"Opik answered {entity_hint} with a web page, the Opik UI rather "
+                    f"than its API. {no_api_at(self._base_url)}"
+                ) from exc
             raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
 
     async def _request(

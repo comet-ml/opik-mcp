@@ -97,9 +97,14 @@ keyless hosted server and says to restart the client (`credential_hint` in
 Writes say the same. An error a setup change fixes (401, 403, no answer, a
 missing or placeholder setting) links the docs page for it (`DOCS_*` in
 `config.py`). A 2xx other than 200, or a body that is not a JSON object, is also
-`OpikServerError`. Writes get the raw response from `OpikClient.write_json`,
-which never raises on status; [writes](../writes/design-doc.md) builds the
-error.
+`OpikServerError`. A web page in its place (HTML, or `text/html`) on a local
+server is `OpikNotAnApiError`, a subclass bucketed `validation` so it never
+reaches Sentry: Opik's nginx serves the UI with a 200 for every path outside
+`/api/`, so a base URL without it gets the UI. Its message gives the same
+"No Opik API at <url>" fix as `--check` (`hints.no_api_at`). On the hosted
+server the backend address is ours, so it stays `OpikServerError`. Writes
+get the raw response from `OpikClient.write_json`, which never raises on
+status; [writes](../writes/design-doc.md) builds the error.
 
 Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
 into a tool error that says how to narrow the call. `list`, `read` and `write`
@@ -211,6 +216,9 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
 - The 401 hint: `test_a_401_with_no_key_for_opik_cloud__names_the_key_page_and_the_hosted_server`.
 - Unreachable Opik, and the password kept out: `test_backend_unreachable__names_where_without_the_password`.
+- The Opik UI where the API should be: `test_the_opik_ui_where_the_api_should_be_names_the_setting_to_fix`
+  and `test_the_opik_ui_on_the_hosted_server_stays_a_server_error`; kept out of Sentry in
+  `tests/analytics/test_wrappers.py`.
 - Help, version, the flag warning and the terminal hint: `tests/server/test_command_line.py`.
   The real process exits on `--help` with stdin open and sends no event:
   `test_help_and_version_exit_with_stdin_open_and_send_no_event`. The help
@@ -223,6 +231,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-19: a web page where the API should be (an `OPIK_URL` or `COMET_URL_OVERRIDE` that points at the Opik UI) says which setting to change, and no longer pages Sentry as a server error (#PR).
 - 2026-10-08: `--help` names the installer command, and the two rules agents broke most (printing config files, running the sign-in), before the steps, so `--help | head -30` shows them even after uv's download lines (#251).
 - 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).

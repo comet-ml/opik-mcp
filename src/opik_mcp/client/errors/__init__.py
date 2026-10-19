@@ -76,6 +76,19 @@ class OpikServerError(RuntimeError):
     http_status: ClassVar[int | None] = 500
 
 
+class OpikNotAnApiError(OpikServerError):
+    """The configured address answered with a web page: the Opik UI, not its API.
+
+    Opik's nginx serves the UI's index.html with a 200 for any path outside
+    ``/api/``, so a base URL without it gets HTML. A setting the user fixes, so
+    it buckets as ``validation`` (no Sentry); a subclass of ``OpikServerError``
+    so every caller that handles a bad answer handles this one.
+    """
+
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = None
+
+
 def note_backend_401() -> str | None:
     """opik-backend just answered 401 to the call this request is forwarding.
 

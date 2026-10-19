@@ -14,6 +14,7 @@ import respx
 
 from opik_mcp.client.errors import (
     OpikAuthError,
+    OpikNotAnApiError,
     OpikNotFoundError,
     OpikPermissionError,
     OpikServerError,
@@ -579,14 +580,70 @@ async def test_a_non_json_answer_is_not_echoed() -> None:
 
 
 @pytest.mark.anyio
-async def test_non_json_response_surfaces_as_server_error() -> None:
-    """A 200 with HTML body (e.g. behind a misrouted proxy) is a real failure."""
+async def test_a_non_json_answer_that_is_not_a_web_page_stays_a_server_error() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/projects/p-1").mock(
-            return_value=httpx.Response(200, text="<html>oops</html>"),
+            return_value=httpx.Response(200, text="upstream reset"),
         )
-        with pytest.raises(OpikServerError, match="non-JSON"):
+        with pytest.raises(OpikServerError, match="non-JSON") as err:
             await _client().get_project("p-1")
+    assert not isinstance(err.value, OpikNotAnApiError)
+
+
+_UI_PAGE = '<!DOCTYPE html>\n<html lang="en" class="size-full"><head></head></html>'
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        httpx.Response(200, text=_UI_PAGE),
+        httpx.Response(200, text="not markup", headers={"content-type": "text/html"}),
+    ],
+    ids=["markup", "content-type"],
+)
+@pytest.mark.anyio
+async def test_the_opik_ui_where_the_api_should_be_names_the_setting_to_fix(
+    answer: httpx.Response,
+) -> None:
+    """Opik's nginx answers any path outside /api/ with the UI's index.html and a 200."""
+    ui_base = "http://opik.test:5173"
+    with respx.mock(base_url=ui_base) as mock:
+        mock.get("/v1/private/projects").mock(return_value=answer)
+        mock.post("/v1/private/projects/p-1/kpi-cards").mock(return_value=answer)
+        client = OpikClient(base_url=ui_base, api_key="key-abc", workspace="ws")
+        with pytest.raises(OpikNotAnApiError) as listed:
+            await client.list_projects(size=1)
+        with pytest.raises(OpikNotAnApiError) as posted:
+            await client.get_project_kpi_cards(
+                "p-1", entity_type="traces", interval_start="2026-10-01T00:00:00Z"
+            )
+
+    for err in (listed, posted):
+        message = str(err.value)
+        assert "web page" in message
+        assert "set OPIK_URL" in message
+        assert f"{ui_base}/api " in message
+        assert f"COMET_URL_OVERRIDE={ui_base})" in message
+        assert "size-full" not in message, "the page itself stays out"
+        assert "key-abc" not in message
+
+
+@pytest.mark.anyio
+async def test_the_opik_ui_on_the_hosted_server_stays_a_server_error() -> None:
+    """The hosted server's backend address is ours to fix, not the caller's."""
+    from opik_mcp.identity.context import inbound_authorization
+
+    token = inbound_authorization.set("Bearer key")
+    try:
+        with respx.mock(base_url=OPIK_BASE) as mock:
+            mock.get("/v1/private/projects/p-1").mock(
+                return_value=httpx.Response(200, text=_UI_PAGE),
+            )
+            with pytest.raises(OpikServerError, match="non-JSON") as err:
+                await _client().get_project("p-1")
+    finally:
+        inbound_authorization.reset(token)
+    assert not isinstance(err.value, OpikNotAnApiError)
 
 
 @pytest.mark.anyio
