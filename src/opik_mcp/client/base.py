@@ -38,8 +38,16 @@ def _drop_none(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_web_page(resp: httpx.Response) -> bool:
-    content_type = resp.headers.get("content-type", "")
-    return content_type.startswith("text/html") or resp.content.lstrip().startswith(b"<")
+    """HTML by its content type or its first tag; XML error pages from a proxy are not."""
+    if resp.headers.get("content-type", "").startswith("text/html"):
+        return True
+    start = resp.content.lstrip()[:15].lower()
+    return start.startswith((b"<!doctype html", b"<html"))
+
+
+def _ends_in_api(base_url: str) -> bool:
+    """A base already on an ``/api`` path, where a web page means a proxy, not the UI."""
+    return httpx.URL(base_url).path.rstrip("/").endswith("/api")
 
 
 def _ids_param(ids: list[str]) -> str:
@@ -215,7 +223,11 @@ class OpikClientBase:
             return resp.json()
         except ValueError as exc:
             # On the hosted server the backend address is ours, not the caller's to fix.
-            if _is_web_page(resp) and not inbound_authorization.get():
+            if (
+                _is_web_page(resp)
+                and not _ends_in_api(self._base_url)
+                and not inbound_authorization.get()
+            ):
                 raise OpikNotAnApiError(
                     f"Opik answered {entity_hint} with a web page, the Opik UI rather "
                     f"than its API. {no_api_at(self._base_url)}"

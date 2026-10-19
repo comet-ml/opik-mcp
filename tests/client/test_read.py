@@ -628,6 +628,29 @@ async def test_the_opik_ui_where_the_api_should_be_names_the_setting_to_fix(
         assert "key-abc" not in message
 
 
+@pytest.mark.parametrize("base_url", ["http://opik.test:5173/api", "https://opik.test/opik/api/"])
+@pytest.mark.anyio
+async def test_a_web_page_under_an_api_base_is_not_called_the_ui(base_url: str) -> None:
+    """The setting already names an API path, so the page came from something in between."""
+    with respx.mock(base_url=base_url.rstrip("/")) as mock:
+        mock.get("/v1/private/projects").mock(return_value=httpx.Response(200, text=_UI_PAGE))
+        client = OpikClient(base_url=base_url, api_key="key-abc", workspace="ws")
+        with pytest.raises(OpikServerError, match="non-JSON") as err:
+            await client.list_projects(size=1)
+    assert not isinstance(err.value, OpikNotAnApiError)
+
+
+@pytest.mark.anyio
+async def test_an_xml_error_body_is_not_a_web_page() -> None:
+    xml = '<?xml version="1.0"?><Error><Code>AccessDenied</Code></Error>'
+    with respx.mock(base_url="http://opik.test:5173") as mock:
+        mock.get("/v1/private/projects").mock(return_value=httpx.Response(200, text=xml))
+        client = OpikClient(base_url="http://opik.test:5173", api_key="key-abc", workspace="ws")
+        with pytest.raises(OpikServerError, match="non-JSON") as err:
+            await client.list_projects(size=1)
+    assert not isinstance(err.value, OpikNotAnApiError)
+
+
 @pytest.mark.anyio
 async def test_the_opik_ui_on_the_hosted_server_stays_a_server_error() -> None:
     """The hosted server's backend address is ours to fix, not the caller's."""
