@@ -283,6 +283,7 @@ async def run_list(
         since=since,
         until=until,
         search=search,
+        fields=normalise(fields),
         page=page,
         size=size,
         project_id=project_id,

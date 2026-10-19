@@ -2124,6 +2124,60 @@ async def test_the_continuation_a_trace_hands_out_returns_the_same_set() -> None
 
 
 @pytest.mark.anyio
+async def test_the_bodies_a_trace_left_out_are_one_list_call_away() -> None:
+    """Seen in Sentry (OPIK-MCP-9B): told only that read('span', id) returns
+    one span whole, an agent read every span of a trace at once and the
+    backend's per-workspace limit refused most of the reads. The notice names
+    one call for many, and that call has to return the bodies the read left
+    out, uncut."""
+    from opik_mcp.read_list.list_tool import run_list
+
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "name": "t", "project_id": "p-1"}},
+        trace_spans={UUID: [_fat_span(f"sp-{n}", 9_000) for n in range(6)]},
+    )
+    note = _payload(await run_read("trace", UUID, client=fake))["spanBodies"]
+    assert "read('span', id)" in note, "one span is still one read"
+    found = re.search(
+        r"list\('span', project_id='([^']+)', filters='([^']+)', "
+        r"fields=\[([^\]]+)\], size=(\d+)\)",
+        note,
+    )
+    assert found is not None, f"no list call in {note!r}"
+    project_id, filters, fields, size = found.groups()
+
+    out = await run_list(
+        "span",
+        project_id=project_id,
+        filters=filters,
+        fields=[f.strip(" '") for f in fields.split(",")],
+        size=int(size),
+        client=fake,
+    )
+
+    assert "should_truncate" not in fake.last_list_spans_kwargs, "asked for uncut"
+    assert all(f"sp-{n}" in out for n in range(6)), "every span of the trace"
+    assert out.count("x" * 9_000) == 6, "with every body, the dropped ones included"
+
+
+@pytest.mark.anyio
+async def test_a_trace_with_no_short_body_names_no_list_call() -> None:
+    """The call costs about forty tokens on every trace read; it is paid only
+    where more than one span may be missing a body."""
+    small = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1", "input": UNCUT_BODY}, {"id": "sp-2"}]},
+    )
+    one = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1", "input": CUT_BODY}]},
+    )
+    for fake in (small, one):
+        note = _payload(await run_read("trace", UUID, client=fake))["spanBodies"]
+        assert "list('span'" not in note, note
+
+
+@pytest.mark.anyio
 async def test_a_rules_page_without_a_total_keeps_its_pointer() -> None:
     """The rules part asks for one page of ten. When the backend omits the
     total, ten names may be all of them or the first ten of forty; the pointer

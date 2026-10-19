@@ -83,17 +83,20 @@ def dropped_notice(*, dropped: int, total: int, noun: str, budget: int) -> str:
     """What the inline budget spent. Appended to :func:`slim_notice`."""
     return (
         f"{dropped} of {total} {noun}s past the {budget:,}-character inline budget kept "
-        f"their place and lost their bodies, which the same call returns."
+        f"their place and lost their bodies."
     )
 
 
-def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
+def slim_notice(*, cut: int, total: int, noun: str, whole: str, several: str | None = None) -> str:
     """The line a composite read carries above its inlined children.
 
     It states what happened rather than what might have: a count the caller
     can check against the payload in front of them. The image substitution is
     named either way, because nothing in the answer distinguishes an
     ``"[image]"`` the backend put there from one the application logged.
+
+    ``several`` names the one call that returns many children whole, and how
+    many, for a read where more than one child may be missing a body.
     """
     found = (
         f"{cut} of {total} {noun}s had a field cut at {BACKEND_SLIM_THRESHOLD_CHARS:,} characters"
@@ -102,7 +105,7 @@ def slim_notice(*, cut: int, total: int, noun: str, whole: str) -> str:
     )
     return (
         f'slim: {found}, and base64 images are replaced with "[image]" '
-        f"throughout. {whole} returns one {noun} whole."
+        f"throughout. {whole} returns one {noun} whole" + (f"; {several}." if several else ".")
     )
 
 

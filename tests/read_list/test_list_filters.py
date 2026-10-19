@@ -200,6 +200,25 @@ async def test_trace_list_without_filters_still_hides_non_sdk_sources() -> None:
     assert fake.last_kwargs.get("should_truncate") is True
 
 
+@pytest.mark.parametrize("fields", [["output"], ["name", "input"], ["metadata.prompt"]])
+@pytest.mark.anyio
+async def test_a_body_named_in_fields_is_asked_for_uncut(fields: list[str]) -> None:
+    """``fields`` promises the columns it names uncut, and the backend's cut
+    would break that for a body: a 30,000-character output came back at
+    10,001 with images replaced, the same slim copy the trace read inlined."""
+    row = {"id": "s-1", "name": "llm", "input": "q", "output": "a", "metadata": {"prompt": "p"}}
+    fake = FakeOpikClient(spans=_page([row]))
+    await run_list("span", project_id="p-1", fields=fields, client=fake)
+    assert "should_truncate" not in fake.last_kwargs
+
+
+@pytest.mark.anyio
+async def test_fields_without_a_body_keep_the_cut() -> None:
+    fake = FakeOpikClient(spans=_page([{"id": "s-1", "name": "llm", "duration": 1.0}]))
+    await run_list("span", project_id="p-1", fields=["name", "duration"], client=fake)
+    assert fake.last_kwargs.get("should_truncate") is True
+
+
 @pytest.mark.anyio
 async def test_naming_source_disables_the_default() -> None:
     fake = FakeOpikClient()

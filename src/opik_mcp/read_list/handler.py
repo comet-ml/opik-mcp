@@ -319,6 +319,14 @@ class EntityHandler:
     Returns a new mapping; the page the backend sent is left alone for
     everything else that reads it.
     """
+    list_slim_fields: tuple[str, ...] = ()
+    """The bodies the backend's ``truncate=true`` cuts on this entity's list page.
+
+    A windowed list asks for the cut, because its default columns hold no
+    body. A ``fields`` entry under one of these names puts a body in the
+    table, and then the page is asked for without the cut: ``fields`` returns
+    what it names uncut.
+    """
     list_identity_fields: tuple[str, ...] = ()
     """Columns a projected row keeps beyond its id, even unasked for.
 

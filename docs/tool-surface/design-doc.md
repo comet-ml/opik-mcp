@@ -73,7 +73,10 @@ project if set, tool selection, the link rule, and today's UTC date.
   count every cut, with the call that returns the rest:
   - `trace`: spans cut by the backend's `truncate=true`, bodies dropped past
     `SPANS_INLINE_CHARS` (the first span keeps its body), `spanBodies`, and
-    `moreSpans` past `SPANS_INLINE_LIMIT`.
+    `moreSpans` past `SPANS_INLINE_LIMIT`. When more than one span may be
+    missing a body, `spanBodies` names one `list('span', …, fields=[…])` call
+    for them beside `read('span', id)`, so the caller does not read each span
+    and hit the backend's per-workspace rate limit.
   - `thread`: one message per trace, sorted by `start_time`, same body budget,
     and `messagesError` when the traces call fails.
   - `prompt`: versions up to `VERSIONS_INLINE_LIMIT`, then `moreVersions`.
@@ -118,7 +121,9 @@ project if set, tool selection, the link rule, and today's UTC date.
 - An entity with its own runner (`project_metric`, the dataset comparison) takes the call from `run_list`.
 - Columns are id, name, `list_extra_fields`, then the sort and filter fields.
   Cells past `_TRUNCATE_AT` are cut and counted; `url` cells never are.
-  `fields=[…]` picks the columns and lifts the cut.
+  `fields=[…]` picks the columns and lifts the cut. A body it names
+  (`input`, `output`, `metadata` on trace and span, the handler's
+  `list_slim_fields`) is fetched without the backend's `truncate=true`.
 - No default column is a trace body: `list('thread')` leaves out
   `first_message`, and `fields=["first_message"]` still returns it.
 - The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`);

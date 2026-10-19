@@ -69,6 +69,7 @@ def resolve_list_args(
     since: str | None,
     until: str | None,
     search: str | None,
+    fields: tuple[str, ...] | None,
     page: int,
     size: int,
     project_id: str | None,
@@ -161,8 +162,9 @@ def resolve_list_args(
             if sent:
                 list_kwargs["filters"] = json.dumps(sent, separators=(",", ":"))
             applied.append(f"filters: {render_filters(vocabulary, clauses)}")
-    if handler.is_windowed:
-        # Bodies never reach the table, so let the backend trim them.
+    if handler.is_windowed and not _names_a_body(handler, fields):
+        # Bodies reach the table only when ``fields`` names one, so let the
+        # backend trim them otherwise.
         list_kwargs["should_truncate"] = True
     # The sort label is filled in after the response (the backend may have
     # dropped the sort), but it belongs right after the filters in the header.
@@ -235,6 +237,11 @@ def resolve_list_args(
         sort_field=sort_field,
         to_time=to_time,
     )
+
+
+def _names_a_body(handler: EntityHandler, fields: tuple[str, ...] | None) -> bool:
+    """True when a ``fields`` entry is, or is under, a body the backend would cut."""
+    return any(f.split(".", 1)[0] in handler.list_slim_fields for f in fields or ())
 
 
 def _vocabulary(name: str) -> Vocabulary:

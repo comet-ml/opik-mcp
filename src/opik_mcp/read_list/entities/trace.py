@@ -20,6 +20,7 @@ from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
+    MAX_PAGE_SIZE,
     collection_total,
     collection_truncated,
     continuation,
@@ -88,11 +89,17 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             ),
         )
     if spans:
+        several = (
+            _bodies_call(fetched, project_id=project_id, trace_id=entity_id)
+            if (cut or dropped) and len(spans) > 1
+            else None
+        )
         notice = slim_notice(
             cut=cut,
             total=len(spans),
             noun="span",
             whole="read('span', id)",
+            several=several,
         )
         if dropped:
             spent = dropped_notice(
@@ -104,6 +111,24 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             notice = f"{notice} {spent}"
         result["spanBodies"] = notice
     return result
+
+
+def _bodies_call(spans: list[dict[str, Any]], *, project_id: str, trace_id: str) -> str | None:
+    """One call for the bodies of many spans, named beside read('span', id).
+
+    A caller told only about the one-span read read every span of a trace at
+    once, and the backend's per-workspace limit refused most of the reads.
+    ``fields`` names only the bodies the spans carry, since ``list`` refuses a
+    field no row has.
+    """
+    carried = [f for f in ("input", "output") if any(f in span for span in spans)]
+    if not carried:
+        return None
+    named = ",".join(f"'{f}'" for f in carried)
+    return (
+        f"list('span', project_id='{project_id}', filters='trace_id = \"{trace_id}\"', "
+        f"fields=[{named}], size={MAX_PAGE_SIZE}) up to {MAX_PAGE_SIZE}"
+    )
 
 
 def trace_page_url(
@@ -257,6 +282,7 @@ HANDLER = EntityHandler(
     # Triage columns: what a "which traces need attention" list needs
     # without a read() per row. error_type is derived from error_info.
     list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
+    list_slim_fields=("input", "output", "metadata"),
     list_required_kwargs=("project_id",),
     id_only=True,
     description=(
