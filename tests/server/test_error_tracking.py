@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextvars
+import json
+from collections.abc import Callable, Generator
 from typing import Literal
 
+import anyio
 import pytest
 import sentry_sdk
+from sentry_sdk.envelope import Envelope
+from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 
 from opik_mcp import error_tracking
 from opik_mcp.config import Settings, installation_type
+from opik_mcp.identity.context import (
+    OAUTH_ACCESS_TOKEN_PREFIX,
+    inbound_authorization,
+    inbound_workspace,
+)
+from opik_mcp.identity.store import ResolvedIdentity, credential_digest, remember_identity
 from tests.factories import make_settings
 
 # --- before_send filter --------------------------------------------------- #
@@ -400,3 +411,123 @@ def test_capture_exception_swallows_sentry_failures(monkeypatch: pytest.MonkeyPa
 
     # Must not raise.
     error_tracking.capture_exception(RuntimeError("the real bug"))
+
+
+# --- per-request identity (hosted HTTP) ----------------------------------- #
+
+_OAUTH_TOKEN = f"{OAUTH_ACCESS_TOKEN_PREFIX}secret-token-a"
+_API_KEY = "secret-api-key-b"
+_WORKSPACE_ID_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+
+
+class _MemoryTransport(Transport):
+    """Keeps every event in memory. Nothing leaves the process."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[Event] = []
+
+    def capture_envelope(self, envelope: Envelope) -> None:
+        event = envelope.get_event()
+        if event is not None:
+            self.events.append(event)
+
+
+@pytest.fixture
+def sentry_events() -> Generator[list[Event]]:
+    """A real Sentry client, with the process scope a hosted server binds."""
+    transport = _MemoryTransport()
+    sentry_sdk.init(
+        dsn="https://public@sentry.invalid/1",
+        transport=transport,
+        default_integrations=False,
+        integrations=[],
+        send_default_pii=False,
+    )
+    # The hosted process has no install-id file, so its process user is the nil UUID.
+    sentry_sdk.set_user({"id": "00000000-0000-0000-0000-000000000000"})
+    sentry_sdk.set_tag("has_api_key", "false")
+    sentry_sdk.set_tag("has_workspace_id", "false")
+    try:
+        yield transport.events
+    finally:
+        sentry_sdk.get_client().close()
+        sentry_sdk.get_global_scope().set_client(None)
+        sentry_sdk.get_isolation_scope().clear()
+
+
+def _capture_as(auth: str | None, workspace: str | None, message: str) -> None:
+    """Capture inside one request's context, as a hosted tool call does."""
+    inbound_authorization.set(auth)
+    inbound_workspace.set(workspace)
+    error_tracking.capture_exception(RuntimeError(message), tags={"tool_name": "read"})
+
+
+async def _hosted_call(auth: str, workspace: str | None, message: str) -> None:
+    inbound_authorization.set(auth)
+    inbound_workspace.set(workspace)
+    # Let the other request bind its own identity before this one captures.
+    await anyio.sleep(0.01)
+    error_tracking.capture_exception(RuntimeError(message), tags={"tool_name": "read"})
+
+
+def _event(events: list[Event], message: str) -> Event:
+    (event,) = [e for e in events if e["exception"]["values"][0]["value"] == message]
+    return event
+
+
+@pytest.mark.anyio
+async def test_concurrent_hosted_calls_report_their_own_identity(
+    sentry_events: list[Event],
+) -> None:
+    """OPIK-MCP-9E: every hosted event carried the process's nil user and no workspace."""
+    remember_identity(
+        _OAUTH_TOKEN,
+        ResolvedIdentity(user_name="someone", workspace_name="ws-a", workspace_id=_WORKSPACE_ID_A),
+    )
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_hosted_call, f"Bearer {_OAUTH_TOKEN}", None, "oauth call")
+        tg.start_soon(_hosted_call, f"Bearer {_API_KEY}", "ws-b", "api key call")
+
+    oauth_event = _event(sentry_events, "oauth call")
+    assert oauth_event["user"] == {"id": _WORKSPACE_ID_A}
+    assert oauth_event["tags"]["workspace"] == "ws-a"
+    assert oauth_event["tags"]["has_workspace_id"] == "true"
+    assert oauth_event["tags"]["has_api_key"] == "false"
+
+    api_key_event = _event(sentry_events, "api key call")
+    assert api_key_event["user"] == {"id": "ws-b"}
+    assert api_key_event["tags"]["workspace"] == "ws-b"
+    assert api_key_event["tags"]["has_workspace_id"] == "false"
+    assert api_key_event["tags"]["has_api_key"] == "true"
+    assert api_key_event["tags"]["tool_name"] == "read"
+
+    sent = json.dumps(sentry_events)
+    for secret in (_OAUTH_TOKEN, _API_KEY):
+        assert secret not in sent
+        assert credential_digest(secret) not in sent
+
+
+def test_hosted_call_with_unknown_identity_drops_the_process_user(
+    sentry_events: list[Event],
+) -> None:
+    """Nothing resolved and no workspace: no user, rather than the server's nil id."""
+    contextvars.copy_context().run(_capture_as, f"Bearer {_OAUTH_TOKEN}", None, "boom")
+
+    event = _event(sentry_events, "boom")
+    assert not event.get("user")
+    assert "workspace" not in event["tags"]
+    assert event["tags"]["has_workspace_id"] == "false"
+
+
+def test_stdio_call_keeps_the_process_identity(sentry_events: list[Event]) -> None:
+    """No inbound credential: the caller is this process, as ``_bind_scope`` set it."""
+    sentry_sdk.set_user({"id": "wkspc"})
+    sentry_sdk.set_tag("workspace", "wkspc")
+
+    contextvars.copy_context().run(_capture_as, None, None, "boom")
+
+    event = _event(sentry_events, "boom")
+    assert event["user"] == {"id": "wkspc"}
+    assert event["tags"]["workspace"] == "wkspc"
+    assert event["tags"]["has_api_key"] == "false"

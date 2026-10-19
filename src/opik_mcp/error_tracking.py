@@ -41,7 +41,9 @@ from sentry_sdk.types import Event, Hint
 # ``installation_type`` lives in ``config`` (a leaf module) so both this Sentry
 # path and ``analytics.boot_props`` (BI) share one source without an import cycle.
 from opik_mcp.analytics.identity import OPIK_MCP_VERSION, get_install_id
-from opik_mcp.config import Settings, installation_type
+from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings, installation_type
+from opik_mcp.identity.caller import caller_identity
+from opik_mcp.identity.context import classify_bearer, inbound_authorization, inbound_workspace
 
 logger = logging.getLogger("opik_mcp.error_tracking")
 
@@ -139,6 +141,10 @@ def _bind_scope(settings: Settings) -> None:
     workspace name second because it's human-readable, install_id last as
     an anonymous fallback. The install_id is the same one analytics uses,
     so a Sentry event correlates back to a BI row.
+
+    These describe the process, which is the caller only on stdio. On the
+    hosted HTTP server each request brings its own credential, and
+    ``capture_exception`` overrides the identity per event (``_request_identity``).
     """
     user_id = settings.comet_workspace_id or settings.comet_workspace or get_install_id()
     sentry_sdk.set_user({"id": user_id})
@@ -165,6 +171,58 @@ def _bind_scope(settings: Settings) -> None:
     sentry_sdk.set_tag("has_api_key", str(bool(settings.opik_api_key)).lower())
 
 
+def _request_identity(settings: Settings) -> tuple[dict[str, str], dict[str, str]] | None:
+    """The Sentry user and identity tags of the request being served.
+
+    ``None`` when no inbound credential is in scope (stdio, unauthenticated
+    HTTP, startup): the process-level binding in ``_bind_scope`` is the caller
+    then. Otherwise the identity comes from the same sources BI stamps on the
+    event (``analytics.client._build_event``): the identity stored against the
+    bearer and the request's ``Comet-Workspace`` header, so Sentry and BI name
+    the same workspace. An unknown user is ``{}``, which replaces the process
+    user instead of crediting the call to the server's own install id.
+
+    Never carries the credential or a digest of it.
+    """
+    auth = inbound_authorization.get()
+    if not auth:
+        return None
+    mode, _token = classify_bearer(auth)
+    identity = caller_identity(settings)
+    header = inbound_workspace.get()
+    configured = (header.strip() if header else None) or settings.comet_workspace
+    resolved = identity.workspace_name if identity else None
+    # Same precedence as ``AnalyticsClient._resolve_workspace``: a named
+    # workspace beats the resolved one, except the ``default`` placeholder.
+    workspace = (
+        configured if configured and configured != DEFAULT_WORKSPACE else resolved or configured
+    )
+    workspace_id = settings.comet_workspace_id or (identity.workspace_id if identity else None)
+    user_id = workspace_id or workspace
+    tags = {
+        "has_workspace_id": str(bool(workspace_id)).lower(),
+        "has_api_key": str(mode == "api_key").lower(),
+    }
+    if workspace:
+        tags["workspace"] = workspace
+    return ({"id": user_id} if user_id else {}), tags
+
+
+def _apply_request_identity(scope: sentry_sdk.Scope) -> None:
+    """Stamp ``scope`` with the request's own identity, when there is one."""
+    try:
+        request = _request_identity(get_settings())
+    except Exception:
+        logger.debug("sentry request identity failed", exc_info=True)
+        return
+    if request is None:
+        return
+    user, tags = request
+    scope.set_user(user)
+    for key, value in tags.items():
+        scope.set_tag(key, value)
+
+
 def capture_exception(
     exc: BaseException,
     *,
@@ -178,6 +236,7 @@ def capture_exception(
     ``tags`` and ``extras`` are pushed onto a fresh scope cloned from the
     current one, so they apply to THIS event only — concurrent tool calls
     on the same server (HTTP transport) never see each other's context.
+    The request's own user and workspace go on the same scope.
 
     ``transaction`` becomes the secondary line in Sentry's issue listing
     (e.g. ``read`` shown next to ``OpikServerError``). It's the cleanest
@@ -193,6 +252,7 @@ def capture_exception(
     """
     try:
         with sentry_sdk.new_scope() as scope:
+            _apply_request_identity(scope)
             if tags:
                 for key, value in tags.items():
                     scope.set_tag(key, value)

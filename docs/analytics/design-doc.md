@@ -75,7 +75,13 @@ Host cancellation is `cancelled`. The classifier never reads `str(exc)` or
 `instrument_tool` sends a failure to Sentry unless its kind is in
 `_USER_SIDE_ERROR_KINDS` or the cause is a `MissingConfigError`. Sentry sends
 no PII, and `before_send` caps events per process at `_MAX_EVENTS`
-(`src/opik_mcp/error_tracking.py`).
+(`src/opik_mcp/error_tracking.py`). On stdio the Sentry user and the
+`workspace`, `has_api_key` and `has_workspace_id` tags come from process
+settings. When a request carries its own credential (the hosted server), the
+event takes them from that request instead: the identity stored for the bearer
+and the `Comet-Workspace` header, the same sources BI uses. The user id is the
+workspace id, else the workspace name, else none. The credential and its digest
+are never sent.
 
 ## How it works
 
@@ -143,8 +149,10 @@ No ADR covers analytics. The reasons come from PRs.
   `instrument_tool`, so it sends no `tool_called` and no
   `session_initialized`. Failure rates count only failures inside a tool.
 - `setup_sentry` is called only from `main()`. A process served through
-  `build_app()` alone has no Sentry. The Sentry user comes from process
-  settings, so on the hosted server it is never the caller.
+  `build_app()` alone has no Sentry.
+- The hosted process user is the nil install id. An event captured outside
+  `capture_exception`, or with no inbound credential in context, still carries
+  it.
 - `tests/analytics/test_privacy.py` records at `track_event` and cannot see
   the common block; `tests/analytics/test_client_build_event.py` covers it.
 
