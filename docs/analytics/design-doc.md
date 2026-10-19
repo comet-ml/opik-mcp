@@ -167,7 +167,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
-- 2026-10-19: `network` failures stop paging Sentry on stdio, where a stopped local Opik or a proxy is the user's to fix; the hosted server still pages (#PR).
+- 2026-10-19: `network` failures stop paging Sentry on stdio, where a stopped local Opik or a proxy is the user's to fix; the hosted server still pages (#258).
 - 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).
