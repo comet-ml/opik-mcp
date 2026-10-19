@@ -174,6 +174,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
+- 2026-10-19: a host closing the stdio pipe ends the server with `client_disconnected` and exit 0, not a Sentry crash, and a crash in an exception group buckets by its leaf; the largest stdio crash in Sentry, OPIK-MCP-S, was hosts quitting (#263).
 - 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).
