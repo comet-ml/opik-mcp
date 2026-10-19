@@ -10,7 +10,7 @@ Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
 with the classifiers in ``environment.py`` (launch method), ``process_ancestry.py``
 (parent process), ``mcp_client_info.py`` (mcp host / host LLM family) and
-``analytics/client.py`` (``resolve_workspace`` / ``_resolve_user``) — adding a new
+``analytics/client.py`` (``resolve_workspace`` / ``resolve_user``) — adding a new
 bucket is a BI schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
 ``tests/analytics/test_events.py``, ``tests/analytics/test_privacy.py``,

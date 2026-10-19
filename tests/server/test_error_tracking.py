@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextvars
 import json
 from collections.abc import Callable, Generator
+from pathlib import Path
 from typing import Literal
 
 import anyio
@@ -15,6 +16,8 @@ from sentry_sdk.transport import Transport
 from sentry_sdk.types import Event, Hint
 
 from opik_mcp import error_tracking
+from opik_mcp.analytics.client import AnalyticsClient
+from opik_mcp.analytics.identity import get_install_id
 from opik_mcp.config import Settings, installation_type
 from opik_mcp.identity.context import (
     OAUTH_ACCESS_TOKEN_PREFIX,
@@ -36,6 +39,12 @@ def _disable_pytest_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     ``test_setup_sentry_skips_under_pytest``.
     """
     monkeypatch.setattr(error_tracking, "_in_pytest", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _install_id_in_tmp(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The process user is the install id; keep its file out of the real HOME."""
+    monkeypatch.setenv("HOME", str(tmp_path))
 
 
 def _call_before_send(fn: Callable[[Event, Hint], Event | None], event: Event) -> Event | None:
@@ -198,8 +207,10 @@ def test_setup_sentry_initializes_and_binds_scope(monkeypatch: pytest.MonkeyPatc
     assert "os_type" in tags
     assert "python_version" in tags
 
-    # User identity falls back from workspace_id → workspace → install_id.
-    assert user_calls == [{"id": "wkspc"}]
+    # The process default is BI's fallback, never the workspace; the caller's
+    # login is set per event by capture_exception.
+    assert user_calls == [{"id": get_install_id()}]
+    assert "workspace" not in tags
 
 
 @pytest.mark.parametrize(
@@ -229,49 +240,22 @@ def test_installation_type_taxonomy(comet_url: str, opik_url: str | None, expect
     assert installation_type(settings) == expected
 
 
-def test_setup_sentry_stamps_installation_type_and_workspace(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The two tags every dashboard query needs: which Opik deployment, and
-    which workspace inside it. ``installation_type`` mirrors opik SDK so
-    cross-product queries work; ``workspace`` gives readable filtering.
-    """
+def test_setup_sentry_stamps_installation_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``installation_type`` mirrors opik SDK so cross-product queries work."""
     tag_calls: list[tuple[str, str]] = []
     monkeypatch.setattr(sentry_sdk, "init", lambda **kw: None)
     monkeypatch.setattr(sentry_sdk, "set_tag", lambda k, v: tag_calls.append((k, v)))
     monkeypatch.setattr(sentry_sdk, "set_user", lambda u: None)
     monkeypatch.setattr(error_tracking, "_in_pytest", lambda: False)
 
-    settings = _settings(comet_workspace="acme-team")
-    error_tracking.setup_sentry(settings)
+    error_tracking.setup_sentry(_settings(comet_workspace="acme-team"))
 
-    tags = dict(tag_calls)
     # Default config points at cloud Comet.
-    assert tags["installation_type"] == "cloud"
-    assert tags["workspace"] == "acme-team"
+    assert dict(tag_calls)["installation_type"] == "cloud"
 
 
-def test_setup_sentry_omits_workspace_tag_when_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No workspace name → no ``workspace`` tag. Avoids stamping a useless
-    empty string on every event; ``has_workspace_id`` still carries the
-    boolean signal.
-    """
-    tag_calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(sentry_sdk, "init", lambda **kw: None)
-    monkeypatch.setattr(sentry_sdk, "set_tag", lambda k, v: tag_calls.append((k, v)))
-    monkeypatch.setattr(sentry_sdk, "set_user", lambda u: None)
-    monkeypatch.setattr(error_tracking, "_in_pytest", lambda: False)
-
-    error_tracking.setup_sentry(_settings())
-
-    assert "workspace" not in dict(tag_calls)
-
-
-def test_setup_sentry_user_id_prefers_workspace_uuid(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_setup_sentry_user_is_never_the_workspace(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A workspace user merged every open-source install into one "default" user."""
     user_calls: list[dict[str, object]] = []
     monkeypatch.setattr(sentry_sdk, "init", lambda **kw: None)
     monkeypatch.setattr(sentry_sdk, "set_tag", lambda k, v: None)
@@ -279,10 +263,9 @@ def test_setup_sentry_user_id_prefers_workspace_uuid(
     monkeypatch.setattr(error_tracking, "_in_pytest", lambda: False)
 
     uuid = "11111111-1111-1111-1111-111111111111"
-    settings = _settings(comet_workspace="wkspc", comet_workspace_id=uuid)
-    error_tracking.setup_sentry(settings)
+    error_tracking.setup_sentry(_settings(comet_workspace="default", comet_workspace_id=uuid))
 
-    assert user_calls == [{"id": uuid}]
+    assert user_calls == [{"id": get_install_id()}]
 
 
 # --- capture_exception ---------------------------------------------------- #
@@ -301,9 +284,13 @@ class _StubScope:
         self.extras: dict[str, object] = {}
         self.transaction: str | None = None
         self.fingerprint: list[str] | None = None
+        self.user: dict[str, str] | None = None
 
     def set_tag(self, key: str, value: object) -> None:
         self.tags[key] = value
+
+    def set_user(self, value: dict[str, str]) -> None:
+        self.user = value
 
     def set_extra(self, key: str, value: object) -> None:
         self.extras[key] = value
@@ -355,7 +342,7 @@ def test_capture_exception_pushes_tags_and_extras_onto_event_scope(
         extras={"duration_ms": 42, "raw_kwargs_count": 3},
     )
 
-    assert scope.tags == {"tool_name": "read", "error_kind": "opik_http_5xx"}
+    assert scope.tags.items() >= {"tool_name": "read", "error_kind": "opik_http_5xx"}.items()
     assert scope.extras == {"duration_ms": 42, "raw_kwargs_count": 3}
 
 
@@ -397,7 +384,9 @@ def test_capture_exception_handles_empty_tags_and_extras(
 
     error_tracking.capture_exception(RuntimeError("boom"))
 
-    assert scope.tags == {}
+    # Only the caller's identity, which every capture carries.
+    assert set(scope.tags) <= {"user_id_kind", "install_id_kind", "workspace_kind", "workspace"}
+    assert scope.user == {"id": get_install_id()}
     assert scope.extras == {}
 
 
@@ -413,11 +402,12 @@ def test_capture_exception_swallows_sentry_failures(monkeypatch: pytest.MonkeyPa
     error_tracking.capture_exception(RuntimeError("the real bug"))
 
 
-# --- per-request identity (hosted HTTP) ----------------------------------- #
+# --- the event user: the same rule as BI's user_id ------------------------- #
 
-_OAUTH_TOKEN = f"{OAUTH_ACCESS_TOKEN_PREFIX}secret-token-a"
-_API_KEY = "secret-api-key-b"
-_WORKSPACE_ID_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+_OAUTH_TOKEN_A = f"{OAUTH_ACCESS_TOKEN_PREFIX}secret-token-a"
+_OAUTH_TOKEN_B = f"{OAUTH_ACCESS_TOKEN_PREFIX}secret-token-b"
+_API_KEY = "secret-api-key-c"
+_SECRETS = (_OAUTH_TOKEN_A, _OAUTH_TOKEN_B, _API_KEY)
 
 
 class _MemoryTransport(Transport):
@@ -435,7 +425,7 @@ class _MemoryTransport(Transport):
 
 @pytest.fixture
 def sentry_events() -> Generator[list[Event]]:
-    """A real Sentry client, with the process scope a hosted server binds."""
+    """A real Sentry client whose events stay in memory."""
     transport = _MemoryTransport()
     sentry_sdk.init(
         dsn="https://public@sentry.invalid/1",
@@ -444,10 +434,6 @@ def sentry_events() -> Generator[list[Event]]:
         integrations=[],
         send_default_pii=False,
     )
-    # The hosted process has no install-id file, so its process user is the nil UUID.
-    sentry_sdk.set_user({"id": "00000000-0000-0000-0000-000000000000"})
-    sentry_sdk.set_tag("has_api_key", "false")
-    sentry_sdk.set_tag("has_workspace_id", "false")
     try:
         yield transport.events
     finally:
@@ -456,8 +442,16 @@ def sentry_events() -> Generator[list[Event]]:
         sentry_sdk.get_isolation_scope().clear()
 
 
+def _serve(monkeypatch: pytest.MonkeyPatch, **overrides: object) -> Settings:
+    """Bind the process scope for ``overrides`` and capture with the same settings."""
+    settings = _settings(**overrides)
+    monkeypatch.setattr(error_tracking, "get_settings", lambda: settings)
+    error_tracking._bind_scope(settings)
+    return settings
+
+
 def _capture_as(auth: str | None, workspace: str | None, message: str) -> None:
-    """Capture inside one request's context, as a hosted tool call does."""
+    """Capture inside one request's context, as a tool call does."""
     inbound_authorization.set(auth)
     inbound_workspace.set(workspace)
     error_tracking.capture_exception(RuntimeError(message), tags={"tool_name": "read"})
@@ -466,7 +460,7 @@ def _capture_as(auth: str | None, workspace: str | None, message: str) -> None:
 async def _hosted_call(auth: str, workspace: str | None, message: str) -> None:
     inbound_authorization.set(auth)
     inbound_workspace.set(workspace)
-    # Let the other request bind its own identity before this one captures.
+    # Let the other requests bind their own identity before this one captures.
     await anyio.sleep(0.01)
     error_tracking.capture_exception(RuntimeError(message), tags={"tool_name": "read"})
 
@@ -476,58 +470,109 @@ def _event(events: list[Event], message: str) -> Event:
     return event
 
 
-@pytest.mark.anyio
-async def test_concurrent_hosted_calls_report_their_own_identity(
-    sentry_events: list[Event],
-) -> None:
-    """OPIK-MCP-9E: every hosted event carried the process's nil user and no workspace."""
-    remember_identity(
-        _OAUTH_TOKEN,
-        ResolvedIdentity(user_name="someone", workspace_name="ws-a", workspace_id=_WORKSPACE_ID_A),
-    )
-    async with anyio.create_task_group() as tg:
-        tg.start_soon(_hosted_call, f"Bearer {_OAUTH_TOKEN}", None, "oauth call")
-        tg.start_soon(_hosted_call, f"Bearer {_API_KEY}", "ws-b", "api key call")
-
-    oauth_event = _event(sentry_events, "oauth call")
-    assert oauth_event["user"] == {"id": _WORKSPACE_ID_A}
-    assert oauth_event["tags"]["workspace"] == "ws-a"
-    assert oauth_event["tags"]["has_workspace_id"] == "true"
-    assert oauth_event["tags"]["has_api_key"] == "false"
-
-    api_key_event = _event(sentry_events, "api key call")
-    assert api_key_event["user"] == {"id": "ws-b"}
-    assert api_key_event["tags"]["workspace"] == "ws-b"
-    assert api_key_event["tags"]["has_workspace_id"] == "false"
-    assert api_key_event["tags"]["has_api_key"] == "true"
-    assert api_key_event["tags"]["tool_name"] == "read"
-
-    sent = json.dumps(sentry_events)
-    for secret in (_OAUTH_TOKEN, _API_KEY):
+def _assert_no_secret(events: list[Event]) -> None:
+    sent = json.dumps(events)
+    for secret in _SECRETS:
         assert secret not in sent
         assert credential_digest(secret) not in sent
 
 
-def test_hosted_call_with_unknown_identity_drops_the_process_user(
-    sentry_events: list[Event],
+def _identity(login: str, workspace: str) -> ResolvedIdentity:
+    return ResolvedIdentity(user_name=login, workspace_name=workspace, workspace_id=None)
+
+
+def test_stdio_call_with_a_resolved_login_reports_the_login(
+    monkeypatch: pytest.MonkeyPatch, sentry_events: list[Event]
 ) -> None:
-    """Nothing resolved and no workspace: no user, rather than the server's nil id."""
-    contextvars.copy_context().run(_capture_as, f"Bearer {_OAUTH_TOKEN}", None, "boom")
-
-    event = _event(sentry_events, "boom")
-    assert not event.get("user")
-    assert "workspace" not in event["tags"]
-    assert event["tags"]["has_workspace_id"] == "false"
-
-
-def test_stdio_call_keeps_the_process_identity(sentry_events: list[Event]) -> None:
-    """No inbound credential: the caller is this process, as ``_bind_scope`` set it."""
-    sentry_sdk.set_user({"id": "wkspc"})
-    sentry_sdk.set_tag("workspace", "wkspc")
+    monkeypatch.setattr(
+        "opik_mcp.identity.caller.resolve_api_key_identity",
+        lambda _settings: _identity("alice", "ws-a"),
+    )
+    _serve(monkeypatch, opik_mcp_transport="stdio", opik_api_key=_API_KEY, comet_workspace="ws-a")
 
     contextvars.copy_context().run(_capture_as, None, None, "boom")
 
     event = _event(sentry_events, "boom")
-    assert event["user"] == {"id": "wkspc"}
-    assert event["tags"]["workspace"] == "wkspc"
-    assert event["tags"]["has_api_key"] == "false"
+    assert event["user"] == {"id": "alice"}
+    assert event["tags"]["user_id_kind"] == "comet_user"
+    assert event["tags"]["workspace"] == "ws-a"
+    assert event["tags"]["has_api_key"] == "true"
+    _assert_no_secret(sentry_events)
+
+
+@pytest.mark.parametrize(("workspace", "expected_tag"), [("default", "default"), (None, None)])
+def test_open_source_call_reports_the_install_id_not_the_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+    sentry_events: list[Event],
+    workspace: str | None,
+    expected_tag: str | None,
+) -> None:
+    """Every open-source install used to be one Sentry user called "default"."""
+    _serve(
+        monkeypatch,
+        opik_mcp_transport="stdio",
+        opik_url="http://localhost:5173/api",
+        opik_api_key=None,
+        comet_workspace=workspace,
+        comet_workspace_id=None,
+    )
+
+    contextvars.copy_context().run(_capture_as, None, None, "boom")
+
+    event = _event(sentry_events, "boom")
+    assert event["user"] == {"id": get_install_id()}
+    assert event["tags"]["user_id_kind"] == "install_id"
+    assert event["tags"]["install_id_kind"] == "file"
+    assert event["tags"].get("workspace") == expected_tag
+
+
+@pytest.mark.anyio
+async def test_concurrent_hosted_calls_report_their_own_user(
+    monkeypatch: pytest.MonkeyPatch, sentry_events: list[Event]
+) -> None:
+    """OPIK-MCP-9E: every hosted event carried the server's nil id and no workspace."""
+    _serve(monkeypatch, opik_mcp_transport="streamable-http", opik_api_key=None)
+    remember_identity(_OAUTH_TOKEN_A, _identity("alice", "ws-a"))
+    remember_identity(_OAUTH_TOKEN_B, _identity("bob", "ws-b"))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(_hosted_call, f"Bearer {_OAUTH_TOKEN_A}", None, "call a")
+        tg.start_soon(_hosted_call, f"Bearer {_OAUTH_TOKEN_B}", None, "call b")
+        tg.start_soon(_hosted_call, f"Bearer {_API_KEY}", "ws-c", "call c")
+
+    for message, login, workspace in (("call a", "alice", "ws-a"), ("call b", "bob", "ws-b")):
+        event = _event(sentry_events, message)
+        assert event["user"] == {"id": login}
+        assert event["tags"]["user_id_kind"] == "comet_user"
+        assert event["tags"]["workspace"] == workspace
+        assert event["tags"]["has_api_key"] == "false"
+        assert event["tags"]["tool_name"] == "read"
+
+    # An inbound API key has no lookup: the install id, as in BI, and its own workspace.
+    api_key_event = _event(sentry_events, "call c")
+    assert api_key_event["user"] == {"id": get_install_id()}
+    assert api_key_event["tags"]["user_id_kind"] == "install_id"
+    assert api_key_event["tags"]["workspace"] == "ws-c"
+    assert api_key_event["tags"]["has_api_key"] == "true"
+    _assert_no_secret(sentry_events)
+
+
+@pytest.mark.parametrize("auth", [None, f"Bearer {_OAUTH_TOKEN_A}", f"Bearer {_API_KEY}"])
+def test_sentry_user_is_the_bi_user(
+    monkeypatch: pytest.MonkeyPatch, sentry_events: list[Event], auth: str | None
+) -> None:
+    settings = _serve(monkeypatch, opik_api_key=None, opik_mcp_analytics_enabled=False)
+    remember_identity(_OAUTH_TOKEN_A, _identity("alice", "ws-a"))
+
+    def _both() -> tuple[object, object, object]:
+        _capture_as(auth, None, "boom")
+        bi = AnalyticsClient(settings)._build_event("opik_mcp_tool_called", {})
+        props = bi["event_properties"]
+        return bi["user_id"], props["user_id_kind"], props.get("workspace")
+
+    user_id, user_id_kind, workspace = contextvars.copy_context().run(_both)
+
+    event = _event(sentry_events, "boom")
+    assert event["user"] == {"id": user_id}
+    assert event["tags"]["user_id_kind"] == user_id_kind
+    assert event["tags"].get("workspace") == workspace

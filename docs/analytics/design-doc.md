@@ -75,13 +75,14 @@ Host cancellation is `cancelled`. The classifier never reads `str(exc)` or
 `instrument_tool` sends a failure to Sentry unless its kind is in
 `_USER_SIDE_ERROR_KINDS` or the cause is a `MissingConfigError`. Sentry sends
 no PII, and `before_send` caps events per process at `_MAX_EVENTS`
-(`src/opik_mcp/error_tracking.py`). On stdio the Sentry user and the
-`workspace`, `has_api_key` and `has_workspace_id` tags come from process
-settings. When a request carries its own credential (the hosted server), the
-event takes them from that request instead: the identity stored for the bearer
-and the `Comet-Workspace` header, the same sources BI uses. The user id is the
-workspace id, else the workspace name, else none. The credential and its digest
-are never sent.
+(`src/opik_mcp/error_tracking.py`). Each Sentry event gets the same user as
+BI's `user_id`, from the same functions (`resolve_user`, `resolve_workspace`
+in `src/opik_mcp/analytics/client.py`), resolved per event by
+`caller_identity`: the caller's Comet login when known, else the install id.
+Tags `user_id_kind`, `install_id_kind` and `workspace_kind` say which. The
+workspace is only a tag, never the user. On the hosted server this is the
+request's own caller, so concurrent requests never share one. The login is
+sent in plaintext, as BI already does; a credential or its digest never is.
 
 ## How it works
 
@@ -150,9 +151,9 @@ No ADR covers analytics. The reasons come from PRs.
   `session_initialized`. Failure rates count only failures inside a tool.
 - `setup_sentry` is called only from `main()`. A process served through
   `build_app()` alone has no Sentry.
-- The hosted process user is the nil install id. An event captured outside
-  `capture_exception`, or with no inbound credential in context, still carries
-  it.
+- On the hosted server the install id is the nil sentinel. A hosted call
+  whose login is unknown (an inbound API key, or a missed lookup) reports it,
+  with `install_id_kind=fallback`; filter it out when counting users.
 - `tests/analytics/test_privacy.py` records at `track_event` and cannot see
   the common block; `tests/analytics/test_client_build_event.py` covers it.
 
@@ -173,7 +174,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
-- 2026-10-19: hosted Sentry events take the user and workspace of their request, not the server process; hosted issues could not be tied to a workspace (#259).
+- 2026-10-19: Sentry events take BI's user (the caller's login, else the install id) per request, with the workspace as a tag; hosted events all had the nil id and open-source ones the user "default" (#259).
 - 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).

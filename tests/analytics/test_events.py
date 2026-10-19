@@ -231,15 +231,15 @@ def test_workspace_kind_literal_has_no_dead_members() -> None:
 def test_user_id_kind_literal_has_no_dead_members() -> None:
     from typing import get_args
 
-    from opik_mcp.analytics.client import AnalyticsClient
+    from opik_mcp.analytics.client import resolve_user
     from opik_mcp.analytics.events import UserIdKind
     from opik_mcp.identity.store import ResolvedIdentity
 
     produced = {
-        AnalyticsClient._resolve_user(
+        resolve_user(
             ResolvedIdentity(user_name="awkoy", workspace_name=None, workspace_id=None)
         ).kind,
-        AnalyticsClient._resolve_user(None).kind,
+        resolve_user(None).kind,
     }
     assert produced == set(get_args(UserIdKind))
 

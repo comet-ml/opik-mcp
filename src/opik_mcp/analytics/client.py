@@ -50,6 +50,17 @@ logger = logging.getLogger("opik_mcp.analytics")
 _QUEUE_SENTINEL: Any = object()
 
 
+def resolve_user(identity: ResolvedIdentity | None) -> Attributed[UserIdKind]:
+    """The caller's login when known, the anonymous install id when not.
+
+    Shared by BI (``user_id``) and Sentry (the event user) so both count the
+    same people. Never a workspace: one field cannot mean two things.
+    """
+    if identity is not None and identity.user_name:
+        return Attributed(identity.user_name, "comet_user")
+    return Attributed(get_install_id(), "install_id")
+
+
 def resolve_workspace(
     settings: Settings, identity: ResolvedIdentity | None
 ) -> Attributed[WorkspaceKind]:
@@ -341,7 +352,7 @@ class AnalyticsClient:
         # and the anonymous install id when we don't. It deliberately no longer
         # carries a workspace name: one field cannot mean two things, and the
         # workspace is reported in its own fields above.
-        user = self._resolve_user(identity)
+        user = resolve_user(identity)
         # Says which of the two the field holds, so a count of real users is a
         # filter rather than a guess. Its ABSENCE is also how BI separates events
         # predating this change, which carried the old overloaded semantics.
@@ -360,13 +371,6 @@ class AnalyticsClient:
             "event_type": event_type,
             "event_properties": {**per_request, **properties, **common},
         }
-
-    @staticmethod
-    def _resolve_user(identity: ResolvedIdentity | None) -> Attributed[UserIdKind]:
-        """The caller's login when known, the anonymous install id when not."""
-        if identity is not None and identity.user_name:
-            return Attributed(identity.user_name, "comet_user")
-        return Attributed(get_install_id(), "install_id")
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
