@@ -253,6 +253,7 @@ ShutdownReason = Literal[
     "transport_error",
     "keyboard_interrupt",
     "sys_exit",
+    "client_disconnected",
 ]
 
 # ``lifespan_seconds_bucket``: discrete duration buckets. See ``bucket_seconds``

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import logging
 import os
 import socket
@@ -77,10 +78,36 @@ def _bucket_transport_exception_type(exc: BaseException) -> str:
     new subclass. Returns ``"unknown"`` only when nothing in the chain
     matches.
     """
+    # anyio raises a task group's failures as an exception group; the first
+    # leaf names the failure, the group class names nothing.
+    while isinstance(exc, BaseExceptionGroup):
+        exc = exc.exceptions[0]
     for cls in type(exc).__mro__:
         if cls.__name__ in _KNOWN_TRANSPORT_EXCEPTION_NAMES:
             return cls.__name__
     return "unknown"
+
+
+def _is_client_disconnect(exc: BaseException) -> bool:
+    """Whether every leaf of ``exc`` is the error stdout gives once the host has closed the pipe."""
+    if isinstance(exc, BaseExceptionGroup):
+        return all(_is_client_disconnect(member) for member in exc.exceptions)
+    if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
+        return True
+    # Windows reports a write to a closed pipe as EINVAL, not EPIPE.
+    return isinstance(exc, OSError) and exc.errno == errno.EINVAL
+
+
+def _point_stdout_at_devnull() -> None:
+    """Let the interpreter's exit flush succeed after the host closed stdout.
+
+    The unwritten reply is still in stdout's buffer; flushing it into the
+    closed pipe at exit fails again and exits with status 120. Python's
+    signal docs give this fix for a ``BrokenPipeError`` on stdout.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, sys.stdout.fileno())
+    os.close(devnull)
 
 
 def _preflight_bind_check(host: str, port: int) -> None:
@@ -334,6 +361,13 @@ def main() -> None:
         _emit_server_shutdown(reason="keyboard_interrupt", started_monotonic=started_monotonic)
         raise
     except BaseException as e:
+        if transport == "stdio" and _is_client_disconnect(e):
+            # The host quit and closed our stdout, so the next write failed.
+            # The session is over; nothing crashed, so no Sentry and no
+            # startup_error, and the exit is clean.
+            _point_stdout_at_devnull()
+            _emit_server_shutdown(reason="client_disconnected", started_monotonic=started_monotonic)
+            return
         bucketed_type = _bucket_transport_exception_type(e)
         _emit_startup_error(
             phase="transport_start",

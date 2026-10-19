@@ -77,6 +77,13 @@ Host cancellation is `cancelled`. The classifier never reads `str(exc)` or
 no PII, and `before_send` caps events per process at `_MAX_EVENTS`
 (`src/opik_mcp/error_tracking.py`).
 
+A transport failure sends `startup_error` and goes to Sentry, with
+`exception_type` taken from the first leaf of an exception group. On stdio,
+a failure whose every leaf is a closed-pipe error (`BrokenPipeError`,
+`ConnectionResetError`, or `OSError` EINVAL on Windows) means the host quit:
+`server_shutdown` says `client_disconnected`, nothing goes to Sentry, and the
+process exits 0 (`_is_client_disconnect` in `src/opik_mcp/__main__.py`).
+
 ## How it works
 
 ```
@@ -158,6 +165,8 @@ No ADR covers analytics. The reasons come from PRs.
   `tests/analytics/test_environment.py`, `tests/analytics/test_process_ancestry.py`.
 - Startup, shutdown and lifecycle ownership: `tests/analytics/test_lifespan.py`,
   `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
+- A host closing stdout ends the server with exit status 0:
+  `tests/hermetic/test_stdio_session.py`.
 - No canary string or raw token reaches an event or Sentry:
   `tests/analytics/test_privacy.py`, `tests/analytics/test_auth_rejected.py`.
 - Sentry setup, scope and cap: `tests/server/test_error_tracking.py`.

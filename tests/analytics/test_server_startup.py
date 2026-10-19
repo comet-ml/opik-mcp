@@ -1,4 +1,6 @@
+import errno
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -6,7 +8,7 @@ import respx
 from pydantic import ValidationError
 
 from opik_mcp import __main__ as main_mod
-from opik_mcp.analytics import EVENT_SERVER_STARTED, EVENT_STARTUP_ERROR
+from opik_mcp.analytics import EVENT_SERVER_SHUTDOWN, EVENT_SERVER_STARTED, EVENT_STARTUP_ERROR
 
 
 class _RecorderClient:
@@ -353,6 +355,114 @@ def test_transport_crash_buckets_unknown_exception_type(
     assert props["exception_type"] == "unknown", (
         f"expected bucketed 'unknown' for _CustomBoom, got {props['exception_type']!r}"
     )
+
+
+def test_transport_crash_in_an_exception_group_buckets_by_its_leaf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """anyio raises a task group's failure as an ExceptionGroup, which bucketed
+    as ``"unknown"`` and hid the real class from BI (OPIK-8559)."""
+    recorder = _install_recorder(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise ExceptionGroup("outer", [ExceptionGroup("inner", [ValueError("x")])])
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(ExceptionGroup):
+        main_mod.main()
+
+    props = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
+    assert props["exception_type"] == "ValueError"
+
+
+# --- stdio: the host closing the pipe is a disconnect, not a crash --------- #
+
+
+def _spy_on_sentry(monkeypatch: pytest.MonkeyPatch) -> list[BaseException]:
+    captured: list[BaseException] = []
+
+    def _spy(exc: BaseException, **_context: object) -> None:
+        captured.append(exc)
+
+    monkeypatch.setattr("opik_mcp.error_tracking.capture_exception", _spy)
+    return captured
+
+
+@pytest.mark.parametrize(
+    "closed_pipe",
+    [
+        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), id="posix"),
+        pytest.param(OSError(errno.EINVAL, "Invalid argument"), id="windows"),
+    ],
+)
+def test_a_closed_stdout_on_stdio_ends_the_server_cleanly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, closed_pipe: OSError
+) -> None:
+    """Sentry OPIK-MCP-S and OPIK-MCP-7P: every host that quit was reported
+    as a transport crash, with a traceback and a failing exit status."""
+    recorder = _install_recorder(monkeypatch)
+    sentry_captures = _spy_on_sentry(monkeypatch)
+
+    class _ClosedPipeMcp:
+        def run(self, *, transport: str) -> None:
+            raise ExceptionGroup("unhandled errors in a TaskGroup", [closed_pipe])
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _ClosedPipeMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    with (tmp_path / "stdout").open("w") as stdout:
+        # main() points the stdout descriptor at devnull; give it one of ours.
+        monkeypatch.setattr("sys.stdout", stdout)
+        main_mod.main()
+
+    event_types = [et for et, _ in recorder.events]
+    assert EVENT_STARTUP_ERROR not in event_types
+    shutdown = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shutdown["reason"] == "client_disconnected"
+    assert sentry_captures == []
+
+
+def test_a_closed_pipe_beside_a_real_error_is_still_a_crash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorder = _install_recorder(monkeypatch)
+    sentry_captures = _spy_on_sentry(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            raise ExceptionGroup("g", [BrokenPipeError(), RuntimeError("real")])
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(ExceptionGroup):
+        main_mod.main()
+
+    shutdown = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shutdown["reason"] == "transport_error"
+    assert EVENT_STARTUP_ERROR in [et for et, _ in recorder.events]
+    assert len(sentry_captures) == 1
+
+
+def test_a_broken_pipe_on_http_is_still_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only stdio's pipe belongs to the host; on HTTP a broken pipe is ours."""
+    recorder = _install_recorder(monkeypatch)
+    sentry_captures = _spy_on_sentry(monkeypatch)
+
+    def _boom(settings: object, transport: str) -> None:
+        raise ExceptionGroup("g", [BrokenPipeError()])
+
+    monkeypatch.setattr(main_mod, "_run_transport", _boom)
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "http")
+
+    with pytest.raises(ExceptionGroup):
+        main_mod.main()
+
+    shutdown = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shutdown["reason"] == "transport_error"
+    assert len(sentry_captures) == 1
 
 
 # --- integration: prove the config-fail path doesn't depend on the singleton --

@@ -31,8 +31,10 @@ Marked `hermetic` and excluded from the default `pytest` run (see `pyproject.tom
 
 from __future__ import annotations
 
+import json
 import os
 import re
+import subprocess
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -306,3 +308,40 @@ async def test_the_blob_names_only_real_parameters() -> None:
         named = {a.strip() for a in args.split(",") if re.fullmatch(r"[a-z_]+", a.strip())}
         unknown = named - params.get(tool, set())
         assert not unknown, f"the instructions say {tool} takes {sorted(unknown)}; it does not"
+
+
+@pytest.mark.hermetic
+def test_a_host_that_closes_stdout_ends_the_server_cleanly() -> None:
+    """A host that quits closes the pipe, and the server's next write fails
+    with BrokenPipeError. That ended in a traceback, exit status 120 and a
+    Sentry crash for every closed session (OPIK-MCP-S)."""
+    params = _server_params()
+    server = subprocess.Popen(
+        [params.command, *params.args],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=params.env,
+    )
+    assert server.stdin is not None
+    assert server.stdout is not None
+    server.stdout.close()
+    initialize = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2025-06-18",
+            "capabilities": {},
+            "clientInfo": {"name": "closing-host", "version": "0"},
+        },
+    }
+    server.stdin.write((json.dumps(initialize) + "\n").encode())
+    # The server answers initialize before it reads the EOF, so the reply is
+    # always written into the closed pipe.
+    server.stdin.close()
+    exit_status = server.wait(timeout=_TIMEOUT_S)
+    stderr = server.stderr.read() if server.stderr else b""
+
+    assert exit_status == 0, f"exit status {exit_status}, stderr:\n{stderr.decode()}"
+    assert b"Traceback" not in stderr, stderr.decode()
