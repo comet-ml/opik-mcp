@@ -10,7 +10,7 @@ Every analytics property is either a boolean string, a hardcoded-allowlist
 string, or a bucketed integer/duration. The allowlists below MUST stay in sync
 with the classifiers in ``environment.py`` (launch method), ``process_ancestry.py``
 (parent process), ``mcp_client_info.py`` (mcp host / host LLM family) and
-``analytics/client.py`` (``_resolve_workspace`` / ``_resolve_user``) — adding a new
+``analytics/client.py`` (``resolve_workspace`` / ``_resolve_user``) — adding a new
 bucket is a BI schema change and requires updating both the classifier and the corresponding
 Literal here. Tests that pin the BI shape live in
 ``tests/analytics/test_events.py``, ``tests/analytics/test_privacy.py``,
@@ -331,7 +331,7 @@ InstallIdKind = Literal["file", "fallback"]
 IdentityLookup = Literal["resolved", "none_expected", "miss"]
 
 # ``workspace_kind``: where the reported ``workspace`` name came from. The
-# classifier is ``client._resolve_workspace``. CRITICAL for BI: "placeholder" is
+# classifier is ``client.resolve_workspace``. CRITICAL for BI: "placeholder" is
 # the literal "default" on an install that resolved nothing, and it collides with
 # a real cloud workspace of that name — those rows must never be name-joined.
 #

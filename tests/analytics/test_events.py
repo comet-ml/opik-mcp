@@ -193,28 +193,26 @@ def test_path_bucket_literal_matches_bucket_path_outputs() -> None:
 def test_workspace_kind_literal_has_no_dead_members() -> None:
     """Every declared WorkspaceKind must be reachable from the classifier.
 
-    mypy already stops ``_resolve_workspace`` returning a value the Literal
+    mypy already stops ``resolve_workspace`` returning a value the Literal
     doesn't declare. What it cannot see is the other direction: a member left
     behind after a rule changes, which BI would then wait for forever. Same
     contract as McpHost, driven through the real classifier.
     """
     from typing import get_args
 
-    from opik_mcp.analytics.client import AnalyticsClient
+    from opik_mcp.analytics.client import resolve_workspace
     from opik_mcp.analytics.events import WorkspaceKind
     from opik_mcp.config import DEFAULT_WORKSPACE, Settings
     from opik_mcp.identity.store import ResolvedIdentity
 
     def _kind(workspace: str | None, resolved: str | None) -> str:
-        client = AnalyticsClient(
-            Settings(opik_mcp_analytics_enabled=False, comet_workspace=workspace)
-        )
+        settings = Settings(opik_mcp_analytics_enabled=False, comet_workspace=workspace)
         identity = (
             ResolvedIdentity(user_name="u", workspace_name=resolved, workspace_id=None)
             if resolved
             else None
         )
-        return client._resolve_workspace(identity).kind
+        return resolve_workspace(settings, identity).kind
 
     produced = {
         _kind("acme-ai", None),  # configured

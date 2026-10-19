@@ -40,10 +40,11 @@ from sentry_sdk.types import Event, Hint
 
 # ``installation_type`` lives in ``config`` (a leaf module) so both this Sentry
 # path and ``analytics.boot_props`` (BI) share one source without an import cycle.
+from opik_mcp.analytics.client import resolve_workspace
 from opik_mcp.analytics.identity import OPIK_MCP_VERSION, get_install_id
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings, installation_type
+from opik_mcp.config import Settings, get_settings, installation_type
 from opik_mcp.identity.caller import caller_identity
-from opik_mcp.identity.context import classify_bearer, inbound_authorization, inbound_workspace
+from opik_mcp.identity.context import classify_bearer, inbound_authorization
 
 logger = logging.getLogger("opik_mcp.error_tracking")
 
@@ -189,14 +190,7 @@ def _request_identity(settings: Settings) -> tuple[dict[str, str], dict[str, str
         return None
     mode, _token = classify_bearer(auth)
     identity = caller_identity(settings)
-    header = inbound_workspace.get()
-    configured = (header.strip() if header else None) or settings.comet_workspace
-    resolved = identity.workspace_name if identity else None
-    # Same precedence as ``AnalyticsClient._resolve_workspace``: a named
-    # workspace beats the resolved one, except the ``default`` placeholder.
-    workspace = (
-        configured if configured and configured != DEFAULT_WORKSPACE else resolved or configured
-    )
+    workspace = resolve_workspace(settings, identity).value
     workspace_id = settings.comet_workspace_id or (identity.workspace_id if identity else None)
     user_id = workspace_id or workspace
     tags = {

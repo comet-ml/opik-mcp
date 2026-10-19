@@ -50,6 +50,53 @@ logger = logging.getLogger("opik_mcp.analytics")
 _QUEUE_SENTINEL: Any = object()
 
 
+def resolve_workspace(
+    settings: Settings, identity: ResolvedIdentity | None
+) -> Attributed[WorkspaceKind]:
+    """The workspace to report for this call, and where it came from.
+
+    Shared by BI (``_build_event``) and Sentry (``error_tracking``) so both
+    name the same workspace. Precedence, highest first:
+
+    - ``template`` — a configured value that was never filled in. Wins
+      outright, and keeps its raw value: that value is the only thing that
+      says which snippet failed the user. Deliberately not papered over by a
+      resolved name, since user attribution never depended on the workspace.
+    - ``configured`` — a workspace someone deliberately named: the inbound
+      ``Comet-Workspace`` header for this call if present, else the process
+      setting. They may be working outside their account default, so
+      reporting the resolved one instead would be wrong.
+    - ``resolved`` — from the backend. Beats an *absent* setting and the
+      literal ``default`` placeholder, which our own docs once invited
+      operators to set and which collides with a same-named row in the
+      warehouse.
+    - ``placeholder`` — the literal ``default``, nothing resolved.
+    - ``unknown`` — nothing configured, nothing resolved. Returns an EMPTY
+      value; the caller omits ``workspace`` entirely for this kind.
+    """
+    # An inbound header is the caller naming the workspace for THIS call,
+    # which outranks anything this process was started with — it is what
+    # client.base actually routes on (`resolve_opik_config`). Without it a
+    # hosted call would claim "unknown" while `request_workspace` in the
+    # same payload carries the name.
+    inbound = inbound_workspace.get()
+    configured = (inbound.strip() if inbound else None) or settings.comet_workspace
+    resolved = identity.workspace_name if identity else None
+    if configured and looks_unsubstituted(configured):
+        # Reported, not hidden: the raw value is the only thing that tells
+        # us which config snippet the user pasted without filling in.
+        return Attributed(configured, "template")
+    if configured and configured != DEFAULT_WORKSPACE:
+        return Attributed(configured, "configured")
+    if resolved:
+        return Attributed(resolved, "resolved")
+    if configured:
+        return Attributed(configured, "placeholder")
+    # Nothing configured and nothing resolved. Empty value by contract: the
+    # caller omits `workspace` entirely for this kind.
+    return Attributed("", "unknown")
+
+
 class AnalyticsClient:
     """Thread-safe, fire-and-forget event sender."""
 
@@ -229,7 +276,7 @@ class AnalyticsClient:
             "timestamp": datetime.now(UTC).isoformat(),
         }
         identity, lookup_outcome = caller_identity_with_outcome(self._settings)
-        workspace = self._resolve_workspace(identity)
+        workspace = resolve_workspace(self._settings, identity)
         # Where the name came from: resolved from the backend, chosen by the
         # operator, an unfilled config snippet, the self-hosted placeholder, or
         # nothing at all. BI needs this to keep placeholders out of workspace
@@ -320,49 +367,6 @@ class AnalyticsClient:
         if identity is not None and identity.user_name:
             return Attributed(identity.user_name, "comet_user")
         return Attributed(get_install_id(), "install_id")
-
-    def _resolve_workspace(self, identity: ResolvedIdentity | None) -> Attributed[WorkspaceKind]:
-        """The workspace to report, and where it came from.
-
-        Precedence, highest first:
-
-        - ``template`` — a configured value that was never filled in. Wins
-          outright, and keeps its raw value: that value is the only thing that
-          says which snippet failed the user. Deliberately not papered over by a
-          resolved name, since user attribution never depended on the workspace.
-        - ``configured`` — a workspace someone deliberately named: the inbound
-          ``Comet-Workspace`` header for this call if present, else the process
-          setting. They may be working outside their account default, so
-          reporting the resolved one instead would be wrong.
-        - ``resolved`` — from the backend. Beats an *absent* setting and the
-          literal ``default`` placeholder, which our own docs once invited
-          operators to set and which collides with a same-named row in the
-          warehouse.
-        - ``placeholder`` — the literal ``default``, nothing resolved.
-        - ``unknown`` — nothing configured, nothing resolved. Returns an EMPTY
-          value; the caller omits ``workspace`` entirely for this kind.
-        """
-        # An inbound header is the caller naming the workspace for THIS call,
-        # which outranks anything this process was started with — it is what
-        # client.base actually routes on (`resolve_opik_config`). Without it a
-        # hosted call would claim "unknown" while `request_workspace` in the
-        # same payload carries the name.
-        inbound = inbound_workspace.get()
-        configured = (inbound.strip() if inbound else None) or self._settings.comet_workspace
-        resolved = identity.workspace_name if identity else None
-        if configured and looks_unsubstituted(configured):
-            # Reported, not hidden: the raw value is the only thing that tells
-            # us which config snippet the user pasted without filling in.
-            return Attributed(configured, "template")
-        if configured and configured != DEFAULT_WORKSPACE:
-            return Attributed(configured, "configured")
-        if resolved:
-            return Attributed(resolved, "resolved")
-        if configured:
-            return Attributed(configured, "placeholder")
-        # Nothing configured and nothing resolved. Empty value by contract: the
-        # caller omits `workspace` entirely for this kind.
-        return Attributed("", "unknown")
 
     def _per_request_props(self) -> dict[str, str]:
         """Identity derived from the inbound-auth ContextVars (HTTP/OAuth mode).
