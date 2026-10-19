@@ -9,6 +9,7 @@ from pydantic import Field
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.read_list.entities.project_metric.catalog import INTERVALS as METRIC_INTERVALS
 from opik_mcp.read_list.entities.project_metric.catalog import METRICS as METRIC_TYPES
+from opik_mcp.read_list.list_args import SEARCH_DEFAULT_SINCE
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import filter_field_names
 from opik_mcp.read_list.registry import VOCABULARIES
@@ -126,8 +127,8 @@ async def list_entities(
         Field(
             description=(
                 "Free text for trace, span, thread: matches anywhere in id, name, input, "
-                "output, metadata, tags, thread_id (spans: model, provider too). Expensive "
-                "on large projects; narrow with since first."
+                "output, metadata, tags, thread_id (spans: model, provider too). Without "
+                f"since/until it covers the last {SEARCH_DEFAULT_SINCE}."
             ),
             max_length=500,
         ),

@@ -3,14 +3,15 @@
 ``since`` / ``until`` is one vocabulary for every windowed type: an instant
 window (``from_time`` / ``to_time``) for trace, span and thread, and a
 report-day window (``from_date`` / ``to_date``) for Diagnostics issues, whose
-backend aggregates by day.
+backend aggregates by day. A ``search`` with neither bound gets
+``SEARCH_DEFAULT_SINCE``, echoed as such in the header.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 from mcp.server.fastmcp.exceptions import ToolError
 
@@ -39,6 +40,12 @@ from opik_mcp.read_list.window import (
 #: The keyword arguments a ``list_fn`` receives: the backend's query parameters.
 ListKwargs = dict[str, Any]
 
+#: The window a free-text search gets when the caller names neither bound.
+#: The backend's search is an unindexed ilike over the bodies, pruned only by
+#: a time window; over a whole large project it ran past 30 s or ended in a
+#: 500 (OPIK-8880).
+SEARCH_DEFAULT_SINCE: Final = "7d"
+
 
 @dataclass(frozen=True)
 class ListArgs:
@@ -51,6 +58,8 @@ class ListArgs:
     applied: list[str]
     clauses: list[dict[str, str]]
     is_source_defaulted: bool
+    #: ``SEARCH_DEFAULT_SINCE`` was applied because the search named no window.
+    is_search_window_defaulted: bool
     #: Where the sort label goes in ``applied`` once the response says
     #: whether the backend kept the sort.
     sort_slot: int
@@ -168,6 +177,16 @@ def resolve_list_args(
     # dropped the sort), but it belongs right after the filters in the header.
     sort_slot = len(applied)
 
+    is_search_window_defaulted = (
+        handler.is_windowed
+        and search is not None
+        and bool(search.strip())
+        and since is None
+        and until is None
+    )
+    if is_search_window_defaulted:
+        since = SEARCH_DEFAULT_SINCE
+
     to_time: str | None = None
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
@@ -192,7 +211,12 @@ def resolve_list_args(
         else:
             if since is not None and from_time is not None:
                 list_kwargs["from_time"] = from_time
-                applied.append(f"since: {_window_echo(since, from_time)}")
+                since_echo = f"since: {_window_echo(since, from_time)}"
+                if is_search_window_defaulted:
+                    # Said where the window is, so a miss is not read as
+                    # "nowhere in the project" (ADR 0002).
+                    since_echo += ", default for search; pass since=… to widen"
+                applied.append(since_echo)
             if until is not None and to_time is not None:
                 list_kwargs["to_time"] = to_time
                 applied.append(f"until: {_window_echo(until, to_time)}")
@@ -230,6 +254,7 @@ def resolve_list_args(
         applied=applied,
         clauses=clauses,
         is_source_defaulted=source_defaulted,
+        is_search_window_defaulted=is_search_window_defaulted,
         sort_slot=sort_slot,
         sort_label=sort_label,
         sort_field=sort_field,

@@ -182,7 +182,8 @@ feedback_scores.hallucination > 0.5 AND start_time >= "2026-09-08T00:00:00Z"
 ```
 
 With the MCP connected, prefer `list` — it also sorts (`sort="duration desc"`),
-windows (`since="1h"`, `"7d"`), and searches free text (`search="order-42"`):
+windows (`since="1h"`, `"7d"`), and searches free text in a window
+(`search="order-42", since="30d"`; with no window, search covers the last 7 days):
 
 ```
 list(entity_type="trace", project_name="<project>", since="1h",

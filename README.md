@@ -679,10 +679,10 @@ with a timezone, so "the last hour" needs no clock arithmetic. The window is by
 record creation time, which is cheap for the backend and agrees with
 `start_time` within seconds for live traffic. For an exact bound, put
 `start_time` in `filters`. The same three types take `search`, free text matched
-anywhere in id, name, input, output, metadata, tags and thread id. Search scans
-the whole project on the backend, so the first call on a large project can take
-tens of seconds. Those calls get a 60-second timeout. Adding `since` makes them
-fast again.
+anywhere in id, name, input, output, metadata, tags and thread id. Search is
+slow on the backend without a window, so a search with neither `since` nor
+`until` covers the last 7 days, and the answer header says so. Pass `since` to
+widen it. Search calls get a 60-second timeout.
 
 **Reading the table.** Durations are labelled `duration_ms` / `ttft_ms` and
 shown as whole milliseconds; the field stays `duration` in `filters` and
@@ -701,7 +701,7 @@ list(
     filters="error_info is_not_empty",
     sort="duration desc",
 )
-list(entity_type="trace", project_name="demo", search="order-42")
+list(entity_type="trace", project_name="demo", search="order-42", since="30d")
 ```
 
 **Diagnostics issues.** `agent_insights_issue` is the Diagnostics page over
