@@ -221,7 +221,7 @@
         }
       ],
       "default": null,
-      "description": "Free text for trace, span, thread: matches anywhere in id, name, input, output, metadata, tags, thread_id (spans: model, provider too). Expensive on large projects; narrow with since first.",
+      "description": "Free text for trace, span, thread: matches anywhere in id, name, input, output, metadata, tags, thread_id (spans: model, provider too). Without since/until it covers the last 7d.",
       "title": "Search"
     },
     "series": {
