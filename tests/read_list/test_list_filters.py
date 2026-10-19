@@ -1037,9 +1037,55 @@ async def test_window_on_thread_is_forwarded() -> None:
 @pytest.mark.anyio
 async def test_search_is_forwarded_for_spans_and_echoed() -> None:
     fake = FakeOpikClient(spans=_page([{"id": "s-1", "name": "tool"}]))
-    out = await run_list("span", project_id="p-1", search="order-42", client=fake)
+    out = await run_list("span", project_id="p-1", since="1h", search="order-42", client=fake)
     assert fake.last_kwargs["search"] == "order-42"
-    assert _applied(out) == '[list: span | filters: source = "sdk" | search: "order-42"]'
+    assert re.fullmatch(
+        r'\[list: span \| filters: source = "sdk" \| since: 1h \([^)]*\) \| search: "order-42"\]',
+        _applied(out),
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("entity_type", ["trace", "span", "thread"])
+async def test_a_search_without_a_window_covers_the_last_7_days_and_says_so(
+    entity_type: str,
+) -> None:
+    """Unwindowed search scans the whole project and timed out live (OPIK-8880)."""
+    rows = _page([{"id": "r-1", "name": "chat"}])
+    fake = FakeOpikClient(traces=rows, spans=rows, threads=rows)
+    before = datetime.now(UTC)
+    out = await run_list(entity_type, project_id="p-1", search="order-42", client=fake)
+    sent = fake.list_calls[0]
+    assert abs((before - _instant(sent["from_time"])).total_seconds() - 7 * 86400) < 5
+    assert "to_time" not in sent
+    assert re.search(
+        r"\| since: 7d \([^)]*\), default for search; pass since=… to widen"
+        r' \| search: "order-42"\]$',
+        _applied(out),
+    ), out.splitlines()[0]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("since", "until", "bound"), [("30d", None, "from_time"), (None, "1h", "to_time")]
+)
+async def test_a_search_with_a_window_keeps_the_callers_window(
+    since: str | None, until: str | None, bound: str
+) -> None:
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
+    out = await run_list(
+        "trace", project_id="p-1", search="order-42", since=since, until=until, client=fake
+    )
+    assert set(fake.last_kwargs) & {"from_time", "to_time"} == {bound}
+    assert "default for search" not in out.splitlines()[0]
+
+
+@pytest.mark.anyio
+async def test_a_listing_without_search_gets_no_window() -> None:
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "chat"}]))
+    out = await run_list("trace", project_id="p-1", client=fake)
+    assert "from_time" not in fake.last_kwargs
+    assert "since" not in out.splitlines()[0]
 
 
 @pytest.mark.anyio

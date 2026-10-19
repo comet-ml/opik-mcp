@@ -112,6 +112,9 @@ project if set, tool selection, the link rule, and today's UTC date.
 - `sort` is one field, `asc` or `desc`. `since`/`until` take `30m`, `1h`,
   `7d`, `2w` or an ISO-8601 instant with a zone. Only trace, span and thread
   take a window or `search`; other types refuse both and name what works.
+- A `search` with neither `since` nor `until` gets `since="7d"`
+  (`SEARCH_DEFAULT_SINCE` in `list_args.py`), and the header says it is the
+  search default (`test_a_search_without_a_window_covers_the_last_7_days_and_says_so`).
 - trace, span and thread need `project_id` or `project_name`. A misspelled
   name gets the closest project name back: on a 404 the projects endpoint is
   asked whether the name exists (`_refuse_unknown_project`).
@@ -266,6 +269,7 @@ Boundaries:
 
 ## Log
 
+- 2026-10-19: `search` without a window covers the last 7 days and says so; unwindowed search scanned the whole project and timed out (#PR).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).
