@@ -139,7 +139,8 @@ def _collection_timeout_hint(
     *,
     is_windowed: bool,
     is_search_window_defaulted: bool,
-    list_kwargs: dict[str, Any],
+    has_since: bool,
+    has_search: bool,
     clauses: list[dict[str, str]],
     vocabulary: Vocabulary,
 ) -> str:
@@ -153,8 +154,6 @@ def _collection_timeout_hint(
     asked = f"Opik did not answer in time for list({entity_type!r}, …)."
     if not is_windowed:
         return f"{asked} Retry once."
-    has_since = "from_time" in list_kwargs
-    has_search = "search" in list_kwargs
     body_filters = list(
         dict.fromkeys(c["field"] for c in clauses if c["field"] in vocabulary.body_fields)
     )
@@ -375,7 +374,8 @@ async def run_list(
                 entity_type,
                 is_windowed=handler.is_windowed,
                 is_search_window_defaulted=resolved.is_search_window_defaulted,
-                list_kwargs=list_kwargs,
+                has_since="from_time" in list_kwargs,
+                has_search="search" in list_kwargs,
                 clauses=clauses,
                 vocabulary=vocabulary,
             ),

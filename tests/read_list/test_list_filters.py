@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 import pytest
@@ -366,33 +366,37 @@ async def test_every_error_class_reaches_the_agent_through_the_tool(
 class _TimingOut(FakeOpikClient):
     """``httpx.ReadTimeout`` stringifies to '', as it did live."""
 
-    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+    async def list_traces(self, **kw: object) -> NoReturn:
         raise httpx.ReadTimeout("")
 
-    async def list_spans(self, **kw: Any) -> dict[str, Any]:
+    async def list_spans(self, **kw: object) -> NoReturn:
         raise httpx.ReadTimeout("")
 
-    async def list_threads(self, **kw: Any) -> dict[str, Any]:
+    async def list_threads(self, **kw: object) -> NoReturn:
         raise httpx.ReadTimeout("")
 
-    async def list_experiments(self, **kw: Any) -> dict[str, Any]:
+    async def list_experiments(self, **kw: object) -> NoReturn:
         raise httpx.ReadTimeout("")
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    ("entity_type", "args", "named", "not_named"),
+    ("entity_type", "filters", "search", "since", "named", "not_named"),
     [
         pytest.param(
             "span",
-            {"filters": 'input contains "refund"', "size": 1},
+            'input contains "refund"',
+            None,
+            None,
             ["the filter on input", 'add since="24h"', "drop the filter on input"],
             ["size", "search"],
             id="a body filter with no window",
         ),
         pytest.param(
             "trace",
-            {"search": "order-42", "since": "7d"},
+            None,
+            "order-42",
+            "7d",
             [
                 "the search",
                 "shorten the since window",
@@ -403,7 +407,9 @@ class _TimingOut(FakeOpikClient):
         ),
         pytest.param(
             "trace",
-            {"search": "order-42"},
+            None,
+            "order-42",
+            None,
             [
                 "the search scans every stored body in the default 7d search window",
                 'since="24h"',
@@ -414,21 +420,27 @@ class _TimingOut(FakeOpikClient):
         ),
         pytest.param(
             "thread",
-            {"search": "refund", "since": "1d"},
+            None,
+            "refund",
+            "1d",
             ["shorten the since window", "replace search with a filter on tags"],
             ["size", "name", "metadata", "message"],
             id="search on threads offers only the fields threads have",
         ),
         pytest.param(
             "trace",
-            {"filters": 'name = "checkout"'},
+            'name = "checkout"',
+            None,
+            None,
             ["with no since", 'add since="24h"'],
             ["size", "search", "the filter on"],
             id="no window and no body scan",
         ),
         pytest.param(
             "experiment",
-            {},
+            None,
+            None,
+            None,
             ["Retry once"],
             ["size", "since", "search"],
             id="a type with no window",
@@ -436,14 +448,26 @@ class _TimingOut(FakeOpikClient):
     ],
 )
 async def test_a_timed_out_list_names_what_made_this_call_slow(
-    entity_type: str, args: dict[str, Any], named: list[str], not_named: list[str]
+    entity_type: str,
+    filters: str | None,
+    search: str | None,
+    since: str | None,
+    named: list[str],
+    not_named: list[str],
 ) -> None:
     """A page of one span timed out as often as a page of fifty, so the
     advice comes from what scans bodies (search, a filter on input or output)
     and whether a window lets the backend prune by time."""
-    scope: dict[str, Any] = {"project_id": "p-1"} if entity_type != "experiment" else {}
     with pytest.raises(ToolError) as ei:
-        await run_list(entity_type, **scope, **args, client=_TimingOut())
+        await run_list(
+            entity_type,
+            project_id="p-1" if entity_type != "experiment" else None,
+            filters=filters,
+            search=search,
+            since=since,
+            size=1,
+            client=_TimingOut(),
+        )
     message = str(ei.value)
     assert message.startswith(f"Opik did not answer in time for list({entity_type!r}, …)."), message
     for fragment in named:
@@ -461,7 +485,7 @@ async def test_a_connect_timeout_on_list_is_still_reported_as_unreachable(
     """Opik was never reached, so advice about the query would be false."""
 
     class NeverConnects(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        async def list_traces(self, **kw: object) -> NoReturn:
             raise timeout
 
     with pytest.raises(ToolError) as ei:
