@@ -56,7 +56,7 @@ from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn, Vocabulary
-from opik_mcp.read_list.list_args import resolve_list_args
+from opik_mcp.read_list.list_args import SEARCH_DEFAULT_SINCE, resolve_list_args
 from opik_mcp.read_list.list_empty_page import (
     empty_message,
     probe_count,
@@ -138,6 +138,7 @@ def _collection_timeout_hint(
     entity_type: str,
     *,
     is_windowed: bool,
+    is_search_window_defaulted: bool,
     list_kwargs: dict[str, Any],
     clauses: list[dict[str, str]],
     vocabulary: Vocabulary,
@@ -158,7 +159,12 @@ def _collection_timeout_hint(
         dict.fromkeys(c["field"] for c in clauses if c["field"] in vocabulary.body_fields)
     )
     scans = (["the search"] if has_search else []) + [f"the filter on {f}" for f in body_filters]
-    changes = ["shorten the since window" if has_since else 'add since="24h"']
+    if is_search_window_defaulted:
+        # The caller passed no since, but the search already ran in a window;
+        # "add since" would read as widening nothing.
+        changes = ['pass a shorter since (e.g. since="24h")']
+    else:
+        changes = ["shorten the since window" if has_since else 'add since="24h"']
     if has_search:
         # Fields stored outside the bodies, so the replacement is not the
         # same scan under another name.
@@ -170,7 +176,10 @@ def _collection_timeout_hint(
         changes.append(f"drop the filter on {' and '.join(body_filters)}")
     if scans:
         verb = "scans" if len(scans) == 1 else "scan"
-        where = "in the window" if has_since else "in the project"
+        if is_search_window_defaulted:
+            where = f"in the default {SEARCH_DEFAULT_SINCE} search window"
+        else:
+            where = "in the window" if has_since else "in the project"
         cause = f"{' and '.join(scans)} {verb} every stored body {where}"
     elif not has_since:
         cause = "with no since, the backend reads the project's whole history"
@@ -365,6 +374,7 @@ async def run_list(
             on_timeout=_collection_timeout_hint(
                 entity_type,
                 is_windowed=handler.is_windowed,
+                is_search_window_defaulted=resolved.is_search_window_defaulted,
                 list_kwargs=list_kwargs,
                 clauses=clauses,
                 vocabulary=vocabulary,

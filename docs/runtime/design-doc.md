@@ -106,7 +106,8 @@ timeout into a tool error built from the call's own arguments: `search` and a
 filter on a body field (`input`, `output`, a thread's messages) scan every
 stored body, and without `since` the backend does not prune by time, so the
 error names whichever of those the call used, and offers a filter on `name`,
-`tags` or `metadata` in place of `search`. The page size is never the advice.
+`tags` or `metadata` in place of `search`. A search that ran in its default
+window says so and asks for a shorter `since`. The page size is never the advice.
 `read` turns a read timeout into "Opik did not answer in time … Retry once",
 with no setup link, since Opik was reached. A connect timeout never reached
 Opik: `list`, `read` and `write` turn it, and any other `httpx.HTTPError`,
