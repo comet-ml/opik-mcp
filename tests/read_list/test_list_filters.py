@@ -363,23 +363,68 @@ async def test_every_error_class_reaches_the_agent_through_the_tool(
     assert 'schema("list.trace")' in message
 
 
+class _TimingOut(FakeOpikClient):
+    """``httpx.ReadTimeout`` stringifies to '', as it did live."""
+
+    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        raise httpx.ReadTimeout("")
+
+    async def list_spans(self, **kw: Any) -> dict[str, Any]:
+        raise httpx.ReadTimeout("")
+
+    async def list_experiments(self, **kw: Any) -> dict[str, Any]:
+        raise httpx.ReadTimeout("")
+
+
 @pytest.mark.anyio
-async def test_backend_timeout_is_reported_with_a_way_out() -> None:
-    """``httpx.ReadTimeout`` stringifies to '' — seen live when a free-text
-    search took longer than the client timeout. The agent must get a message
-    that says what happened and how to narrow the query."""
-
-    class TimingOut(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
-            raise httpx.ReadTimeout("")
-
+@pytest.mark.parametrize(
+    ("entity_type", "args", "named", "not_named"),
+    [
+        pytest.param(
+            "span",
+            {"filters": 'input contains "refund"', "size": 1},
+            ["the filter on input", 'add since="24h"', "drop the filter on input"],
+            ["size", "search"],
+            id="a body filter with no window",
+        ),
+        pytest.param(
+            "trace",
+            {"search": "order-42", "since": "7d"},
+            ["the search", "shorten the since window", "replace search with filters"],
+            ["size", 'since="24h"', "the filter on"],
+            id="search in a window",
+        ),
+        pytest.param(
+            "trace",
+            {"filters": 'name = "checkout"'},
+            ["with no since", 'add since="24h"'],
+            ["size", "search", "the filter on"],
+            id="no window and no body scan",
+        ),
+        pytest.param(
+            "experiment",
+            {},
+            ["Retry once"],
+            ["size", "since", "search"],
+            id="a type with no window",
+        ),
+    ],
+)
+async def test_a_timed_out_list_names_what_made_this_call_slow(
+    entity_type: str, args: dict[str, Any], named: list[str], not_named: list[str]
+) -> None:
+    """A page of one span timed out as often as a page of fifty, so the
+    advice comes from what scans bodies (search, a filter on input or output)
+    and whether a window lets the backend prune by time."""
+    scope: dict[str, Any] = {"project_id": "p-1"} if entity_type != "experiment" else {}
     with pytest.raises(ToolError) as ei:
-        await run_list("trace", project_id="p-1", search="order-42", client=TimingOut())
+        await run_list(entity_type, **scope, **args, client=_TimingOut())
     message = str(ei.value)
-    assert "did not answer in time" in message
-    assert "list('trace'" in message, "the call form is quoted as an agent would type it"
-    assert "since" in message
-    assert "size" in message
+    assert message.startswith(f"Opik did not answer in time for list({entity_type!r}, …)."), message
+    for fragment in named:
+        assert fragment.lower() in message.lower(), f"{fragment!r} missing from: {message}"
+    for fragment in not_named:
+        assert fragment not in message, f"{fragment!r} should not be in: {message}"
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
 
 

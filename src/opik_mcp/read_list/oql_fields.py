@@ -104,6 +104,9 @@ PAYLOAD_FIELDS: Final[dict[str, FieldType]] = {
     "source": "enum_legacy",
     "environment": "enum",
 }
+#: The payload fields opik-backend filters on the raw ``input`` / ``output``
+#: columns (``FilterQueryBuilder``), with no index to narrow them.
+BODY_FIELDS: Final = frozenset({"input", "output", "input_json", "output_json"})
 
 
 NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
@@ -139,6 +142,7 @@ clause lists are built by appending to them."""
 
 
 __all__ = [
+    "BODY_FIELDS",
     "DYNAMIC_TYPES",
     "KEYED_TYPES",
     "KEY_ALLOWED_TYPES",

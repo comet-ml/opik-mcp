@@ -575,6 +575,40 @@ async def test_an_unreachable_backend__is_one_sentence_naming_the_read() -> None
 
 
 @pytest.mark.anyio
+async def test_a_slow_backend_is_reported_as_slow_not_unreachable() -> None:
+    """A read that times out reached Opik. It used to say "Could not reach"
+    with a setup link, which sent the agent to reinstall a working server."""
+    import respx
+
+    from opik_mcp.analytics.errors import bucket_exception
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test") as mock:
+        mock.route().mock(side_effect=httpx.ReadTimeout(""))
+        with pytest.raises(ToolError) as refusal:
+            await run_read("span", UUID, client=client)
+    message = str(refusal.value)
+    assert message.startswith("Opik did not answer in time for read('span', …)."), message
+    assert "Could not reach" not in message
+    assert "http" not in message, "no setup link for a backend that answered slowly"
+    assert bucket_exception(refusal.value) == "timeout"
+
+
+@pytest.mark.anyio
+async def test_a_connect_timeout_is_still_reported_as_unreachable() -> None:
+    import respx
+
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test") as mock:
+        mock.route().mock(side_effect=httpx.ConnectTimeout(""))
+        with pytest.raises(ToolError, match=r"^Could not reach Opik to read the trace"):
+            await run_read("trace", UUID, client=client)
+
+
+@pytest.mark.anyio
 async def test_a_missing_record_names_the_call_that_finds_it() -> None:
     with pytest.raises(ToolError) as refusal:
         await run_read("trace", UUID, client=FakeOpikClient())

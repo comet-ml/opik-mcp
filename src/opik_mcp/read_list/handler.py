@@ -236,6 +236,10 @@ class Vocabulary:
     matches. The reference is where a caller looks before writing the filter;
     a refusal cannot carry it, because the filter is accepted and answers
     200."""
+    body_fields: frozenset[str] = frozenset()
+    """Fields whose filter the backend matches inside every stored body in
+    range, the way ``search`` does. A timed-out list names them as the slow
+    part of the call."""
 
     @property
     def entity_type(self) -> str:

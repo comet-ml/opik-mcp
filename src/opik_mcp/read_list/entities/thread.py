@@ -212,6 +212,8 @@ VOCABULARY = Vocabulary(
         "status": ("active", "inactive"),
     },
     is_source_defaulted=True,
+    # Both are a trace's input, picked per thread from every trace in it.
+    body_fields=frozenset({"first_message", "last_message"}),
     filter_examples=(
         'status = "active" AND number_of_messages > 20',
         "feedback_scores.helpfulness < 0.5 AND duration > 60000",

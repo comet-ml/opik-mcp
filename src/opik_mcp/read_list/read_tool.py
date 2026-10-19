@@ -315,6 +315,13 @@ async def _fetch_with_name_lookup(
         raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
         raise ToolError(_format_client_error(handler.entity_type, entity_id, e, features)) from e
+    except httpx.ReadTimeout as e:
+        # Connected, but no answer within the client's limit: Opik is slow,
+        # not away, and the setup link "Could not reach" carries is no help.
+        # A connect timeout falls through to that branch, where it belongs.
+        raise ToolError(
+            f"Opik did not answer in time for read({handler.entity_type!r}, …). Retry once."
+        ) from e
     except httpx.HTTPError as e:
         raise ToolError(
             f"Could not reach Opik to read the {handler.entity_type}: {unreachable(e)}"

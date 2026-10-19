@@ -102,7 +102,12 @@ which never raises on status; [writes](../writes/design-doc.md) builds the
 error.
 
 Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
-into a tool error that says how to narrow the call. `list`, `read` and `write`
+into a tool error built from the call's own arguments: `search` and a filter
+on a body field (`input`, `output`, a thread's messages) scan every stored
+body, and without `since` the backend does not prune by time, so the error
+names whichever of those the call used. The page size is never the advice.
+`read` turns a read timeout into "Opik did not answer in time … Retry once",
+with no setup link, since Opik was reached. `list`, `read` and `write`
 turn any other `httpx.HTTPError` into "Could not reach Opik", which on a local
 server names the base URL without any user:password and, on this machine, asks
 whether Opik is running (`hints.unreachable`). The optional blocks of a
@@ -206,6 +211,8 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - Read paths, queries and the error mapping: `tests/client/test_read.py`, `tests/client/test_search.py`.
 - One connection per call: `tests/client/test_connection_per_tool_call.py`.
 - Timeout and unreachable messages in `list`: `tests/read_list/test_list_filters.py`.
+- A read timeout is slow, not unreachable:
+  `test_a_slow_backend_is_reported_as_slow_not_unreachable`.
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
@@ -223,6 +230,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 
 ## Log
 
+- 2026-10-19: a `read` timeout says Opik was slow instead of unreachable, and a `list` timeout names the search, body filter or missing `since` that made the call slow instead of a smaller size; size=1 calls timed out too (#PR).
 - 2026-10-08: `--help` names the installer command, and the two rules agents broke most (printing config files, running the sign-in), before the steps, so `--help | head -30` shows them even after uv's download lines (#251).
 - 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).

@@ -18,7 +18,7 @@ from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
+from opik_mcp.read_list.oql_fields import BODY_FIELDS, PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
     collection_total,
     collection_truncated,
@@ -209,6 +209,7 @@ VOCABULARY = Vocabulary(
         "visibility_mode": ("default", "hidden"),
     },
     is_source_defaulted=True,
+    body_fields=BODY_FIELDS,
     filter_examples=(
         "error_info is_not_empty AND duration > 5000",
         'feedback_scores.accuracy < 0.5 AND start_time >= "2026-09-08T00:00:00Z"',

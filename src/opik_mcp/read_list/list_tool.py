@@ -131,6 +131,44 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
         raise ToolError(f"Could not reach Opik to {what}: {unreachable(err)}") from err
 
 
+def _collection_timeout_hint(
+    entity_type: str,
+    *,
+    is_windowed: bool,
+    list_kwargs: dict[str, Any],
+    body_filters: list[str],
+) -> str:
+    """What to change after a timed-out page, from the arguments it was sent with.
+
+    opik-backend matches ``search`` and a filter on a body field inside every
+    stored body in range, and prunes by time only when it is given a window,
+    so those are what the advice names. Never the page size: a page of one
+    span timed out as often as a page of fifty.
+    """
+    asked = f"Opik did not answer in time for list({entity_type!r}, …)."
+    if not is_windowed:
+        return f"{asked} Retry once."
+    has_since = "from_time" in list_kwargs
+    has_search = "search" in list_kwargs
+    body_filters = list(dict.fromkeys(body_filters))
+    scans = (["the search"] if has_search else []) + [f"the filter on {f}" for f in body_filters]
+    changes = ["shorten the since window" if has_since else 'add since="24h"']
+    if has_search:
+        changes.append("replace search with filters on one field")
+    if body_filters:
+        changes.append(f"drop the filter on {' and '.join(body_filters)}")
+    if scans:
+        verb = "scans" if len(scans) == 1 else "scan"
+        where = "in the window" if has_since else "in the project"
+        cause = f"{' and '.join(scans)} {verb} every stored body {where}"
+    elif not has_since:
+        cause = "with no since, the backend reads the project's whole history"
+    else:
+        return f"{asked} Shorten the since window and retry."
+    fix = f"{changes[0]} and retry" if len(changes) == 1 else f"{', or '.join(changes)}, and retry"
+    return f"{asked} {cause[0].upper()}{cause[1:]}: {fix}."
+
+
 async def _run_whole(
     handler: EntityHandler,
     entity_type: str,
@@ -308,10 +346,11 @@ async def run_list(
     async with client_for_call(resolved_settings, client, timeout=search_timeout) as opik:
         with _as_tool_error(
             f"list {entity_type}s",
-            on_timeout=(
-                f"Opik did not answer in time for list({entity_type!r}, …). Narrow the query — "
-                "a shorter since window, fewer filters, a smaller size, or drop search — "
-                "and retry."
+            on_timeout=_collection_timeout_hint(
+                entity_type,
+                is_windowed=handler.is_windowed,
+                list_kwargs=list_kwargs,
+                body_filters=[c["field"] for c in clauses if c["field"] in vocabulary.body_fields],
             ),
         ):
             try:
