@@ -106,6 +106,8 @@ from opik_mcp.server import mcp
 #           description, since the `skill_name` argument documents that form.
 #           -94 bytes; the description is 2,036 characters and now fits the
 #           2,048-character host cut.
+#   22,368  OPIK-8880 — the list `search` argument says its 7-day default
+#           instead of "narrow with since first". -11 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -118,11 +120,11 @@ from opik_mcp.server import mcp
 # ceiling was set ~3.5 KB above the measurement of the day (#187): room for a
 # ticket's worth of wording, not for a new tool or an operation nobody meant
 # to advertise. The table above has spent most of it since. At 23,495 the
-# headroom was 505 bytes; at 22,379 it is 1,621. Unused headroom is not in
+# headroom was 505 bytes; at 22,368 it is 1,632. Unused headroom is not in
 # anyone's context; only what is written is.
 # An AI Spend workspace adds one sentence each to the `read` and `list`
-# descriptions, plus the names its spend types add: 22,817 bytes, 438 over the
-# default surface, which is unchanged at 22,379. The same cap measures it.
+# descriptions, plus the names its spend types add: 22,806 bytes, 438 over the
+# default surface, which is unchanged at 22,368. The same cap measures it.
 SURFACE_BUDGET_BYTES = 24_000
 
 
