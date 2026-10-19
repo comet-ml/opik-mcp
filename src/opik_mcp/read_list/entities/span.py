@@ -12,7 +12,7 @@ from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
+from opik_mcp.read_list.oql_fields import PAYLOAD_FIELD_NOTES, PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.ui_links import logs_page_url
 from opik_mcp.read_list.uri import opik_uri
 
@@ -82,6 +82,7 @@ VOCABULARY = Vocabulary(
         "type": ("general", "tool", "llm", "guardrail", "unknown"),
     },
     is_source_defaulted=True,
+    field_notes=PAYLOAD_FIELD_NOTES,
     filter_examples=(
         'type = "llm" AND usage.total_tokens > 10000',
         'name = "search_docs" AND error_info is_not_empty',

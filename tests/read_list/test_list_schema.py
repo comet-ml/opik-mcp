@@ -82,6 +82,21 @@ def test_experiment_prompt_filter_says_it_matches_prompts_not_versions() -> None
     assert "version" in note
 
 
+@pytest.mark.parametrize("entity_type", ["trace", "span"])
+@pytest.mark.parametrize("field", ["input_json", "output_json", "metadata"])
+def test_payload_key_filters_say_the_key_must_lead_to_a_scalar(
+    entity_type: str, field: str
+) -> None:
+    """opik-backend reads the key with ClickHouse ``JSON_VALUE``, which is
+    empty for an object or an array, so ``input_json.messages contains "x"``
+    answers 200 with nothing in it. No refusal can say so; the reference
+    can, and has to name the field that does search free text."""
+    note = run_schema(f"list.{entity_type}")["filters"]["fields"][field]["note"]
+    assert "scalar" in note
+    assert "object or array" in note
+    assert "input or output contains" in note
+
+
 @pytest.mark.parametrize("entity_type", ["trace", "span", "thread", "experiment"])
 def test_reference_matches_the_validator_tables_exactly(entity_type: str) -> None:
     ref = run_schema(f"list.{entity_type}")

@@ -104,6 +104,15 @@ PAYLOAD_FIELDS: Final[dict[str, FieldType]] = {
     "source": "enum_legacy",
     "environment": "enum",
 }
+#: opik-backend reads a dictionary key with ClickHouse ``JSON_VALUE``, which
+#: answers only for a scalar: a key holding an object or an array reads as an
+#: empty string, so ``input_json.messages contains "refund"`` is accepted and
+#: matches nothing.
+PAYLOAD_FIELD_NOTES: Final[dict[str, str]] = dict.fromkeys(
+    ("input_json", "output_json", "metadata"),
+    "the key must lead to one scalar value, e.g. input_json.question or metadata.user_id; "
+    "an object or array there matches nothing, so for free text use input or output contains",
+)
 
 
 NEGATING_OPERATORS: Final = frozenset({"!=", "not_in"})
@@ -148,6 +157,7 @@ __all__ = [
     "OPERATORS_BY_TYPE",
     "PARENT_ID_FIELDS",
     "PAYLOAD_FIELDS",
+    "PAYLOAD_FIELD_NOTES",
     "SDK_SOURCE_CLAUSE",
     "TIMING_FIELDS",
     "USAGE_FIELDS",
