@@ -574,6 +574,49 @@ async def test_an_unreachable_backend__is_one_sentence_naming_the_read() -> None
             await run_read("trace", UUID, client=client)
 
 
+@pytest.mark.parametrize(("entity_type", "path"), [("span", "spans"), ("trace", "traces")])
+@pytest.mark.anyio
+async def test_a_read_opik_fails_on_names_the_list_call_that_finds_the_record(
+    entity_type: str, path: str
+) -> None:
+    """Old backends' getById throws on duplicate rows; their list path does not."""
+    import respx
+
+    from opik_mcp.client.opik import OpikClient
+    from opik_mcp.read_list.list_tool import run_list
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test", assert_all_called=False) as mock:
+        mock.get(f"/v1/private/{path}/{UUID}").mock(return_value=httpx.Response(500))
+        listed = mock.get(f"/v1/private/{path}").mock(
+            return_value=httpx.Response(200, json={"content": [{"id": UUID}], "total": 1})
+        )
+        mock.route().mock(return_value=httpx.Response(200, json=record("empty_page")))
+        with pytest.raises(ToolError) as refusal:
+            await run_read(entity_type, UUID, client=client)
+        named = re.search(
+            r"list\('(\w+)', project_name='<project>', filters='(.+)'\) instead", str(refusal.value)
+        )
+        assert named is not None, str(refusal.value)
+        await run_list(named[1], project_name="demo", filters=named[2], client=client)
+    sent = json.loads(listed.calls.last.request.url.params["filters"])
+    assert [(f["field"], f["value"]) for f in sent] == [("id", UUID)]
+
+
+@pytest.mark.anyio
+async def test_a_read_that_timed_out_on_opik_names_no_list_call() -> None:
+    import respx
+
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test") as mock:
+        mock.get(f"/v1/private/spans/{UUID}").mock(return_value=httpx.Response(504))
+        with pytest.raises(ToolError) as refusal:
+            await run_read("span", UUID, client=client)
+    assert "list(" not in str(refusal.value)
+
+
 @pytest.mark.anyio
 async def test_a_missing_record_names_the_call_that_finds_it() -> None:
     with pytest.raises(ToolError) as refusal:

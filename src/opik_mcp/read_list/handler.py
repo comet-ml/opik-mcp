@@ -361,6 +361,13 @@ class EntityHandler:
     or in ``list_required_kwargs``; anything else the caller passed is dropped
     so a confused call degrades to a plain list instead of a client TypeError.
     """
+    is_found_by_list_when_read_fails: bool = False
+    """``list`` finds a record of this entity by ``id`` when ``read`` by id fails.
+
+    Old self-hosted backends answer a fast 500 to some reads by id (a getById
+    that throws on duplicate rows) while the list path returns the record. A
+    read that fails that way then names the list call with the id filled in.
+    """
     read_window: ReadWindow | None = None
     """How ``fetch_fn`` takes a ``since``/``until`` window, or ``None`` for the
     entities that take none (most of them).

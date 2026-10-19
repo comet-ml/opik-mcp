@@ -88,7 +88,18 @@ with an entity hint and an excerpt of the backend's message.
 | 403 | `OpikPermissionError` (subclass of `OpikAuthError`) | `permission` |
 | 404 | `OpikNotFoundError` | `not_found` |
 | 400, 422 | `OpikValidationError` | `validation` |
-| 5xx, other | `OpikServerError` | `upstream_5xx` |
+| 500 and other 5xx, under `_QUERY_TIMEOUT_AFTER_S` | `OpikRequestFailedError` | `upstream_5xx` |
+| 500 and other 5xx, after `_QUERY_TIMEOUT_AFTER_S` | `OpikQueryTimeoutError` | `upstream_5xx` |
+| 502, 503, 504 | `OpikGatewayError` | `upstream_5xx` |
+| other | `OpikServerError` | `upstream_5xx` |
+
+The three 5xx classes subclass `OpikServerError`. A fast 5xx is a request
+Opik fails on every time (a getById that finds duplicate rows), so the
+error says not to repeat the call. A slow one is a backend query timeout
+(before 2.2.90 the backend turns a ClickHouse query over about 10 s into a
+500), so it says how to narrow the call. Only a gateway error says to retry,
+once. When the body is the backend's generic "It has been logged (ID …)", the
+error ends with that hex id for a self-hosted admin (`backend_log_id`).
 
 A 401 that no OAuth bearer explains says "Check OPIK_API_KEY and
 OPIK_WORKSPACE", or, with no key sent to Opik Cloud, names the key page and the
@@ -206,6 +217,8 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - Read paths, queries and the error mapping: `tests/client/test_read.py`, `tests/client/test_search.py`.
 - One connection per call: `tests/client/test_connection_per_tool_call.py`.
 - Timeout and unreachable messages in `list`: `tests/read_list/test_list_filters.py`.
+- The 5xx split and the log id: `tests/client/test_read.py`; the list call a
+  failed span or trace read names: `test_a_read_opik_fails_on_names_the_list_call_that_finds_the_record`.
 - The decoration deadline: `test_a_slow_decoration_does_not_hold_up_the_answer`.
 - Startup refusals: `tests/analytics/test_server_startup.py`, `tests/analytics/test_subprocess.py`.
 - A real stdio handshake: `tests/hermetic/test_stdio_session.py`.
@@ -229,6 +242,7 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
 - 2026-10-07: install steps for agents run `opik mcp configure` after asking about the skill pack, and look for the user's Opik before asking which (#248).
 - 2026-10-07: `opik-mcp --check` tries the settings in its env before the restart (#247).
 - 2026-10-07: a 401 with no key for Opik Cloud and an unreachable Opik say what to fix; `read` and `write` catch connection errors (#245).
+- 2026-10-19: a 5xx no longer says "Retry the same call"; fast, slow and gateway 5xx each say what to do, with the backend log id (#PR).
 - 2026-10-05: `opik-mcp --help` and `--version` answer and exit instead of starting the server, and ignored arguments are named in a warning (#243).
 - 2026-09-11: one HTTP connection per read or list call, closed with the call (#187).
 - 2026-09-08: `list` search takes `_SEARCH_TIMEOUT_S`, since a cold backend search can outlast the default (#185).

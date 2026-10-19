@@ -138,7 +138,7 @@ def resolve_list_args(
         except OQLError as err:
             raise ToolError(str(err)) from err
         if vocabulary.is_source_defaulted and not any(
-            c["field"] in ("source", *PARENT_ID_FIELDS) for c in clauses
+            c["field"] in ("source", "id", *PARENT_ID_FIELDS) for c in clauses
         ):
             # The SDK default is for triage — "which traces need attention" —
             # where the Logs page filters the same way. A filter on a parent's
@@ -146,6 +146,8 @@ def resolve_list_args(
             # all of it, the way read() inlines all of it. Adding the default
             # there would make the continuation a composite read hands out
             # (`moreSpans`) return a different set than the part it continues.
+            # A filter on the record's own id names it, whatever its source:
+            # it is the call a read by id that Opik fails on hands out.
             clauses.append(dict(SDK_SOURCE_CLAUSE))
             source_defaulted = True
         if clauses:

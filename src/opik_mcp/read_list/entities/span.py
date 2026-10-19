@@ -125,6 +125,8 @@ HANDLER = EntityHandler(
     list_fn=list_page,
     list_extra_fields=("type", "trace_id", "duration", "model", "error_type"),
     list_required_kwargs=("project_id",),
+    # The backend's span getById throws on duplicate rows; the list path does not.
+    is_found_by_list_when_read_fails=True,
     id_only=True,
     description=(
         "Single span: inputs, outputs, metadata, timing, feedback_scores. "

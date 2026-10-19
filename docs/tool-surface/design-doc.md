@@ -84,10 +84,14 @@ project if set, tool selection, the link rule, and today's UTC date.
 - A backend failure is one sentence: what was asked and what to change
   (`raise_for_status` in `src/opik_mcp/client/errors/__init__.py`). A missing record
   adds the `list('<type>', …)` call for a listable type
-  (`_format_client_error`). A 400 or 422 ends with `Backend said: "…"`: the
+  (`_format_client_error`). A span or trace read that Opik fails on fast
+  (`OpikRequestFailedError`) names `list('<type>', project_name='<project>',
+  filters='id = "<id>"')` instead, since old backends fail the read by id on
+  duplicate rows and not the list (`is_found_by_list_when_read_fails`). A 400 or 422 ends with `Backend said: "…"`: the
   strings under the body's `errors` or `message`, on one line, cut at
-  `_BACKEND_REASON_CHARS` (`backend_reason`). No other part of the body, and
-  no REST path, reaches a refusal.
+  `_BACKEND_REASON_CHARS` (`backend_reason`). A 5xx keeps only the backend's
+  hex log id (`backend_log_id`). No other part of the body, and no REST path,
+  reaches a refusal.
 
 ### list
 
@@ -198,7 +202,8 @@ Boundaries:
   evaluator, playground and experiment traffic does not crowd out the
   application. A filter on a parent id (`PARENT_ID_FIELDS`) turns it off:
   experiment traces never have source `sdk`, so the default hid a whole
-  drill-in. The metric runner follows the same rule.
+  drill-in. The metric runner follows the same rule. A filter on the record's
+  own `id` turns it off in `list` too.
 - `search` on a type without it is refused. It used to return an unfiltered
   page that an agent read as the result (`_search_refusal`).
 - One copy of each answer, because `structuredContent` doubled every string

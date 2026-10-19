@@ -258,6 +258,9 @@ HANDLER = EntityHandler(
     # without a read() per row. error_type is derived from error_info.
     list_extra_fields=("start_time", "duration", "error_type", "total_estimated_cost"),
     list_required_kwargs=("project_id",),
+    # Backends before July 2026 throw on duplicate rows in the trace getById;
+    # the list path does not.
+    is_found_by_list_when_read_fails=True,
     id_only=True,
     description=(
         "Single trace + child spans tree (up to 200 spans inlined, bodies "

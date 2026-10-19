@@ -185,5 +185,7 @@ def test_a_missing_record_offers_the_listing_the_features_have() -> None:
     from opik_mcp.client.errors import OpikNotFoundError
     from opik_mcp.read_list.read_tool import _format_client_error
 
-    text = _format_client_error("trace", "x", OpikNotFoundError("m"), NONE)
+    text = _format_client_error(
+        registry.ENTITY_REGISTRY["trace"], "x", OpikNotFoundError("m"), NONE
+    )
     assert "find it with list('trace'" in text

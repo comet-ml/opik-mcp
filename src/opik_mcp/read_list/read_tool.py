@@ -26,8 +26,10 @@ from mcp.server.fastmcp.exceptions import ToolError
 from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
+    OpikRequestFailedError,
     OpikServerError,
     OpikValidationError,
+    log_id_sentence,
 )
 from opik_mcp.client.errors.hints import unreachable
 from opik_mcp.client.opik import client_for_call
@@ -65,7 +67,7 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
 
 
 def _format_client_error(
-    entity_type: str,
+    handler: EntityHandler,
     entity_id: str,
     exc: BaseException,
     features: FeatureToggles,
@@ -77,8 +79,17 @@ def _format_client_error(
     status already reads that way from the client (``errors.raise_for_status``),
     which names the part of the read that failed; a second copy of it here
     would say the same thing twice. A 401 is about the credential, never the
-    workspace, and that sentence says which credential and what to do.
+    workspace, and that sentence says which credential and what to do. When
+    Opik fails on a read by id and the entity's list path finds the record,
+    the answer is that list call, since repeating the read fails again.
     """
+    entity_type = handler.entity_type
+    if isinstance(exc, OpikRequestFailedError) and handler.is_found_by_list_when_read_fails:
+        return (
+            f"Opik failed reading {entity_type} '{entity_id}', and repeating the call fails "
+            f"the same way; find it with list({entity_type!r}, project_name='<project>', "
+            f"filters='id = \"{entity_id}\"') instead.{log_id_sentence(exc.log_id)}"
+        )
     if isinstance(exc, OpikNotFoundError):
         listable = entity_type in listable_types(features)
         find = f", or find it with list({entity_type!r}, …)" if listable else ""
@@ -314,7 +325,7 @@ async def _fetch_with_name_lookup(
         # argument checks, so analytics buckets it as validation/400.
         raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
-        raise ToolError(_format_client_error(handler.entity_type, entity_id, e, features)) from e
+        raise ToolError(_format_client_error(handler, entity_id, e, features)) from e
     except httpx.HTTPError as e:
         raise ToolError(
             f"Could not reach Opik to read the {handler.entity_type}: {unreachable(e)}"

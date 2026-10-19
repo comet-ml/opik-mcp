@@ -6,7 +6,8 @@ Each class here is what a backend status becomes (``raise_for_status``);
 
 from __future__ import annotations
 
-from typing import ClassVar
+import re
+from typing import ClassVar, NoReturn
 
 import httpx
 
@@ -70,10 +71,30 @@ class OpikValidationError(RuntimeError):
 
 
 class OpikServerError(RuntimeError):
-    """Opik returned a 5xx response."""
+    """Opik returned a 5xx response, or an answer this client cannot use.
+
+    ``log_id`` is the id the backend logged the failure under, when its body
+    carried one: what a self-hosted admin searches the backend log for.
+    """
 
     error_kind: ClassVar[ErrorKind] = "upstream_5xx"
     http_status: ClassVar[int | None] = 500
+
+    def __init__(self, message: str, *, log_id: str | None = None) -> None:
+        super().__init__(message)
+        self.log_id = log_id
+
+
+class OpikRequestFailedError(OpikServerError):
+    """Opik answered 5xx quickly: the request itself fails, so repeating it fails too."""
+
+
+class OpikQueryTimeoutError(OpikServerError):
+    """Opik answered 5xx after a long wait: its query most likely timed out."""
+
+
+class OpikGatewayError(OpikServerError):
+    """A gateway in front of Opik answered 502, 503 or 504, which is often transient."""
 
 
 def note_backend_401() -> str | None:
@@ -127,12 +148,61 @@ def backend_reason(resp: httpx.Response) -> str | None:
     return text or None
 
 
+#: A 5xx that took this long was spent waiting on a query. Backends before
+#: 2.2.90 turn a ClickHouse query over about 10 s into a 500; a request that
+#: fails on its own (a getById that finds duplicate rows) answers in well under
+#: a second.
+_QUERY_TIMEOUT_AFTER_S = 5.0
+
+_GATEWAY_STATUSES = (502, 503, 504)
+
+# Dropwizard's body for an unhandled exception: "There was an error processing
+# your request. It has been logged (ID %016x)." Only the hex id is kept.
+_BACKEND_LOG_ID = re.compile(r"It has been logged \(ID ([0-9a-f]{16})\)")
+
+
+def backend_log_id(resp: httpx.Response) -> str | None:
+    """The id a 5xx was logged under on the backend, from its generic body."""
+    found = _BACKEND_LOG_ID.search(resp.text)
+    return found.group(1) if found else None
+
+
+def log_id_sentence(log_id: str | None) -> str:
+    """A trailing sentence naming the backend log id, or nothing."""
+    return f" The Opik backend log has it under ID {log_id}." if log_id else ""
+
+
+def _raise_server_error(resp: httpx.Response, entity_hint: str) -> NoReturn:
+    status = resp.status_code
+    log_id = backend_log_id(resp)
+    logged = log_id_sentence(log_id)
+    if status in _GATEWAY_STATUSES:
+        raise OpikGatewayError(
+            f"Opik's gateway answered {status} for {entity_hint}; this is often "
+            f"transient, so retry once after a short wait.{logged}",
+            log_id=log_id,
+        )
+    seconds = resp.elapsed.total_seconds()
+    if seconds >= _QUERY_TIMEOUT_AFTER_S:
+        raise OpikQueryTimeoutError(
+            f"Opik failed on {entity_hint} ({status}) after {seconds:.0f} s, most likely "
+            f"a query timeout. Narrow it: a shorter since=… window, no search, no "
+            f"substring filter on input or output.{logged}",
+            log_id=log_id,
+        )
+    raise OpikRequestFailedError(
+        f"Opik failed on {entity_hint} ({status}), and the same call usually fails "
+        f"the same way; don't repeat it.{logged}",
+        log_id=log_id,
+    )
+
+
 def raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
     """One sentence per status: what was asked and what to change.
 
     The backend's body and the REST path stay out: the body is untrusted text
     that can carry anything the request did, and the path is not a name the
-    caller can use.
+    caller can use. A 5xx keeps only the log id, hex matched by a regex.
     """
     status = resp.status_code
     if 200 <= status < 300:
@@ -158,8 +228,6 @@ def raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
             backend_reason=reason,
         )
     if status >= 500:
-        raise OpikServerError(
-            f"Opik server error ({status}) for {entity_hint}. Retry the same call."
-        )
+        _raise_server_error(resp, entity_hint)
     # 3xx / unexpected 2xx are already handled by the caller.
     raise OpikServerError(f"Unexpected status {status} for {entity_hint}.")
