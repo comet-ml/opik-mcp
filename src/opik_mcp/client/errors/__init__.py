@@ -76,6 +76,17 @@ class OpikServerError(RuntimeError):
     http_status: ClassVar[int | None] = 500
 
 
+class OpikRateLimitError(OpikServerError):
+    """Opik returned 429: too many calls in a short time.
+
+    A subclass of ``OpikServerError`` because, like a 5xx, it is the server's
+    state and the same call succeeds later; it keeps that bucket so analytics
+    gain no new kind, and only the status differs.
+    """
+
+    http_status: ClassVar[int | None] = 429
+
+
 def note_backend_401() -> str | None:
     """opik-backend just answered 401 to the call this request is forwarding.
 
@@ -156,6 +167,11 @@ def raise_for_status(resp: httpx.Response, entity_hint: str) -> None:
             f"Opik rejected the request for {entity_hint} ({status}). Check the "
             f"arguments passed.{said}",
             backend_reason=reason,
+        )
+    if status == 429:
+        raise OpikRateLimitError(
+            f"Opik is rate-limiting calls for {entity_hint} (429). Wait a few "
+            "seconds and retry the same call."
         )
     if status >= 500:
         raise OpikServerError(

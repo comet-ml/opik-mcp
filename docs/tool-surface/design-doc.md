@@ -73,7 +73,9 @@ project if set, tool selection, the link rule, and today's UTC date.
   count every cut, with the call that returns the rest:
   - `trace`: spans cut by the backend's `truncate=true`, bodies dropped past
     `SPANS_INLINE_CHARS` (the first span keeps its body), `spanBodies`, and
-    `moreSpans` past `SPANS_INLINE_LIMIT`.
+    `moreSpans` past `SPANS_INLINE_LIMIT`. When the span call fails, `spans`
+    is left out and `spansError` gives the reason (`failure_reason` in
+    `src/opik_mcp/read_list/decorations.py`) and the `list('span', …)` call.
   - `thread`: one message per trace, sorted by `start_time`, same body budget,
     and `messagesError` when the traces call fails.
   - `prompt`: versions up to `VERSIONS_INLINE_LIMIT`, then `moreVersions`.
@@ -218,8 +220,7 @@ Boundaries:
 
 - The frozen schemas hold argument descriptions but not the `read` and `list`
   docstrings. Only the byte budget and the description limit check those.
-- A trace with no `project_id`, or whose span call fails, comes back with
-  empty `spans` and no notice.
+- A trace with no `project_id` comes back with empty `spans` and no notice.
 - `from_time`/`to_time` are UUIDv7 bounds on the record id, so a list window
   filters on creation time. An exact `start_time` bound goes in OQL.
 - The backend ignores an unknown sort field without an error, so sorts are
@@ -243,7 +244,8 @@ Boundaries:
   `test_initialize_names_oauth_workspace`; agreeing with `tools/list`,
   `tests/hermetic/test_stdio_session.py`.
 - Reads and slimming: `tests/read_list/test_read_tool.py`; the uncut
-  record, `test_a_huge_record_comes_back_whole`.
+  record, `test_a_huge_record_comes_back_whole`; spans that did not load,
+  `test_spans_that_failed_to_load_are_absent_and_one_call_away`.
 - Lists, the `sdk` default and empty-page hints:
   `tests/read_list/test_list_tool.py`, `tests/read_list/test_list_filters.py`;
   the size on every page, `test_a_page_states_its_size_on_the_first_line`,
@@ -266,6 +268,7 @@ Boundaries:
 
 ## Log
 
+- 2026-10-19: `read('trace')` leaves `spans` out and adds `spansError` with the list call when the span call fails; an empty list read as a trace with no spans (#PR).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).

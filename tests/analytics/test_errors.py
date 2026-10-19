@@ -24,6 +24,7 @@ from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
+    OpikRateLimitError,
     OpikServerError,
     OpikValidationError,
 )
@@ -211,6 +212,7 @@ _TYPED_EXCEPTION_CLASSES: tuple[tuple[type[BaseException], str, int | None], ...
     (OpikNotFoundError, "not_found", 404),
     (OpikValidationError, "validation", 400),
     (OpikServerError, "upstream_5xx", 500),
+    (OpikRateLimitError, "upstream_5xx", 429),
     (MissingConfigError, "validation", 400),
     # Write-tool envelope: base "unknown" since concrete code never raises bare
     # WriteError; each live subclass shadows the bucket.

@@ -26,6 +26,8 @@ import httpx
 from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
+    OpikPermissionError,
+    OpikRateLimitError,
     OpikServerError,
     OpikValidationError,
 )
@@ -58,6 +60,29 @@ def describe(what: str, exc: BaseException) -> str:
     """
     detail = str(exc).strip() or type(exc).__name__
     return f"Could not load {what}: {detail}"
+
+
+#: Most specific class first: a 429 is also a server error, a 403 also an auth one.
+_REASONS: Final[tuple[tuple[type[BaseException], str], ...]] = (
+    (OpikRateLimitError, "Opik rate-limited the call (429)"),
+    (OpikServerError, "Opik answered with a server error"),
+    (httpx.TimeoutException, "the call timed out"),
+    (httpx.HTTPError, "Opik could not be reached"),
+    (OpikPermissionError, "permission was denied"),
+    (OpikAuthError, "the credential was refused"),
+    (OpikNotFoundError, "Opik answered not found"),
+    (OpikValidationError, "Opik rejected the call"),
+)
+
+
+def failure_reason(exc: BaseException) -> str:
+    """A few words on why one of :data:`BLOCK_ERRORS` happened, from its class.
+
+    For a note beside data that is missing, where :func:`describe`'s whole
+    sentence would be too long: a validation error's message carries the
+    backend's own words, and the others end in advice about a different call.
+    """
+    return next((reason for cls, reason in _REASONS if isinstance(exc, cls)), "the call failed")
 
 
 DEADLINE_SECONDS: Final = 2.5

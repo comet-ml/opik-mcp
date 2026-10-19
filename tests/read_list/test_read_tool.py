@@ -17,7 +17,12 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.errors import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.client.errors import (
+    OpikNotFoundError,
+    OpikRateLimitError,
+    OpikServerError,
+    OpikValidationError,
+)
 from opik_mcp.config import Settings
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
@@ -55,7 +60,7 @@ class FakeOpikClient:
     fail_issue_with: Exception | None = None
     project_lookups: int = 0
     fail_list_traces: bool = False
-    fail_list_spans: bool = False
+    fail_list_spans_with: Exception | None = None
     kpi_stats: list[dict[str, Any]] = field(default_factory=list)
     last_kpi_kwargs: dict[str, Any] = field(default_factory=dict)
     fail_kpi_with: Exception | None = None
@@ -160,8 +165,8 @@ class FakeOpikClient:
         self.last_list_spans_kwargs = dict(
             trace_id=trace_id, project_id=project_id, page=page, size=size, **_search
         )
-        if self.fail_list_spans:
-            raise OpikServerError("boom")
+        if self.fail_list_spans_with is not None:
+            raise self.fail_list_spans_with
         # ``list`` names the trace through a filter clause, ``read`` through
         # the argument; honour both so a continuation can be run as written.
         for clause in json.loads(_search.get("filters") or "[]"):
@@ -1917,9 +1922,62 @@ async def test_a_trace_whose_spans_failed_to_load_carries_no_notice() -> None:
     """Nothing arrived, so there is nothing to describe — and a notice about a
     payload the caller never received reads as if one had."""
     fake = FakeOpikClient(traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}})
-    fake.fail_list_spans = True
+    fake.fail_list_spans_with = OpikServerError("boom")
 
     assert "spanBodies" not in _payload(await run_read("trace", UUID, client=fake))
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        (OpikRateLimitError("slow down"), "rate-limited"),
+        (httpx.ReadTimeout(""), "timed out"),
+        (OpikServerError("boom"), "server error"),
+    ],
+)
+@pytest.mark.anyio
+async def test_spans_that_failed_to_load_are_absent_and_one_call_away(
+    failure: Exception, reason: str
+) -> None:
+    """An empty list read as "this trace has no spans" to a caller who had hit a 429."""
+    fake = FakeOpikClient(traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}})
+    fake.fail_list_spans_with = failure
+
+    out = _payload(await run_read("trace", UUID, client=fake))
+
+    assert "spans" not in out, "a list that did not load is absent, never empty"
+    assert "spansTruncated" not in out
+    assert reason in out["spansError"]
+    assert f"list('span', project_id='p-1', filters='trace_id = \"{UUID}\"'" in out["spansError"]
+    assert "slow down" not in out["spansError"], "the reason comes from the class, not the message"
+
+
+@pytest.mark.anyio
+async def test_the_call_in_spans_error_returns_the_spans() -> None:
+    from opik_mcp.read_list.list_tool import run_list
+
+    fake = FakeOpikClient(
+        traces_by_id={UUID: {"id": UUID, "project_id": "p-1"}},
+        trace_spans={UUID: [{"id": "sp-1", "name": "child"}]},
+    )
+    fake.fail_list_spans_with = OpikRateLimitError("slow down")
+    note = _payload(await run_read("trace", UUID, client=fake))["spansError"]
+    fake.fail_list_spans_with = None
+
+    def arg(pattern: str) -> str:
+        found = re.search(pattern, note)
+        assert found is not None, f"{pattern!r} not in {note!r}"
+        return found.group(1)
+
+    out = await run_list(
+        "span",
+        project_id=arg(r"project_id='([^']+)'"),
+        filters=arg(r"filters='([^']+)'"),
+        size=int(arg(r"size=(\d+)")),
+        client=fake,
+    )
+
+    assert "sp-1" in out
 
 
 @pytest.mark.anyio

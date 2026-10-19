@@ -16,10 +16,12 @@ from typing import Any
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
+from opik_mcp.read_list.decorations import BLOCK_ERRORS, failure_reason
 from opik_mcp.read_list.entities import SOURCE_VALUES
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql_fields import PAYLOAD_FIELDS, TIMING_FIELDS
 from opik_mcp.read_list.paging import (
+    LIST_PAGE,
     collection_total,
     collection_truncated,
     continuation,
@@ -50,6 +52,10 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     call needs the trace's ``project_id``. A trace without project_id is
     anomalous — return an empty spans list rather than failing the read.
 
+    A failed span call leaves ``spans`` out and says why in ``spansError``:
+    an empty list there read as "this trace has no spans" to a caller who had
+    hit a 429 or a timeout.
+
     ``spanBodies`` says how many spans lost bytes to the backend's cut. It is
     absent when no spans arrived — from an empty tree or a failed call — since
     a notice about a payload the caller never received is only noise they have
@@ -67,8 +73,15 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
             size=SPANS_INLINE_LIMIT,
             should_truncate=True,
         )
-    except Exception:
-        return {"trace": trace, "spans": [], "spansTruncated": False}
+    except BLOCK_ERRORS as exc:
+        return {
+            "trace": trace,
+            "spansError": (
+                f"The spans did not load: {failure_reason(exc)}. Get them with "
+                f"list('span', project_id='{project_id}', "
+                f"filters='trace_id = \"{entity_id}\"', size={LIST_PAGE})."
+            ),
+        }
     fetched = page_items(spans_page)
     # Counted before the budget spends anything: a dropped body is not an uncut one.
     cut = count_cut(fetched, SLIM_SPAN_FIELDS)
