@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 import pytest
@@ -389,7 +389,7 @@ async def test_a_query_opik_timed_out_on_gets_the_same_way_out() -> None:
     same as for our own timeout, and only a list has those arguments."""
 
     class FailingSlowly(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        async def list_traces(self, **kw: object) -> NoReturn:
             raise OpikQueryTimeoutError("Opik took 12 s and failed on traces (500).")
 
     with pytest.raises(ToolError) as ei:
