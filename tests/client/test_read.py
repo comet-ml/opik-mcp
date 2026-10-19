@@ -522,14 +522,16 @@ async def test_a_500_that_comes_back_fast_says_not_to_repeat_the_call() -> None:
     assert "don't repeat it" in message
 
 
-def test_a_500_that_took_long_is_a_query_timeout_with_how_to_narrow() -> None:
+def test_a_500_that_took_long_is_a_query_timeout_without_list_advice() -> None:
+    """A read by id or a write has no since or search to narrow; the list tool
+    adds that advice where it applies."""
     slow = httpx.Response(500, json=_GENERIC_500)
     slow.elapsed = timedelta(seconds=12)
     with pytest.raises(OpikQueryTimeoutError) as err:
-        raise_for_status(slow, "traces")
+        raise_for_status(slow, "span 's-1'")
     message = str(err.value)
-    assert "after 12 s" in message
-    assert "since=" in message
+    assert "took 12 s" in message
+    assert "since" not in message
     assert "Retry" not in message
 
 

@@ -74,7 +74,13 @@ async def resolve_comment_thread_id(
         # resolve becomes a structured BackendError, not a raw OpikError that
         # would bypass the write tool's JSON-envelope contract.
         reason = e.backend_reason if isinstance(e, OpikValidationError) else None
-        raise BackendError.build(op.name, e.http_status or 502, backend_message=reason) from e
+        raise BackendError.build(
+            op.name,
+            e.http_status or 502,
+            backend_message=reason,
+            failure=e.server_failure if isinstance(e, OpikServerError) else None,
+            log_id=e.log_id if isinstance(e, OpikServerError) else None,
+        ) from e
     # ``id`` on a TraceThread is the string thread_id, NOT a UUID — the comment
     # path needs the model UUID, so there is no valid fallback to ``id`` here.
     model_id = thread.get("thread_model_id")

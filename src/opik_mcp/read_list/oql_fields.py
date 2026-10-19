@@ -9,6 +9,7 @@ and the whole experiment surface.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final
 
 from opik_mcp.read_list.handler import FieldType
@@ -124,6 +125,21 @@ the default on top of an experiment drill-in hid all of it;
 ``list_empty_page.without_default`` tells that story. Declared here beside
 the default it exempts from, because two callers apply that default — the
 list tool and the metric runner — and had to agree."""
+
+
+def exempts_from_sdk_default(clause: Mapping[str, str]) -> bool:
+    """A compiled clause after which the ``sdk`` default is not added.
+
+    One on ``source`` itself, one on a parent's id (``PARENT_ID_FIELDS``), or
+    one that names a record by its own id: that is the call a read by id
+    that Opik fails on hands out, and the record may have any source. A
+    string field takes no ``in``, so ``=`` is the only operator that names one.
+    """
+    if clause["field"] == "id":
+        return clause["operator"] == "="
+    return clause["field"] in ("source", *PARENT_ID_FIELDS)
+
+
 SDK_SOURCE_CLAUSE: Final[dict[str, str]] = {
     "field": "source",
     "operator": "=",
@@ -151,4 +167,5 @@ __all__ = [
     "SDK_SOURCE_CLAUSE",
     "TIMING_FIELDS",
     "USAGE_FIELDS",
+    "exempts_from_sdk_default",
 ]

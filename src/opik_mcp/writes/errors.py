@@ -13,6 +13,16 @@ import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
+import httpx
+
+from opik_mcp.client.errors import (
+    GATEWAY_STATUSES,
+    ServerFailure,
+    backend_log_id,
+    backend_reason,
+    log_id_sentence,
+    server_failure,
+)
 from opik_mcp.client.errors.hints import credential_hint
 from opik_mcp.config import DOCS_WORKSPACE
 from opik_mcp.error_kinds import ErrorKind
@@ -175,8 +185,27 @@ class BackendError(WriteError):
     error: ClassVar[ErrorCode] = CODE_BACKEND_ERROR
 
     @classmethod
+    def from_response(cls, operation: str, resp: httpx.Response) -> BackendError:
+        """The envelope for a non-2xx answer to a write."""
+        status = resp.status_code
+        is_5xx = status >= 500
+        return cls.build(
+            operation,
+            status,
+            backend_message=backend_reason(resp),
+            failure=server_failure(resp) if is_5xx else None,
+            log_id=backend_log_id(resp) if is_5xx else None,
+        )
+
+    @classmethod
     def build(
-        cls, operation: str, status: int, *, backend_message: str | None = None
+        cls,
+        operation: str,
+        status: int,
+        *,
+        backend_message: str | None = None,
+        failure: ServerFailure | None = None,
+        log_id: str | None = None,
     ) -> BackendError:
         # The backend's body is untrusted text and the REST path is not a name
         # the caller can use, so neither is carried; the status is, for the
@@ -186,11 +215,12 @@ class BackendError(WriteError):
         extra: dict[str, Any] = {"backend_error": {"status": status}}
         if backend_message:
             extra["backend_message"] = backend_message
-        return cls(
-            operation=operation,
-            message=_backend_sentence(operation, status),
-            extra=extra,
+        message = (
+            _server_failure_sentence(operation, status, failure=failure, log_id=log_id)
+            if status >= 500
+            else _backend_sentence(operation, status)
         )
+        return cls(operation=operation, message=message, extra=extra)
 
 
 def _backend_sentence(operation: str, status: int) -> str:
@@ -213,9 +243,32 @@ def _backend_sentence(operation: str, status: int) -> str:
         )
     if status in (400, 422):
         return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."
-    if status >= 500:
-        return f"Opik server error ({status}) on {operation!r}; retry the same {retry}."
     return f"Opik answered {status} to {operation!r}; check the data and retry {retry}."
+
+
+def _server_failure_sentence(
+    operation: str, status: int, *, failure: ServerFailure | None, log_id: str | None
+) -> str:
+    """What a 5xx means for this write. A write that timed out or met a gateway
+    may have been applied, and repeating it unchecked can write it twice."""
+    if failure is None:
+        failure = "gateway" if status in GATEWAY_STATUSES else "fast"
+    logged = log_id_sentence(log_id)
+    if failure == "gateway":
+        return (
+            f"Opik's gateway answered {status} to {operation!r}; it may have been applied, "
+            f"so check with read or list, then retry write({operation!r}, data=…) once if "
+            f"it was not.{logged}"
+        )
+    if failure == "slow":
+        return (
+            f"Opik took too long and failed on {operation!r} ({status}); it may have been "
+            f"applied, so check with read or list before writing it again.{logged}"
+        )
+    return (
+        f"Opik failed on {operation!r} ({status}), and the same write usually fails the "
+        f"same way; don't repeat it.{logged}"
+    )
 
 
 class BatchTooLargeError(WriteError):

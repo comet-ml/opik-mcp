@@ -604,6 +604,20 @@ async def test_a_read_opik_fails_on_names_the_list_call_that_finds_the_record(
 
 
 @pytest.mark.anyio
+async def test_the_list_call_a_failed_read_names_keeps_the_callers_project() -> None:
+    import respx
+
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test") as mock:
+        mock.get(f"/v1/private/spans/{UUID}").mock(return_value=httpx.Response(500))
+        with pytest.raises(ToolError) as refusal:
+            await run_read("span", UUID, project_id="p-1", client=client)
+    assert f"list('span', project_id='p-1', filters='id = \"{UUID}\"')" in str(refusal.value)
+
+
+@pytest.mark.anyio
 async def test_a_read_that_timed_out_on_opik_names_no_list_call() -> None:
     import respx
 

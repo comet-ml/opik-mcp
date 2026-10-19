@@ -45,8 +45,10 @@ from mcp.server.fastmcp.exceptions import ToolError
 from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
+    OpikQueryTimeoutError,
     OpikServerError,
     OpikValidationError,
+    log_id_sentence,
 )
 from opik_mcp.client.errors.hints import unreachable
 from opik_mcp.client.opik import client_for_call
@@ -121,6 +123,9 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
     except (EntityArgValidationError, OQLError) as err:
         # Already written for the agent, with the valid values in it.
         raise ToolError(str(err)) from err
+    except OpikQueryTimeoutError as err:
+        # Opik's own query ran out of time: the same narrowing as ours timing out.
+        raise ToolError(f"{on_timeout}{log_id_sentence(err.log_id)}") from err
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
         raise ToolError(f"Failed to {what}: {err}") from err
     except httpx.TimeoutException as err:

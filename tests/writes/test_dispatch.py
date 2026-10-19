@@ -1098,6 +1098,44 @@ async def test_a_409_write_says_it_conflicts_and_quotes_why() -> None:
     assert body["backend_message"] == reason
 
 
+_GENERIC_500 = {
+    "code": 500,
+    "message": "There was an error processing your request. "
+    "It has been logged (ID 1a2b3c4d5e6f7a8b).",
+}
+
+
+@pytest.mark.anyio
+async def test_a_fast_500_write_says_not_to_repeat_it() -> None:
+    body = await _backend_envelope(httpx.Response(500, json=_GENERIC_500))
+    message = str(body["message"])
+    assert "don't repeat it" in message
+    assert "retry" not in message
+    assert message.endswith("ID 1a2b3c4d5e6f7a8b.")
+
+
+@pytest.mark.anyio
+async def test_a_slow_500_write_says_to_check_before_writing_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A write that timed out may have landed; repeating it can write it twice."""
+    monkeypatch.setattr("opik_mcp.client.errors._QUERY_TIMEOUT_AFTER_S", 0.0)
+    body = await _backend_envelope(httpx.Response(500))
+    message = str(body["message"])
+    assert "may have been applied" in message
+    assert "since" not in message
+    assert "retry" not in message
+
+
+@pytest.mark.parametrize("status", [502, 503, 504])
+@pytest.mark.anyio
+async def test_a_gateway_write_error_says_to_check_then_retry_once(status: int) -> None:
+    body = await _backend_envelope(httpx.Response(status))
+    message = str(body["message"])
+    assert "may have been applied" in message
+    assert "once" in message
+
+
 @pytest.mark.anyio
 async def test_a_500_write_has_no_backend_message() -> None:
     body = await _backend_envelope(httpx.Response(500, json={"errors": ["NPE at line 3"]}))

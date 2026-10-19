@@ -61,7 +61,7 @@ async def test_each_request_carries_the_callers_credential_and_workspace(wire: W
     assert API_KEY in request.headers.get("authorization", "")
 
 
-async def test_a_backend_failure_comes_back_as_its_status_and_the_retry_call(wire: Wire) -> None:
+async def test_a_backend_failure_comes_back_as_its_status_and_no_blind_retry(wire: Wire) -> None:
     """The status is kept for the caller and analytics; the body is untrusted
     text and the REST path is not a name the caller can use, so neither is."""
     wire.backend.failing.add("/v1/private/datasets")
@@ -75,7 +75,7 @@ async def test_a_backend_failure_comes_back_as_its_status_and_the_retry_call(wir
     assert envelope["error"] == "backend_error"
     assert envelope["operation"] == "dataset.create"
     assert envelope["backend_error"] == {"status": 500}
-    assert "retry the same write('dataset.create', data=…)" in str(envelope["message"])
+    assert "don't repeat it" in str(envelope["message"])
     assert "backend_message" not in envelope
     text = str(envelope)
     assert "stub failure" not in text

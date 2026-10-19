@@ -71,6 +71,9 @@ def _format_client_error(
     entity_id: str,
     exc: BaseException,
     features: FeatureToggles,
+    *,
+    project_id: str | None = None,
+    project_name: str | None = None,
 ) -> str:
     """One sentence on what was asked, and the call to change.
 
@@ -85,9 +88,13 @@ def _format_client_error(
     """
     entity_type = handler.entity_type
     if isinstance(exc, OpikRequestFailedError) and handler.is_found_by_list_when_read_fails:
+        if project_id is not None:
+            scope = f"project_id='{project_id}'"
+        else:
+            scope = f"project_name='{project_name or '<project>'}'"
         return (
             f"Opik failed reading {entity_type} '{entity_id}', and repeating the call fails "
-            f"the same way; find it with list({entity_type!r}, project_name='<project>', "
+            f"the same way; find it with list({entity_type!r}, {scope}, "
             f"filters='id = \"{entity_id}\"') instead.{log_id_sentence(exc.log_id)}"
         )
     if isinstance(exc, OpikNotFoundError):
@@ -325,7 +332,11 @@ async def _fetch_with_name_lookup(
         # argument checks, so analytics buckets it as validation/400.
         raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
-        raise ToolError(_format_client_error(handler, entity_id, e, features)) from e
+        raise ToolError(
+            _format_client_error(
+                handler, entity_id, e, features, project_id=project_id, project_name=project_name
+            )
+        ) from e
     except httpx.HTTPError as e:
         raise ToolError(
             f"Could not reach Opik to read the {handler.entity_type}: {unreachable(e)}"

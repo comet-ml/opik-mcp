@@ -202,8 +202,8 @@ Boundaries:
   evaluator, playground and experiment traffic does not crowd out the
   application. A filter on a parent id (`PARENT_ID_FIELDS`) turns it off:
   experiment traces never have source `sdk`, so the default hid a whole
-  drill-in. The metric runner follows the same rule. A filter on the record's
-  own `id` turns it off in `list` too.
+  drill-in. So does `id = "…"`, which names one record of any source. Both
+  `list` and the metric runner apply the rule (`exempts_from_sdk_default`).
 - `search` on a type without it is refused. It used to return an unfiltered
   page that an agent read as the result (`_search_refusal`).
 - One copy of each answer, because `structuredContent` doubled every string

@@ -74,8 +74,13 @@ promises, what comes back on success and failure, and where to change or add an 
   body's `errors` or `message`, cut at `_BACKEND_REASON_CHARS`
   (`backend_reason` in `src/opik_mcp/client/errors/__init__.py`). A non-JSON body or any other status has none.
   A 400 or 422 while a comment resolves its thread carries it too.
+- A 5xx never says to repeat the write. A fast one says the same write
+  usually fails the same way. A slow one (`_QUERY_TIMEOUT_AFTER_S`) or a
+  502/503/504 says it may have been applied, to check with read or list, and
+  for a gateway error to retry once if it was not. The backend's hex log id
+  ends the sentence when the body carries one (`_server_failure_sentence`).
 - A Diagnostics enable whose 409 follow-up PATCH fails reports the PATCH's
-  status, so a 401 keeps the credential hint and a 5xx says retry. A 401
+  status, so a 401 keeps the credential hint and a 5xx says what it means. A 401
   there also drops the cached OAuth validation (`note_backend_401`), as the
   main write path does.
 
@@ -203,6 +208,7 @@ description and `schema` follow. Also:
 
 ## Log
 
+- 2026-10-19: a 5xx on a write no longer says to retry the same write; a timed-out or gateway write may have been applied (#264).
 - 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/409/422 adds a capped `backend_message` (OPIK-8496).
 - 2026-09-25: operation models and examples moved from `models.py` into `writes/operations/`; write errors became plain classes (OPIK-8496).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).

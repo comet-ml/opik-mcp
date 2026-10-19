@@ -7,7 +7,7 @@ Each class here is what a backend status becomes (``raise_for_status``);
 from __future__ import annotations
 
 import re
-from typing import ClassVar, NoReturn
+from typing import ClassVar, Literal, NoReturn
 
 import httpx
 
@@ -70,6 +70,10 @@ class OpikValidationError(RuntimeError):
         self.backend_reason = backend_reason
 
 
+ServerFailure = Literal["fast", "slow", "gateway"]
+"""How a 5xx failed, which decides whether repeating the call can help."""
+
+
 class OpikServerError(RuntimeError):
     """Opik returned a 5xx response, or an answer this client cannot use.
 
@@ -79,6 +83,7 @@ class OpikServerError(RuntimeError):
 
     error_kind: ClassVar[ErrorKind] = "upstream_5xx"
     http_status: ClassVar[int | None] = 500
+    server_failure: ClassVar[ServerFailure | None] = None
 
     def __init__(self, message: str, *, log_id: str | None = None) -> None:
         super().__init__(message)
@@ -88,13 +93,19 @@ class OpikServerError(RuntimeError):
 class OpikRequestFailedError(OpikServerError):
     """Opik answered 5xx quickly: the request itself fails, so repeating it fails too."""
 
+    server_failure: ClassVar[ServerFailure | None] = "fast"
+
 
 class OpikQueryTimeoutError(OpikServerError):
     """Opik answered 5xx after a long wait: its query most likely timed out."""
 
+    server_failure: ClassVar[ServerFailure | None] = "slow"
+
 
 class OpikGatewayError(OpikServerError):
     """A gateway in front of Opik answered 502, 503 or 504, which is often transient."""
+
+    server_failure: ClassVar[ServerFailure | None] = "gateway"
 
 
 def note_backend_401() -> str | None:
@@ -154,7 +165,7 @@ def backend_reason(resp: httpx.Response) -> str | None:
 #: a second.
 _QUERY_TIMEOUT_AFTER_S = 5.0
 
-_GATEWAY_STATUSES = (502, 503, 504)
+GATEWAY_STATUSES = (502, 503, 504)
 
 # Dropwizard's body for an unhandled exception: "There was an error processing
 # your request. It has been logged (ID %016x)." Only the hex id is kept.
@@ -167,6 +178,15 @@ def backend_log_id(resp: httpx.Response) -> str | None:
     return found.group(1) if found else None
 
 
+def server_failure(resp: httpx.Response) -> ServerFailure:
+    """Which kind of 5xx this is, from its status and how long it took."""
+    if resp.status_code in GATEWAY_STATUSES:
+        return "gateway"
+    if resp.elapsed.total_seconds() >= _QUERY_TIMEOUT_AFTER_S:
+        return "slow"
+    return "fast"
+
+
 def log_id_sentence(log_id: str | None) -> str:
     """A trailing sentence naming the backend log id, or nothing."""
     return f" The Opik backend log has it under ID {log_id}." if log_id else ""
@@ -176,18 +196,19 @@ def _raise_server_error(resp: httpx.Response, entity_hint: str) -> NoReturn:
     status = resp.status_code
     log_id = backend_log_id(resp)
     logged = log_id_sentence(log_id)
-    if status in _GATEWAY_STATUSES:
+    failure = server_failure(resp)
+    if failure == "gateway":
         raise OpikGatewayError(
             f"Opik's gateway answered {status} for {entity_hint}; this is often "
             f"transient, so retry once after a short wait.{logged}",
             log_id=log_id,
         )
-    seconds = resp.elapsed.total_seconds()
-    if seconds >= _QUERY_TIMEOUT_AFTER_S:
+    if failure == "slow":
+        # How to narrow depends on the call's arguments, so the caller that
+        # has them (the list tool) adds it.
         raise OpikQueryTimeoutError(
-            f"Opik failed on {entity_hint} ({status}) after {seconds:.0f} s, most likely "
-            f"a query timeout. Narrow it: a shorter since=… window, no search, no "
-            f"substring filter on input or output.{logged}",
+            f"Opik took {resp.elapsed.total_seconds():.0f} s and failed on {entity_hint} "
+            f"({status}), most likely a query timeout.{logged}",
             log_id=log_id,
         )
     raise OpikRequestFailedError(

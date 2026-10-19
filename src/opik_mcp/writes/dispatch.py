@@ -28,7 +28,7 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from opik_mcp.client.errors import backend_reason, note_backend_401
+from opik_mcp.client.errors import note_backend_401
 from opik_mcp.client.opik import OpikClient, make_opik_client
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.writes.errors import (
@@ -280,7 +280,7 @@ def _stage4_finalize(
             # Drop the cached OAuth validation so the next request re-validates
             # and meets the 401 that triggers the host's refresh (OPIK-8252).
             note_backend_401()
-        raise BackendError.build(op.name, status, backend_message=backend_reason(resp))
+        raise BackendError.from_response(op.name, resp)
     body = safe_body(resp)
     return {
         "ok": True,

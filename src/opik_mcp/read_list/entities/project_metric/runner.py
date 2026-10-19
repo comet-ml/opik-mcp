@@ -40,7 +40,7 @@ from opik_mcp.read_list.entities.project_metric.table import (
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import Vocabulary
 from opik_mcp.read_list.oql import compile_filters, render_filters
-from opik_mcp.read_list.oql_fields import PARENT_ID_FIELDS, SDK_SOURCE_CLAUSE
+from opik_mcp.read_list.oql_fields import SDK_SOURCE_CLAUSE, exempts_from_sdk_default
 from opik_mcp.read_list.project_names import (
     SCORE_NAMES_CAP,
     recorded,
@@ -157,7 +157,7 @@ async def run_project_metric(
     clauses = compile_filters(vocabulary, filters or "")
     refuse_dropped_fields(metric, clauses)
     if is_source_filtered(metric, vocabulary) and not any(
-        clause["field"] in ("source", *PARENT_ID_FIELDS) for clause in clauses
+        exempts_from_sdk_default(clause) for clause in clauses
     ):
         # Same default as the Logs page and the other lists, with the same
         # exemption: a filter naming a parent record is a drill-in, not a

@@ -97,8 +97,9 @@ The three 5xx classes subclass `OpikServerError`. A fast 5xx is a request
 Opik fails on every time (a getById that finds duplicate rows), so the
 error says not to repeat the call. A slow one is a backend query timeout
 (before 2.2.90 the backend turns a ClickHouse query over about 10 s into a
-500), so it says how to narrow the call. Only a gateway error says to retry,
-once. When the body is the backend's generic "It has been logged (ID …)", the
+500), so it says only that Opik took too long and failed; `list` adds how to
+narrow the call, since only a list has `since`, `search` and filters. Only a
+gateway error says to retry, once. When the body is the backend's generic "It has been logged (ID …)", the
 error ends with that hex id for a self-hosted admin (`backend_log_id`).
 
 A 401 that no OAuth bearer explains says "Check OPIK_API_KEY and

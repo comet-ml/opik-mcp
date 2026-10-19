@@ -18,7 +18,7 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.errors import OpikNotFoundError
+from opik_mcp.client.errors import OpikNotFoundError, OpikQueryTimeoutError
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 from tests.hermetic.fixtures import record
@@ -381,6 +381,23 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
     assert "since" in message
     assert "size" in message
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
+
+
+@pytest.mark.anyio
+async def test_a_query_opik_timed_out_on_gets_the_same_way_out() -> None:
+    """Backends before 2.2.90 turn a slow query into a 500; the advice is the
+    same as for our own timeout, and only a list has those arguments."""
+
+    class FailingSlowly(FakeOpikClient):
+        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+            raise OpikQueryTimeoutError("Opik took 12 s and failed on traces (500).")
+
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace", project_id="p-1", search="order-42", client=FailingSlowly())
+    message = str(ei.value)
+    assert "list('trace'" in message
+    assert "since" in message
+    assert "search" in message
 
 
 class _Unreachable(FakeOpikClient):
@@ -893,6 +910,17 @@ async def test_a_filter_on_an_experiment_gets_no_sdk_default_on_top() -> None:
     assert _sent_filters(fake) == [
         {"field": "experiment_id", "operator": "=", "key": "", "value": EXPERIMENT}
     ]
+
+
+@pytest.mark.anyio
+async def test_only_a_filter_naming_one_id_drops_the_sdk_default() -> None:
+    """`id = "…"` is the call a failed read hands out, and the record may come
+    from any source; `id != "…"` is still a triage of the project."""
+    named, excluded = FakeOpikClient(), FakeOpikClient()
+    await run_list("span", project_id="p-1", filters='id = "s-1"', client=named)
+    await run_list("span", project_id="p-1", filters='id != "s-1"', client=excluded)
+    assert [c["field"] for c in _sent_filters(named)] == ["id"]
+    assert [c["field"] for c in _sent_filters(excluded)] == ["id", "source"]
 
 
 @pytest.mark.anyio
