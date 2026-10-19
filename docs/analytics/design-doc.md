@@ -166,7 +166,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
-- 2026-10-19: `rate_limited` kind for a 429, kept out of Sentry; it was counted and paged as a 500 (#PR).
+- 2026-10-19: `rate_limited` kind for a 429, kept out of Sentry; it was counted and paged as a 500 (#265).
 - 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).
