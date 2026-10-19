@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import Settings as FastMCPSettings
 
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.instructions import render_instructions
 from opik_mcp.server.tools import register_tools
+
+# FastMCP's settings read `.env` from the working directory, which is the user's
+# project; a file there that is not UTF-8 stopped the server from starting.
+FastMCPSettings.model_config["env_file"] = None
 
 
 def build_server(settings: Settings) -> FastMCP[object]:

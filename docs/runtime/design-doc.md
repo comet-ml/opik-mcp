@@ -20,6 +20,9 @@ does the process refuse to start, and why does no tool take a workspace?
   cannot be bound (`_preflight_bind_check`).
 - A `COMET_URL_OVERRIDE` on this machine with no `OPIK_URL` logs a warning to
   set `OPIK_URL`: open-source Opik serves `/api`, not `/opik/api`.
+- No `.env` file is read. Hosts start the server in the user's project, and
+  FastMCP's own settings read `.env` from there by default; a file that was not
+  UTF-8 stopped the start. `instance.py` turns that off before building the server.
 
 ### Command line
 
@@ -220,9 +223,11 @@ write     -> writes/dispatch.py -> make_opik_client -> OpikClient.write_json
   `tests/repo/test_one_off_commands_use_latest.py`.
 - `--check`, OK, rejected and unreachable, against the real process:
   `tests/hermetic/test_check.py`.
+- A non-UTF-8 `.env` in the working directory: `tests/server/test_working_directory_dotenv.py`.
 
 ## Log
 
+- 2026-10-19: FastMCP no longer reads `.env` from the working directory; a non-UTF-8 file there stopped the server from starting (#PR).
 - 2026-10-08: `--help` names the installer command, and the two rules agents broke most (printing config files, running the sign-in), before the steps, so `--help | head -30` shows them even after uv's download lines (#251).
 - 2026-10-08: one-off commands (`opik mcp configure`, `opik mcp status`, `--help`, `--check`) carry `@latest`, since uvx otherwise runs the copy it cached first (#250).
 - 2026-10-08: install steps for agents add the skill pack without asking, since it is always installed, and name it when they say what was installed (#249).
