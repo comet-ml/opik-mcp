@@ -110,8 +110,8 @@ project if set, tool selection, the link rule, and today's UTC date.
   the vocabulary's `param_fields`, which become parameters of their own.
   `schema("list.<entity>")` lists fields, operators and sortable names.
   On trace and span it notes that an `input_json`, `output_json` or
-  `metadata` key must lead to a scalar: the backend reads it with
-  `JSON_VALUE`, so an object or array matches nothing
+  `metadata` key must name a scalar: the backend reads it with
+  `JSON_VALUE`, so an object or array reads as an empty string
   (`test_payload_key_filters_say_the_key_must_lead_to_a_scalar`).
 - `sort` is one field, `asc` or `desc`. `since`/`until` take `30m`, `1h`,
   `7d`, `2w` or an ISO-8601 instant with a zone. Only trace, span and thread
@@ -270,7 +270,7 @@ Boundaries:
 
 ## Log
 
-- 2026-10-19: `schema("list.trace")` and `list.span` note that a JSON key filter must reach a scalar; an array key matched nothing without saying so (#256).
+- 2026-10-19: `schema("list.trace")` and `list.span` note that a JSON key filter must name a scalar; an object or array key read as an empty string without saying so (#256).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).

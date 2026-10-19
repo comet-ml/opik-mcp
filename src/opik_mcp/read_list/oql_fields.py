@@ -106,12 +106,13 @@ PAYLOAD_FIELDS: Final[dict[str, FieldType]] = {
 }
 #: opik-backend reads a dictionary key with ClickHouse ``JSON_VALUE``, which
 #: answers only for a scalar: a key holding an object or an array reads as an
-#: empty string, so ``input_json.messages contains "refund"`` is accepted and
-#: matches nothing.
+#: empty string, so ``input_json.messages contains "refund"`` matches nothing
+#: while ``!=``, ``not_contains`` and ``is_empty`` match every row. ``search``
+#: covers input, output and metadata, so it is the pointer for all three.
 PAYLOAD_FIELD_NOTES: Final[dict[str, str]] = dict.fromkeys(
     ("input_json", "output_json", "metadata"),
-    "the key must lead to one scalar value, e.g. input_json.question or metadata.user_id; "
-    "an object or array there matches nothing, so for free text use input or output contains",
+    'key must name one scalar (input_json.question); an object or array reads as "", '
+    "so use search for free text",
 )
 
 

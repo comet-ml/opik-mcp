@@ -89,12 +89,14 @@ def test_payload_key_filters_say_the_key_must_lead_to_a_scalar(
 ) -> None:
     """opik-backend reads the key with ClickHouse ``JSON_VALUE``, which is
     empty for an object or an array, so ``input_json.messages contains "x"``
-    answers 200 with nothing in it. No refusal can say so; the reference
-    can, and has to name the field that does search free text."""
+    answers 200 with nothing in it and ``!=`` with every row. No refusal can
+    say so; the reference can, and has to name what searches free text in
+    all three fields: ``search``, since ``input``/``output`` miss metadata."""
     note = run_schema(f"list.{entity_type}")["filters"]["fields"][field]["note"]
     assert "scalar" in note
-    assert "object or array" in note
-    assert "input or output contains" in note
+    assert 'object or array reads as ""' in note
+    assert "search" in note
+    assert "contains" not in note
 
 
 @pytest.mark.parametrize("entity_type", ["trace", "span", "thread", "experiment"])
