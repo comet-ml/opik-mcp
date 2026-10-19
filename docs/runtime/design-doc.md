@@ -101,14 +101,16 @@ missing or placeholder setting) links the docs page for it (`DOCS_*` in
 which never raises on status; [writes](../writes/design-doc.md) builds the
 error.
 
-Transport errors stay `httpx` exceptions in the client. `list` turns a timeout
-into a tool error built from the call's own arguments: `search` and a filter
-on a body field (`input`, `output`, a thread's messages) scan every stored
-body, and without `since` the backend does not prune by time, so the error
-names whichever of those the call used. The page size is never the advice.
+Transport errors stay `httpx` exceptions in the client. `list` turns a read
+timeout into a tool error built from the call's own arguments: `search` and a
+filter on a body field (`input`, `output`, a thread's messages) scan every
+stored body, and without `since` the backend does not prune by time, so the
+error names whichever of those the call used, and offers a filter on `name`,
+`tags` or `metadata` in place of `search`. The page size is never the advice.
 `read` turns a read timeout into "Opik did not answer in time … Retry once",
-with no setup link, since Opik was reached. `list`, `read` and `write`
-turn any other `httpx.HTTPError` into "Could not reach Opik", which on a local
+with no setup link, since Opik was reached. A connect timeout never reached
+Opik: `list`, `read` and `write` turn it, and any other `httpx.HTTPError`,
+into "Could not reach Opik", which on a local
 server names the base URL without any user:password and, on this machine, asks
 whether Opik is running (`hints.unreachable`). The optional blocks of a
 composite read also catch `httpx.HTTPError` and give up after

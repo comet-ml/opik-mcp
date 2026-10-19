@@ -55,7 +55,7 @@ from opik_mcp.config import Settings, get_settings
 from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.decorations import page_note_of
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn
+from opik_mcp.read_list.handler import EntityHandler, PageContext, RunFn, Vocabulary
 from opik_mcp.read_list.list_args import resolve_list_args
 from opik_mcp.read_list.list_empty_page import (
     empty_message,
@@ -123,9 +123,12 @@ def _as_tool_error(what: str, *, on_timeout: str) -> Iterator[None]:
         raise ToolError(str(err)) from err
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as err:
         raise ToolError(f"Failed to {what}: {err}") from err
-    except httpx.TimeoutException as err:
-        # ``str(httpx.ReadTimeout)`` is often empty, so without this the agent
-        # sees an error with no text at all.
+    except (httpx.ReadTimeout, httpx.WriteTimeout) as err:
+        # Connected, but no answer in time: Opik is slow, so the advice is
+        # about the query. ``str(httpx.ReadTimeout)`` is often empty, so
+        # without this the agent sees an error with no text at all. A connect
+        # or pool timeout never reached Opik and falls through to the next
+        # branch.
         raise ToolError(on_timeout) from err
     except httpx.HTTPError as err:
         raise ToolError(f"Could not reach Opik to {what}: {unreachable(err)}") from err
@@ -136,7 +139,8 @@ def _collection_timeout_hint(
     *,
     is_windowed: bool,
     list_kwargs: dict[str, Any],
-    body_filters: list[str],
+    clauses: list[dict[str, str]],
+    vocabulary: Vocabulary,
 ) -> str:
     """What to change after a timed-out page, from the arguments it was sent with.
 
@@ -150,11 +154,18 @@ def _collection_timeout_hint(
         return f"{asked} Retry once."
     has_since = "from_time" in list_kwargs
     has_search = "search" in list_kwargs
-    body_filters = list(dict.fromkeys(body_filters))
+    body_filters = list(
+        dict.fromkeys(c["field"] for c in clauses if c["field"] in vocabulary.body_fields)
+    )
     scans = (["the search"] if has_search else []) + [f"the filter on {f}" for f in body_filters]
     changes = ["shorten the since window" if has_since else 'add since="24h"']
     if has_search:
-        changes.append("replace search with filters on one field")
+        # Fields stored outside the bodies, so the replacement is not the
+        # same scan under another name.
+        indexed = [f for f in ("name", "tags", "metadata") if f in vocabulary.filter_fields]
+        changes.append(
+            f"replace search with a filter on {_or_list(indexed)}" if indexed else "drop search"
+        )
     if body_filters:
         changes.append(f"drop the filter on {' and '.join(body_filters)}")
     if scans:
@@ -167,6 +178,11 @@ def _collection_timeout_hint(
         return f"{asked} Shorten the since window and retry."
     fix = f"{changes[0]} and retry" if len(changes) == 1 else f"{', or '.join(changes)}, and retry"
     return f"{asked} {cause[0].upper()}{cause[1:]}: {fix}."
+
+
+def _or_list(names: list[str]) -> str:
+    """``name, tags or metadata``."""
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} or {names[-1]}"
 
 
 async def _run_whole(
@@ -350,7 +366,8 @@ async def run_list(
                 entity_type,
                 is_windowed=handler.is_windowed,
                 list_kwargs=list_kwargs,
-                body_filters=[c["field"] for c in clauses if c["field"] in vocabulary.body_fields],
+                clauses=clauses,
+                vocabulary=vocabulary,
             ),
         ):
             try:

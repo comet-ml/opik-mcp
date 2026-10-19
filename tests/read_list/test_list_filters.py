@@ -372,6 +372,9 @@ class _TimingOut(FakeOpikClient):
     async def list_spans(self, **kw: Any) -> dict[str, Any]:
         raise httpx.ReadTimeout("")
 
+    async def list_threads(self, **kw: Any) -> dict[str, Any]:
+        raise httpx.ReadTimeout("")
+
     async def list_experiments(self, **kw: Any) -> dict[str, Any]:
         raise httpx.ReadTimeout("")
 
@@ -390,9 +393,20 @@ class _TimingOut(FakeOpikClient):
         pytest.param(
             "trace",
             {"search": "order-42", "since": "7d"},
-            ["the search", "shorten the since window", "replace search with filters"],
-            ["size", 'since="24h"', "the filter on"],
+            [
+                "the search",
+                "shorten the since window",
+                "replace search with a filter on name, tags or metadata",
+            ],
+            ["size", 'since="24h"', "the filter on", "input"],
             id="search in a window",
+        ),
+        pytest.param(
+            "thread",
+            {"search": "refund"},
+            ['add since="24h"', "replace search with a filter on tags"],
+            ["size", "name", "metadata", "message"],
+            id="search on threads offers only the fields threads have",
         ),
         pytest.param(
             "trace",
@@ -426,6 +440,24 @@ async def test_a_timed_out_list_names_what_made_this_call_slow(
     for fragment in not_named:
         assert fragment not in message, f"{fragment!r} should not be in: {message}"
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("timeout", [httpx.ConnectTimeout(""), httpx.PoolTimeout("")])
+async def test_a_connect_timeout_on_list_is_still_reported_as_unreachable(
+    timeout: httpx.TimeoutException,
+) -> None:
+    """Opik was never reached, so advice about the query would be false."""
+
+    class NeverConnects(FakeOpikClient):
+        async def list_traces(self, **kw: Any) -> dict[str, Any]:
+            raise timeout
+
+    with pytest.raises(ToolError) as ei:
+        await run_list("trace", project_id="p-1", search="order-42", client=NeverConnects())
+    message = str(ei.value)
+    assert message.startswith("Could not reach Opik to list traces"), message
+    assert "search" not in message
 
 
 class _Unreachable(FakeOpikClient):
