@@ -12,6 +12,7 @@ See ``read_list/slim.py``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
@@ -119,7 +120,9 @@ def _spans_call(project_id: str, trace_id: str, rest: str) -> str:
     return f"list('span', project_id='{project_id}', filters='trace_id = \"{trace_id}\"', {rest})"
 
 
-def _bodies_call(spans: list[dict[str, Any]], *, project_id: str, trace_id: str) -> str | None:
+def _bodies_call(
+    spans: Sequence[Mapping[str, object]], *, project_id: str, trace_id: str
+) -> str | None:
     """One call for the bodies of many spans, named beside read('span', id).
 
     A caller told only about the one-span read read every span of a trace at
