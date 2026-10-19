@@ -69,7 +69,8 @@ process serves one connection, so there it means once per process.
 3. The class's `error_kind: ClassVar[ErrorKind]`.
 4. Pydantic and httpx classes, then `unknown`.
 
-Host cancellation is `cancelled`. The classifier never reads `str(exc)` or
+A 429 is `rate_limited`, from the class or from the status. Host cancellation
+is `cancelled`. The classifier never reads `str(exc)` or
 `exc.args`. `invalid_config` is used only by the startup error.
 
 `instrument_tool` sends a failure to Sentry unless its kind is in
@@ -165,6 +166,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
+- 2026-10-19: `rate_limited` kind for a 429, kept out of Sentry; it was counted and paged as a 500 (#265).
 - 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).

@@ -39,7 +39,8 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
-# Sentry skip-list: buckets representing user-input or user-config problems.
+# Sentry skip-list: buckets representing user-input, user-config or
+# call-pattern problems (a rate limit the caller's own calls used up).
 # These are surfaced to the host LLM as a tool error and counted in BI under
 # their explicit ``error_kind``; Sentry only carries the kinds that need a
 # human stack trace (server errors, network failures, contract drifts,
@@ -56,6 +57,9 @@ _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
         "permission",  # 403 — workspace access denied
         "validation",  # 400/422 — payload rejected by Opik or pydantic
         "not_found",  # 404 — entity doesn't exist
+        # 429 — the caller's call pattern: the message says how long to wait
+        # and how to batch, and BI counts it.
+        "rate_limited",
         "cancelled",  # host-initiated cancellation
     }
 )

@@ -191,6 +191,8 @@ def bucket_http_status(status: int) -> ErrorKind:
         return "not_found"
     if status in (408, 504):
         return "timeout"
+    if status == 429:
+        return "rate_limited"
     if 400 <= status < 500:
         return "validation"
     if 500 <= status < 600:

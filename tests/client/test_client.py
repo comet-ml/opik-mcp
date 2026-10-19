@@ -7,6 +7,7 @@ from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
+    OpikRateLimitError,
     OpikServerError,
     OpikValidationError,
 )
@@ -182,6 +183,7 @@ async def test_thread_comment_uses_thread_id_in_path() -> None:
         (404, OpikNotFoundError),
         (400, OpikValidationError),
         (422, OpikValidationError),
+        (429, OpikRateLimitError),
         (500, OpikServerError),
         (502, OpikServerError),
         (503, OpikServerError),

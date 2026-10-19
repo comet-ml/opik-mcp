@@ -16,7 +16,6 @@ from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
-    OpikRateLimitError,
     OpikServerError,
     OpikValidationError,
 )
@@ -466,7 +465,6 @@ async def test_list_name_filter_omitted_when_none(method: str, path: str) -> Non
         (404, OpikNotFoundError),
         (400, OpikValidationError),
         (422, OpikValidationError),
-        (429, OpikRateLimitError),
         (500, OpikServerError),
         (503, OpikServerError),
     ],
@@ -481,7 +479,7 @@ async def test_get_maps_status_to_typed_error(status: int, expected_exc: type[Ex
             await _client().get_project("p-x")
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 429, 500, 503])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422, 500, 503])
 @pytest.mark.anyio
 async def test_a_backend_error_is_one_sentence_without_the_body_or_path(status: int) -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:

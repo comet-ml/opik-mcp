@@ -29,6 +29,7 @@ from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikPermissionError,
+    OpikRateLimitError,
     OpikServerError,
     OpikValidationError,
 )
@@ -95,6 +96,7 @@ async def test_success_emits_tool_called(recorder: _Recorder) -> None:
         (OpikNotFoundError("x"), "not_found", 404),
         (OpikValidationError("x"), "validation", 400),
         (OpikServerError("x"), "upstream_5xx", 500),
+        (OpikRateLimitError("x"), "rate_limited", 429),
         (MissingConfigError("x"), "validation", 400),
         (httpx.ReadTimeout("read timed out"), "timeout", None),
         (httpx.ConnectError("connect refused"), "network", None),
@@ -540,6 +542,7 @@ async def test_sentry_captures_non_user_side_failures(
         OpikPermissionError("x"),
         OpikValidationError("x"),
         OpikNotFoundError("x"),
+        OpikRateLimitError("x"),
     ],
 )
 @pytest.mark.anyio
