@@ -54,7 +54,9 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
 
     A failed span call leaves ``spans`` out and says why in ``spansError``:
     an empty list there read as "this trace has no spans" to a caller who had
-    hit a 429 or a timeout.
+    hit a 429 or a timeout. The missing project_id above is the one known
+    exception that still answers with an empty list (Traps in
+    ``docs/tool-surface/design-doc.md``).
 
     ``spanBodies`` says how many spans lost bytes to the backend's cut. It is
     absent when no spans arrived — from an empty tree or a failed call — since
@@ -276,6 +278,7 @@ HANDLER = EntityHandler(
         "Single trace + child spans tree (up to 200 spans inlined, bodies "
         "slim). Returns {trace, spans, spansTruncated}, plus spanBodies "
         "saying what the cut took when any span was inlined, and moreSpans "
-        "with the call for the rest when the tree is longer than 200."
+        "with the call for the rest when the tree is longer than 200. "
+        "spansError replaces spans with the call when they fail to load."
     ),
 )

@@ -166,6 +166,11 @@ CLAIMS: tuple[Claim, ...] = (
         "moreSpans with the call for the rest when the tree is longer than 200",
         "trace_hands_over_the_call_for_the_rest",
     ),
+    Claim(
+        "trace",
+        "spansError replaces spans with the call when they fail to load",
+        "trace_says_its_spans_did_not_load",
+    ),
     # -- span ---------------------------------------------------------------- #
     Claim(
         "span",
@@ -466,6 +471,15 @@ async def _trace_span_bodies(drive: Driver) -> None:
     # rather than leaving the caller to compare lengths themselves.
     assert "1 of 4" in payload["spanBodies"]
     assert "read('span', id)" in payload["spanBodies"]
+
+
+@probe("trace_says_its_spans_did_not_load")
+async def _trace_spans_error(drive: Driver) -> None:
+    drive.backend.failing.add("/v1/private/spans")
+    payload = await drive.read_json(entity_type="trace", id=TRACE_ID)
+    assert "spans" not in payload, "a tree that did not load is absent, never an empty list"
+    assert "list('span'" in payload["spansError"]
+    assert TRACE_ID in payload["spansError"]
 
 
 @probe("trace_hands_over_the_call_for_the_rest")
