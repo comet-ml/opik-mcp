@@ -270,7 +270,7 @@ Boundaries:
 
 ## Log
 
-- 2026-10-19: `schema("list.trace")` and `list.span` note that a JSON key filter must reach a scalar; an array key matched nothing without saying so (#PR).
+- 2026-10-19: `schema("list.trace")` and `list.span` note that a JSON key filter must reach a scalar; an array key matched nothing without saying so (#256).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).
