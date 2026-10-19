@@ -6,6 +6,7 @@ import os
 import socket
 import sys
 import time
+from collections.abc import Iterator
 
 import httpx
 import uvicorn
@@ -78,24 +79,34 @@ def _bucket_transport_exception_type(exc: BaseException) -> str:
     new subclass. Returns ``"unknown"`` only when nothing in the chain
     matches.
     """
-    # anyio raises a task group's failures as an exception group; the first
-    # leaf names the failure, the group class names nothing.
-    while isinstance(exc, BaseExceptionGroup):
-        exc = exc.exceptions[0]
+    # anyio raises a task group's failures as an exception group, whose class
+    # names nothing. A closed pipe beside the real failure is only its echo.
+    leaves = list(_leaves(exc))
+    exc = next((leaf for leaf in leaves if not _is_client_disconnect(leaf)), leaves[0])
     for cls in type(exc).__mro__:
         if cls.__name__ in _KNOWN_TRANSPORT_EXCEPTION_NAMES:
             return cls.__name__
     return "unknown"
 
 
+def _leaves(exc: BaseException) -> Iterator[BaseException]:
+    if isinstance(exc, BaseExceptionGroup):
+        for member in exc.exceptions:
+            yield from _leaves(member)
+    else:
+        yield exc
+
+
 def _is_client_disconnect(exc: BaseException) -> bool:
     """Whether every leaf of ``exc`` is the error stdout gives once the host has closed the pipe."""
-    if isinstance(exc, BaseExceptionGroup):
-        return all(_is_client_disconnect(member) for member in exc.exceptions)
+    return all(_is_closed_pipe_error(leaf) for leaf in _leaves(exc))
+
+
+def _is_closed_pipe_error(exc: BaseException) -> bool:
     if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
         return True
     # Windows reports a write to a closed pipe as EINVAL, not EPIPE.
-    return isinstance(exc, OSError) and exc.errno == errno.EINVAL
+    return sys.platform == "win32" and isinstance(exc, OSError) and exc.errno == errno.EINVAL
 
 
 def _point_stdout_at_devnull() -> None:
@@ -105,9 +116,16 @@ def _point_stdout_at_devnull() -> None:
     closed pipe at exit fails again and exits with status 120. Python's
     signal docs give this fix for a ``BrokenPipeError`` on stdout.
     """
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    os.dup2(devnull, sys.stdout.fileno())
-    os.close(devnull)
+    try:
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, sys.stdout.fileno())
+        finally:
+            os.close(devnull)
+    except (OSError, ValueError, AttributeError):
+        # stdout None, closed or replaced: the swap is not possible, and the
+        # shutdown event matters more than the exit status.
+        logger.debug("could not point stdout at devnull", exc_info=True)
 
 
 def _preflight_bind_check(host: str, port: int) -> None:

@@ -392,14 +392,14 @@ def _spy_on_sentry(monkeypatch: pytest.MonkeyPatch) -> list[BaseException]:
 
 
 @pytest.mark.parametrize(
-    "closed_pipe",
+    ("platform", "closed_pipe"),
     [
-        pytest.param(BrokenPipeError(errno.EPIPE, "Broken pipe"), id="posix"),
-        pytest.param(OSError(errno.EINVAL, "Invalid argument"), id="windows"),
+        pytest.param("darwin", BrokenPipeError(errno.EPIPE, "Broken pipe"), id="posix"),
+        pytest.param("win32", OSError(errno.EINVAL, "Invalid argument"), id="windows"),
     ],
 )
 def test_a_closed_stdout_on_stdio_ends_the_server_cleanly(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, closed_pipe: OSError
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, platform: str, closed_pipe: OSError
 ) -> None:
     """Sentry OPIK-MCP-S and OPIK-MCP-7P: every host that quit was reported
     as a transport crash, with a traceback and a failing exit status."""
@@ -408,6 +408,8 @@ def test_a_closed_stdout_on_stdio_ends_the_server_cleanly(
 
     class _ClosedPipeMcp:
         def run(self, *, transport: str) -> None:
+            # Set here, after boot, so only the disconnect check sees it.
+            monkeypatch.setattr("sys.platform", platform)
             raise ExceptionGroup("unhandled errors in a TaskGroup", [closed_pipe])
 
     monkeypatch.setattr("opik_mcp.server.mcp", _ClosedPipeMcp())
@@ -424,9 +426,51 @@ def test_a_closed_stdout_on_stdio_ends_the_server_cleanly(
     assert sentry_captures == []
 
 
+def test_einval_off_windows_is_still_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only Windows reports a closed pipe as EINVAL; elsewhere it is a real failure."""
+    recorder = _install_recorder(monkeypatch)
+    sentry_captures = _spy_on_sentry(monkeypatch)
+
+    class _BoomMcp:
+        def run(self, *, transport: str) -> None:
+            monkeypatch.setattr("sys.platform", "linux")
+            raise ExceptionGroup("g", [OSError(errno.EINVAL, "Invalid argument")])
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _BoomMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+
+    with pytest.raises(ExceptionGroup):
+        main_mod.main()
+
+    shutdown = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shutdown["reason"] == "transport_error"
+    assert len(sentry_captures) == 1
+
+
+def test_a_disconnect_without_a_usable_stdout_still_reports_its_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no descriptor to point at devnull, the shutdown event still goes out."""
+    recorder = _install_recorder(monkeypatch)
+
+    class _ClosedPipeMcp:
+        def run(self, *, transport: str) -> None:
+            raise ExceptionGroup("g", [BrokenPipeError()])
+
+    monkeypatch.setattr("opik_mcp.server.mcp", _ClosedPipeMcp())
+    monkeypatch.setenv("OPIK_MCP_TRANSPORT", "stdio")
+    monkeypatch.setattr("sys.stdout", None)
+
+    main_mod.main()
+
+    shutdown = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
+    assert shutdown["reason"] == "client_disconnected"
+
+
 def test_a_closed_pipe_beside_a_real_error_is_still_a_crash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The bucket names the real error, not the closed pipe it caused."""
     recorder = _install_recorder(monkeypatch)
     sentry_captures = _spy_on_sentry(monkeypatch)
 
@@ -442,7 +486,8 @@ def test_a_closed_pipe_beside_a_real_error_is_still_a_crash(
 
     shutdown = next(p for et, p in recorder.events if et == EVENT_SERVER_SHUTDOWN)
     assert shutdown["reason"] == "transport_error"
-    assert EVENT_STARTUP_ERROR in [et for et, _ in recorder.events]
+    startup_error = next(p for et, p in recorder.events if et == EVENT_STARTUP_ERROR)
+    assert startup_error["exception_type"] == "RuntimeError"
     assert len(sentry_captures) == 1
 
 

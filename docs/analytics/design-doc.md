@@ -78,8 +78,9 @@ no PII, and `before_send` caps events per process at `_MAX_EVENTS`
 (`src/opik_mcp/error_tracking.py`).
 
 A transport failure sends `startup_error` and goes to Sentry, with
-`exception_type` taken from the first leaf of an exception group. On stdio,
-a failure whose every leaf is a closed-pipe error (`BrokenPipeError`,
+`exception_type` taken from the first leaf of an exception group that is
+not a closed-pipe error. On stdio, a failure whose every leaf is a
+closed-pipe error (`BrokenPipeError`,
 `ConnectionResetError`, or `OSError` EINVAL on Windows) means the host quit:
 `server_shutdown` says `client_disconnected`, nothing goes to Sentry, and the
 process exits 0 (`_is_client_disconnect` in `src/opik_mcp/__main__.py`).
