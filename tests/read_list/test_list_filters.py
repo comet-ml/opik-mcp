@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 import httpx
 import pytest
@@ -449,7 +449,7 @@ class _CertificateRejected(FakeOpikClient):
         super().__init__()
         self._error = error
 
-    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+    async def list_traces(self, **kw: object) -> NoReturn:
         raise self._error
 
 
