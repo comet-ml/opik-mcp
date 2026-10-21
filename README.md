@@ -100,6 +100,7 @@ skills only. Claude Code does not update a plugin from
 this marketplace on its own: run `/plugin marketplace update opik`, then
 `/plugin update opik@opik`, or turn on auto-update for the marketplace in
 `/plugin`. This marketplace serves `main`, which can be ahead of the last
+release. An update arrives only when the plugin's version changes, at each
 release.
 
 If you added `opik-mcp` before at the same URL, Claude Code keeps your copy and

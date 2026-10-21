@@ -37,9 +37,10 @@ Opik.
 - The MCP server calls the Opik API at `www.comet.com`, or at the URL that
   you set, with your sign-in. It reads or changes only the Opik data that you
   ask Claude to work with.
-- The hosted server records product usage events: which tool ran, and
-  whether it failed. These events never include argument values, free text
-  or trace content.
+- The hosted server records product usage events: which tool ran, whether it
+  failed and how long it took, with your Comet login and workspace. These
+  events never include argument values, filter values, free text, paths or
+  trace content.
 - The hosted server sends a crash report to Comet's error tracking when an
   unexpected error occurs. A report can include details of the request that
   failed.

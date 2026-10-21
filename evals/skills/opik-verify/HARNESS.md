@@ -6,7 +6,7 @@ verdict OPIK-7470 deferred until compare produced real deltas.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-verify/
   cases.yaml                          # triggering + functional (ship, hold, safety) + edge (review, too_small, too_small_hold)
   fixtures/gate/seed.py               # ONE suite (12 items), baseline + candidate-ship / -hold / -safety
   fixtures/gate/opik-release-policy.yaml   # the policy; `prepare` rewrites judge_validated / min_items per case

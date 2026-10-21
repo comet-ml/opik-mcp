@@ -6,7 +6,7 @@ structured on Anthropic's *Testing and iteration* guidance and OPIK-7650.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-test/
   cases.yaml          # triggering + functional (capture) + edge (duplicate)
   fixtures/toolbug/   # the explain skill's buggy support agent — emits a wrong-refund trace
   grader.py           # deterministic: item vs emitted trace id, assertion bounds, read-only

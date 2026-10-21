@@ -5,7 +5,7 @@
     "url": "https://github.com/comet-ml"
   },
   "metadata": {
-    "description": "The opik plugin:the Opik agent skills and the hosted Opik MCP server."
+    "description": "The opik plugin: the Opik agent skills and the hosted Opik MCP server."
   },
   "plugins": [
     {

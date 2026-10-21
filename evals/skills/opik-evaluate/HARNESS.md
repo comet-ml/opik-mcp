@@ -7,7 +7,7 @@ here so they can be added without moving the target.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-evaluate/
   cases.yaml     # triggering (automated) + functional contract (fixture TODO)
   run_evals.py   # trigger-prepare / trigger-grade
   _work/         # judge input + verdicts (gitignored)

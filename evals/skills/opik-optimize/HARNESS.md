@@ -5,7 +5,7 @@ Test cases, automation, and success metrics for the `opik-optimize` skill.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-optimize/
   cases.yaml            # triggering + functional (library_prompt)
   fixtures/format/      # seed.py: 50 order-line items with a strict expected format + a weak library prompt
   grader.py             # deterministic: validation gain, budget, split, version discipline, read-only

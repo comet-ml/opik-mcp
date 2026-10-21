@@ -6,7 +6,7 @@ structured on Anthropic's *Testing and iteration* guidance and OPIK-7648.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-diagnose/
   cases.yaml        # triggering + functional (triage)
   fixtures/seed/    # seeder: plants error/slow/low-score/normal traces in a fresh project
   grader.py         # deterministic: shortlist vs planted ids + signals + read-only, no network

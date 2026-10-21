@@ -8,7 +8,7 @@ whether the agent named those cases").
 ## Layout
 
 ```
-evals/
+evals/skills/opik-compare/
   cases.yaml            # triggering + functional (regress) + edge (first_run)
   fixtures/regress/     # seed.py: suite + BASELINE run; agent.py: the CANDIDATE the skill runs
   grader.py             # deterministic: flips by item id, both ids in the link, no verdict, read-only

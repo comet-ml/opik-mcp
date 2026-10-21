@@ -9,7 +9,7 @@ code was edited or that "a trace arrived".
 ## Layout
 
 ```
-evals/
+evals/skills/opik-instrument/
   cases.yaml            # triggering + functional (clean, missing_flush)
   fixtures/
     clean/              # uninstrumented app; correct instrumentation -> 3-span trace

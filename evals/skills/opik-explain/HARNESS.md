@@ -7,7 +7,7 @@ functional / edge) and OPIK-7649.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-explain/
   cases.yaml        # declarative cases (triggering + functional + edge)
   fixtures/         # instrumented apps with a KNOWN bug
     toolbug/          retrieval returns empty -> ungrounded answer

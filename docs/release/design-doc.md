@@ -66,7 +66,9 @@ After `github-release`, `claude-plugin-branch` fast-forwards the
 `claude-plugin` branch to the released commit. Anthropic's directory tracks
 that branch for new versions of the plugin, so the listing changes with each
 release, not with each merge. A push that is not a fast-forward fails; a
-re-run pushes the same commit again.
+re-run pushes the same commit again. The branch is created once by hand from
+a release commit. If the job's push is refused because the range changes
+`.github/workflows/`, give the job a token with the `workflows` permission.
 
 ### Replaying a failed release
 
@@ -75,10 +77,10 @@ Never delete the tag. `validate` then releases the tagged commit even if `main`
 has moved. Every publish step can run twice (PyPI via `skip-existing`), and
 `bump-version` runs only after all of them succeed.
 
-`mcp-registry` is the exception: `bump-version` does not wait for it, so when
-it fails `version.txt` may already name the next version, and a new dispatch
-would release that one. Re-run the failed `mcp-registry` job inside the same
-run instead.
+`mcp-registry` and `claude-plugin-branch` are the exceptions: `bump-version`
+does not wait for them, so when one fails `version.txt` may already name the
+next version, and a new dispatch would release that one. Re-run the failed job
+inside the same run instead.
 
 ### The MCP Registry entry
 

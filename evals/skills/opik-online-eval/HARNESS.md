@@ -5,7 +5,7 @@ Test cases, automation, and success metrics for the `opik-online-eval` skill.
 ## Layout
 
 ```
-evals/
+evals/skills/opik-online-eval/
   cases.yaml            # triggering + functional (judge_live) + edge (already_exists)
   fixtures/traffic/     # seed.py: fresh project + six traces (+ a pre-created rule for the edge case)
                         # traffic.py: three more traced requests, for the skill's verify step
