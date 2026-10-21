@@ -71,7 +71,7 @@ jobs:
       pyver: ${{ steps.v.outputs.pyver }}       # PEP 440 form for a dev wheel
       sha_tag: ${{ steps.v.outputs.sha_tag }}   # sha-<short>, the image's real identity
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Read the pending version
         id: v
         run: |
@@ -120,7 +120,7 @@ jobs:
   python-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
@@ -173,7 +173,7 @@ jobs:
     # underneath this.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
@@ -194,7 +194,7 @@ jobs:
     needs: version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
@@ -243,7 +243,7 @@ jobs:
       # consumer track a name that changes, which is the problem this avoids.
       PACK_TAG: skills-pack
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v4
         with:
           name: skills-pack
@@ -289,7 +289,7 @@ jobs:
   helm-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
@@ -309,7 +309,7 @@ jobs:
       # mcp-publisher_linux_amd64.tar.gz in registry_1.8.1_checksums.txt.
       MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install mcp-publisher
         run: |
           set -euo pipefail
@@ -327,20 +327,20 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (baked into the image via COPY src)
         run: VERSION="${{ needs.version.outputs.pyver }}" make version
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v3
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push (push only off PRs)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
