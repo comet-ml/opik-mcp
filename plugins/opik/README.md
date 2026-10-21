@@ -1,9 +1,9 @@
 # Opik plugin
 
 The [Opik](https://github.com/comet-ml/opik) plugin gives Claude the Opik agent
-skills and connects it to the hosted Opik MCP server, so it can instrument an
-app, read and score traces, run evaluations and explain failures in your Opik
-Cloud workspace.
+skills and connects it to the Opik MCP server, so it can instrument an app,
+read and score traces, run evaluations and explain failures in your Opik
+workspace.
 
 ## Install
 
@@ -13,26 +13,30 @@ In Claude Code:
 /plugin install opik --marketplace comet-ml/opik-mcp
 ```
 
-Then start a new session and sign in from `/mcp` → **Authenticate**.
+The install asks for the **Opik MCP server URL**. Keep the default for Opik
+Cloud. Then start a new session and sign in from `/mcp` → **Authenticate**.
+To change the URL later, run `/plugin configure opik@opik`.
 
 ## What it adds
 
 - **Skills:** `opik` (the SDK reference) and `opik-instrument`,
   `opik-diagnose`, `opik-explain`, `opik-evaluate`, `opik-compare`,
   `opik-test`, `opik-verify`, `opik-online-eval` and `opik-optimize`.
-- **MCP server `opik-mcp`:** Comet's hosted server at
+- **MCP server `opik-mcp`:** by default, Comet's hosted server at
   `https://www.comet.com/opik/api/v1/mcp`. You sign in once in the browser
   (OAuth); there is no API key to set. Its tools are `read`, `list`, `write`,
   `schema` and `read_skill`.
 
-The server is for Opik Cloud. For a self-hosted or open-source Opik, set up
-the local server with `uvx opik@latest mcp configure`; the skills work with
-any Opik.
+For a self-hosted Opik that serves the MCP server, set the URL to its
+address, such as `https://<host>/opik/api/v1/mcp`. Otherwise, set up the
+local server with `uvx opik@latest mcp configure`. The skills work with any
+Opik.
 
 ## What it sends, and where
 
-- The MCP server calls the Opik API at `www.comet.com` with your sign-in, and
-  reads or changes only the Opik data that you ask Claude to work with.
+- The MCP server calls the Opik API at `www.comet.com`, or at the URL that
+  you set, with your sign-in. It reads or changes only the Opik data that you
+  ask Claude to work with.
 - The hosted server records product usage events: which tool ran, and
   whether it failed. These events never include argument values, free text
   or trace content.

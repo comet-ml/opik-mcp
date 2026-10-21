@@ -80,7 +80,8 @@ it to Cursor or VS Code in one click; other ways to register it by hand are unde
 
 ### Claude Code plugin
 
-The `opik` plugin installs the Opik skills and registers the hosted server:
+The `opik` plugin installs the Opik skills and registers the MCP server, by
+default the hosted one:
 
 ```
 /plugin install opik --marketplace comet-ml/opik-mcp
@@ -89,9 +90,13 @@ The `opik` plugin installs the Opik skills and registers the hosted server:
 On Claude Code before 2.1.275, run `/plugin marketplace add comet-ml/opik-mcp`,
 then `/plugin install opik@opik`. The skills load as `opik:<skill>`, such as
 `opik:opik-instrument`, and `/mcp` shows the server as `plugin:opik:opik-mcp`.
-Start a new session, then sign in from `/mcp` → **Authenticate**. The plugin
-is for Opik Cloud; for a self-hosted or open-source Opik, use the
-[Quick start](#quick-start) command. Claude Code does not update a plugin from
+The install asks for the **Opik MCP server URL**: keep the default for Opik
+Cloud, or enter `https://<host>/opik/api/v1/mcp` for a self-hosted Comet that
+runs the MCP OAuth server. `/plugin configure opik@opik` changes it later.
+Start a new session, then sign in from `/mcp` → **Authenticate**. For any other
+self-hosted or open-source Opik, use the [Quick start](#quick-start) command.
+claude.ai chat ignores a URL built from a setting, so there the plugin adds the
+skills only. Claude Code does not update a plugin from
 this marketplace on its own: run `/plugin marketplace update opik`, then
 `/plugin update opik@opik`, or turn on auto-update for the marketplace in
 `/plugin`. This marketplace serves `main`, which can be ahead of the last
