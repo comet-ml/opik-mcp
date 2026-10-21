@@ -925,6 +925,14 @@ Note for local OSS installs: the OSS backend does not authenticate requests,
 so an HTTP opik-mcp in front of it is as open as the OSS REST API itself.
 Keep the default `127.0.0.1` bind (and prefer stdio) on shared networks.
 
+### Telemetry
+
+| Variable | Default | Notes |
+|---|---|---|
+| `OPIK_MCP_ANALYTICS_ENABLED` | `true` | Set to `false` to disable all non-Sentry telemetry. |
+| `OPIK_MCP_SENTRY_ENABLED | `true` | Set to `false` to disable all Sentry telemetry. |
+=======
+
 ---
 
 ## Known host limits
