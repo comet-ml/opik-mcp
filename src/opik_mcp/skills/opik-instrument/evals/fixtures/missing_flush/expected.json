@@ -1,0 +1,8 @@
+{
+  "case": "missing_flush",
+  "framework": "openai",
+  "expected_sites": 3,
+  "expected_types": ["general", "llm", "tool"],
+  "defect": "missing_flush",
+  "note": "Already instrumented but exits without flush, so no complete trace lands. The skill must not claim success without a real, complete trace (it may fix the flush and verify, or block with a flush next-step)."
+}

@@ -1,0 +1,58 @@
+# Test cases for the `/opik-test` skill.
+#
+#   triggering  -> does the skill load at the right times?
+#   functional  -> given a real failing trace, does it capture a runnable suite item?
+#   edge        -> the dedupe path behaves per the contract.
+#
+# The functional fixture is an instrumented app with a KNOWN bug (the same
+# toolbug agent the explain skill uses). `prepare` runs it to emit a real trace
+# and substitutes the id into <TRACE_ID>. The grader scores the agent's
+# result.json (status / suite / item / source / next_step): the item must point
+# at the emitted trace, carry one or two assertions that name the failure, and
+# the app code must be unchanged. `verify` (network) confirms the item exists.
+
+triggering:
+  should_trigger:
+    - "turn this into a test"
+    - "add a regression case for this trace"
+    - "make sure this doesn't happen again"
+    - "capture this failure"
+    - "add this to the test suite"
+    - "write a test for the bug in this trace"
+  should_not_trigger:
+    - "did my fix work"                            # compare
+    - "run the regression suite"                   # compare
+    - "build an evaluation for my agent"           # evaluate
+    - "why did this trace fail"                    # explain
+    - "add opik tracing to my app"                 # instrument
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: capture
+    fixture: toolbug
+    emit_trace: true
+    prompt: "Turn Opik trace <TRACE_ID> into a regression test — the refund answer was wrong."
+    expect_status: captured
+    assert:
+      status: captured
+      source_trace_matches: true          # item.source_trace_id == the emitted trace id
+      assertions_between: [1, 2]          # one failure mode each; never a checklist
+      assertion_any: [refund, "5-7", "5–7", "business days", "24"]   # names the actual failure
+      suite_named: true
+      input_verbatim: true                # item.input contains the fixture's question
+      one_next_step: true
+      next_step_mentions: [compare]       # hands off to /opik-compare
+      no_modifications: true
+
+edge:
+  - id: duplicate
+    fixture: toolbug
+    emit_trace: false                     # reuses the trace from `capture` (run AFTER it)
+    reuse_trace_from: capture
+    prompt: "Turn Opik trace <TRACE_ID> into a regression test."
+    expect_status: exists
+    assert:
+      status: exists
+      source_trace_matches: true
+      one_next_step: true
+      no_modifications: true

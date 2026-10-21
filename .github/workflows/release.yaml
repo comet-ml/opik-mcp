@@ -1,17 +1,31 @@
 name: Release
-run-name: "Release ${{ inputs.tag }} by @${{ github.actor }}"
+run-name: "Release by @${{ github.actor }}"
 
-# Manual release of a CI-built version. Pick a git tag created by a main build
-# (x.y.z). Nothing is rebuilt: the existing GHCR image is promoted to :latest,
-# and the chart + PyPI package are published at that version from the tag's source.
+# Manual release. THIS WORKFLOW CREATES THE TAG — nothing else in the repo does.
+#
+# The version comes from `version.txt` (x.y.z, the pending release), so there is
+# no version to type and no wrong tag to pick. The tag is created here at the
+# commit being released, the image built from that commit is promoted, the chart
+# and PyPI package are published, the GitHub release is created, and finally
+# `version.txt` is bumped on main for the next cycle. Mirrors comet-ml/opik.
+#
+# Consequence, which is the point: a git tag exists only for a released version,
+# so tags, GitHub releases and PyPI versions are one set rather than three that
+# drift. (Before this, main builds tagged every merge and 0.2.25-0.2.27 were
+# tagged but never released.)
+#
+# ORDERING. The tag is created FIRST, because the chart and PyPI jobs build from
+# `refs/tags/<version>` and a release must be reproducible from a ref. If a later
+# job fails, re-run with `reuse_existing_tag: true` rather than deleting the tag.
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        type: string
-        required: true
-        description: "Git tag to release (x.y.z, created by a main build — e.g. 0.2.42)"
+      reuse_existing_tag:
+        type: boolean
+        required: false
+        default: false
+        description: "Reuse the existing tag for version.txt instead of creating it. Use to replay a release whose tag was already pushed by a failed run."
 
 permissions:
   contents: write   # create the GitHub release
@@ -20,6 +34,8 @@ permissions:
 
 env:
   IMAGE: ghcr.io/comet-ml/opik-mcp
+  # `uv build` in the pypi job refuses a stale uv.lock.
+  UV_LOCKED: "1"
 
 jobs:
 
@@ -27,40 +43,125 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
+      sha: ${{ steps.v.outputs.sha }}
+      sha_tag: ${{ steps.v.outputs.sha_tag }}
     steps:
-      - name: Validate tag format
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Read version.txt and pin the commit being released
         id: v
         run: |
-          TAG=$(echo "${{ inputs.tag }}" | tr -d ' \t\r\n')
-          if ! echo "$TAG" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::tag must be x.y.z (a main-build tag), got '$TAG'"; exit 1
+          set -euo pipefail
+          VERSION=$(tr -d ' \t\r\n' < version.txt)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version.txt must be MAJOR.MINOR.PATCH (x.y.z), got '$VERSION'"; exit 1
           fi
-          echo "version=$TAG" | tee -a "$GITHUB_OUTPUT"
+
+          # Pin the SHA once, here. Every later job resolves from this rather
+          # than from `main`, so a merge landing mid-release cannot make the tag,
+          # the image and the wheel come from three different commits.
+          #
+          # ON A REPLAY THE TAG WINS, not main. A replay finishes a release that
+          # already tagged and published from an earlier commit; main has almost
+          # certainly moved on by then (very likely to the fix that made the
+          # replay necessary). Taking main's HEAD would promote an image built
+          # from the WRONG commit and stamp the released version on it, leaving
+          # the tag, the wheel and the image disagreeing about what 0.x.y is.
+          EXISTING_TAG_SHA=$(git ls-remote --tags origin "refs/tags/$VERSION" | awk '{print $1}')
+          if [ -n "$EXISTING_TAG_SHA" ]; then
+            git fetch --depth=1 origin "refs/tags/$VERSION" >/dev/null 2>&1 || true
+            SHA=$(git rev-parse "refs/tags/$VERSION^{commit}" 2>/dev/null || echo "$EXISTING_TAG_SHA")
+            echo "::notice title=validate::$VERSION is already tagged; releasing that commit (${SHA:0:12}), not main."
+          else
+            SHA=$(git rev-parse HEAD)
+          fi
+          echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
+          echo "sha=$SHA" | tee -a "$GITHUB_OUTPUT"
+          echo "sha_tag=sha-${SHA:0:12}" | tee -a "$GITHUB_OUTPUT"
+          echo "### Releasing $VERSION from ${SHA:0:12}" >> "$GITHUB_STEP_SUMMARY"
+
+  create-git-tag:
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - name: Create and push the release tag
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          REUSE: ${{ inputs.reuse_existing_tag }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(git ls-remote --tags origin "refs/tags/$VERSION" | awk '{print $1}')
+
+          if [ "$REUSE" = "true" ]; then
+            if [ -n "$EXISTING" ]; then
+              echo "::warning title=create-git-tag::reusing existing tag $VERSION at $EXISTING — verify that is the commit you mean to release."
+              exit 0
+            fi
+            echo "::error::reuse_existing_tag=true but origin has no tag $VERSION. Refusing to create one silently."
+            exit 1
+          fi
+
+          if [ -n "$EXISTING" ]; then
+            echo "::error::tag $VERSION already exists at $EXISTING — version.txt was not bumped after the last release. Bump it, or re-run with reuse_existing_tag to replay."
+            exit 1
+          fi
+
+          git config --local user.email "github-actions@comet.com"
+          git config --local user.name "github-actions"
+          git tag "$VERSION"
+          git push --no-verify origin "refs/tags/$VERSION"
 
   promote-image:
-    needs: validate
+    needs: [validate, create-git-tag]
     runs-on: ubuntu-latest
     steps:
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Tag released image as :latest (no rebuild)
+      # Promotes the image CI built for this exact commit. No rebuild, so the
+      # released digest is provably the one that passed CI on that commit.
+      # WAITS for the image rather than requiring the operator to time the
+      # release. Releasing right after a merge is the normal thing to do, and
+      # the multi-arch build takes ~75s — 0.2.28 failed by looking 35s too
+      # early. Ten minutes covers a cold cache; the failure message still names
+      # the cause if CI genuinely did not run.
+      - name: Wait for the commit's image, then promote it to :x.y.z and :latest
+        env:
+          SHA_TAG: ${{ needs.validate.outputs.sha_tag }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
+          set -euo pipefail
+          deadline=$(( SECONDS + 600 ))
+          until docker buildx imagetools inspect "${IMAGE}:${SHA_TAG}" >/dev/null 2>&1; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::${IMAGE}:${SHA_TAG} never appeared after 10 minutes. Check the CI run for this commit, then re-run this workflow with reuse_existing_tag: true."
+              exit 1
+            fi
+            echo "waiting for ${IMAGE}:${SHA_TAG} (main's build-image is probably still running)…"
+            sleep 20
+          done
           docker buildx imagetools create \
+            -t "${IMAGE}:${VERSION}" \
             -t "${IMAGE}:latest" \
-            "${IMAGE}:${{ needs.validate.outputs.version }}"
-          echo "### Image: \`${IMAGE}:${{ needs.validate.outputs.version }}\` → \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
+            "${IMAGE}:${SHA_TAG}"
+          echo "### Image: \`${IMAGE}:${SHA_TAG}\` → \`:${VERSION}\`, \`:latest\`" >> "$GITHUB_STEP_SUMMARY"
 
   publish-chart:
-    needs: validate
+    needs: [validate, create-git-tag]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.validate.outputs.version }}
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
@@ -74,39 +175,146 @@ jobs:
           echo "### Chart: \`oci://ghcr.io/comet-ml/charts/opik-mcp:${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   pypi:
-    needs: validate
+    needs: [validate, create-git-tag]
     runs-on: ubuntu-latest
     environment: pypi
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.validate.outputs.version }}
+          ref: ${{ needs.validate.outputs.sha }}
       - uses: astral-sh/setup-uv@v6
       - name: Stamp the release version + build
+        # VERSION must reach `uv build`, not only `make version`: hatch computes the
+        # published version from scripts/_build_version.py, which reads $VERSION and
+        # otherwise falls back to `<version.txt>.dev0`. A per-command assignment on
+        # the `make` line leaves `uv build` without it, which is how 0.2.37.dev0 was
+        # published as a release. Step-level env, like every other job here.
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          VERSION="${{ needs.validate.outputs.version }}" make version
+          make version
           uv build
+          for dist in dist/*; do
+            case "$dist" in
+              *"-$VERSION.tar.gz"|*"-$VERSION-py3-none-any.whl") ;;
+              *) echo "::error::built $dist, expected version $VERSION"; exit 1 ;;
+            esac
+          done
       - name: Publish to PyPI (Trusted Publishing)
         uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # A PyPI version can be uploaded exactly once, so without this a
+          # REPLAY (`reuse_existing_tag: true`, after a later job failed) dies
+          # here on a duplicate and skips the very jobs it was re-run to
+          # finish. That happened on 0.2.28: PyPI succeeded, promote-image lost
+          # a race, and the recovery path could not get past this step.
+          # `skip-existing` makes the upload idempotent — a replay confirms the
+          # version is published rather than failing because it is.
+          skip-existing: true
       - name: Summary
         run: |
           echo "### PyPI: \`opik-mcp ${{ needs.validate.outputs.version }}\`" >> "$GITHUB_STEP_SUMMARY"
 
+  # The MCP Registry entry (server.json), so registry clients and galleries
+  # install this server rather than the deprecated npm one. After `pypi`: the
+  # registry accepts a PyPI package only once that version's description on
+  # PyPI carries the README's `mcp-name` line. Kept out of `github-release`'s
+  # needs because the registry is a preview service; a failure here should not
+  # hold back a release already on PyPI. Re-run this job on its own.
+  mcp-registry:
+    needs: [validate, pypi]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # GitHub OIDC login for the io.github.comet-ml namespace
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      # mcp-publisher_linux_amd64.tar.gz in registry_1.8.1_checksums.txt.
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      # server.json carries the placeholder 0.0.0, like Chart.yaml; the release
+      # version exists only here.
+      - name: Stamp the release version into server.json
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          jq --arg v "$VERSION" '.version = $v | .packages |= map(.version = $v)' server.json > server.json.new
+          mv server.json.new server.json
+          jq -e --arg v "$VERSION" '.version == $v and all(.packages[]; .version == $v)' server.json > /dev/null
+      - name: Publish to the MCP Registry
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          NAME=$(jq -r .name server.json)
+          ENCODED=$(jq -rn --arg n "$NAME" '$n | @uri')
+          VERSION_URL="https://registry.modelcontextprotocol.io/v0.1/servers/${ENCODED}/versions/${VERSION}?include_deleted=true"
+          # A version can be published once, deleted ones included, so a replay,
+          # or an attempt whose response was lost, finds it and stops. Only this
+          # PyPI package counts: the npm entries hold 0.1.3 and 2.0.0 to 2.0.2,
+          # and a Python release with one of those numbers must fail rather
+          # than pass as already published.
+          is_published() {
+            local entry
+            entry=$(curl -fs "$VERSION_URL") || return 1
+            if ! jq -e '.server.packages | any(.registryType == "pypi")' <<< "$entry" > /dev/null; then
+              echo "::error::${NAME} ${VERSION} is already in the registry as another package. Release under a version it does not have."
+              exit 1
+            fi
+          }
+          # PyPI's JSON API can trail the upload by a few minutes, and the
+          # ownership check reads it. The registry token lasts 5 minutes, so
+          # every attempt logs in again.
+          for attempt in 1 2 3 4 5 6; do
+            if is_published; then
+              echo "::notice title=mcp-registry::${NAME} ${VERSION} is in the registry."
+              echo "### MCP Registry: \`${NAME}\` ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            ./mcp-publisher login github-oidc
+            if ./mcp-publisher publish server.json; then
+              echo "### MCP Registry: \`${NAME}\` ${VERSION}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "publish attempt ${attempt} failed; retrying in 30s"
+            sleep 30
+          done
+          echo "::error::${NAME} ${VERSION} was not accepted by the MCP Registry. Once PyPI shows opik-mcp ${VERSION} with the README's mcp-name line, re-run this job."
+          exit 1
+
   github-release:
-    needs: [validate, promote-image, publish-chart, pypi]
+    needs: [validate, create-git-tag, promote-image, publish-chart, pypi]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.validate.outputs.version }}
+          ref: ${{ needs.validate.outputs.sha }}
           fetch-depth: 0
+      # Replay-safe, for the same reason as `skip-existing` on the PyPI upload:
+      # a re-run exists to finish a release, so a step that already succeeded
+      # must be a no-op rather than the thing that stops it finishing.
       - name: Create GitHub release for the tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
-          gh release create "${{ needs.validate.outputs.version }}" \
-            --title "${{ needs.validate.outputs.version }}" \
-            --generate-notes
+          set -euo pipefail
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "::notice title=github-release::release $VERSION already exists; leaving it as is."
+          else
+            gh release create "$VERSION" --title "$VERSION" --generate-notes
+          fi
           echo "### Release: [\`${{ needs.validate.outputs.version }}\`](${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ needs.validate.outputs.version }})" >> "$GITHUB_STEP_SUMMARY"
 
       # Remove the rolling draft maintained by release-drafter now that a real
@@ -115,3 +323,37 @@ jobs:
         uses: hugo19941994/delete-draft-releases@v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Closes the loop: version.txt always names an UNRELEASED version, so the next
+  # release has nothing to type and cannot collide with a published one. Runs
+  # last and only on success — bumping after a failed release would strand the
+  # version that failed, with no tag and no way to retry it by name.
+  bump-version:
+    needs: [validate, github-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - name: Bump the patch on main
+        env:
+          RELEASED: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          CURRENT=$(tr -d ' \t\r\n' < version.txt)
+          if [ "$CURRENT" != "$RELEASED" ]; then
+            # Someone bumped it by hand mid-release, or main moved. Their value
+            # wins: overwriting it could silently re-release a version.
+            echo "::warning title=bump-version::version.txt is $CURRENT, not the released $RELEASED — leaving it alone."
+            exit 0
+          fi
+          NEXT="${RELEASED%.*}.$(( ${RELEASED##*.} + 1 ))"
+          printf '%s\n' "$NEXT" > version.txt
+          git config --local user.email "github-actions@comet.com"
+          git config --local user.name "github-actions"
+          git add version.txt
+          git commit -m "Bump version.txt to $NEXT after releasing $RELEASED"
+          git push origin main
+          echo "### Next version: \`$NEXT\` (was \`$RELEASED\`)" >> "$GITHUB_STEP_SUMMARY"

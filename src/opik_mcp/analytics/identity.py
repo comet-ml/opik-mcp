@@ -5,7 +5,7 @@
 - ``api_key_sha256(key)``: SHA-256 of the OPIK_API_KEY, emitted as a stable
   pseudonymous per-credential label. NOTE: it is not a usable join key on its
   own — the warehouse holds no api-key-hash → user mapping, which is why real
-  identity is resolved from the backend instead (see ``credential_identity``).
+  identity is resolved from the backend instead (see ``identity.store``).
   The raw key NEVER leaves this module.
 
 The top-level ``user_id`` is assembled in ``analytics.client``; see the note at
@@ -20,21 +20,23 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from opik_mcp.credential_identity import credential_digest
+from opik_mcp.identity.store import credential_digest
+
+# `make version` generates _version.py and git ignores it, so a bare checkout has none.
+try:
+    from opik_mcp._version import __version__ as _BUILT_VERSION
+except ImportError:
+    _BUILT_VERSION = ""
 
 logger = logging.getLogger("opik_mcp.analytics.identity")
 
 
 def _resolve_opik_mcp_version() -> str:
     # Prefer the build-generated _version.py (carries the exact CI/release version,
-    # e.g. the hosted image's 0.2.N). Fall back to installed package metadata, then
+    # e.g. the hosted image's x.y.z). Fall back to installed package metadata, then
     # to "unknown" for an uninstalled/un-generated tree.
-    try:
-        from opik_mcp._version import __version__
-
-        return __version__
-    except ImportError:
-        pass
+    if _BUILT_VERSION:
+        return _BUILT_VERSION
     try:
         return version("opik-mcp")
     except PackageNotFoundError:
@@ -97,6 +99,24 @@ def get_install_id() -> str:
     return _get_install_id()[0]
 
 
+def install_id_kind() -> str:
+    """``"file"`` for a real on-disk id, ``"fallback"`` for the nil sentinel.
+
+    The sentinel is not merely uninformative — it is a SHARED identity. Any two
+    deployments with an unwritable HOME report the same ``install_id``, so
+    unrelated installs merge into one counted row. Measured on the hosted server:
+    100% of its events carry the nil id, collapsing hundreds of people into a
+    single "install" and silently mis-attributing every install-keyed tile.
+
+    ``install_id`` itself is unchanged, so no existing dashboard moves. This
+    field is what lets a query exclude the sentinel instead of counting it, and
+    what distinguishes "identity unavailable" from "one very busy machine".
+
+    Do not reintroduce the sentinel as a join key — see ``_FALLBACK_INSTALL_ID``.
+    """
+    return "fallback" if _get_install_id()[0] == _FALLBACK_INSTALL_ID else "file"
+
+
 def install_id_was_freshly_generated() -> bool:
     """True iff this process is the one that just wrote the install-id file."""
     return _get_install_id()[1]
@@ -109,7 +129,7 @@ def api_key_sha256(api_key: str) -> str:
     join key: this module used to claim the backend retained a raw-key → user-id
     mapping BI could join on, and it does not — a digest join against the
     warehouse returns zero matches. Real identity is resolved from the backend
-    (see ``credential_identity``); this stays as a credential-level label only.
+    (see ``identity.store``); this stays as a credential-level label only.
 
     Lowercase hex (64 chars) matches the convention used elsewhere in Comet.
     Delegates to ``credential_digest`` so every digest in the codebase is the

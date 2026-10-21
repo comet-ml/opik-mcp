@@ -1,13 +1,16 @@
+from __future__ import annotations
+
 import logging
 import os
 import socket
 import sys
 import time
 
+import httpx
 import uvicorn
 from pydantic import ValidationError
 
-from opik_mcp import error_tracking
+from opik_mcp import command_line, error_tracking
 from opik_mcp.analytics import (
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
@@ -18,7 +21,8 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
-from opik_mcp.config import Settings, get_settings
+from opik_mcp.client.errors.hints import LOOPBACK_HOSTS
+from opik_mcp.config import DOCS_LOCAL_SERVER, Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
 
@@ -238,11 +242,20 @@ def _emit_server_shutdown(
 
 
 def main() -> None:
+    # Before settings, Sentry and analytics: help must not depend on a valid
+    # environment, and an agent probing the command is not a server session.
+    reply = command_line.reply_for(sys.argv[1:])
+    if reply is not None:
+        sys.stdout.write(reply.rstrip("\n") + "\n")
+        return
+    if command_line.CHECK_ARGUMENT in sys.argv[1:]:
+        sys.exit(command_line.run_check())
+
     try:
         settings = get_settings()
     except ValidationError as e:
         # Settings construction failed — typically a bad COMET_WORKSPACE_ID
-        # UUID or an unrecognised OPIK_MCP_AUTO_APPROVE literal. The singleton
+        # UUID or an out-of-range numeric override. The singleton
         # route would re-construct Settings and re-raise; use a dedicated
         # fallback client that doesn't depend on the broken config so the
         # event still lands. Sentry isn't informed here — the values that
@@ -265,6 +278,20 @@ def main() -> None:
 
     _configure_logging(settings.opik_mcp_log_level)
     transport = settings.opik_mcp_transport.lower()
+    # Hosts start the stdio server on a pipe, so a terminal on stdin is a person.
+    stdin_is_a_terminal = transport == "stdio" and sys.stdin is not None and sys.stdin.isatty()
+    for warning in command_line.startup_warnings(
+        sys.argv[1:], stdin_is_a_terminal=stdin_is_a_terminal
+    ):
+        logger.warning(warning)
+    if not settings.opik_url and httpx.URL(settings.comet_url_override).host in LOOPBACK_HOSTS:
+        # Open-source Opik on this machine, set up as a Comet platform: every call
+        # would go to /opik/api, which it does not serve.
+        logger.warning(
+            "COMET_URL_OVERRIDE points at this machine, where open-source Opik serves "
+            f"its API at /api. Set OPIK_URL={settings.comet_url_override.rstrip('/')}"
+            f"/api instead: {DOCS_LOCAL_SERVER}"
+        )
 
     # Initialize Sentry BEFORE the first track_event / any user code path
     # that might raise. No-op when OPIK_MCP_SENTRY_ENABLED=false; see
@@ -344,10 +371,16 @@ def _run_transport(settings: Settings, transport: str) -> None:
         # Default: Claude Code (or any MCP client) launches this process and
         # speaks MCP over stdin/stdout. No port, no inbound auth, no uvicorn —
         # whoever can spawn the process already owns its stdio.
+        # Imported here so a failing server import reaches main()'s transport-crash handler.
         from opik_mcp.analytics.wrappers import install_tools_listed_emitter
         from opik_mcp.server import mcp
+        from opik_mcp.skills_resources import install_skill_resources
 
         install_tools_listed_emitter(mcp)
+        # stdio hosts (Claude Code, Cursor) are the ones most likely to browse
+        # resources, so the skills must be served on this path too — build_app()
+        # never runs here.
+        install_skill_resources(mcp)
         logger.info("startup transport=stdio")
         mcp.run(transport="stdio")
         return

@@ -1,0 +1,6 @@
+[project]
+name = "instrument-eval-clean"
+version = "0.0.0"
+description = "Uninstrumented fixture app for the opik-instrument eval (clean case)."
+requires-python = ">=3.10"
+dependencies = ["openai>=1.0"]

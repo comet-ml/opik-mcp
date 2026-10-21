@@ -20,12 +20,12 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any
 
 import pytest
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from opik_mcp.server import mcp
+from tests.asserts import assert_answer_equals
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
 
@@ -37,8 +37,7 @@ TOOLS = (
     "list",
     "write",
     "schema",
-    "ask_ollie",
-    "run_experiment",
+    "read_skill",
 )
 
 
@@ -47,7 +46,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-async def _fetch_input_schema(tool: str) -> dict[str, Any]:
+async def _fetch_input_schema(tool: str) -> dict[str, object]:
     """One MCP session per call. Function-scoped to play nicely with anyio's
     function-scoped backend fixture; sessions over the in-memory transport
     are sub-millisecond so the cost is invisible."""
@@ -63,14 +62,14 @@ def _snapshot_path(tool: str) -> Path:
     return SNAPSHOT_DIR / f"{tool}.json"
 
 
-def _canonicalize(value: Any) -> str:
+def _canonicalize(value: object) -> str:
     """Stable JSON form so a dict-order shuffle doesn't trigger a diff."""
     return json.dumps(value, indent=2, sort_keys=True) + "\n"
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("tool", TOOLS)
-async def test_tool_schema_matches_snapshot(tool: str) -> None:
+async def test_tool_schema_matches_snapshot(tool: str, tmp_path: Path) -> None:
     """Each tool's `inputSchema` MUST match the on-disk snapshot byte-for-byte.
 
     A failure here means the wire schema has changed — either accept it
@@ -92,9 +91,12 @@ async def test_tool_schema_matches_snapshot(tool: str) -> None:
         )
 
     expected = json.loads(path.read_text(encoding="utf-8"))
-    assert actual == expected, (
-        f"{tool}: inputSchema drift vs. snapshot — "
-        f"diff visible in `git diff {path.relative_to(Path.cwd())}` "
-        "after running with UPDATE_SNAPSHOTS=1. If the change is "
-        "intentional, commit the snapshot in the same PR."
+    assert_answer_equals(
+        actual,
+        expected,
+        artefact=tmp_path / f"{tool}.schema.diff",
+        hint=(
+            f"{tool}'s inputSchema differs from {path.name}. If the change is intentional, "
+            "rerun with UPDATE_SNAPSHOTS=1 and commit the snapshot in the same PR."
+        ),
     )

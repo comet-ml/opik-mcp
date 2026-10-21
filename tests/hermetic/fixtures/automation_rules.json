@@ -1,0 +1,9 @@
+[
+  {
+    "id": "r-1",
+    "name": "hallucination-judge",
+    "type": "llm_as_judge",
+    "enabled": true,
+    "sampling_rate": 0.5
+  }
+]

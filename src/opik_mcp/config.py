@@ -1,5 +1,8 @@
+from __future__ import annotations
+
+import re
 from functools import lru_cache
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -9,9 +12,62 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from opik_mcp.error_kinds import ErrorKind
 
 # Workspace name used when none is configured — mirrors the Opik Python SDK
-# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Lets local/OSS users run without
-# setting a workspace at all; cloud users with named workspaces still set one.
+# (`OPIK_WORKSPACE_DEFAULT_NAME = "default"`). Correct for local/OSS, which has
+# exactly one workspace by this name.
+#
+# On cloud it is NOT rejected, despite `default` being refused on the session /
+# OAuth consent paths (`RemoteAuthService.isDefaultWorkspace`). The API-key path
+# goes to react-service, which reads it as "this account's default workspace" —
+# verified live: `Comet-Workspace: default` and the account's own default name
+# return the identical project set. So the fallback works, but it silently picks
+# a workspace rather than the named one a user may have meant.
 DEFAULT_WORKSPACE = "default"
+
+# Config-snippet placeholders users paste without filling in. `${…}` is the
+# VS Code / shell form (`${input:OPIK_WORKSPACE}`), `<…>` is the one our own
+# README uses (`<your-workspace>`), plus the mustache and Windows forms.
+#
+# This is not cosmetic. The workspace name is sent verbatim as `Comet-Workspace`
+# on every data call, so an unfilled placeholder cannot resolve to a workspace
+# the caller can reach. Analytics found ~41 such installs within a day of the
+# identity change shipping, all of them failing against opaque upstream errors.
+_TEMPLATE_WRAPPERS = (("${", "}"), ("<", ">"), ("{{", "}}"), ("%", "%"))
+
+# Bare, unbraced shell forms: `$OPIK_WORKSPACE` and the Kubernetes `$(VAR)`.
+# UPPERCASE is required and is the whole point of the pattern. Workspace names
+# are unconstrained — opik-backend enforces no charset, length or reserved list
+# beyond `default`, and `$` is a legal URI sub-delim, so `$acme` is a name
+# somebody can be using today. Matching every `$`-prefixed value would turn that
+# working install into a hard failure on every tool call. An env-var-shaped name
+# is the narrow case worth catching; anything else is left alone.
+_BARE_SHELL_VAR = re.compile(r"^\$(?:[A-Z_][A-Z0-9_]*|\([A-Z_][A-Z0-9_]*\))$")
+
+
+def looks_unsubstituted(value: str) -> bool:
+    """True for an obviously unfilled config placeholder.
+
+    Two rules. A value that both opens and closes with a wrapper pair
+    (``${…}``, ``<…>``, ``{{…}}``, ``%…%``), and an env-var-shaped bare shell
+    reference (``$OPIK_WORKSPACE``, ``$(OPIK_WORKSPACE)``), which has no closing
+    marker to match on.
+
+    Deliberately narrow: a false positive breaks an install that works today,
+    which is far worse than missing an exotic shape. Workspace names carry no
+    charset restriction anywhere in the product, so both rules are written to
+    leave anything plausibly real alone — see ``_BARE_SHELL_VAR``.
+    """
+    candidate = value.strip()
+    if _BARE_SHELL_VAR.match(candidate):
+        # `$OPIK_WORKSPACE` / `$(OPIK_WORKSPACE)` — never expanded. The braced
+        # `${…}` form is covered by the wrapper rule below.
+        return True
+    return any(
+        len(candidate) > len(open_) + len(close)
+        and candidate.startswith(open_)
+        and candidate.endswith(close)
+        for open_, close in _TEMPLATE_WRAPPERS
+    )
+
 
 # Cloud-Comet hostnames. Strict equality (matching the opik SDK) — ``staging.
 # comet.com`` / ``enterprise.example.com`` count as self-hosted so dashboards
@@ -22,7 +78,7 @@ _LOCAL_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "
 
 
 class MissingConfigError(RuntimeError):
-    """Raised when an ask_ollie call is attempted without required env vars.
+    """Raised when a call is attempted without the required env vars.
 
     Deterministic and classifiable (the server is missing api_key/workspace),
     so it buckets as ``validation`` rather than ``unknown`` — it's a malformed
@@ -67,23 +123,6 @@ class Settings(BaseSettings):
     # `project_id` as READ_ONLY on traces/spans.
     opik_default_project_name: str | None = None
 
-    opik_mcp_pod_ready_timeout_s: int = 120
-    opik_mcp_pod_ready_interval_s: int = 2
-
-    # Cadence for the watchdog heartbeat emitted while the SSE stream is silent.
-    # Hosts that reset their tool-call timeout on `notifications/progress` (per
-    # MCP spec §Lifecycle/Timeouts) need to see one at least every host-default
-    # interval. 15s sits safely under typical 60s host defaults with margin.
-    opik_mcp_heartbeat_interval_s: float = 15.0
-
-    # Hard ceiling on how long the pod can be silent (no real SSE event) before
-    # ask_ollie aborts the call. Without this, a stalled pod combined with a
-    # working heartbeat keeps the host hanging indefinitely — the heartbeat
-    # would happily reset the host's timeout forever. 300s covers cold SDK
-    # roundtrips and large test-suite evals while still bounding the worst case.
-    # Set to 0 to disable (debug only).
-    opik_mcp_stream_idle_timeout_s: float = 300.0
-
     # OAuth Authorization Server URL — advertised as ``authorization_servers``
     # in ``/.well-known/oauth-protected-resource`` per RFC 9728. The MCP host
     # follows this URL to discover the AS metadata and run the OAuth dance.
@@ -101,6 +140,15 @@ class Settings(BaseSettings):
     # cannot stall the MCP handshake — the call fails soft (the blob falls back
     # to the static workspace), so a short ceiling is safe.
     opik_mcp_oauth_introspect_timeout_s: float = 5.0
+
+    # How long a "valid" answer from that introspection is trusted before the
+    # next request on the same OAuth bearer asks opik-backend again (OPIK-8252).
+    # Bounds two things at once: the backend load added by validating every
+    # request, and the window in which a token that expired or was revoked is
+    # still forwarded (it then meets the backend's own 401 and the entry is
+    # dropped, so the window ends on the first failing call). When the backend
+    # reports ``expires_at`` the entry is capped at that instant regardless.
+    opik_mcp_oauth_validation_cache_ttl_s: float = 30.0
 
     opik_mcp_log_level: str = "INFO"
     opik_mcp_transport: str = "stdio"
@@ -130,27 +178,6 @@ class Settings(BaseSettings):
     opik_mcp_allowed_origins: str = "http://127.0.0.1:*,http://localhost:*,http://[::1]:*"
 
     opik_mcp_reload: bool = False
-
-    # YOLO mode toggle. "enabled" (default) auto-approves every pod
-    # `confirm_required` (audit row written before the confirm POST). "disabled"
-    # surfaces each confirm_required to the host LLM as a typed pod-stream error
-    # carrying the pod-supplied `summary`; no audit row, no confirm POST. The
-    # user can re-issue manually after deciding. Validated strictly so a typo
-    # ("disable", "off") fails loudly at startup rather than silently leaving
-    # auto-approval on when the user thought they opted out.
-    opik_mcp_auto_approve: Literal["enabled", "disabled"] = "enabled"
-
-    # Maximum seconds to wait for the user to answer an elicitation prompt
-    # (currently used only by `ask_ollie` mid-stream tool-call confirms).
-    # Timeout is treated as a deny — the safer default; the user can always
-    # re-issue. 60s matches typical chat-UI attention spans without holding
-    # the host's tool-call slot open indefinitely.
-    opik_mcp_elicit_timeout_seconds: float = 60.0
-
-    @field_validator("opik_mcp_auto_approve", mode="before")
-    @classmethod
-    def _lowercase_toggle(cls, v: Any) -> Any:
-        return v.lower() if isinstance(v, str) else v
 
     @field_validator("opik_mcp_http_path", mode="before")
     @classmethod
@@ -223,13 +250,50 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def require_ollie_config(settings: Settings) -> tuple[str, str]:
-    if not settings.opik_api_key:
-        raise MissingConfigError("OPIK_API_KEY is required to use ask_ollie")
-    # Workspace is optional — fall back to "default" (Opik SDK convention).
-    # Cloud pod discovery for a non-"default" account will surface its own
-    # clear error downstream, which beats a hard config failure here.
-    return settings.opik_api_key, settings.comet_workspace or DEFAULT_WORKSPACE
+#: Where an error that needs a setup change points: the local server's settings,
+#: the hosted server's setup, and picking the workspace.
+DOCS_LOCAL_SERVER = "https://www.comet.com/docs/opik/mcp-server/advanced-setup#local-server"
+DOCS_HOSTED_SERVER = "https://www.comet.com/docs/opik/mcp-server/advanced-setup#hosted-server"
+DOCS_WORKSPACE = (
+    "https://www.comet.com/docs/opik/mcp-server/faq"
+    "#it-sees-no-data-or-data-from-the-wrong-workspace"
+)
+
+
+def unfilled_workspace_error(value: str, source: str) -> MissingConfigError:
+    """The one message for an unfilled workspace, wherever it is noticed.
+
+    Every call into Opik reaches the backend with a ``Comet-Workspace`` header
+    resolved by ``client.base.resolve_opik_config``; this is the wording it
+    raises so the message does not depend on which tool the user called.
+    """
+    return MissingConfigError(
+        f"{source} is {value!r}, which looks like a config placeholder that was "
+        "never filled in. Set it to your workspace name — the segment in your "
+        "Opik URL after /opik/, e.g. https://www.comet.com/opik/acme-ai/... -> acme-ai. "
+        f"See {DOCS_WORKSPACE}"
+    )
+
+
+# Named for the error message. Pydantic resolves the alias for us and does not
+# report which spelling matched, so name both rather than guess wrong.
+WORKSPACE_ENV_VARS = "OPIK_WORKSPACE (or COMET_WORKSPACE)"
+
+
+def opik_rest_base(settings: Settings) -> str | None:
+    """Resolve Opik's REST API base URL from settings, or ``None`` if unconfigured.
+
+    Single source of truth for the rule: an explicit ``OPIK_URL`` override wins;
+    otherwise derive from ``COMET_URL_OVERRIDE + "/opik/api"``. Shared by
+    ``resolve_opik_config`` (which treats ``None`` as a fatal misconfig) and
+    ``identity.oauth.introspect_oauth_token`` (which treats ``None`` as "skip,
+    fall back to the static workspace"), so both agree on where Opik lives.
+    """
+    if settings.opik_url:
+        return settings.opik_url.rstrip("/")
+    if settings.comet_url_override:
+        return f"{settings.comet_url_override.rstrip('/')}/opik/api"
+    return None
 
 
 def installation_type(settings: Settings) -> str:

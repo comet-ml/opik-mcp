@@ -1,53 +1,56 @@
-"""``read`` tool — fetches any Opik entity by id (or name) with compression.
+"""``read`` tool — fetches any Opik entity by id (or name).
 
 Ported from ollie-assist's ``tools/read/tool.py``, adapted to opik-mcp's
 ``OpikClient`` instead of the Opik SDK. The agent-facing contract is:
 
-    read(entity_type, id, max_tokens=None) -> str
+    read(entity_type, id, fields=None) -> str
 
-The returned string is a one-line ``[read: …]`` header followed by JSON
-(compressed per the entity's compression tier). Errors come back as
-``ToolError`` with status-specific guidance — same shape as ollie so the
+The returned string is a one-line ``[read: …]`` header followed by the
+record as JSON, whole (see ``size`` for why nothing is cut here, and ``slim``
+for the one cut the backend applies to inlined children). With ``fields`` it
+is the paths the caller named, plus the record's id, under a header and a line
+that both say it was projected — see ``projection``. Errors come back as
+``ToolError`` with status-specific guidance, the same shape as ollie so the
 LLM's error-recovery prompting is portable.
 """
 
 from __future__ import annotations
 
 import logging
-import re
+from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.config import Settings, get_settings
-from opik_mcp.opik_client import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
-    OpikReadClient,
     OpikServerError,
     OpikValidationError,
-    make_opik_client,
 )
-from opik_mcp.read_list.compression import compact_json, estimate_tokens, size_header
+from opik_mcp.client.errors.hints import unreachable
+from opik_mcp.client.opik import client_for_call
+from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.config import Settings, get_settings
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.errors import EntityArgValidationError
-from opik_mcp.read_list.registry import (
-    ENTITY_REGISTRY,
-    READABLE_TYPES,
-    EntityHandler,
-    compress_for,
-)
-from opik_mcp.read_list.uri import InvalidURI, looks_like_thread_url, looks_like_uri
+from opik_mcp.read_list.handler import EntityHandler
+from opik_mcp.read_list.paging import short_list
+from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
+from opik_mcp.read_list.registry import URI_PATTERNS, resolve_entity_type
+from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
+from opik_mcp.read_list.uri import InvalidURI, is_uuid, looks_like_opik_link, looks_like_uri
 from opik_mcp.read_list.uri import parse as parse_uri
+from opik_mcp.read_list.visibility import (
+    listable_types,
+    read_windowed_types,
+    readable_types,
+    visible_handler,
+)
+from opik_mcp.read_list.window import WindowError, format_instant, resolve_window
 
 logger = logging.getLogger("opik_mcp.read_list.read")
-
-_UUID_RE = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-)
-
-
-def _is_uuid(s: str) -> bool:
-    return bool(_UUID_RE.match(s))
 
 
 def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, Any]]) -> str:
@@ -55,8 +58,9 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
         f"Multiple {entity_type}s match name {name!r}. "
         "Use read() with one of these UUIDs (or ask the user which they mean):",
     ]
-    for c in candidates[:10]:
-        lines.append(f"  - id={c.get('id')}, name={c.get('name', '')!r}")
+    lines.extend(
+        short_list([f"  - id={c.get('id')}, name={c.get('name', '')!r}" for c in candidates])
+    )
     return "\n".join(lines)
 
 
@@ -64,107 +68,200 @@ def _format_client_error(
     entity_type: str,
     entity_id: str,
     exc: BaseException,
+    features: FeatureToggles,
 ) -> str:
-    """Map our typed OpikClient errors to agent-friendly messages.
+    """One sentence on what was asked, and the call to change.
 
-    Mirrors ollie's ``_format_status_error`` shape (status-aware hints for
-    404 / 403 / 422 / 5xx) but reads off the typed-exception hierarchy
-    instead of raw HTTP codes.
+    A missing record is the read's own case: the entity is named in the
+    caller's words and the listing that finds it is offered. Every other
+    status already reads that way from the client (``errors.raise_for_status``),
+    which names the part of the read that failed; a second copy of it here
+    would say the same thing twice. A 401 is about the credential, never the
+    workspace, and that sentence says which credential and what to do.
     """
     if isinstance(exc, OpikNotFoundError):
+        listable = entity_type in listable_types(features)
+        find = f", or find it with list({entity_type!r}, …)" if listable else ""
         return (
-            f"Not found: {entity_type} with id '{entity_id}'. "
-            "Verify the ID is a valid UUID and belongs to the current workspace. "
-            f"Detail: {exc}"
+            f"Not found: {entity_type} with id '{entity_id}'. Check the id and the workspace{find}."
         )
-    if isinstance(exc, OpikAuthError):
-        return (
-            f"Permission denied fetching {entity_type} '{entity_id}'. "
-            "The current workspace may not have access to this entity. "
-            f"Detail: {exc}"
-        )
-    if isinstance(exc, OpikValidationError):
-        return (
-            f"Validation error fetching {entity_type} '{entity_id}': "
-            "the request was missing or had invalid parameters. "
-            f"Detail: {exc}"
-        )
-    if isinstance(exc, OpikServerError):
-        return (
-            f"Opik backend error fetching {entity_type} '{entity_id}'. "
-            "This is a server-side issue and may be transient. "
-            f"Detail: {exc}"
-        )
-    return f"Failed to fetch {entity_type} '{entity_id}': {exc}"
+    return str(exc)
+
+
+def _link_hint(entity_type: str, data: dict[str, Any]) -> dict[str, Any]:
+    """What the header should say about this answer's link, if it has one.
+
+    The name is the record's own, because that is the link text a person can
+    act on: "baseline-seed", not a url and not "the experiment". A composite
+    keeps its subject under the entity's name (``{trace: {...}}``), so the
+    name is looked for there first and at the top level second.
+    """
+    if not data.get("url"):
+        return {}
+    subject = data.get(entity_type)
+    record = subject if isinstance(subject, dict) else data
+    name = record.get("name")
+    return {"link_as": name if isinstance(name, str) and name else "Open in Opik"}
 
 
 async def run_read(
     entity_type: str,
     id: str,
     *,
-    max_tokens: int | None = None,
     project_id: str | None = None,
     project_name: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    fields: list[str] | None = None,
     settings: Settings | None = None,
     client: OpikReadClient | None = None,
+    **entity_kwargs: Any,
 ) -> str:
-    """Read tool entrypoint. See ``server.py`` for the registered tool.
+    """Read tool entrypoint. See ``server/tools/read.py`` for the registered tool.
 
     Dispatch order: URI parse → registry lookup → project gate → UUID-vs-name
-    branch → fetch → compress. Each branch surfaces errors as ``ToolError`` so
+    branch → fetch → serialise. Each branch surfaces errors as ``ToolError`` so
     the host LLM gets the structured guidance.
     """
-    # Accept ``opik://…`` URIs and pasted web thread links as id input. When the
-    # URI encodes its own entity_type we trust it and override the explicit
-    # argument — that way the agent can paste a URI into either slot. A parsed
-    # thread URI/link also carries the project, which overrides the explicit arg.
-    if looks_like_uri(id) or looks_like_thread_url(id):
+    # Accept ``opik://…`` URIs and pasted web links (thread panel, Diagnostics
+    # page) as id input. When the URI encodes its own entity_type we trust it
+    # and override the explicit argument — that way the agent can paste a URI
+    # into either slot. A parsed project-scoped URI/link also carries the
+    # project, which overrides the explicit arg.
+    resolved_settings = settings or get_settings()
+    features = FeatureToggles.resolve(resolved_settings)
+    record_id = id
+    if looks_like_uri(record_id) or looks_like_opik_link(record_id, URI_PATTERNS):
         try:
-            parsed = parse_uri(id)
+            parsed = parse_uri(record_id, URI_PATTERNS)
         except InvalidURI as e:
             raise ToolError(str(e)) from e
         entity_type = parsed.entity_type
-        id = parsed.entity_id
+        record_id = parsed.entity_id
         if parsed.project_id is not None:
             # The URI is the source of truth for the project — clear any
             # explicit project_name so we don't send a conflicting pair.
             project_id = parsed.project_id
             project_name = None
 
-    if entity_type not in READABLE_TYPES:
-        if entity_type in ENTITY_REGISTRY:
+    entity_type = resolve_entity_type(entity_type)
+    handler = visible_handler(entity_type, features)
+    readable = readable_types(features)
+    if handler is None or entity_type not in readable:
+        if handler is not None:
             err = EntityArgValidationError(
                 f"Entity {entity_type!r} is list-only — use list({entity_type!r}, "
                 f"<parent_id>=…) to enumerate, or read the parent entity instead."
             )
             raise ToolError(str(err)) from err
-        valid = ", ".join(sorted(READABLE_TYPES))
+        valid = ", ".join(sorted(readable))
         err = EntityArgValidationError(
             f"Invalid entity_type {entity_type!r}. Readable types: {valid}"
         )
         raise ToolError(str(err)) from err
 
-    handler = ENTITY_REGISTRY[entity_type]
-
     if handler.needs_project and project_id is None and project_name is None:
         err = EntityArgValidationError(
-            f"read({entity_type!r}) requires project scope. Pass the full thread "
-            f"link/URI, or a project_id — e.g. "
-            f"read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
+            f"read({entity_type!r}) requires project scope. Pass project_id or "
+            f"project_name, or paste the {entity_type}'s Opik link/URI as the id — "
+            f"e.g. read('{entity_type}', '<{entity_type}_id>', project_id='<uuid>')."
         )
         raise ToolError(str(err)) from err
 
-    opik = client if client is not None else make_opik_client(settings or get_settings())
-    data = await _fetch_with_name_lookup(
-        handler, opik, id, project_id=project_id, project_name=project_name
-    )
+    # No entity takes a kwarg beyond its id, its project scope and its
+    # window: what used to arrive as free-form extras is now the declared
+    # ``read_window``. Anything else the caller passed is dropped here rather
+    # than reaching a fetcher that has no parameter for it.
+    extra: dict[str, Any] = {}
+    if since is not None or until is not None:
+        # Same since/until vocabulary as ``list``. Which entities take a window,
+        # and in which shape, is declared on the registry entry — a Diagnostics
+        # issue wants whole UTC report days, a project's metrics want instants.
+        window = handler.read_window
+        if window is None:
+            takes_window = sorted(read_windowed_types(features))
+            err = WindowError(
+                f"since/until are not supported for read({entity_type!r}); "
+                f"on read a window is taken by: {', '.join(takes_window)}."
+            )
+            raise ToolError(str(err)) from err
+        # One clock reading for the whole window. A relative bound resolves
+        # against "now", and if the end were later measured from a second
+        # reading, `since="30d"` would intermittently span 30 days and a
+        # second — seen live, one call in a few crossing a second boundary.
+        now = datetime.now(UTC)
+        try:
+            from_time, to_time = resolve_window(since=since, until=until, now=now)
+        except WindowError as e:
+            raise ToolError(str(e)) from e
+        if not window.day_truncated and to_time is None:
+            # An instant window is always closed: an open end means "now", and
+            # it has to be the same "now" the start was measured from. A
+            # day-keyed window is left open on purpose — the Diagnostics page
+            # defaults to all-time, and closing it here would silently bound it.
+            to_time = format_instant(now)
+        if from_time is not None:
+            extra[window.start_kwarg] = from_time[:10] if window.day_truncated else from_time
+        if to_time is not None:
+            extra[window.end_kwarg] = to_time[:10] if window.day_truncated else to_time
 
-    compressed_text, tier = compress_for(handler, data, max_tokens)
-    full_json = compact_json(data)
-    full_tokens = estimate_tokens(full_json)
-    returned_tokens = estimate_tokens(compressed_text)
-    header = size_header(entity_type, id, tier, returned_tokens, full_tokens)
-    return f"{header}\n{compressed_text}"
+    # A read can be several backend calls (a trace and its spans, a project and
+    # its metrics), so the connection is owned for the span of this call and
+    # every leg reuses it.
+    async with client_for_call(resolved_settings, client) as opik:
+        data = await _fetch_with_name_lookup(
+            handler,
+            opik,
+            record_id,
+            project_id=project_id,
+            project_name=project_name,
+            extra=extra,
+            features=features,
+        )
+        if handler.link_fn is not None:
+            # UI links are session facts (UI base, workspace), so they are
+            # attached here rather than inside the fetcher.
+            data.update(handler.link_fn(resolved_settings, data))
+        # Underscore-prefixed keys are a fetcher's private hand-off to link_fn
+        # (e.g. the project an issue was read under); they are never the agent's.
+        for private_key in [key for key in data if key.startswith("_")]:
+            del data[private_key]
+
+        wanted = normalise(fields)
+        if wanted is None:
+            payload = compact_json(data)
+            header = size_header(
+                entity_type, record_id, estimate_tokens(payload), **_link_hint(entity_type, data)
+            )
+            return f"{header}\n{payload}"
+
+        # Projection is the last thing that happens to the record, after the
+        # links are attached and the private keys are gone: the caller names
+        # what they see, not what the fetcher happened to hand over.
+        whole = f"read({entity_type!r}, {record_id!r})"
+        try:
+            projected, kept, omitted = project_record(data, wanted, whole=whole)
+        except FieldsError as e:
+            # Which paths are valid is a fact about the record, so this is the
+            # earliest the refusal can be written — and it is written with the
+            # record's own paths in it, which is what makes the retry one call.
+            raise ToolError(str(e)) from e
+        payload = compact_json(projected)
+        header = size_header(
+            entity_type,
+            record_id,
+            estimate_tokens(payload),
+            projected=True,
+            # the projected record, not the whole one: a caller who did not
+            # name `url` has no link in front of them, whatever the fetch found
+            **_link_hint(entity_type, projected),
+        )
+        note = marker(
+            kept=kept,
+            omitted=omitted,
+            whole=f"{whole} without fields returns the record whole.",
+        )
+        return f"{header}\n{note}\n{payload}"
 
 
 async def _fetch_with_name_lookup(
@@ -174,6 +271,8 @@ async def _fetch_with_name_lookup(
     *,
     project_id: str | None = None,
     project_name: str | None = None,
+    extra: dict[str, Any] | None = None,
+    features: FeatureToggles,
 ) -> dict[str, Any]:
     """Resolve name → id when the input doesn't look like a UUID.
 
@@ -186,7 +285,7 @@ async def _fetch_with_name_lookup(
     - 1 candidate  → resolve to that id, fetch.
     - >1 candidates → raise a disambiguation error listing the matches.
     """
-    if not handler.id_only and handler.search_by_name_fn is not None and not _is_uuid(entity_id):
+    if not handler.id_only and handler.search_by_name_fn is not None and not is_uuid(entity_id):
         try:
             candidates = await handler.search_by_name_fn(client, entity_id)
         except Exception as e:
@@ -202,14 +301,24 @@ async def _fetch_with_name_lookup(
         # 0 candidates: fall through with the raw id; the fetch call below
         # will 404 with a clear message if it really doesn't exist.
 
+    extra = extra or {}
     try:
         if handler.needs_project:
             return await handler.fetch_fn(
-                client, entity_id, project_id=project_id, project_name=project_name
+                client, entity_id, project_id=project_id, project_name=project_name, **extra
             )
-        return await handler.fetch_fn(client, entity_id)
+        return await handler.fetch_fn(client, entity_id, **extra)
+    except EntityArgValidationError as e:
+        # A fetcher may reject its own scope (e.g. a project_name that resolves
+        # to no or several projects). Same typed cause as the tool's own
+        # argument checks, so analytics buckets it as validation/400.
+        raise ToolError(str(e)) from e
     except (OpikAuthError, OpikNotFoundError, OpikValidationError, OpikServerError) as e:
-        raise ToolError(_format_client_error(handler.entity_type, entity_id, e)) from e
+        raise ToolError(_format_client_error(handler.entity_type, entity_id, e, features)) from e
+    except httpx.HTTPError as e:
+        raise ToolError(
+            f"Could not reach Opik to read the {handler.entity_type}: {unreachable(e)}"
+        ) from e
 
 
 __all__ = ["run_read"]

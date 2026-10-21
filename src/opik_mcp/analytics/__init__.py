@@ -12,9 +12,7 @@ from functools import lru_cache
 from opik_mcp.analytics import transport_probe
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.events import (
-    EVENT_ASK_OLLIE_COMPLETED,
     EVENT_AUTH_REJECTED,
-    EVENT_AUTO_APPROVAL,
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
     EVENT_SESSION_INITIALIZED,
@@ -30,9 +28,7 @@ from opik_mcp.analytics.events import (
 from opik_mcp.config import get_settings
 
 __all__ = [
-    "EVENT_ASK_OLLIE_COMPLETED",
     "EVENT_AUTH_REJECTED",
-    "EVENT_AUTO_APPROVAL",
     "EVENT_SERVER_SHUTDOWN",
     "EVENT_SERVER_STARTED",
     "EVENT_SESSION_INITIALIZED",

@@ -1,0 +1,20 @@
+{
+  "id": "${thread_id}",
+  "thread_id": "${thread_id}",
+  "thread_model_id": "${thread_model_id}",
+  "project_id": "${project_id}",
+  "status": "inactive",
+  "start_time": "2026-09-02T10:00:00Z",
+  "end_time": "2026-09-02T10:02:00Z",
+  "duration": 120000.0,
+  "number_of_messages": "${number_of_messages}",
+  "first_message": {
+    "question": "where is my refund?"
+  },
+  "last_message": {
+    "answer": "5-7 business days"
+  },
+  "total_estimated_cost": 0.0004,
+  "created_at": "2026-09-02T10:00:00Z",
+  "last_updated_at": "2026-09-02T10:02:00Z"
+}

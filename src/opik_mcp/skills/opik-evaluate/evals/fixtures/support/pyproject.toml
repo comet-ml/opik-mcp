@@ -1,0 +1,5 @@
+[project]
+name = "opik-evaluate-eval-support"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["opik"]

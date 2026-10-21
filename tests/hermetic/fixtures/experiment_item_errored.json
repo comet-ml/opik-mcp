@@ -1,0 +1,12 @@
+{
+  "id": "${run_trace_id}",
+  "experiment_id": "${experiment_id}",
+  "dataset_item_id": "${case_id}",
+  "trace_id": "${run_trace_id}",
+  "output": {},
+  "feedback_scores": [],
+  "duration": "${duration}",
+  "usage": {},
+  "total_estimated_cost": 0.0,
+  "created_at": "2026-09-08T10:00:00Z"
+}

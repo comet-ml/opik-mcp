@@ -1,16 +1,24 @@
 name: CI
 run-name: "CI ${{ github.ref_name }} by @${{ github.actor }}"
 
-# CI on GitHub-hosted runners: validate, build the multi-arch image, tag releases.
+# CI on GitHub-hosted runners: validate, and build the multi-arch image.
 #
-# Version = <version.txt MAJOR.MINOR>.<patch>, patch = (max existing x.y tag) + 1,
-# so it starts at 0 and resets per minor:
-#   push to main -> ghcr.io/comet-ml/opik-mcp:0.2.0  (+ :main, + git tag 0.2.0)
-#   PR           -> build only (no push, no secrets — fork-safe); version
-#                   carries a -<branch> suffix for the image tag if built
+# CI DOES NOT TAG. `version.txt` holds the next version to be released (x.y.z),
+# and `release.yaml` is what creates that git tag, at release time, from the
+# commit it releases. Tags therefore exist only for released versions — a tag,
+# a GitHub release and a PyPI version are the same set by construction, rather
+# than three sets that drift apart. (They did: 0.2.25-0.2.27 were tagged by
+# main builds and never released.) This mirrors comet-ml/opik.
 #
-# Bump version.txt (e.g. 0.2 -> 0.3) to start a new minor line; patch resets to 0.
-# Release is manual (release.yaml): pick a git tag, promote its image, publish.
+# Because no tag is minted per merge, the version in `version.txt` is the SAME
+# for every build between two releases, so it cannot identify an image:
+#   push to main -> ghcr.io/comet-ml/opik-mcp:sha-<short>  (+ :main)
+#   PR           -> build only (no push, no secrets — fork-safe)
+# The release promotes the sha-tagged image it releases to :x.y.z and :latest,
+# so the published image is provably built from the released commit.
+#
+# Bump version.txt to choose the next version; release.yaml bumps its patch
+# automatically after a successful release.
 
 on:
   workflow_dispatch:
@@ -24,105 +32,256 @@ on:
 permissions:
   contents: read
 
+# One run per PR branch, superseded PR runs cancelled. Main pushes are NOT
+# cancelled: each one publishes an image that a release may later promote, so
+# dropping a superseded run there could leave a commit with no image to release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   IMAGE: ghcr.io/comet-ml/opik-mcp
+
+  # Every `uv sync`, `uv run` and `uv build` in this workflow refuses a stale
+  # uv.lock instead of re-resolving it silently.
+  UV_LOCKED: "1"
+
+  # TELEMETRY OFF FOR THE WHOLE WORKFLOW. A CI run is not product usage: BI
+  # funnels and the Sentry project must not see it, and `is_ci` only LABELS an
+  # event, it does not suppress one. Set at workflow level rather than per job
+  # so a job added later inherits the opt-out instead of having to remember it.
+  #
+  # These duplicate `tests/conftest.py`, deliberately: the conftest covers the
+  # pytest process and anything inheriting its env, this covers every other way
+  # a job could reach our code (a make target, a script, a future step).
+  OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_SENTRY_ENABLED: "false"
+  # Honoured by many third-party CLIs, which matters here because `skills-pack`
+  # runs `npx skills` — someone else's binary, with its own telemetry posture.
+  DO_NOT_TRACK: "1"
 
 jobs:
 
   version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # push the git tag on main builds
+    # No `contents: write`: this job used to push a git tag, which is now
+    # release.yaml's job. Read-only is the whole point of the change.
     outputs:
-      version: ${{ steps.v.outputs.version }}   # image tag (may carry -branch)
-      pyver: ${{ steps.v.outputs.pyver }}        # PEP 440 form for the wheel
+      version: ${{ steps.v.outputs.version }}   # x.y.z from version.txt (unreleased)
+      pyver: ${{ steps.v.outputs.pyver }}       # PEP 440 form for a dev wheel
+      sha_tag: ${{ steps.v.outputs.sha_tag }}   # sha-<short>, the image's real identity
     steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Compute version (patch = max x.y tag + 1; tag on main)
+      - uses: actions/checkout@v7
+      - name: Read the pending version
         id: v
-        env:
-          REF_NAME: ${{ github.head_ref || github.ref_name }}
-          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          BASE=$(tr -d ' \t\r\n' < version.txt)
-          if ! echo "$BASE" | grep -qE '^[0-9]+\.[0-9]+$'; then
-            echo "::error::version.txt must be MAJOR.MINOR (x.y), got '$BASE'"; exit 1
+          VERSION=$(tr -d ' \t\r\n' < version.txt)
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::version.txt must be MAJOR.MINOR.PATCH (x.y.z), got '$VERSION'"; exit 1
           fi
 
-          # Highest existing patch among tags exactly "BASE.<digits>" (-1 if none → next is 0).
-          find_max_patch() {
-            local max=-1 rem
-            while IFS= read -r t; do
-              [ -z "$t" ] && continue
-              rem="${t#"$BASE."}"
-              if [[ "$rem" =~ ^[0-9]+$ ]] && (( rem > max )); then max=$rem; fi
-            done < <(git tag --list "$BASE.*")
-            echo "$max"
-          }
-
-          if [ "$REF_NAME" = "main" ] && [ "$EVENT" = "push" ]; then
-            git config user.name "github-actions"
-            git config user.email "github-actions@comet.com"
-            # Retry to stay race-safe if two main builds tag at once.
-            for attempt in 1 2 3 4 5; do
-              if [ "$attempt" -gt 1 ]; then
-                git fetch --tags --force >/dev/null 2>&1 || true
-                sleep $(( RANDOM % 3 + 1 ))
-              fi
-              PATCH=$(( $(find_max_patch) + 1 ))
-              VERSION="$BASE.$PATCH"
-              if git tag "$VERSION" 2>/dev/null && git push origin "refs/tags/$VERSION" 2>/dev/null; then
-                echo "Tagged $VERSION"
-                break
-              fi
-              git tag -d "$VERSION" 2>/dev/null || true
-              if [ "$attempt" -eq 5 ]; then
-                echo "::error::failed to create tag after 5 attempts"; exit 1
-              fi
-            done
-          else
-            PATCH=$(( $(find_max_patch) + 1 ))
-            # Normalize: lowercase, non-alnum -> '-', cap at 20 chars,
-            # strip trailing dashes.
-            SLUG=$(echo "$REF_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#^-+##; s#-+$##')
-            SLUG=${SLUG:0:20}; SLUG=${SLUG%-}
-            VERSION="$BASE.$PATCH-$SLUG"
+          # A tag for this version means it is already released — version.txt was
+          # not bumped, so the next release would try to re-tag a released
+          # version and PyPI would reject the duplicate upload. Warn on every
+          # build rather than let it surface only at release time.
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then
+            echo "::warning title=version::$VERSION is already tagged (released). Bump version.txt before the next release."
           fi
-          # The image tag may carry a -branch suffix (fine for Docker tags), but
-          # the wheel/_version.py must be PEP 440 — so branch builds use .devN.
-          if [ "$REF_NAME" = "main" ] && [ "$EVENT" = "push" ]; then
-            PYVER="$BASE.$PATCH"
+
+          # Every build between two releases carries the same version, so the
+          # commit is what identifies an image. `release.yaml` promotes this
+          # exact tag to :x.y.z + :latest.
+          SHA_TAG="sha-$(git rev-parse --short=12 HEAD)"
+
+          # On main, the image built here is the RELEASE CANDIDATE for $VERSION:
+          # `release.yaml` promotes this exact digest to :x.y.z rather than
+          # rebuilding, so whatever is stamped now is what production reports
+          # forever. Stamping `.dev0` there put `0.2.29.dev0` into prod and out
+          # of every BI cohort that filters dev builds. Off main nothing is
+          # promoted, so `.dev0` is correct and keeps branch wheels from
+          # claiming to be the release.
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ github.ref_name }}" = "main" ]; then
+            PYVER="$VERSION"
           else
-            PYVER="$BASE.$PATCH.dev0"
+            PYVER="$VERSION.dev0"
           fi
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "pyver=$PYVER" | tee -a "$GITHUB_OUTPUT"
-          echo "### Version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "sha_tag=$SHA_TAG" | tee -a "$GITHUB_OUTPUT"
+          echo "### Pending version: $VERSION (stamped $PYVER, image $SHA_TAG)" >> "$GITHUB_STEP_SUMMARY"
 
   python-checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (required before any uv build)
         run: make version
       - uses: astral-sh/setup-uv@v6
-        with:
-          version: 'latest'
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Lockfile matches pyproject.toml
+        run: uv lock --check
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+      - name: Run lint + typecheck + tests
+        run: make check
+      # Deselected from `make check` by `addopts`; they spawn hooks, scripts,
+      # git, make, ruff and mypy, and this step is what keeps them in CI.
+      - name: Run the tests that spawn subprocesses
+        run: make slow
+
+  # Hermetic (OPIK-7472): the server as a REAL SUBPROCESS, against the stub
+  # backend in `tests/hermetic/stub_backend.py`. The real-backend suite is
+  # `make live`.
+  #
+  # WHAT ONLY THIS CATCHES. Every suite `python-checks` runs builds the FastMCP
+  # instance in-process — even the conformance tests, which speak real MCP over
+  # an in-memory transport — so none of them runs `__main__`. But stdio is how
+  # Claude Code and Cursor launch this server, and `__main__._run_transport` has
+  # its own startup path: it installs tool visibility, the tools_listed emitter
+  # and the skill resources itself, separately from `build_app()`. Drop one of
+  # those calls and `make check` stays green while every stdio host loses the
+  # surface. Verified by doing exactly that.
+  #
+  # It also runs the server over Streamable HTTP, as the Docker image serves
+  # it, and every write operation over both transports (OPIK-8495). Breaking
+  # the bearer pass-through or the expired-token 401 fails this job.
+  #
+  # A JOB, NOT ITS OWN WORKFLOW. It was briefly a separate `e2e_tests.yml`,
+  # mirroring the `*_e2e_tests` workflows in comet-ml/opik — reverted, because
+  # those are separate for reasons that do not hold here: they stand up a
+  # docker-compose backend, fan out over a version matrix, need secrets, and run
+  # for half an hour in a monorepo where path filters genuinely skip work. This
+  # one needs no backend and takes minutes, GitHub already reports every job as
+  # its own status check, and a separate workflow needs a `paths:` filter —
+  # which leaves a required check pending forever on any PR that misses it.
+  #
+  # Deliberately NOT in `make check`: `addopts` deselects the `hermetic` marker
+  # so the default suite stays in-process and fast. This job and
+  # `make hermetic` are what run it. No network, no credentials.
+  hermetic:
+    runs-on: ubuntu-latest
+    # ~2 minutes locally; ten minutes is headroom for a cold runner and still
+    # fails fast if a server hangs at startup. The tests carry a 60s per-session deadline
+    # underneath this.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+      - uses: astral-sh/setup-uv@v6
       - name: Install Python
         run: uv python install 3.13
       - name: Install dependencies
-        run: uv sync --extra dev
-      - name: Run lint + typecheck + tests
-        run: make check
+        run: uv sync --locked --extra dev
+      - name: Drive the server over stdio and HTTP as a real subprocess
+        run: make hermetic
+
+  # The published `opik-skills` pack (OPIK-7621). Built on every PR so a change to
+  # the authored skills is verified before it can reach users; published only from
+  # main. `python-checks` already covers spec compliance and the builder's own
+  # tests — what this adds is the end-to-end question those cannot answer: does the
+  # real installer, run the way the product's onboarding runs it, resolve exactly
+  # the skills we authored.
+  skills-pack:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+      - uses: astral-sh/setup-uv@v6
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+      - name: Build the pack and install it with the real installer
+        env:
+          PYVER: ${{ needs.version.outputs.pyver }}
+          SHA: ${{ github.sha }}
+        run: make skills-verify VERSION="$PYVER" SOURCE_COMMIT="$SHA"
+      - name: Check this repository itself resolves only the authored skills
+        run: make skills-verify-source
+      - name: Package the pack for publication
+        run: |
+          set -euo pipefail
+          # Reproducible archive: sorted entries and a fixed timestamp, so an
+          # unchanged pack produces an unchanged tarball.
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+              -czf opik-skills-pack.tar.gz -C dist/opik-skills .
+          cp dist/opik-skills/index.json index.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skills-pack
+          path: |
+            opik-skills-pack.tar.gz
+            index.json
+          retention-days: 7
+
+  # Publishes the pack the `skills-pack` job verified — the same bytes, downloaded
+  # rather than rebuilt, so what ships is what passed. `comet-ml/opik-skills` pulls
+  # from here on a schedule; this repo holds no credentials for it.
+  publish-skills-pack:
+    # `python-checks` is a dependency on purpose: it runs the spec-compliance suite
+    # and the builder's own tests. Without it a red test suite would still publish.
+    needs: [version, python-checks, skills-pack]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # maintain the rolling pre-release
+    env:
+      # Fixed tag: consumers fetch a stable URL. A moving tag would make every
+      # consumer track a name that changes, which is the problem this avoids.
+      PACK_TAG: skills-pack
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: skills-pack
+      - name: Publish the rolling pack pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.version.outputs.pyver }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Written via a here-document, not a multi-line shell string: YAML
+          # indentation inside quotes would ship as leading spaces and render
+          # every line after the first as an indented code block.
+          cat > notes.md <<EOF
+          Rolling build of the \`opik-skills\` pack, generated from \`src/opik_mcp/skills\`.
+
+          Source commit: \`${SHA}\`
+          Pack version: \`${VERSION}\`
+
+          Consumed by [comet-ml/opik-skills](https://github.com/comet-ml/opik-skills).
+          Do not edit that repository by hand — it is regenerated from this artifact.
+          EOF
+
+          if gh release view "$PACK_TAG" >/dev/null 2>&1; then
+            gh release edit "$PACK_TAG" --notes-file notes.md --prerelease
+          else
+            gh release create "$PACK_TAG" \
+              --title "Skills pack (rolling)" \
+              --notes-file notes.md \
+              --prerelease
+          fi
+
+          gh release upload "$PACK_TAG" opik-skills-pack.tar.gz index.json --clobber
+
+          DIGEST=$(python3 -c "import json;print(json.load(open('index.json'))['content_digest'])")
+          {
+            echo "### Skills pack published"
+            echo ""
+            echo "- Tag: \`$PACK_TAG\` (pre-release, rolling)"
+            echo "- Content digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   helm-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: azure/setup-helm@v4
         with:
           version: v3.16.2
@@ -131,6 +290,28 @@ jobs:
       - name: Helm template
         run: helm template opik-mcp helm/opik-mcp -f helm/opik-mcp/values.yaml > /dev/null
 
+  # release.yaml publishes server.json to the MCP Registry, which takes each
+  # version once and only after PyPI has it. An invalid file found there costs
+  # a release, so it is checked here. The pin matches release.yaml's
+  # (tests/repo/test_server_json.py).
+  server-json:
+    runs-on: ubuntu-latest
+    env:
+      MCP_PUBLISHER_VERSION: "1.8.1"
+      # mcp-publisher_linux_amd64.tar.gz in registry_1.8.1_checksums.txt.
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar xzf mcp-publisher.tar.gz mcp-publisher
+      - name: Validate server.json
+        run: ./mcp-publisher validate server.json
+
   build-image:
     needs: version
     runs-on: ubuntu-latest
@@ -138,27 +319,32 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Generate _version.py (baked into the image via COPY src)
         run: VERSION="${{ needs.version.outputs.pyver }}" make version
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v3
       - name: Login to GHCR
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push (push only off PRs)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
+          # Tagged by COMMIT, not by version: version.txt does not change
+          # between releases, so a version tag here would be overwritten by
+          # every merge and a release could promote an image built from a later
+          # commit than the one it tagged. `release.yaml` promotes this digest
+          # to :x.y.z and :latest.
           tags: |
-            ${{ env.IMAGE }}:${{ needs.version.outputs.version }}
+            ${{ env.IMAGE }}:${{ needs.version.outputs.sha_tag }}
             ${{ github.ref_name == 'main' && format('{0}:main', env.IMAGE) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

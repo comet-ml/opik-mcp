@@ -1,0 +1,6 @@
+[project]
+name = "instrument-eval-missing-flush"
+version = "0.0.0"
+description = "Already-instrumented fixture with a planted missing-flush defect for the opik-instrument eval."
+requires-python = ">=3.10"
+dependencies = ["openai>=1.0", "opik>=1.7"]

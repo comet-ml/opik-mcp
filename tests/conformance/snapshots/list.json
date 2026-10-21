@@ -1,19 +1,152 @@
 {
   "properties": {
+    "breakdown": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "project_metric only: group each bucket by this field, or 'metadata.<key>'. Not valid for every metric \u2014 schema('list.project_metric') says which.",
+      "title": "Breakdown"
+    },
+    "dataset_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Required when listing dataset_items, unless experiment_ids is given. UUID of the dataset.",
+      "title": "Dataset Id"
+    },
     "entity_type": {
-      "description": "One of: experiment, project, prompt, prompt_version, test_suite, test_suite_item, thread, trace.",
+      "description": "One of: agent_insights_issue, dataset, dataset_item, experiment, online_rule, project, project_metric, prompt, prompt_version, score_name, span, thread, trace.",
       "enum": [
+        "agent_insights_issue",
+        "dataset",
+        "dataset_item",
         "experiment",
+        "online_rule",
         "project",
+        "project_metric",
         "prompt",
         "prompt_version",
-        "test_suite",
-        "test_suite_item",
+        "score_name",
+        "span",
         "thread",
         "trace"
       ],
       "title": "Entity Type",
       "type": "string"
+    },
+    "experiment_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "dataset_item: compare these experiments case by case \u2014 which cases regressed, not two averages. First id is the baseline; up to 10. Resolves the dataset itself; sort and search apply to the runs, and so do filters (without it they apply to the cases).",
+      "title": "Experiment Ids"
+    },
+    "fields": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Return only these columns, uncut: any name from the page's 'fields:' line ('data.question', 'feedback_scores.helpfulness', 'usage.total_tokens'). Each row keeps the id that opens the next level. An unknown name is refused with the valid ones. Omit for the table's own columns.",
+      "title": "Fields"
+    },
+    "filters": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "OQL filter for trace, span, thread, experiment, dataset_item, project_metric: <field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_empty in not_in; strings quoted, numbers bare (duration in ms). E.g. 'error_info is_not_empty AND duration > 5000', 'feedback_scores.accuracy < 0.5 AND start_time >= \"2026-09-08T00:00:00Z\"'. trace/span/thread default to source = \"sdk\"; a metric is filtered by the fields of the entity it is about. Reference: schema(\"list.trace\").",
+      "title": "Filters"
+    },
+    "interval": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "project_metric only: bucket width. Omitted, it follows the window the way the Metrics tab does: hourly up to 3 days, daily up to 30, weekly beyond.",
+      "enum": [
+        "daily",
+        "hourly",
+        "total",
+        "weekly"
+      ],
+      "title": "Interval"
+    },
+    "metric_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "project_metric only: which metric to chart. Reference: schema('list.project_metric').",
+      "enum": [
+        "guardrails_failed_count",
+        "span_average_duration",
+        "span_cost",
+        "span_count",
+        "span_duration",
+        "span_error_rate",
+        "span_feedback_scores",
+        "span_token_usage",
+        "thread_average_duration",
+        "thread_cost",
+        "thread_count",
+        "thread_duration",
+        "thread_feedback_scores",
+        "trace_average_duration",
+        "trace_cost",
+        "trace_count",
+        "trace_duration",
+        "trace_error_rate",
+        "trace_feedback_scores",
+        "trace_token_usage"
+      ],
+      "title": "Metric Type"
     },
     "name": {
       "anyOf": [
@@ -26,7 +159,7 @@
         }
       ],
       "default": null,
-      "description": "Optional substring filter on entity name. Supported for project, experiment, prompt, test_suite; ignored for sub-collections.",
+      "description": "Optional substring filter on entity name. Supported for project, experiment, prompt, dataset; ignored for sub-collections.",
       "title": "Name"
     },
     "page": {
@@ -47,7 +180,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project UUID for project-scoped lists (trace, thread). Pass this OR project_name.",
+      "description": "Parent project UUID for project-scoped lists (trace, span, thread, agent_insights_issue). Pass this OR project_name.",
       "title": "Project Id"
     },
     "project_name": {
@@ -61,7 +194,7 @@
         }
       ],
       "default": null,
-      "description": "Parent project name \u2014 alternative to project_id for trace/thread lists, so you don't need to resolve the UUID first.",
+      "description": "Parent project name \u2014 alternative to project_id for project-scoped lists; no UUID lookup needed.",
       "title": "Project Name"
     },
     "prompt_id": {
@@ -77,6 +210,48 @@
       "description": "Required when listing prompt_versions. UUID of the prompt.",
       "title": "Prompt Id"
     },
+    "search": {
+      "anyOf": [
+        {
+          "maxLength": 500,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Free text for trace, span, thread: matches anywhere in id, name, input, output, metadata, tags, thread_id (spans: model, provider too). Expensive on large projects; narrow with since first.",
+      "title": "Search"
+    },
+    "series": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "project_metric only, with breakdown: which series to group \u2014 a percentile (p50/p90/p99), a score name, or a usage key.",
+      "title": "Series"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Start of the time window for trace, span, thread, project_metric, agent_insights_issue: a relative span ('30m', '1h', '24h', '7d') or an ISO-8601 instant with timezone. Trace/span/thread windows are by record creation time (for an exact start_time bound use filters); Diagnostics issues aggregate per report day, so their window is the UTC days it spans and defaults to all-time, matching the Diagnostics page.",
+      "title": "Since"
+    },
     "size": {
       "default": 25,
       "description": "Items per page. Capped at 100.",
@@ -85,9 +260,10 @@
       "title": "Size",
       "type": "integer"
     },
-    "test_suite_id": {
+    "sort": {
       "anyOf": [
         {
+          "maxLength": 200,
           "type": "string"
         },
         {
@@ -95,8 +271,40 @@
         }
       ],
       "default": null,
-      "description": "Required when listing test_suite_items. UUID of the suite.",
-      "title": "Test Suite Id"
+      "description": "Sort for trace, span, thread, experiment: '<field> [asc|desc]', desc by default. E.g. 'duration desc', 'total_estimated_cost', 'feedback_scores.accuracy asc', 'usage.total_tokens'. One field only.",
+      "title": "Sort"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "enum": [
+            "open",
+            "resolved",
+            "closed"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "agent_insights_issue only: which Diagnostics issues to list. Defaults to 'open' (what is broken now); 'resolved' and 'closed' show issues already dealt with. Ignored for other entity types.",
+      "title": "Status"
+    },
+    "until": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "End of the time window, same forms as since.",
+      "title": "Until"
     }
   },
   "required": [

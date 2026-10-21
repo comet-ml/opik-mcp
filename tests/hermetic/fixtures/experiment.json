@@ -1,0 +1,14 @@
+{
+  "id": "${experiment_id}",
+  "name": "${experiment_name}",
+  "project_id": "${project_id}",
+  "dataset_id": "${dataset_id}",
+  "dataset_name": "${dataset_name}",
+  "evaluation_method": "${evaluation_method}",
+  "type": "regular",
+  "status": "completed",
+  "created_at": "2026-09-08T09:00:00Z",
+  "last_updated_at": "2026-09-08T09:30:00Z",
+  "trace_count": 20,
+  "feedback_scores": "${feedback_scores}"
+}

@@ -1,0 +1,28 @@
+{
+  "content": "${content}",
+  "page": "${page}",
+  "size": "${size}",
+  "total": "${total}",
+  "columns": [
+    {
+      "name": "question",
+      "types": [
+        "string"
+      ],
+      "filterField": "data.question"
+    },
+    {
+      "name": "expected_answer",
+      "types": [
+        "string"
+      ],
+      "filterField": "data.expected_answer"
+    }
+  ],
+  "sortable_by": [
+    "id",
+    "created_at",
+    "duration",
+    "feedback_scores"
+  ]
+}

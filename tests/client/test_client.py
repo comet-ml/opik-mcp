@@ -1,0 +1,589 @@
+import httpx
+import pytest
+import respx
+
+from opik_mcp.client.annotations import FeedbackScore
+from opik_mcp.client.errors import (
+    OpikAuthError,
+    OpikNotFoundError,
+    OpikPermissionError,
+    OpikServerError,
+    OpikValidationError,
+)
+from opik_mcp.client.opik import OpikClient
+from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
+
+OPIK_BASE = "https://opik.test"
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
+def _client() -> OpikClient:
+    return OpikClient(base_url=OPIK_BASE, api_key="key-abc", workspace="ws")
+
+
+# --- happy paths: feedback scores ---------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_trace_feedback_score_sends_put_with_required_fields() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/tr-1/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await _client().add_trace_feedback_score(
+            "tr-1", FeedbackScore(name="helpfulness", value=0.8)
+        )
+
+    req = route.calls.last.request
+    assert req.headers["authorization"] == "key-abc"
+    assert req.headers["comet-workspace"] == "ws"
+    assert req.headers["content-type"].startswith("application/json")
+    assert req.read() == b'{"name":"helpfulness","value":0.8,"source":"sdk"}'
+
+
+@pytest.mark.anyio
+async def test_trace_feedback_score_omits_none_optional_fields() -> None:
+    """Optional category_name / reason must not appear in the body when None."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/tr-1/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await _client().add_trace_feedback_score("tr-1", FeedbackScore(name="x", value=1.0))
+
+    body = route.calls.last.request.read()
+    assert b"category_name" not in body
+    assert b"reason" not in body
+
+
+@pytest.mark.anyio
+async def test_trace_feedback_score_includes_optional_fields_when_set() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/tr-1/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await _client().add_trace_feedback_score(
+            "tr-1",
+            FeedbackScore(
+                name="quality",
+                value=0.5,
+                category_name="manual",
+                reason="user-confirmed",
+            ),
+        )
+
+    body = route.calls.last.request.read()
+    assert b'"category_name":"manual"' in body
+    assert b'"reason":"user-confirmed"' in body
+
+
+@pytest.mark.anyio
+async def test_span_feedback_score_sends_put_with_required_fields() -> None:
+    """Mirror of the trace-feedback shape test on the span endpoint.
+
+    Asserts the actual bytes — a `route.called`-only assertion silently passes
+    if a refactor swaps the trace/span URLs or drops a required field.
+    """
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/spans/sp-1/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await _client().add_span_feedback_score(
+            "sp-1", FeedbackScore(name="helpfulness", value=0.8)
+        )
+
+    req = route.calls.last.request
+    assert req.headers["authorization"] == "key-abc"
+    assert req.headers["comet-workspace"] == "ws"
+    assert req.read() == b'{"name":"helpfulness","value":0.8,"source":"sdk"}'
+
+
+@pytest.mark.anyio
+async def test_thread_feedback_score_wraps_in_batch_envelope() -> None:
+    """Thread scoring is batch-only. Single MCP score → 1-element scores array."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await _client().add_thread_feedback_score("th-1", FeedbackScore(name="x", value=0.9))
+
+    body = route.calls.last.request.read()
+    assert body == b'{"scores":[{"thread_id":"th-1","name":"x","value":0.9,"source":"sdk"}]}'
+
+
+@pytest.mark.anyio
+async def test_thread_feedback_score_with_project_name_passthrough() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.put("/v1/private/traces/threads/feedback-scores").mock(
+            return_value=httpx.Response(204)
+        )
+        await _client().add_thread_feedback_score(
+            "th-1",
+            FeedbackScore(name="x", value=1.0),
+            project_name="demo",
+        )
+
+    body = route.calls.last.request.read()
+    assert b'"project_name":"demo"' in body
+
+
+# --- happy paths: comments ----------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_trace_comment_posts_text() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/traces/tr-1/comments").mock(
+            return_value=httpx.Response(
+                201, headers={"Location": "/v1/private/traces/tr-1/comments/c-1"}
+            )
+        )
+        await _client().add_trace_comment("tr-1", text="looks good")
+
+    req = route.calls.last.request
+    assert req.headers["comet-workspace"] == "ws"
+    assert req.read() == b'{"text":"looks good"}'
+
+
+@pytest.mark.anyio
+async def test_span_comment_posts_text() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/spans/sp-1/comments").mock(return_value=httpx.Response(201))
+        await _client().add_span_comment("sp-1", text="note")
+
+    req = route.calls.last.request
+    assert req.headers["comet-workspace"] == "ws"
+    assert req.read() == b'{"text":"note"}'
+
+
+@pytest.mark.anyio
+async def test_thread_comment_uses_thread_id_in_path() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/traces/threads/th-1/comments").mock(
+            return_value=httpx.Response(201)
+        )
+        await _client().add_thread_comment("th-1", text="see follow-up")
+
+    assert route.called
+    assert route.calls.last.request.read() == b'{"text":"see follow-up"}'
+
+
+# --- error mapping (uniform across all 6 endpoints) ----------------------- #
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_exc"),
+    [
+        (401, OpikAuthError),
+        (403, OpikPermissionError),
+        (404, OpikNotFoundError),
+        (400, OpikValidationError),
+        (422, OpikValidationError),
+        (500, OpikServerError),
+        (502, OpikServerError),
+        (503, OpikServerError),
+    ],
+)
+@pytest.mark.anyio
+async def test_trace_feedback_score_maps_status_to_typed_error(
+    status: int, expected_exc: type[Exception]
+) -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.put("/v1/private/traces/tr-1/feedback-scores").mock(
+            return_value=httpx.Response(status, json={"message": "bad"})
+        )
+        with pytest.raises(expected_exc):
+            await _client().add_trace_feedback_score("tr-1", FeedbackScore(name="x", value=1.0))
+
+
+@pytest.mark.anyio
+async def test_not_found_error_includes_entity_hint() -> None:
+    """404 message should make it clear which entity was missing."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.put("/v1/private/spans/sp-missing/feedback-scores").mock(
+            return_value=httpx.Response(404)
+        )
+        with pytest.raises(OpikNotFoundError, match=r"sp-missing"):
+            await _client().add_span_feedback_score(
+                "sp-missing", FeedbackScore(name="x", value=1.0)
+            )
+
+
+@pytest.mark.anyio
+async def test_write_path_propagates_read_timeout_unchanged() -> None:
+    """The write path does NOT translate `httpx.ReadTimeout` to OpikServerError.
+
+    Pinning this behavior so a refactor that wraps transport errors (which
+    would be a real semantic change — callers currently use `try/except
+    httpx.TimeoutException` directly) can't happen silently.
+
+    A regression that started swallowing the timeout (e.g. inside
+    `errors.raise_for_status`) would surface as `expected_exc` no longer firing.
+    """
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.put("/v1/private/traces/tr-1/feedback-scores").mock(
+            side_effect=httpx.ReadTimeout("read timed out")
+        )
+        with pytest.raises(httpx.ReadTimeout):
+            await _client().add_trace_feedback_score("tr-1", FeedbackScore(name="x", value=1.0))
+
+
+@pytest.mark.anyio
+async def test_write_path_propagates_connect_timeout_unchanged() -> None:
+    """Same contract as ReadTimeout for the comment endpoint — the network
+    boundary error surfaces untranslated so callers can decide retry policy."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/tr-1/comments").mock(
+            side_effect=httpx.ConnectTimeout("connect timed out")
+        )
+        with pytest.raises(httpx.ConnectTimeout):
+            await _client().add_trace_comment("tr-1", text="hello")
+
+
+@pytest.mark.anyio
+async def test_a_validation_error_names_the_target_then_quotes_the_backend() -> None:
+    """Our sentence names what was asked; the backend's reason follows, labelled."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post("/v1/private/traces/tr-1/comments").mock(
+            return_value=httpx.Response(400, json={"message": "text must be non-blank"})
+        )
+        with pytest.raises(OpikValidationError) as err:
+            await _client().add_trace_comment("tr-1", text="")
+    assert "trace 'tr-1'" in str(err.value)
+    assert str(err.value).endswith('Backend said: "text must be non-blank"')
+
+
+# --- client injection (for tests + e.g. shared connection pool) ----------- #
+
+
+@pytest.mark.anyio
+async def test_uses_injected_httpx_client_when_provided() -> None:
+    """The orchestrator may want to share one AsyncClient across calls."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post("/v1/private/traces/tr-1/comments").mock(return_value=httpx.Response(201))
+        async with httpx.AsyncClient() as injected:
+            client = OpikClient(
+                base_url=OPIK_BASE,
+                api_key="k",
+                workspace="ws",
+                client=injected,
+            )
+            await client.add_trace_comment("tr-1", text="x")
+
+    assert route.called
+
+
+# --- base URL handling ---------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_base_url_trailing_slash_is_normalized() -> None:
+    with respx.mock(base_url="https://opik.test") as mock:
+        route = mock.post("/v1/private/traces/tr-1/comments").mock(return_value=httpx.Response(201))
+        client = OpikClient(base_url="https://opik.test/", api_key="k", workspace="ws")
+        await client.add_trace_comment("tr-1", text="x")
+
+    assert route.called
+
+
+# --- resolve_opik_config -------------------------------------------------- #
+
+
+def test_resolve_opik_config_uses_opik_url_when_set() -> None:
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import Settings
+
+    s = Settings(opik_api_key="k", comet_workspace="ws", opik_url="https://opik.example.com/")
+    base, _api, _ws = resolve_opik_config(s)
+    assert base == "https://opik.example.com"
+
+
+def test_resolve_opik_config_derives_from_comet_url_override() -> None:
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import Settings
+
+    s = Settings(
+        opik_api_key="k",
+        comet_workspace="ws",
+        comet_url_override="https://dev.comet.com/",
+        opik_url=None,
+    )
+    base, _, _ = resolve_opik_config(s)
+    assert base == "https://dev.comet.com/opik/api"
+
+
+def test_resolve_opik_config_rejects_empty_url_pair() -> None:
+    """``COMET_URL_OVERRIDE=""`` (explicit empty) is a misconfiguration.
+
+    Without this guard, the base URL would become ``/opik/api`` — a relative
+    URL — and httpx would target wherever the process happens to be running.
+    Better to fail loudly at construction.
+    """
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import MissingConfigError, Settings
+
+    s = Settings(opik_api_key="k", comet_workspace="ws", comet_url_override="", opik_url=None)
+    with pytest.raises(MissingConfigError, match="OPIK_URL or COMET_URL_OVERRIDE"):
+        resolve_opik_config(s)
+
+
+def test_resolve_opik_config_allows_missing_api_key() -> None:
+    """The api key is optional — self-hosted backends run with auth disabled and
+    authorize on the workspace header alone, so a missing key no longer raises."""
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import Settings
+
+    s = Settings(opik_api_key=None, comet_workspace="ws", opik_url="https://opik.example.com")
+    _base, api_key, workspace = resolve_opik_config(s)
+    assert api_key is None
+    assert workspace == "ws"
+
+
+def test_resolve_opik_config_defaults_workspace_when_unset() -> None:
+    """Workspace is optional — when unset, resolve_opik_config falls back to
+    "default" (matching the Opik SDK) instead of raising."""
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+
+    s = Settings(opik_api_key="k", comet_workspace=None, opik_url="https://opik.example.com/")
+    _base, _api_key, workspace = resolve_opik_config(s)
+    assert workspace == DEFAULT_WORKSPACE
+
+
+def test_client_omits_authorization_header_when_no_api_key() -> None:
+    """Without a key, no Authorization header is sent — the workspace header alone
+    authorizes against an auth-disabled self-hosted backend."""
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(base_url="https://opik.example.com", api_key=None, workspace="ws")
+    headers = client._headers()
+    assert "Authorization" not in headers
+    assert headers["Comet-Workspace"] == "ws"
+
+
+@pytest.mark.anyio
+async def test_no_api_key_against_authenticated_backend_surfaces_401() -> None:
+    """Regression: when a key IS required (hosted backend) but not configured, the
+    request is still attempted with no Authorization header and the backend's 401
+    surfaces as a typed OpikAuthError — not a silent success, hang, or raw crash."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/traces/tr-1").mock(
+            return_value=httpx.Response(401, json={"message": "unauthorized"})
+        )
+        client = OpikClient(base_url=OPIK_BASE, api_key=None, workspace="ws")
+        with pytest.raises(OpikAuthError):
+            await client.get_trace("tr-1")
+
+    # The request went out (no client-side block) and carried no Authorization header.
+    assert route.called
+    sent = {k.lower() for k in route.calls.last.request.headers}
+    assert "authorization" not in sent
+
+
+def _opik_env(monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
+    for name in ("OPIK_API_KEY", "OPIK_URL", "COMET_URL_OVERRIDE"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+
+async def _a_401_message() -> str:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/traces/tr-1").mock(return_value=httpx.Response(401))
+        with pytest.raises(OpikAuthError) as err:
+            await OpikClient(base_url=OPIK_BASE, api_key=None, workspace="ws").get_trace("tr-1")
+    return str(err.value)
+
+
+@pytest.mark.anyio
+async def test_a_401_with_no_key_for_opik_cloud__names_the_key_page_and_the_hosted_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _opik_env(monkeypatch)
+
+    message = await _a_401_message()
+
+    assert "https://www.comet.com/api/my/settings/" in message
+    assert "https://www.comet.com/opik/api/v1/mcp" in message
+    assert "/docs/opik/mcp-server/advanced-setup#hosted-server" in message
+    assert "Restart the MCP client" in message
+
+
+@pytest.mark.parametrize("env", [{"OPIK_API_KEY": "k"}, {"OPIK_URL": "http://localhost:5173/api"}])
+@pytest.mark.anyio
+async def test_a_401_with_a_key_or_off_cloud__names_the_settings(
+    monkeypatch: pytest.MonkeyPatch, env: dict[str, str]
+) -> None:
+    _opik_env(monkeypatch, **env)
+
+    message = await _a_401_message()
+
+    assert message.endswith(
+        "Check OPIK_API_KEY and OPIK_WORKSPACE: "
+        "https://www.comet.com/docs/opik/mcp-server/advanced-setup#local-server"
+    )
+
+
+def test_resolve_opik_config_oauth_token_makes_workspace_optional() -> None:
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import Settings
+    from opik_mcp.identity.context import inbound_authorization
+
+    s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
+    token = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc123")
+    try:
+        _base, api_key, workspace = resolve_opik_config(s)
+    finally:
+        inbound_authorization.reset(token)
+
+    assert api_key == f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}abc123"
+    assert workspace is None
+
+
+def test_resolve_opik_config_oauth_detection_is_prefix_not_substring() -> None:
+    """A bearer that merely *contains* the OAuth marker mid-string is NOT an
+    OAuth token, so it takes the non-OAuth path: the workspace falls back to
+    "default" (the OAuth-passthrough path would instead leave it None).
+    """
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.identity.context import inbound_authorization
+
+    s = Settings(opik_api_key=None, comet_workspace=None, opik_url="https://opik.example.com")
+    token = inbound_authorization.set(f"Bearer sk-x{OAUTH_ACCESS_TOKEN_PREFIX}y")
+    try:
+        _base, _api_key, workspace = resolve_opik_config(s)
+    finally:
+        inbound_authorization.reset(token)
+    assert workspace == DEFAULT_WORKSPACE
+
+
+def test_oauth_client_omits_workspace_header() -> None:
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(
+        base_url="https://opik.example.com",
+        api_key=f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}x",
+        workspace=None,
+    )
+    headers = client._headers()
+    assert "Comet-Workspace" not in headers
+    assert headers["Authorization"] == f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}x"
+
+
+# --- unfilled workspace placeholders -------------------------------------- #
+#
+# The workspace goes out as `Comet-Workspace` on every data call, so a config
+# snippet the user never filled in cannot resolve to anything. These installs
+# were failing with opaque upstream auth errors; analytics found ~41 of them
+# within a day of 0.2.16 shipping.
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "${input:OPIK_WORKSPACE}",
+        "${OPIK_WORKSPACE}",
+        "$OPIK_WORKSPACE",
+        "$(OPIK_WORKSPACE)",
+        "<your-workspace>",
+        "{{workspace}}",
+        "%OPIK_WORKSPACE%",
+    ],
+    ids=[
+        "vscode-input",
+        "shell-braced",
+        "shell-bare",
+        "k8s-parens",
+        "readme-angle",
+        "mustache",
+        "win-percent",
+    ],
+)
+def test_an_unfilled_workspace_placeholder_fails_with_a_usable_message(value: str) -> None:
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import MissingConfigError, Settings
+
+    s = Settings(opik_api_key="k", comet_workspace=value)
+    with pytest.raises(MissingConfigError) as excinfo:
+        resolve_opik_config(s)
+    message = str(excinfo.value)
+    # Name the variable, show the offending value, and say what to put there —
+    # the whole point is replacing an upstream 401 nobody can act on.
+    assert "OPIK_WORKSPACE" in message
+    assert value in message
+    assert "workspace name" in message
+
+
+def test_an_unfilled_inbound_workspace_header_fails_the_same_way() -> None:
+    """Hosted callers send their own config; a host with an unfilled template in
+    its headers is just as broken as a local env var."""
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import MissingConfigError, Settings
+    from opik_mcp.identity.context import inbound_workspace
+
+    s = Settings(opik_api_key="k", comet_workspace="real-ws")
+    token = inbound_workspace.set("${input:OPIK_WORKSPACE}")
+    try:
+        with pytest.raises(MissingConfigError):
+            resolve_opik_config(s)
+    finally:
+        inbound_workspace.reset(token)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "acme-ai",
+        "default",
+        "portpro-devlopment",
+        "workspace",
+        "x<y",
+        "$acme",
+        "$acme-ai",
+        "$",
+        "$$",
+        "$a",
+    ],
+    ids=[
+        "slug",
+        "oss-default",
+        "real-name",
+        "the-word",
+        "stray-bracket",
+        "dollar-prefixed-name",
+        "dollar-prefixed-slug",
+        "lone-dollar",
+        "double-dollar",
+        "dollar-single-char",
+    ],
+)
+def test_a_real_workspace_is_untouched(value: str) -> None:
+    """A false positive would break a working install, which is far worse than
+    missing an exotic placeholder shape.
+
+    The `$`-prefixed cases are the ones that matter. Workspace names carry no
+    charset restriction anywhere in the product and `$` is a legal URI
+    sub-delim, so `$acme` is a name somebody may be using right now. An earlier
+    version of the detector matched every `$`-prefixed value and would have
+    hard-failed every tool call for that install.
+    """
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import Settings
+
+    s = Settings(opik_api_key="k", comet_workspace=value)
+    _base, _api, ws = resolve_opik_config(s)
+    assert ws == value
+
+
+def test_an_unset_workspace_still_falls_back_to_default() -> None:
+    """Unchanged behaviour: OSS installs run without setting a workspace."""
+    from opik_mcp.client.base import resolve_opik_config
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+
+    s = Settings(opik_api_key="k", comet_workspace=None)
+    _base, _api, ws = resolve_opik_config(s)
+    assert ws == DEFAULT_WORKSPACE

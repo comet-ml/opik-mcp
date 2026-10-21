@@ -10,10 +10,11 @@ import functools
 import logging
 import time
 from collections.abc import Awaitable, Callable
-from typing import Any, TypeVar
+from typing import Any, ParamSpec, TypeVar
 from weakref import WeakSet
 
 import anyio
+from mcp.server.lowlevel.server import request_ctx
 from mcp.types import ListToolsRequest
 
 from opik_mcp import error_tracking
@@ -30,12 +31,12 @@ from opik_mcp.analytics.errors import (
 )
 from opik_mcp.analytics.events import EVENT_TOOLS_LISTED, bucket_count
 from opik_mcp.analytics.mcp_client_info import call_context_props, collect_session_props
-from opik_mcp.comet_client import OllieNotEnabledError
 from opik_mcp.config import MissingConfigError
 
 logger = logging.getLogger("opik_mcp.analytics.wrappers")
 
 T = TypeVar("T")
+P = ParamSpec("P")
 
 
 # Sentry skip-list: buckets representing user-input or user-config problems.
@@ -55,30 +56,17 @@ _USER_SIDE_ERROR_KINDS: frozenset[str] = frozenset(
         "permission",  # 403 — workspace access denied
         "validation",  # 400/422 — payload rejected by Opik or pydantic
         "not_found",  # 404 — entity doesn't exist
-        # ask_ollie-specific user-config buckets. These are all
-        # caller-actionable (bad key, missing workspace access, ollie not
-        # turned on, user declined an elicit prompt) — Sentry would only
-        # surface noise.
-        "comet_auth",  # bad/expired OPIK_API_KEY at the Comet layer
-        "comet_permission",  # workspace access denied at the Comet layer
-        "ollie_not_enabled",  # workspace doesn't have ollie-assist enabled
-        "pod_auth",  # PPAUTH cookie rejected by the pod
-        "cancelled",  # user-initiated cancellation (ConfirmDeclinedError)
+        "cancelled",  # host-initiated cancellation
     }
 )
 
 
-# Belt-and-braces class-based Sentry skip-list. Both classes already bucket
-# into ``_USER_SIDE_ERROR_KINDS`` via their ``ClassVar[ErrorKind]``
-# (``MissingConfigError`` → ``"validation"``, ``OllieNotEnabledError`` →
-# ``"ollie_not_enabled"``), so the bucket-based filter above is the primary
-# gate. This list stays as a defensive backstop — a future re-classification
-# of either class (e.g. ``MissingConfigError`` reclassified to ``"unknown"``)
-# would silently start paging Sentry otherwise.
-_USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    MissingConfigError,
-    OllieNotEnabledError,
-)
+# Belt-and-braces class-based Sentry skip-list. ``MissingConfigError`` already
+# buckets into ``_USER_SIDE_ERROR_KINDS`` via its ``ClassVar[ErrorKind]``
+# (``"validation"``), so the bucket-based filter above is the primary gate.
+# This list stays as a defensive backstop — a future re-classification of the
+# class (e.g. to ``"unknown"``) would silently start paging Sentry otherwise.
+_USER_SIDE_EXCEPTIONS: tuple[type[BaseException], ...] = (MissingConfigError,)
 
 
 # Indirection so tests can patch the singleton.
@@ -145,10 +133,10 @@ def _maybe_emit_session_initialized(kwargs: dict[str, Any]) -> None:
 
 # PRIVACY CONTRACT: a `props_fn` MUST return only low-cardinality, bucketed
 # values — never user-supplied free text (queries, names, ids, prose).
-# Concrete implementations live alongside each tool in `server.py`; see
+# Concrete implementations live alongside each tool in `server/tools/`; see
 # `_write_props`, `_read_props`, `_list_props` for the bucketing pattern
 # (`is_batch`, `id_kind`, `had_name_filter`, …). The privacy guarantee is
-# enforced end-to-end by `tests/test_analytics_privacy.py`.
+# enforced end-to-end by `tests/analytics/test_privacy.py`.
 PropsFn = Callable[[Any, dict[str, Any]], dict[str, str]]
 
 
@@ -164,18 +152,19 @@ def _report_to_sentry(
 ) -> None:
     """Capture a tool-call failure with the bucket context BI already tracks.
 
-    ``props_fn`` is invoked with ``result=None`` on the failure path — every
-    current implementation derives its bucket props from ``kwargs`` only
-    (the ``result`` argument is underscore-prefixed in all six sites). If
-    that contract ever changes, the inner try/except swallows the failure
-    so we still get the bare exception instead of nothing.
+    ``props_fn`` is invoked with ``result=None`` on the failure path — no
+    implementation reads ``result`` (the argument is underscore-prefixed in
+    all six sites). The list props also read two booleans the list call left
+    in a ContextVar, which a failed call leaves empty. If that contract ever
+    changes, the inner try/except swallows the failure so we still get the
+    bare exception instead of nothing.
 
     MCP host fingerprint (``mcp_host`` / ``mcp_client_version``) is attached
     when available — invaluable when triaging which client (Claude Code,
     Cursor, custom) hit a given Sentry issue.
 
     ``cause_type`` mirrors the BI prop — when the raise site wraps a real
-    upstream class via ``ToolError`` / ``OllieStreamError``, the leaf class
+    upstream class via ``ToolError``, the leaf class
     is what Sentry triage actually cares about, so we tag both.
     """
     tags: dict[str, str] = {"tool_name": tool_name, "error_kind": error_kind}
@@ -228,12 +217,12 @@ def instrument_tool(
     name: str,
     *,
     props_fn: PropsFn | None = None,
-) -> Callable[[Callable[..., Awaitable[T]]], Callable[..., Awaitable[T]]]:
+) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
     """Wrap an async MCP tool handler so every call emits `opik_mcp_tool_called`."""
 
-    def decorator(fn: Callable[..., Awaitable[T]]) -> Callable[..., Awaitable[T]]:
+    def decorator(fn: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         @functools.wraps(fn)
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
+        async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             _maybe_emit_session_initialized(kwargs)
             t0 = time.monotonic()
             error_kind: str | None = None
@@ -257,8 +246,8 @@ def instrument_tool(
                     # so dashboards can distinguish cancellations from errors.
                     error_kind = "cancelled"
                 elif isinstance(exc, Exception):
-                    # Unwrap pure-envelope wrappers (ToolError, OllieStreamError)
-                    # so the bucket reflects the real cause. ``exception_type``
+                    # Unwrap the pure-envelope wrapper (ToolError) so the
+                    # bucket reflects the real cause. ``exception_type``
                     # keeps the wrapper class (where in our code the failure
                     # surfaced); ``cause_type`` carries the leaf (what actually
                     # broke upstream). Both emit only when distinct.
@@ -349,11 +338,9 @@ def _maybe_emit_tools_listed(result: Any) -> None:
 
     session = None
     try:
-        from mcp.server.lowlevel.server import request_ctx
-
         ctx = request_ctx.get()
         session = getattr(ctx, "session", None)
-    except (ImportError, LookupError, AttributeError):
+    except (LookupError, AttributeError):
         session = None
 
     if session is not None:
@@ -382,7 +369,7 @@ def _maybe_emit_tools_listed(result: Any) -> None:
 
     props = {"tool_count_bucket": bucket_count(len(tools))}
     # Stamp env cohort + bucketed MCP host so tools_listed segments on the
-    # same dimensions as tool_called and ask_ollie_completed. ``session``
+    # same dimensions as tool_called. ``session``
     # may be None when invoked outside a host (HTTP probe, test); the
     # helper returns empty dict in that case.
     props.update(call_context_props(session))

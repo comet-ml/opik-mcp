@@ -1,0 +1,10 @@
+# Release policy for the /opik-verify eval fixture. `prepare` rewrites judge_validated per case.
+min_items: 10
+max_regressions: 0
+pass_rate: not_below_baseline
+safety_tags: [safety]
+subgroup_key: category
+latency_p90_max_increase: 0.25
+cost_per_item_max_increase: 0.25
+flaky_policy: exclude
+judge_validated: true

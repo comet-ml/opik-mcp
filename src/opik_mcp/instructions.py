@@ -6,13 +6,17 @@ Cursor, VS Code, Goose). Hosts that ignore the field lose nothing — each
 tool's description is self-contained, so this is purely additive.
 
 The content sets cross-cutting context (workspace, Opik URL, today's date)
-and primes the LLM on when to prefer ``read``/``list``/direct writes vs.
-``ask_ollie``. Per GitHub MCP's published data, dynamic per-session
-instructions are worth +25pp workflow adherence on capable models and
-+60pp on smaller ones, so this is the highest-leverage single dial we
+and primes the LLM on tool selection. Per GitHub MCP's published data, dynamic
+per-session instructions are worth +25pp workflow adherence on capable models
+and +60pp on smaller ones, so this is the highest-leverage single dial we
 have on tool selection quality.
 
-The blob is rendered per session (see ``server.install_session_instructions``):
+That leverage cuts both ways: the blob is delivered as authoritative context,
+not as a list to verify, so anything it describes had better exist on THIS
+connection. It must therefore stay in step with what ``tools/list`` actually
+advertises.
+
+The blob is rendered per session (see ``server.app.session.install_session_instructions``):
 ``workspace`` prefers the OAuth-authorized workspace for THIS session — the
 inbound ``Comet-Workspace`` header, else the name introspected from the bearer
 (``resolved_workspace_name``) — and only falls back to the static ``Settings``
@@ -24,38 +28,80 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from opik_mcp.auth_context import inbound_workspace, resolved_workspace_name
-from opik_mcp.config import DEFAULT_WORKSPACE, Settings, get_settings
-from opik_mcp.opik_client import opik_rest_base
+from opik_mcp.config import Settings, get_settings
+from opik_mcp.features.contributions import instructions_paragraphs
+from opik_mcp.features.toggles import FeatureToggles
+from opik_mcp.read_list.ui_links import (
+    current_workspace,
+    opik_ui_base,
+)
+from opik_mcp.skills_catalog import skill_names
 from opik_mcp.writes.registry import WRITE_OPERATIONS
 
 _TEMPLATE = """\
 You're connected to Opik (Comet's LLM observability platform){user_clause} \
 in workspace "{workspace}". The Opik UI is at {opik_url}.
-{default_project_clause}
+{default_project_clause}{feature_clause}
 Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
-reads. read takes (entity_type, id_or_name_or_uri); list takes (entity_type, \
-optional name filter, page, size). Readable entity types include trace, span, \
-project, experiment, prompt, test_suite, thread. Composite reads (trace, prompt, \
-thread) inline their child collections so one call usually gets the full picture. \
-For a thread, pass the thread link/URI or a project_id — read('thread', …) \
-returns the messages list, and list('thread', project_id=…) enumerates a \
-project's threads.
-- Direct writes — use when the user's intent is concrete and well-defined \
+reads. read takes (entity_type, id): a UUID, a project/experiment/prompt/dataset \
+name, or an opik:// URI; list takes (entity_type, \
+page, size, and a name substring for workspace-wide types). For trace, span \
+and thread, list also takes filters (OQL, the same language as \
+search_traces(filter_string=…)), sort, since/until and search; for experiment, \
+filters and sort. One call answers most questions: \
+list('trace', project_name=…, since="1h", filters="error_info is_not_empty", \
+sort="duration desc"). Field reference: schema("list.trace"). Readable entity \
+types include trace, span, project, experiment, prompt, dataset, thread, \
+agent_insights_issue. Composite reads (trace, prompt, thread, \
+agent_insights_issue) inline their child collections so one call usually gets \
+the full picture. For a thread, pass the thread link/URI or a project_id — \
+read('thread', …) returns the messages list, and list('thread', project_id=…) \
+enumerates a project's threads. For "how is my project doing", start with \
+read('project', name_or_id): traces, error rate, average duration and cost \
+for a window against the window before it, plus the score names and usage \
+keys to filter on, and the freshest experiment, dataset, prompt version and \
+run. since/until move the summary's window; the UI opens on since="30d". \
+To attribute a change rather than just report it, chart it: \
+list('project_metric', project_name=…, metric_type="span_count", \
+breakdown="model"); reference schema("list.project_metric"), which says \
+which metrics take which grouping. For "what is \
+broken in production", start with \
+list('agent_insights_issue', project_name=…): the project's Diagnostics (Agent \
+Insights) issues — recurring failures already grouped and ranked, open ones by \
+default, counts all-time unless since/until narrow them — instead of ranking \
+raw traces yourself; read('agent_insights_issue', id, project_name=…) adds the \
+cause, the suggested fix, example_trace_ids to open with read('trace', …), and \
+UI links. An empty issue list says why it is empty — unavailable on this \
+deployment, never enabled for the project, turned off, enabled but not \
+scanned recently, or enabled and clean — and where it can be fixed, \
+write('agent_insights_job.enable', …) turns Diagnostics on for \
+the project (ask the user first: it creates a standing daily scan) and \
+write('agent_insights_job.trigger', …) scans now instead of waiting for the \
+nightly run. A non-empty list dates itself ("Report covers data through …") \
+because the issues are whatever the last scan grouped; when it names an \
+uncovered tail, the requested window runs past the report, so close the gap \
+with list('trace', …, since=…) instead of answering from the issues \
+alone.
+- Direct writes — for a concrete, well-defined intent \
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
-on span X"). Skip ask_ollie for these — narrower tools are faster and more \
-deterministic. The full write surface is two tools: write (takes \
+on span X"). The full write surface is two tools: write (takes \
 operation + data; pass a list for batch) and schema (returns an op's JSON \
 Schema + bundled example). Operations covered by Phase 1: \
-{write_operations}. run_experiment is a separate tool. Always consult \
-tools/list for what's actually advertised on this connection.
-- ask_ollie: use for investigative questions ("why is X failing?"), cross-entity \
-synthesis ("compare experiments A and B"), or when authoring / instrumentation \
-requires Opik domain expertise. Returns a thread_id you can pass back for \
-follow-ups. Writes Ollie performs mid-stream (scores, comments, test-suite \
-items, prompts) execute without a per-action confirmation step — be \
-intentional about what you ask for.
+{write_operations}. tools/list has what this connection advertises.
+- read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
+Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \
+task — unless it's already in your context, in which case use what you have.
+
+Links: a read carries the `url` of what it returned, a list page carries \
+one `url_template` or a `url` per row, and none of them is ever guessed — a \
+record with no `url` has `url_absent` saying why, or no page at all. Put the \
+link on the thing's name, every time you name it: the record's own name, or \
+the `url_opens` phrase where the answer carries one, else "Open in Opik". \
+A bare or shortened address, or an id alone, is not a link. This holds for \
+every row you mention and not just the first few — ten rows named is ten \
+links, and dropping to raw addresses partway through is the same defect as \
+not linking at all.
 
 Today's date is {date}.\
 """
@@ -64,18 +110,11 @@ Today's date is {date}.\
 def _opik_ui_url(s: Settings) -> str:
     """Opik **UI** base URL for the blob, or a generic placeholder if unconfigured.
 
-    Derived from :func:`opik_rest_base` — the single source of truth for where
-    Opik lives (``OPIK_URL`` override, else ``COMET_URL_OVERRIDE + "/opik/api"``)
-    — so the UI link can never drift from where REST calls actually go. That base
-    is the REST **API** base (``…/opik/api``); the UI lives at the same origin
-    without the trailing ``/api`` segment, so we strip it.
+    Shares :func:`opik_ui_base` with the links a ``read`` attaches, so the blob
+    and the per-entity links can never disagree about where the UI lives.
     """
-    base = opik_rest_base(s)
-    if base is None:
-        return "(Opik URL not configured)"
-    if base.endswith("/api"):
-        base = base[: -len("/api")]
-    return base
+    base = opik_ui_base(s)
+    return base if base is not None else "(Opik URL not configured)"
 
 
 def _render_default_project_clause(s: Settings) -> str:
@@ -84,9 +123,9 @@ def _render_default_project_clause(s: Settings) -> str:
         return ""
     return (
         f'\nThe user\'s default project is `project_name="{pname}"`. Pass it '
-        "as `project_name` to any tool/operation that accepts one (ask_ollie, "
-        "and write operations like score.create / trace.create) unless the "
-        "user explicitly names a different project.\n"
+        "as `project_name` to any tool/operation that accepts one (write "
+        "operations like score.create / trace.create) unless the user "
+        "explicitly names a different project.\n"
     )
 
 
@@ -107,12 +146,7 @@ def render_instructions(
     ``resolved_workspace_name`` → the static ``Settings`` workspace → ``"default"``.
     """
     s = settings if settings is not None else get_settings()
-    workspace = (
-        inbound_workspace.get()
-        or resolved_workspace_name.get()
-        or s.comet_workspace
-        or DEFAULT_WORKSPACE
-    )
+    workspace = current_workspace(s)
     opik_url = _opik_ui_url(s)
 
     user_clause = f" as {user_email}" if user_email else ""
@@ -126,7 +160,11 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
+        feature_clause="".join(
+            f"\n{paragraph}\n" for paragraph in instructions_paragraphs(FeatureToggles.resolve(s))
+        ),
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
+        skill_names=", ".join(skill_names()),
     )
 
 

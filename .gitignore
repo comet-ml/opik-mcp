@@ -39,17 +39,33 @@ logs/
 *.lcov
 coverage/
 
+# Locally-installed agent skills — never committed (OPIK-7621).
+#
+# `npx skills add` installs into these directories, and the skills CLI treats
+# them as priority search locations: a committed skill here would be resolved
+# *instead of* the ones under src/opik_mcp/skills. Since the product's onboarding
+# installs globally with `--all`, a stray commit would push an unrelated
+# third-party skill onto users' machines.
+.agents/skills/
+.claude/skills/
+skills-lock.json
+
 # Misc
 .tmp
 .temp
 
-# Local-only docs (keep on disk, never tracked)
-/docs/
+# docs/ holds only product-engineering specs: the index, one design-doc.md per
+# feature, and the ADRs. Plans, briefs and working notes stay local, because the
+# repository is public. tests/repo/test_repo_hygiene.py pins this.
+/docs/*
+!/docs/*/
+/docs/*/*
+!/docs/README.md
+!/docs/*/design-doc.md
+!/docs/decisions/*.md
 
-# Legacy TypeScript (scoped paths)
-legacy/typescript/node_modules/
-legacy/typescript/build/
-legacy/typescript/dist/
-legacy/typescript/*.tsbuildinfo
-legacy/typescript/coverage/
-legacy/typescript/.cursor/mcp.json
+# Local agent and demo material — never committed.
+.claude/worktrees/
+.claude/settings.local.json
+/demo/
+/presentation/

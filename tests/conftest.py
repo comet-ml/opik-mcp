@@ -15,6 +15,22 @@ from httpx import ASGITransport
 # explicit override in the environment still wins.
 os.environ.setdefault("OPIK_MCP_ANALYTICS_ENABLED", "false")
 
+# Sentry, the other telemetry channel, likewise. ``error_tracking.setup_sentry``
+# already refuses to initialise under pytest, but that guard reads
+# ``sys.modules`` and ``PYTEST_CURRENT_TEST`` — neither of which survives into a
+# subprocess started with a CLEAN env, which is exactly how
+# ``analytics/test_subprocess.py`` starts one. Setting the flag here puts the
+# opt-out in the environment itself, so anything that inherits os.environ
+# (``tests/hermetic``) carries it, and the guard becomes the backstop rather than the
+# only defence. A crash in a test must never reach the real Sentry project.
+os.environ.setdefault("OPIK_MCP_SENTRY_ENABLED", "false")
+
+# A developer's own AI Spend workspace would switch the AI Spend feature on
+# for the whole suite; tests that want it build their settings for it.
+for _workspace_var in ("OPIK_WORKSPACE", "COMET_WORKSPACE"):
+    if os.environ.get(_workspace_var, "").startswith("__ai_spend_"):
+        del os.environ[_workspace_var]
+
 
 @pytest.fixture(autouse=True)
 def _reset_analytics_wrappers_state() -> Generator[None]:
@@ -39,17 +55,25 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     """
     from opik_mcp.analytics import reset_analytics_for_tests, transport_probe
     from opik_mcp.analytics.boot_props import LIFECYCLE_SENTINEL
+    from opik_mcp.analytics.environment import _reset_detector_caches_for_tests
     from opik_mcp.analytics.wrappers import (
         _reset_seen_sessions_for_tests,
         _reset_seen_tools_listed_for_tests,
     )
-    from opik_mcp.credential_identity import reset_identities_for_tests
+    from opik_mcp.identity.store import reset_identities_for_tests
+    from opik_mcp.read_list.project_scope import reset_project_cache_for_tests
 
+    _reset_process_caches()
     reset_analytics_for_tests()
     _reset_seen_sessions_for_tests()
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
+    _reset_detector_caches_for_tests()
+    # The project-name → id cache is process-wide and keyed by client config;
+    # test fakes carry no config, so without a reset one test's resolution
+    # would satisfy the next test's lookup.
+    reset_project_cache_for_tests()
     # main() sets this sentinel so the build_app() lifespan skips its own emit.
     # Clear it between tests or a test that calls main() leaves the build_app()
     # lifespan (e.g. the session http_client fixture) permanently muted.
@@ -60,7 +84,25 @@ def _reset_analytics_wrappers_state() -> Generator[None]:
     _reset_seen_tools_listed_for_tests()
     transport_probe.reset_for_tests()
     reset_identities_for_tests()
+    reset_project_cache_for_tests()
     os.environ.pop(LIFECYCLE_SENTINEL, None)
+    _reset_process_caches()
+
+
+def _reset_process_caches() -> None:
+    """Clear the module-level caches that would otherwise carry one test's
+    environment into the next: settings read from env, the install id read
+    from HOME, the per-session host context, and the account identity (its
+    disk read, in-flight refreshes and bookkeeping)."""
+    from opik_mcp import config
+    from opik_mcp.analytics import identity
+    from opik_mcp.analytics.mcp_client_info import _reset_call_context_cache_for_tests
+    from opik_mcp.identity.account import reset_account_identity_for_tests
+
+    config.get_settings.cache_clear()
+    identity._get_install_id.cache_clear()
+    _reset_call_context_cache_for_tests()
+    reset_account_identity_for_tests()
 
 
 @pytest.fixture(autouse=True)
@@ -68,12 +110,14 @@ def _disable_workspace_introspection() -> Generator[None]:
     """Stub OAuth workspace introspection to a no-op by default.
 
     The ``initialize`` handshake resolves the caller's identity by POSTing to
-    opik-backend's ``/opik/auth-oauth`` (``server.resolve_oauth_identity``).
+    opik-backend's ``/opik/auth-oauth`` (``server.introspect_oauth_token``).
     Left live, every test that sends a session-less OAuth bearer to ``/mcp`` would
     fire a real network call — slow, flaky, and able to land in another test's
-    ``@respx.mock`` window. Disabled by default (mirrors the analytics default
-    above); tests that exercise resolution ``monkeypatch.setattr`` this, and the
-    ``resolve_oauth_identity`` unit tests call the real function directly.
+    ``@respx.mock`` window. Stubbed to ``unknown`` by default — the fail-open
+    outcome, so the request is forwarded exactly as with no introspection at
+    all (mirrors the analytics default above); tests that exercise validation
+    ``monkeypatch.setattr`` the real function back, and the ``identity.oauth``
+    unit tests call it directly.
 
     Uses a standalone ``pytest.MonkeyPatch()`` rather than the ``monkeypatch``
     *fixture* on purpose: depending on that fixture from an autouse fixture pulls
@@ -83,11 +127,13 @@ def _disable_workspace_introspection() -> Generator[None]:
     on ``cache_info``). A self-owned instance keeps fixture ordering untouched.
     """
 
-    async def _none(*_args: object, **_kwargs: object) -> None:
-        return None
+    from opik_mcp.identity.oauth import Introspection
+
+    async def _unknown(*_args: object, **_kwargs: object) -> Introspection:
+        return Introspection(status="unknown")
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.server.resolve_oauth_identity", _none)
+    mp.setattr("opik_mcp.server.http.middleware.introspect_oauth_token", _unknown)
     try:
         yield
     finally:
@@ -99,7 +145,7 @@ def _disable_api_key_identity() -> Generator[None]:
     """Stub API-key identity resolution to a no-op by default.
 
     ``_build_event`` resolves the install's own identity from Comet's
-    account-details endpoint for cloud deployments. Left live, any test that
+    account-details endpoint unless it is local. Left live, any test that
     builds an event with an ``opik_api_key`` set would spawn a background
     refresh thread pointed at www.comet.com — a real network call escaping into
     whatever ``@respx.mock`` window happened to be open, from a thread whose
@@ -117,7 +163,7 @@ def _disable_api_key_identity() -> Generator[None]:
         return None
 
     mp = pytest.MonkeyPatch()
-    mp.setattr("opik_mcp.caller_identity.resolve_api_key_identity", _none)
+    mp.setattr("opik_mcp.identity.caller.resolve_api_key_identity", _none)
     try:
         yield
     finally:

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 #
-# Multi-stage build using the official `uv` image, per
+# Multi-stage build with uv copied in from its official image, per
 # https://docs.astral.sh/uv/guides/integration/docker/. Two real wins over
 # the older `pip install uv && uv pip install --system` pattern:
 #
@@ -12,7 +12,11 @@
 #
 # Build stage ----------------------------------------------------------------
 
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim AS build
+# Same Python base as the runtime stage. uv is copied in at the exact version
+# `[tool.uv] required-version` in pyproject.toml demands, so the image build
+# resolves with the same uv as CI. Bump the two together.
+FROM python:3.13-slim-bookworm AS build
+COPY --from=ghcr.io/astral-sh/uv:0.11.7 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -27,9 +31,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     uv sync --locked --no-install-project --no-dev
 
-COPY pyproject.toml uv.lock README.md ./
-# src includes the build-generated src/opik_mcp/_version.py (CI writes it before
-# the build), which is the project's version source — no version.txt needed here.
+COPY pyproject.toml uv.lock README.md version.txt ./
+# hatch computes the build version from scripts/_build_version.py and
+# version.txt. src carries the generated src/opik_mcp/_version.py (CI writes it
+# before the build), which is what the running server reports.
+COPY scripts/_build_version.py ./scripts/
 COPY src ./src
 
 # Install the project itself into the venv; --no-editable so the runtime
@@ -74,6 +80,6 @@ STOPSIGNAL SIGTERM
 # access logging off). The build_app() lifespan defers to main() via the
 # _OPIK_MCP_LIFECYCLE_OWNED_BY_MAIN sentinel, so boots are never double-counted.
 # Transport/host/port come from the ENV above; single worker by design (SSE is
-# async-IO-bound and multiple workers would fragment in-memory session state —
-# scale with replicas + Redis, see docs/phase-2.md).
+# async-IO-bound and multiple workers would fragment in-memory session state;
+# see docs/hosted-auth/design-doc.md).
 ENTRYPOINT ["tini", "--", "python", "-m", "opik_mcp"]

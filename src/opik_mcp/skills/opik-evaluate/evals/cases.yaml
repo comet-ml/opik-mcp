@@ -1,0 +1,50 @@
+# Test cases for the `/opik-evaluate` skill.
+#
+#   triggering  -> does the skill load at the right times (and stay out of the way
+#                  of test / compare / online-eval / verify, whose phrasing overlaps)?
+#   functional  -> given a runnable, instrumented app with ~20 production traces, does it
+#                  ground cases in the real failures, run an evaluation, and return an
+#                  experiment with scores and the worst items named?
+#
+# The fixture (fixtures/support) is a deterministic support bot with two known bugs
+# (invented refund/delivery policy on paraphrases; legal advice instead of a refusal)
+# plus a seeder that emits 20 traces into a fresh project. The grader scores result.json
+# offline; `verify` (network) confirms the experiment exists with scored items.
+# Suite assertions need a judge key; the heuristic dataset path does not.
+
+triggering:
+  should_trigger:
+    - "evaluate my agent"
+    - "measure the quality of my RAG pipeline"
+    - "build an eval for this chatbot"
+    - "write an LLM judge for hallucinations"
+    - "how good is my agent right now"
+    - "set up evals for this project"
+    - "audit our existing evaluation pipeline"
+  should_not_trigger:
+    - "turn this trace into a test"                # test
+    - "did my fix work"                            # compare
+    - "compare against the baseline"               # compare
+    - "is this safe to ship"                       # verify
+    - "score production traces as they come in"    # online-eval
+    - "what is broken in production"               # diagnose
+    - "why did this trace fail"                    # explain
+    - "optimize my system prompt"                  # optimize
+    - "what's the weather in San Francisco"        # none
+
+functional:
+  - id: first_experiment
+    fixture: support
+    prompt: "Evaluate the support agent in this directory (entrypoint `answer(question)` in agent.py). Its production traces are in Opik project <PROJECT>."
+    expect_status: evaluated
+    assert:
+      status: evaluated
+      experiment_url_present: true
+      scores_nonempty: true
+      cases_from_traces: true            # cases.source == traces (there are 20 to ground in)
+      cases_count_min: 10
+      worst_items_named: true            # >= 1 worst item with a reason
+      worst_hits_planted_failure: true   # a worst item / failure_mode mentions refund, delivery/shipping, or legal
+      each_judge_names_one_failure_mode: true
+      one_next_step: true
+      no_modifications: true             # agent.py untouched; the runner lives outside the workdir

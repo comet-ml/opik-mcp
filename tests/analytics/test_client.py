@@ -1,0 +1,966 @@
+import json
+import logging
+import threading
+
+import httpx
+import pytest
+import respx
+
+from opik_mcp.analytics.client import AnalyticsClient
+from opik_mcp.analytics.identity import get_install_id
+from opik_mcp.config import Settings
+from tests.factories import make_settings
+
+URL = "https://stats.comet.com/notify/event/"
+
+
+def _settings(**overrides: object) -> Settings:
+    # Explicit None defaults so a stray OPIK_API_KEY / COMET_WORKSPACE_ID in the
+    # developer's shell can't change which branch of `_build_event` the test hits.
+    base: dict[str, object] = {
+        "opik_mcp_analytics_enabled": True,
+        "comet_workspace": "ws-1",
+        "opik_api_key": None,
+        "comet_workspace_id": None,
+    }
+    return make_settings(**{**base, **overrides})
+
+
+def _drain(client: AnalyticsClient, deadline_s: float = 2.0) -> None:
+    """Wait for the worker thread to finish dispatching everything in the queue."""
+    client.flush(deadline_s=deadline_s)
+
+
+@respx.mock
+def test_track_event_posts_wire_shape() -> None:
+    route = respx.post(URL).mock(return_value=httpx.Response(200, json={"success": True}))
+    client = AnalyticsClient(_settings())
+    try:
+        client.track_event("opik_mcp_test", {"foo": "bar"})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.called
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_type"] == "opik_mcp_test"
+    # comet-stats indexes events by top-level `user_id` (ollie-assist contract).
+    # With no credential to resolve, that is the anonymous install id — NEVER the
+    # workspace name, which is what the field used to be overloaded with.
+    assert body["user_id"] == get_install_id()
+    assert body["user_id"] != "ws-1"
+    # Legacy `anonymous_id` key must not be sent — receiver wouldn't index it.
+    assert "anonymous_id" not in body
+    props = body["event_properties"]
+    assert props["foo"] == "bar"
+    # Common properties stamped by the client:
+    assert props["environment"] == "prod"
+    # `workspace` (not `workspace_id`) so it joins with ollie-assist events.
+    assert props["workspace"] == "ws-1"
+    # A deliberately configured workspace is reported as the operator's choice.
+    assert props["workspace_kind"] == "configured"
+    assert props["user_id_kind"] == "install_id"
+    assert "workspace_id" not in props
+    assert "opik_mcp_version" in props
+    assert "install_id" in props
+    assert "python_version" in props
+    assert "platform" in props
+    assert "transport" in props
+    # ISO-8601 UTC timestamp stamped client-side.
+    assert "timestamp" in props
+    assert props["timestamp"].endswith("+00:00")
+    # `source` defaults to `comet.com` (cloud-Comet deploy convention).
+    assert props["source"] == "comet.com"
+
+
+@respx.mock
+def test_track_event_omits_source_when_blanked() -> None:
+    """Setting opik_mcp_analytics_source='' (e.g. on-prem) drops the field."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_mcp_analytics_source=""))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert "source" not in body["event_properties"]
+
+
+def test_warns_when_onprem_url_with_cloud_source(caplog: pytest.LogCaptureFixture) -> None:
+    """On-prem-looking COMET_URL_OVERRIDE + default source must log a WARNING.
+
+    Safety net: an on-prem operator who sets COMET_URL_OVERRIDE but forgets
+    OPIK_MCP_ANALYTICS_SOURCE='' would otherwise mis-label every event as
+    cloud-Comet. The warning fires once at client startup.
+    """
+    with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(_settings(comet_url_override="https://opik.acme.internal"))
+        try:
+            pass
+        finally:
+            client.close()
+
+    warning_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("looks on-prem" in m for m in warning_msgs), (
+        f"expected on-prem misconfig warning, got: {warning_msgs!r}"
+    )
+
+
+def test_no_warning_for_cloud_url(caplog: pytest.LogCaptureFixture) -> None:
+    """Default cloud URL must NOT trigger the on-prem warning."""
+    with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(_settings())  # default comet_url_override = www.comet.com
+        try:
+            pass
+        finally:
+            client.close()
+
+    on_prem_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "looks on-prem" in r.getMessage()
+    ]
+    assert not on_prem_warnings, f"unexpected on-prem warning: {on_prem_warnings}"
+
+
+def test_no_warning_when_source_blanked_for_onprem(caplog: pytest.LogCaptureFixture) -> None:
+    """On-prem URL with source explicitly blanked = correctly configured, no warning."""
+    with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(
+            _settings(
+                comet_url_override="https://opik.acme.internal",
+                opik_mcp_analytics_source="",
+            )
+        )
+        try:
+            pass
+        finally:
+            client.close()
+
+    on_prem_warnings = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.WARNING and "looks on-prem" in r.getMessage()
+    ]
+    assert not on_prem_warnings, f"unexpected on-prem warning: {on_prem_warnings}"
+
+
+@respx.mock
+def test_track_event_emits_custom_source() -> None:
+    """A custom source value (e.g. on-prem domain) propagates verbatim."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_mcp_analytics_source="acme-internal.example"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["source"] == "acme-internal.example"
+
+
+@respx.mock
+def test_track_event_falls_back_to_install_id_without_workspace() -> None:
+    """No api_key, no workspace → user_id falls back to install_id, never empty."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None, opik_api_key=None))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"]  # never empty / None
+    assert body["event_properties"]["user_id_kind"] == "install_id"
+    # No workspace was set, so `workspace` must NOT appear in event_properties.
+    assert "workspace" not in body["event_properties"]
+    # Its discriminator IS still stamped, saying we have nothing to report.
+    # Omitting it made workspace_kind totals under-count silently.
+    assert body["event_properties"]["workspace_kind"] == "unknown"
+    # No api_key was set, so `api_key_sha256` must NOT appear either.
+    assert "api_key_sha256" not in body["event_properties"]
+
+
+# --- pseudonymous user identity (api_key hash + workspace_id) ------------ #
+
+
+@respx.mock
+def test_api_key_hash_stamped_in_event_properties_when_key_set() -> None:
+    """OPIK_API_KEY set → SHA-256 hash appears in event_properties.api_key_sha256.
+
+    Kept as a stable per-credential label. It is explicitly NOT the join key
+    BI counts users by — no api-key-hash -> user mapping exists in the
+    warehouse — so it never feeds the top-level ``user_id``.
+    """
+    from opik_mcp.analytics.identity import api_key_sha256
+
+    raw_key = "sk-some-secret-key"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_api_key=raw_key))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["api_key_sha256"] == api_key_sha256(raw_key)
+    # An api-key digest is NOT an identity: the warehouse holds no key -> user
+    # mapping, so it cannot stand in for a resolved login. Until one is resolved
+    # the caller is anonymous and the discriminator says so.
+    assert body["user_id"] == get_install_id()
+    assert body["event_properties"]["user_id_kind"] == "install_id"
+    assert body["event_properties"]["workspace"] == "ws-1"
+
+
+@respx.mock
+def test_api_key_hash_absent_when_key_unset() -> None:
+    """No OPIK_API_KEY → field omitted (don't stamp empty / sentinel)."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_api_key=None))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert "api_key_sha256" not in body["event_properties"]
+
+
+@respx.mock
+def test_raw_api_key_never_in_payload_or_logs(caplog: pytest.LogCaptureFixture) -> None:
+    """PRIVACY CONTRACT: the raw OPIK_API_KEY must NEVER appear in any
+    posted payload AND must NEVER appear in any log record / exception text.
+
+    Covers both attack surfaces: a future commit that puts the raw key in an
+    exception message (e.g. ``f"failed to encode: {settings.opik_api_key}"``)
+    would have its traceback dumped via ``exc_info=True`` in the worker's
+    error path — the caplog check catches it before it ships.
+    """
+    raw_key = "sk-DO-NOT-LEAK-canary-9f8e7d6c"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    with caplog.at_level(logging.DEBUG, logger="opik_mcp.analytics"):
+        client = AnalyticsClient(_settings(opik_api_key=raw_key))
+        try:
+            client.track_event("opik_mcp_test", {"foo": "bar"})
+            client.track_event("opik_mcp_other", {})
+            _drain(client)
+        finally:
+            client.close()
+
+    for call in route.calls:
+        body = call.request.content.decode("utf-8", errors="replace")
+        assert raw_key not in body, f"raw api_key leaked in payload: {body!r}"
+    for record in caplog.records:
+        msg = record.getMessage()
+        assert raw_key not in msg, f"raw api_key leaked in log message: {msg!r}"
+        assert raw_key not in (record.exc_text or ""), (
+            f"raw api_key leaked in exception text: {record.exc_text!r}"
+        )
+
+
+@respx.mock
+def test_workspace_id_stamped_when_set() -> None:
+    """COMET_WORKSPACE_ID set → stamped as event_properties.workspace_id."""
+    workspace_uuid = "11111111-2222-3333-4444-555555555555"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace_id=workspace_uuid))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["event_properties"]["workspace_id"] == workspace_uuid
+
+
+@respx.mock
+def test_workspace_id_absent_when_unset() -> None:
+    """No COMET_WORKSPACE_ID → field is omitted (don't send empty string)."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings())  # no comet_workspace_id
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert "workspace_id" not in body["event_properties"]
+
+
+@respx.mock
+def test_api_key_hash_and_workspace_id_both_stamped_when_both_set() -> None:
+    """The two identity fields are independent — both stamp simultaneously.
+
+    Guards against a future refactor that gates one on the other (e.g.
+    ``if workspace_id and api_key`` instead of two parallel ifs).
+    """
+    from opik_mcp.analytics.identity import api_key_sha256
+
+    raw_key = "sk-dual-stamp-test"
+    workspace_uuid = "11111111-2222-3333-4444-555555555555"
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_api_key=raw_key, comet_workspace_id=workspace_uuid))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["api_key_sha256"] == api_key_sha256(raw_key)
+    assert props["workspace_id"] == workspace_uuid
+    assert props["workspace"] == "ws-1"
+
+
+def test_comet_workspace_id_rejects_non_uuid_at_startup() -> None:
+    """Operator typo (e.g. ``COMET_WORKSPACE_ID=my-workspace``) must fail
+    loudly at Settings construction, not silently corrupt every event.
+    """
+    with pytest.raises(ValueError, match="not a valid UUID"):
+        Settings(comet_workspace_id="not-a-uuid")
+
+
+@respx.mock
+def test_disabled_skips_post() -> None:
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(opik_mcp_analytics_enabled=False))
+    try:
+        client.track_event("opik_mcp_test", {})
+        # A disabled client never starts a worker.
+        assert client._worker is None
+    finally:
+        client.close()
+    assert not route.called
+
+
+@respx.mock
+def test_worker_swallows_exceptions() -> None:
+    respx.post(URL).mock(side_effect=httpx.ConnectError("boom"))
+    # Zero backoff so the retry chain doesn't add real sleeps to the suite.
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0, 0.0))
+    try:
+        # Must not raise.
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+
+def test_queue_full_drops_silently(caplog: pytest.LogCaptureFixture) -> None:
+    """Filling the queue beyond capacity must never raise from track_event,
+    and must log a DEBUG message for every dropped event."""
+    # A threading.Event that the stub http_client will block on until we release it.
+    release = threading.Event()
+
+    class BlockingClient:
+        def post(self, *args: object, **kwargs: object) -> None:
+            release.wait()
+
+        def close(self) -> None:
+            pass
+
+    client = AnalyticsClient(
+        _settings(),
+        http_client=BlockingClient(),  # type: ignore[arg-type]
+        max_queue_size=2,
+        retry_backoff_s=(0.0,),  # single attempt; the blocking client makes retries irrelevant
+    )
+    try:
+        with caplog.at_level(logging.DEBUG, logger="opik_mcp.analytics"):
+            # Fire enough events to overflow the tiny queue — none must raise.
+            for i in range(50):
+                client.track_event("opik_mcp_test", {"i": str(i)})
+    finally:
+        release.set()  # unblock the worker so close() can join
+        client.close()
+
+    # At least one event must have been dropped and logged.
+    drop_messages = [r for r in caplog.records if "analytics queue full; dropping" in r.message]
+    assert drop_messages, "Expected at least one 'analytics queue full; dropping' DEBUG log"
+
+
+def test_track_event_after_close_does_not_raise() -> None:
+    """track_event called after close() must be silent and not enqueue."""
+
+    class NullClient:
+        def post(self, *args: object, **kwargs: object) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    client = AnalyticsClient(_settings(), http_client=NullClient())  # type: ignore[arg-type]
+    client.close()
+    # Should be a no-op, not raise, and not enqueue anything.
+    client.track_event("opik_mcp_test", {})
+    assert client._queue.empty()
+
+
+@respx.mock
+def test_track_event_safe_without_running_event_loop() -> None:
+    """Caller in pure sync context (no asyncio loop) must work."""
+    assert not _has_running_loop()
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings())
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+    assert route.called
+
+
+@respx.mock
+def test_http_500_logs_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """A 5xx that never recovers must exhaust the retry chain (one POST per
+    configured attempt) and then log a single WARNING."""
+    route = respx.post(URL).mock(return_value=httpx.Response(500, text="internal error"))
+    # Three zero-delay attempts: proves the worker retries and then gives up.
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0, 0.0))
+    try:
+        with caplog.at_level(logging.WARNING, logger="opik_mcp.analytics"):
+            client.track_event("opik_mcp_test", {"k": "v"})
+            _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 3, "expected one POST per configured retry attempt"
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    # Exactly one — the warning fires once after exhaustion, NOT per failed
+    # attempt (a regression moving it into the except block would log 3).
+    assert len(warning_records) == 1, f"expected one exhaustion WARNING, got {len(warning_records)}"
+
+
+@respx.mock
+def test_retry_succeeds_on_second_attempt() -> None:
+    """A transient failure on the first POST must be retried, and the event
+    lands on the second attempt (which reuses the now-warm pooled connection).
+
+    This is the core server_started fix: the first cold POST eats the DNS+TLS
+    handshake and often errors/times out; without a retry it is lost forever
+    even though a second attempt would land instantly.
+    """
+    route = respx.post(URL).mock(
+        side_effect=[httpx.ConnectError("cold handshake"), httpx.Response(200)]
+    )
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0))
+    try:
+        client.track_event("opik_mcp_test", {"k": "v"})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 2, "expected one failed attempt then a successful retry"
+
+
+@respx.mock
+def test_worker_survives_failed_event_and_delivers_next() -> None:
+    """An event that exhausts all retries must NOT kill the worker thread —
+    the next enqueued event still gets delivered. Guards the `while True` loop
+    against an exception escaping past the per-attempt handling."""
+    route = respx.post(URL).mock(
+        side_effect=[
+            httpx.ConnectError("e1"),  # event 1: attempt 1
+            httpx.ConnectError("e1"),  # event 1: attempt 2
+            httpx.ConnectError("e1"),  # event 1: attempt 3 → exhausted
+            httpx.Response(200),  # event 2: lands
+        ]
+    )
+    client = AnalyticsClient(_settings(), retry_backoff_s=(0.0, 0.0, 0.0))
+    try:
+        client.track_event("first", {})
+        client.track_event("second", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 4, "worker must keep processing after an exhausted event"
+
+
+@respx.mock
+def test_empty_retry_backoff_still_attempts_once() -> None:
+    """An empty retry_backoff_s must not silently drop the event with zero
+    delivery attempts (and a misleading 'after 0 attempt(s)' warning). It
+    normalises to a single immediate attempt — `()` differs from `(0.0,)` by
+    one character but must not mean 'never send'."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(), retry_backoff_s=())
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    assert route.call_count == 1, "empty schedule must still attempt delivery once"
+
+
+def _has_running_loop() -> bool:
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+        return True
+    except RuntimeError:
+        return False
+
+
+# --- resolved caller identity (the BI join key) -------------------------- #
+
+
+def _with_oauth_identity(
+    *,
+    user_name: str | None = "awkoy",
+    workspace_name: str | None = "awkoy-v2",
+    workspace_id: str | None = "ws-uuid-1",
+) -> str:
+    """Register an identity against a bearer and return the header value.
+
+    Mirrors what the ``initialize`` handshake does: introspect once, keep the
+    answer against the credential. Returns the header the caller should set on
+    ``inbound_authorization`` so ``_build_event`` finds it.
+    """
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX
+    from opik_mcp.identity.store import ResolvedIdentity, remember_identity
+
+    token = f"{OAUTH_ACCESS_TOKEN_PREFIX}wire-shape-token"
+    remember_identity(
+        token,
+        ResolvedIdentity(
+            user_name=user_name,
+            workspace_name=workspace_name,
+            workspace_id=workspace_id,
+        ),
+    )
+    return f"Bearer {token}"
+
+
+@respx.mock
+def test_resolved_login_becomes_the_top_level_user_id() -> None:
+    """The whole point: BI joins this straight to the warehouse user key."""
+    from opik_mcp.identity.context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity()
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == "awkoy"
+    props = body["event_properties"]
+    assert props["user_id_kind"] == "comet_user"
+    # The workspace UUID BI asked for — it was always in the introspection
+    # response and used to be discarded.
+    assert props["workspace_id"] == "ws-uuid-1"
+    assert props["workspace"] == "awkoy-v2"
+    assert props["workspace_kind"] == "resolved"
+
+
+@respx.mock
+def test_backend_workspace_beats_the_placeholder_operators_were_told_to_set() -> None:
+    """Our own docs invited ``default``; it collides with a real customer
+    workspace of that name in the warehouse, so the resolved name must win."""
+    from opik_mcp.identity.context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_name="awkoy-v2")
+    client = AnalyticsClient(_settings(comet_workspace="default"))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "awkoy-v2"
+    assert props["workspace_kind"] == "resolved"
+
+
+@respx.mock
+def test_a_deliberately_configured_workspace_is_not_overridden() -> None:
+    """An operator working outside their account default must not be reported
+    as being in it."""
+    from opik_mcp.identity.context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_name="account-default-ws")
+    client = AnalyticsClient(_settings(comet_workspace="team-ws"))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "team-ws"
+    assert props["workspace_kind"] == "configured"
+
+
+@respx.mock
+def test_placeholder_workspace_is_labelled_when_nothing_resolves() -> None:
+    """Self-hosted keeps reporting ``default`` — but marked, so BI never joins
+    it onto the real customer workspace sharing that name."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace="default"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "default"
+    assert props["workspace_kind"] == "placeholder"
+
+
+@respx.mock
+def test_unresolved_caller_stays_anonymous_and_says_so() -> None:
+    """A bearer we never resolved must not silently borrow another identity."""
+    from opik_mcp.identity.context import OAUTH_ACCESS_TOKEN_PREFIX, inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_authorization.set(f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}never-resolved")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == get_install_id()
+    assert body["event_properties"]["user_id_kind"] == "install_id"
+
+
+@respx.mock
+def test_configured_workspace_uuid_still_wins_over_the_resolved_one() -> None:
+    """The env var is an operator stating a fact about their deployment."""
+    from opik_mcp.identity.context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_id="resolved-uuid")
+    client = AnalyticsClient(
+        _settings(comet_workspace=None, comet_workspace_id="11111111-2222-3333-4444-555555555555")
+    )
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace_id"] == "11111111-2222-3333-4444-555555555555"
+
+
+@respx.mock
+def test_api_key_install_reports_its_resolved_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The stdio cohort — the documented uvx path and most of the traffic.
+
+    The install's own API key identifies the caller, so unlike a forwarded
+    bearer it is safe to resolve against our settings.
+    """
+    from opik_mcp.identity.store import ResolvedIdentity
+
+    monkeypatch.setattr(
+        "opik_mcp.identity.caller.resolve_api_key_identity",
+        lambda _s: ResolvedIdentity(
+            user_name="awkoy",
+            workspace_name="awkoy-v2",
+            workspace_id=None,
+        ),
+    )
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None, opik_api_key="sk-key"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == "awkoy"
+    props = body["event_properties"]
+    assert props["user_id_kind"] == "comet_user"
+    assert props["workspace"] == "awkoy-v2"
+    assert props["workspace_kind"] == "resolved"
+    # account-details carries no workspace UUID — the field stays absent rather
+    # than being invented.
+    assert "workspace_id" not in props
+
+
+@respx.mock
+def test_a_forwarded_api_key_bearer_is_not_resolved_as_our_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In hosted mode the inbound credential belongs to the caller. Resolving
+    our own settings identity here would attribute their call to this server."""
+    from opik_mcp.identity.context import inbound_authorization
+    from opik_mcp.identity.store import ResolvedIdentity
+
+    monkeypatch.setattr(
+        "opik_mcp.identity.caller.resolve_api_key_identity",
+        lambda _s: ResolvedIdentity(
+            user_name="server-operator",
+            workspace_name="ops",
+            workspace_id=None,
+        ),
+    )
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None, opik_api_key="sk-key"))
+    tok = inbound_authorization.set("Bearer someone-elses-static-key")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["user_id"] == get_install_id()
+    assert body["event_properties"]["user_id_kind"] == "install_id"
+
+
+# --- workspace_kind is stamped whenever user_id_kind is ------------------ #
+
+
+@respx.mock
+def test_workspace_kind_is_present_even_when_no_workspace_is_known() -> None:
+    """The two discriminators are a pair, and BI totals them together.
+
+    Leaving workspace_kind off when there is no workspace made its counts
+    silently under-total: 2.4% of new-field rows in the first day carried
+    user_id_kind with no workspace_kind at all.
+    """
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["user_id_kind"] == "install_id"
+    assert props["workspace_kind"] == "unknown"
+    # Still no workspace VALUE — unknown means unknown, not empty string.
+    assert "workspace" not in props
+
+
+# --- unsubstituted config templates are not a workspace ------------------ #
+
+
+@pytest.mark.parametrize(
+    "template",
+    [
+        "${input:OPIK_WORKSPACE}",
+        "${OPIK_WORKSPACE}",
+        "$OPIK_WORKSPACE",
+        "<your-workspace>",
+        "<workspace-name>",
+        "{{workspace}}",
+        "%OPIK_WORKSPACE%",
+        "  <your-workspace>  ",
+    ],
+    ids=[
+        "vscode-input",
+        "shell-braced",
+        "shell-bare",
+        "readme-angle",
+        "angle-generic",
+        "mustache",
+        "windows-percent",
+        "padded",
+    ],
+)
+@respx.mock
+def test_an_unfilled_config_snippet_is_reported_as_a_template(template: str) -> None:
+    """Users paste our config snippets without substituting them.
+
+    We label rather than hide. The raw value is the only thing that says WHICH
+    snippet failed them — `${input:…}` is VS Code, `<your-workspace>` is our own
+    README — and the kind keeps these rows out of workspace joins.
+    """
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=template))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == template
+    assert props["workspace_kind"] == "template"
+
+
+@respx.mock
+def test_a_template_is_not_silently_replaced_by_a_resolved_workspace() -> None:
+    """A broken config stays visible even when we could paper over it.
+
+    User attribution is unaffected either way — `user_id` resolves from the
+    credential, not the workspace — so hiding the template would cost the
+    signal and buy nothing.
+    """
+    from opik_mcp.identity.context import inbound_authorization
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    auth = _with_oauth_identity(workspace_name="real-workspace")
+    client = AnalyticsClient(_settings(comet_workspace="${input:OPIK_WORKSPACE}"))
+    tok = inbound_authorization.set(auth)
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_authorization.reset(tok)
+        client.close()
+
+    body = json.loads(route.calls.last.request.content)
+    props = body["event_properties"]
+    assert props["workspace_kind"] == "template"
+    # The caller is still identified — that never depended on the workspace.
+    assert body["user_id"] == "awkoy"
+    assert props["user_id_kind"] == "comet_user"
+
+
+@respx.mock
+def test_an_ordinary_workspace_name_is_not_mistaken_for_a_template() -> None:
+    """Guard the detector against false positives on real names."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace="portpro-devlopment"))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "portpro-devlopment"
+    assert props["workspace_kind"] == "configured"
+
+
+@pytest.mark.parametrize(
+    "settings_kwargs",
+    [
+        {"comet_workspace": None},
+        {"comet_workspace": "default"},
+        {"comet_workspace": "acme-ai"},
+        {"comet_workspace": "<your-workspace>"},
+        {"comet_workspace": None, "opik_api_key": "sk-key"},
+    ],
+    ids=["nothing", "placeholder", "configured", "template", "with-api-key"],
+)
+@respx.mock
+def test_the_two_discriminators_are_always_stamped_together(
+    settings_kwargs: dict[str, object],
+) -> None:
+    """BI totals workspace_kind against user_id_kind. If either can appear
+    without the other, those totals disagree and nothing says why."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(**settings_kwargs))
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert "user_id_kind" in props
+    assert "workspace_kind" in props
+    # Only "unknown" is allowed to carry no name.
+    assert ("workspace" in props) == (props["workspace_kind"] != "unknown")
+
+
+@respx.mock
+def test_a_caller_supplied_workspace_cannot_contradict_unknown() -> None:
+    """`properties` merges under `common`, so a call site passing a workspace
+    would otherwise survive next to workspace_kind='unknown'."""
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    try:
+        client.track_event("opik_mcp_test", {"workspace": "smuggled-in"})
+        _drain(client)
+    finally:
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace_kind"] == "unknown"
+    assert "workspace" not in props
+
+
+@respx.mock
+def test_a_hosted_call_reports_the_workspace_from_its_own_header() -> None:
+    """The inbound header is what the call actually routes on. Reporting
+    `unknown` here while `request_workspace` carries the name would be an
+    affirmative wrong claim, not merely a missing one."""
+    from opik_mcp.identity.context import inbound_workspace
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_workspace.set("caller-workspace")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_workspace.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "caller-workspace"
+    assert props["workspace_kind"] == "configured"
+    assert props["request_workspace"] == "caller-workspace"
+
+
+@respx.mock
+def test_an_inbound_header_outranks_the_process_setting() -> None:
+    from opik_mcp.identity.context import inbound_workspace
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace="server-side-ws"))
+    tok = inbound_workspace.set("caller-workspace")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_workspace.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace"] == "caller-workspace"
+
+
+@respx.mock
+def test_an_unfilled_placeholder_in_the_inbound_header_is_labelled_too() -> None:
+    from opik_mcp.identity.context import inbound_workspace
+
+    route = respx.post(URL).mock(return_value=httpx.Response(200))
+    client = AnalyticsClient(_settings(comet_workspace=None))
+    tok = inbound_workspace.set("${input:OPIK_WORKSPACE}")
+    try:
+        client.track_event("opik_mcp_test", {})
+        _drain(client)
+    finally:
+        inbound_workspace.reset(tok)
+        client.close()
+
+    props = json.loads(route.calls.last.request.content)["event_properties"]
+    assert props["workspace_kind"] == "template"

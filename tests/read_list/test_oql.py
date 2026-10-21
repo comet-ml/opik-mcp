@@ -1,0 +1,538 @@
+"""OQL (Opik Query Language) parser — the ``filters`` string of the ``list`` tool.
+
+Grammar cases are ported from the Opik Python SDK's parser tests so the MCP
+accepts exactly what ``search_traces(filter_string=...)`` accepts. The
+backend-alignment cases are ours: the field/operator tables come from
+opik-backend's enums, not the SDK's, so a string that passes here does not
+400 server-side.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from opik_mcp.features.toggles import NO_FEATURES
+from opik_mcp.read_list import oql
+from opik_mcp.read_list.errors import EntityArgValidationError
+from opik_mcp.read_list.handler import Vocabulary
+from opik_mcp.read_list.oql import OQLError
+from opik_mcp.read_list.registry import VOCABULARIES
+from opik_mcp.read_list.visibility import filterable_types
+
+
+def _vocabulary(entity_type: str) -> Vocabulary:
+    return VOCABULARIES.get(entity_type) or Vocabulary(name=entity_type)
+
+
+def compile_filters(entity_type: str, query: str) -> list[dict[str, str]]:
+    return oql.compile_filters(
+        _vocabulary(entity_type), query, filterable_types=filterable_types(NO_FEATURES)
+    )
+
+
+def split_param_clauses(
+    entity_type: str, clauses: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], dict[str, str]]:
+    return oql.split_param_clauses(_vocabulary(entity_type), clauses)
+
+
+def _clause(field: str, operator: str, value: str = "", key: str = "") -> dict[str, str]:
+    return {"field": field, "operator": operator, "key": key, "value": value}
+
+
+# --- grammar (ported from the SDK) ---------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ('name = "test"', [_clause("name", "=", "test")]),
+        ("usage.total_tokens > 100", [_clause("usage.total_tokens", ">", "100")]),
+        ('tags contains "important"', [_clause("tags", "contains", "important")]),
+        ('output not_contains "error"', [_clause("output", "not_contains", "error")]),
+        (
+            'feedback_scores."Answer Relevance" < 0.8',
+            [_clause("feedback_scores", "<", "0.8", key="Answer Relevance")],
+        ),
+        (
+            'feedback_scores."Escaped ""Quote""" < 0.8',
+            [_clause("feedback_scores", "<", "0.8", key='Escaped "Quote"')],
+        ),
+        (
+            'name = "test" AND tags contains "important"  ',
+            [_clause("name", "=", "test"), _clause("tags", "contains", "important")],
+        ),
+        (
+            'id starts_with "123456" and id ends_with "789012"',
+            [_clause("id", "starts_with", "123456"), _clause("id", "ends_with", "789012")],
+        ),
+        ('thread_id = "thread_123"', [_clause("thread_id", "=", "thread_123")]),
+        ("llm_span_count > 5", [_clause("llm_span_count", ">", "5")]),
+        (
+            "span_feedback_scores.accuracy > 0.9",
+            [_clause("span_feedback_scores", ">", "0.9", key="accuracy")],
+        ),
+        (
+            "span_feedback_scores.my_metric is_empty",
+            [_clause("span_feedback_scores", "is_empty", key="my_metric")],
+        ),
+        (
+            'annotation_queue_ids contains "queue_1"',
+            [_clause("annotation_queue_ids", "contains", "queue_1")],
+        ),
+        (
+            "total_estimated_cost > 0 AND duration > 100",
+            [_clause("total_estimated_cost", ">", "0"), _clause("duration", ">", "100")],
+        ),
+        ('input_json.model = "gpt-4"', [_clause("input_json", "=", "gpt-4", key="model")]),
+        (
+            'output_json.result contains "success"',
+            [_clause("output_json", "contains", "success", key="result")],
+        ),
+        (
+            "feedback_scores.my_metric is_empty AND feedback_scores.other_metric > 0.5",
+            [
+                _clause("feedback_scores", "is_empty", key="my_metric"),
+                _clause("feedback_scores", ">", "0.5", key="other_metric"),
+            ],
+        ),
+        ("error_info is_empty", [_clause("error_info", "is_empty")]),
+        ("error_info is_not_empty", [_clause("error_info", "is_not_empty")]),
+        ("tags is_empty", [_clause("tags", "is_empty")]),
+        ("tags is_not_empty", [_clause("tags", "is_not_empty")]),
+        # negative numbers
+        ("duration > -5", [_clause("duration", ">", "-5")]),
+        ("total_estimated_cost < -0.1", [_clause("total_estimated_cost", "<", "-0.1")]),
+        # escaped quotes in values
+        ('name = "say ""hi"" there"', [_clause("name", "=", 'say "hi" there')]),
+        ('name = """quoted"""', [_clause("name", "=", '"quoted"')]),
+        # in / not_in take a parenthesised list, serialised comma-joined
+        (
+            'environment in ("prod", "staging")',
+            [_clause("environment", "in", "prod,staging")],
+        ),
+        ('environment not_in ("debug")', [_clause("environment", "not_in", "debug")]),
+        (
+            'environment in ("a") AND input contains "hello"',
+            [_clause("environment", "in", "a"), _clause("input", "contains", "hello")],
+        ),
+        # date-time values are quoted ISO-8601 instants
+        (
+            'start_time >= "2026-09-08T00:00:00Z"',
+            [_clause("start_time", ">=", "2026-09-08T00:00:00Z")],
+        ),
+    ],
+)
+def test_trace_grammar_compiles_to_backend_filter_array(
+    query: str, expected: list[dict[str, str]]
+) -> None:
+    assert compile_filters("trace", query) == expected
+
+
+@pytest.mark.parametrize("query", ["", "   "])
+def test_empty_query_compiles_to_no_filters(query: str) -> None:
+    assert compile_filters("trace", query) == []
+
+
+@pytest.mark.parametrize(
+    ("query", "kind", "fragment"),
+    [
+        ("name = test", "syntax", "double quotes"),
+        ('name = "test" extra_stuff', "syntax", "trailing"),
+        ('name = "test" OR name = "other"', "syntax", "OR is not supported"),
+        ('feedback_scores."Unterminated Quote < 0.8', "syntax", "closing quote"),
+        ('name = "hello', "syntax", "closing quote"),
+        ("duration >", "syntax", "unexpected end"),
+        ("name =", "syntax", "unexpected end"),
+        ("duration > 5 and", "syntax", "unexpected end"),
+        ("id", "syntax", "unexpected end"),
+        ("duration > -", "syntax", "number after '-'"),
+        ("duration > 5.", "syntax", "digits after decimal point"),
+        ("environment in prod", "syntax", "'('"),
+        ('environment in ("unterminated"', "syntax", "missing ')'"),
+        ("environment in (unquoted)", "syntax", "quoted strings"),
+        ("environment in ()", "syntax", "at least one item"),
+        ("usage.invalid_metric = 100", "unknown_field", "usage.total_tokens"),
+        ('invalid_field.key = "value"', "unknown_field", "invalid_field"),
+        ('error_info = "something"', "bad_operator", "error_info"),
+    ],
+)
+def test_sdk_rejections_are_kept(query: str, kind: str, fragment: str) -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", query)
+    assert ei.value.kinds == (kind,)
+    assert fragment in str(ei.value)
+
+
+# --- self-healing: the message carries what is needed to fix the string --- #
+
+
+def test_oql_error_is_a_typed_validation_error() -> None:
+    with pytest.raises(EntityArgValidationError):
+        compile_filters("trace", 'name = "test" extra')
+
+
+def test_syntax_error_marks_the_position_and_shows_the_grammar() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", "error_info is_not_empty AND duration > five")
+    message = str(ei.value)
+    # The offending string is echoed with a caret under the failing position.
+    assert "error_info is_not_empty AND duration > five" in message
+    assert "\n" + " " * len("error_info is_not_empty AND duration > ") + "^" in message
+    assert "<field>[.<key>] <op> <value> [AND ...]" in message
+
+
+def test_unknown_field_suggests_the_closest_name_and_lists_the_fields() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", "durration > 5")
+    message = str(ei.value)
+    assert "Unknown field 'durration'" in message
+    assert "Did you mean 'duration'?" in message
+    # Names only — the full type/operator table lives behind schema("list.trace").
+    assert "Fields: " in message
+    assert "thread_id" in message
+    assert "date_time" not in message
+
+
+def test_bad_operator_names_the_type_and_the_valid_operators() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", "metadata.env >= 5")
+    message = str(ei.value)
+    assert "'>=' is not valid for 'metadata' (dictionary)" in message
+    assert (
+        "Valid: =, !=, contains, not_contains, starts_with, ends_with, >, <, is_empty, is_not_empty"
+        in message
+    )
+
+
+def test_bad_date_value_shows_the_expected_format() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", 'start_time > "2026-09-08"')
+    assert ei.value.kinds == ("bad_value",)
+    assert 'ISO-8601 instant with a timezone, e.g. "2026-09-08T10:00:00Z"' in str(ei.value)
+
+
+def test_bad_number_value_on_duration_mentions_milliseconds() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", 'duration > "5s"')
+    message = str(ei.value)
+    assert ei.value.kinds == ("bad_value",)
+    assert "milliseconds" in message
+
+
+def test_score_and_dictionary_fields_require_a_key() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", 'feedback_scores > 0.5 AND metadata = "x"')
+    message = str(ei.value)
+    assert ei.value.kinds == ("bad_value", "bad_value")
+    assert "feedback_scores.<name>" in message
+    assert "metadata.<key>" in message
+
+
+def test_all_problems_are_reported_together() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", 'durration > 5 AND error_info = "x" AND start_time > "yesterday"')
+    assert ei.value.kinds == ("unknown_field", "bad_operator", "bad_value")
+    message = str(ei.value)
+    assert "1." in message
+    assert "2." in message
+    assert "3." in message
+
+
+# --- backend alignment (where the SDK's tables are wrong or short) --------- #
+
+
+def test_dictionary_fields_have_no_gte_lte_but_do_have_emptiness() -> None:
+    with pytest.raises(OQLError):
+        compile_filters("trace", "metadata.x <= 5")
+    assert compile_filters("trace", "metadata.x is_empty") == [
+        _clause("metadata", "is_empty", key="x")
+    ]
+
+
+def test_enum_fields_accept_emptiness_operators() -> None:
+    assert compile_filters("trace", "environment is_not_empty") == [
+        _clause("environment", "is_not_empty")
+    ]
+
+
+def test_source_accepts_only_equality() -> None:
+    assert compile_filters("trace", 'source = "sdk"') == [_clause("source", "=", "sdk")]
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", 'source in ("sdk")')
+    assert ei.value.kinds == ("bad_operator",)
+
+
+def test_backend_only_trace_fields_are_known() -> None:
+    assert compile_filters("trace", 'error_type = "TimeoutError" AND ttft > 200') == [
+        _clause("error_type", "=", "TimeoutError"),
+        _clause("ttft", ">", "200"),
+    ]
+
+
+def test_unknown_top_level_field_is_rejected_not_defaulted_to_string() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", 'model = "gpt-4"')
+    assert ei.value.kinds == ("unknown_field",)
+
+
+def test_usage_without_a_metric_names_the_usage_fields() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", "usage > 5")
+    assert ei.value.kinds == ("unknown_field",)
+    assert "Unknown field 'usage'" in str(ei.value)
+    assert "usage.total_tokens" in str(ei.value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "2026-09-08 10:00:00Z",
+        "2026-09-08",
+        "2026-09-08T10:00:00",
+        "2026-09-08T10Z",
+        "2026-09-08T10:00Z",
+    ],
+)
+def test_dates_the_backend_would_refuse_are_rejected_locally(value: str) -> None:
+    """``Instant.parse`` wants a ``T`` separator and a timezone; Python's
+    ``fromisoformat`` is looser, so the local check must be stricter than it."""
+    with pytest.raises(OQLError) as ei:
+        compile_filters("trace", f'start_time > "{value}"')
+    assert ei.value.kinds == ("bad_value",)
+
+
+def test_unknown_entity_type_is_rejected() -> None:
+    with pytest.raises(OQLError) as ei:
+        compile_filters("project", 'name = "x"')
+    assert "trace, span, thread, experiment" in str(ei.value)
+
+
+# --- closed enum values (the backend 500s on an unknown one) -------------- #
+
+
+def test_unknown_source_value_is_rejected_locally_with_the_accepted_set() -> None:
+    """opik-backend deserializes the filter value into its Source enum and
+    throws on a miss, which surfaces as a 500, not a 400 — so the caller gets
+    an opaque server error for a typo. Catch it here and name the values."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("trace", 'source = "SDK"')
+    msg = str(exc.value)
+    assert exc.value.kinds == ("bad_value",)
+    assert "sdk" in msg
+    assert "evaluator" in msg
+
+
+def test_known_source_values_pass() -> None:
+    for value in ("sdk", "experiment", "playground", "optimization", "evaluator"):
+        assert compile_filters("trace", f'source = "{value}"') == [_clause("source", "=", value)]
+
+
+def test_unknown_span_type_is_rejected() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("span", 'type = "function"')
+    assert "tool" in str(exc.value)
+
+
+def test_every_item_of_an_in_list_is_checked() -> None:
+    """``in`` values arrive comma-joined, and one bad element 500s the same as
+    a bad single value."""
+    assert compile_filters("span", 'type in ("tool", "llm")') == [_clause("type", "in", "tool,llm")]
+    with pytest.raises(OQLError) as exc:
+        compile_filters("span", 'type in ("tool", "nope")')
+    assert "nope" in str(exc.value)
+
+
+def test_emptiness_operators_skip_the_value_check() -> None:
+    assert compile_filters("trace", "environment is_not_empty") == [
+        _clause("environment", "is_not_empty")
+    ]
+
+
+def test_open_ended_enums_are_not_restricted() -> None:
+    """``environment`` is an enum to the operator map but a free string in the
+    data: any deployment can name one, so a value list would reject valid
+    filters."""
+    assert compile_filters("trace", 'environment = "staging-eu"') == [
+        _clause("environment", "=", "staging-eu")
+    ]
+
+
+def test_thread_status_and_visibility_mode_are_checked() -> None:
+    assert compile_filters("thread", 'status = "active"') == [_clause("status", "=", "active")]
+    with pytest.raises(OQLError):
+        compile_filters("thread", 'status = "closed"')
+    with pytest.raises(OQLError):
+        compile_filters("trace", 'visibility_mode = "public"')
+
+
+def test_the_stored_unknown_sentinel_is_filterable() -> None:
+    """Source and SpanType both keep ``unknown`` as a value rows can carry but
+    nobody can ingest, and the backend answers 200 for it, so asking which
+    rows predate the field is a legitimate filter."""
+    assert compile_filters("trace", 'source = "unknown"') == [_clause("source", "=", "unknown")]
+    assert compile_filters("span", 'type = "unknown"') == [_clause("type", "=", "unknown")]
+
+
+def test_a_value_the_backend_answers_with_nothing_is_still_refused() -> None:
+    """Only ``source`` 500s server-side; span ``type`` compares as a string and
+    returns an empty page. That reads as "no matches" when it means "no such
+    value", so it is refused here with the set."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("span", 'type = "retrieval"')
+    assert "general, tool, llm, guardrail" in str(exc.value)
+
+
+# --- fields the backend takes as query parameters -------------------------- #
+#
+# ``type`` and ``optimization_id`` are filter fields to the caller and query
+# parameters to the backend. They compile like any other clause and are then
+# lifted out of the filter array by ``split_param_clauses``, which is what
+# these cases pin: the clause is well-formed, the operators are narrower than
+# the field's type alone would allow, and what is refused comes back as a
+# query that works.
+
+
+def test_experiment_type_compiles_like_any_other_clause() -> None:
+    assert compile_filters("experiment", 'type = "trial"') == [_clause("type", "=", "trial")]
+    assert compile_filters("experiment", 'type in ("regular", "mini-batch")') == [
+        _clause("type", "in", "regular,mini-batch")
+    ]
+
+
+def test_negating_a_type_is_refused_with_the_complement() -> None:
+    """The type set is closed, so "not this one" has an exact rewrite. A
+    refusal that only named the valid operators would leave the caller to
+    work out the other three values for themselves."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'type != "trial"')
+    message = str(exc.value)
+    assert 'type in ("regular", "mini-batch", "mutation")' in message
+    assert "trial" not in message.split("Write:")[1]
+
+
+def test_negating_a_set_of_types_is_refused_with_the_rest_of_the_set() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'type not_in ("trial", "mutation")')
+    assert 'type in ("regular", "mini-batch")' in str(exc.value)
+
+
+def test_an_unknown_experiment_type_is_refused_with_the_four_values() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'type = "optimiser"')
+    assert "regular, trial, mini-batch, mutation" in str(exc.value)
+
+
+def test_the_type_clause_leaves_the_filter_array_as_a_query_parameter() -> None:
+    clauses = compile_filters("experiment", 'type = "trial" AND tags contains "baseline"')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"types": '["trial"]'}
+    assert remaining == [_clause("tags", "contains", "baseline")]
+
+
+def test_a_set_of_types_encodes_as_the_json_array_the_backend_parses() -> None:
+    clauses = compile_filters("experiment", 'type in ("regular", "mini-batch")')
+    _, params = split_param_clauses("experiment", clauses)
+    assert params == {"types": '["regular","mini-batch"]'}
+
+
+def test_an_entity_with_no_parameter_fields_is_left_alone() -> None:
+    clauses = compile_filters("trace", 'name = "x"')
+    remaining, params = split_param_clauses("trace", clauses)
+    assert remaining == clauses
+    assert params == {}
+
+
+OPTIMIZATION = "019fb348-cf24-78a5-bd6f-9b22527c02b6"
+
+
+def test_an_optimization_id_becomes_its_own_bare_query_parameter() -> None:
+    """One identifier, not a set: the resource declares the parameter as a
+    UUID, so it travels bare rather than as a JSON array."""
+    clauses = compile_filters("experiment", f'optimization_id = "{OPTIMIZATION}"')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"optimization_id": OPTIMIZATION}
+    assert remaining == []
+
+
+def test_an_optimization_id_and_a_type_travel_as_two_parameters() -> None:
+    clauses = compile_filters(
+        "experiment", f'optimization_id = "{OPTIMIZATION}" AND type = "trial"'
+    )
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"optimization_id": OPTIMIZATION, "types": '["trial"]'}
+    assert remaining == []
+
+
+def test_any_operator_but_equality_on_an_optimization_id_is_refused() -> None:
+    """``optimization_id`` is a string field, so the type's operator set would
+    let ``contains`` through. The parameter carries one exact id, which is the
+    tighter rule and the one worth saying out loud."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'optimization_id contains "019f"')
+    message = str(exc.value)
+    assert "one exact id" in message
+    assert "Valid: =." in message
+
+
+def test_a_malformed_optimization_id_is_refused_before_the_backend_sees_it() -> None:
+    """The resource declares the parameter as a UUID and answers its own
+    error for anything else — a response the agent has to interpret rather
+    than act on."""
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", 'optimization_id = "not-a-uuid"')
+    assert "not-a-uuid" in str(exc.value)
+
+
+RUN_A = "019fada0-fcb8-73eb-a946-827d4135f028"
+RUN_B = "019fada1-647e-77c5-b9cf-1f5661ab1257"
+
+
+def test_a_set_of_experiment_ids_becomes_the_backends_json_array() -> None:
+    """Fetching exactly the runs a caller already holds ids for — the two it
+    is about to compare, the five it just ranked — was N reads or a paged
+    scan. The backend has taken a JSON array of ids all along."""
+    clauses = compile_filters("experiment", f'experiment_ids in ("{RUN_A}", "{RUN_B}")')
+    remaining, params = split_param_clauses("experiment", clauses)
+    assert params == {"experiment_ids": f'["{RUN_A}","{RUN_B}"]'}
+    assert remaining == []
+
+
+def test_excluding_experiment_ids_is_refused_because_the_parameter_cannot() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", f'experiment_ids not_in ("{RUN_A}")')
+    assert "Valid: in." in str(exc.value)
+
+
+def test_every_experiment_id_in_the_set_has_to_be_an_id() -> None:
+    with pytest.raises(OQLError) as exc:
+        compile_filters("experiment", f'experiment_ids in ("{RUN_A}", "rerank-v3")')
+    assert "rerank-v3" in str(exc.value)
+
+
+def test_two_clauses_on_one_parameter_field_are_refused() -> None:
+    """The backend takes one value for the parameter, so two AND-ed clauses
+    would have to be merged — and merging them into a set turns an AND into
+    an OR, which answers a question nobody asked."""
+    clauses = compile_filters("experiment", 'type = "trial" AND type = "regular"')
+    with pytest.raises(OQLError) as exc:
+        split_param_clauses("experiment", clauses)
+    assert "once" in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    ("entity_type", "query", "expected"),
+    [
+        ("dataset_item_case", 'data.q contains "a"', ["data"]),
+        ("dataset_item_case", 'source contains "trace"', ["source"]),
+        ("dataset_item", 'data.q contains "a"', ["data"]),
+        ("dataset_item", 'full_data contains "a"', ["full_data"]),
+        ("trace", "duration > 5", ["duration"]),
+    ],
+)
+def test_filter_field_names_reads_a_vocabulary_typed_by_its_own_name(
+    entity_type: str, query: str, expected: list[str]
+) -> None:
+    """Analytics labels the fields of a call typed as a mode's own key
+    (``dataset_item_case``), as well as one typed as the entity."""
+    assert oql.filter_field_names(entity_type, query, VOCABULARIES.values()) == expected

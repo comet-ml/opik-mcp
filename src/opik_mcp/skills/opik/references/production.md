@@ -66,10 +66,7 @@ from opik import Opik
 client = Opik()
 
 # Get AI analysis for a trace
-analysis = client.assist(
-    trace_id="abc-123",
-    question="Why did this trace produce a hallucination?"
-)
+analysis = client.assist(trace_id="abc-123", question="Why did this trace produce a hallucination?")
 
 print(analysis.explanation)
 print(analysis.suggestions)
@@ -181,6 +178,7 @@ Once rules are active:
 ```python
 import opik
 
+
 @opik.track
 def my_agent(query: str):
     # Your logic
@@ -189,11 +187,7 @@ def my_agent(query: str):
     # Log feedback score
     opik.opik_context.update_current_trace(
         feedback_scores=[
-            {
-                "name": "user_feedback",
-                "value": 1.0,
-                "reason": "User clicked thumbs up"
-            }
+            {"name": "user_feedback", "value": 1.0, "reason": "User clicked thumbs up"}
         ]
     )
     return response
@@ -207,21 +201,20 @@ from opik import Opik
 client = Opik()
 
 # Search for traces to annotate
-traces = client.search_traces(
-    project_name="production",
-    filters={"tags": ["needs_review"]}
-)
+traces = client.search_traces(project_name="production", filters={"tags": ["needs_review"]})
 
 # Add feedback scores
 for trace in traces:
     client.log_traces_feedback_scores(
-        scores=[{
-            "id": trace.id,
-            "name": "quality_score",
-            "value": 0.85,
-            "reason": "Reviewed by team",
-            "project_name": "production"
-        }]
+        scores=[
+            {
+                "id": trace.id,
+                "name": "quality_score",
+                "value": 0.85,
+                "reason": "Reviewed by team",
+                "project_name": "production",
+            }
+        ]
     )
 ```
 
@@ -273,11 +266,8 @@ from opik import exceptions
 
 guardrail = Guardrail(
     guards=[
-        Topic(
-            restricted_topics=["finance", "health"],
-            threshold=0.9
-        ),
-        PII(blocked_entities=["CREDIT_CARD", "SSN", "PERSON"])
+        Topic(restricted_topics=["finance", "health"], threshold=0.9),
+        PII(blocked_entities=["CREDIT_CARD", "SSN", "PERSON"]),
     ]
 )
 
@@ -297,15 +287,13 @@ import opik
 
 competitor_brands = ["OpenAI", "Anthropic", "Google AI"]
 
+
 def custom_guardrail(generation: str, trace_id: str) -> str:
     client = opik.Opik()
 
     # Start guardrail span
     span = client.span(
-        name="brand_check",
-        input={"generation": generation},
-        type="guardrail",
-        trace_id=trace_id
+        name="brand_check", input={"generation": generation}, type="guardrail", trace_id=trace_id
     )
 
     # Check for competitor mentions
@@ -348,7 +336,7 @@ from opik import configure
 configure(
     anonymizers=[
         {"type": "pii", "action": "mask"},  # Replace PII with [MASKED]
-        {"type": "email", "action": "hash"}, # Hash email addresses
+        {"type": "email", "action": "hash"},  # Hash email addresses
     ]
 )
 ```
@@ -360,8 +348,9 @@ Control what gets logged:
 ```python
 import opik
 
+
 @opik.track(
-    capture_input=True,    # Log function inputs
+    capture_input=True,  # Log function inputs
     capture_output=False,  # Don't log outputs (sensitive)
 )
 def sensitive_function(user_data: dict) -> str:

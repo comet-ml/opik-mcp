@@ -1,0 +1,390 @@
+import pytest
+
+from opik_mcp.analytics.events import (
+    EVENT_STARTUP_ERROR,
+    bucket_count,
+    bucket_text_len,
+    bucket_tokens,
+)
+
+
+def test_startup_error_event_name() -> None:
+    # Wire shape is part of the public BI contract — receiver-side parsers
+    # and dashboards key off the literal string, so a rename is a breaking
+    # change that needs to be noticed in code review.
+    assert EVENT_STARTUP_ERROR == "opik_mcp_startup_error"
+
+
+def test_bucket_tokens_thresholds() -> None:
+    assert bucket_tokens(0) == "<2k"
+    assert bucket_tokens(1999) == "<2k"
+    assert bucket_tokens(2000) == "2k-8k"
+    assert bucket_tokens(7999) == "2k-8k"
+    assert bucket_tokens(8000) == "8k-32k"
+    assert bucket_tokens(31_999) == "8k-32k"
+    assert bucket_tokens(32_000) == ">32k"
+    assert bucket_tokens(10_000_000) == ">32k"
+
+
+def test_bucket_text_len_thresholds() -> None:
+    assert bucket_text_len("") == "<100"
+    assert bucket_text_len("a" * 99) == "<100"
+    assert bucket_text_len("a" * 100) == "100-1000"
+    assert bucket_text_len("a" * 999) == "100-1000"
+    assert bucket_text_len("a" * 1000) == ">1000"
+
+
+def test_bucket_count_thresholds() -> None:
+    assert bucket_count(0) == "0"
+    assert bucket_count(1) == "1-10"
+    assert bucket_count(10) == "1-10"
+    assert bucket_count(11) == "11-100"
+    assert bucket_count(100) == "11-100"
+    assert bucket_count(101) == "101-1000"
+    assert bucket_count(10_000) == ">1000"
+
+
+# --- PR2 additions ------------------------------------------------------- #
+
+
+def test_event_constants_exist() -> None:
+    from opik_mcp.analytics import (
+        EVENT_SERVER_SHUTDOWN,
+        EVENT_TOOLS_LISTED,
+    )
+
+    assert EVENT_TOOLS_LISTED == "opik_mcp_tools_listed"
+    assert EVENT_SERVER_SHUTDOWN == "opik_mcp_server_shutdown"
+
+
+@pytest.mark.parametrize(
+    "elapsed, expected",
+    [
+        (0.0, "<5s"),
+        (4.9, "<5s"),
+        (5.0, "5-60s"),
+        (59.9, "5-60s"),
+        (60.0, "1-10m"),
+        (599.9, "1-10m"),
+        (600.0, "10-60m"),
+        (3599.0, "10-60m"),
+        (3600.0, "1-24h"),
+        (86399.0, "1-24h"),
+        (86400.0, ">24h"),
+        (1_000_000.0, ">24h"),
+    ],
+)
+def test_bucket_seconds(elapsed: float, expected: str) -> None:
+    from opik_mcp.analytics.events import bucket_seconds
+
+    assert bucket_seconds(elapsed) == expected
+
+
+# --- allowlist <-> classifier sync (privacy contract, events.py:7-19) ----- #
+
+
+def test_mcp_host_literal_covers_all_classifier_buckets() -> None:
+    """Every value ``classify_mcp_host`` can return must be a declared McpHost.
+
+    events.py promises the allowlist stays in sync with the classifier in
+    mcp_client_info.py. Drift means a real bucket value (e.g. ``"codex"``)
+    ships in BI without being declared in the privacy allowlist.
+
+    Drives the classifier FUNCTION (not just the pattern table) so the test
+    also pins the hardcoded ``"other"`` fallback — renaming it without updating
+    the Literal would otherwise pass silently.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import McpHost
+    from opik_mcp.analytics.mcp_client_info import _MCP_HOST_PATTERNS, classify_mcp_host
+
+    allowed = set(get_args(McpHost))
+    produced = {classify_mcp_host(pattern) for pattern, _bucket in _MCP_HOST_PATTERNS}
+    produced.add(classify_mcp_host(""))  # empty clientInfo.name -> fallback
+    produced.add(classify_mcp_host("totally-unrecognized-host"))  # no match -> fallback
+    missing = produced - allowed
+    assert not missing, f"McpHost Literal missing classifier values: {sorted(missing)}"
+
+
+def test_host_llm_family_literal_covers_all_classifier_values() -> None:
+    """Every value ``classify_host_llm_family`` can return must be a declared
+    HostLlmFamily value (same sync contract as McpHost).
+
+    The classifier's only inputs are McpHost buckets, so we drive it over every
+    declared McpHost value plus an unmapped one to pin the ``"unknown"`` fallback.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import HostLlmFamily, McpHost
+    from opik_mcp.analytics.mcp_client_info import classify_host_llm_family
+
+    allowed = set(get_args(HostLlmFamily))
+    produced = {classify_host_llm_family(host) for host in get_args(McpHost)}
+    produced.add(classify_host_llm_family("unmapped-bucket"))  # -> "unknown" fallback
+    missing = produced - allowed
+    assert not missing, f"HostLlmFamily Literal missing classifier values: {sorted(missing)}"
+
+
+# --- auth_rejected event constant + path bucketing (GAP#3 foundation) ----- #
+
+
+def test_auth_rejected_event_name() -> None:
+    # Wire-shape contract: the receiver and dashboards key off this literal
+    # string, so a rename is a breaking BI change. Imported via the package
+    # surface to also pin that it's exported from analytics/__init__.
+    from opik_mcp.analytics import EVENT_AUTH_REJECTED
+
+    assert EVENT_AUTH_REJECTED == "opik_mcp_auth_rejected"
+
+
+@pytest.mark.parametrize(
+    "path, expected",
+    [
+        ("/mcp", "mcp"),
+        ("/mcp/", "mcp"),
+        ("/mcp/messages", "mcp"),
+        ("/health", "health"),
+        ("/health/ready", "health"),
+        ("/.well-known/oauth-protected-resource", "well_known"),
+        ("/.well-known/oauth-authorization-server", "well_known"),
+        ("/authorize", "other"),
+        ("/register", "other"),
+        ("/", "other"),
+        ("", "other"),
+        # Sibling paths must NOT collide with the real endpoints (exact-or-subpath).
+        ("/mcpfoo", "other"),
+        ("/healthz", "other"),
+        ("/.well-knownfoo", "other"),
+    ],
+)
+def test_bucket_path(path: str, expected: str) -> None:
+    from opik_mcp.analytics.events import bucket_path
+
+    assert bucket_path(path) == expected
+
+
+def test_bucket_path_respects_custom_mcp_path() -> None:
+    # The MCP transport path is configurable (OPIK_MCP_HTTP_PATH). A request to
+    # the configured path buckets to "mcp"; the hardcoded "/mcp" default must
+    # NOT match when the operator has remapped it.
+    from opik_mcp.analytics.events import bucket_path
+
+    assert bucket_path("/api/v1/mcp", mcp_http_path="/api/v1/mcp") == "mcp"
+    assert bucket_path("/mcp", mcp_http_path="/api/v1/mcp") == "other"
+
+
+def test_path_bucket_literal_matches_bucket_path_outputs() -> None:
+    # bucket_path never emits a raw path — only these four buckets — and the
+    # PathBucket Literal must declare exactly them (privacy + BI contract).
+    from typing import get_args
+
+    from opik_mcp.analytics.events import PathBucket, bucket_path
+
+    allowed = set(get_args(PathBucket))
+    assert allowed == {"mcp", "health", "well_known", "other"}
+    # Samples chosen to exercise every bucket, so this is a bidirectional check:
+    # the Literal declares exactly what bucket_path can produce (no dead buckets,
+    # no undeclared outputs).
+    samples = ["/mcp", "/health", "/.well-known/x", "/anything-else", ""]
+    assert {bucket_path(p) for p in samples} == allowed
+
+
+def test_workspace_kind_literal_has_no_dead_members() -> None:
+    """Every declared WorkspaceKind must be reachable from the classifier.
+
+    mypy already stops ``_resolve_workspace`` returning a value the Literal
+    doesn't declare. What it cannot see is the other direction: a member left
+    behind after a rule changes, which BI would then wait for forever. Same
+    contract as McpHost, driven through the real classifier.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.client import AnalyticsClient
+    from opik_mcp.analytics.events import WorkspaceKind
+    from opik_mcp.config import DEFAULT_WORKSPACE, Settings
+    from opik_mcp.identity.store import ResolvedIdentity
+
+    def _kind(workspace: str | None, resolved: str | None) -> str:
+        client = AnalyticsClient(
+            Settings(opik_mcp_analytics_enabled=False, comet_workspace=workspace)
+        )
+        identity = (
+            ResolvedIdentity(user_name="u", workspace_name=resolved, workspace_id=None)
+            if resolved
+            else None
+        )
+        return client._resolve_workspace(identity).kind
+
+    produced = {
+        _kind("acme-ai", None),  # configured
+        _kind(None, "from-backend"),  # resolved
+        _kind(DEFAULT_WORKSPACE, None),  # placeholder
+        _kind("${input:OPIK_WORKSPACE}", None),  # template
+        _kind(None, None),  # unknown
+    }
+    declared = set(get_args(WorkspaceKind))
+    assert produced == declared, (
+        f"WorkspaceKind drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+
+
+def test_user_id_kind_literal_has_no_dead_members() -> None:
+    from typing import get_args
+
+    from opik_mcp.analytics.client import AnalyticsClient
+    from opik_mcp.analytics.events import UserIdKind
+    from opik_mcp.identity.store import ResolvedIdentity
+
+    produced = {
+        AnalyticsClient._resolve_user(
+            ResolvedIdentity(user_name="awkoy", workspace_name=None, workspace_id=None)
+        ).kind,
+        AnalyticsClient._resolve_user(None).kind,
+    }
+    assert produced == set(get_args(UserIdKind))
+
+
+def test_parent_process_literal_matches_the_frozen_classifier() -> None:
+    """Bidirectional sync between ParentProcess and the FROZEN classifier.
+
+    mypy stops the classifier returning something the Literal doesn't declare.
+    What it cannot see is the other direction: a member left behind after a rule
+    changes, which BI would then wait for forever.
+
+    Also pins the freeze: "uv" must NOT be reachable here. The launcher is only
+    recognised by the additive ancestor classifier, so `parent_process` keeps
+    reporting "other" for a uvx-launched process exactly as it always has.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import ParentProcess
+    from opik_mcp.analytics.process_ancestry import (
+        _EXACT_PARENT_PATTERNS,
+        _PARENT_PROCESS_PATTERNS,
+        _classify_parent_process_name,
+    )
+
+    declared = set(get_args(ParentProcess))
+    produced = {_classify_parent_process_name(p) for p, _bucket in _PARENT_PROCESS_PATTERNS}
+    produced.add(_classify_parent_process_name(""))  # no parent -> fallback
+    produced.add(_classify_parent_process_name("totally-unrecognized-binary"))
+
+    assert produced == declared, (
+        f"ParentProcess drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+    assert "uv" not in declared, "parent_process is frozen; the runner belongs to host_process"
+    for launcher_pattern in _EXACT_PARENT_PATTERNS:
+        assert _classify_parent_process_name(launcher_pattern) == "other"
+
+
+def test_host_process_literal_matches_the_ancestor_classifier() -> None:
+    """Same bidirectional contract for the additive ``host_process`` field.
+
+    It must declare everything ParentProcess does (it shares the vocabulary)
+    plus the launcher bucket that is the whole point of the new field.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import HostProcess, ParentProcess
+    from opik_mcp.analytics.process_ancestry import (
+        _EXACT_PARENT_PATTERNS,
+        _PARENT_PROCESS_PATTERNS,
+        _classify_ancestor_name,
+    )
+
+    declared = set(get_args(HostProcess))
+    produced = {_classify_ancestor_name(p) for p, _bucket in _PARENT_PROCESS_PATTERNS}
+    produced |= {_classify_ancestor_name(p) for p in _EXACT_PARENT_PATTERNS}
+    produced.add(_classify_ancestor_name(""))
+    produced.add(_classify_ancestor_name("totally-unrecognized-binary"))
+
+    assert produced == declared, (
+        f"HostProcess drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+    assert set(get_args(ParentProcess)) < declared, (
+        "host_process must be a strict superset of parent_process's vocabulary"
+    )
+
+
+def test_launcher_literal_matches_detector_outputs() -> None:
+    """Every value `_detect_launcher` can emit must be declared, plus the
+    `_safe` fallback the aggregator substitutes if the detector raises."""
+    from typing import get_args
+
+    from opik_mcp.analytics.events import Launcher
+    from opik_mcp.analytics.process_ancestry import _LAUNCHER_BUCKETS
+
+    declared = set(get_args(Launcher))
+    # "none" = no runner involved; "unknown" = detector raised (see `_safe`).
+    expected = set(_LAUNCHER_BUCKETS) | {"none", "unknown"}
+    assert declared == expected, (
+        f"Launcher drift: unreachable={sorted(declared - expected)} "
+        f"undeclared={sorted(expected - declared)}"
+    )
+
+
+def test_mcp_client_literal_matches_its_classifier() -> None:
+    """``McpClient`` must cover the additive classifier, and must declare the
+    two buckets the frozen ``McpHost`` cannot reach.
+
+    ``claude-desktop`` was dead under the frozen classifier (Claude Desktop
+    sends "claude-ai") and ``absent`` does not exist there at all.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics.events import McpClient, McpHost
+    from opik_mcp.analytics.mcp_client_info import (
+        _MCP_CLIENT_PATTERNS,
+        classify_mcp_client,
+        classify_mcp_host,
+    )
+
+    declared = set(get_args(McpClient))
+    produced = {classify_mcp_client(p) for p, _bucket in _MCP_CLIENT_PATTERNS}
+    produced.add(classify_mcp_client(""))  # -> "absent"
+    produced.add(classify_mcp_client("totally-unrecognized-client"))  # -> "other"
+
+    assert produced == declared, (
+        f"McpClient drift: unreachable={sorted(declared - produced)} "
+        f"undeclared={sorted(produced - declared)}"
+    )
+    assert "absent" in declared
+    assert "absent" not in set(get_args(McpHost))
+    # The alias that makes the dead bucket reachable, pinned end to end.
+    assert classify_mcp_client("claude-ai") == "claude-desktop"
+    assert classify_mcp_host("claude-ai") == "other"
+
+
+def test_env_id_kind_literal_matches_the_detector(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bidirectional sync for ``env_id_kind``.
+
+    Only two outcomes exist by design: a real machine id was read, or none was
+    and NO digest is emitted. There is deliberately no third "unstable" bucket —
+    a hostname fallback would churn per container run while looking
+    authoritative, which is the failure mode the nil ``install_id`` already
+    demonstrates.
+    """
+    from typing import get_args
+
+    from opik_mcp.analytics import environment as env
+    from opik_mcp.analytics.events import EnvIdKind
+
+    declared = set(get_args(EnvIdKind))
+    assert declared == {"machine", "unknown"}
+
+    monkeypatch.setattr(env, "_read_machine_id", lambda: "a-machine-id")
+    env._detect_env_id.cache_clear()
+    digest_present, kind_present = env.env_id()
+
+    monkeypatch.setattr(env, "_read_machine_id", lambda: "")
+    env._detect_env_id.cache_clear()
+    digest_absent, kind_absent = env.env_id()
+    env._detect_env_id.cache_clear()
+
+    assert {kind_present, kind_absent} == declared
+    assert digest_present
+    assert not digest_absent

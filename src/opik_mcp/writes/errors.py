@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import difflib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, ClassVar, Final, Literal
 
+from opik_mcp.client.errors.hints import credential_hint
+from opik_mcp.config import DOCS_WORKSPACE
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.identity.context import oauth_token_expired_hint
 
 ErrorCode = Literal[
     "validation_failed",
@@ -42,10 +45,13 @@ class ValidationIssue:
     code: str
 
     def to_dict(self) -> dict[str, Any]:
+        # A precondition's issue has no message of its own: its sentence is
+        # the envelope's lead, and a copy here would say it twice.
+        if not self.message:
+            return {"field": self.field, "code": self.code}
         return {"field": self.field, "message": self.message, "code": self.code}
 
 
-@dataclass
 class WriteError(Exception):
     """Base for all structured write errors. Renders as the JSON body."""
 
@@ -54,11 +60,20 @@ class WriteError(Exception):
     # "unknown" since concrete code never raises bare WriteError.
     error_kind: ClassVar[ErrorKind] = "unknown"
     http_status: ClassVar[int | None] = None
+    error: ClassVar[ErrorCode]
 
-    error: ErrorCode
-    operation: str | None = None
-    message: str = ""
-    extra: dict[str, Any] = field(default_factory=dict)
+    def __init__(
+        self,
+        operation: str | None = None,
+        message: str = "",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        # ``args`` mirrors the signature so pickling and copying rebuild the
+        # same error.
+        self.operation = operation
+        self.message = message
+        self.extra: dict[str, Any] = {} if extra is None else extra
+        super().__init__(operation, message, self.extra)
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {"error": self.error}
@@ -77,11 +92,10 @@ class WriteError(Exception):
         return self.to_json()
 
 
-@dataclass
 class UnknownOperationError(WriteError):
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
-    error: ErrorCode = field(default=CODE_UNKNOWN_OPERATION, init=False)
+    error: ClassVar[ErrorCode] = CODE_UNKNOWN_OPERATION
 
     @classmethod
     def build(cls, operation: str, valid: tuple[str, ...]) -> UnknownOperationError:
@@ -99,11 +113,10 @@ class UnknownOperationError(WriteError):
         )
 
 
-@dataclass
 class ValidationFailedError(WriteError):
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
-    error: ErrorCode = field(default=CODE_VALIDATION_FAILED, init=False)
+    error: ClassVar[ErrorCode] = CODE_VALIDATION_FAILED
 
     @classmethod
     def build(
@@ -111,24 +124,31 @@ class ValidationFailedError(WriteError):
         operation: str,
         issues: list[ValidationIssue],
         *,
-        expected_schema: dict[str, Any],
         example: dict[str, Any] | list[Any],
+        message: str | None = None,
     ) -> ValidationFailedError:
+        # The JSON Schema is not inlined: it is one schema() call away, and
+        # inlining it made a failed write cost up to 3,219 characters. The
+        # lead sentence is for a schema mismatch; a precondition passes its
+        # own, since "shaped like example" is the wrong fix for it.
         return cls(
             operation=operation,
+            message=message
+            or (
+                f"data does not fit {operation!r}; retry write({operation!r}, data=…) "
+                f"shaped like example, and schema({operation!r}) returns the full schema."
+            ),
             extra={
                 "issues": [i.to_dict() for i in issues],
-                "expected_schema": expected_schema,
                 "example": example,
             },
         )
 
 
-@dataclass
 class AuthorizationDeniedError(WriteError):
     error_kind: ClassVar[ErrorKind] = "permission"
     http_status: ClassVar[int | None] = 403
-    error: ErrorCode = field(default=CODE_AUTHORIZATION_DENIED, init=False)
+    error: ClassVar[ErrorCode] = CODE_AUTHORIZATION_DENIED
 
     @classmethod
     def build(cls, operation: str, required_scope: str) -> AuthorizationDeniedError:
@@ -143,7 +163,6 @@ class AuthorizationDeniedError(WriteError):
         )
 
 
-@dataclass
 class BackendError(WriteError):
     # ClassVar defaults are intentional fallbacks — the real bucket comes from
     # the upstream HTTP status carried on ``instance.extra["backend_error"]
@@ -153,37 +172,56 @@ class BackendError(WriteError):
     # collapses safely into "unknown" instead of crashing the classifier.
     error_kind: ClassVar[ErrorKind] = "unknown"
     http_status: ClassVar[int | None] = None
-    error: ErrorCode = field(default=CODE_BACKEND_ERROR, init=False)
+    error: ClassVar[ErrorCode] = CODE_BACKEND_ERROR
 
     @classmethod
     def build(
-        cls,
-        operation: str,
-        status: int,
-        body: Any,
-        *,
-        method: str,
-        path: str,
+        cls, operation: str, status: int, *, backend_message: str | None = None
     ) -> BackendError:
+        # The backend's body is untrusted text and the REST path is not a name
+        # the caller can use, so neither is carried; the status is, for the
+        # analytics bucket. ``backend_message`` is the backend's own capped
+        # reason on a 400, 409 or 422 (``client.errors.backend_reason``), kept in its
+        # own field so it is never read as ours.
+        extra: dict[str, Any] = {"backend_error": {"status": status}}
+        if backend_message:
+            extra["backend_message"] = backend_message
         return cls(
             operation=operation,
-            message=f"Backend rejected {method} {path} with status {status}.",
-            extra={
-                "backend_error": {
-                    "status": status,
-                    "body": body,
-                    "method": method,
-                    "path": path,
-                }
-            },
+            message=_backend_sentence(operation, status),
+            extra=extra,
         )
 
 
-@dataclass
+def _backend_sentence(operation: str, status: int) -> str:
+    """What the status means for this write, and the call to retry."""
+    retry = f"write({operation!r}, data=…)"
+    if status == 401:
+        hint = oauth_token_expired_hint() or credential_hint()
+        return f"Opik rejected the credential for {operation!r} (401). {hint}"
+    if status == 403:
+        return (
+            f"Permission denied for {operation!r} (403); retry {retry} with a credential "
+            f"for the workspace that owns the target: {DOCS_WORKSPACE}"
+        )
+    if status == 404:
+        return f"The target of {operation!r} was not found (404); check its ids and retry {retry}."
+    if status == 409:
+        return (
+            f"{operation!r} conflicts with the record's current state (409); check its "
+            f"ids and project, then retry {retry}."
+        )
+    if status in (400, 422):
+        return f"Opik rejected the data for {operation!r} ({status}); fix it and retry {retry}."
+    if status >= 500:
+        return f"Opik server error ({status}) on {operation!r}; retry the same {retry}."
+    return f"Opik answered {status} to {operation!r}; check the data and retry {retry}."
+
+
 class BatchTooLargeError(WriteError):
     error_kind: ClassVar[ErrorKind] = "validation"
     http_status: ClassVar[int | None] = 400
-    error: ErrorCode = field(default=CODE_BATCH_TOO_LARGE, init=False)
+    error: ClassVar[ErrorCode] = CODE_BATCH_TOO_LARGE
 
     @classmethod
     def build(cls, operation: str, size: int, limit: int) -> BatchTooLargeError:
@@ -194,9 +232,12 @@ class BatchTooLargeError(WriteError):
         )
 
 
-@dataclass
 class BatchPartialFailureError(WriteError):
-    error: ErrorCode = field(default=CODE_BATCH_PARTIAL_FAILURE, init=False)
+    # The failed items are rows the backend refused. There is no single HTTP
+    # status for a batch that partly succeeded.
+    error_kind: ClassVar[ErrorKind] = "validation"
+    http_status: ClassVar[int | None] = None
+    error: ClassVar[ErrorCode] = CODE_BATCH_PARTIAL_FAILURE
 
     @classmethod
     def build(

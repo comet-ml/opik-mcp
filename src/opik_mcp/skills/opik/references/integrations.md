@@ -17,8 +17,7 @@ from openai import OpenAI
 client = track_openai(OpenAI())
 
 response = client.chat.completions.create(
-    model="gpt-4",
-    messages=[{"role": "user", "content": "Hello!"}]
+    model="gpt-4", messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
 
@@ -53,7 +52,7 @@ client = track_anthropic(anthropic.Anthropic())
 response = client.messages.create(
     model="claude-3-sonnet-20240229",
     max_tokens=1024,
-    messages=[{"role": "user", "content": "Hello!"}]
+    messages=[{"role": "user", "content": "Hello!"}],
 )
 ```
 
@@ -68,8 +67,7 @@ bedrock = boto3.client("bedrock-runtime")
 tracked_client = track_bedrock(bedrock)
 
 response = tracked_client.invoke_model(
-    modelId="anthropic.claude-3-sonnet-20240229-v1:0",
-    body=json.dumps({"prompt": "Hello"})
+    modelId="anthropic.claude-3-sonnet-20240229-v1:0", body=json.dumps({"prompt": "Hello"})
 )
 ```
 
@@ -93,10 +91,7 @@ from google import genai
 
 client = track_genai(genai.Client())
 
-response = client.models.generate_content(
-    model="gemini-2.0-flash",
-    contents="Hello!"
-)
+response = client.models.generate_content(model="gemini-2.0-flash", contents="Hello!")
 ```
 
 ### LangChain
@@ -121,10 +116,7 @@ graph = ...  # Your LangGraph
 app = graph.compile()
 
 tracer = OpikTracer(graph=app.get_graph(xray=True))
-result = app.invoke(
-    {"messages": [HumanMessage(content="Hello")]},
-    config={"callbacks": [tracer]}
-)
+result = app.invoke({"messages": [HumanMessage(content="Hello")]}, config={"callbacks": [tracer]})
 ```
 
 **Option 2: Wrapper approach**
@@ -208,6 +200,7 @@ Requires the `HAYSTACK_CONTENT_TRACING_ENABLED` environment variable:
 
 ```python
 import os
+
 os.environ["HAYSTACK_CONTENT_TRACING_ENABLED"] = "true"
 
 from opik.integrations.haystack import OpikConnector
@@ -251,91 +244,85 @@ from opik.integrations.openai import track_openai
 from openai import OpenAI
 
 # Generic pattern — change base_url and api_key per provider
-client = track_openai(OpenAI(
-    base_url="https://api.provider.com/v1",
-    api_key="your-provider-api-key"
-))
+client = track_openai(
+    OpenAI(base_url="https://api.provider.com/v1", api_key="your-provider-api-key")
+)
 ```
 
 ### Groq
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://api.groq.com/openai/v1",
-    api_key=os.environ["GROQ_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://api.groq.com/openai/v1", api_key=os.environ["GROQ_API_KEY"])
+)
 
 response = client.chat.completions.create(
-    model="llama-3.1-70b-versatile",
-    messages=[{"role": "user", "content": "Hello"}]
+    model="llama-3.1-70b-versatile", messages=[{"role": "user", "content": "Hello"}]
 )
 ```
 
 ### DeepSeek
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://api.deepseek.com/v1",
-    api_key=os.environ["DEEPSEEK_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://api.deepseek.com/v1", api_key=os.environ["DEEPSEEK_API_KEY"])
+)
 ```
 
 ### Fireworks AI
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://api.fireworks.ai/inference/v1",
-    api_key=os.environ["FIREWORKS_API_KEY"]
-))
+client = track_openai(
+    OpenAI(
+        base_url="https://api.fireworks.ai/inference/v1", api_key=os.environ["FIREWORKS_API_KEY"]
+    )
+)
 ```
 
 ### OpenRouter
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.environ["OPENROUTER_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+)
 ```
 
 ### Portkey
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://api.portkey.ai/v1",
-    api_key=os.environ["PORTKEY_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://api.portkey.ai/v1", api_key=os.environ["PORTKEY_API_KEY"])
+)
 ```
 
 ### Cohere
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://api.cohere.com/compatibility/v1",
-    api_key=os.environ["COHERE_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://api.cohere.com/compatibility/v1", api_key=os.environ["COHERE_API_KEY"])
+)
 ```
 
 ### BytePlus
 
 ```python
-client = track_openai(OpenAI(
-    base_url="https://api.byteplus.com/v1",
-    api_key=os.environ["BYTEPLUS_API_KEY"]
-))
+client = track_openai(
+    OpenAI(base_url="https://api.byteplus.com/v1", api_key=os.environ["BYTEPLUS_API_KEY"])
+)
 ```
 
 ### Ollama (OpenAI-compatible mode)
 
 ```python
-client = track_openai(OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="ollama"  # Ollama doesn't require a real key
-))
+client = track_openai(
+    OpenAI(
+        base_url="http://localhost:11434/v1",
+        api_key="ollama",  # Ollama doesn't require a real key
+    )
+)
 
 response = client.chat.completions.create(
-    model="llama3",
-    messages=[{"role": "user", "content": "Hello"}]
+    model="llama3", messages=[{"role": "user", "content": "Hello"}]
 )
 ```
 
@@ -351,10 +338,7 @@ import litellm
 
 litellm.callbacks = [OpikLogger()]
 
-response = litellm.completion(
-    model="gpt-4",
-    messages=[{"role": "user", "content": "Hello"}]
-)
+response = litellm.completion(model="gpt-4", messages=[{"role": "user", "content": "Hello"}])
 ```
 
 **Inside `@opik.track`** — pass `current_span_data` via metadata so the callback nests under the active trace:
@@ -366,6 +350,7 @@ from litellm.integrations.opik.opik import OpikLogger
 import litellm
 
 litellm.callbacks = [OpikLogger()]
+
 
 @track
 def call_llm(messages, model="gpt-4"):
@@ -379,7 +364,6 @@ def call_llm(messages, model="gpt-4"):
             },
         },
     )
-
 ```
 
 Use this for providers like Together AI, Novita AI, IBM WatsonX, xAI Grok, Mistral AI, and any other LiteLLM-supported model:
@@ -409,6 +393,7 @@ logfire.instrument_pydantic_ai()
 
 # Pydantic AI agent runs are now traced via OTLP to Opik
 from pydantic_ai import Agent
+
 agent = Agent("openai:gpt-4")
 ```
 
@@ -457,17 +442,13 @@ client = instructor.from_openai(tracked_client)
 import opik
 import ollama
 
+
 @opik.track(type="llm")
 def chat_with_ollama(prompt: str) -> str:
-    response = ollama.chat(
-        model="llama3",
-        messages=[{"role": "user", "content": prompt}]
-    )
+    response = ollama.chat(model="llama3", messages=[{"role": "user", "content": prompt}])
 
     opik.opik_context.update_current_span(
-        model="llama3",
-        provider="ollama",
-        metadata={"source": "ollama-native"}
+        model="llama3", provider="ollama", metadata={"source": "ollama-native"}
     )
 
     return response["message"]["content"]

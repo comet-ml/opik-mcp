@@ -1,40 +1,44 @@
 {
   "properties": {
     "entity_type": {
-      "description": "One of: experiment, project, prompt, span, test_suite, thread, trace.",
+      "description": "One of: agent_insights_issue, dataset, dataset_item, experiment, project, prompt, span, thread, trace.",
       "enum": [
+        "agent_insights_issue",
+        "dataset",
+        "dataset_item",
         "experiment",
         "project",
         "prompt",
         "span",
-        "test_suite",
         "thread",
         "trace"
       ],
       "title": "Entity Type",
       "type": "string"
     },
-    "id": {
-      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik thread link. When a URI/link is passed, entity_type (and, for threads, the project) is overridden from it.",
-      "maxLength": 2048,
-      "minLength": 1,
-      "title": "Id",
-      "type": "string"
-    },
-    "max_tokens": {
+    "fields": {
       "anyOf": [
         {
-          "maximum": 200000,
-          "minimum": 100,
-          "type": "integer"
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "type": "array"
         },
         {
           "type": "null"
         }
       ],
       "default": null,
-      "description": "Optional token budget. If the entity is under the budget, it's returned in full; otherwise compressed to MEDIUM (long strings truncated with path hints) or SKELETON (structure only). Default ~8k tokens.",
-      "title": "Max Tokens"
+      "description": "Return only these paths of the record, uncut: dotted into nested objects ('trace.output'), arrays whole ('spans'). The record's id is always kept; an unknown path is refused with the valid ones. The answer says it was projected and what it omitted. Omit for the whole record.",
+      "title": "Fields"
+    },
+    "id": {
+      "description": "UUID, entity name (for nameable types), full opik:// URI (e.g. opik://traces/<uuid>), or a pasted Opik link \u2014 a thread link or a Diagnostics page link (\u2026/projects/<pid>/diagnostics?issue=<id>). When a URI/link is passed, entity_type (and, for project-scoped entities, the project) is overridden from it.",
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
     },
     "project_id": {
       "anyOf": [
@@ -46,7 +50,7 @@
         }
       ],
       "default": null,
-      "description": "Project UUID. Required for entity_type='thread' unless the id is a full thread URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
+      "description": "Project UUID. Required for entity_type='thread' and 'agent_insights_issue' unless the id is a full Opik URL/URI (which carries the project). Ignored for globally-unique entities like trace/span.",
       "title": "Project Id"
     },
     "project_name": {
@@ -60,8 +64,36 @@
         }
       ],
       "default": null,
-      "description": "Project name \u2014 alternative to project_id for thread reads.",
+      "description": "Project name \u2014 alternative to project_id for project-scoped reads (thread, agent_insights_issue).",
       "title": "Project Name"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Start of the window, as a relative span ('7d', '24h') or an ISO-8601 instant with timezone. On read: project (the summary's period, 7d by default) and agent_insights_issue (per-day details, truncated to UTC report days, all-time by default). Rejected for other types.",
+      "title": "Since"
+    },
+    "until": {
+      "anyOf": [
+        {
+          "maxLength": 40,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "End of the window, same forms as since.",
+      "title": "Until"
     }
   },
   "required": [

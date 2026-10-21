@@ -1,0 +1,8 @@
+{
+  "id": "${project_id}",
+  "name": "${project_name}",
+  "visibility": "private",
+  "created_at": "2026-08-01T09:00:00Z",
+  "last_updated_at": "2026-09-09T09:00:00Z",
+  "last_updated_trace_at": "2026-09-09T08:59:00Z"
+}

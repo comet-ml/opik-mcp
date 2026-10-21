@@ -1,7 +1,7 @@
 {
   "properties": {
     "operation": {
-      "description": "Operation whose schema to return.",
+      "description": "Write operation whose schema to return, or list.<entity> (list.trace, list.span, list.thread, list.experiment) for the filter and sort reference of the list tool.",
       "enum": [
         "trace.create",
         "trace.update",
@@ -9,12 +9,24 @@
         "score.create",
         "comment.create",
         "prompt_version.save",
-        "test_suite.create",
-        "test_suite_item.upsert",
+        "dataset.create",
+        "dataset_item.upsert",
         "experiment.create",
         "experiment_item.create",
         "thread.close",
-        "thread.open"
+        "thread.open",
+        "agent_insights_issue.resolve",
+        "agent_insights_issue.close",
+        "agent_insights_issue.reopen",
+        "agent_insights_job.enable",
+        "agent_insights_job.trigger",
+        "list.trace",
+        "list.span",
+        "list.thread",
+        "list.experiment",
+        "list.dataset_item",
+        "list.dataset_item_case",
+        "list.project_metric"
       ],
       "title": "Operation",
       "type": "string"

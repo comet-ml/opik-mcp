@@ -3,8 +3,8 @@
 Wraps ``dispatch.run_write`` so the MCP layer doesn't have to know about
 the validation pipeline. Errors are converted to ``ToolError`` carrying
 the JSON-encoded structured envelope from §4.5; the host shows the body
-on the model's next turn, and the model self-corrects on the embedded
-``expected_schema`` + ``example``.
+on the model's next turn, and the model self-corrects from the embedded
+``example``, or from ``schema(operation)``.
 """
 
 from __future__ import annotations
@@ -12,10 +12,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.client.errors.hints import unreachable
+from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.opik_client import OpikClient
 from opik_mcp.writes.dispatch import run_write as _dispatch
 from opik_mcp.writes.errors import WriteError
 from opik_mcp.writes.scopes import ALL_WRITE_SCOPES
@@ -53,6 +55,8 @@ async def run_write(
     except WriteError as we:
         logger.info("write.failed operation=%s code=%s", operation, we.error)
         raise ToolError(we.to_json()) from we
+    except httpx.HTTPError as err:
+        raise ToolError(f"Could not reach Opik to run {operation!r}: {unreachable(err)}") from err
 
 
 __all__ = ["run_write"]

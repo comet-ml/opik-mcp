@@ -10,6 +10,16 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Comet ML" }]
+keywords = ["mcp", "model-context-protocol", "opik", "comet", "llm", "observability", "tracing", "evaluation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "mcp[cli]>=1.27,<2",
     "httpx>=0.28",
@@ -28,36 +38,184 @@ dev = [
     "pytest>=8",
     "respx>=0.21",
     "ruff>=0.7",
+    # Reference implementation of the agentskills.io spec. Used to validate the
+    # authored skills and to read their frontmatter when building the published
+    # pack, so our reading of a skill is identical to an agent's. Pinned to the
+    # 0.1.x line: a behaviour change there changes what CI accepts and what ships.
+    "skills-ref>=0.1.1,<0.2",
 ]
 
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
 
-# Version comes from a generated, git-ignored file (`make version` / CI writes it;
-# version.txt holds only MAJOR.MINOR). `artifacts` force-includes it in the
-# sdist/wheel despite .gitignore, so building from an sdist resolves the version.
+# Shown on PyPI, where an agent often lands first and otherwise finds no link back.
+[project.urls]
+Homepage = "https://github.com/comet-ml/opik-mcp"
+Documentation = "https://www.comet.com/docs/opik/mcp-server"
+Repository = "https://github.com/comet-ml/opik-mcp"
+Issues = "https://github.com/comet-ml/opik-mcp/issues"
+Changelog = "https://github.com/comet-ml/opik-mcp/releases"
+
+# The exact uv that CI runs. `setup-uv` reads this when no `version` is given,
+# so the resolver in CI is the one the lockfile was written with.
+[tool.uv]
+required-version = "==0.11.7"
+
+# The build version is computed, not read from a generated file:
+# `scripts/_build_version.py` returns `$VERSION` when the release sets it, else
+# `<version.txt>.dev0`, the same rule as `make version`. Reading the git-ignored
+# `src/opik_mcp/_version.py` here made `uv lock` fail on a clean checkout, which
+# is what Dependabot runs. The runtime still imports `_version.py`; `artifacts`
+# keeps it in the wheel despite .gitignore once `make version` has written it.
 [tool.hatch.version]
-path = "src/opik_mcp/_version.py"
+source = "code"
+path = "scripts/_build_version.py"
+expression = "get_version()"
 
 [tool.hatch.build]
 artifacts = ["src/opik_mcp/_version.py"]
+# `evals/` holds fixture repositories and grading harnesses (OPIK-7800) that no
+# agent reads and no code imports. `skills_catalog.EXCLUDED_DIRS` already keeps
+# them off both MCP surfaces and out of the published pack — but nothing kept
+# them out of the WHEEL, so they were about to reach every user's site-packages
+# for the first time: 41 KB across 18 files, including runnable fixture scripts
+# (`agent.py`, `seed.py`, `grader.py`). 0.2.24 shipped none of it only because
+# the two skills that carry evals landed after it was tagged.
+exclude = ["src/opik_mcp/skills/*/evals"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/opik_mcp"]
 
 [tool.hatch.build.targets.sdist]
-include = ["/src", "/README.md"]
+include = ["/src", "/README.md", "/version.txt", "/scripts/_build_version.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# `tests/hermetic` spawns the server as a subprocess against a stub backend, so
+# it is excluded from the default run — `make test` stays in-process and fast.
+# It is NOT optional coverage: `make hermetic` and the `hermetic` CI job run it
+# on every PR, because it is the only per-PR suite that exercises `__main__`'s
+# startup path.
+# `live` and `user_flows` need a real backend (and, for user_flows, a model key),
+# so they are deselected the same way and run only through their make targets.
+# `slow` tests spawn a subprocess each; they are deselected too and run by
+# `make slow`, which CI runs in python-checks right after `make check`.
+addopts = "-m 'not hermetic and not live and not user_flows and not slow'"
+markers = [
+    "hermetic: `python -m opik_mcp` over stdio or HTTP against a stub backend; run by `make hermetic`",
+    "live: drives the server against a seeded local Opik backend; run by `make live`",
+    "user_flows: a real agent on the real server, answers judged; run by `make user-flows`",
+    "slow: spawns a subprocess (hooks, scripts, git, make, ruff, mypy); run by `make slow` and its CI step",
+]
 
 [tool.ruff]
 line-length = 100
 target-version = "py313"
 src = ["src", "tests"]
 
+
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = [
+    "E", "F", "W",   # pycodestyle, pyflakes
+    "I",             # isort; I002 adds the required future import
+    "UP",            # pyupgrade
+    "B",             # bugbear; B904 = raise ... from
+    "SIM",           # simplify
+    "RUF",           # ruff rules; RUF100 = unused noqa
+    "T20",           # no print in the package
+    "PLC0415",       # imports at the top
+    "TID252",        # absolute imports only
+    "ERA",           # no commented-out code
+    "FBT",           # boolean positional args -> keyword-only
+    "PT",            # pytest style
+    "ARG",           # unused arguments
+    "C4",            # comprehensions
+    "PERF",          # perf anti-patterns
+    "RET",           # return consistency
+]
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.flake8-boolean-trap]
+extend-allowed-calls = ["pytest.param"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/**" = ["T20"]          # printing is their output
+".claude/hooks/**" = ["T20"]
+"src/opik_mcp/_version.py" = ["I002"]  # generated
+"tests/**" = ["PLC0415", "ARG001", "FBT"]  # fixtures and lazy imports are the idiom
+
+# Baseline: findings that predate these rules (OPIK-8485). Only shrinks:
+# fix a file, then delete or trim its line. tests/repo/test_ratchets.py fails
+# on an entry that no longer matches. Never add a line here, except that a
+# move splitting a file may replace its line with one per new module that
+# carries the same findings; the PR says so.
+"src/opik_mcp/__main__.py" = ["PLC0415"]
+"src/opik_mcp/read_list/entities/agent_insights_issue/__init__.py" = ["I002"]
+"src/opik_mcp/read_list/entities/agent_insights_issue/state.py" = ["ARG001"]
+"src/opik_mcp/read_list/read_tool.py" = ["ARG001"]
+"src/opik_mcp/skills/opik-compare/evals/fixtures/regress/agent.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-compare/evals/fixtures/regress/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-compare/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-diagnose/evals/fixtures/seed/seed.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-diagnose/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-evaluate/evals/fixtures/support/agent.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-evaluate/evals/fixtures/support/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-evaluate/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-explain/evals/fixtures/latency/agent.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-explain/evals/fixtures/toolbug/agent.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-explain/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-instrument/evals/fixtures/clean/app.py" = ["T201"]
+"src/opik_mcp/skills/opik-instrument/evals/fixtures/missing_flush/app.py" = ["T201"]
+"src/opik_mcp/skills/opik-instrument/evals/grader.py" = ["FBT003", "PLC0415"]
+"src/opik_mcp/skills/opik-instrument/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-online-eval/evals/fixtures/traffic/seed.py" = ["I002", "PLC0415", "T201"]
+"src/opik_mcp/skills/opik-online-eval/evals/fixtures/traffic/traffic.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-online-eval/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-optimize/evals/fixtures/format/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-optimize/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-test/evals/fixtures/toolbug/agent.py" = ["ARG001", "I002", "T201"]
+"src/opik_mcp/skills/opik-test/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills/opik-verify/evals/fixtures/gate/seed.py" = ["I002", "T201"]
+"src/opik_mcp/skills/opik-verify/evals/run_evals.py" = ["PLC0415", "T201"]
+"src/opik_mcp/skills_catalog.py" = ["PERF401"]
+"src/opik_mcp/writes/__init__.py" = ["I002"]
+"tests/analytics/test_boot_props.py" = ["PT006"]
+"tests/analytics/test_client.py" = ["ARG002", "I002"]
+"tests/analytics/test_environment.py" = ["PT006"]
+"tests/analytics/test_errors.py" = ["PT006", "PT017"]
+"tests/analytics/test_events.py" = ["I002", "PT006"]
+"tests/analytics/test_identity.py" = ["I002", "PT019"]
+"tests/analytics/test_lifespan.py" = ["ARG002", "PT011"]
+"tests/analytics/test_server_startup.py" = ["ARG002", "ARG005", "I002", "PT011"]
+"tests/analytics/test_subprocess.py" = ["ARG002", "PT001"]
+"tests/analytics/test_wrappers.py" = ["ERA001", "I002", "PT006"]
+"tests/client/test_client.py" = ["I002"]
+"tests/client/test_connection_per_tool_call.py" = ["PT022"]
+"tests/client/test_read.py" = ["I002"]
+"tests/conftest.py" = ["I002"]
+"tests/hermetic/test_description_claims.py" = ["PERF401", "PT018"]
+"tests/identity/test_account_identity.py" = ["PT019"]
+"tests/identity/test_http_auth.py" = ["I002"]
+"tests/identity/test_oauth_identity.py" = ["I002"]
+"tests/identity/test_oauth_passthrough_mode.py" = ["I002"]
+"tests/identity/test_oauth_protected_resource.py" = ["I002"]
+"tests/identity/test_oauth_redirect.py" = ["I002"]
+"tests/identity/test_oauth_token_rotation.py" = ["I002", "PT022"]
+"tests/identity/test_oauth_token_validation.py" = ["I002", "PT022"]
+"tests/identity/test_resource_metadata_url.py" = ["I002"]
+"tests/read_list/test_link_shape.py" = ["ARG002"]
+"tests/read_list/test_list_filters.py" = ["ARG002"]
+"tests/read_list/test_project_metrics.py" = ["ARG002"]
+"tests/read_list/test_read_tool.py" = ["ARG002"]
+"tests/read_list/test_ui_links.py" = ["PT017"]
+"tests/server/test_config.py" = ["I002"]
+"tests/server/test_error_tracking.py" = ["ARG002", "ARG005", "PT006"]
+"tests/server/test_health.py" = ["I002"]
+"tests/server/test_http_path_config.py" = ["I002"]
+"tests/writes/test_backend_error_oauth_hint.py" = ["I002"]
+"tests/writes/test_models.py" = ["PT017"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -67,8 +225,132 @@ python_version = "3.13"
 strict = true
 warn_unreachable = true
 warn_redundant_casts = true
-files = ["src", "tests"]
+disallow_any_explicit = true     # the "no Any" rule, enforced
+files = ["src", "tests", "scripts"]
+# Skill `evals/` dirs hold dev-only harnesses and fixture apps that never ship in
+# the pack; their entry points share module names mypy would reject.
+exclude = ["/evals/"]
 
 [[tool.mypy.overrides]]
 module = ["mcp.shared.memory"]
 ignore_missing_imports = true
+
+# The agentskills.io reference library ships no py.typed marker.
+[[tool.mypy.overrides]]
+module = ["skills_ref", "skills_ref.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Raw backend JSON is the one place Any is honest. Type it once, at the edge.
+# Listed by name, not by glob, so a new module under client/ meets the full rule.
+module = [
+    "opik_mcp.client.ai_spend",
+    "opik_mcp.client.annotations",
+    "opik_mcp.client.base",
+    "opik_mcp.client.dataset",
+    "opik_mcp.client.diagnostics",
+    "opik_mcp.client.experiment",
+    "opik_mcp.client.observability",
+    "opik_mcp.client.project",
+    "opik_mcp.client.prompt",
+    "opik_mcp.client.protocols",
+]
+disallow_any_explicit = false
+
+# Baseline: modules that used explicit Any before the rule (OPIK-8485). Only
+# shrinks: type a module, then delete its line. tests/repo/test_ratchets.py
+# fails on a module that no longer uses explicit Any. Never add a line here,
+# except that a move splitting a module may replace its line with one per new
+# module that carries the same findings; the PR says so. The total of findings
+# never grows: explicit_any_findings in tests/repo/ratchets.json.
+[[tool.mypy.overrides]]
+module = [
+    "opik_mcp.analytics.client",
+    "opik_mcp.analytics.mcp_client_info",
+    "opik_mcp.analytics.wrappers",
+    "opik_mcp.config",
+    "opik_mcp.error_tracking",
+    "opik_mcp.identity.account",
+    "opik_mcp.read_list.columns",
+    "opik_mcp.read_list.decorations",
+    "opik_mcp.read_list.entities.agent_insights_issue.availability",
+    "opik_mcp.read_list.entities.agent_insights_issue.entity",
+    "opik_mcp.read_list.entities.agent_insights_issue.state",
+    "opik_mcp.read_list.entities.dataset",
+    "opik_mcp.read_list.entities.dataset.compare",
+    "opik_mcp.read_list.entities.dataset.compare_notes",
+    "opik_mcp.read_list.entities.dataset.compared_row",
+    "opik_mcp.read_list.entities.dataset.figures",
+    "opik_mcp.read_list.entities.dataset.items",
+    "opik_mcp.read_list.entities.dataset.layout",
+    "opik_mcp.read_list.entities.experiment",
+    "opik_mcp.read_list.entities.online_rule",
+    "opik_mcp.read_list.entities.project",
+    "opik_mcp.read_list.entities.project.contents",
+    "opik_mcp.read_list.entities.project.read",
+    "opik_mcp.read_list.entities.project.summary",
+    "opik_mcp.read_list.entities.project.vocabulary",
+    "opik_mcp.read_list.entities.project_metric.catalog",
+    "opik_mcp.read_list.entities.project_metric.reference",
+    "opik_mcp.read_list.entities.project_metric.runner",
+    "opik_mcp.read_list.entities.project_metric.table",
+    "opik_mcp.read_list.entities.prompt",
+    "opik_mcp.read_list.entities.score_name",
+    "opik_mcp.read_list.entities.span",
+    "opik_mcp.read_list.entities.thread",
+    "opik_mcp.read_list.entities.trace",
+    "opik_mcp.read_list.handler",
+    "opik_mcp.read_list.list_args",
+    "opik_mcp.read_list.list_empty_page",
+    "opik_mcp.read_list.list_table",
+    "opik_mcp.read_list.list_tool",
+    "opik_mcp.read_list.paging",
+    "opik_mcp.read_list.project_names",
+    "opik_mcp.read_list.project_scope",
+    "opik_mcp.read_list.projection",
+    "opik_mcp.read_list.read_tool",
+    "opik_mcp.read_list.reference",
+    "opik_mcp.read_list.size",
+    "opik_mcp.read_list.slim",
+    "opik_mcp.read_list.unsupported",
+    "opik_mcp.server.app.lifespan",
+    "opik_mcp.server.app.session",
+    "opik_mcp.server.tools.list",
+    "opik_mcp.server.tools.read",
+    "opik_mcp.server.tools.read_skill",
+    "opik_mcp.server.tools.schema",
+    "opik_mcp.server.tools.write",
+    "opik_mcp.skills_resources",
+    "opik_mcp.writes.dispatch",
+    "opik_mcp.writes.errors",
+    "opik_mcp.writes.models",
+    "opik_mcp.writes.operations.diagnostics",
+    "opik_mcp.writes.operations.evaluation",
+    "opik_mcp.writes.operations.observability",
+    "opik_mcp.writes.registry",
+    "opik_mcp.writes.schema_tool",
+    "opik_mcp.writes.wire",
+    "opik_mcp.writes.write_tool",
+    "scripts.build_skills_pack",
+    "tests.analytics.test_call_context",
+    "tests.analytics.test_client_build_event",
+    "tests.analytics.test_errors",
+    "tests.analytics.test_privacy",
+    "tests.analytics.test_wrappers",
+    "tests.client.test_connection_per_tool_call",
+    "tests.hermetic.test_description_claims",
+    "tests.identity.test_account_identity",
+    "tests.read_list.test_dataset_compare",
+    "tests.read_list.test_dataset_compare_figures",
+    "tests.read_list.test_dataset_items",
+    "tests.read_list.test_experiments",
+    "tests.read_list.test_list_filters",
+    "tests.read_list.test_list_tool",
+    "tests.read_list.test_project_metrics",
+    "tests.read_list.test_read_tool",
+    "tests.writes.test_recovery_envelope",
+    "tests.writes.test_registry",
+    "tests.writes.test_write_links",
+]
+disallow_any_explicit = false
+

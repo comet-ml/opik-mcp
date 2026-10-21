@@ -1,0 +1,14 @@
+{
+  "id": "${turn_id}",
+  "project_id": "${project_id}",
+  "thread_id": "${thread_id}",
+  "name": "answer",
+  "start_time": "2026-09-02T${clock}:00Z",
+  "end_time": "2026-09-02T${clock}:30Z",
+  "duration": 30000.0,
+  "input": "${input}",
+  "output": {
+    "answer": "answer ${index}"
+  },
+  "source": "sdk"
+}
