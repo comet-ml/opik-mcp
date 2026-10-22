@@ -29,6 +29,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from opik_mcp.config import Settings, get_settings
+from opik_mcp.features.contributions import instructions_paragraphs
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.ui_links import (
     current_workspace,
     opik_ui_base,
@@ -39,10 +41,11 @@ from opik_mcp.writes.registry import WRITE_OPERATIONS
 _TEMPLATE = """\
 You're connected to Opik (Comet's LLM observability platform){user_clause} \
 in workspace "{workspace}". The Opik UI is at {opik_url}.
-{default_project_clause}
+{default_project_clause}{feature_clause}
 Tool selection:
 - read / list: use for any "show me X" or "what is Y" — these are the cheapest \
-reads. read takes (entity_type, id_or_name_or_uri); list takes (entity_type, \
+reads. read takes (entity_type, id): a UUID, a project/experiment/prompt/dataset \
+name, or an opik:// URI; list takes (entity_type, \
 page, size, and a name substring for workspace-wide types). For trace, span \
 and thread, list also takes filters (OQL, the same language as \
 search_traces(filter_string=…)), sort, since/until and search; for experiment, \
@@ -157,6 +160,9 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
+        feature_clause="".join(
+            f"\n{paragraph}\n" for paragraph in instructions_paragraphs(FeatureToggles.resolve(s))
+        ),
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
         skill_names=", ".join(skill_names()),
     )

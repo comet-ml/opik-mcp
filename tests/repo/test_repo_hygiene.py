@@ -115,6 +115,22 @@ def test_ci_runs_the_slow_tests() -> None:
     )
 
 
+def test_the_release_build_gives_uv_build_the_version() -> None:
+    """hatch reads `$VERSION` (scripts/_build_version.py) and falls back to
+    `<version.txt>.dev0`, so a per-command `VERSION=... make version` leaves the
+    build without it and publishes a .dev0 as a release — 0.2.37.dev0 shipped that
+    way. The assignment has to reach `uv build` too."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "release.yaml").read_text()
+    step = workflow[workflow.index("Stamp the release version + build") :]
+    step = step[: step.index("- name:", 1)]
+    assert re.search(r"^\s+VERSION: \$\{\{", step, re.MULTILINE), (
+        "the release build step sets VERSION per-command instead of as step-level "
+        "`env:`. hatch computes the published version from $VERSION in "
+        "scripts/_build_version.py, so `uv build` needs it in the environment too, "
+        "or the release publishes `<version.txt>.dev0`."
+    )
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
     ("target", "suite", "ticket"),

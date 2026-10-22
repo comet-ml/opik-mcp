@@ -16,12 +16,11 @@ per session.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import pytest
 from mcp.shared.exceptions import McpError
 from mcp.shared.memory import create_connected_server_and_client_session
-from mcp.types import TextResourceContents
+from mcp.types import Result, TextResourceContents
 from pydantic import AnyUrl
 
 from opik_mcp import skills_catalog as catalog
@@ -42,7 +41,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _cache_fields(result: Any) -> dict[str, Any]:
+def _cache_fields(result: Result) -> dict[str, object]:
     """The cache metadata as it arrived at the client, from wherever it landed:
     a declared field once the SDK adds one, model extras until then."""
     extras = dict(result.model_extra or {})
@@ -52,7 +51,7 @@ def _cache_fields(result: Any) -> dict[str, Any]:
     }
 
 
-def _assert_cacheable(result: Any, where: str) -> None:
+def _assert_cacheable(result: Result, where: str) -> None:
     fields = _cache_fields(result)
     assert fields["ttlMs"] == catalog.SKILLS_TTL_MS, f"{where}: ttlMs missing or wrong ({fields})"
     assert fields["cacheScope"] == catalog.SKILLS_CACHE_SCOPE, (

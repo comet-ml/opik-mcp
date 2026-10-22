@@ -1,0 +1,35 @@
+{
+  "page": 1,
+  "size": 10,
+  "total": 2,
+  "sortable_by": [
+    "total_tokens",
+    "turns",
+    "duration"
+  ],
+  "harnesses": [
+    "claude-code"
+  ],
+  "content": [
+    {
+      "session_id": "session-aaa",
+      "user_email": "dev@example.com",
+      "start_time": "2026-09-20T09:00:00Z",
+      "duration": 3725000,
+      "turns": 80,
+      "total_tokens": 2500000,
+      "analysis_status": "ready",
+      "summary": "Refactored the billing module and fixed its tests."
+    },
+    {
+      "session_id": "session-bbb",
+      "user_email": "ops@example.com",
+      "start_time": "2026-09-21T10:30:00Z",
+      "duration": 600000,
+      "turns": 12,
+      "total_tokens": 400000,
+      "analysis_status": "pending",
+      "summary": ""
+    }
+  ]
+}

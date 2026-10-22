@@ -31,7 +31,10 @@ from importlib.resources import files
 from importlib.resources.abc import Traversable
 from typing import ClassVar
 
+from opik_mcp.config import Settings
 from opik_mcp.error_kinds import ErrorKind
+from opik_mcp.features.contributions import extra_skills
+from opik_mcp.features.toggles import FeatureToggles
 
 #: URI prefix for every skill file served over MCP. Reuses the `opik://` scheme
 #: the read tool already parses (see `read_list/uri.py`) rather than inventing a
@@ -282,8 +285,14 @@ def _reference_names(skill: str) -> tuple[str, ...]:
     )
 
 
-def _name_list() -> str:
-    return ", ".join(skill_names())
+def feature_skill_names(settings: Settings) -> tuple[str, ...]:
+    """The skills this workspace's features add. Skill routing lives here, so the
+    tool layer asks this rather than reading the feature declarations itself."""
+    return tuple(extra_skills(FeatureToggles.resolve(settings)))
+
+
+def _name_list(extra_skills: tuple[str, ...] = ()) -> str:
+    return ", ".join(sorted((*skill_names(), *extra_skills)))
 
 
 def request_shape(skill_name: str) -> str:
@@ -300,7 +309,7 @@ def request_shape(skill_name: str) -> str:
     return "path" if "/" in requested.removeprefix("../") else "name"
 
 
-def resolve(skill_name: str) -> SkillFile:
+def resolve(skill_name: str, extra_skills: tuple[str, ...] = ()) -> SkillFile:
     """The file a caller named, in any of the forms the tool documents.
 
     One argument, four forms, because an agent arrives holding whichever one it
@@ -328,7 +337,9 @@ def resolve(skill_name: str) -> SkillFile:
     while requested.startswith("../"):
         requested = requested[3:]
     if not requested:
-        raise UnknownSkillError(f"skill_name is empty; available skills: {_name_list()}")
+        raise UnknownSkillError(
+            f"skill_name is empty; available skills: {_name_list(extra_skills)}"
+        )
 
     # A URI is the same (skill, document) pair wearing a prefix, so strip it and
     # take the one road out. Two roads is what made a bad URI answer with the skill
@@ -339,7 +350,9 @@ def resolve(skill_name: str) -> SkillFile:
 
     skill, _, relative = remainder.partition("/")
     if skill not in skill_names():
-        raise UnknownSkillError(f"unknown skill {skill!r}; available skills: {_name_list()}")
+        raise UnknownSkillError(
+            f"unknown skill {skill!r}; available skills: {_name_list(extra_skills)}"
+        )
 
     entry = resolve_uri(f"{SKILLS_URI_PREFIX}{skill}/{relative or 'SKILL.md'}")
     if entry is not None:
@@ -389,7 +402,7 @@ def readable_paths(skill: str) -> tuple[str, ...]:
     return ("SKILL.md", *(f.path for f in _references(skill)))
 
 
-def run_read_skill(skill_name: str) -> str:
+def run_read_skill(skill_name: str, settings: Settings) -> str:
     """The `read_skill` tool body: one skill document, ready to act on.
 
     Output is a one-line `[read_skill: …]` header (mirroring the `read` tool's
@@ -400,7 +413,15 @@ def run_read_skill(skill_name: str) -> str:
     Both the header and the footer quote the *resolved* file, not the caller's
     spelling: this output is documentation an agent imitates on its next call.
     """
-    entry = resolve(skill_name)
+    # A feature skill is one document, so its SKILL.md and URI forms name the same thing.
+    requested = (
+        skill_name.strip().strip("/").removeprefix(SKILLS_URI_PREFIX).removesuffix("/SKILL.md")
+    )
+    load = extra_skills(FeatureToggles.resolve(settings)).get(requested)
+    if load is not None:
+        text = load()
+        return f"[read_skill: {requested} bytes={len(text.encode('utf-8'))}]\n\n{text}"
+    entry = resolve(skill_name, extra_skills=feature_skill_names(settings))
     content = read_skill_file(entry)
     header = (
         f"[read_skill: {entry.skill} path={entry.path} "

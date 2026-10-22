@@ -26,7 +26,8 @@ from opik_mcp.read_list.entities.dataset.items import (
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.read_tool import run_read
 from opik_mcp.read_list.reference import field_reference
-from opik_mcp.read_list.registry import ENTITY_REGISTRY, READABLE_TYPES
+from opik_mcp.read_list.registry import ENTITY_REGISTRY
+from opik_mcp.read_list.visibility import DEFAULT_READABLE_TYPES
 
 from .test_list_tool import FakeOpikClient
 from .test_read_tool import FakeOpikClient as FakeReadClient
@@ -39,11 +40,11 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _item(item_id: str, **data: Any) -> dict[str, Any]:
+def _item(item_id: str, **data: object) -> dict[str, object]:
     return {"id": item_id, "source": "manual", "tags": [], "data": data}
 
 
-def _page(*items: dict[str, Any]) -> dict[str, Any]:
+def _page(*items: dict[str, object]) -> dict[str, object]:
     return {"content": list(items), "total": len(items)}
 
 
@@ -467,7 +468,7 @@ async def test_a_refusal_names_the_entity_the_caller_typed(
     caller can pass. A refusal that named it would read as a typo the caller
     could not have made — so the refusal names the entity, and where a field
     table is what the caller needs next, the pointer beside it names that."""
-    asked: dict[str, Any] = {argument: value}
+    asked: dict[str, str] = {argument: value}
     with pytest.raises(ToolError) as err:
         await run_list(
             "dataset_item",
@@ -545,7 +546,7 @@ def test_the_schema_publishes_the_fields_of_a_case_with_their_operators() -> Non
 
 
 def test_a_case_is_readable_now_that_the_backend_addresses_it_on_its_own() -> None:
-    assert "dataset_item" in READABLE_TYPES
+    assert "dataset_item" in DEFAULT_READABLE_TYPES
 
 
 @pytest.mark.anyio

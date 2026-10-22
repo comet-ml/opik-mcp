@@ -73,7 +73,7 @@ jobs:
       opik_version: ${{ steps.release.outputs.version }}
       report: ${{ steps.report.outputs.report }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Resolve the Opik release to test against
         id: release
@@ -87,7 +87,7 @@ jobs:
           echo "### Opik $VERSION (open source, local)" >> "$GITHUB_STEP_SUMMARY"
 
       # opik.sh and the compose files at the tag, so they match the images.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: comet-ml/opik
           ref: ${{ steps.release.outputs.version }}
@@ -98,10 +98,16 @@ jobs:
             /deployment/docker-compose/
           sparse-checkout-cone-mode: false
 
+      # opik.sh waits for each container to turn healthy, 90 polls of about 1s
+      # by default, and exits 1 naming the container that did not. A cold
+      # backend on a runner has needed longer. OPIK_MAX_STARTUP_RETRIES is read
+      # by opik.sh from Opik 2.2.81 on; older tags ignore it and wait 60.
+      # opik.sh calls it "not a supported user-facing knob": if upstream drops it, this is silently ignored and the 60/90 s default returns.
       - name: Start the Opik backend
         env:
           OPIK_VERSION: ${{ steps.release.outputs.version }}
           COMPOSE_BAKE: "false"
+          OPIK_MAX_STARTUP_RETRIES: "180"
         working-directory: opik
         run: ./opik.sh --backend --port-mapping
 
@@ -188,7 +194,7 @@ jobs:
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "### Opik $VERSION (cloud)" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         if: steps.configured.outputs.ok == 'true'
       - name: Generate _version.py (required before any uv build)
         if: steps.configured.outputs.ok == 'true'
@@ -235,7 +241,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: scripts/live_alert.py
           sparse-checkout-cone-mode: false

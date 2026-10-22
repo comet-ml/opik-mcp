@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Final, NotRequired, TypedDict
 
+from opik_mcp.features.toggles import NO_FEATURES
 from opik_mcp.read_list.handler import FieldType
 from opik_mcp.read_list.oql_fields import (
     KEY_ALLOWED_TYPES,
@@ -23,17 +24,9 @@ from opik_mcp.read_list.oql_fields import (
 from opik_mcp.read_list.oql_parser import GRAMMAR_LINE
 from opik_mcp.read_list.registry import ENTITY_REGISTRY, VOCABULARIES
 from opik_mcp.read_list.sorting import SORT_FORM, sortable_names
+from opik_mcp.read_list.visibility import list_schema_keys
 
-LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = (
-    # Every vocabulary, not only every entity type: a dataset item filtered
-    # under its dataset and the same item filtered with runs attached are two
-    # field tables, and each has to be answerable on its own.
-    *(f"list.{v.name}" for v in VOCABULARIES.values() if v.filter_fields),
-    # An entity whose reference is not a field table (a metric is a time
-    # series over one) answers its own, and that reference is what keeps its
-    # catalog out of the tool description.
-    *(f"list.{t}" for t, h in ENTITY_REGISTRY.items() if h.reference_fn is not None),
-)
+LIST_SCHEMA_KEYS: Final[tuple[str, ...]] = list_schema_keys(NO_FEATURES)
 
 
 class FieldSpec(TypedDict):
@@ -86,6 +79,7 @@ def list_reference(entity_type: str) -> dict[str, object]:
 def field_reference(entity_type: str) -> FieldReference:
     """The reference built from the field table ``entity_type`` names."""
     vocabulary = VOCABULARIES[entity_type]
+    entity = ENTITY_REGISTRY[vocabulary.entity_type]
     fields: dict[str, FieldSpec] = {}
     for name, ftype in vocabulary.filter_fields.items():
         # A field the backend takes as a query parameter accepts less than its
@@ -145,7 +139,6 @@ def field_reference(entity_type: str) -> FieldReference:
         # that before they page through a dataset looking for one.
         sort["why"] = why
 
-    is_windowed = ENTITY_REGISTRY[vocabulary.entity_type].is_windowed
     return {
         "operation": f"list.{entity_type}",
         # What the caller types, which is not this key when the key is one of
@@ -153,8 +146,8 @@ def field_reference(entity_type: str) -> FieldReference:
         "entity_type": vocabulary.entity_type,
         "filters": filters,
         "sort": sort,
-        "window": is_windowed,
-        "search": is_windowed,
+        "window": entity.is_windowed or entity.run_takes_window,
+        "search": entity.is_windowed or entity.run_takes_search,
     }
 
 

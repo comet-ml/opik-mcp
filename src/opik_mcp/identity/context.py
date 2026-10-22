@@ -161,7 +161,7 @@ def oauth_token_expired_hint() -> str | None:
     guidance. Single source of truth for every layer that renders a backend 401
     — the read/list client, the write envelope — so the wording cannot drift.
     Pure: the cache eviction that goes with a backend 401 lives beside the HTTP
-    call (``client.base.note_backend_401``), not in a message helper.
+    call (``client.errors.note_backend_401``), not in a message helper.
     """
     auth = inbound_authorization.get()
     if not auth:

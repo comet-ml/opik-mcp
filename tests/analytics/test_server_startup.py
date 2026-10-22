@@ -1,5 +1,4 @@
 import json
-from typing import Any
 
 import httpx
 import pytest
@@ -481,7 +480,8 @@ def test_http_main_owns_lifecycle_and_disables_access_log(
     monkeypatch.delenv("OPIK_MCP_RESOURCE_URI", raising=False)
     monkeypatch.delenv("OPIK_MCP_RELOAD", raising=False)
 
-    captured: dict[str, Any] = {}
+    captured: dict[str, object] = {}
+    uvicorn_kwargs: dict[str, object] = {}
     built_app = object()
 
     def _fake_build_app() -> object:
@@ -490,9 +490,9 @@ def test_http_main_owns_lifecycle_and_disables_access_log(
         captured["owned_at_build"] = boot_props.lifecycle_owned_by_main()
         return built_app
 
-    def _fake_uvicorn_run(app: object, **kwargs: Any) -> None:
+    def _fake_uvicorn_run(app: object, **kwargs: object) -> None:
         captured["app"] = app
-        captured["kwargs"] = kwargs
+        uvicorn_kwargs.update(kwargs)
 
     monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
     monkeypatch.setattr("opik_mcp.server.build_app", _fake_build_app)
@@ -501,7 +501,7 @@ def test_http_main_owns_lifecycle_and_disables_access_log(
     main_mod.main()
 
     assert captured["owned_at_build"] is True, "sentinel must be set before build_app()"
-    assert captured["kwargs"].get("access_log") is False
+    assert uvicorn_kwargs.get("access_log") is False
     # The app built once in main() is the exact object handed to uvicorn.run.
     assert captured["app"] is built_app
 
@@ -520,14 +520,14 @@ def test_reload_http_disables_access_log(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("OPIK_MCP_RELOAD", "true")
     monkeypatch.delenv("OPIK_MCP_AS_URL", raising=False)
 
-    captured: dict[str, Any] = {}
+    uvicorn_kwargs: dict[str, object] = {}
     monkeypatch.setattr(main_mod, "_preflight_bind_check", lambda host, port: None)
-    monkeypatch.setattr("uvicorn.run", lambda *a, **k: captured.update(kwargs=k))
+    monkeypatch.setattr("uvicorn.run", lambda *a, **k: uvicorn_kwargs.update(k))
 
     main_mod.main()
 
-    assert captured["kwargs"].get("reload") is True
-    assert captured["kwargs"].get("access_log") is False
+    assert uvicorn_kwargs.get("reload") is True
+    assert uvicorn_kwargs.get("access_log") is False
 
 
 def test_fallback_client_installation_type_reads_env(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -20,7 +20,7 @@ from typing import Any, cast
 
 import pytest
 
-from opik_mcp.client.base import OpikServerError
+from opik_mcp.client.errors import OpikServerError
 from opik_mcp.client.shapes import Experiment, Page
 from opik_mcp.read_list.entities.experiment import (
     HANDLER,
@@ -45,7 +45,7 @@ def anyio_backend() -> str:
     return "asyncio"
 
 
-def _experiment(name: str, **extra: Any) -> dict[str, Any]:
+def _experiment(name: str, **extra: object) -> dict[str, object]:
     """A regular experiment as the backend serves it in a listing."""
     return {
         "id": f"exp-{name}",
@@ -62,7 +62,7 @@ def _experiment(name: str, **extra: Any) -> dict[str, Any]:
     }
 
 
-def _page(*items: dict[str, Any]) -> dict[str, Any]:
+def _page(*items: dict[str, object]) -> dict[str, object]:
     return {"content": list(items), "total": len(items)}
 
 

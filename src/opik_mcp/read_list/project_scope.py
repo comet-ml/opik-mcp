@@ -24,7 +24,7 @@ from contextvars import ContextVar
 
 import httpx
 
-from opik_mcp.client.base import (
+from opik_mcp.client.errors import (
     OpikAuthError,
     OpikNotFoundError,
     OpikServerError,
