@@ -443,7 +443,7 @@ async def test_tool_called_failure_strips_exception_message(
     text in the analytics event — only the class-keyed bucket and class name.
     Drives ``server.read`` so ``_read_props`` + the wrapper's error-emit arm
     both execute on the real tool surface."""
-    from opik_mcp.client.base import OpikAuthError
+    from opik_mcp.client.errors import OpikAuthError
     from opik_mcp.server.tools.read import read
 
     canary = "raw-error-message-UNIQUE-CANARY-7e1f2a3b"
@@ -515,7 +515,7 @@ async def test_tool_called_cause_type_is_class_only(
     ``real.args`` could silently exfiltrate exception messages into BI."""
     from mcp.server.fastmcp.exceptions import ToolError
 
-    from opik_mcp.client.base import OpikAuthError
+    from opik_mcp.client.errors import OpikAuthError
     from opik_mcp.server.tools.read import read
 
     wrapper_canary = "tool-error-wrapper-msg-UNIQUE-CANARY-1f2e3d4c"
@@ -740,6 +740,24 @@ def test_read_skill_props_collapse_an_unknown_skill_to_a_constant() -> None:
     assert FORBIDDEN[9] not in json.dumps(props)
 
 
+@pytest.mark.parametrize(
+    ("workspace", "expected"),
+    [("__ai_spend_org__", "cost-intelligence"), ("my-team", "unknown")],
+)
+def test_read_skill_props_label_a_feature_skill_only_where_it_is_served(
+    monkeypatch: pytest.MonkeyPatch, workspace: str, expected: str
+) -> None:
+    from opik_mcp.server.tools import read_skill
+
+    monkeypatch.setattr(
+        read_skill,
+        "get_settings",
+        lambda: make_settings(opik_workspace=workspace, opik_mcp_transport="stdio"),
+    )
+    props = read_skill._read_skill_props(None, {"skill_name": "cost-intelligence"})
+    assert props["skill"] == expected
+
+
 @pytest.mark.anyio
 async def test_read_skill_emits_the_validation_error_kind_on_a_bad_argument(
     recorder: _Recorder,
@@ -937,7 +955,7 @@ async def test_sentry_capture_path_carries_no_forbidden_substring(
     from types import SimpleNamespace
 
     from opik_mcp.analytics.wrappers import instrument_tool
-    from opik_mcp.client.base import OpikServerError
+    from opik_mcp.client.errors import OpikServerError
 
     captured_tags: dict[str, str] = {}
     captured_extras: dict[str, Any] = {}

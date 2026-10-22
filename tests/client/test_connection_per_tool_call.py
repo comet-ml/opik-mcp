@@ -62,7 +62,7 @@ def clients_built(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[httpx.AsyncC
     yield built
 
 
-def _page(content: list[dict[str, Any]]) -> dict[str, Any]:
+def _page(content: list[dict[str, object]]) -> dict[str, object]:
     return {"content": content, "page": 1, "size": len(content), "total": len(content)}
 
 

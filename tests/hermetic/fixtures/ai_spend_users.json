@@ -1,0 +1,37 @@
+{
+  "page": 1,
+  "size": 10,
+  "total": 2,
+  "sortable_by": [
+    "total_tokens",
+    "requests"
+  ],
+  "content": [
+    {
+      "user_email": "dev@example.com",
+      "user_display_name": "Dev One",
+      "total_tokens": 3000000,
+      "subscription_cost_usd": 40.0,
+      "over_plan_cost_usd": 8.0,
+      "api_cost_usd": 4.0,
+      "seat_type": "premium",
+      "requests": 120,
+      "skills": 3,
+      "mcps": 2,
+      "mcp_calls": 40
+    },
+    {
+      "user_email": "ops@example.com",
+      "user_display_name": "Ops Two",
+      "total_tokens": 1200000,
+      "subscription_cost_usd": 20.0,
+      "over_plan_cost_usd": 4.5,
+      "api_cost_usd": 3.25,
+      "seat_type": "standard",
+      "requests": 60,
+      "skills": 1,
+      "mcps": 1,
+      "mcp_calls": 10
+    }
+  ]
+}

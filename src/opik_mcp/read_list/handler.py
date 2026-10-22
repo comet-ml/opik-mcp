@@ -16,6 +16,7 @@ from typing import Any, Literal
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.ui_links import ProjectArea, ViewPage
 from opik_mcp.read_list.uri import UriPattern
 
@@ -484,6 +485,10 @@ class EntityHandler:
     is_windowed: bool = False
     """Does the list endpoint take ``from_time``/``to_time`` and free-text
     ``search``? The two capabilities ship together on the backend."""
+    run_takes_window: bool = False
+    """``run_fn`` reads since/until itself; ``schema`` reports a window."""
+    run_takes_search: bool = False
+    """``run_fn`` reads ``search`` itself; ``schema`` reports search."""
     is_name_searchable: bool = False
     """Does the workspace-wide list endpoint take a ``name`` substring? That is
     the match a caller who reached for ``search`` can have instead."""
@@ -528,6 +533,14 @@ class EntityHandler:
     project_id=…, project_name=…)`` and requires one of them; otherwise it
     calls ``fetch_fn(client, id)`` exactly as before. Orthogonal to ``id_only``.
     """
+    shown_when: Callable[[FeatureToggles], bool] | None = None
+    """The toggle that shows this entity, asked as a predicate; ``None`` is always
+    shown. While it answers False the entity is refused as unknown and no list
+    names it."""
+
+    def feature_shown(self, toggles: FeatureToggles) -> bool:
+        """Does this workspace show the entity? ``shown_when`` asked, or always."""
+        return self.shown_when is None or self.shown_when(toggles)
 
 
 __all__ = [

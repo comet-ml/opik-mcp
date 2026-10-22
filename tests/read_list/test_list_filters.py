@@ -18,7 +18,7 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import OpikNotFoundError
+from opik_mcp.client.errors import OpikNotFoundError
 from opik_mcp.read_list.list_tool import page_facts, run_list
 from opik_mcp.read_list.oql import OQLError
 from tests.hermetic.fixtures import record
@@ -383,14 +383,42 @@ async def test_backend_timeout_is_reported_with_a_way_out() -> None:
     assert isinstance(ei.value.__cause__, httpx.ReadTimeout)
 
 
-@pytest.mark.anyio
-async def test_backend_unreachable_is_reported_with_the_reason() -> None:
-    class Unreachable(FakeOpikClient):
-        async def list_traces(self, **kw: Any) -> dict[str, Any]:
-            raise httpx.ConnectError("nodename nor servname provided")
+class _Unreachable(FakeOpikClient):
+    async def list_traces(self, **kw: Any) -> dict[str, Any]:
+        raise httpx.ConnectError("All connection attempts failed")
 
-    with pytest.raises(ToolError, match=r"Could not reach Opik.*nodename nor servname"):
-        await run_list("trace", project_id="p-1", client=Unreachable())
+
+@pytest.mark.anyio
+async def test_backend_unreachable__names_where_without_the_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPIK_URL", "http://user:s3cret@localhost:5173/api")
+
+    with pytest.raises(ToolError) as err:
+        await run_list("trace", project_id="p-1", client=_Unreachable())
+
+    message = str(err.value)
+    assert "All connection attempts failed (tried http://localhost:5173/api)" in message
+    assert "s3cret" not in message
+    assert "Is Opik running?" in message
+    assert message.endswith(
+        "Setup: https://www.comet.com/docs/opik/mcp-server/advanced-setup#local-server"
+    )
+
+
+@pytest.mark.anyio
+async def test_backend_unreachable__on_the_hosted_server__names_no_address() -> None:
+    """Its backend address is internal, and not the caller's to fix."""
+    from opik_mcp.identity.context import inbound_authorization
+
+    token = inbound_authorization.set("Bearer key")
+    try:
+        with pytest.raises(ToolError) as err:
+            await run_list("trace", project_id="p-1", client=_Unreachable())
+    finally:
+        inbound_authorization.reset(token)
+
+    assert str(err.value).endswith("All connection attempts failed")
 
 
 # --- default columns ----------------------------------------------------- #

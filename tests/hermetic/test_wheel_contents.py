@@ -137,3 +137,14 @@ def test_the_wheel_is_importable_and_serves_skills_from_it(
     count, names = probe.stdout.strip().split(" ", 1)
     assert int(count) == len(iter_skill_files())
     assert names.split(",") == list(skill_names())
+
+
+@pytest.mark.hermetic
+def test_the_cost_intelligence_guide_ships_beside_no_skill_of_that_name(
+    wheel: zipfile.ZipFile,
+) -> None:
+    """The guide lives outside `skills/`, so `npx skills add` and the skill
+    resources never see it, and the wheel still has to carry it."""
+    names = wheel.namelist()
+    assert "opik_mcp/cost_intelligence/cost-intelligence.md" in names
+    assert not [n for n in names if "/skills/cost-intelligence" in n]

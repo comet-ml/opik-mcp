@@ -10,6 +10,16 @@ readme = "README.md"
 requires-python = ">=3.13"
 license = { text = "Apache-2.0" }
 authors = [{ name = "Comet ML" }]
+keywords = ["mcp", "model-context-protocol", "opik", "comet", "llm", "observability", "tracing", "evaluation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
+]
 dependencies = [
     "mcp[cli]>=1.27,<2",
     "httpx>=0.28",
@@ -37,6 +47,14 @@ dev = [
 
 [project.scripts]
 opik-mcp = "opik_mcp.__main__:main"
+
+# Shown on PyPI, where an agent often lands first and otherwise finds no link back.
+[project.urls]
+Homepage = "https://github.com/comet-ml/opik-mcp"
+Documentation = "https://www.comet.com/docs/opik/mcp-server"
+Repository = "https://github.com/comet-ml/opik-mcp"
+Issues = "https://github.com/comet-ml/opik-mcp/issues"
+Changelog = "https://github.com/comet-ml/opik-mcp/releases"
 
 # The exact uv that CI runs. `setup-uv` reads this when no `version` is given,
 # so the resolver in CI is the one the lockfile was written with.
@@ -225,6 +243,7 @@ ignore_missing_imports = true
 # Raw backend JSON is the one place Any is honest. Type it once, at the edge.
 # Listed by name, not by glob, so a new module under client/ meets the full rule.
 module = [
+    "opik_mcp.client.ai_spend",
     "opik_mcp.client.annotations",
     "opik_mcp.client.base",
     "opik_mcp.client.dataset",
@@ -306,35 +325,22 @@ module = [
     "opik_mcp.writes.operations.evaluation",
     "opik_mcp.writes.operations.observability",
     "scripts.build_skills_pack",
-    "tests.analytics.test_auth_rejected",
     "tests.analytics.test_call_context",
-    "tests.analytics.test_client",
     "tests.analytics.test_client_build_event",
     "tests.analytics.test_errors",
-    "tests.analytics.test_lifespan",
     "tests.analytics.test_privacy",
-    "tests.analytics.test_server_startup",
-    "tests.analytics.test_subprocess",
     "tests.analytics.test_wrappers",
     "tests.client.test_connection_per_tool_call",
-    "tests.client.test_search",
-    "tests.conformance.test_schema_snapshots",
-    "tests.conformance.test_skill_resources",
-    "tests.conformance.test_tool_inventory",
-    "tests.hermetic.stub_backend",
     "tests.hermetic.test_description_claims",
     "tests.identity.test_account_identity",
-    "tests.identity.test_oauth_passthrough_mode",
     "tests.read_list.test_dataset_compare",
     "tests.read_list.test_dataset_compare_figures",
     "tests.read_list.test_dataset_items",
     "tests.read_list.test_experiments",
-    "tests.read_list.test_fields",
     "tests.read_list.test_list_filters",
     "tests.read_list.test_list_tool",
     "tests.read_list.test_project_metrics",
     "tests.read_list.test_read_tool",
-    "tests.server.test_error_tracking",
     "tests.writes.test_write_links",
 ]
 disallow_any_explicit = false

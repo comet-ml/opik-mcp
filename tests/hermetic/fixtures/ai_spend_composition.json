@@ -1,0 +1,38 @@
+{
+  "input": {
+    "total_tokens": 3000000,
+    "cost_usd": 200.0,
+    "lanes": [
+      {
+        "key": "prior_assistant",
+        "label": "Prior assistant turns",
+        "total_tokens": 1500000,
+        "cost_usd": 120.0
+      },
+      {
+        "key": "mcp_servers",
+        "label": "MCP servers",
+        "total_tokens": 900000,
+        "cost_usd": 60.0
+      },
+      {
+        "key": "skills",
+        "label": "Skills",
+        "total_tokens": 600000,
+        "cost_usd": 20.0
+      }
+    ]
+  },
+  "output": {
+    "total_tokens": 1200000,
+    "cost_usd": 110.4,
+    "lanes": [
+      {
+        "key": "assistant_text",
+        "label": "Assistant text",
+        "total_tokens": 1200000,
+        "cost_usd": 110.4
+      }
+    ]
+  }
+}

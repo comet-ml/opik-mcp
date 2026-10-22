@@ -7,9 +7,12 @@ from mcp.server.session import ServerSession
 from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
+from opik_mcp.config import get_settings
+from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.hints import READS
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
+    feature_skill_names,
     read_skill_tool_description,
     request_shape,
     run_read_skill,
@@ -37,8 +40,9 @@ def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
     requested = str(kwargs.get("skill_name", "")).strip().strip("/")
     skill = requested.removeprefix(SKILLS_URI_PREFIX).removeprefix("../").partition("/")[0]
     is_reference = not requested.endswith("SKILL.md") and "/" in requested.removeprefix("../")
+    known = (*skill_names(), *feature_skill_names(get_settings()))
     return {
-        "skill": skill if skill in skill_names() else "unknown",
+        "skill": skill if skill in known else "unknown",
         "request_shape": request_shape(requested),
         "is_reference": str(is_reference).lower(),
     }
@@ -87,12 +91,12 @@ async def read_skill(
 ) -> str:
     if ctx is not None:
         await ctx.info(f"read_skill.called skill_name={skill_name}")
-    return run_read_skill(skill_name)
+    return run_read_skill(skill_name, get_settings())
 
 
-def register(mcp: FastMCP[object]) -> None:
+def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
-        description=read_skill_tool_description(),
+        description=described(sentence, read_skill_tool_description()),
         title="Read an Opik agent skill",
         annotations=READS,
         structured_output=False,

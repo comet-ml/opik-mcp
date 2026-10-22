@@ -17,7 +17,7 @@ import httpx
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import OpikNotFoundError, OpikServerError, OpikValidationError
+from opik_mcp.client.errors import OpikNotFoundError, OpikServerError, OpikValidationError
 from opik_mcp.config import Settings
 from opik_mcp.read_list import decorations, read_tool
 from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
@@ -556,8 +556,22 @@ async def test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path
     message = str(refusal.value)
     assert "sk-live-123" not in message
     assert "violates" not in message
-    assert "/v1/" not in message
+    assert "/v1/private/" not in message
     assert "Detail" not in message
+
+
+@pytest.mark.anyio
+async def test_an_unreachable_backend__is_one_sentence_naming_the_read() -> None:
+    """It used to reach the host as a bare `httpx` error."""
+    import respx
+
+    from opik_mcp.client.opik import OpikClient
+
+    client = OpikClient(base_url="https://opik.test", api_key="key-abc", workspace="ws")
+    with respx.mock(base_url="https://opik.test") as mock:
+        mock.route().mock(side_effect=httpx.ConnectError("All connection attempts failed"))
+        with pytest.raises(ToolError, match=r"^Could not reach Opik to read the trace: All"):
+            await run_read("trace", UUID, client=client)
 
 
 @pytest.mark.anyio

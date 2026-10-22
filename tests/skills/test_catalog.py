@@ -20,6 +20,7 @@ import pytest
 from skills_ref import validate
 
 from opik_mcp import skills_catalog as catalog
+from tests.factories import make_settings
 
 SKILLS_SRC = Path(__file__).resolve().parents[2] / "src" / "opik_mcp" / "skills"
 
@@ -281,7 +282,7 @@ def test_unknown_skill_error_buckets_as_validation() -> None:
 
 
 def test_run_read_skill_returns_header_then_verbatim_content() -> None:
-    out = catalog.run_read_skill("opik-instrument")
+    out = catalog.run_read_skill("opik-instrument", make_settings())
     header, _, body = out.partition("\n\n")
     assert header.startswith("[read_skill: opik-instrument path=SKILL.md bytes=")
     on_disk = (SKILLS_SRC / "opik-instrument" / "SKILL.md").read_text(encoding="utf-8")
@@ -291,7 +292,9 @@ def test_run_read_skill_returns_header_then_verbatim_content() -> None:
 def test_run_read_skill_lists_reference_paths_for_a_skill() -> None:
     """A SKILL.md routinely tells the agent to go read a reference; without the
     footer it has to guess the argument for the follow-up call."""
-    footer = catalog.run_read_skill("opik").rsplit("References for this skill", 1)[-1]
+    footer = catalog.run_read_skill("opik", make_settings()).rsplit("References for this skill", 1)[
+        -1
+    ]
     for path in catalog.readable_paths("opik")[1:]:
         assert f"- opik/{path}" in footer
     # And the footer shows the exact call, so the follow-up needs no guesswork.
@@ -299,7 +302,7 @@ def test_run_read_skill_lists_reference_paths_for_a_skill() -> None:
 
 
 def test_run_read_skill_fetches_one_reference_and_omits_the_footer() -> None:
-    out = catalog.run_read_skill("opik/references/observability.md")
+    out = catalog.run_read_skill("opik/references/observability.md", make_settings())
     assert out.startswith("[read_skill: opik path=references/observability.md bytes=")
     on_disk = (SKILLS_SRC / "opik" / "references" / "observability.md").read_text(encoding="utf-8")
     assert on_disk in out
@@ -311,13 +314,15 @@ def test_the_header_quotes_the_resolved_file_not_the_callers_spelling() -> None:
     reference name or a URI should see the canonical path echoed back, so its next
     call uses the form the tool advertises."""
     for form in ("opik/observability", "opik://skills/opik/references/observability.md"):
-        assert catalog.run_read_skill(form).startswith(
+        assert catalog.run_read_skill(form, make_settings()).startswith(
             "[read_skill: opik path=references/observability.md bytes="
         )
 
 
 def test_a_single_document_skill_gets_no_reference_footer() -> None:
-    assert "References for this skill" not in catalog.run_read_skill("opik-explain")
+    assert "References for this skill" not in catalog.run_read_skill(
+        "opik-explain", make_settings()
+    )
 
 
 def test_cache_metadata_is_a_public_scope_and_a_positive_ttl() -> None:
