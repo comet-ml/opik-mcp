@@ -31,7 +31,6 @@ from pydantic import BaseModel, ValidationError
 from opik_mcp.client.errors import backend_reason, note_backend_401
 from opik_mcp.client.opik import OpikClient, make_opik_client
 from opik_mcp.config import Settings, get_settings
-from opik_mcp.json_types import JsonValue
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
     BackendError,
@@ -58,7 +57,7 @@ logger = logging.getLogger("opik_mcp.writes.dispatch")
 async def run_write(
     *,
     operation: str,
-    data: JsonValue,
+    data: object,
     idempotency_key: str | None = None,
     dry_run: bool = False,
     scopes: frozenset[str] = ALL_WRITE_SCOPES,
@@ -158,7 +157,7 @@ def _stage1_lookup(operation: str) -> WriteOperation:
 # --- Stage 2 ------------------------------------------------------------- #
 
 
-def _stage2_validate(op: WriteOperation, data: JsonValue) -> tuple[list[BaseModel], bool]:
+def _stage2_validate(op: WriteOperation, data: object) -> tuple[list[BaseModel], bool]:
     """Validate ``data`` against the operation's Pydantic model.
 
     Returns ``(validated_models, is_batch)``. Arrays past

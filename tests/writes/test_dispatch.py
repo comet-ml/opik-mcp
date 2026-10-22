@@ -16,7 +16,6 @@ import respx
 
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.json_types import JsonObject, JsonValue
 from opik_mcp.writes.dispatch import run_write
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
@@ -352,9 +351,7 @@ async def test_span_create_single_vs_batch_endpoint() -> None:
 
 @pytest.mark.anyio
 async def test_batch_too_large_rejects_before_be() -> None:
-    payload: list[JsonValue] = [
-        {"name": f"t{i}", "start_time": "2026-05-18T12:00:00Z"} for i in range(1001)
-    ]
+    payload = [{"name": f"t{i}", "start_time": "2026-05-18T12:00:00Z"} for i in range(1001)]
     with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
         route = mock.route().mock(return_value=httpx.Response(500))
         with pytest.raises(BatchTooLargeError):
@@ -920,7 +917,7 @@ async def test_partial_scope_advertised_but_rejected_per_op() -> None:
 # --- dataset.create type ------------------------------------------------ #
 
 
-async def _dataset_create_body(data: JsonObject) -> dict[str, object]:
+async def _dataset_create_body(data: dict[str, object]) -> dict[str, object]:
     with respx.mock(base_url=OPIK_BASE) as mock:
         route = mock.post("/v1/private/datasets").mock(return_value=httpx.Response(201))
         await run_write(operation="dataset.create", data=data, client=_client())

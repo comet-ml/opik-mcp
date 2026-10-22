@@ -17,7 +17,6 @@ from mcp.server.fastmcp.exceptions import ToolError
 from opik_mcp.client.errors.hints import unreachable
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
-from opik_mcp.json_types import JsonValue
 from opik_mcp.writes.dispatch import run_write as _dispatch
 from opik_mcp.writes.errors import WriteError
 from opik_mcp.writes.scopes import ALL_WRITE_SCOPES
@@ -28,7 +27,7 @@ logger = logging.getLogger("opik_mcp.writes.write_tool")
 async def run_write(
     *,
     operation: str,
-    data: JsonValue,
+    data: object,
     idempotency_key: str | None = None,
     dry_run: bool = False,
     scopes: frozenset[str] = ALL_WRITE_SCOPES,
