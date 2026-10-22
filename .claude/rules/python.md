@@ -20,6 +20,15 @@ What the tools can't check:
 - Frozen dataclasses for values that cross a module boundary. Pydantic only
   where data enters or leaves the process: tool input, backend payloads.
   Exception classes are plain classes.
+- JSON whose shape this code doesn't decide (a caller's payload, a backend
+  body) is `JsonObject` or `JsonValue` from `json_types`. Use `object` where
+  the alias can't go: an open field on a Pydantic model (the recursive alias
+  adds `$defs` to every input schema), a parameter that takes a `TypedDict`,
+  and an answer this code builds (with `JsonValue`, every caller re-checks
+  each nested level). Never `Any` for either; the explicit-Any count only
+  shrinks. Good: `run_write(*, operation: str, data: JsonValue, …)` in
+  `writes/dispatch.py`. Bad: `metadata: dict[str, JsonValue] | None =
+  Field(...)` on a write model.
 - One typed error per failure mode, with an `error_kind` class variable, raised
   with `from`. Analytics groups by class, so a new way to fail is a new class,
   never a new message string.
