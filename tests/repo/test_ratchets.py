@@ -23,6 +23,7 @@ SUPPRESSION = re.compile(r"#\s*(?:noqa|type:\s*ignore)")
 _POLICY = {"src/opik_mcp/_version.py"}
 # The raw-backend-JSON edge (pyproject.toml): allowed explicit Any on purpose, not debt.
 ANY_EDGE = {
+    "opik_mcp.client.ai_spend",
     "opik_mcp.client.annotations",
     "opik_mcp.client.base",
     "opik_mcp.client.dataset",

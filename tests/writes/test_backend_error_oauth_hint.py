@@ -44,3 +44,14 @@ def test_401_under_api_key_names_the_credential_settings(_inbound: None) -> None
 def test_non_401_never_carries_the_hint(_inbound: None) -> None:
     err = BackendError.build("score.create", 403)
     assert OAUTH_TOKEN_EXPIRED_HINT not in err.message
+
+
+def test_401_with_no_key_for_opik_cloud_names_the_key_page(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("OPIK_API_KEY", "OPIK_URL", "COMET_URL_OVERRIDE"):
+        monkeypatch.delenv(name, raising=False)
+
+    err = BackendError.build("score.create", 401)
+
+    assert "https://www.comet.com/api/my/settings/" in err.message

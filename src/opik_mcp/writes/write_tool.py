@@ -12,8 +12,10 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import httpx
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.client.errors.hints import unreachable
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
 from opik_mcp.writes.dispatch import run_write as _dispatch
@@ -53,6 +55,8 @@ async def run_write(
     except WriteError as we:
         logger.info("write.failed operation=%s code=%s", operation, we.error)
         raise ToolError(we.to_json()) from we
+    except httpx.HTTPError as err:
+        raise ToolError(f"Could not reach Opik to run {operation!r}: {unreachable(err)}") from err
 
 
 __all__ = ["run_write"]

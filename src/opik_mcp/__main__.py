@@ -6,10 +6,11 @@ import socket
 import sys
 import time
 
+import httpx
 import uvicorn
 from pydantic import ValidationError
 
-from opik_mcp import error_tracking
+from opik_mcp import command_line, error_tracking
 from opik_mcp.analytics import (
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
@@ -20,7 +21,8 @@ from opik_mcp.analytics import (
 )
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.environment import collect_environment_fingerprint
-from opik_mcp.config import Settings, get_settings
+from opik_mcp.client.errors.hints import LOOPBACK_HOSTS
+from opik_mcp.config import DOCS_LOCAL_SERVER, Settings, get_settings
 
 logger = logging.getLogger("opik_mcp")
 
@@ -240,6 +242,15 @@ def _emit_server_shutdown(
 
 
 def main() -> None:
+    # Before settings, Sentry and analytics: help must not depend on a valid
+    # environment, and an agent probing the command is not a server session.
+    reply = command_line.reply_for(sys.argv[1:])
+    if reply is not None:
+        sys.stdout.write(reply.rstrip("\n") + "\n")
+        return
+    if command_line.CHECK_ARGUMENT in sys.argv[1:]:
+        sys.exit(command_line.run_check())
+
     try:
         settings = get_settings()
     except ValidationError as e:
@@ -267,6 +278,20 @@ def main() -> None:
 
     _configure_logging(settings.opik_mcp_log_level)
     transport = settings.opik_mcp_transport.lower()
+    # Hosts start the stdio server on a pipe, so a terminal on stdin is a person.
+    stdin_is_a_terminal = transport == "stdio" and sys.stdin is not None and sys.stdin.isatty()
+    for warning in command_line.startup_warnings(
+        sys.argv[1:], stdin_is_a_terminal=stdin_is_a_terminal
+    ):
+        logger.warning(warning)
+    if not settings.opik_url and httpx.URL(settings.comet_url_override).host in LOOPBACK_HOSTS:
+        # Open-source Opik on this machine, set up as a Comet platform: every call
+        # would go to /opik/api, which it does not serve.
+        logger.warning(
+            "COMET_URL_OVERRIDE points at this machine, where open-source Opik serves "
+            f"its API at /api. Set OPIK_URL={settings.comet_url_override.rstrip('/')}"
+            f"/api instead: {DOCS_LOCAL_SERVER}"
+        )
 
     # Initialize Sentry BEFORE the first track_event / any user code path
     # that might raise. No-op when OPIK_MCP_SENTRY_ENABLED=false; see

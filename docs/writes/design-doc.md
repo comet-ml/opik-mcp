@@ -72,7 +72,7 @@ promises, what comes back on success and failure, and where to change or add an 
   analytics buckets on; the body, method and path are not carried.
 - `backend_message` appears on a 400, 409 or 422 only: the strings under the
   body's `errors` or `message`, cut at `_BACKEND_REASON_CHARS`
-  (`backend_reason` in `src/opik_mcp/client/base.py`). A non-JSON body or any other status has none.
+  (`backend_reason` in `src/opik_mcp/client/errors/__init__.py`). A non-JSON body or any other status has none.
   A 400 or 422 while a comment resolves its thread carries it too.
 - A Diagnostics enable whose 409 follow-up PATCH fails reports the PATCH's
   status, so a 401 keeps the credential hint and a 5xx says retry. A 401

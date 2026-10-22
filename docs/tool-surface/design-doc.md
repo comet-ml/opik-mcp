@@ -25,6 +25,10 @@ a read or a list promises, what is refused, and which test holds each promise.
   without warning. Tools over it today are strict expected failures in
   `OVER_THE_LIMIT` (`tests/conformance/test_tool_annotations.py`).
 
+- An AI Spend workspace adds entity types, one sentence per tool description
+  and one instructions paragraph; nothing is hidden and the default surface is
+  unchanged ([cost-intelligence](../cost-intelligence/design-doc.md)).
+
 ### initialize
 
 `initialize` returns the name `opik-mcp` and the text of `render_instructions`
@@ -78,7 +82,7 @@ project if set, tool selection, the link rule, and today's UTC date.
   the id. It is marked `| projected` in the header and on the line under it.
   An unknown path is refused with the valid ones.
 - A backend failure is one sentence: what was asked and what to change
-  (`_raise_for_status` in `src/opik_mcp/client/base.py`). A missing record
+  (`raise_for_status` in `src/opik_mcp/client/errors/__init__.py`). A missing record
   adds the `list('<type>', …)` call for a listable type
   (`_format_client_error`). A 400 or 422 ends with `Backend said: "…"`: the
   strings under the body's `errors` or `message`, on one line, cut at

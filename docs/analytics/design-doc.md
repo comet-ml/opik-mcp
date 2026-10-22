@@ -42,6 +42,10 @@ process serves one connection, so there it means once per process.
   (`user_id_kind=comet_user`), else the install id. The login appears in no
   other field. `identity_lookup` separates `none_expected` (no credential)
   from `miss` (a credential that did not resolve).
+- A configured API key resolves through `account-details` on cloud and on
+  self-hosted Comet (`src/opik_mcp/identity/account.py`). A local Opik is
+  not asked; an open source one answers 404 once. Both count as
+  `none_expected`.
 - `tool_called` adds `tool_name`, `success`, `duration_ms` and the per-call
   host and environment context. A failure adds `error_kind`,
   `exception_type`, `cause_type` and `http_status`. The tool's own props
@@ -122,6 +126,9 @@ No ADR covers analytics. The reasons come from PRs.
   fields (`host_process`, `launcher`, `mcp_client`) so no series moves (#165).
 - `user_id` is the plaintext login because the rest of the product sends it
   and it is the warehouse's user key; a digest could not be joined (#161).
+- A self-hosted Comet login is sent the same way, as `comet_user`. The
+  self-hosted Opik backend already reports that login in its usage events,
+  and counting self-hosted MCP users per person needs the join (OPIK-8562).
 - Both switches are set to false in `tests/conftest.py` (with `setdefault`)
   and in the CI workflow env. The in-process guard, `_in_pytest` in
   `src/opik_mcp/error_tracking.py`, covers Sentry only and misses a
@@ -129,6 +136,9 @@ No ADR covers analytics. The reasons come from PRs.
 
 ### Traps
 
+- A login is unique only within its deployment: a self-hosted login can equal
+  a different person's cloud login. Count and join users on `user_id` together
+  with `installation_type`.
 - A call whose arguments fail FastMCP's schema check never reaches
   `instrument_tool`, so it sends no `tool_called` and no
   `session_initialized`. Failure rates count only failures inside a tool.
@@ -155,6 +165,7 @@ No ADR covers analytics. The reasons come from PRs.
 
 ## Log
 
+- 2026-10-06: self-hosted Comet API keys resolve to a login as on cloud, so self-hosted users can be counted (OPIK-8562).
 - 2026-09-21: list events carry `empty` and `source_defaulted`, so empty answers can be counted (#192).
 - 2026-08-25: `install_id_kind` and `identity_lookup`, so hosted identity failures can be counted (#169).
 - 2026-05-25: Sentry error tracking, for failures that need a stack trace (#125).

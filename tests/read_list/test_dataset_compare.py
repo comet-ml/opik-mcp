@@ -16,7 +16,7 @@ from typing import Any
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
 
-from opik_mcp.client.base import OpikServerError
+from opik_mcp.client.errors import OpikServerError
 from opik_mcp.read_list.list_tool import run_list
 from opik_mcp.read_list.paging import DEFAULT_PAGE_SIZE
 from opik_mcp.read_list.reference import list_reference

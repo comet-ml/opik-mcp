@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Iterator
-from typing import Any
 
 import pytest
 
@@ -19,7 +18,7 @@ from opik_mcp.analytics import (
 
 
 @contextlib.asynccontextmanager
-async def _noop_inner(app: Any) -> AsyncIterator[None]:
+async def _noop_inner(app: object) -> AsyncIterator[None]:
     """Stand-in for FastMCP's session_manager.run() — never touches the
     process-wide StreamableHTTPSessionManager singleton (which may only run once),
     so these tests must NOT call build_app()."""

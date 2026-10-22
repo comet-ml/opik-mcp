@@ -1,0 +1,69 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.comet-ml/opik-mcp",
+  "title": "Opik",
+  "description": "Read and score Opik traces, experiments, datasets and prompts from your AI assistant.",
+  "version": "0.0.0",
+  "websiteUrl": "https://www.comet.com/docs/opik/mcp-server",
+  "repository": {
+    "url": "https://github.com/comet-ml/opik-mcp",
+    "source": "github"
+  },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/comet-ml/opik/refs/heads/main/apps/opik-documentation/documentation/static/img/opik-logo.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"],
+      "theme": "light"
+    },
+    {
+      "src": "https://raw.githubusercontent.com/comet-ml/opik/refs/heads/main/apps/opik-documentation/documentation/static/img/logo-dark-mode.svg",
+      "mimeType": "image/svg+xml",
+      "sizes": ["any"],
+      "theme": "dark"
+    }
+  ],
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://www.comet.com/opik/api/v1/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "opik-mcp",
+      "version": "0.0.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "OPIK_API_KEY",
+          "description": "Opik API key, for Opik Cloud and self-hosted Comet. Leave unset for open-source Opik.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "OPIK_WORKSPACE",
+          "description": "Workspace name: the segment after comet.com/opik/ in your Opik URL. Leave unset for open-source Opik.",
+          "isRequired": false
+        },
+        {
+          "name": "OPIK_URL",
+          "description": "Opik REST API base, for open-source Opik.",
+          "placeholder": "http://localhost:5173/api",
+          "isRequired": false
+        },
+        {
+          "name": "COMET_URL_OVERRIDE",
+          "description": "Base URL of a self-hosted Comet platform; Opik's API is <url>/opik/api.",
+          "placeholder": "https://comet.example.com",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}

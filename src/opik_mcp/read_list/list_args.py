@@ -14,19 +14,20 @@ from typing import Any
 
 from mcp.server.fastmcp.exceptions import ToolError
 
+from opik_mcp.features.toggles import FeatureToggles
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.oql import OQLError, compile_filters, render_filters, split_param_clauses
 from opik_mcp.read_list.oql_fields import PARENT_ID_FIELDS, SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.paging import clamp_size
-from opik_mcp.read_list.registry import (
-    ENTITY_REGISTRY,
-    FILTERABLE_TYPES,
-    SORTABLE_TYPES,
-    VOCABULARIES,
-    WINDOWED_TYPES,
-)
+from opik_mcp.read_list.registry import VOCABULARIES
 from opik_mcp.read_list.sorting import SortError, compile_sort
+from opik_mcp.read_list.visibility import (
+    day_windowed_types,
+    filterable_types,
+    sortable_types,
+    windowed_types,
+)
 from opik_mcp.read_list.window import (
     WindowError,
     is_relative,
@@ -34,15 +35,6 @@ from opik_mcp.read_list.window import (
     resolve_window,
     to_minute,
 )
-
-#: The entities whose backend takes a window as whole UTC days, named in the
-#: refusal beside the instant-windowed ones.
-_DAY_WINDOWED_TYPES: tuple[str, ...] = tuple(
-    entity_type
-    for entity_type, handler in ENTITY_REGISTRY.items()
-    if "from_date" in handler.list_optional_kwargs
-)
-
 
 #: The keyword arguments a ``list_fn`` receives: the backend's query parameters.
 ListKwargs = dict[str, Any]
@@ -84,9 +76,11 @@ def resolve_list_args(
     dataset_id: str | None,
     prompt_id: str | None,
     status: str | None,
+    features: FeatureToggles,
 ) -> ListArgs:
     """Every argument refusal after the entity type is known is raised here,
-    as a ``ToolError``, before a connection is opened."""
+    as a ``ToolError``, before a connection is opened. The type lists in the
+    refusals are the ones ``features`` turn on."""
     size = clamp_size(size)
     page = max(1, page)
 
@@ -138,7 +132,9 @@ def resolve_list_args(
     source_defaulted = False
     if vocabulary.filter_fields or filters:
         try:
-            clauses = compile_filters(vocabulary, filters or "", filterable_types=FILTERABLE_TYPES)
+            clauses = compile_filters(
+                vocabulary, filters or "", filterable_types=filterable_types(features)
+            )
         except OQLError as err:
             raise ToolError(str(err)) from err
         if vocabulary.is_source_defaulted and not any(
@@ -176,7 +172,7 @@ def resolve_list_args(
     if since is not None or until is not None:
         day_windowed = "from_date" in handler.list_optional_kwargs
         if not handler.is_windowed and not day_windowed:
-            windowed = ", ".join((*WINDOWED_TYPES, *_DAY_WINDOWED_TYPES))
+            windowed = ", ".join((*windowed_types(features), *day_windowed_types(features)))
             why = handler.no_window_reason or f"only {windowed} take a time window."
             unsupported = WindowError(f"since/until are not supported for {entity_type!r}: {why}")
             raise ToolError(str(unsupported)) from unsupported
@@ -208,7 +204,7 @@ def resolve_list_args(
             # skims the header reads thirty-two rows as the result of the
             # search it asked for. A page that is not what was asked for is
             # worse than an error, and the error can name what would work.
-            refusal = EntityArgValidationError(_search_refusal(handler, vocabulary))
+            refusal = EntityArgValidationError(_search_refusal(handler, vocabulary, features))
             raise ToolError(str(refusal)) from refusal
         list_kwargs["search"] = search
         applied.append(f'search: "{search}"')
@@ -217,7 +213,9 @@ def resolve_list_args(
     sort_field: str | None = None
     if sort is not None:
         try:
-            sort_field, direction = compile_sort(vocabulary, sort, sortable_types=SORTABLE_TYPES)
+            sort_field, direction = compile_sort(
+                vocabulary, sort, sortable_types=sortable_types(features)
+            )
         except SortError as err:
             raise ToolError(str(err)) from err
         list_kwargs["sorting"] = json.dumps(
@@ -245,7 +243,9 @@ def _vocabulary(name: str) -> Vocabulary:
     return VOCABULARIES.get(name) or Vocabulary(name=name)
 
 
-def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary) -> str:
+def _search_refusal(
+    handler: EntityHandler, vocabulary: Vocabulary, features: FeatureToggles
+) -> str:
     """Why free text does not apply here, and the nearest thing that does.
 
     Every workspace-wide list takes a ``name`` substring, and the filterable
@@ -272,7 +272,7 @@ def _search_refusal(handler: EntityHandler, vocabulary: Vocabulary) -> str:
     how = f" {joined[0].upper()}{joined[1:]}." if joined else ""
     return (
         f"search is not supported for {vocabulary.entity_type!r}: "
-        f"only {', '.join(WINDOWED_TYPES)} take free text.{how}"
+        f"only {', '.join(windowed_types(features))} take free text.{how}"
     )
 
 

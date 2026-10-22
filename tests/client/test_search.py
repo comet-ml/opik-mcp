@@ -8,8 +8,6 @@ must work project-wide, without a ``trace_id``.
 
 from __future__ import annotations
 
-from typing import Any
-
 import httpx
 import pytest
 import respx
@@ -28,7 +26,7 @@ def _client() -> OpikClient:
     return OpikClient(base_url=OPIK_BASE, api_key="key-abc", workspace="ws")
 
 
-def _page(items: list[dict[str, Any]], total: int | None = None) -> dict[str, Any]:
+def _page(items: list[dict[str, object]], total: int | None = None) -> dict[str, object]:
     return {
         "content": items,
         "page": 1,
@@ -37,7 +35,7 @@ def _page(items: list[dict[str, Any]], total: int | None = None) -> dict[str, An
     }
 
 
-_SEARCH_PARAMS: dict[str, Any] = {
+_SEARCH_PARAMS: dict[str, object] = {
     "filters": '[{"field":"error_info","operator":"is_not_empty","key":"","value":""}]',
     "sorting": '[{"field":"duration","direction":"DESC"}]',
     "search": "order-42",

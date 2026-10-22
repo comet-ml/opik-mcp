@@ -1,0 +1,35 @@
+{
+  "title": "MCP servers",
+  "subtitle": "Definitions and calls",
+  "total_tokens": 900000,
+  "cost_usd": 60.0,
+  "cash_cost_usd": 8.0,
+  "over_plan_cost_usd": 5.0,
+  "api_cost_usd": 3.0,
+  "item_unit": "server",
+  "item_count": 2,
+  "items": [
+    {
+      "label": "github",
+      "count": 40,
+      "total_tokens": 500000,
+      "definition_tokens": 100000,
+      "usage_tokens": 400000,
+      "cost_usd": 40.0,
+      "cash_cost_usd": 5.0,
+      "active_users": 2,
+      "inactive_users": 1
+    },
+    {
+      "label": "docs",
+      "count": 10,
+      "total_tokens": 400000,
+      "definition_tokens": 50000,
+      "usage_tokens": 350000,
+      "cost_usd": 20.0,
+      "cash_cost_usd": 3.0,
+      "active_users": 1,
+      "inactive_users": 2
+    }
+  ]
+}
