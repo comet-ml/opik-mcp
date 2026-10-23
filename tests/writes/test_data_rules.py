@@ -1,7 +1,7 @@
 """Cross-cutting data-rule tests — spec §7.1 'Cross-cutting validators'.
 
 Exercises the shared mixins on every operation that wears them. A new
-operation that picks up the ``_TagsMixin`` automatically inherits the
+operation that picks up the ``TagsMixin`` automatically inherits the
 ``combined_tag_modes`` rejection — these tests prove that.
 """
 

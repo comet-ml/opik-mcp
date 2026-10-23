@@ -13,16 +13,16 @@ branches in a dispatcher that grows a little less generic each time.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Protocol
 
 import httpx
 from pydantic import BaseModel
 
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
+from opik_mcp.json_types import JsonObject, JsonValue
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, registry imports operations
@@ -34,11 +34,12 @@ class WireRequest:
     """One HTTP request, as an operation describes it.
 
     ``method`` is optional: an operation that does not override it takes the
-    registry entry's, which is the usual case.
+    registry entry's, which is the usual case. ``body`` is a ``Mapping`` so an
+    operation can describe its wire shape as a TypedDict.
     """
 
     path: str
-    body: dict[str, Any] | list[Any] = field(default_factory=dict)
+    body: Mapping[str, object] = field(default_factory=dict)
     method: str | None = None
 
 
@@ -57,9 +58,20 @@ class BuildContext:
     dry_run: bool = False
 
 
-#: A rule the payload's model cannot express on its own, checked after
-#: Pydantic. Raises ``ValidationFailedError``; returns nothing.
-ValidateFn = Callable[..., None]
+class ValidateFn(Protocol):
+    """A rule the payload's model cannot express on its own, checked after
+    Pydantic. Raises ``ValidationFailedError``; returns nothing."""
+
+    def __call__(
+        self,
+        op: WriteOperation,
+        items: list[BaseModel],
+        /,
+        *,
+        is_batch: bool,
+        example: JsonObject,
+    ) -> None: ...
+
 
 #: Translate validated models into the request to send. Called on the live
 #: path and on a dry run alike, so it must not need a client.
@@ -80,7 +92,7 @@ RetryFn = Callable[
 #: Add to the success envelope in place: a link to open, a note on what to
 #: expect next.
 DecorateFn = Callable[
-    ["WriteOperation", list[BaseModel], dict[str, Any], Settings, str | None], None
+    ["WriteOperation", list[BaseModel], dict[str, object], Settings, str | None], None
 ]
 
 #: What a preview cannot show, when it cannot show it.
@@ -101,17 +113,7 @@ def refuse(op: WriteOperation, field: str, message: str, code: str) -> Validatio
     )
 
 
-def stringify_uuids(obj: Any) -> Any:
-    if isinstance(obj, dict):
-        return {k: stringify_uuids(v) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [stringify_uuids(v) for v in obj]
-    if isinstance(obj, UUID):
-        return str(obj)
-    return obj
-
-
-def dump(model: BaseModel) -> dict[str, Any]:
+def dump(model: BaseModel) -> JsonObject:
     """Strip ``None`` from the model dump using JSON-mode serialization.
 
     ``mode='json'`` is essential here: it serializes ``datetime`` as ISO-8601
@@ -119,16 +121,16 @@ def dump(model: BaseModel) -> dict[str, Any]:
     requires — Pydantic's default Python-mode dump keeps ``datetime`` objects
     and lets ``json.dumps(default=str)`` stringify them with a space (e.g.
     ``"2026-05-18 18:00:00+00:00"``), which the BE rejects as
-    ``DateTimeParseException``.
+    ``DateTimeParseException``. It also renders every ``UUID`` as a string.
     """
-    dumped: dict[str, Any] = stringify_uuids(model.model_dump(exclude_none=True, mode="json"))
-    return dumped
+    return model.model_dump(exclude_none=True, mode="json")
 
 
-def safe_body(resp: httpx.Response) -> Any:
+def safe_body(resp: httpx.Response) -> JsonValue:
     """The response body as JSON when it is JSON, else the raw text."""
     try:
-        return resp.json()
+        body: JsonValue = resp.json()
+        return body
     except (ValueError, httpx.HTTPError):
         return resp.text
 
@@ -145,5 +147,4 @@ __all__ = [
     "dump",
     "refuse",
     "safe_body",
-    "stringify_uuids",
 ]

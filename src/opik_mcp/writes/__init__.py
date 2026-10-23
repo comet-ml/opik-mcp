@@ -11,6 +11,8 @@ models, dispatch) lives in submodules so the MCP tool layer only depends
 on these two entrypoints.
 """
 
+from __future__ import annotations
+
 from opik_mcp.writes.description import SCHEMA_TOOL_DESCRIPTION, WRITE_TOOL_DESCRIPTION
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,

@@ -701,11 +701,14 @@ def test_the_schema_reference_carries_the_metric_table() -> None:
     description is billed on every request the host makes, this only when
     asked for."""
     reference = run_schema("list.project_metric")
+    assert isinstance(reference["metric_types"], dict)
     assert set(reference["metric_types"]) == set(METRICS)
     assert reference["metric_types"]["span_cost"]["about"] == "span"
     assert reference["metric_types"]["trace_error_rate"]["unit"] == "%"
     assert "limits" not in reference, "no bucket cap: the interval follows the window"
+    assert isinstance(reference["intervals"], dict)
     assert "3 days" in reference["intervals"]["default"]
+    assert isinstance(reference["not_supported"], dict)
     assert "page, size" in reference["not_supported"]
 
 
