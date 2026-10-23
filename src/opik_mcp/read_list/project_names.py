@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any, Final
+from typing import Final
 
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, DEADLINE_SECONDS
@@ -38,7 +38,7 @@ survives, plus the deadline. Named rather than unpacked inline so the type is
 stated."""
 
 
-def named(rows: Any) -> list[str]:
+def named(rows: object) -> list[str]:
     """The ``name`` of every well-formed row, in order."""
     if not isinstance(rows, list):
         return []

@@ -14,10 +14,11 @@ optimisation, it is the only readable error.
 from __future__ import annotations
 
 from asyncio import gather
-from collections.abc import Coroutine, Mapping
-from typing import Any, Final
+from collections.abc import Awaitable, Mapping
+from typing import Final
 
 from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.shapes import ProjectMetrics
 from opik_mcp.read_list.entities.project_metric.catalog import (
     Metric,
     companion_count,
@@ -130,7 +131,7 @@ async def run_project_metric(
     sort: str | None = None,
     fields: list[str] | None = None,
     vocabularies: Mapping[str, Vocabulary],
-    **_collection_args: Any,
+    **_collection_args: object,
 ) -> str:
     """``list('project_metric', …)`` end to end: validate, ask, render.
 
@@ -180,7 +181,7 @@ async def run_project_metric(
         caller="list('project_metric')",
     )
 
-    def ask(which: Metric, group: dict[str, str] | None) -> Coroutine[Any, Any, dict[str, Any]]:
+    def ask(which: Metric, group: dict[str, str] | None) -> Awaitable[ProjectMetrics]:
         return client.get_project_metrics(
             resolved,
             **request_body(

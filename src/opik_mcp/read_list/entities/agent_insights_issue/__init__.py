@@ -10,6 +10,8 @@ The rest of ``read_list`` reaches them through this name, so the entity's own
 concerns stay in one place as they grow.
 """
 
+from __future__ import annotations
+
 from opik_mcp.read_list.entities.agent_insights_issue.availability import (
     UNAVAILABLE_SENTENCE,
     diagnostics_available,

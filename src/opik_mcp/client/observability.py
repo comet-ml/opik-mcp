@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import cast
 
-from opik_mcp.client.base import OpikClientBase, _search_params
+from opik_mcp.client.base import OpikClientBase, QueryParams, _search_params
+from opik_mcp.client.shapes import Page, Span, Trace, TraceThread
 
 
 class ObservabilityEndpoints(OpikClientBase):
@@ -21,7 +22,7 @@ class ObservabilityEndpoints(OpikClientBase):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[Trace]:
         """``GET /v1/private/traces`` — requires ``project_id`` or ``project_name``.
 
         ``filters`` is the backend's JSON-encoded filter array (query param),
@@ -33,7 +34,7 @@ class ObservabilityEndpoints(OpikClientBase):
         """
         if project_id is None and project_name is None:
             raise ValueError("list_traces requires project_id or project_name")
-        params: dict[str, Any] = {"page": page, "size": size}
+        params: QueryParams = {"page": page, "size": size}
         if project_id is not None:
             params["project_id"] = project_id
         if project_name is not None:
@@ -48,14 +49,20 @@ class ObservabilityEndpoints(OpikClientBase):
                 should_truncate=should_truncate,
             )
         )
-        return await self._get_json("/v1/private/traces", params=params, entity_hint="traces")
+        return cast(
+            Page[Trace],
+            await self._get_json("/v1/private/traces", params=params, entity_hint="traces"),
+        )
 
-    async def get_trace(self, trace_id: str) -> dict[str, Any]:
+    async def get_trace(self, trace_id: str) -> Trace:
         """``GET /v1/private/traces/{id}`` — trace metadata only (spans fetched separately)."""
-        return await self._get_json(
-            f"/v1/private/traces/{trace_id}",
-            params=None,
-            entity_hint=f"trace {trace_id!r}",
+        return cast(
+            Trace,
+            await self._get_json(
+                f"/v1/private/traces/{trace_id}",
+                params=None,
+                entity_hint=f"trace {trace_id!r}",
+            ),
         )
 
     async def list_threads(
@@ -71,7 +78,7 @@ class ObservabilityEndpoints(OpikClientBase):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 10,
-    ) -> dict[str, Any]:
+    ) -> Page[TraceThread]:
         """``GET /v1/private/traces/threads`` — project-scoped page of threads.
 
         A thread groups traces by ``thread_id`` within one project, so listing
@@ -81,7 +88,7 @@ class ObservabilityEndpoints(OpikClientBase):
         """
         if project_id is None and project_name is None:
             raise ValueError("list_threads requires project_id or project_name")
-        params: dict[str, Any] = {"page": page, "size": size}
+        params: QueryParams = {"page": page, "size": size}
         if project_id is not None:
             params["project_id"] = project_id
         if project_name is not None:
@@ -96,10 +103,13 @@ class ObservabilityEndpoints(OpikClientBase):
                 should_truncate=should_truncate,
             )
         )
-        return await self._get_json(
-            "/v1/private/traces/threads",
-            params=params,
-            entity_hint="threads",
+        return cast(
+            Page[TraceThread],
+            await self._get_json(
+                "/v1/private/traces/threads",
+                params=params,
+                entity_hint="threads",
+            ),
         )
 
     async def get_thread(
@@ -109,7 +119,7 @@ class ObservabilityEndpoints(OpikClientBase):
         project_id: str | None = None,
         project_name: str | None = None,
         should_truncate: bool = False,
-    ) -> dict[str, Any]:
+    ) -> TraceThread:
         """``POST /v1/private/traces/threads/retrieve`` — one thread's metadata.
 
         A thread is keyed by ``thread_id`` within a single project, so the
@@ -122,15 +132,18 @@ class ObservabilityEndpoints(OpikClientBase):
         """
         if project_id is None and project_name is None:
             raise ValueError("get_thread requires project_id or project_name")
-        body: dict[str, Any] = {"thread_id": thread_id, "truncate": should_truncate}
+        body: dict[str, str | bool] = {"thread_id": thread_id, "truncate": should_truncate}
         if project_id is not None:
             body["project_id"] = project_id
         if project_name is not None:
             body["project_name"] = project_name
-        return await self._post_json(
-            "/v1/private/traces/threads/retrieve",
-            json=body,
-            entity_hint=f"thread {thread_id!r}",
+        return cast(
+            TraceThread,
+            await self._post_json(
+                "/v1/private/traces/threads/retrieve",
+                json=body,
+                entity_hint=f"thread {thread_id!r}",
+            ),
         )
 
     async def list_spans(
@@ -147,7 +160,7 @@ class ObservabilityEndpoints(OpikClientBase):
         should_truncate: bool | None = None,
         page: int = 1,
         size: int = 100,
-    ) -> dict[str, Any]:
+    ) -> Page[Span]:
         """``GET /v1/private/spans`` — spans of one trace, or across a project.
 
         opik-backend rejects ``GET /v1/private/spans`` with 400 if neither
@@ -158,7 +171,7 @@ class ObservabilityEndpoints(OpikClientBase):
         """
         if project_id is None and project_name is None:
             raise ValueError("list_spans requires project_id or project_name")
-        params: dict[str, Any] = {"page": page, "size": size}
+        params: QueryParams = {"page": page, "size": size}
         if trace_id is not None:
             params["trace_id"] = trace_id
         if project_id is not None:
@@ -176,12 +189,17 @@ class ObservabilityEndpoints(OpikClientBase):
             )
         )
         hint = f"spans for trace {trace_id!r}" if trace_id is not None else "spans"
-        return await self._get_json("/v1/private/spans", params=params, entity_hint=hint)
+        return cast(
+            Page[Span], await self._get_json("/v1/private/spans", params=params, entity_hint=hint)
+        )
 
-    async def get_span(self, span_id: str) -> dict[str, Any]:
+    async def get_span(self, span_id: str) -> Span:
         """``GET /v1/private/spans/{id}`` — single span."""
-        return await self._get_json(
-            f"/v1/private/spans/{span_id}",
-            params=None,
-            entity_hint=f"span {span_id!r}",
+        return cast(
+            Span,
+            await self._get_json(
+                f"/v1/private/spans/{span_id}",
+                params=None,
+                entity_hint=f"span {span_id!r}",
+            ),
         )

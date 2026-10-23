@@ -7,12 +7,11 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from opik_mcp.client.protocols import OpikListClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.decorations import page_note_of
-from opik_mcp.read_list.handler import EntityHandler, ListFn, PageContext, Vocabulary
+from opik_mcp.read_list.handler import EntityHandler, ListFn, ListKwargs, PageContext, Vocabulary
 from opik_mcp.read_list.oql import split_param_clauses
 from opik_mcp.read_list.oql_fields import SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.project_scope import project_rows
@@ -42,7 +41,7 @@ def without_default(
     vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
-    list_kwargs: dict[str, Any],
+    list_kwargs: ListKwargs,
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """The same listing again, one row wide, with the ``sdk`` default lifted.
@@ -68,7 +67,7 @@ def without_filters(
     vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
-    list_kwargs: dict[str, Any],
+    list_kwargs: ListKwargs,
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """The same listing again, one row wide, with the caller's filters lifted.
@@ -85,13 +84,13 @@ def probe_count(
     vocabulary: Vocabulary,
     opik: OpikListClient,
     list_fn: ListFn,
-    list_kwargs: dict[str, Any],
+    list_kwargs: ListKwargs,
     clauses: list[dict[str, str]],
 ) -> Callable[[], Awaitable[int | None]]:
     """One-row count of ``clauses``, or ``None`` when it cannot be had."""
 
     async def count() -> int | None:
-        probe = {**list_kwargs, "page": 1, "size": 1}
+        probe: ListKwargs = {**list_kwargs, "page": 1, "size": 1}
         probe.pop("filters", None)
         try:
             # The same split the page went through: a clause that is a query
@@ -104,7 +103,7 @@ def probe_count(
         except Exception:
             logger.debug("empty-page probe failed", exc_info=True)
             return None
-        found = body.get("total") if isinstance(body, dict) else None
+        found = body.get("total")
         return found if isinstance(found, int) else None
 
     return count

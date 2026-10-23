@@ -25,10 +25,9 @@ a caller who did not write the call is the one who has to be able to tell.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 
-def compact_json(obj: Any) -> str:
+def compact_json(obj: object) -> str:
     """The payload, as the caller receives it."""
     return json.dumps(obj, default=str)
 

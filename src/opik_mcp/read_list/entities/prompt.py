@@ -7,12 +7,21 @@ a read plus a list of a collection this small.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping
+from typing import Unpack
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Page, Prompt, PromptVersion
 from opik_mcp.config import Settings
-from opik_mcp.read_list.handler import EntityHandler, ParentPage
+from opik_mcp.read_list.handler import (
+    EntityHandler,
+    NamedPageKwargs,
+    PageKwargs,
+    ParentPage,
+    page_kwargs,
+)
 from opik_mcp.read_list.paging import (
+    NameCandidate,
     collection_total,
     collection_truncated,
     continuation,
@@ -27,7 +36,7 @@ from opik_mcp.read_list.uri import opik_uri
 VERSIONS_INLINE_LIMIT = 100
 
 
-async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, object]:
     """Prompt + full version list (up to ``VERSIONS_INLINE_LIMIT``)."""
     prompt = await client.get_prompt(entity_id)
     try:
@@ -40,7 +49,7 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     truncated = collection_truncated(
         versions_page, inlined=len(versions), limit=VERSIONS_INLINE_LIMIT
     )
-    result: dict[str, Any] = {
+    result: dict[str, object] = {
         "prompt": prompt,
         "versions": versions,
         "versionsTruncated": truncated,
@@ -58,27 +67,32 @@ async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
     return result
 
 
-async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
+async def search_by_name(client: OpikReadClient, name: str) -> list[NameCandidate]:
     return name_candidates(await client.list_prompts(name=name, size=5))
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+async def list_page(client: OpikListClient, **kw: Unpack[NamedPageKwargs]) -> Page[Prompt]:
     return await client.list_prompts(**kw)
 
 
-async def list_versions(client: OpikListClient, **kw: Any) -> dict[str, Any]:
-    prompt_id = kw.pop("prompt_id", None)
+class ListVersionsKwargs(PageKwargs, total=False):
+    prompt_id: str
+
+
+async def list_versions(
+    client: OpikListClient, **kw: Unpack[ListVersionsKwargs]
+) -> Page[PromptVersion]:
+    prompt_id = kw.get("prompt_id")
     if not prompt_id:
         raise ValueError("list prompt_version requires prompt_id")
-    kw.pop("name", None)
-    return await client.list_prompt_versions(prompt_id, **kw)
+    return await client.list_prompt_versions(prompt_id, **page_kwargs(kw))
 
 
-async def fetch_prompt_record(client: OpikReadClient, prompt_id: str) -> dict[str, Any]:
+async def fetch_prompt_record(client: OpikReadClient, prompt_id: str) -> Prompt:
     return await client.get_prompt(prompt_id)
 
 
-def prompt_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def prompt_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The prompt's page under its project, or why there is none.
 
     Same shape as a dataset's: ``project_id`` is nullable on the backend, and

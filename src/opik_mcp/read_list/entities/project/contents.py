@@ -23,10 +23,13 @@ letting the silence be read as an answer.
 
 from __future__ import annotations
 
-from typing import Any, Final
+from collections.abc import Mapping
+from typing import Final
 
 from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.shapes import Activity, Page
 from opik_mcp.read_list.decorations import block
+from opik_mcp.read_list.paging import page_items
 from opik_mcp.read_list.ui_links import ProjectArea
 
 FEED_PAGE: Final = 100
@@ -49,7 +52,7 @@ link is worse than none.
 """
 
 
-def _entry(row: dict[str, Any]) -> dict[str, Any] | None:
+def _entry(row: Activity) -> dict[str, str] | None:
     """One activity row → ``{name, id, at}``, or ``None`` if it says nothing.
 
     Only the fields the backend actually sends: the owning resource and the
@@ -62,15 +65,15 @@ def _entry(row: dict[str, Any]) -> dict[str, Any] | None:
     created = row.get("created_at")
     if not isinstance(name, str) or not name:
         return None
-    entry: dict[str, Any] = {"name": name}
-    if isinstance(row.get("id"), str):
-        entry["id"] = row["id"]
+    entry: dict[str, str] = {"name": name}
+    if isinstance(activity_id := row.get("id"), str):
+        entry["id"] = activity_id
     if isinstance(created, str) and created:
         entry["at"] = created[:10]
     return entry
 
 
-def distil(body: dict[str, Any]) -> dict[str, Any] | None:
+def distil(body: Page[Activity]) -> dict[str, object] | None:
     """The activity page → the freshest entry per kind, or ``None`` if none.
 
     The feed arrives newest first, so the first row of a kind is its freshest
@@ -80,10 +83,9 @@ def distil(body: dict[str, Any]) -> dict[str, Any] | None:
     so the read attaches those afterwards, through the seam that exists for
     exactly that (:func:`read.project_links`).
     """
-    raw = body.get("content")
-    rows = [row for row in raw if isinstance(row, dict)] if isinstance(raw, list) else []
+    rows = page_items(body)
 
-    block: dict[str, Any] = {}
+    block: dict[str, object] = {}
     for row in rows:
         kind = row.get("type")
         if not isinstance(kind, str) or kind == _TRACE_ROLLUP or kind in block:
@@ -103,10 +105,10 @@ def distil(body: dict[str, Any]) -> dict[str, Any] | None:
     return block
 
 
-async def project_contents(client: OpikReadClient, project_id: str) -> dict[str, Any] | None:
+async def project_contents(client: OpikReadClient, project_id: str) -> Mapping[str, object] | None:
     """The ``contains`` block for a project read, or ``None`` for a quiet project."""
 
-    async def load() -> dict[str, Any] | None:
+    async def load() -> dict[str, object] | None:
         return distil(await client.list_project_activities(project_id, size=FEED_PAGE))
 
     return await block("what this project contains", load)

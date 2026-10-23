@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Final
 
 from opik_mcp.client.protocols import AiSpendClient
@@ -202,7 +203,7 @@ async def fetch_lane(
     return {key: value for key, value in record.items() if value is not None}
 
 
-def lane_links(settings: Settings, _data: dict[str, object]) -> dict[str, str]:
+def lane_links(settings: Settings, _data: Mapping[str, object]) -> dict[str, str]:
     return link_fields(settings, *HOME_PAGE)
 
 

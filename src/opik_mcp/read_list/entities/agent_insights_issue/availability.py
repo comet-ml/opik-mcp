@@ -24,7 +24,6 @@ declare a working feature unavailable.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 import httpx
 
@@ -51,7 +50,7 @@ UNAVAILABLE_SENTENCE = (
 async def diagnostics_available(client: OpikListClient) -> bool:
     """Is Diagnostics available on this deployment? Fails open."""
     try:
-        toggles: dict[str, Any] = await client.get_service_toggles()
+        toggles = await client.get_service_toggles()
     except (
         OpikAuthError,
         OpikNotFoundError,

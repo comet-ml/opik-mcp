@@ -26,10 +26,12 @@ confirmed against www.comet.com rather than read off the Java:
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Final
+from typing import Final, NotRequired, TypedDict
 
 from opik_mcp.client.protocols import OpikReadClient
+from opik_mcp.client.shapes import KpiMetric
 from opik_mcp.read_list.decorations import BLOCK_ERRORS, describe
 from opik_mcp.read_list.oql_fields import SDK_SOURCE_CLAUSE
 from opik_mcp.read_list.window import closed_window, format_instant
@@ -63,12 +65,19 @@ _NO_TRAFFIC_NOTE: Final = (
 )
 
 
+class Window(TypedDict):
+    since: str
+    until: str
+    days: NotRequired[int]
+    compared_to: dict[str, str]
+
+
 def window(
     *,
     since: str | None = None,
     until: str | None = None,
     now: datetime | None = None,
-) -> dict[str, Any]:
+) -> Window:
     """The window block: ``{since, until, days?, compared_to}``.
 
     Both bounds arrive already resolved to instants by the read tool, or not at
@@ -87,17 +96,14 @@ def window(
     start, end = closed_window(since, until, days=WINDOW_DAYS, now=now)
     span = end - start
 
-    block: dict[str, Any] = {"since": format_instant(start), "until": format_instant(end)}
+    since_at, until_at = format_instant(start), format_instant(end)
+    compared_to = {"since": format_instant(start - span), "until": format_instant(start)}
     if span and span % timedelta(days=1) == timedelta(0):
-        block["days"] = span.days
-    block["compared_to"] = {
-        "since": format_instant(start - span),
-        "until": format_instant(start),
-    }
-    return block
+        return {"since": since_at, "until": until_at, "days": span.days, "compared_to": compared_to}
+    return {"since": since_at, "until": until_at, "compared_to": compared_to}
 
 
-def _readable(value: Any) -> Any:
+def _readable(value: float | None) -> float | None:
     """A figure at the precision it has, not the precision a float prints at.
 
     The backend answers an error rate over 167 traces as
@@ -114,7 +120,7 @@ def _readable(value: Any) -> Any:
     return round(value, 4)
 
 
-def _figure(stats: dict[str, dict[str, Any]], name: str) -> dict[str, float | None]:
+def _figure(stats: Mapping[str, KpiMetric], name: str) -> dict[str, float | None]:
     row = stats.get(name) or {}
     return {
         "current": _readable(row.get("current_value")),
@@ -122,7 +128,9 @@ def _figure(stats: dict[str, dict[str, Any]], name: str) -> dict[str, float | No
     }
 
 
-def shape_stats(stats: list[dict[str, Any]]) -> tuple[dict[str, Any], bool]:
+def shape_stats(
+    stats: Sequence[KpiMetric],
+) -> tuple[dict[str, dict[str, float | None]], bool]:
     """The backend's ``stats`` list → ``({figure: {current, previous}}, no_traffic)``.
 
     Keyed by ``type``, never by position. Each period is judged on its own
@@ -134,7 +142,9 @@ def shape_stats(stats: list[dict[str, Any]]) -> tuple[dict[str, Any], bool]:
         for row in stats
         if isinstance(row, dict) and isinstance(row.get("type"), str)
     }
-    figures = {name: _figure(by_type, name) for name in _FIGURES if name in by_type}
+    figures: dict[str, dict[str, float | None]] = {
+        name: _figure(by_type, name) for name in _FIGURES if name in by_type
+    }
 
     counts = figures.get("count", {})
     for period in ("current", "previous"):
@@ -153,7 +163,7 @@ async def trace_summary(
     *,
     since: str | None = None,
     until: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, object]:
     """The summary block for a project read: the window, the source, the figures.
 
     On failure returns ``{window, source, error}`` instead of the figures. It
@@ -163,7 +173,7 @@ async def trace_summary(
     messages, where an empty list would contradict the metadata.
     """
     span = window(since=since, until=until)
-    block: dict[str, Any] = {"window": span, "source": "sdk"}
+    block: dict[str, object] = {"window": span, "source": "sdk"}
     try:
         body = await client.get_project_kpi_cards(
             project_id,
@@ -194,6 +204,7 @@ async def trace_summary(
 __all__ = [
     "SDK_SOURCE_FILTER",
     "WINDOW_DAYS",
+    "Window",
     "shape_stats",
     "trace_summary",
     "window",

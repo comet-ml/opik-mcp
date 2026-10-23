@@ -15,8 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from opik_mcp.config import Settings
 from opik_mcp.read_list.entities.thread import thread_page_url
-from opik_mcp.read_list.entities.trace import trace_page_url
-from opik_mcp.read_list.ui_links import project_page_url
+from opik_mcp.read_list.ui_links import project_page_url, trace_page_url
 from opik_mcp.writes.errors import ValidationFailedError, ValidationIssue
 from opik_mcp.writes.models import (
     EXAMPLE_TIME,
@@ -447,7 +446,7 @@ def _annotation_url(settings: Settings, project_id: str, item: BaseModel) -> str
     if not target_id:
         return None
     if target == "trace":
-        return trace_page_url(settings, project_id, target_id)
+        return trace_page_url(settings, project_id=project_id, trace_id=target_id)
     if target == "thread":
         return thread_page_url(settings, project_id, target_id)
     return project_page_url(settings, project_id, "logs", query="logsType=spans")
@@ -489,7 +488,12 @@ def decorate_with_page(
         if op.name == "span.create":
             trace_id = _id_of(single, "trace_id")
             if trace_id:
-                url = trace_page_url(settings, project_id, trace_id, span_id=_id_of(single, "id"))
+                url = trace_page_url(
+                    settings,
+                    project_id=project_id,
+                    trace_id=trace_id,
+                    span_id=_id_of(single, "id"),
+                )
         elif op.name in {"thread.close", "thread.open"}:
             thread_id = _id_of(single, "thread_id")
             if thread_id:
@@ -497,7 +501,7 @@ def decorate_with_page(
         elif op.name in {"trace.create", "trace.update"}:
             trace_id = _id_of(single, "id")
             if trace_id:
-                url = trace_page_url(settings, project_id, trace_id)
+                url = trace_page_url(settings, project_id=project_id, trace_id=trace_id)
         elif op.name in {"score.create", "comment.create"}:
             url = _annotation_url(settings, project_id, single)
     if url is None:

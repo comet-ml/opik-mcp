@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from typing import Any
 from urllib.parse import quote
 
 from opik_mcp.client.base import OpikClientBase, _drop_none
 from opik_mcp.client.errors import OpikPermissionError, OpikValidationError
 from opik_mcp.client.protocols import SpendItemKind
+from opik_mcp.json_types import JsonObject, JsonValue
 
 _PREFIX = "/v1/private/ai-spend"
 
@@ -66,7 +66,7 @@ def _window(
     interval_start: str | None,
     interval_end: str | None,
     user_email: str | None = None,
-) -> dict[str, Any]:
+) -> dict[str, str]:
     return _drop_none(
         {
             "project_name": project_name,
@@ -83,11 +83,11 @@ class AiSpendEndpoints(OpikClientBase):
     async def _spend_post(
         self,
         path: str,
-        body: dict[str, Any],
+        body: Mapping[str, object],
         *,
         entity_hint: str,
-        params: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        params: Mapping[str, str | int | None] | None = None,
+    ) -> JsonObject:
         with _admin_only(entity_hint):
             return await self._post_json(
                 f"{_PREFIX}{path}",
@@ -103,7 +103,7 @@ class AiSpendEndpoints(OpikClientBase):
         interval_start: str,
         interval_end: str,
         user_email: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/summary``."""
         return await self._spend_post(
             "/summary",
@@ -118,7 +118,7 @@ class AiSpendEndpoints(OpikClientBase):
         interval_start: str,
         interval_end: str,
         user_email: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/composition``."""
         return await self._spend_post(
             "/composition",
@@ -134,7 +134,7 @@ class AiSpendEndpoints(OpikClientBase):
         interval_start: str,
         interval_end: str,
         user_email: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/composition/{lane_key}/breakdown``; 400 on an unknown lane."""
         return await self._spend_post(
             f"/composition/{_segment(lane_key, 'Lane')}/breakdown",
@@ -153,7 +153,7 @@ class AiSpendEndpoints(OpikClientBase):
         size: int = 10,
         name: str | None = None,
         sorting: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/users`` — ``{page,size,total,content,sortable_by}``.
 
         ``sorting`` is a JSON string such as ``[{"field":"total_tokens","direction":"DESC"}]``.
@@ -174,7 +174,7 @@ class AiSpendEndpoints(OpikClientBase):
         interval_start: str,
         interval_end: str,
         user_email: str | None = None,
-    ) -> list[Any]:
+    ) -> list[JsonValue]:
         """Users of one MCP server, skill or built-in tool: a top-level array of rows."""
         routed = _ITEM_ROUTES.get(kind)
         if routed is None:
@@ -200,7 +200,7 @@ class AiSpendEndpoints(OpikClientBase):
         filters: str | None = None,
         sorting: str | None = None,
         search: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/sessions`` — ``{page,size,total,content,sortable_by,harnesses}``.
 
         Takes no ``user_email``: the backend answers 403 when the body has one.
@@ -226,7 +226,7 @@ class AiSpendEndpoints(OpikClientBase):
         project_name: str,
         interval_start: str | None = None,
         interval_end: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/sessions/{session_id}/narrative``."""
         return await self._spend_post(
             f"/sessions/{_segment(session_id, 'Session')}/narrative",
@@ -241,7 +241,7 @@ class AiSpendEndpoints(OpikClientBase):
         interval_start: str,
         interval_end: str,
         user_email: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> JsonObject:
         """``POST /ai-spend/agents``."""
         return await self._spend_post(
             "/agents",

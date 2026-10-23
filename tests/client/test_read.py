@@ -53,7 +53,7 @@ async def test_list_projects_sends_get_with_paging_and_headers() -> None:
     assert req.headers["authorization"] == "key-abc"
     assert req.headers["comet-workspace"] == "ws"
     assert dict(req.url.params) == {"page": "2", "size": "25"}
-    assert body == payload
+    assert dict(body) == payload
 
 
 @pytest.mark.anyio
@@ -183,7 +183,7 @@ async def test_list_agent_insights_issues_hits_project_scoped_path() -> None:
         body = await _client().list_agent_insights_issues(project_id="p-1", page=2, size=25)
     params = dict(route.calls.last.request.url.params)
     assert params == {"project_id": "p-1", "page": "2", "size": "25"}
-    assert body == payload
+    assert dict(body) == payload
 
 
 @pytest.mark.anyio
@@ -389,7 +389,7 @@ async def test_get_prompt_hits_singleton_path() -> None:
             return_value=httpx.Response(200, json={"id": "pr-1", "latestVersion": {"v": 3}}),
         )
         body = await _client().get_prompt("pr-1")
-    assert body["latestVersion"] == {"v": 3}
+    assert dict(body)["latestVersion"] == {"v": 3}
 
 
 @pytest.mark.anyio

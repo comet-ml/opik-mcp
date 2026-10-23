@@ -5,20 +5,23 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Final
+from collections.abc import Mapping, Sequence
+from typing import Final, Unpack
 from urllib.parse import unquote
 
 from opik_mcp.client.protocols import OpikListClient, OpikReadClient
+from opik_mcp.client.shapes import Experiment, Page
 from opik_mcp.config import Settings
 from opik_mcp.read_list.columns import has_value, resolve
 from opik_mcp.read_list.handler import (
     EntityHandler,
     ListProjection,
+    NamedPageKwargs,
     PageContext,
     ParamField,
     Vocabulary,
 )
-from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.paging import NameCandidate, name_candidates
 from opik_mcp.read_list.sample import is_thin
 from opik_mcp.read_list.ui_links import experiments_compare_url
 from opik_mcp.read_list.uri import UriMatch, UriPattern, is_web_link, opik_uri
@@ -26,12 +29,12 @@ from opik_mcp.read_list.uri import UriMatch, UriPattern, is_web_link, opik_uri
 logger = logging.getLogger("opik_mcp.read_list.entities.experiment")
 
 
-async def fetch(client: OpikReadClient, entity_id: str) -> dict[str, Any]:
+async def fetch(client: OpikReadClient, entity_id: str) -> Mapping[str, object]:
     record = await client.get_experiment(entity_id)
     return _with_next_step(record, entity_id)
 
 
-def _with_next_step(record: dict[str, Any], entity_id: str) -> dict[str, Any]:
+def _with_next_step(record: Experiment, entity_id: str) -> Mapping[str, object]:
     """Point at the per-case view from the averages.
 
     A read of an experiment answers "how did this run do" with means. The next
@@ -53,11 +56,21 @@ def _with_next_step(record: dict[str, Any], entity_id: str) -> dict[str, Any]:
     }
 
 
-async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, Any]]:
+async def search_by_name(client: OpikReadClient, name: str) -> list[NameCandidate]:
     return name_candidates(await client.list_experiments(name=name, size=5))
 
 
-async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
+class ListExperimentsKwargs(NamedPageKwargs, total=False):
+    filters: str
+    sorting: str
+    types: str
+    optimization_id: str
+    experiment_ids: str
+
+
+async def list_page(
+    client: OpikListClient, **kw: Unpack[ListExperimentsKwargs]
+) -> Page[Experiment]:
     return await client.list_experiments(**kw)
 
 
@@ -250,7 +263,7 @@ async def page_note(client: OpikListClient, _settings: Settings, page: PageConte
         # of the wrong shape fails as surely as a 500 does.
         logger.debug("experiment page note: workspace count lookup failed", exc_info=True)
         return None
-    stock = whole.get("total") if isinstance(whole, dict) else None
+    stock = whole.get("total")
     if not isinstance(stock, int) or stock <= 0:
         # "No experiments found." already says this, and says it once.
         return None
@@ -300,7 +313,7 @@ def _ranking_caveat(page: PageContext) -> str | None:
     )
 
 
-def row_link(settings: Settings, record: dict[str, Any]) -> str | None:
+def row_link(settings: Settings, record: Mapping[str, object]) -> str | None:
     """The compare view one row of an experiment listing opens.
 
     A url per row, which every other listing avoids, because this one has no
@@ -312,7 +325,7 @@ def row_link(settings: Settings, record: dict[str, Any]) -> str | None:
     return url if isinstance(url, str) else None
 
 
-def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
+def derive_columns(record: Mapping[str, object]) -> Mapping[str, object]:
     """The cells an experiment row needs and the record does not hand over.
 
     Three are facts the backend splits or nests: how many assertion runs
@@ -320,7 +333,7 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     The fourth is a field the record does carry, rounded — see below for why
     that happens here rather than in the renderer.
     """
-    derived: dict[str, Any] = {}
+    derived: dict[str, object] = {}
     passed, total = record.get("passed_count"), record.get("total_count")
     if passed is not None and total is not None:
         # "assertion runs", not "passed": these are null for any run without
@@ -343,7 +356,7 @@ def derive_columns(record: dict[str, Any]) -> dict[str, Any]:
     return {**record, **derived}
 
 
-def _version_label(version: Any) -> str:
+def _version_label(version: object) -> str:
     """``v3``, or the short commit for a mask, which has no sequential number.
 
     An empty cell there would read as "no prompt" rather than as "a prompt
@@ -358,7 +371,7 @@ def _version_label(version: Any) -> str:
     return str(commit)[:8]
 
 
-def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
+def project_experiments(items: Sequence[Mapping[str, object]]) -> ListProjection:
     """Columns for one page: the spine, plus the conditionals it can fill.
 
     A fixed table would print two columns of nothing on every row of an
@@ -379,7 +392,7 @@ def project_experiments(items: list[dict[str, Any]]) -> ListProjection:
     )
 
 
-def experiment_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
+def experiment_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     """The compare view this run lives on — an experiment has no page of its own.
 
     Three things address it and all three are in the record: the project, the

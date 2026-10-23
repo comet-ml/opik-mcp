@@ -11,10 +11,10 @@ while the renderer would have found it, or the reverse.
 from __future__ import annotations
 
 import re
-from typing import Any
+from collections.abc import Mapping
 
 
-def resolve(item: dict[str, Any], column: str) -> Any:
+def resolve(item: Mapping[str, object], column: str) -> object:
     """The value a column names, or ``None``.
 
     A flat key wins outright. A dotted name reads one level in: a dict by
@@ -37,7 +37,7 @@ def resolve(item: dict[str, Any], column: str) -> Any:
     return None
 
 
-def has_value(item: dict[str, Any], column: str) -> bool:
+def has_value(item: Mapping[str, object], column: str) -> bool:
     """Does this record fill the column? Empty strings count as unfilled —
     a column of blanks is a column nobody asked for."""
     value = resolve(item, column)

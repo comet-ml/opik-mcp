@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Final, cast, get_args
+from collections.abc import Mapping
+from typing import Final, get_args
 
 from opik_mcp.client.protocols import AiSpendClient, OpikListClient, SpendItemKind
 from opik_mcp.config import Settings
@@ -35,7 +36,7 @@ from opik_mcp.read_list.paging import clamp_size
 from opik_mcp.read_list.sorting import compile_sort
 
 ENTITY = "spend_user"
-ROUTING_FIELDS: Final[tuple[str, ...]] = get_args(SpendItemKind)
+ROUTING_FIELDS: Final[tuple[SpendItemKind, ...]] = get_args(SpendItemKind)
 MAX_ITEM_USERS: Final = 50
 _ROUTING_NOTE: Final = (
     "lists who uses that item instead of the leaderboard; one routing filter at a time, "
@@ -99,7 +100,7 @@ async def run_spend_user(
     )
     clauses = compile_filters(VOCABULARY, filters or "")
     _, params = split_param_clauses(VOCABULARY, clauses)
-    routing = {field: value for field, value in params.items() if field in ROUTING_FIELDS}
+    routing = {field: params[field] for field in ROUTING_FIELDS if field in params}
     if len(routing) > 1:
         raise EntityArgValidationError(
             f"Name one of {', '.join(ROUTING_FIELDS)} at a time: each lists the users of one item."
@@ -208,7 +209,7 @@ def _calls_cell(kind: str, row: Row) -> str:
 
 async def _item_users(
     client: AiSpendClient,
-    routing: dict[str, str],
+    routing: Mapping[SpendItemKind, str],
     window: SpendWindow,
     *,
     user_email: str | None,
@@ -217,7 +218,7 @@ async def _item_users(
     ((kind, item),) = routing.items()
     with spend_errors():
         answer = await client.list_spend_item_users(
-            cast("SpendItemKind", kind),
+            kind,
             item,
             project_name=FIXED_PROJECT,
             interval_start=window.start,

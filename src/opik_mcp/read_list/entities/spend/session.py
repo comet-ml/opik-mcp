@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Final
 from urllib.parse import quote
@@ -281,7 +282,7 @@ def row_link_template(settings: Settings, _project_id: str | None) -> str | None
     return page_url(settings, "session-analysis/{id}")
 
 
-def session_links(settings: Settings, data: dict[str, object]) -> dict[str, str]:
+def session_links(settings: Settings, data: Mapping[str, object]) -> dict[str, str]:
     session_id = data.get("session_id")
     if not isinstance(session_id, str):
         return {}

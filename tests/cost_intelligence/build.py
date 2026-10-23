@@ -6,6 +6,7 @@ from __future__ import annotations
 import pytest
 from mcp.server.fastmcp import FastMCP
 
+from opik_mcp.client.shapes import Page
 from opik_mcp.config import get_settings
 from opik_mcp.cost_intelligence import shows_spend_types
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
@@ -20,7 +21,7 @@ async def _fetch(client: object, entity_id: str, **_: object) -> dict[str, objec
     return {"id": entity_id}
 
 
-async def _list(client: object, **_: object) -> dict[str, object]:
+async def _list(client: object, **_: object) -> Page[dict[str, object]]:
     return {"content": [], "total": 0}
 
 

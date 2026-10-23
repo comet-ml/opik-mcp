@@ -35,7 +35,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import Any, Final
+from typing import Final
 
 from opik_mcp.read_list.columns import one_line
 from opik_mcp.read_list.errors import EntityArgValidationError
@@ -98,7 +98,7 @@ def normalise(fields: Sequence[str] | None) -> tuple[str, ...] | None:
 # --- naming what is there --------------------------------------------------- #
 
 
-def _named_entries(value: Any) -> list[str]:
+def _named_entries(value: object) -> list[str]:
     """Keys of a ``[{name, value}, …]`` list — the shape scores arrive in."""
     if not isinstance(value, list):
         return []
@@ -106,7 +106,7 @@ def _named_entries(value: Any) -> list[str]:
     return names if len(names) == len(value) and names else []
 
 
-def row_fields(rows: Iterable[Mapping[str, Any]]) -> tuple[str, ...]:
+def row_fields(rows: Iterable[Mapping[str, object]]) -> tuple[str, ...]:
     """Every name ``fields=`` takes for a page of records — all of them.
 
     Exactly the three shapes :func:`opik_mcp.read_list.columns.resolve` knows:
@@ -158,7 +158,7 @@ def offered(available: Sequence[str]) -> list[str]:
     return shown
 
 
-def record_paths(record: Mapping[str, Any], *, depth: int = _MAX_DEPTH) -> tuple[str, ...]:
+def record_paths(record: Mapping[str, object], *, depth: int = _MAX_DEPTH) -> tuple[str, ...]:
     """Every path one record offers, stopping at lists.
 
     An array is kept whole — ``spans`` is a field, ``spans.input`` is not —
@@ -168,7 +168,7 @@ def record_paths(record: Mapping[str, Any], *, depth: int = _MAX_DEPTH) -> tuple
     """
     out: list[str] = []
 
-    def walk(node: Mapping[str, Any], prefix: str, left: int) -> None:
+    def walk(node: Mapping[str, object], prefix: str, left: int) -> None:
         for key, value in node.items():
             if key.startswith("_"):
                 continue
@@ -227,9 +227,9 @@ def check(
 # --- doing it ----------------------------------------------------------------- #
 
 
-def dig(record: Mapping[str, Any], path: str) -> tuple[bool, Any]:
+def dig(record: Mapping[str, object], path: str) -> tuple[bool, object]:
     """``(found, value)`` for a dotted path, descending dicts only."""
-    node: Any = record
+    node: object = record
     for part in path.split("."):
         if not isinstance(node, Mapping) or part not in node:
             return False, None
@@ -237,7 +237,7 @@ def dig(record: Mapping[str, Any], path: str) -> tuple[bool, Any]:
     return True, node
 
 
-def _plant(target: dict[str, Any], path: str, value: Any) -> None:
+def _plant(target: dict[str, object], path: str, value: object) -> None:
     head, _, rest = path.partition(".")
     if not rest:
         target[head] = value
@@ -247,7 +247,7 @@ def _plant(target: dict[str, Any], path: str, value: Any) -> None:
         _plant(branch, rest, value)
 
 
-def identity_path(record: Mapping[str, Any]) -> str | None:
+def identity_path(record: Mapping[str, object]) -> str | None:
     """The path of the id a projected record must keep, if it has one.
 
     A record nobody can address again is a dead end: the caller narrowed the
@@ -268,11 +268,11 @@ def identity_path(record: Mapping[str, Any]) -> str | None:
 
 
 def project_record(
-    record: Mapping[str, Any],
+    record: Mapping[str, object],
     fields: Sequence[str],
     *,
     whole: str,
-) -> tuple[dict[str, Any], tuple[str, ...], tuple[str, ...]]:
+) -> tuple[dict[str, object], tuple[str, ...], tuple[str, ...]]:
     """The record cut to ``fields``: ``(projected, kept, omitted)``.
 
     ``kept`` is what the payload actually holds — the requested paths plus the
@@ -288,7 +288,7 @@ def project_record(
     if identity is not None and not any(covers(f, identity) for f in kept):
         kept.append(identity)
 
-    out: dict[str, Any] = {}
+    out: dict[str, object] = {}
     for path in kept:
         found, value = dig(record, path)
         if found:

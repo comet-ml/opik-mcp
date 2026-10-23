@@ -9,7 +9,10 @@ them without importing the table of all entities.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import TypedDict
+
+from opik_mcp.client.shapes import Page
 
 #: How many rows a page carries when the caller does not choose, and the most
 #: it will carry when they do. Here rather than in ``list_tool`` because an
@@ -24,12 +27,18 @@ def clamp_size(size: int | None) -> int:
     return max(1, min(size or DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE))
 
 
-def page_items(page_body: dict[str, Any]) -> list[dict[str, Any]]:
-    raw = page_body.get("content") or []
-    return [it for it in raw if isinstance(it, dict)]
+def well_formed[T: Mapping[str, object]](records: Sequence[T] | None) -> list[T]:
+    """The records of a backend list that are JSON objects, in order."""
+    return [it for it in records or [] if isinstance(it, dict)]
 
 
-def collection_truncated(page_body: dict[str, Any], *, inlined: int, limit: int) -> bool:
+def page_items[T: Mapping[str, object]](page_body: Page[T]) -> list[T]:
+    return well_formed(page_body.get("content"))
+
+
+def collection_truncated(
+    page_body: Page[Mapping[str, object]], *, inlined: int, limit: int
+) -> bool:
     """Did the embedded collection get capped — by either us or the backend?
 
     Three signals, in order of trust: a ``total`` the backend stated, a
@@ -44,7 +53,7 @@ def collection_truncated(page_body: dict[str, Any], *, inlined: int, limit: int)
     return inlined >= limit
 
 
-def collection_total(page_body: dict[str, Any]) -> int | None:
+def collection_total(page_body: Page[Mapping[str, object]]) -> int | None:
     """The backend's ``total`` for the collection, when it stated one."""
     total_raw = page_body.get("total")
     return total_raw if isinstance(total_raw, int) and total_raw >= 0 else None
@@ -83,8 +92,15 @@ def rest_of(noun: str, *, inlined: int, total: int | None, call: str) -> str:
     return f"{have} inlined; the rest: {call}"
 
 
-def name_candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+class NameCandidate(TypedDict):
+    """A record a name lookup found, as the read's disambiguation lists it."""
+
+    id: str
+    name: str
+
+
+def name_candidates(page_body: Page[Mapping[str, object]]) -> list[NameCandidate]:
+    out: list[NameCandidate] = []
     for item in page_items(page_body):
         record_id = item.get("id")
         name = item.get("name")
@@ -96,6 +112,7 @@ def name_candidates(page_body: dict[str, Any]) -> list[dict[str, Any]]:
 __all__ = [
     "DEFAULT_PAGE_SIZE",
     "MAX_PAGE_SIZE",
+    "NameCandidate",
     "clamp_size",
     "collection_total",
     "collection_truncated",
@@ -104,4 +121,5 @@ __all__ = [
     "page_items",
     "rest_of",
     "short_list",
+    "well_formed",
 ]

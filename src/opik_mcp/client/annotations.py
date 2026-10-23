@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import Literal
 
 from opik_mcp.client.base import OpikClientBase, _drop_none
 
@@ -59,7 +59,7 @@ class AnnotationEndpoints(OpikClientBase):
         ``scores: [...]`` envelope with one entry. ``project_name`` is optional
         (defaults to the workspace's default project server-side).
         """
-        item: dict[str, Any] = {"thread_id": thread_id} | _score_body(score)
+        item: dict[str, object] = {"thread_id": thread_id} | _score_body(score)
         if project_name is not None:
             item["project_name"] = project_name
         await self._request(
@@ -103,6 +103,6 @@ class AnnotationEndpoints(OpikClientBase):
         )
 
 
-def _score_body(score: FeedbackScore) -> dict[str, Any]:
+def _score_body(score: FeedbackScore) -> dict[str, object]:
     """FeedbackScore → JSON body with ``None`` fields stripped."""
     return _drop_none(asdict(score))

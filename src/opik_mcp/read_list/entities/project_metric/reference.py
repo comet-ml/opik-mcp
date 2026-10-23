@@ -8,8 +8,6 @@ rule live here at no cost to anyone else.
 
 from __future__ import annotations
 
-from typing import Any
-
 from opik_mcp.read_list.entities.project_metric.catalog import (
     BACKEND_SERIES_CAP,
     DEFAULT_SERIES,
@@ -21,7 +19,7 @@ from opik_mcp.read_list.entities.project_metric.catalog import (
 from opik_mcp.read_list.entities.project_metric.table import OTHERS
 
 
-def reference() -> dict[str, Any]:
+def reference() -> dict[str, object]:
     """What ``schema('list.project_metric')`` answers."""
     return {
         "entity": "project_metric",

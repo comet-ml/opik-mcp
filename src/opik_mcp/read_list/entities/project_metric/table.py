@@ -19,10 +19,13 @@ present, and every cell is looked up by its own timestamp.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Final
 
+from opik_mcp.client.shapes import DataPoint, MetricSeries, ProjectMetrics
 from opik_mcp.read_list.columns import one_line
+from opik_mcp.read_list.paging import well_formed
 
 OTHERS: Final = "__others__"
 """The backend's own bucket for groups past its limit (``BreakdownQueryBuilder``).
@@ -66,18 +69,16 @@ class Presence:
         return not any(self.counts.values())
 
 
-def series_of(body: dict[str, Any]) -> list[dict[str, Any]]:
+def series_of(body: ProjectMetrics) -> list[MetricSeries]:
     """The well-formed series in a metric answer."""
-    raw = body.get("results")
-    found = [one for one in raw if isinstance(one, dict)] if isinstance(raw, list) else []
-    return [one for one in found if isinstance(one.get("data"), list)]
+    return [one for one in well_formed(body.get("results")) if isinstance(one.get("data"), list)]
 
 
-def points_of(one: dict[str, Any]) -> list[dict[str, Any]]:
-    return [point for point in one["data"] if isinstance(point, dict)]
+def points_of(one: MetricSeries) -> list[DataPoint]:
+    return well_formed(one["data"])
 
 
-def bucket_counts(body: dict[str, Any]) -> dict[str, float]:
+def bucket_counts(body: ProjectMetrics) -> dict[str, float]:
     """A count series as ``{time: value}`` — what ``Presence`` is built from."""
     series = series_of(body)
     if not series:
@@ -89,7 +90,7 @@ def bucket_counts(body: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def all_zero(series: list[dict[str, Any]]) -> bool:
+def all_zero(series: Sequence[MetricSeries]) -> bool:
     """True when not one point in any series carries a non-zero value.
 
     Thirty-one rows of ``| 0`` cost 148 tokens to say nothing happened, and a
@@ -99,7 +100,7 @@ def all_zero(series: list[dict[str, Any]]) -> bool:
     return all(not point.get("value") for one in series for point in points_of(one))
 
 
-def carries_data(body: dict[str, Any]) -> bool:
+def carries_data(body: ProjectMetrics) -> bool:
     """True when the answer holds at least one non-zero number.
 
     The test for "this told me nothing" — no series at all, or every point
@@ -119,7 +120,7 @@ figure as ``1.35e-05``. Small numbers keep significant digits instead.
 """
 
 
-def number(value: Any) -> str:
+def number(value: object) -> str:
     if value is None:
         return ""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -132,7 +133,7 @@ def number(value: Any) -> str:
     return f"{round(as_float, 4):g}"
 
 
-def time_label(raw: Any, interval: str, *, until: str | None = None) -> str:
+def time_label(raw: object, interval: str, *, until: str | None = None) -> str:
     """Buckets are labelled at the precision they mean.
 
     A daily bucket labelled with a time implies a precision it does not have,
@@ -159,7 +160,7 @@ than as "the spans with no environment set".
 """
 
 
-def _column(one: dict[str, Any], table: Table) -> str:
+def _column(one: MetricSeries, table: Table) -> str:
     """What to call one series: the name the backend gave it.
 
     Which on a grouped chart is the value it grouped on — a model, a tag, a
@@ -172,9 +173,9 @@ def _column(one: dict[str, Any], table: Table) -> str:
     return NO_GROUP if table.grouped else table.metric_name
 
 
-def _by_time(one: dict[str, Any]) -> dict[str, list[Any]]:
+def _by_time(one: MetricSeries) -> dict[str, list[float | None]]:
     """A series as ``{time: [value, …]}`` — a list because ``__others__`` repeats."""
-    found: dict[str, list[Any]] = {}
+    found: dict[str, list[float | None]] = {}
     for point in points_of(one):
         when = point.get("time")
         if isinstance(when, str):
@@ -182,7 +183,7 @@ def _by_time(one: dict[str, Any]) -> dict[str, list[Any]]:
     return found
 
 
-def _cell(values: list[Any] | None, *, additive: bool) -> tuple[Any, bool]:
+def _cell(values: list[float | None] | None, *, additive: bool) -> tuple[float | None, bool]:
     """One cell's value, and whether it had to be dropped as uncombinable."""
     if not values:
         return None, False
@@ -206,7 +207,7 @@ class Table:
     presence: Presence | None = None
 
 
-def render(body: dict[str, Any], table: Table) -> str:
+def render(body: ProjectMetrics, table: Table) -> str:
     """The series as ``time | <series> …``, one row per bucket.
 
     Series are columns rather than repeated blocks, which is the whole reason

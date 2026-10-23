@@ -4,8 +4,9 @@ why a page is empty, and what the filters and sort did to it.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Sequence
 
+from opik_mcp.client.shapes import Columns, DatasetItem
 from opik_mcp.read_list.entities.dataset.compared_row import (
     PASS_SEPARATOR,
     RUN_SEPARATOR,
@@ -17,7 +18,9 @@ from opik_mcp.read_list.entities.dataset.compared_row import (
 ECHOED_OUTPUT_KEY = "input"
 
 
-def keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> str | None:
+def keys_note(
+    columns: Columns | BaseException | None, rows: Sequence[DatasetItem], *, hide_echo: bool
+) -> str | None:
     """What this dataset and its runs can be filtered and sorted on, once.
 
     The case keys are read off the page; the runs' output keys need a call,
@@ -26,7 +29,7 @@ def keys_note(columns: Any, rows: list[dict[str, Any]], *, hide_echo: bool) -> s
     """
     case_keys = sorted({key for row in rows for key in (row.get("data") or {})})
     output_keys: list[str] = []
-    if isinstance(columns, dict):
+    if columns is not None and not isinstance(columns, BaseException):
         output_keys = [
             str(column["name"])
             for column in columns.get("columns") or []
