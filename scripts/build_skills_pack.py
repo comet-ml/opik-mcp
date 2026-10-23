@@ -43,7 +43,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TypedDict
 
 from skills_ref import SkillProperties, read_properties, validate
 
@@ -83,8 +83,30 @@ class PackedFile:
     path: str
     sha256: str
 
-    def as_json(self) -> dict[str, str]:
+    def as_json(self) -> PackedFileJson:
         return {"path": self.path, "sha256": self.sha256}
+
+
+class PackedFileJson(TypedDict):
+    path: str
+    sha256: str
+
+
+class PackedSkillJson(TypedDict):
+    name: str
+    description: str
+    files: list[PackedFileJson]
+
+
+class Manifest(TypedDict):
+    """The pack's ``index.json``."""
+
+    schema_version: int
+    pack_version: str
+    source: str
+    source_commit: str
+    content_digest: str
+    skills: list[PackedSkillJson]
 
 
 @dataclass(frozen=True)
@@ -93,7 +115,7 @@ class PackedSkill:
     description: str
     files: tuple[PackedFile, ...]
 
-    def as_json(self) -> dict[str, Any]:
+    def as_json(self) -> PackedSkillJson:
         return {
             "name": self.name,
             "description": self.description,
@@ -240,7 +262,7 @@ def build_pack(
     *,
     pack_version: str = UNVERSIONED,
     source_commit: str = UNKNOWN_COMMIT,
-) -> dict[str, Any]:
+) -> Manifest:
     """Build the pack at `out_root` from the skills in `src_root`; return the manifest.
 
     `out_root` is replaced, not merged: a skill deleted upstream must disappear here,
@@ -281,7 +303,7 @@ def build_pack(
     readme = _render_readme(skills)
     (out_root / "README.md").write_text(readme, encoding="utf-8")
 
-    manifest: dict[str, Any] = {
+    manifest: Manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "pack_version": pack_version,
         "source": SOURCE_REPO,

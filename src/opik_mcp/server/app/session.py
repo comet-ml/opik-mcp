@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from collections.abc import Callable
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import request_ctx
-from mcp.types import CallToolRequest
+from mcp.server.models import InitializationOptions
+from mcp.types import CallToolRequest, ServerResult
 from starlette.requests import Request
 
 from opik_mcp.identity.context import inbound_authorization, inbound_workspace
@@ -16,7 +17,7 @@ from opik_mcp.instructions import render_instructions
 logger = logging.getLogger("opik_mcp")
 
 
-def install_session_instructions(server: FastMCP) -> None:
+def install_session_instructions(server: FastMCP[object]) -> None:
     """Render ``InitializeResult.instructions`` per session rather than once at boot.
 
     FastMCP captures the ``instructions`` string at construction time, so the blob
@@ -32,9 +33,15 @@ def install_session_instructions(server: FastMCP) -> None:
     except AttributeError:
         logger.debug("install_session_instructions: mcp has no _mcp_server attribute")
         return
-    original = lowlevel.create_initialization_options
+    lowlevel.create_initialization_options = _rendering_instructions(  # type: ignore[method-assign]
+        lowlevel.create_initialization_options
+    )
 
-    def create_initialization_options(*args: Any, **kwargs: Any) -> Any:
+
+def _rendering_instructions[**P](
+    original: Callable[P, InitializationOptions],
+) -> Callable[P, InitializationOptions]:
+    def create_initialization_options(*args: P.args, **kwargs: P.kwargs) -> InitializationOptions:
         options = original(*args, **kwargs)
         try:
             options.instructions = render_instructions()
@@ -44,7 +51,7 @@ def install_session_instructions(server: FastMCP) -> None:
             logger.debug("per-session instructions render failed", exc_info=True)
         return options
 
-    lowlevel.create_initialization_options = create_initialization_options  # type: ignore[method-assign]
+    return create_initialization_options
 
 
 def _current_http_request() -> Request | None:
@@ -56,7 +63,7 @@ def _current_http_request() -> Request | None:
     return request if isinstance(request, Request) else None
 
 
-def install_request_auth_rebinding(server: FastMCP) -> None:
+def install_request_auth_rebinding(server: FastMCP[object]) -> None:
     """Forward the bearer of the CURRENT request on ``tools/call``, not the handshake's.
 
     ``BearerAuthMiddleware`` sets the inbound-auth ContextVars on the request
@@ -84,7 +91,7 @@ def install_request_auth_rebinding(server: FastMCP) -> None:
         logger.debug("install_request_auth_rebinding: no CallToolRequest handler registered")
         return
 
-    async def wrapped(req: Any) -> Any:
+    async def wrapped(req: CallToolRequest) -> ServerResult:
         request = _current_http_request()
         if request is None:
             return await original(req)

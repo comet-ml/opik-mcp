@@ -32,8 +32,7 @@ import os
 import platform
 import sys
 import threading
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Callable, Mapping
 
 import sentry_sdk
 from sentry_sdk.types import Event, Hint
@@ -169,7 +168,7 @@ def capture_exception(
     exc: BaseException,
     *,
     tags: dict[str, str] | None = None,
-    extras: dict[str, Any] | None = None,
+    extras: Mapping[str, object] | None = None,
     transaction: str | None = None,
     fingerprint: list[str] | None = None,
 ) -> None:
@@ -197,8 +196,8 @@ def capture_exception(
                 for key, value in tags.items():
                     scope.set_tag(key, value)
             if extras:
-                for key, value in extras.items():
-                    scope.set_extra(key, value)
+                for key, extra in extras.items():
+                    scope.set_extra(key, extra)
             if transaction:
                 scope.set_transaction_name(transaction)
             if fingerprint:

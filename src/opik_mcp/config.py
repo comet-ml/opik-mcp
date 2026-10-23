@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from functools import lru_cache
-from typing import Any, ClassVar
+from typing import ClassVar
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -181,7 +181,7 @@ class Settings(BaseSettings):
 
     @field_validator("opik_mcp_http_path", mode="before")
     @classmethod
-    def _require_leading_slash(cls, v: Any) -> Any:
+    def _require_leading_slash(cls, v: object) -> object:
         # Starlette routes must be absolute; fail loudly at startup rather than
         # mount the transport at a path no client can reach.
         if isinstance(v, str) and v and not v.startswith("/"):
@@ -198,7 +198,7 @@ class Settings(BaseSettings):
 
     @field_validator("comet_workspace_id", mode="before")
     @classmethod
-    def _validate_workspace_uuid(cls, v: Any) -> Any:
+    def _validate_workspace_uuid(cls, v: object) -> str | None:
         # Loud at startup beats silently mis-stamping every event with a
         # garbage workspace id — see comment on the field.
         if v is None or v == "":

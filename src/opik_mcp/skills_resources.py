@@ -30,9 +30,10 @@ delegated to the original handlers, so this composes rather than replaces.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TypedDict
 
 import mcp.types as types
+from mcp.server.fastmcp import FastMCP
 from pydantic import AnyUrl
 
 from opik_mcp.skills_catalog import (
@@ -58,16 +59,26 @@ _URI_TEMPLATE = f"{SKILLS_URI_PREFIX}{{skill}}/{{path}}"
 #: `--factory`, and tests share one server instance across modules.
 _INSTALLED_MARKER = "_opik_skill_resources_installed"
 
+
+class _CacheFields(TypedDict):
+    ttlMs: int
+    cacheScope: str
+
+
+class _MetaKwargs(TypedDict):
+    _meta: dict[str, object]
+
+
 #: Cache metadata, spelled as the wire field names. Applied to both verbs: a host
 #: that caches the listing but re-reads every file on every session would still
 #: pay for the content it was told it may keep.
-_CACHE_FIELDS: dict[str, Any] = {"ttlMs": SKILLS_TTL_MS, "cacheScope": SKILLS_CACHE_SCOPE}
+_CACHE_FIELDS: _CacheFields = {"ttlMs": SKILLS_TTL_MS, "cacheScope": SKILLS_CACHE_SCOPE}
 
 #: The same metadata as a `_meta` bag, spread into constructors as
 #: `**_META_KWARGS`. It has to be the alias, not `meta=`: these models don't set
 #: `populate_by_name`, so `meta=` is accepted as an *extra* and serialises as a
 #: non-spec `"meta"` key while the real `_meta` field stays empty.
-_META_KWARGS: dict[str, Any] = {"_meta": dict(_CACHE_FIELDS)}
+_META_KWARGS: _MetaKwargs = {"_meta": dict(_CACHE_FIELDS)}
 
 
 def _resource(entry: SkillFile) -> types.Resource:
@@ -87,7 +98,7 @@ def _resource(entry: SkillFile) -> types.Resource:
     )
 
 
-def install_skill_resources(mcp: Any) -> None:
+def install_skill_resources(mcp: FastMCP[object]) -> None:
     """Add the skill resources to a FastMCP instance's `resources/*` handlers.
 
     Idempotent: safe to call from every startup path (see `server.app.factory.build_app` and
@@ -123,10 +134,12 @@ def install_skill_resources(mcp: Any) -> None:
             except Exception:
                 logger.debug("skill resources: delegate resources/list failed", exc_info=True)
         return types.ServerResult(
-            types.ListResourcesResult(
-                resources=[*existing, *(_resource(e) for e in iter_skill_files())],
-                nextCursor=cursor,
-                **_CACHE_FIELDS,
+            types.ListResourcesResult.model_validate(
+                {
+                    "resources": [*existing, *(_resource(e) for e in iter_skill_files())],
+                    "nextCursor": cursor,
+                    **_CACHE_FIELDS,
+                }
             )
         )
 
@@ -148,19 +161,21 @@ def install_skill_resources(mcp: Any) -> None:
             # rather than an empty success the host would cache for a day.
             raise ValueError(f"Unknown resource: {uri}")
         return types.ServerResult(
-            types.ReadResourceResult(
-                contents=[
-                    types.TextResourceContents(
-                        uri=req.params.uri,
-                        text=read_skill_file(entry),
-                        mimeType=entry.mime_type,
-                        # Mirrored into per-content `_meta` as well as the
-                        # top-level result: hosts differ on which one they read,
-                        # and the metadata is two fields.
-                        **_META_KWARGS,
-                    )
-                ],
-                **_CACHE_FIELDS,
+            types.ReadResourceResult.model_validate(
+                {
+                    "contents": [
+                        types.TextResourceContents(
+                            uri=req.params.uri,
+                            text=read_skill_file(entry),
+                            mimeType=entry.mime_type,
+                            # Mirrored into per-content `_meta` as well as the
+                            # top-level result: hosts differ on which one they read,
+                            # and the metadata is two fields.
+                            **_META_KWARGS,
+                        )
+                    ],
+                    **_CACHE_FIELDS,
+                }
             )
         )
 
@@ -185,9 +200,8 @@ def install_skill_resources(mcp: Any) -> None:
             **_META_KWARGS,
         )
         return types.ServerResult(
-            types.ListResourceTemplatesResult(
-                resourceTemplates=[*existing, template],
-                **_CACHE_FIELDS,
+            types.ListResourceTemplatesResult.model_validate(
+                {"resourceTemplates": [*existing, template], **_CACHE_FIELDS}
             )
         )
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from scripts.build_skills_pack import PackBuildError, build_pack
@@ -172,7 +173,10 @@ def test_manifest_records_the_revision_it_was_built_from(src: Path, out: Path) -
     [("pack_version", ("1.2.3", "9.9.9")), ("source_commit", ("aaaaaaa", "bbbbbbb"))],
 )
 def test_content_digest_ignores_build_identity(
-    src: Path, out: Path, field: str, values: tuple[str, str]
+    src: Path,
+    out: Path,
+    field: Literal["pack_version", "source_commit"],
+    values: tuple[str, str],
 ) -> None:
     """The consumer compares this digest to decide whether to raise a PR.
 

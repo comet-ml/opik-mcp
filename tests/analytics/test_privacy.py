@@ -151,7 +151,7 @@ async def test_write_props_emits_batch_size_bucket(
         lambda **_kw: _noop_coroutine_result({"ok": True, "operation": "trace.create"}),
     )
 
-    payload = [{"name": f"trace-{i}", "input": FORBIDDEN[3]} for i in range(50)]
+    payload: list[object] = [{"name": f"trace-{i}", "input": FORBIDDEN[3]} for i in range(50)]
     await write(operation="trace.create", data=payload)
     _assert_no_leak(recorder.events)
     props = _tool_called(recorder.events)
