@@ -56,14 +56,15 @@ Use metadata and tags to make traces filterable and comparable later.
 Good metadata examples:
 
 - user or session identifiers
-- environment
 - experiment or rollout variant
 - model version
 - business context
 
+Set the lifecycle stage (`production`, `staging`, ...) with the `environment`
+field, not with metadata or tags. Threads take the environment of their first trace.
+
 Good tag examples:
 
-- `production`
 - `customer-support`
 - `rag`
 - `needs-review`

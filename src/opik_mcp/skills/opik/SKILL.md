@@ -7,7 +7,7 @@ allowed-tools:
   - Grep
   - Glob
 metadata:
-  last_updated: "2026-09-17"
+  last_updated: "2026-10-23"
   source_commit: "2.0.0"
 ---
 
@@ -111,6 +111,12 @@ def handle(session_id: str, message: str) -> str:
     return reply(message)
 ```
 
+To tag a thread with an environment (`production`, `staging`, ...), set
+`environment` on its traces: `@opik.track(environment="production")`,
+`client.trace(..., environment=...)`, or `OPIK_ENVIRONMENT` as the default.
+The thread takes the environment of its **first** trace and keeps it, so use
+the same environment for every turn. Use this field, not tags or metadata.
+
 ## Prompt library
 
 Version prompts with `client.get_prompt` / `create_prompt` (chat variants:
@@ -173,10 +179,11 @@ ops: = != > >= < <= contains not_contains starts_with ends_with is_empty is_not_
 Strings in double quotes, numbers bare, `duration` in **milliseconds**, dates as
 ISO-8601 instants with a timezone (`"2026-09-08T10:00:00Z"`). Scores and
 dictionaries take a key: `feedback_scores.accuracy < 0.5`,
-`metadata.environment = "prod"`. `AND` is the only connector.
+`metadata.user_id = "u-42"`. `AND` is the only connector.
 
 ```
 error_info is_not_empty AND duration > 5000
+environment = "production"                              # traces, spans, threads
 type = "llm" AND usage.total_tokens > 10000            # spans
 feedback_scores.hallucination > 0.5 AND start_time >= "2026-09-08T00:00:00Z"
 ```
