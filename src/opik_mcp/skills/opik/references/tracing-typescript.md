@@ -110,8 +110,9 @@ class TranslationService {
   name: "custom-name",           // Override method name
   type: "llm",                   // Span type
   projectName: "my-project",     // Project name
-  tags: ["production"],          // Tags
-  metadata: { version: "1.0" }   // Metadata
+  tags: ["v2"],                  // Tags
+  metadata: { version: "1.0" },  // Metadata
+  environment: "production",     // Trace environment (default: OPIK_ENVIRONMENT)
 })
 ```
 
@@ -196,6 +197,7 @@ const trace = client.trace({
   metadata?: object;         // Custom metadata
   tags?: string[];           // Tags for filtering
   threadId?: string;         // Group related traces
+  environment?: string;      // e.g. "production" (default: OPIK_ENVIRONMENT)
   projectName?: string;      // Override project
 });
 ```
@@ -335,6 +337,10 @@ const trace2 = client.trace({
 });
 trace2.end({ output: { response: "It's sunny!" } });
 ```
+
+To tag the thread with an environment, pass `environment: "production"` to
+`client.trace(...)` or set `OPIK_ENVIRONMENT`. The thread takes the environment
+of its first trace and keeps it, so use the same environment for every turn.
 
 ## Logging to Specific Projects
 
