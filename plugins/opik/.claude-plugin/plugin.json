@@ -1,6 +1,6 @@
 {
   "name": "opik",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "description": "Opik agent skills and the hosted Opik MCP server: instrument, trace, evaluate and debug LLM applications with Opik.",
   "author": {
     "name": "Comet ML",
