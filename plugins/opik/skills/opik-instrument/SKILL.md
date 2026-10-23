@@ -10,7 +10,7 @@ allowed-tools:
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-09-10"
+  last_updated: "2026-10-23"
   source_commit: "2.0.0"
   argument-hint: "[optional: file or directory path]"
 ---
@@ -102,6 +102,8 @@ When you genuinely can't proceed, stop at the **earliest** blocker and return **
 Do **not** migrate prompts, add threading, or broaden spans during activation. After verification, make a **single consolidated offer** of what you found, e.g.:
 
 > Tracing is verified. I also found ways to deepen it: 3 Prompt Library candidates, missing conversation threading, and 2 untraced tools. Expand?
+
+When you add threading and the app already knows its stage (e.g. an `APP_ENV` or `NODE_ENV` value), set `environment` on the traces too, or `OPIK_ENVIRONMENT`. A thread takes the environment of its first trace, so every turn must use the same value. Never encode the stage in tags or metadata.
 
 ## Output
 

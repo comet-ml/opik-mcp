@@ -40,8 +40,9 @@ import opik
     name="custom_operation_name",  # Override function name
     type="llm",  # Span type: general, llm, tool, guardrail
     project_name="my-project",  # Override project
-    tags=["production", "v2"],  # Add tags
+    tags=["v2"],  # Add tags
     metadata={"version": "1.0"},  # Add metadata
+    environment="production",  # Trace environment (default: OPIK_ENVIRONMENT)
     flush=True,  # Flush immediately (for scripts)
     entrypoint=True,  # Mark as agent entry point (enables Local Runner)
 )
@@ -151,6 +152,11 @@ def handle_message(session_id: str, message: str) -> str:
     opik.update_current_trace(thread_id=session_id)
     return generate_response(session_id, message)
 ```
+
+To tag the thread with an environment, set `environment` on its traces with
+`@opik.track(environment="production")`, `client.trace(..., environment=...)`,
+or the `OPIK_ENVIRONMENT` default. The thread takes the environment of its
+first trace and keeps it, so use the same environment for every turn.
 
 ### Nested Functions
 
