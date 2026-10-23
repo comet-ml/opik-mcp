@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "opik-mcp": {
+      "type": "http",
+      "url": "${user_config.opik_mcp_url}"
+    }
+  }
+}

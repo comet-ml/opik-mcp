@@ -1,7 +1,7 @@
 """The shared skills must ship inside the `opik_mcp` package (OPIK-7471).
 
-Skills now live at `src/opik_mcp/skills/` and are the canonical home for the
-Opik coding-agent skills (retiring the standalone opik-skills pack). They are
+Skills live at `plugins/opik/skills/`, the canonical home for the Opik
+coding-agent skills, and the wheel packs them as `opik_mcp/skills`. They are
 served over MCP by `read_skill` (OPIK-7472), so they must be locatable at
 runtime via package resources — not just present in the source tree.
 
@@ -26,7 +26,7 @@ def _skills_root() -> Traversable:
 
 def test_skills_directory_is_a_package_resource() -> None:
     root = _skills_root()
-    assert root.is_dir(), "src/opik_mcp/skills is not resolvable as a package resource"
+    assert root.is_dir(), "opik_mcp/skills is not resolvable as a package resource"
 
 
 @pytest.mark.parametrize("skill", SHARED_SKILLS)

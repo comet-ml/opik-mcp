@@ -2,10 +2,11 @@
 # mypy: ignore-errors
 """Fleet-wide triggering eval: every bundled skill's description vs every skill's phrases.
 
-Each skill's `evals/cases.yaml` tests its own triggering against a hand-picked menu of
-decoys. That answers "does MY description win MY phrases against a few neighbours".
-It does not answer the question that matters once ten skills ship together: given the
-whole menu the agent actually sees, does each phrase route to the skill that owns it?
+Each skill's `evals/skills/<skill>/cases.yaml` tests its own triggering against a
+hand-picked menu of decoys. That answers "does MY description win MY phrases against
+a few neighbours". It does not answer the question that matters once ten skills ship
+together: given the whole menu the agent actually sees, does each phrase route to the
+skill that owns it?
 This script asks that question with an independent LLM judge.
 
     OPENAI_API_KEY=... uv run --with pyyaml python scripts/skills_trigger_eval.py \
@@ -35,7 +36,8 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILLS = ROOT / "src" / "opik_mcp" / "skills"
+SKILLS = ROOT / "plugins" / "opik" / "skills"
+EVALS = ROOT / "evals" / "skills"
 # The trailing comment on a should_not_trigger line names the owner: "# compare" -> opik-compare.
 OWNER_RE = re.compile(r"#\s*([a-z][a-z-]*)\s*$")
 
@@ -116,10 +118,13 @@ def main() -> int:
 
     expected: dict[str, set[str]] = defaultdict(set)
     for d in skills:
-        cases = d / "evals" / "cases.yaml"
+        cases = EVALS / d.name / "cases.yaml"
         if cases.is_file():
             for phrase, owner in _phrases(d.name, cases):
                 expected[phrase].add(owner)
+
+    if not expected:
+        sys.exit(f"no trigger phrases found under {EVALS}")
 
     conflicts = {p: sorted(o) for p, o in expected.items() if len(o) > 1}
     scored = {p: next(iter(o)) for p, o in expected.items() if len(o) == 1}

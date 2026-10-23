@@ -1,6 +1,6 @@
 .PHONY: help version install run run-dev dev inspect test slow conformance hermetic live user-flows lint format typecheck check \
         install-branch uninstall-branch \
-        skills-pack skills-verify skills-verify-source \
+        skills-pack skills-verify skills-verify-source plugin-validate \
         docker-build docker-run
 
 # The skills recipes use `set -o pipefail`, which is a bash builtin. Make defaults
@@ -13,6 +13,10 @@ VERSION_FILE := src/opik_mcp/_version.py
 # Pinned: this CLI is what ~40 agents use to install the pack, so a behaviour
 # change in it changes what our verification actually proves.
 SKILLS_CLI_VERSION := 1.5.22
+
+# Pinned for the same reason: `plugin validate --strict` gains checks between
+# releases, and a new warning would fail CI on a change that touched nothing.
+CLAUDE_CODE_VERSION := 2.1.296
 
 help:
 	@echo "Python (root):"
@@ -38,6 +42,7 @@ help:
 	@echo "  make skills-pack          - build the pack into dist/opik-skills"
 	@echo "  make skills-verify        - build it, then install it with the real npx installer"
 	@echo "  make skills-verify-source - check this repo itself resolves exactly the authored skills"
+	@echo "  make plugin-validate      - claude plugin validate --strict on the marketplace and plugins/opik"
 	@echo ""
 	@echo "Docker:"
 	@echo "  make docker-build - build opik-mcp:dev image"
@@ -176,7 +181,7 @@ skills-verify-source:
 	  echo "::error::installer failed against the repository"; echo "$$out"; exit 1; \
 	fi; \
 	resolved=$$(cd "$$tmp/.agents/skills" 2>/dev/null && ls -1 | sort | tr '\n' ' ' || true); \
-	authored=$$(cd src/opik_mcp/skills && \
+	authored=$$(cd plugins/opik/skills && \
 	  find . -mindepth 2 -maxdepth 2 -name SKILL.md -exec dirname {} \; \
 	  | sed 's|^\./||' | sort | tr '\n' ' '); \
 	if [ "$$resolved" != "$$authored" ]; then \
@@ -184,6 +189,18 @@ skills-verify-source:
 	  exit 1; \
 	fi; \
 	echo "repository resolves exactly the authored skills: $$authored"
+
+# The Claude Code plugin folder, which Anthropic's directory installs and scans as is.
+# `--strict` fails on warnings too. Throwaway HOME, so the CLI reads and writes no
+# user config.
+plugin-validate:
+	@set -euo pipefail; \
+	tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	for target in . plugins/opik; do \
+	  HOME="$$tmp" DISABLE_TELEMETRY=1 CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+	    npx -y @anthropic-ai/claude-code@$(CLAUDE_CODE_VERSION) plugin validate --strict "$$target"; \
+	done
 
 # --- Docker image (deployable per OPIK-6667) -------------------------------
 

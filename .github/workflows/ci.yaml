@@ -80,6 +80,12 @@ jobs:
           if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::version.txt must be MAJOR.MINOR.PATCH (x.y.z), got '$VERSION'"; exit 1
           fi
+          # bump-version in release.yaml moves both; a hand edit of one would ship
+          # the plugin under another version than the server.
+          PLUGIN_VERSION=$(jq -r .version plugins/opik/.claude-plugin/plugin.json)
+          if [ "$PLUGIN_VERSION" != "$VERSION" ]; then
+            echo "::error::plugins/opik/.claude-plugin/plugin.json has version $PLUGIN_VERSION, version.txt has $VERSION"; exit 1
+          fi
 
           # A tag for this version means it is already released — version.txt was
           # not bumped, so the next release would try to re-tag a released
@@ -203,6 +209,8 @@ jobs:
         run: make skills-verify VERSION="$PYVER" SOURCE_COMMIT="$SHA"
       - name: Check this repository itself resolves only the authored skills
         run: make skills-verify-source
+      - name: Validate the Claude Code plugin
+        run: make plugin-validate
       - name: Package the pack for publication
         run: |
           set -euo pipefail
@@ -250,7 +258,7 @@ jobs:
           # indentation inside quotes would ship as leading spaces and render
           # every line after the first as an indented code block.
           cat > notes.md <<EOF
-          Rolling build of the \`opik-skills\` pack, generated from \`src/opik_mcp/skills\`.
+          Rolling build of the \`opik-skills\` pack, generated from \`plugins/opik/skills\`.
 
           Source commit: \`${SHA}\`
           Pack version: \`${VERSION}\`

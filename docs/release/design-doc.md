@@ -12,7 +12,9 @@ the version comes from, and how to finish a release that failed halfway.
 
 `version.txt` holds the next unreleased version, `x.y.z`. `bump-version` in
 `release.yaml` increments its patch after a release; edit it by hand to choose
-another.
+another. The Claude Code plugin's `plugins/opik/.claude-plugin/plugin.json`
+carries the same version: `bump-version` moves both, and the `version` job in
+`ci.yaml` fails when they differ.
 
 **There are two version stamps, and both read `$VERSION`.** `make version`
 generates the git-ignored `_version.py`, which the running server reports
@@ -60,6 +62,14 @@ and `--app-version` to the release version. `pypi` uses Trusted Publishing; the 
 `GITHUB_TOKEN`. Release permissions, `pypi` approvals and the hosted rollout
 live outside this repo.
 
+After `github-release`, `claude-plugin-branch` fast-forwards the
+`claude-plugin` branch to the released commit. Anthropic's directory tracks
+that branch for new versions of the plugin, so the listing changes with each
+release, not with each merge. A push that is not a fast-forward fails; a
+re-run pushes the same commit again. The branch is created once by hand from
+a release commit. If the job's push is refused because the range changes
+`.github/workflows/`, give the job a token with the `workflows` permission.
+
 ### Replaying a failed release
 
 If a job after `create-git-tag` fails, re-run with `reuse_existing_tag: true`.
@@ -67,10 +77,10 @@ Never delete the tag. `validate` then releases the tagged commit even if `main`
 has moved. Every publish step can run twice (PyPI via `skip-existing`), and
 `bump-version` runs only after all of them succeed.
 
-`mcp-registry` is the exception: `bump-version` does not wait for it, so when
-it fails `version.txt` may already name the next version, and a new dispatch
-would release that one. Re-run the failed `mcp-registry` job inside the same
-run instead.
+`mcp-registry` and `claude-plugin-branch` are the exceptions: `bump-version`
+does not wait for them, so when one fails `version.txt` may already name the
+next version, and a new dispatch would release that one. Re-run the failed job
+inside the same run instead.
 
 ### The MCP Registry entry
 
@@ -127,6 +137,7 @@ manual dispatch of release.yaml
                              -> pypi           => opik-mcp <version>
                                   -> mcp-registry => io.github.comet-ml/opik-mcp <version>
   all three succeed          -> github-release -> bump-version (commit to main)
+                                               -> claude-plugin-branch (fast-forward)
 ```
 
 To change stamps or image tags, start in `ci.yaml`; release steps, in
@@ -151,8 +162,10 @@ No ADR covers release; the reasons come from workflow comments and PRs.
   race for its image (#178).
 - hermetic is a job in `ci.yaml`: a separate workflow needs a `paths:` filter,
   which can leave a required check pending (#175).
-- A test builds a real wheel to prove skill `evals/` stay out, since the
-  editable install cannot show what a wheel holds (#176).
+- A test builds a real wheel to prove it holds exactly the served skills,
+  since the editable install cannot show what a wheel holds (#176). The skills
+  come from `plugins/opik/skills` through `force-include`; see
+  [skills](../skills/design-doc.md).
 - Not built: `--locked` installs in CI (OPIK-8486); only `Dockerfile` has it.
 - Only the Python release publishes the registry entry. A TypeScript publish
   would add another npm version to it (#240).
@@ -214,6 +227,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 
 ## Log
 
+- 2026-10-17: each release fast-forwards `claude-plugin`, the branch Anthropic's directory tracks for the plugin, and bumps the plugin version with `version.txt` (OPIK-8848).
 - 2026-10-05: version 3.0.0 after 0.2.39, so the Python registry entry outranks the npm 2.x ones and becomes `latest` (#242).
 - 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (#240).
 - 2026-09-30: the release build gave `$VERSION` to `make version` only, so hatch fell back and published `0.2.37.dev0` as a release. Step-level `env:`, a check on the built filenames, and a guard test (#239).

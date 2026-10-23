@@ -137,10 +137,10 @@ Where to start:
   resolves, and a bare id is not something the reader can act on.
 - Rankings are by total tokens, which the backend can sort on; dollars are
   shown, not sorted.
-- The guide is outside `src/opik_mcp/skills/` on purpose. That folder is
+- The guide is outside `plugins/opik/skills/` on purpose. That folder is
   published as `comet-ml/opik-skills` to all users, and the guide must not
   ship there. It is the one deliberate exception to "skills are authored only
-  under `src/opik_mcp/skills/`"; it is never packed or published, so do not
+  under `plugins/opik/skills/`"; it is never packed or published, so do not
   move it.
 - The default byte caps also cover the AI Spend surface, which the added
   sentences and names keep under them (ADR 0001).

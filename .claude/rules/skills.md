@@ -1,11 +1,14 @@
 ---
 paths:
-  - "src/opik_mcp/skills/**"
+  - "plugins/opik/**"
+  - "evals/skills/**"
 ---
 
 # Authored skills
 
-- Skills are authored here and nowhere else. `.claude/skills/` and
+- Skills are authored in `plugins/opik/skills/` and nowhere else; it is the
+  Claude Code plugin folder, and `src/opik_mcp/skills` is a symlink to it.
+  Evals go in `evals/skills/<skill>/`, outside the plugin. `.claude/skills/` and
   `.agents/skills/` are read by `npx skills add` and would ship to users. A
   hook blocks the file tools there; don't route around it with the shell.
   One deliberate exception: the cost intelligence guide at
@@ -15,7 +18,7 @@ paths:
   `tests/skills/test_spec_compliance.py` is the contract.
 - The description is the trigger. It says when to use this skill and when to
   use its neighbour. A description change re-runs the skill's trigger evals in
-  its `evals/` folder, where it has one, before the PR.
+  `evals/skills/<skill>/`, where it has one, before the PR.
 - Check for the Opik MCP first; SDK scripting is the fallback, and the skill
   says which one it used.
 - Routing between skills lives in `skills_catalog`. A skill may name its
