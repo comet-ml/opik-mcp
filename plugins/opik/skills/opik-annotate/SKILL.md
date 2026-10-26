@@ -8,7 +8,7 @@ allowed-tools:
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-10-23"
+  last_updated: "2026-10-26"
   source_commit: "e4a6fa9b424128eb01817b8700761ac249a89e78"
   argument-hint: "[queue name or id, or what reviewers should judge; optional project]"
 ---
@@ -41,7 +41,7 @@ From the queue's instructions and feedback definitions: what is judged goes firs
 Read `references/kit-v1.md` first: it is the only API, class and token list the page has, and views are stored with that kit version. What the page can rely on:
 - Rendered in a sandboxed frame: **no network** (no fetch, external script, stylesheet, font or image), no forms, popups or navigation. Inline `<script>` and `<style>` only.
 - Build elements with `kit.h` and `text`; `innerHTML` and its relatives are blocked.
-- Render through `kit.mount(render)` exactly once. `render` gets `{ trace }` for a trace queue and `{ thread, traces }` (turns in order) for a thread queue; return `undefined` for data you can't render and reviewers get Opik's default view instead.
+- Render through `kit.mount(render)` exactly once. `render` gets `{ trace }` for a trace queue and `{ thread, traces }` (turns in order) for a thread queue; if `render` throws or returns nothing, reviewers get Opik's default view and see the error, so handle every shape you found instead of relying on that fallback.
 - Trace fields: `id`, `name`, `input`, `output`, `metadata`, `tags`, `feedback_scores`, `start_time`, `end_time`, `duration`, `usage`, `total_estimated_cost`. Thread fields: `id`, `start_time`, `end_time`, `duration`, `number_of_messages`, `status`, `tags`, `feedback_scores`, `usage`, `total_estimated_cost`. No spans; attachments stored outside the trace are not available, media embedded as `data:` URLs is.
 - `feedback_scores[]` with `source === "ui"` are human; the rest are judges.
 - Style with `var(--kit-…)` tokens, never hard-coded colours: light and dark themes share the view. Layout must work from 360px wide.

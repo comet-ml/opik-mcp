@@ -301,7 +301,10 @@ class AnnotationQueueUpdate(_StrictBase):
     lock_timeout_seconds: LockTimeoutSeconds
     annotator_view: AnnotatorView | None = None
     clear_annotator_view: bool = Field(
-        default=False, description="Remove the custom view; annotators see the default one."
+        default=False,
+        description=(
+            "Remove the custom view; annotators see the default one. Not with annotator_view."
+        ),
     )
 
     @model_validator(mode="after")

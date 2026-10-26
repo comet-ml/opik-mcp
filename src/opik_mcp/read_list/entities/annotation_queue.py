@@ -52,7 +52,13 @@ VOCABULARY = Vocabulary(
 
 
 async def fetch(client: AnnotationQueueClient, entity_id: str) -> dict[str, object]:
-    return await client.get_annotation_queue(entity_id)
+    """A queue without a view carries ``annotator_view.html`` as null, so
+    ``fields=['annotator_view.html']`` answers "none" instead of refusing the path."""
+    record = await client.get_annotation_queue(entity_id)
+    view = record.get("annotator_view")
+    if isinstance(view, Mapping) and view.get("html"):
+        return record
+    return {**record, "annotator_view": {"html": None}}
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, object]]:
@@ -98,7 +104,7 @@ def plain_read_view(record: dict[str, object]) -> dict[str, object]:
     html = view.get("html") if isinstance(view, Mapping) else None
     if not isinstance(view, Mapping) or not isinstance(html, str) or not html:
         return {
-            **record,
+            **{key: value for key, value in record.items() if key != "annotator_view"},
             "annotatorViewHtml": (
                 "none: this queue has no custom view, so annotators see the default one"
             ),

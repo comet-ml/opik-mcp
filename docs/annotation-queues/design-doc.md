@@ -30,7 +30,8 @@ page under the project.
   `summary`, `kit_version` and `html_chars`, and `annotatorViewHtml` states
   the size and the call that returns it:
   `read('annotation_queue', '<id>', fields=['annotator_view.html'])`.
-- A queue with no view says so in `annotatorViewHtml`.
+- A queue with no view says so in `annotatorViewHtml`, and
+  `fields=['annotator_view.html']` answers `null` for it.
 - `fields=[…]` sees the whole record, html included.
 
 `list('trace' | 'thread', filters='annotation_queue_ids contains "<id>"')`

@@ -100,8 +100,23 @@ async def test_a_queue_without_a_view_says_annotators_see_the_default() -> None:
     )
 
     body = json.loads(out.split("\n", 1)[1])
-    assert "annotator_view" not in body or body["annotator_view"] is None
+    assert "annotator_view" not in body
     assert body["annotatorViewHtml"].startswith("none")
+
+
+@pytest.mark.anyio
+async def test_asking_for_the_html_of_a_queue_without_a_view_answers_null() -> None:
+    fake = FakeQueues(record=_queue(annotator_view={}))
+    out = await run_read(
+        "annotation_queue",
+        QUEUE_ID,
+        settings=_settings(),
+        client=cast("OpikReadClient", fake),
+        fields=["annotator_view.html"],
+    )
+
+    body = json.loads(out.split("\n", 2)[2])
+    assert body["annotator_view"] == {"html": None}
 
 
 @pytest.mark.anyio
