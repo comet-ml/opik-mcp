@@ -740,6 +740,8 @@ def test_schema_answers_for_the_spend_types_with_their_fields(
 ) -> None:
     monkeypatch.setattr("opik_mcp.writes.schema_tool.get_settings", lambda: SPEND)
     reference = run_schema("list.spend_session")
+    assert isinstance(reference["filters"], dict)
+    assert isinstance(reference["sort"], dict)
     assert set(reference["filters"]["fields"]) == {
         "user_email",
         "turns",

@@ -10,11 +10,11 @@ JSON Schema that ``schema(operation)`` returns).
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
+from opik_mcp.json_types import JsonObject
 from opik_mcp.read_list.entities.agent_insights_issue.state import ENABLE_OP, TRIGGER_OP
 from opik_mcp.writes import (
     SCHEMA_TOOL_DESCRIPTION,
@@ -148,5 +148,5 @@ def _model(name: str) -> type[BaseModel]:
     return WRITE_REGISTRY[name].pydantic_model
 
 
-def _example(name: str) -> dict[str, Any]:
+def _example(name: str) -> JsonObject:
     return WRITE_REGISTRY[name].example

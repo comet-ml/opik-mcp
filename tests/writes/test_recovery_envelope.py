@@ -21,7 +21,6 @@ the basis for a retry, this test fails. That's the alarm bell.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import httpx
 import pytest
@@ -30,6 +29,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.server import mcp
+from opik_mcp.writes.errors import ErrorExtra
 
 OPIK_BASE = "https://opik.test"
 
@@ -44,21 +44,12 @@ def patched_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Force the write tool to use a respx-mockable client.
 
     The server normally builds the client from `get_settings()`; in tests
-    we want a fixed base URL the respx router can match against. We override
-    when the caller passed `client=None` (the server's default).
+    we want a fixed base URL the respx router can match against. The
+    dispatcher builds one only when the caller passed `client=None` (the
+    server's default), so replacing its factory covers exactly that case.
     """
     test_client = OpikClient(base_url=OPIK_BASE, api_key="k", workspace="ws")
-
-    from opik_mcp.writes import dispatch as _dispatch_mod
-
-    _orig = _dispatch_mod.run_write
-
-    async def _patched_run_write(**kw: Any) -> Any:
-        if kw.get("client") is None:
-            kw["client"] = test_client
-        return await _orig(**kw)
-
-    monkeypatch.setattr("opik_mcp.writes.write_tool._dispatch", _patched_run_write)
+    monkeypatch.setattr("opik_mcp.writes.dispatch.make_opik_client", lambda _settings: test_client)
 
 
 @pytest.mark.anyio
@@ -90,6 +81,7 @@ async def test_validation_error_carries_recoverable_example(patched_client: None
         assert "trace_id" in {i["field"] for i in body["issues"]}
 
         # --- Turn 2: the 'model' patches the example with a real ID. -- #
+        assert isinstance(body["example"], dict)
         corrected = dict(body["example"])
         corrected["trace_id"] = trace_id_from_context
 
@@ -171,11 +163,17 @@ async def test_score_thread_error_proposes_array_form_for_retry(
 # --- helpers ------------------------------------------------------------ #
 
 
-def _decode_error_text(text: str) -> dict[str, Any]:
+class _ErrorBody(ErrorExtra):
+    error: str
+    operation: str
+    message: str
+
+
+def _decode_error_text(text: str) -> _ErrorBody:
     """Strip FastMCP's `Error executing tool <name>: ` prefix; JSON-decode the rest."""
     marker = ": "
     if text.startswith("Error executing tool ") and marker in text:
-        body: dict[str, Any] = json.loads(text.split(marker, 1)[1])
+        body: _ErrorBody = json.loads(text.split(marker, 1)[1])
     else:
         body = json.loads(text)
     return body

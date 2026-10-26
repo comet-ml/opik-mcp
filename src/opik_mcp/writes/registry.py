@@ -17,10 +17,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Final
+from typing import Final
 
 from pydantic import BaseModel
 
+from opik_mcp.json_types import JsonObject
 from opik_mcp.writes.operations import diagnostics, evaluation, observability, threads
 from opik_mcp.writes.scopes import (
     SCOPE_DATASET_EDIT,
@@ -53,7 +54,7 @@ class WriteOperation:
     batch_endpoint: str | None = None
     parent_id_fields: tuple[str, ...] = ()
     description: str = ""
-    example: dict[str, Any] = field(default_factory=dict)
+    example: JsonObject = field(default_factory=dict)
     # Domain-specific issue ``code`` values this operation can emit on
     # ``validation_failed``. Universal Pydantic codes (``missing``,
     # ``extra_forbidden``, ``type_mismatch``, ``float_parsing``, ...) and
