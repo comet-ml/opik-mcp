@@ -188,7 +188,9 @@ Boundaries:
 - Every token on the surface and in an answer has to pay for itself, so both
   have ceilings and every read states its size
   ([ADR 0001](../decisions/0001-context-budget-first.md)).
-- The record comes back whole and only children are slimmed. Compression
+- The record comes back whole and only children are slimmed. The one
+  exception is a field an entity states by size through `read_view_fn` (an
+  annotation queue's view html), which `fields` returns whole. Compression
   tiers were removed because they cut answers the caller could not get back.
   `fields=[…]` filters and always declares itself (#187, #197,
   [ADR 0002](../decisions/0002-layered-reads-no-silent-cuts.md)).
@@ -266,6 +268,7 @@ Boundaries:
 
 ## Log
 
+- 2026-10-23: `read_view_fn` lets an entity state a long field of its own by size on a read without `fields`; "covered by Phase 1" left the instructions (OPIK-8951).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).
 - 2026-09-24: description-limit check; titles and hints counted in the surface budget (#202).
