@@ -129,23 +129,33 @@ async def confirm_view(
     items: list[BaseModel],
     resp: httpx.Response,
     out: dict[str, object],
+    settings: Settings,
+    project_id: str | None,
 ) -> None:
+    """Name and link a queue the backend chose the id for, then, when the write
+    carried html, read the queue back to see whether the view was kept."""
     item = items[0]
     view = getattr(item, "annotator_view", None)
-    if view is None or not getattr(view, "html", None):
-        return
+    carried_html = view is not None and bool(getattr(view, "html", None))
     queue_id = getattr(item, "id", None) or _created_id(resp)
     if queue_id is None:
-        out["warning"] = _VIEW_UNCONFIRMED
+        if carried_html:
+            out["warning"] = _VIEW_UNCONFIRMED
+        return
+    out["id"] = str(queue_id)
+    if project_id is not None:
+        url = project_page_url(settings, project_id, "annotation-queues", subpath=str(queue_id))
+        if url is not None:
+            out["url"] = url
+    if not carried_html:
         return
     try:
         queue = await client.get_annotation_queue(str(queue_id))
+        stored = queue.get("annotator_view")
+        if not isinstance(stored, dict) or not stored.get("html"):
+            out["warning"] = _VIEW_DROPPED
     except Exception:
         out["warning"] = _VIEW_UNCONFIRMED
-        return
-    stored = queue.get("annotator_view")
-    if not isinstance(stored, dict) or not stored.get("html"):
-        out["warning"] = _VIEW_DROPPED
 
 
 def _created_id(resp: httpx.Response) -> str | None:

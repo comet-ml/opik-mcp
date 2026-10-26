@@ -107,11 +107,12 @@ server.write                  src/opik_mcp/server/tools/write.py
 - retry: after the send, a hook may reread the answer and send a follow-up
   (a Diagnostics enable that gets 409 switches the existing job on).
 - finalize: a non-2xx status becomes `backend_error`, a 2xx the success result.
-- confirm: after a 2xx, a hook may read the record back and add a `warning`
-  when the backend did not keep what was sent. It gets the response, never
-  raises, and does not run on a dry run. A backend that ignores unknown fields
-  answers 2xx for a write it partly dropped (an annotator view on an Opik
-  without custom views).
+- confirm: after a 2xx, a hook adds what only the response or a read-back
+  shows: the id in `Location` of a record created without one, or a `warning`
+  when the backend did not keep what was sent. A backend that ignores unknown
+  fields answers 2xx for a write it partly dropped (an annotator view on an
+  Opik without custom views). It does not run on a dry run, and an error it
+  raises is logged and dropped, since the write already happened.
 
 - To change an operation's endpoint, method, scope or batch support, start at
   `src/opik_mcp/writes/registry.py`. Each operation's model and example sit

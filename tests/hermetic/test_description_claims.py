@@ -784,8 +784,9 @@ async def _score_name_paging(drive: Driver) -> None:
 @probe("annotation_queue_lists_under_its_project")
 async def _annotation_queue_rows(drive: Driver) -> None:
     answer = await drive.call("list", entity_type="annotation_queue", project_name=PROJECT_NAME)
-    assert ANNOTATION_QUEUE_NAME in answer
-    assert "trace" in answer
+    row = next(line for line in answer.splitlines() if ANNOTATION_QUEUE_NAME in line)
+    cells = [cell.strip() for cell in row.split("|")]
+    assert "trace" in cells, f"the queue's row names no scope: {row}"
     sent = [r for r in drive.backend.requests if r.path == "/v1/private/annotation-queues"]
     assert PROJECT_ID in str(sent[-1].query.get("filters"))
 

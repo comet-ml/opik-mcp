@@ -83,12 +83,20 @@ DecorateFn = Callable[
     ["WriteOperation", list[BaseModel], dict[str, Any], Settings, str | None], None
 ]
 
-#: Check, after a write the backend accepted, that it kept what was sent, and
-#: say so in the success envelope. Gets the accepted response, whose
-#: ``Location`` names a record created without a caller id. Never raises: the
-#: write already happened.
+#: After a write the backend accepted, add to the success envelope what only
+#: the answer or a read-back shows: the id in ``Location`` of a record created
+#: without a caller id, or a field the backend did not keep. The dispatcher
+#: logs and drops anything it raises: the write already happened.
 ConfirmFn = Callable[
-    ["WriteOperation", OpikClient, list[BaseModel], httpx.Response, dict[str, object]],
+    [
+        "WriteOperation",
+        OpikClient,
+        list[BaseModel],
+        httpx.Response,
+        dict[str, object],
+        Settings,
+        str | None,
+    ],
     Awaitable[None],
 ]
 

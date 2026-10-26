@@ -120,6 +120,45 @@ async def test_asking_for_the_html_of_a_queue_without_a_view_answers_null() -> N
 
 
 @pytest.mark.anyio
+async def test_a_queue_is_read_by_its_name() -> None:
+    fake = FakeQueues(
+        page={"content": [{"id": QUEUE_ID, "name": "Email reply review", "project_name": "a"}]}
+    )
+    out = await run_read(
+        "annotation_queue",
+        "Email reply review",
+        settings=_settings(),
+        client=cast("OpikReadClient", fake),
+    )
+
+    assert fake.list_calls[-1]["name"] == "Email reply review"
+    assert json.loads(out.split("\n", 1)[1])["id"] == QUEUE_ID
+
+
+@pytest.mark.anyio
+async def test_a_name_two_projects_share_lists_each_queue_with_its_project() -> None:
+    other = "0193a300-0000-7000-8000-00000000a002"
+    fake = FakeQueues(
+        page={
+            "content": [
+                {"id": QUEUE_ID, "name": "Reply review", "project_name": "support"},
+                {"id": other, "name": "Reply review", "project_name": "sales"},
+            ]
+        }
+    )
+    with pytest.raises(ToolError) as refused:
+        await run_read(
+            "annotation_queue",
+            "Reply review",
+            settings=_settings(),
+            client=cast("OpikReadClient", fake),
+        )
+
+    assert "Reply review (project support)" in str(refused.value)
+    assert "Reply review (project sales)" in str(refused.value)
+
+
+@pytest.mark.anyio
 async def test_a_read_links_the_queue_page_under_its_project() -> None:
     out = await run_read(
         "annotation_queue",

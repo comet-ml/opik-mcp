@@ -33,6 +33,7 @@ from opik_mcp.writes.scopes import (
     SCOPE_TRACE_SPAN_THREAD_ANNOTATE,
     SCOPE_TRACE_SPAN_THREAD_LOG,
 )
+from opik_mcp.writes.wire import ConfirmFn
 
 OPIK_BASE = "https://opik.test"
 
@@ -1495,12 +1496,26 @@ async def _note_what_was_kept(
     items: list[BaseModel],
     resp: httpx.Response,
     out: dict[str, object],
+    settings: Settings,
+    project_id: str | None,
 ) -> None:
     out["warning"] = f"checked {len(items)} item(s) of {op.name}, answered {resp.status_code}"
 
 
-def _with_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
-    op = replace(WRITE_REGISTRY["trace.update"], confirm_fn=_note_what_was_kept)
+async def _break_after_the_write(
+    op: WriteOperation,
+    client: OpikClient,
+    items: list[BaseModel],
+    resp: httpx.Response,
+    out: dict[str, object],
+    settings: Settings,
+    project_id: str | None,
+) -> None:
+    raise KeyError("an answer this hook did not expect")
+
+
+def _with_confirm(monkeypatch: pytest.MonkeyPatch, hook: ConfirmFn = _note_what_was_kept) -> None:
+    op = replace(WRITE_REGISTRY["trace.update"], confirm_fn=hook)
     monkeypatch.setattr(dispatch, "WRITE_REGISTRY", {**WRITE_REGISTRY, "trace.update": op})
 
 
@@ -1537,3 +1552,20 @@ async def test_confirm_does_not_run_on_a_dry_run_or_a_rejected_write(
                 data={"id": _TRACE_ID, "tags_to_add": ["checked"]},
                 client=_client(),
             )
+
+
+@pytest.mark.anyio
+async def test_a_failing_confirm_never_turns_an_accepted_write_into_an_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The write already happened; an error here would invite a retry, and a
+    retried create without an id makes a second record."""
+    _with_confirm(monkeypatch, _break_after_the_write)
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/traces/{_TRACE_ID}").mock(return_value=httpx.Response(204))
+        out = await run_write(
+            operation="trace.update",
+            data={"id": _TRACE_ID, "tags_to_add": ["checked"]},
+            client=_client(),
+        )
+    assert out["ok"] is True

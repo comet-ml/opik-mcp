@@ -67,7 +67,25 @@ async def test_create_sends_the_view_with_the_kit_version_and_links_the_queue() 
 
 
 @pytest.mark.anyio
-async def test_a_create_without_an_id_links_the_projects_queues_and_checks_by_location() -> None:
+async def test_a_create_without_an_id_answers_with_the_id_the_backend_chose() -> None:
+    """No view, so no read-back: the id and link come from Location alone."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        mock.post(QUEUES).mock(
+            return_value=httpx.Response(
+                201, headers={"Location": f"{OPIK_BASE}{QUEUES}/{QUEUE_ID}"}
+            )
+        )
+        read_back = mock.get(f"{QUEUES}/{QUEUE_ID}")
+        out = await _write(
+            "annotation_queue.create", {"project_id": PROJECT_ID, "name": "q", "scope": "trace"}
+        )
+    assert out["id"] == QUEUE_ID
+    assert out["url"] == f"{QUEUE_PAGE}/{QUEUE_ID}"
+    assert not read_back.called
+
+
+@pytest.mark.anyio
+async def test_a_create_without_an_id_checks_the_view_of_the_queue_in_location() -> None:
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.post(QUEUES).mock(
             return_value=httpx.Response(
@@ -81,7 +99,7 @@ async def test_a_create_without_an_id_links_the_projects_queues_and_checks_by_lo
             "annotation_queue.create",
             {"project_id": PROJECT_ID, "name": "q", "scope": "trace", "annotator_view": VIEW},
         )
-    assert out["url"] == QUEUE_PAGE
+    assert out["url"] == f"{QUEUE_PAGE}/{QUEUE_ID}"
     assert read_back.called
 
 

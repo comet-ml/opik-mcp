@@ -48,8 +48,9 @@ default is not added: a queue also holds playground and experiment traces.
 - `annotator_view` is `{html, kit_version, summary}`: html up to 200,000
   characters, `kit_version` 1 (the default), summary up to 1,000. The limits
   are checked before anything is sent.
-- The answer links the queue's page. A create without an `id` links the
-  project's queues, since the backend chose the id.
+- The answer links the queue's page. A create without an `id` answers with
+  the `id` the backend chose, read from the response's `Location`.
+- A name several projects share lists each queue with its project.
 - A write that carried html reads the queue back. When the view is not there,
   the answer is still `ok` and adds a `warning` that this Opik did not store
   it. When the read-back fails, the `warning` says the view could not be
@@ -81,9 +82,11 @@ write        -> writes/registry.py ("annotation_queue.*")
   missing queue is refused there; any other failure only costs the link.
 - Clearing: `build` sends `{"annotator_view": {}}`. `wire.dump` drops `None`,
   and the backend reads an absent view as "unchanged".
-- The read-back: `confirm_view`, wired as the operation's `confirm_fn`, which
-  the dispatcher runs after a write the backend accepted. It takes the queue id
-  from the request, or from the response's `Location` for a create without one.
+- The id and the read-back: `confirm_view`, wired as the operation's
+  `confirm_fn`, which the dispatcher runs after a write the backend accepted.
+  It takes the queue id from the request, or from the response's `Location`
+  for a create without one, and adds it and its link; it reads the queue back
+  only when html was sent.
 
 ## Decisions
 

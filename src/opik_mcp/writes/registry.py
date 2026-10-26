@@ -99,9 +99,10 @@ class WriteOperation:
     dry_run_note_fn: DryRunNoteFn | None = None
     """What a preview cannot show, when it cannot show it."""
     confirm_fn: ConfirmFn | None = None
-    """After a write the backend accepted, check it kept what was sent and add
-    what it did not to the envelope. A backend that ignores unknown fields
-    answers 2xx for a write it partly dropped. Never raises."""
+    """After a write the backend accepted, add what only the answer or a
+    read-back shows: a created record's id from ``Location``, or a field the
+    backend dropped (one that ignores unknown fields answers 2xx anyway). An
+    error it raises is logged and dropped, never the write's result."""
 
 
 # Internal mutable map, frozen via ``MappingProxyType`` before export so

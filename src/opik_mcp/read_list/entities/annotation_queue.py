@@ -16,7 +16,7 @@ from typing import cast
 from opik_mcp.client.protocols import AnnotationQueueClient, OpikListClient, OpikReadClient
 from opik_mcp.config import Settings
 from opik_mcp.read_list.handler import EntityHandler, Vocabulary
-from opik_mcp.read_list.paging import name_candidates
+from opik_mcp.read_list.paging import name_candidates, page_items
 from opik_mcp.read_list.project_scope import scope_of
 from opik_mcp.read_list.size import estimate_tokens
 from opik_mcp.read_list.ui_links import project_page_url, scoped_entity_links
@@ -62,8 +62,18 @@ async def fetch(client: AnnotationQueueClient, entity_id: str) -> dict[str, obje
 
 
 async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, object]]:
-    queues = cast(AnnotationQueueClient, client)
-    return list(name_candidates(await queues.list_annotation_queues(name=name, size=5)))
+    """Queues are named per project, so a candidate carries its project's name:
+    two projects' "Reply review" queues would otherwise read as one name twice."""
+    page = await cast(AnnotationQueueClient, client).list_annotation_queues(name=name, size=5)
+    projects = {
+        row.get("id"): row.get("project_name") for row in page_items(page) if isinstance(row, dict)
+    }
+    return [
+        {**candidate, "name": f"{candidate['name']} (project {projects[candidate['id']]})"}
+        if isinstance(projects.get(candidate["id"]), str)
+        else candidate
+        for candidate in name_candidates(page)
+    ]
 
 
 async def list_page(client: OpikListClient, **kw: object) -> dict[str, object]:
