@@ -113,6 +113,7 @@ PARENT_ID_FIELDS: Final[tuple[str, ...]] = (
     "thread_id",
     "experiment_id",
     "experiment_ids",
+    "annotation_queue_ids",
 )
 """A filter on one of these names a parent record, and turns a list into the
 rest of that record rather than a triage of the project — so the ``sdk``
@@ -120,7 +121,8 @@ default is not added on top of it.
 
 Every experiment trace carries a source other than ``sdk`` (``evaluate`` and
 ``run_tests`` write ``experiment``, the optimizer writes ``optimization``), so
-the default on top of an experiment drill-in hid all of it;
+the default on top of an experiment drill-in hid all of it. A queue holds
+whatever was sent to it, playground and experiment traces included;
 ``list_empty_page.without_default`` tells that story. Declared here beside
 the default it exempts from, because two callers apply that default — the
 list tool and the metric runner — and had to agree."""

@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 import httpx
 
 from opik_mcp.client.ai_spend import AiSpendEndpoints
+from opik_mcp.client.annotation_queue import AnnotationQueueEndpoints
 from opik_mcp.client.annotations import AnnotationEndpoints
 from opik_mcp.client.base import _DEFAULT_TIMEOUT, resolve_opik_config
 from opik_mcp.client.dataset import DatasetEndpoints
@@ -28,6 +29,7 @@ class OpikClient(
     PromptEndpoints,
     DiagnosticsEndpoints,
     AiSpendEndpoints,
+    AnnotationQueueEndpoints,
 ):
     """Async HTTP client for Opik's ``/v1/private/...`` endpoints.
 

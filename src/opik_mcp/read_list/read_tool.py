@@ -229,6 +229,8 @@ async def run_read(
 
         wanted = normalise(fields)
         if wanted is None:
+            if handler.read_view_fn is not None:
+                data = handler.read_view_fn(data)
             payload = compact_json(data)
             header = size_header(
                 entity_type, record_id, estimate_tokens(payload), **_link_hint(entity_type, data)
@@ -259,7 +261,11 @@ async def run_read(
         note = marker(
             kept=kept,
             omitted=omitted,
-            whole=f"{whole} without fields returns the record whole.",
+            whole=(
+                f"{whole} without fields returns the record, its long fields stated by size."
+                if handler.read_view_fn is not None
+                else f"{whole} without fields returns the record whole."
+            ),
         )
         return f"{header}\n{note}\n{payload}"
 

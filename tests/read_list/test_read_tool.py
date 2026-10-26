@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -24,6 +24,7 @@ from opik_mcp.read_list.entities.trace import SPANS_INLINE_CHARS
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.paging import continuation, short_list
 from opik_mcp.read_list.read_tool import run_read
+from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from tests.hermetic.fixtures import record
 
 
@@ -366,6 +367,37 @@ async def test_read_prompt_inlines_versions() -> None:
     assert '"versions"' in out
     assert "v-1" in out
     assert '"versionsTruncated"' in out
+
+
+def _versions_stated_by_count(data: dict[str, object]) -> dict[str, object]:
+    versions = data.get("versions")
+    count = len(versions) if isinstance(versions, list) else 0
+    return {**data, "versions": f"{count} versions not inlined"}
+
+
+@pytest.mark.anyio
+async def test_a_read_view_shapes_a_read_without_fields_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hook stands in for the record only when the caller named no
+    fields; a projection still reaches the field the view left out, and its
+    marker no longer claims the plain read is whole."""
+    handler = ENTITY_REGISTRY["prompt"]
+    monkeypatch.setitem(
+        ENTITY_REGISTRY, "prompt", replace(handler, read_view_fn=_versions_stated_by_count)
+    )
+    fake = FakeOpikClient(
+        prompts_by_id={UUID: {"id": UUID, "name": "p"}},
+        prompt_versions={UUID: [{"id": "v-1"}]},
+    )
+
+    plain = await run_read("prompt", UUID, client=fake)
+    projected = await run_read("prompt", UUID, client=fake, fields=["versions"])
+
+    assert "1 versions not inlined" in plain
+    assert "v-1" not in plain
+    assert "v-1" in projected
+    assert "returns the record whole" not in projected
 
 
 # --- name lookup ---------------------------------------------------------- #

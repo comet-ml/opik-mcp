@@ -37,6 +37,7 @@ from tests.hermetic.stub_compare import (
     query_value,
 )
 from tests.hermetic.stub_records import (
+    ANNOTATION_QUEUE_ID,
     CASE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
@@ -53,6 +54,7 @@ from tests.hermetic.stub_records import (
     THREAD_MODEL_ID,
     THREAD_TRACE_IDS,
     TRACE_ID,
+    annotation_queue_row,
     dataset,
     fill,
     fill_list,
@@ -269,6 +271,7 @@ class StubBackend:
             return 200, experiment(path.rsplit("/", 1)[-1], spec)
 
         project = f"/v1/private/projects/{PROJECT_ID}"
+        queue = f"/v1/private/annotation-queues/{ANNOTATION_QUEUE_ID}"
         versions = self.prompt_version_count
         routes: dict[str, Callable[[], object]] = {
             "/v1/private/feedback-definitions": lambda: page(self.feedback_definitions),
@@ -303,6 +306,8 @@ class StubBackend:
             ),
             "/v1/private/toggles/": lambda: load("toggles"),
             "/v1/private/agent-insights/issues": lambda: self._issue_page(query),
+            "/v1/private/annotation-queues": lambda: page([annotation_queue_row()]),
+            queue: lambda: fill("annotation_queue"),
         }
         if path in routes:
             return 200, routes[path]()
