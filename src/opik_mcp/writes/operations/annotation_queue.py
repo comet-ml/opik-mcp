@@ -109,7 +109,8 @@ def decorate(
     settings: Settings,
     project_id: str | None,
 ) -> None:
-    """The queue's page, or the project's queues when the backend chose the id."""
+    """The queue's page when the caller named its id, else the project's queues;
+    ``confirm_view`` links a queue the backend chose the id for."""
     if project_id is None:
         return
     queue_id = getattr(items[0], "id", None)
@@ -132,21 +133,28 @@ async def confirm_view(
     settings: Settings,
     project_id: str | None,
 ) -> None:
-    """Name and link a queue the backend chose the id for, then, when the write
-    carried html, read the queue back to see whether the view was kept."""
+    """Name and link a queue the backend chose the id for (``decorate`` links
+    every other one), then, when the write carried html, read the queue back to
+    see whether the view was kept."""
     item = items[0]
     view = getattr(item, "annotator_view", None)
     carried_html = view is not None and bool(getattr(view, "html", None))
-    queue_id = getattr(item, "id", None) or _created_id(resp)
+    queue_id = getattr(item, "id", None)
+    if queue_id is None:
+        queue_id = _created_id(resp)
+        if queue_id is not None:
+            out["id"] = queue_id
+            url = (
+                project_page_url(settings, project_id, "annotation-queues", subpath=queue_id)
+                if project_id is not None
+                else None
+            )
+            if url is not None:
+                out["url"] = url
     if queue_id is None:
         if carried_html:
             out["warning"] = _VIEW_UNCONFIRMED
         return
-    out["id"] = str(queue_id)
-    if project_id is not None:
-        url = project_page_url(settings, project_id, "annotation-queues", subpath=str(queue_id))
-        if url is not None:
-            out["url"] = url
     if not carried_html:
         return
     try:

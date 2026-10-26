@@ -154,8 +154,8 @@ async def test_a_name_two_projects_share_lists_each_queue_with_its_project() -> 
             client=cast("OpikReadClient", fake),
         )
 
-    assert "Reply review (project support)" in str(refused.value)
-    assert "Reply review (project sales)" in str(refused.value)
+    assert f"id={QUEUE_ID}, name='Reply review', project='support'" in str(refused.value)
+    assert f"id={other}, name='Reply review', project='sales'" in str(refused.value)
 
 
 @pytest.mark.anyio

@@ -59,7 +59,15 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
         "Use read() with one of these UUIDs (or ask the user which they mean):",
     ]
     lines.extend(
-        short_list([f"  - id={c.get('id')}, name={c.get('name', '')!r}" for c in candidates])
+        short_list(
+            [
+                f"  - id={c.get('id')}, name={c.get('name', '')!r}"
+                + "".join(
+                    f", {key}={value!r}" for key, value in c.items() if key not in ("id", "name")
+                )
+                for c in candidates
+            ]
+        )
     )
     return "\n".join(lines)
 

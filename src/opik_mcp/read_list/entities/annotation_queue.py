@@ -69,7 +69,7 @@ async def search_by_name(client: OpikReadClient, name: str) -> list[dict[str, ob
         row.get("id"): row.get("project_name") for row in page_items(page) if isinstance(row, dict)
     }
     return [
-        {**candidate, "name": f"{candidate['name']} (project {projects[candidate['id']]})"}
+        {**candidate, "project": projects[candidate["id"]]}
         if isinstance(projects.get(candidate["id"]), str)
         else candidate
         for candidate in name_candidates(page)

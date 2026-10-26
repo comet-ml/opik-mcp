@@ -63,6 +63,7 @@ async def test_create_sends_the_view_with_the_kit_version_and_links_the_queue() 
     assert sent["annotator_view"] == {**VIEW, "kit_version": 1}
     assert sent["project_id"] == PROJECT_ID
     assert out["url"] == f"{QUEUE_PAGE}/{QUEUE_ID}"
+    assert "id" not in out, "the caller already has the id it sent"
     assert "warning" not in out
 
 
