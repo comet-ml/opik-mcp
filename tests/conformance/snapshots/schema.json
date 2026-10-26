@@ -26,6 +26,7 @@
         "list.experiment",
         "list.dataset_item",
         "list.dataset_item_case",
+        "list.annotation_queue",
         "list.project_metric"
       ],
       "title": "Operation",
