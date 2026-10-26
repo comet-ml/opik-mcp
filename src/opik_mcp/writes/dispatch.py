@@ -127,6 +127,8 @@ async def run_write(
     )
     if op.decorate_fn is not None:
         op.decorate_fn(op, items, out, resolved_settings, prepared)
+    if op.confirm_fn is not None:
+        await op.confirm_fn(op, http_client, items, resp, out)
     return out
 
 

@@ -21,6 +21,8 @@ SCOPE_EXPERIMENT_CREATE: Final = "experiment_create"
 #: (create, get, update, trigger) — the same one that gates reading issues, so
 #: turning Diagnostics on through the MCP grants nothing the REST API doesn't.
 SCOPE_PROJECT_DATA_VIEW: Final = "project_data_view"
+SCOPE_ANNOTATION_QUEUE_CREATE: Final = "annotation_queue_create"
+SCOPE_ANNOTATION_QUEUE_EDIT: Final = "annotation_queue_edit"
 
 
 ALL_WRITE_SCOPES: Final[frozenset[str]] = frozenset(
@@ -31,12 +33,16 @@ ALL_WRITE_SCOPES: Final[frozenset[str]] = frozenset(
         SCOPE_DATASET_EDIT,
         SCOPE_EXPERIMENT_CREATE,
         SCOPE_PROJECT_DATA_VIEW,
+        SCOPE_ANNOTATION_QUEUE_CREATE,
+        SCOPE_ANNOTATION_QUEUE_EDIT,
     }
 )
 
 
 __all__ = [
     "ALL_WRITE_SCOPES",
+    "SCOPE_ANNOTATION_QUEUE_CREATE",
+    "SCOPE_ANNOTATION_QUEUE_EDIT",
     "SCOPE_DATASET_EDIT",
     "SCOPE_EXPERIMENT_CREATE",
     "SCOPE_PROJECT_DATA_VIEW",

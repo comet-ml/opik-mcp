@@ -869,6 +869,8 @@ backend response.
 | `agent_insights_issue.resolve` | Mark a Diagnostics issue dealt with (ask the user first). |
 | `agent_insights_issue.close` | Mark a Diagnostics issue not worth acting on (ask the user first). |
 | `agent_insights_issue.reopen` | Put a resolved or closed Diagnostics issue back on the open list. |
+| `annotation_queue.create` | Create a project's annotation queue, optionally with a custom annotator view. |
+| `annotation_queue.update` | Change an annotation queue; set, replace or clear its annotator view. |
 
 ```python
 write(

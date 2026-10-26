@@ -8,7 +8,7 @@ encodes an id in the path.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, ClassVar, Final, Literal
+from typing import TYPE_CHECKING, Annotated, Any, ClassVar, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
@@ -163,21 +163,21 @@ class CommentCreate(_AnnotationTarget):
     text: str = Field(min_length=1, max_length=10_000)
 
 
-TRACE_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+TRACE_CREATE_EXAMPLE: Final[dict[str, object]] = {
     "name": "openai.chat",
     "start_time": EXAMPLE_TIME,
     "project_name": "demo",
     "input": {"messages": [{"role": "user", "content": "hi"}]},
 }
 
-TRACE_UPDATE_EXAMPLE: Final[dict[str, Any]] = {
+TRACE_UPDATE_EXAMPLE: Final[dict[str, object]] = {
     "id": example_uuid("01"),
     "end_time": EXAMPLE_TIME,
     "output": {"text": "hello!"},
     "tags_to_add": ["regression"],
 }
 
-SPAN_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+SPAN_CREATE_EXAMPLE: Final[dict[str, object]] = {
     "trace_id": example_uuid("01"),
     "name": "openai.chat",
     "type": "llm",
@@ -186,7 +186,7 @@ SPAN_CREATE_EXAMPLE: Final[dict[str, Any]] = {
     "provider": "openai",
 }
 
-SCORE_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+SCORE_CREATE_EXAMPLE: Final[dict[str, object]] = {
     "target": "trace",
     "target_id": example_uuid("01"),
     "name": "helpfulness",
@@ -194,16 +194,17 @@ SCORE_CREATE_EXAMPLE: Final[dict[str, Any]] = {
     "reason": "user-confirmed",
 }
 
-COMMENT_CREATE_EXAMPLE: Final[dict[str, Any]] = {
+COMMENT_CREATE_EXAMPLE: Final[dict[str, object]] = {
     "target": "span",
     "target_id": example_uuid("01"),
     "text": "retry with temperature=0",
 }
 
 
-# The thread lifecycle models sit here, not beside their builder in threads.py:
-# mypy reads every Pydantic model as explicit Any, and threads.py is typed
-# strictly while this module is still on the Any baseline.
+# The thread lifecycle and annotation queue models sit here, not beside their
+# builders in threads.py and annotation_queue.py: mypy reads every Pydantic
+# model as explicit Any, and those modules are typed strictly while this one is
+# still on the Any baseline.
 class _ThreadLifecycle(_StrictBase, _RequiredProjectMixin):
     """Shared shape for thread status changes (close/open).
 
@@ -240,6 +241,77 @@ THREAD_OPEN_EXAMPLE: Final[dict[str, str]] = {
     "thread_id": "conversation-42",
     "project_name": "demo",
 }
+
+
+#: The view kit the backend accepts, ``LATEST_KIT_VERSION`` in opik-backend's
+#: ``AnnotationQueueAnnotatorView``; ``opik-annotate/references/kit-v1.md``
+#: documents this version.
+KIT_VERSION: Final = 1
+
+QueueText = Annotated[str | None, Field(default=None)]
+QueueScoreNames = Annotated[
+    list[Annotated[str, Field(min_length=1)]] | None,
+    Field(default=None, description="Feedback definitions annotators score, by name."),
+]
+AnnotatorsPerItem = Annotated[int | None, Field(default=None, ge=1, le=1000)]
+LockTimeoutSeconds = Annotated[int | None, Field(default=None, ge=1, le=3600)]
+
+
+class AnnotatorView(_StrictBase):
+    """A custom view annotators see in place of the default trace or thread blocks."""
+
+    html: str = Field(
+        min_length=1,
+        max_length=200_000,
+        description=(
+            "One HTML document (inline <script>/<style>, no network) rendered in a "
+            "sandboxed frame; read_skill('opik-annotate') has what it can rely on."
+        ),
+    )
+    kit_version: int = Field(default=KIT_VERSION, ge=1, le=KIT_VERSION)
+    summary: str | None = Field(
+        default=None, max_length=1_000, description="What annotators see, in a sentence or two."
+    )
+
+
+class AnnotationQueueCreate(_StrictBase, _ClientIdMixin, _RequiredProjectMixin):
+    """``POST /v1/private/annotation-queues``: a queue of traces or threads to review."""
+
+    name: str = Field(min_length=1)
+    scope: Literal["trace", "thread"]
+    description: QueueText
+    instructions: QueueText
+    comments_enabled: bool | None = None
+    feedback_definition_names: QueueScoreNames
+    annotators_per_item: AnnotatorsPerItem
+    lock_timeout_seconds: LockTimeoutSeconds
+    annotator_view: AnnotatorView | None = None
+
+
+class AnnotationQueueUpdate(_StrictBase):
+    """``PATCH /v1/private/annotation-queues/{id}``: only the fields passed change."""
+
+    id: UUID
+    name: str | None = Field(default=None, min_length=1)
+    description: QueueText
+    instructions: QueueText
+    comments_enabled: bool | None = None
+    feedback_definition_names: QueueScoreNames
+    annotators_per_item: AnnotatorsPerItem
+    lock_timeout_seconds: LockTimeoutSeconds
+    annotator_view: AnnotatorView | None = None
+    clear_annotator_view: bool = Field(
+        default=False, description="Remove the custom view; annotators see the default one."
+    )
+
+    @model_validator(mode="after")
+    def _one_view_change(self) -> AnnotationQueueUpdate:
+        if self.clear_annotator_view and self.annotator_view is not None:
+            raise ValueError(
+                "view_conflict: pass annotator_view to set the view or "
+                "clear_annotator_view to remove it, not both."
+            )
+        return self
 
 
 #: Path segment per annotation target, for the score and comment routes.

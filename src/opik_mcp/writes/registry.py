@@ -21,8 +21,16 @@ from typing import Any, Final
 
 from pydantic import BaseModel
 
-from opik_mcp.writes.operations import diagnostics, evaluation, observability, threads
+from opik_mcp.writes.operations import (
+    annotation_queue,
+    diagnostics,
+    evaluation,
+    observability,
+    threads,
+)
 from opik_mcp.writes.scopes import (
+    SCOPE_ANNOTATION_QUEUE_CREATE,
+    SCOPE_ANNOTATION_QUEUE_EDIT,
     SCOPE_DATASET_EDIT,
     SCOPE_EXPERIMENT_CREATE,
     SCOPE_PROJECT_DATA_VIEW,
@@ -32,6 +40,7 @@ from opik_mcp.writes.scopes import (
 )
 from opik_mcp.writes.wire import (
     BuildFn,
+    ConfirmFn,
     DecorateFn,
     DryRunNoteFn,
     PrepareFn,
@@ -89,6 +98,10 @@ class WriteOperation:
     """Add to the success envelope: a link to open, what to expect next."""
     dry_run_note_fn: DryRunNoteFn | None = None
     """What a preview cannot show, when it cannot show it."""
+    confirm_fn: ConfirmFn | None = None
+    """After a write the backend accepted, check it kept what was sent and add
+    what it did not to the envelope. A backend that ignores unknown fields
+    answers 2xx for a write it partly dropped. Never raises."""
 
 
 # Internal mutable map, frozen via ``MappingProxyType`` before export so
@@ -386,6 +399,44 @@ _REGISTRY: dict[str, WriteOperation] = {
             "diagnostics_unavailable",
             "diagnostics_not_enabled",
         ),
+    ),
+    "annotation_queue.create": WriteOperation(
+        name="annotation_queue.create",
+        prepare_fn=annotation_queue.prepare,
+        build_fn=annotation_queue.build,
+        decorate_fn=annotation_queue.decorate,
+        confirm_fn=annotation_queue.confirm_view,
+        dry_run_note_fn=annotation_queue.dry_run_note,
+        pydantic_model=observability.AnnotationQueueCreate,
+        endpoint="/v1/private/annotation-queues",
+        method="POST",
+        oauth_scope=SCOPE_ANNOTATION_QUEUE_CREATE,
+        supports_batch=False,
+        description=(
+            "Create a project's annotation queue of traces or threads to review; "
+            "annotator_view sets a custom HTML view, read_skill('opik-annotate') first."
+        ),
+        example=annotation_queue.ANNOTATION_QUEUE_CREATE_EXAMPLE,
+        failure_modes=("project_scope_missing",),
+    ),
+    "annotation_queue.update": WriteOperation(
+        name="annotation_queue.update",
+        prepare_fn=annotation_queue.prepare,
+        build_fn=annotation_queue.build,
+        decorate_fn=annotation_queue.decorate,
+        confirm_fn=annotation_queue.confirm_view,
+        dry_run_note_fn=annotation_queue.dry_run_note,
+        pydantic_model=observability.AnnotationQueueUpdate,
+        endpoint="/v1/private/annotation-queues",
+        method="PATCH",
+        oauth_scope=SCOPE_ANNOTATION_QUEUE_EDIT,
+        supports_batch=False,
+        description=(
+            "Change an annotation queue by id; only the fields passed change. "
+            "clear_annotator_view removes its custom view."
+        ),
+        example=annotation_queue.ANNOTATION_QUEUE_UPDATE_EXAMPLE,
+        failure_modes=("queue_not_found", "view_conflict"),
     ),
 }
 

@@ -27,7 +27,7 @@ def test_the_dispatcher_names_no_operation() -> None:
     assert named == [], (
         f"dispatch.py names {named}. Per-operation behaviour belongs in "
         "writes/operations/, wired through the hooks on the registry entry "
-        "(build_fn, prepare_fn, retry_fn, decorate_fn, dry_run_note_fn, validate_fn)."
+        "(build_fn, prepare_fn, retry_fn, decorate_fn, dry_run_note_fn, confirm_fn, validate_fn)."
     )
 
 
@@ -51,7 +51,14 @@ def test_every_hook_comes_from_an_operations_module(name: str) -> None:
     """A hook defined anywhere else would be the same coupling under a new
     name."""
     op = WRITE_REGISTRY[name]
-    hooks = (op.build_fn, op.prepare_fn, op.retry_fn, op.decorate_fn, op.dry_run_note_fn)
+    hooks = (
+        op.build_fn,
+        op.prepare_fn,
+        op.retry_fn,
+        op.decorate_fn,
+        op.dry_run_note_fn,
+        op.confirm_fn,
+    )
     for hook in hooks:
         if hook is None:
             continue

@@ -448,3 +448,35 @@ async def test_a_score_on_a_thread_lands_on_that_thread(mcp: Live, run_prefix: s
     assert [(s.get("name"), s.get("value")) for s in scores if isinstance(s, dict)] == [
         ("thread_check", 1.0)
     ]
+
+
+async def test_an_annotation_queue_view_is_set_read_back_by_size_and_cleared(
+    mcp: Live, run_prefix: str
+) -> None:
+    """Needs an Opik with custom annotator views; on an older one the create
+    answers with a warning instead, and the view never reads back."""
+    await _trace(mcp, run_prefix, f"{run_prefix}-queued")
+    queue_id = new_id()
+    html = "<script>kit.mount(({ trace }) => kit.h('p', { text: trace.name }));</script>"
+    created = await mcp.write(
+        "annotation_queue.create",
+        {
+            "id": queue_id,
+            "project_name": run_prefix,
+            "name": f"{run_prefix}-queue",
+            "scope": "trace",
+            "annotator_view": {"html": html, "summary": "Annotators see the trace name."},
+        },
+    )
+    assert "warning" not in created, created["warning"]
+    assert isinstance(created.get("url"), str), f"no link in {created}"
+
+    plain = await mcp.read("annotation_queue", queue_id)
+    assert _body(plain, "annotator_view")["html_chars"] == len(html)
+    assert html not in plain.text
+    whole = await mcp.read("annotation_queue", queue_id, fields=["annotator_view.html"])
+    assert html in whole.text
+
+    await mcp.write("annotation_queue.update", {"id": queue_id, "clear_annotator_view": True})
+    cleared = (await mcp.read("annotation_queue", queue_id)).record()
+    assert "annotator_view" not in cleared

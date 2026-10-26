@@ -87,7 +87,7 @@ alone.
 ("score this trace 0.8 on helpfulness", "comment 'retry with temperature=0' \
 on span X"). The full write surface is two tools: write (takes \
 operation + data; pass a list for batch) and schema (returns an op's JSON \
-Schema + bundled example). Operations covered by Phase 1: \
+Schema + bundled example). Operations: \
 {write_operations}. tools/list has what this connection advertises.
 - read_skill: Opik's own agent skills ({skill_names}) ship with this server. \
 Load the relevant one BEFORE instrumenting, evaluating, or debugging an Opik \

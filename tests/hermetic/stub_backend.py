@@ -169,6 +169,9 @@ class StubBackend:
     #: probe of that claim needs a collection the stub can grow past it.
     span_count: int = 1
     thread_turn_count: int = len(THREAD_TRACE_IDS)
+    #: ``False`` is an Opik from before custom views: it answers 201/204 to a
+    #: queue write that carries ``annotator_view`` and never stores the view.
+    annotation_queue_keeps_view: bool = True
     #: The Diagnostics job's state for the project, or ``None`` for "never
     #: enabled", which the backend spells as a 404, not as a record.
     agent_insights_job: dict[str, object] | None = field(
@@ -307,7 +310,7 @@ class StubBackend:
             "/v1/private/toggles/": lambda: load("toggles"),
             "/v1/private/agent-insights/issues": lambda: self._issue_page(query),
             "/v1/private/annotation-queues": lambda: page([annotation_queue_row()]),
-            queue: lambda: fill("annotation_queue"),
+            queue: self._annotation_queue,
         }
         if path in routes:
             return 200, routes[path]()
@@ -320,6 +323,12 @@ class StubBackend:
             issue = next((one for one in self.issues if one["id"] == issue_id), _issue())
             return 200, issue_details(issue)
         return 404, {"message": f"stub has no route for {method} {path}"}
+
+    def _annotation_queue(self) -> dict[str, object]:
+        queue = fill("annotation_queue")
+        if not self.annotation_queue_keeps_view:
+            queue.pop("annotator_view")
+        return queue
 
     def _dataset_routes(self, path: str, query: dict[str, list[str]]) -> tuple[int, object] | None:
         comparison = Comparison(self.suite, self.experiments)
@@ -422,6 +431,8 @@ _WRITE_ROUTES: tuple[tuple[str, re.Pattern[str], int], ...] = tuple(
         ("POST", "/v1/private/experiments", 201),
         ("POST", "/v1/private/experiments/items", 204),
         ("PUT", "/v1/private/traces/threads/(close|open)", 204),
+        ("POST", "/v1/private/annotation-queues", 201),
+        ("PATCH", f"/v1/private/annotation-queues/{_UUID}", 204),
         ("PATCH", f"/v1/private/agent-insights/issues/{_UUID}", 204),
     )
 )

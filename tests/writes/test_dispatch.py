@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 
 import httpx
 import pytest
 import respx
+from pydantic import BaseModel
 
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
+from opik_mcp.writes import dispatch
 from opik_mcp.writes.dispatch import run_write
 from opik_mcp.writes.errors import (
     AuthorizationDeniedError,
@@ -23,6 +26,7 @@ from opik_mcp.writes.errors import (
     BatchTooLargeError,
     ValidationFailedError,
 )
+from opik_mcp.writes.registry import WRITE_REGISTRY, WriteOperation
 from opik_mcp.writes.scopes import (
     ALL_WRITE_SCOPES,
     SCOPE_PROJECT_DATA_VIEW,
@@ -1476,5 +1480,60 @@ async def test_an_unreachable_backend__is_one_sentence_naming_the_write() -> Non
             await write_tool.run_write(
                 operation="trace.create",
                 data=WRITE_REGISTRY["trace.create"].example,
+                client=_client(),
+            )
+
+
+# --- confirm after the write --------------------------------------------- #
+
+_TRACE_ID = "0193a300-0000-7000-8000-00000000c001"
+
+
+async def _note_what_was_kept(
+    op: WriteOperation,
+    client: OpikClient,
+    items: list[BaseModel],
+    resp: httpx.Response,
+    out: dict[str, object],
+) -> None:
+    out["warning"] = f"checked {len(items)} item(s) of {op.name}, answered {resp.status_code}"
+
+
+def _with_confirm(monkeypatch: pytest.MonkeyPatch) -> None:
+    op = replace(WRITE_REGISTRY["trace.update"], confirm_fn=_note_what_was_kept)
+    monkeypatch.setattr(dispatch, "WRITE_REGISTRY", {**WRITE_REGISTRY, "trace.update": op})
+
+
+@pytest.mark.anyio
+async def test_confirm_runs_after_an_accepted_write_and_adds_to_the_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _with_confirm(monkeypatch)
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/traces/{_TRACE_ID}").mock(return_value=httpx.Response(204))
+        out = await run_write(
+            operation="trace.update",
+            data={"id": _TRACE_ID, "tags_to_add": ["checked"]},
+            client=_client(),
+        )
+    assert out["ok"] is True
+    assert out["warning"] == "checked 1 item(s) of trace.update, answered 204"
+
+
+@pytest.mark.anyio
+async def test_confirm_does_not_run_on_a_dry_run_or_a_rejected_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _with_confirm(monkeypatch)
+    preview = await run_write(
+        operation="trace.update", data={"id": _TRACE_ID, "tags_to_add": ["checked"]}, dry_run=True
+    )
+    assert "warning" not in preview
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.patch(f"/v1/private/traces/{_TRACE_ID}").mock(return_value=httpx.Response(422))
+        with pytest.raises(BackendError):
+            await run_write(
+                operation="trace.update",
+                data={"id": _TRACE_ID, "tags_to_add": ["checked"]},
                 client=_client(),
             )
