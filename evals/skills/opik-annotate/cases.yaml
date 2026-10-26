@@ -1,0 +1,18 @@
+# Test cases for the `/opik-annotate` skill.
+#
+# triggering only: scripts/skills_trigger_eval.py scores every skill's
+# description against these phrases. A functional harness (a seeded queue, a
+# grader for the saved view) is not built yet.
+
+triggering:
+  should_trigger:
+    - "build a custom annotator view"
+    - "set up an annotation queue"
+    - "make the review queue show the email and the reply side by side"
+    - "change what annotators see in the queue"
+    - "remove the custom view from my annotation queue"
+  should_not_trigger:
+    - "score production traces automatically"      # online-eval
+    - "which traces need attention"                # diagnose
+    - "add opik tracing to my app"                 # instrument
+    - "what's the weather in San Francisco"        # none

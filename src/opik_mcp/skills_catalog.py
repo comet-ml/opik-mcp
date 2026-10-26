@@ -120,6 +120,7 @@ SKILL_SUMMARIES: dict[str, str] = {
         '"is this safe to ship", "can I merge this", "go/no-go on this change", "gate '
         'this release" — a ship/hold verdict against a release policy.'
     ),
+    "opik-annotate": '"build a custom annotator view", "set up an annotation queue".',
 }
 
 #: Content types by suffix. Markdown is what skills are made of; the rest cover
@@ -463,10 +464,8 @@ def read_skill_tool_description() -> str:
     return (
         "Load one Opik agent skill — the same skills Opik publishes for coding "
         "agents. Use it when the skill you need is not already in your context.\n\n"
-        "WHEN TO CALL: before instrumenting, evaluating, or debugging with Opik, "
-        "when the relevant skill below is NOT already loaded — no local copy in "
-        "the project, and nothing fetched earlier this session. If you already "
-        "have it, read what you have instead of fetching it again.\n\n"
+        "WHEN TO CALL: before instrumenting, evaluating, or debugging with Opik — "
+        "no local copy in the project, nothing fetched earlier this session.\n\n"
         # The instruction lives here, once — repeating "fetch this skill when" on
         # every line would spend five times the tokens saying one thing five times.
         f"Match the user's task to a skill:\n{catalog}\n\n"

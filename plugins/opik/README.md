@@ -21,7 +21,8 @@ To change the URL later, run `/plugin configure opik@opik`.
 
 - **Skills:** `opik` (the SDK reference) and `opik-instrument`,
   `opik-diagnose`, `opik-explain`, `opik-evaluate`, `opik-compare`,
-  `opik-test`, `opik-verify`, `opik-online-eval` and `opik-optimize`.
+  `opik-test`, `opik-verify`, `opik-online-eval`, `opik-optimize` and
+  `opik-annotate`.
 - **MCP server `opik-mcp`:** by default, Comet's hosted server at
   `https://www.comet.com/opik/api/v1/mcp`. You sign in once in the browser
   (OAuth); there is no API key to set. Its tools are `read`, `list`, `write`,
