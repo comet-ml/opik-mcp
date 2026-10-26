@@ -52,9 +52,16 @@ FROM python:3.13-slim-bookworm AS runtime
 
 # tini gives us a real PID 1 that forwards SIGTERM to uvicorn promptly,
 # so graceful shutdown actually completes within the K8s terminationGracePeriod.
+#
+# `apt-get upgrade` because the base image lags Debian security updates
+# (libssl3 was a week behind in the weekly Trivy scan). pip is uninstalled
+# because nothing in the runtime image uses it (the venv has none) and its
+# vendored urllib3, msgpack and setuptools are what Trivy flags otherwise.
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends tini \
     && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall -y pip \
     && useradd --create-home --shell /bin/bash --uid 1000 app
 
 WORKDIR /app
