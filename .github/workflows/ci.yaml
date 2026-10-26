@@ -356,3 +356,7 @@ jobs:
             ${{ github.ref_name == 'main' && format('{0}:main', env.IMAGE) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # The runtime stage runs apt-get upgrade; a cached layer would keep
+          # the Debian packages of the build that first made it. The stage is
+          # one apt install and a venv copy, so rebuilding it costs little.
+          no-cache-filters: runtime
