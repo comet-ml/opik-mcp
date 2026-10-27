@@ -334,7 +334,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.sha }}
           fetch-depth: 0
