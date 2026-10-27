@@ -211,9 +211,9 @@ description and `schema` follow. Also:
 
 ## Log
 
+- 2026-10-23: `annotation_queue.create` and `.update`; a `confirm` stage reads a write back after the send (OPIK-8951).
 - 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/409/422 adds a capped `backend_message` (OPIK-8496).
 - 2026-09-25: operation models and examples moved from `models.py` into `writes/operations/`; write errors became plain classes (OPIK-8496).
-- 2026-10-23: `annotation_queue.create` and `.update`; a `confirm` stage reads a write back after the send (OPIK-8951).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).
 - 2026-09-22: `item_count` counts records inside an envelope; a large upsert had reported 1 (#199).
 - 2026-09-17: `test_suite.*` writes became `dataset.create` and `dataset_item.upsert`; a suite is a dataset (#190).
