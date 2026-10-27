@@ -19,7 +19,12 @@ from opik_mcp.read_list.handler import EntityHandler, Vocabulary
 from opik_mcp.read_list.paging import name_candidates, page_items
 from opik_mcp.read_list.project_scope import scope_of
 from opik_mcp.read_list.size import estimate_tokens
-from opik_mcp.read_list.ui_links import project_page_url, scoped_entity_links
+from opik_mcp.read_list.ui_links import (
+    link_workspace,
+    opik_ui_base,
+    project_page_url,
+    scoped_entity_links,
+)
 from opik_mcp.read_list.uri import opik_uri
 
 VOCABULARY = Vocabulary(
@@ -99,8 +104,22 @@ def _with_project(filters: object, project_id: str) -> str:
     return json.dumps(clauses, separators=(",", ":"))
 
 
+def annotator_page_url(settings: Settings, queue_id: str) -> str | None:
+    """The page annotators work the queue on, which the UI keeps outside the project."""
+    base = opik_ui_base(settings)
+    workspace = link_workspace(settings)
+    if base is None or workspace is None:
+        return None
+    return f"{base}/{workspace}/sme?queueId={queue_id}"
+
+
 def queue_links(settings: Settings, data: dict[str, object]) -> dict[str, str]:
-    return scoped_entity_links(settings, data, area="annotation-queues", noun="annotation queue")
+    links = scoped_entity_links(settings, data, area="annotation-queues", noun="annotation queue")
+    queue_id = data.get("id")
+    annotator_url = (
+        annotator_page_url(settings, queue_id) if isinstance(queue_id, str) and queue_id else None
+    )
+    return {**links, "annotator_url": annotator_url} if annotator_url is not None else links
 
 
 def row_link_template(settings: Settings, project_id: str | None) -> str | None:
@@ -114,7 +133,8 @@ def plain_read_view(record: dict[str, object]) -> dict[str, object]:
     html = view.get("html") if isinstance(view, Mapping) else None
     if not isinstance(view, Mapping) or not isinstance(html, str) or not html:
         return {
-            **{key: value for key, value in record.items() if key != "annotator_view"},
+            **record,
+            "annotator_view": None,
             "annotatorViewHtml": (
                 "none: this queue has no custom view, so annotators see the default one"
             ),
@@ -148,6 +168,7 @@ HANDLER = EntityHandler(
     description=(
         "A project's annotation queue: the traces or threads people review and score. "
         "A read states its custom annotator view's html by size; "
-        "fields=['annotator_view.html'] returns it whole."
+        "fields=['annotator_view.html'] returns it whole. "
+        "A queue with no custom view says so."
     ),
 )

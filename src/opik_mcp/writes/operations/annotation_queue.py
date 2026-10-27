@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from opik_mcp.client.errors import OpikNotFoundError
 from opik_mcp.client.opik import OpikClient
 from opik_mcp.config import Settings
+from opik_mcp.read_list.entities.annotation_queue import annotator_page_url
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
 from opik_mcp.read_list.ui_links import project_page_url
@@ -111,9 +112,11 @@ def decorate(
 ) -> None:
     """The queue's page when the caller named its id, else the project's queues;
     ``confirm_view`` links a queue the backend chose the id for."""
+    queue_id = getattr(items[0], "id", None)
+    if queue_id is not None:
+        _add_annotator_url(out, settings, str(queue_id))
     if project_id is None:
         return
-    queue_id = getattr(items[0], "id", None)
     url = project_page_url(
         settings,
         project_id,
@@ -122,6 +125,12 @@ def decorate(
     )
     if url is not None:
         out["url"] = url
+
+
+def _add_annotator_url(out: dict[str, object], settings: Settings, queue_id: str) -> None:
+    annotator_url = annotator_page_url(settings, queue_id)
+    if annotator_url is not None:
+        out["annotator_url"] = annotator_url
 
 
 async def confirm_view(
@@ -151,6 +160,7 @@ async def confirm_view(
             )
             if url is not None:
                 out["url"] = url
+            _add_annotator_url(out, settings, queue_id)
     if queue_id is None:
         if carried_html:
             out["warning"] = _VIEW_UNCONFIRMED

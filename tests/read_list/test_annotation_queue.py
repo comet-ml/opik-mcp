@@ -100,8 +100,29 @@ async def test_a_queue_without_a_view_says_annotators_see_the_default() -> None:
     )
 
     body = json.loads(out.split("\n", 1)[1])
-    assert "annotator_view" not in body
+    assert body["annotator_view"] is None
     assert body["annotatorViewHtml"].startswith("none")
+
+
+@pytest.mark.anyio
+async def test_a_cleared_view_reads_the_same_as_one_never_set() -> None:
+    never_set = FakeQueues(record=_queue(annotator_view=None))
+    cleared = FakeQueues(record=_queue(annotator_view={"kit_version": 1}))
+    bodies = [
+        json.loads(
+            (
+                await run_read(
+                    "annotation_queue",
+                    QUEUE_ID,
+                    settings=_settings(),
+                    client=cast("OpikReadClient", fake),
+                )
+            ).split("\n", 1)[1]
+        )
+        for fake in (never_set, cleared)
+    ]
+
+    assert bodies[0] == bodies[1]
 
 
 @pytest.mark.anyio
@@ -171,6 +192,7 @@ async def test_a_read_links_the_queue_page_under_its_project() -> None:
     assert body["url"] == (
         f"https://opik.test/demo-ws/projects/{PROJECT_ID}/annotation-queues/{QUEUE_ID}"
     )
+    assert body["annotator_url"] == f"https://opik.test/demo-ws/sme?queueId={QUEUE_ID}"
 
 
 @pytest.mark.anyio

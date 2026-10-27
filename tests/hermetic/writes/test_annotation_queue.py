@@ -56,6 +56,7 @@ CASES: tuple[WriteCase, ...] = (
             ),
         ),
         url_suffix=f"{QUEUES}/{ANNOTATION_QUEUE_ID}",
+        extra_keys=frozenset({"annotator_url"}),
     ),
     WriteCase(
         case_id="annotation_queue.update-clears-the-view",
@@ -69,6 +70,7 @@ CASES: tuple[WriteCase, ...] = (
             ),
         ),
         url_suffix=f"{QUEUES}/{ANNOTATION_QUEUE_ID}",
+        extra_keys=frozenset({"annotator_url"}),
     ),
     WriteCase(
         case_id="annotation_queue.update-on-an-opik-without-views",
@@ -83,7 +85,7 @@ CASES: tuple[WriteCase, ...] = (
         ),
         url_suffix=f"{QUEUES}/{ANNOTATION_QUEUE_ID}",
         arrange=_drops_views,
-        extra_keys=frozenset({"warning"}),
+        extra_keys=frozenset({"annotator_url", "warning"}),
     ),
 )
 

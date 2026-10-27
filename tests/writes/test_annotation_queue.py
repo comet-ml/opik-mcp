@@ -20,6 +20,7 @@ QUEUE_ID = "0193a300-0000-7000-8000-00000000a001"
 VIEW = {"html": "<script>kit.mount(() => kit.h('p', { text: 'hi' }));</script>"}
 SETTINGS = Settings(opik_api_key="key-abc", comet_workspace="ws", opik_url=f"{OPIK_BASE}/api")
 QUEUE_PAGE = f"{OPIK_BASE}/ws/projects/{PROJECT_ID}/annotation-queues"
+ANNOTATOR_PAGE = f"{OPIK_BASE}/ws/sme?queueId={QUEUE_ID}"
 
 
 @pytest.fixture
@@ -63,6 +64,7 @@ async def test_create_sends_the_view_with_the_kit_version_and_links_the_queue() 
     assert sent["annotator_view"] == {**VIEW, "kit_version": 1}
     assert sent["project_id"] == PROJECT_ID
     assert out["url"] == f"{QUEUE_PAGE}/{QUEUE_ID}"
+    assert out["annotator_url"] == ANNOTATOR_PAGE
     assert "id" not in out, "the caller already has the id it sent"
     assert "warning" not in out
 
@@ -82,6 +84,7 @@ async def test_a_create_without_an_id_answers_with_the_id_the_backend_chose() ->
         )
     assert out["id"] == QUEUE_ID
     assert out["url"] == f"{QUEUE_PAGE}/{QUEUE_ID}"
+    assert out["annotator_url"] == ANNOTATOR_PAGE
     assert not read_back.called
 
 
@@ -148,6 +151,7 @@ async def test_clearing_the_view_sends_an_empty_object_and_reads_nothing_back() 
     assert json.loads(patch.calls.last.request.content) == {"annotator_view": {}}
     assert get.call_count == 1, "only the project lookup before the write"
     assert out["url"] == f"{QUEUE_PAGE}/{QUEUE_ID}"
+    assert out["annotator_url"] == ANNOTATOR_PAGE
     assert "warning" not in out
 
 

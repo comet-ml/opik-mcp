@@ -55,7 +55,7 @@ MCP: `write('annotation_queue.create', {project_name, name, scope, instructions?
 Without the MCP: `PATCH /v1/private/annotation-queues/{id}` (or `POST /v1/private/annotation-queues`) with the same body as JSON, `annotator_view: {}` to clear, `kit_version: 1` beside `html`. Reading it back is then yours to do: `GET /v1/private/annotation-queues/{id}` returns `annotator_view` when it was stored.
 
 ### 6. Report
-The queue link, one sentence on what reviewers now see, and where to check it: the queue's **Edit → Annotator view → Preview** shows the view on sample items. Offer two or three next edits that fit the data ("fold the tool calls", "hide the judge scores until revealed").
+The queue link, one sentence on what reviewers now see, and where to check it: the queue's **Edit → Annotator view → Preview** shows the view on sample items, and `annotator_url` opens the page reviewers work the queue on. Offer two or three next edits that fit the data ("fold the tool calls", "hide the judge scores until revealed").
 
 ## Blockers
 
@@ -71,7 +71,7 @@ Stop at the **earliest** and return **exactly one** next step:
 
 **Underneath**, one shape:
 - `status`: `saved` | `cleared` | `view_dropped` | `blocked`
-- `queue`: `id`, `name`, `scope`, `url`
+- `queue`: `id`, `name`, `scope`, `url`, `annotator_url`
 - `view`: `summary`, `html_chars`, `shapes_covered` (how many input/output shapes the view handles, of how many seen)
 - `sampled_from`: `queue_items` | `project_latest`
 - `source`: `mcp` | `rest`

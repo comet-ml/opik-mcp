@@ -311,6 +311,11 @@ CLAIMS: tuple[Claim, ...] = (
         "fields=['annotator_view.html'] returns it whole",
         "annotation_queue_html_by_size_then_whole",
     ),
+    Claim(
+        "annotation_queue",
+        "A queue with no custom view says so",
+        "annotation_queue_without_a_view_says_so",
+    ),
     # -- agent_insights_issue --------------------------------------------------------- #
     Claim(
         "agent_insights_issue",
@@ -803,6 +808,14 @@ async def _annotation_queue_html(drive: Driver) -> None:
         fields=["annotator_view.html"],
     )
     assert ANNOTATOR_VIEW_HTML in whole
+
+
+@probe("annotation_queue_without_a_view_says_so")
+async def _annotation_queue_without_a_view(drive: Driver) -> None:
+    drive.backend.annotation_queue_keeps_view = False
+    plain = await drive.read_json(entity_type="annotation_queue", id=ANNOTATION_QUEUE_ID)
+    assert plain["annotator_view"] is None
+    assert plain["annotatorViewHtml"].startswith("none")
 
 
 @probe("online_rule_is_where_score_names_come_from")

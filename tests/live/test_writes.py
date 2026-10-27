@@ -470,6 +470,7 @@ async def test_an_annotation_queue_view_is_set_read_back_by_size_and_cleared(
     )
     assert "warning" not in created, created["warning"]
     assert isinstance(created.get("url"), str), f"no link in {created}"
+    assert str(created.get("annotator_url")).endswith(f"/sme?queueId={queue_id}"), created
 
     plain = await mcp.read("annotation_queue", queue_id)
     assert _body(plain, "annotator_view")["html_chars"] == len(html)
@@ -479,4 +480,4 @@ async def test_an_annotation_queue_view_is_set_read_back_by_size_and_cleared(
 
     await mcp.write("annotation_queue.update", {"id": queue_id, "clear_annotator_view": True})
     cleared = (await mcp.read("annotation_queue", queue_id)).record()
-    assert "annotator_view" not in cleared
+    assert cleared["annotator_view"] is None

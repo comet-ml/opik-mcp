@@ -24,14 +24,16 @@ Opik UI.
 - List rows never carry the view; the backend selects it only by id.
 
 `read('annotation_queue', id_or_name)` returns the queue with a link to its
-page under the project.
+page under the project, and `annotator_url`, the page annotators work it on
+(`/{workspace}/sme?queueId={id}`).
 
 - A plain read does not inline `annotator_view.html`. `annotator_view` carries
   `summary`, `kit_version` and `html_chars`, and `annotatorViewHtml` states
   the size and the call that returns it:
   `read('annotation_queue', '<id>', fields=['annotator_view.html'])`.
-- A queue with no view says so in `annotatorViewHtml`, and
-  `fields=['annotator_view.html']` answers `null` for it.
+- A queue with no view, never set or cleared, reads `annotator_view: null` and
+  says so in `annotatorViewHtml`; `fields=['annotator_view.html']` answers
+  `null` for it.
 - `fields=[…]` sees the whole record, html included.
 
 `list('trace' | 'thread', filters='annotation_queue_ids contains "<id>"')`
@@ -48,8 +50,9 @@ default is not added: a queue also holds playground and experiment traces.
 - `annotator_view` is `{html, kit_version, summary}`: html up to 200,000
   characters, `kit_version` 1 (the default), summary up to 1,000. The limits
   are checked before anything is sent.
-- The answer links the queue's page. A create without an `id` answers with
-  the `id` the backend chose, read from the response's `Location`.
+- The answer links the queue's page and its `annotator_url`. A create without
+  an `id` answers with the `id` the backend chose, read from the response's
+  `Location`.
 - A name several projects share lists each queue with its project.
 - A write that carried html reads the queue back. When the view is not there,
   the answer is still `ok` and adds a `warning` that this Opik did not store
@@ -106,7 +109,7 @@ write        -> writes/registry.py ("annotation_queue.*")
 
 ## Proven by
 
-- Reads, the html notice, the project clause, the link:
+- Reads, the html notice, the project clause, the links:
   `tests/read_list/test_annotation_queue.py`,
   `test_a_read_view_shapes_a_read_without_fields_only`.
 - The queue filter keeps every source:
