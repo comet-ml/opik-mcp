@@ -73,8 +73,8 @@ kit reference in opik's frontend, the only API a view can use.
 ```
 read / list  -> read_list/entities/annotation_queue.py  -> client/annotation_queue.py
 write        -> writes/registry.py ("annotation_queue.*")
-             -> writes/operations/annotation_queue.py (prepare, build, decorate, confirm_view)
-             -> models in writes/operations/observability.py
+             -> writes/operations/annotation_queue/__init__.py (prepare, build, decorate, confirm_view)
+             -> models in writes/operations/annotation_queue/models.py
 ```
 
 - What a plain read shows: `plain_read_view`, wired as the entity's
@@ -102,8 +102,9 @@ write        -> writes/registry.py ("annotation_queue.*")
   view as saved. It runs only when html was sent (OPIK-8951).
 - Write scope is create and update. Adding items is a separate change; delete
   stays out, as for every other operation ([writes](../writes/design-doc.md)).
-- The models sit in `observability.py`, which is on the `Any` baseline; the
-  hooks module is typed strictly. See the writes doc for why.
+- The models sit in `annotation_queue/models.py`, a module of models only on
+  the `Any` baseline, so the hooks module stays typed strictly. See the writes
+  doc for why.
 - The kit reference is a copy pinned to the `kit_version` the writes send,
   re-copied by hand when Opik changes the kit (`test_annotate_kit.py`).
 

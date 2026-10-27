@@ -1,6 +1,6 @@
 """The annotation queue writes over both transports, and the view an older Opik drops.
 
-Their hooks are ``src/opik_mcp/writes/operations/annotation_queue.py``. A write
+Their hooks are ``src/opik_mcp/writes/operations/annotation_queue/__init__.py``. A write
 that carries a view reads the queue back; the stub's
 ``annotation_queue_keeps_view`` plays an Opik from before custom views.
 """

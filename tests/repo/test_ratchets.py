@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import re
 import subprocess
@@ -13,6 +14,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from pydantic import BaseModel
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONFIG = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
@@ -171,15 +173,27 @@ def test_every_mypy_entry_still_uses_any(tmp_path: Path) -> None:
     assert "Found" in result.stdout, (
         f"mypy did not run as expected:\n{result.stdout}{result.stderr}"
     )
-    findings = re.findall(r"^(\S+\.py):\d+: error: .*\[explicit-any\]$", result.stdout, re.M)
-    flagged = {_module_name(path) for path in findings}
+    located = re.findall(r"^(\S+\.py):(\d+): error: .*\[explicit-any\]$", result.stdout, re.M)
+    flagged = {_module_name(path) for path, _ in located}
     stale = sorted(set(MYPY_BASELINE) - flagged)
     assert not stale, f"typed but still excused in pyproject.toml, remove them: {stale}"
+    # mypy flags every Pydantic model on its class line, for the Any inside
+    # BaseModel; that is not debt this code can pay off, so it is not counted.
+    findings = [path for path, line in located if not _is_pydantic_model(path, int(line))]
     # A split may spread one entry over its new modules; the findings may not grow.
     assert len(findings) == RATCHETS["explicit_any_findings"], (
         f"{len(findings)} explicit-Any findings, tests/repo/ratchets.json records "
         f"{RATCHETS['explicit_any_findings']}. Fix a new one; after typing one, lower the count."
     )
+
+
+def _is_pydantic_model(path: str, line: int) -> bool:
+    source = (REPO_ROOT / path).read_text().splitlines()[line - 1]
+    declared = re.match(r"class (\w+)\b", source)
+    if declared is None:
+        return False
+    model = getattr(importlib.import_module(_module_name(path)), declared.group(1), None)
+    return isinstance(model, type) and issubclass(model, BaseModel)
 
 
 def _module_name(path: str) -> str:

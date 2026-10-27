@@ -10,7 +10,7 @@ update ``metadata.source_commit`` when Opik bumps or edits the kit.
 from __future__ import annotations
 
 from opik_mcp import skills_catalog as catalog
-from opik_mcp.writes.operations.observability import KIT_VERSION
+from opik_mcp.writes.operations.annotation_queue.models import KIT_VERSION
 from tests.factories import make_settings
 
 SETTINGS = make_settings(opik_api_key="k", comet_workspace="ws")

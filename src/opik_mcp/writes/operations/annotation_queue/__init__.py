@@ -20,7 +20,7 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.project_scope import resolve_project_id
 from opik_mcp.read_list.ui_links import project_page_url
 from opik_mcp.writes.models import example_uuid
-from opik_mcp.writes.operations.observability import AnnotationQueueUpdate
+from opik_mcp.writes.operations.annotation_queue.models import AnnotationQueueUpdate
 from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only

@@ -119,7 +119,10 @@ server.write                  src/opik_mcp/server/tools/write.py
   beside its builder in `src/opik_mcp/writes/operations/`, and the registry
   entry points at both. The thread lifecycle models are in `observability.py`
   instead of `threads.py`: mypy reads a Pydantic model as explicit `Any`, and
-  `threads.py` is outside the `Any` baseline. `src/opik_mcp/writes/models.py`
+  `threads.py` is outside the `Any` baseline. The annotation queue models have
+  their own module, `annotation_queue/models.py`, on the baseline; the
+  `explicit_any_findings` count skips a Pydantic model's class line, so such a
+  module adds nothing to it. `src/opik_mcp/writes/models.py`
   keeps only the shared mixins, field types and example helpers.
 - To change what one operation sends or resolves, start at its hook in
   `src/opik_mcp/writes/operations/`. Hook types are in
