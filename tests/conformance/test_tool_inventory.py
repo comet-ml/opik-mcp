@@ -106,6 +106,11 @@ from opik_mcp.server import mcp
 #           description, since the `skill_name` argument documents that form.
 #           -94 bytes; the description is 2,036 characters and now fits the
 #           2,048-character host cut.
+#   23,073  OPIK-8951 — `annotation_queue` joins the read and list enums,
+#           the two queue operations join the write and schema enums and the
+#           write description, and `read_skill` routes to `opik-annotate`
+#           after its intro stops repeating "if not already loaded" (1,986
+#           characters). +694 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -172,6 +177,7 @@ EXPECTED_TOOLS: frozenset[str] = frozenset(EXPECTED_TOOL_ORDER)
 EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
     "read": (
         "agent_insights_issue",
+        "annotation_queue",
         "dataset",
         "dataset_item",
         "experiment",
@@ -183,6 +189,7 @@ EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
     ),
     "list": (
         "agent_insights_issue",
+        "annotation_queue",
         "dataset",
         "dataset_item",
         "experiment",
@@ -364,6 +371,9 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # in test_tool_annotations.py. Lower this to match once the text fits.
 # An AI Spend workspace adds one paragraph: 4,897 bytes with the longest
 # settings, +186 over the default text, which is unchanged at 4,711.
+# 4,811 with the longest settings after OPIK-8951 (4,765 before it): the two
+# queue operations and opik-annotate are named, and "covered by Phase 1"
+# leaves the write line.
 INSTRUCTIONS_BUDGET_BYTES = 5_000
 
 

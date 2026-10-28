@@ -29,9 +29,11 @@ promises, what comes back on success and failure, and where to change or add an 
 ```
 
 - `item_count` counts the records sent, inside the envelope where there is one.
-- `url` is one UI link per call on observability and thread writes: the row
-  for a single write, the Logs view for a batch. It needs a known project id;
-  a `project_name` alone gives no link.
+- `url` is one UI link per call on observability, thread and annotation queue
+  writes: the row for a single write, the Logs view for a batch. It needs a
+  known project id; a `project_name` alone gives no link.
+- `warning`, on an annotation queue write, says the backend accepted the write
+  but did not keep the annotator view, or that the view could not be confirmed.
 - A dry run returns `{"dry_run": true, "would_call": {...}}` with method, path,
   body, item count and a `note` where the preview cannot be exact.
 
@@ -97,7 +99,7 @@ the default `ALL_WRITE_SCOPES` applies and every call passes today.
 server.write                  src/opik_mcp/server/tools/write.py
   -> write_tool.run_write     src/opik_mcp/writes/write_tool.py  (WriteError -> ToolError)
   -> dispatch.run_write       src/opik_mcp/writes/dispatch.py
-     lookup, validate, authorize, prepare, build, send, retry, finalize, decorate
+     lookup, validate, authorize, prepare, build, send, retry, finalize, decorate, confirm
   -> OpikClient.write_json    src/opik_mcp/client/base.py
 ```
 
@@ -105,13 +107,22 @@ server.write                  src/opik_mcp/server/tools/write.py
 - retry: after the send, a hook may reread the answer and send a follow-up
   (a Diagnostics enable that gets 409 switches the existing job on).
 - finalize: a non-2xx status becomes `backend_error`, a 2xx the success result.
+- confirm: after a 2xx, a hook adds what only the response or a read-back
+  shows: the id in `Location` of a record created without one, or a `warning`
+  when the backend did not keep what was sent. A backend that ignores unknown
+  fields answers 2xx for a write it partly dropped (an annotator view on an
+  Opik without custom views). It does not run on a dry run, and an error it
+  raises is logged and dropped, since the write already happened.
 
 - To change an operation's endpoint, method, scope or batch support, start at
   `src/opik_mcp/writes/registry.py`. Each operation's model and example sit
   beside its builder in `src/opik_mcp/writes/operations/`, and the registry
   entry points at both. The thread lifecycle models are in `observability.py`
   instead of `threads.py`: mypy reads a Pydantic model as explicit `Any`, and
-  `threads.py` is outside the `Any` baseline. `src/opik_mcp/writes/models.py`
+  `threads.py` is outside the `Any` baseline. The annotation queue models have
+  their own module, `annotation_queue/models.py`, on the baseline; the
+  `explicit_any_findings` count skips a Pydantic model's class line, so such a
+  module adds nothing to it. `src/opik_mcp/writes/models.py`
   keeps only the shared mixins, field types and example helpers.
 - To change what one operation sends or resolves, start at its hook in
   `src/opik_mcp/writes/operations/`. Hook types are in
@@ -203,6 +214,7 @@ description and `schema` follow. Also:
 
 ## Log
 
+- 2026-10-23: `annotation_queue.create` and `.update`; a `confirm` stage reads a write back after the send (OPIK-8951).
 - 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/409/422 adds a capped `backend_message` (OPIK-8496).
 - 2026-09-25: operation models and examples moved from `models.py` into `writes/operations/`; write errors became plain classes (OPIK-8496).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).

@@ -28,9 +28,10 @@
       "title": "Dataset Id"
     },
     "entity_type": {
-      "description": "One of: agent_insights_issue, dataset, dataset_item, experiment, online_rule, project, project_metric, prompt, prompt_version, score_name, span, thread, trace.",
+      "description": "One of: agent_insights_issue, annotation_queue, dataset, dataset_item, experiment, online_rule, project, project_metric, prompt, prompt_version, score_name, span, thread, trace.",
       "enum": [
         "agent_insights_issue",
+        "annotation_queue",
         "dataset",
         "dataset_item",
         "experiment",

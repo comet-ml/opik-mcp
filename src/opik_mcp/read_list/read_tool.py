@@ -59,7 +59,15 @@ def _format_ambiguous(entity_type: str, name: str, candidates: list[dict[str, An
         "Use read() with one of these UUIDs (or ask the user which they mean):",
     ]
     lines.extend(
-        short_list([f"  - id={c.get('id')}, name={c.get('name', '')!r}" for c in candidates])
+        short_list(
+            [
+                f"  - id={c.get('id')}, name={c.get('name', '')!r}"
+                + "".join(
+                    f", {key}={value!r}" for key, value in c.items() if key not in ("id", "name")
+                )
+                for c in candidates
+            ]
+        )
     )
     return "\n".join(lines)
 
@@ -229,6 +237,8 @@ async def run_read(
 
         wanted = normalise(fields)
         if wanted is None:
+            if handler.read_view_fn is not None:
+                data = handler.read_view_fn(data)
             payload = compact_json(data)
             header = size_header(
                 entity_type, record_id, estimate_tokens(payload), **_link_hint(entity_type, data)
@@ -259,7 +269,11 @@ async def run_read(
         note = marker(
             kept=kept,
             omitted=omitted,
-            whole=f"{whole} without fields returns the record whole.",
+            whole=(
+                f"{whole} without fields returns the record, its long fields stated by size."
+                if handler.read_view_fn is not None
+                else f"{whole} without fields returns the record whole."
+            ),
         )
         return f"{header}\n{note}\n{payload}"
 

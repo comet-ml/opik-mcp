@@ -879,6 +879,24 @@ async def test_negating_a_type_is_refused_through_the_tool_with_the_rewrite() ->
 # --- a filter on an experiment is a drill-in, not a triage ------------------ #
 
 EXPERIMENT = "019fada0-fcb8-73eb-a946-827d4135f028"
+QUEUE = "019fada0-fcb8-73eb-a946-827d4135f060"
+
+
+@pytest.mark.anyio
+async def test_a_filter_on_an_annotation_queue_gets_no_sdk_default_on_top() -> None:
+    """A queue holds whatever was sent to it for review, playground and
+    experiment traces included; the default would hide those from the sample a
+    custom annotator view is designed against."""
+    fake = FakeOpikClient(traces=_page([{"id": "t-1", "name": "reply"}]))
+    await run_list(
+        "trace",
+        project_id="p-1",
+        filters=f'annotation_queue_ids contains "{QUEUE}"',
+        client=fake,
+    )
+    assert _sent_filters(fake) == [
+        {"field": "annotation_queue_ids", "operator": "contains", "key": "", "value": QUEUE}
+    ]
 
 
 @pytest.mark.anyio

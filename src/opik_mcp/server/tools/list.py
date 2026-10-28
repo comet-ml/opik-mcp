@@ -259,6 +259,7 @@ async def list_entities(
       names — trace, span and thread scores together, paged, no id)
     - online_rule: project_id or project_name (the automation rules scoring
       this project's traces)
+    - annotation_queue: project_id or project_name; takes `name`, `filters`, `sort`
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
     - dataset_item: dataset_id, or experiment_ids to compare runs case by case.

@@ -40,6 +40,9 @@ THREAD_MODEL_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000032"
 PROMPT_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000040"
 PROMPT_NAME = "refund-answer"
 ISSUE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000050"
+ANNOTATION_QUEUE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000060"
+ANNOTATION_QUEUE_NAME = "reply-review"
+ANNOTATOR_VIEW_HTML = "<script>kit.mount(({ trace }) => kit.card(trace.output));</script>"
 
 #: What the backend stores for a test suite, on the dataset's ``type`` and on
 #: the experiment's ``evaluation_method``. Not ``test_suite``: opik-backend's
@@ -64,6 +67,9 @@ _IDS: dict[str, object] = {
     "prompt_id": PROMPT_ID,
     "prompt_name": PROMPT_NAME,
     "issue_id": ISSUE_ID,
+    "annotation_queue_id": ANNOTATION_QUEUE_ID,
+    "annotation_queue_name": ANNOTATION_QUEUE_NAME,
+    "annotator_view_html": ANNOTATOR_VIEW_HTML,
     "suite_id": SUITE_ID,
     "test_suite_method": TEST_SUITE_METHOD,
 }
@@ -243,3 +249,10 @@ def metric_results(body: dict[str, object], *, recorded: set[str]) -> dict[str, 
     metric = str(body.get("metric_type"))
     series = fill("metrics", metric_type=metric)
     return {"results": series.get(metric, series["OTHER"])}
+
+
+def annotation_queue_row() -> dict[str, object]:
+    """A queue as the list endpoint sends it: never with its annotator view."""
+    queue = fill("annotation_queue")
+    queue.pop("annotator_view")
+    return queue

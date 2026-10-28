@@ -127,6 +127,13 @@ async def run_write(
     )
     if op.decorate_fn is not None:
         op.decorate_fn(op, items, out, resolved_settings, prepared)
+    if op.confirm_fn is not None:
+        try:
+            await op.confirm_fn(op, http_client, items, resp, out, resolved_settings, prepared)
+        except Exception:
+            logger.warning(
+                "confirm after %s failed; the write itself succeeded", op.name, exc_info=True
+            )
     return out
 
 

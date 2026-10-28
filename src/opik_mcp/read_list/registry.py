@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from opik_mcp.read_list.entities import (
     agent_insights_issue,
+    annotation_queue,
     dataset,
     experiment,
     online_rule,
@@ -44,6 +45,7 @@ ENTITY_REGISTRY: dict[str, EntityHandler] = {
         score_name.HANDLER,
         online_rule.HANDLER,
         agent_insights_issue.HANDLER,
+        annotation_queue.HANDLER,
         *spend.HANDLERS,
     )
 }

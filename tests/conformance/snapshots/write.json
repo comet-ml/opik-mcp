@@ -53,7 +53,9 @@
         "agent_insights_issue.close",
         "agent_insights_issue.reopen",
         "agent_insights_job.enable",
-        "agent_insights_job.trigger"
+        "agent_insights_job.trigger",
+        "annotation_queue.create",
+        "annotation_queue.update"
       ],
       "title": "Operation",
       "type": "string"

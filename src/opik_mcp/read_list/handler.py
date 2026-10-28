@@ -380,6 +380,16 @@ class EntityHandler:
     keys; ``read`` strips those before rendering. Return ``{}`` when Opik's
     URL or the workspace cannot be known: no link beats a wrong one.
     """
+    read_view_fn: RowFn | None = None
+    """Optional: what a ``read`` without ``fields`` shows of the record.
+
+    For a record whose own field is too large to hand over by default, such
+    as a page of HTML. Called after the links are attached, and only when the
+    caller named no ``fields``, so ``fields=[…]`` still finds the field whole.
+    Whatever it leaves out, it states in the record with its size and the
+    ``fields`` call that returns it: a cut the caller cannot see is a wrong
+    answer.
+    """
     run_fn: RunFn | None = None
     """Optional: the entity answers ``list`` on its own, whole.
 

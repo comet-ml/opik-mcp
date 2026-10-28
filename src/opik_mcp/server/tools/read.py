@@ -113,8 +113,8 @@ async def read(
     """Read any Opik entity by ID, name, or opik:// URI.
 
     A UUID `id` costs one API call. A name also works for project,
-    experiment, prompt and dataset: two calls, and a name several records
-    share returns them as candidates to retry by id.
+    experiment, prompt, dataset and annotation_queue: two calls, and a name
+    several records share returns them as candidates to retry by id.
 
     Special shapes:
     - project: returns {project, summary, vocabulary, contains, url} — the
@@ -125,6 +125,8 @@ async def read(
     - trace: returns {trace, spans, spansTruncated} with up to 200 spans
       inlined, their bodies slim, and spanBodies saying what the cut took.
     - prompt: returns {prompt, versions, versionsTruncated} with up to 100 versions.
+    - annotation_queue: annotator_view.html comes back as html_chars, with the
+      fields=['annotator_view.html'] call that returns it whole.
     - thread: returns {thread, messages, messagesTruncated, messageBodies} —
       each message is one turn's trace input/output + a trace_id to
       read('trace', id). Bodies are slim, the thread's own first/last message

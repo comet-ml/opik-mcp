@@ -83,6 +83,23 @@ DecorateFn = Callable[
     ["WriteOperation", list[BaseModel], dict[str, Any], Settings, str | None], None
 ]
 
+#: After a write the backend accepted, add to the success envelope what only
+#: the answer or a read-back shows: the id in ``Location`` of a record created
+#: without a caller id, or a field the backend did not keep. The dispatcher
+#: logs and drops anything it raises: the write already happened.
+ConfirmFn = Callable[
+    [
+        "WriteOperation",
+        OpikClient,
+        list[BaseModel],
+        httpx.Response,
+        dict[str, object],
+        Settings,
+        str | None,
+    ],
+    Awaitable[None],
+]
+
 #: What a preview cannot show, when it cannot show it.
 DryRunNoteFn = Callable[["WriteOperation", list[BaseModel], str | None], str | None]
 
@@ -136,6 +153,7 @@ def safe_body(resp: httpx.Response) -> Any:
 __all__ = [
     "BuildContext",
     "BuildFn",
+    "ConfirmFn",
     "DecorateFn",
     "DryRunNoteFn",
     "PrepareFn",

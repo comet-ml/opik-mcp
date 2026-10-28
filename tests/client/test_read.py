@@ -403,6 +403,48 @@ async def test_list_prompt_versions_hits_subresource() -> None:
     assert body["total"] == 2
 
 
+# --- annotation queues --------------------------------------------------- #
+
+
+@pytest.mark.anyio
+async def test_annotation_queue_list_sends_only_the_params_that_are_set() -> None:
+    """An empty ``filters=`` is malformed JSON to the backend, so an unset
+    filter or sort must not reach the query string."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/annotation-queues").mock(
+            return_value=httpx.Response(200, json=_page([])),
+        )
+        await _client().list_annotation_queues(page=2, size=5)
+    assert dict(route.calls.last.request.url.params) == {"page": "2", "size": "5"}
+
+
+@pytest.mark.anyio
+async def test_annotation_queue_list_carries_the_project_as_a_filter() -> None:
+    project_clause = '[{"field":"project_id","operator":"=","key":"","value":"p-1"}]'
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.get("/v1/private/annotation-queues").mock(
+            return_value=httpx.Response(200, json=_page([{"id": "q-1"}], total=1)),
+        )
+        await _client().list_annotation_queues(
+            name="review", filters=project_clause, sorting='[{"field":"name","direction":"ASC"}]'
+        )
+    params = dict(route.calls.last.request.url.params)
+    assert params["filters"] == project_clause
+    assert params["name"] == "review"
+    assert "project_id" not in params
+
+
+@pytest.mark.anyio
+async def test_get_annotation_queue_returns_the_view_the_list_rows_lack() -> None:
+    record = {"id": "q-1", "annotator_view": {"html": "<p>hi</p>", "kit_version": 1}}
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/annotation-queues/q-1").mock(
+            return_value=httpx.Response(200, json=record),
+        )
+        body = await _client().get_annotation_queue("q-1")
+    assert body["annotator_view"] == record["annotator_view"]
+
+
 # --- name= filter coverage on the four nameable list endpoints ------------ #
 
 

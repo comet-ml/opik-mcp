@@ -1037,7 +1037,8 @@ def _created(row: JsonObject) -> datetime:
 
 
 def delete_named(backend: Backend, prefix: str, *, older_than: datetime | None = None) -> list[str]:
-    """Delete every project, experiment, dataset and prompt named with ``prefix``.
+    """Delete every project, experiment, dataset, prompt and annotation queue named
+    with ``prefix``.
 
     ``older_than`` keeps what was created after it, so a sweep for a crashed
     run's leftovers never takes a run that is still going. Each pass deletes
@@ -1058,6 +1059,7 @@ def delete_named(backend: Backend, prefix: str, *, older_than: datetime | None =
         ("experiment", "/experiments", "/experiments/delete"),
         ("dataset", "/datasets", "/datasets/delete-batch"),
         ("prompt", "/prompts", "/prompts/delete"),
+        ("annotation queue", "/annotation-queues", "/annotation-queues/delete"),
     ):
         named = functools.partial(_named, backend, path, prefix, older_than)
         for mine in _pages(named, what=f"{kind}s"):

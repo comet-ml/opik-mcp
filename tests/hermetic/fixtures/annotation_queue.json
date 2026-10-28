@@ -1,0 +1,18 @@
+{
+  "id": "${annotation_queue_id}",
+  "project_id": "${project_id}",
+  "project_name": "${project_name}",
+  "name": "${annotation_queue_name}",
+  "scope": "trace",
+  "instructions": "Score whether the reply answers the customer.",
+  "comments_enabled": true,
+  "feedback_definition_names": ["helpfulness"],
+  "items_count": 4,
+  "annotator_view": {
+    "html": "${annotator_view_html}",
+    "kit_version": 1,
+    "summary": "Annotators see the customer email beside the drafted reply."
+  },
+  "created_at": "2026-10-01T09:00:00Z",
+  "last_updated_at": "2026-10-20T09:00:00Z"
+}

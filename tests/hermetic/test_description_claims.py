@@ -66,6 +66,11 @@ from tests.hermetic.stub_backend import (
     Request,
     StubBackend,
 )
+from tests.hermetic.stub_records import (
+    ANNOTATION_QUEUE_ID,
+    ANNOTATION_QUEUE_NAME,
+    ANNOTATOR_VIEW_HTML,
+)
 
 _TIMEOUT_S = 90
 
@@ -293,6 +298,23 @@ CLAIMS: tuple[Claim, ...] = (
         "An automation rule evaluator on a project — what scores the traces as "
         "they arrive, and so where most of its score names come from",
         "online_rule_is_where_score_names_come_from",
+    ),
+    # -- annotation_queue ----------------------------------------------------------- #
+    Claim(
+        "annotation_queue",
+        "A project's annotation queue: the traces or threads people review and score",
+        "annotation_queue_lists_under_its_project",
+    ),
+    Claim(
+        "annotation_queue",
+        "A read states its custom annotator view's html by size; "
+        "fields=['annotator_view.html'] returns it whole",
+        "annotation_queue_html_by_size_then_whole",
+    ),
+    Claim(
+        "annotation_queue",
+        "A queue with no custom view says so",
+        "annotation_queue_without_a_view_says_so",
     ),
     # -- agent_insights_issue --------------------------------------------------------- #
     Claim(
@@ -762,6 +784,38 @@ async def _score_name_paging(drive: Driver) -> None:
     # The endpoint takes no paging, so the whole list is fetched and cut here.
     sent = drive.backend.sent("/v1/private/projects/feedback-scores/names")[-1]
     assert "page" not in sent.query and "size" not in sent.query
+
+
+@probe("annotation_queue_lists_under_its_project")
+async def _annotation_queue_rows(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="annotation_queue", project_name=PROJECT_NAME)
+    row = next(line for line in answer.splitlines() if ANNOTATION_QUEUE_NAME in line)
+    cells = [cell.strip() for cell in row.split("|")]
+    assert "trace" in cells, f"the queue's row names no scope: {row}"
+    sent = [r for r in drive.backend.requests if r.path == "/v1/private/annotation-queues"]
+    assert PROJECT_ID in str(sent[-1].query.get("filters"))
+
+
+@probe("annotation_queue_html_by_size_then_whole")
+async def _annotation_queue_html(drive: Driver) -> None:
+    plain = await drive.read_json(entity_type="annotation_queue", id=ANNOTATION_QUEUE_ID)
+    assert plain["annotator_view"]["html_chars"] == len(ANNOTATOR_VIEW_HTML)
+    assert ANNOTATOR_VIEW_HTML not in json.dumps(plain)
+    whole = await drive.call(
+        "read",
+        entity_type="annotation_queue",
+        id=ANNOTATION_QUEUE_ID,
+        fields=["annotator_view.html"],
+    )
+    assert ANNOTATOR_VIEW_HTML in whole
+
+
+@probe("annotation_queue_without_a_view_says_so")
+async def _annotation_queue_without_a_view(drive: Driver) -> None:
+    drive.backend.annotation_queue_keeps_view = False
+    plain = await drive.read_json(entity_type="annotation_queue", id=ANNOTATION_QUEUE_ID)
+    assert plain["annotator_view"] is None
+    assert plain["annotatorViewHtml"].startswith("none")
 
 
 @probe("online_rule_is_where_score_names_come_from")

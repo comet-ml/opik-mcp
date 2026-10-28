@@ -47,3 +47,6 @@ truncation. A large answer costs context, which the caller can see and narrow
   `max_tokens`) removed. They cut answers the caller could not get back (#187).
 - 2026-09-21: `fields=[…]` added as the middle layer (#197).
 - 2026-09-22: inline budget for children's bodies, declared in the answer (#199).
+- 2026-10-23: a read without `fields` may state one of the record's own fields
+  by size instead of returning it, with the `fields` call that does; first
+  used for an annotation queue's view html, up to 200,000 characters (OPIK-8951).

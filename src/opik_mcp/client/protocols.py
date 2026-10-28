@@ -318,3 +318,19 @@ class AiSpendClient(Protocol):
         interval_end: str,
         user_email: str | None = None,
     ) -> dict[str, Any]: ...
+
+
+class AnnotationQueueClient(Protocol):
+    """The annotation queue endpoints, kept off ``OpikReadClient`` so its test fakes stay small."""
+
+    async def list_annotation_queues(
+        self,
+        *,
+        page: int = 1,
+        size: int = 10,
+        name: str | None = None,
+        filters: str | None = None,
+        sorting: str | None = None,
+    ) -> dict[str, object]: ...
+
+    async def get_annotation_queue(self, queue_id: str) -> dict[str, object]: ...

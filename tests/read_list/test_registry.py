@@ -144,5 +144,5 @@ def test_a_sort_on_an_entity_with_no_vocabulary_names_the_sortable_types() -> No
         compile_sort(Vocabulary(name="prompt"), "name", sortable_types=sortable_types(NO_FEATURES))
     assert str(refused.value) == (
         "sort is not supported for 'prompt'. Sortable types: "
-        "project, trace, span, thread, experiment, dataset_item."
+        "project, trace, span, thread, experiment, dataset_item, annotation_queue."
     )

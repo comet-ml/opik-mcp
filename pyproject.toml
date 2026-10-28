@@ -331,6 +331,7 @@ module = [
     "opik_mcp.writes.dispatch",
     "opik_mcp.writes.errors",
     "opik_mcp.writes.models",
+    "opik_mcp.writes.operations.annotation_queue.models",
     "opik_mcp.writes.operations.diagnostics",
     "opik_mcp.writes.operations.evaluation",
     "opik_mcp.writes.operations.observability",

@@ -211,6 +211,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 
 ## Log
 
+- 2026-10-23: `opik-annotate` added; the `read_skill` intro says "if not already loaded" once to fit its line (OPIK-8951).
 - 2026-10-21: the plugin's server URL becomes the `opik_mcp_url` option, default the hosted server, so a self-hosted Comet can use the plugin (OPIK-8848).
 - 2026-10-17: the plugin folder gains `plugin.json`, `.mcp.json` with the hosted server, and a README, so it can be listed in Anthropic's directory (OPIK-8848).
 - 2026-10-17: skills moved to `plugins/opik/skills` and evals to `evals/skills`, so the Claude Code plugin folder holds the skills as real files (OPIK-8848).
