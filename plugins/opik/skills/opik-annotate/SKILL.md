@@ -1,14 +1,14 @@
 ---
 name: opik-annotate
-description: Set up human review in Opik — create an annotation queue for a project's traces or threads and give it a custom annotator view, an HTML page that shows reviewers each item the way they need to judge it (the email beside the reply, the conversation as chat bubbles) instead of raw JSON. Writes through the Opik MCP when connected, the REST API otherwise. Returns the queue, its link, and what reviewers will see. Use for "build a custom annotator view", "set up an annotation queue", "make the review queue show the email and the reply side by side", "change what annotators see", "remove the custom view". Not for automatic scoring (use online-eval) or for finding which traces to review (use diagnose).
-compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires Opik configured and a project with traces. Custom annotator views need an Opik version that supports them; an older Opik accepts the view and drops it, and the MCP says so.
+description: Set up human review in Opik — create an annotation queue for a project's traces or threads and give it a custom annotator view, an HTML page that shows reviewers each item the way they need to judge it (the email beside the reply, the conversation as chat bubbles) instead of raw JSON. Writes through the Opik MCP when connected, the Opik SDK otherwise. Returns the queue, its link, and what reviewers will see. Use for "build a custom annotator view", "set up an annotation queue", "make the review queue show the email and the reply side by side", "change what annotators see", "remove the custom view". Not for automatic scoring (use online-eval) or for finding which traces to review (use diagnose).
+compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires Opik configured and a project with traces. Custom annotator views need an Opik version that supports them; an older Opik accepts the view and drops it, and the MCP says so. Without the MCP, it needs the Opik SDK `opik>=2.2.122`.
 allowed-tools:
   - Read
   - Grep
   - Glob
   - Bash
 metadata:
-  last_updated: "2026-10-26"
+  last_updated: "2026-10-28"
   source_commit: "e4a6fa9b424128eb01817b8700761ac249a89e78"
   argument-hint: "[queue name or id, or what reviewers should judge; optional project]"
 ---
@@ -52,7 +52,21 @@ Design: lead with what is judged in a `highlight` card; a row of `kit.chip` fact
 ### 5. Save it
 MCP: `write('annotation_queue.create', {project_name, name, scope, instructions?, feedback_definition_names?, annotator_view: {html, summary}})`, or `write('annotation_queue.update', {id, annotator_view: {html, summary}})` for an existing queue. `summary` is one or two sentences starting "Annotators see…" describing the whole view; rewrite it on every change. Remove a view with `write('annotation_queue.update', {id, clear_annotator_view: true})`. `schema('annotation_queue.update')` has the full input.
 
-Without the MCP: `PATCH /v1/private/annotation-queues/{id}` (or `POST /v1/private/annotation-queues`) with the same body as JSON, `annotator_view: {}` to clear, `kit_version: 1` beside `html`. Reading it back is then yours to do: `GET /v1/private/annotation-queues/{id}` returns `annotator_view` when it was stored.
+Without the MCP, the Opik SDK (`opik>=2.2.122`; earlier versions don't send `annotator_view`). `opik.Opik()` takes the host, key and workspace from `~/.opik.config` or the environment:
+```python
+import opik
+from opik.id_helpers import generate_id
+
+client = opik.Opik()
+queues = client.rest_client.annotation_queues
+view = {"html": html, "summary": "Annotators see…", "kit_version": 1}
+project_id = client.rest_client.projects.retrieve_project(name="<project>").id
+queue_id = generate_id()
+queues.create_annotation_queue(id=queue_id, project_id=project_id, name="<name>", scope="trace", annotator_view=view)
+queues.update_annotation_queue("<queue_id>", annotator_view=view)  # annotator_view={} clears it
+queues.get_annotation_queue_by_id(queue_id).annotator_view  # read back: None means the view was not stored
+```
+Reading it back is yours to do here; the MCP does it for you.
 
 ### 6. Report
 The queue link, one sentence on what reviewers now see, and where to check it: the queue's **Edit → Annotator view → Preview** shows the view on sample items, and `annotator_url` opens the page reviewers work the queue on. Offer two or three next edits that fit the data ("fold the tool calls", "hide the judge scores until revealed").
@@ -74,7 +88,7 @@ Stop at the **earliest** and return **exactly one** next step:
 - `queue`: `id`, `name`, `scope`, `url`, `annotator_url`
 - `view`: `summary`, `html_chars`, `shapes_covered` (how many input/output shapes the view handles, of how many seen)
 - `sampled_from`: `queue_items` | `project_latest`
-- `source`: `mcp` | `rest`
+- `source`: `mcp` | `sdk`
 - `next_step`: exactly one
 
 Invariants: `saved` means the write returned no `warning`; every view was built after reading real items; `blocked` and `view_dropped` carry exactly one `next_step`; every path leaves the codebase unchanged.
