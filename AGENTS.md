@@ -78,7 +78,8 @@ errors.
   `tests/writes/test_dispatch_stays_generic.py`
 - No telemetry from tests. `tests/repo/test_telemetry_disabled_in_tests.py`
 - The lint and type baselines in `pyproject.toml` excuse findings that predate
-  the rules and only shrink; a new file meets the full rules.
+  the rules and only shrink; a new file meets the full rules, except a module
+  of Pydantic models only, which may join the explicit-`Any` baseline.
   `tests/repo/test_ratchets.py`
 
 ## Gotchas
