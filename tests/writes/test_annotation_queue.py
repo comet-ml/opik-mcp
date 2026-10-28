@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import httpx
 import pytest
@@ -121,7 +122,10 @@ async def test_a_backend_that_drops_the_view_is_named_in_the_answer() -> None:
 
 
 @pytest.mark.anyio
-async def test_a_failed_read_back_still_reports_the_write_as_done() -> None:
+async def test_a_failed_read_back_still_reports_the_write_as_done(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="opik_mcp.writes.operations.annotation_queue")
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get(f"{QUEUES}/{QUEUE_ID}").mock(
             side_effect=[
@@ -134,6 +138,7 @@ async def test_a_failed_read_back_still_reports_the_write_as_done() -> None:
     assert out["ok"] is True
     assert "warning" in out
     assert "did not store" not in str(out["warning"]), "an unread view is not a dropped one"
+    assert "view read-back failed" in caplog.text
 
 
 @pytest.mark.anyio
@@ -163,6 +168,21 @@ async def test_an_update_of_a_missing_queue_is_refused_before_the_write() -> Non
         with pytest.raises(ValidationFailedError, match="queue_not_found"):
             await _write("annotation_queue.update", {"id": QUEUE_ID, "name": "renamed"})
     assert not patch.called
+
+
+@pytest.mark.anyio
+async def test_a_failed_project_lookup_costs_only_the_link(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG, logger="opik_mcp.writes.operations.annotation_queue")
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get(f"{QUEUES}/{QUEUE_ID}").mock(return_value=httpx.Response(500))
+        patch = mock.patch(f"{QUEUES}/{QUEUE_ID}").mock(return_value=httpx.Response(204))
+        out = await _write("annotation_queue.update", {"id": QUEUE_ID, "name": "renamed"})
+    assert patch.called
+    assert out["ok"] is True
+    assert "url" not in out
+    assert "project lookup failed" in caplog.text
 
 
 @pytest.mark.anyio

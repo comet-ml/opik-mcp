@@ -7,6 +7,7 @@ when the view did not stick.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Final
 
 import httpx
@@ -25,6 +26,8 @@ from opik_mcp.writes.wire import BuildContext, WireRequest, dump, refuse
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from opik_mcp.writes.registry import WriteOperation
+
+logger = logging.getLogger("opik_mcp.writes.operations.annotation_queue")
 
 _VIEW_DROPPED: Final = (
     "The queue was saved, but this Opik backend did not store the annotator view: "
@@ -85,6 +88,7 @@ async def _project_of_queue(op: WriteOperation, client: OpikClient, queue_id: st
             "queue_not_found",
         ) from e
     except Exception:
+        logger.debug("annotation queue update: project lookup failed", exc_info=True)
         return None
     project_id = queue.get("project_id")
     return project_id if isinstance(project_id, str) and project_id else None
@@ -173,6 +177,7 @@ async def confirm_view(
         if not isinstance(stored, dict) or not stored.get("html"):
             out["warning"] = _VIEW_DROPPED
     except Exception:
+        logger.debug("annotation queue write: view read-back failed", exc_info=True)
         out["warning"] = _VIEW_UNCONFIRMED
 
 
