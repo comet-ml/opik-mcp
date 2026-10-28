@@ -187,6 +187,23 @@ def test_every_mypy_entry_still_uses_any(tmp_path: Path) -> None:
     )
 
 
+def test_only_a_pydantic_model_line_leaves_the_any_count() -> None:
+    # WireRequest is a dataclass whose class line mypy flags for explicit Any;
+    # ScoreCreate is a Pydantic model. Only the model may be skipped.
+    assert not _is_pydantic_model(*_class_line("src/opik_mcp/writes/wire.py", "WireRequest")), (
+        "a plain class with explicit Any left the count in tests/repo/test_ratchets.py; "
+        "_is_pydantic_model may skip only Pydantic models"
+    )
+    assert _is_pydantic_model(
+        *_class_line("src/opik_mcp/writes/operations/observability.py", "ScoreCreate")
+    )
+
+
+def _class_line(path: str, name: str) -> tuple[str, int]:
+    lines = (REPO_ROOT / path).read_text().splitlines()
+    return path, next(n for n, text in enumerate(lines, 1) if text.startswith(f"class {name}"))
+
+
 def _is_pydantic_model(path: str, line: int) -> bool:
     source = (REPO_ROOT / path).read_text().splitlines()[line - 1]
     declared = re.match(r"class (\w+)\b", source)

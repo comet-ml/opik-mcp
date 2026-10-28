@@ -268,8 +268,8 @@ disallow_any_explicit = false
 # except that a move splitting a module may replace its line with one per new
 # module that carries the same findings, and a module of Pydantic models only
 # may be added, since mypy flags each model and the count skips them; the PR
-# says so. The total of findings
-# never grows: explicit_any_findings in tests/repo/ratchets.json.
+# says so. The total of findings never grows: explicit_any_findings in
+# tests/repo/ratchets.json.
 [[tool.mypy.overrides]]
 module = [
     "opik_mcp.analytics.client",
