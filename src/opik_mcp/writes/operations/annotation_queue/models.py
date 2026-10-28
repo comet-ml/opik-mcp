@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from opik_mcp.writes.models import _ClientIdMixin, _RequiredProjectMixin, _StrictBase
 
@@ -39,9 +39,23 @@ class AnnotatorView(_StrictBase):
         ),
     )
     kit_version: int = Field(default=KIT_VERSION, ge=1, le=KIT_VERSION)
-    summary: str | None = Field(
-        default=None, max_length=1_000, description="What annotators see, in a sentence or two."
+    summary: str = Field(
+        min_length=1,
+        max_length=1_000,
+        description=(
+            "One line starting 'Annotators see…' that describes the whole view; "
+            "the queue form shows it as written."
+        ),
     )
+
+    @field_validator("summary")
+    @classmethod
+    def _one_line(cls, summary: str) -> str:
+        if "\n" in summary or "\r" in summary:
+            raise ValueError(
+                "summary_multiline: summary is shown as one line; drop the line breaks."
+            )
+        return summary
 
 
 class AnnotationQueueCreate(_StrictBase, _ClientIdMixin, _RequiredProjectMixin):

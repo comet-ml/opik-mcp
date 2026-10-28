@@ -24,7 +24,10 @@ from tests.hermetic.writes.surface import (
 pytestmark = [pytest.mark.hermetic, pytest.mark.anyio]
 
 QUEUES = f"/{WORKSPACE}/projects/{PROJECT_ID}/annotation-queues"
-VIEW = {"html": "<script>kit.mount(() => kit.h('p', { text: 'hi' }));</script>"}
+VIEW = {
+    "html": "<script>kit.mount(() => kit.h('p', { text: 'hi' }));</script>",
+    "summary": "Annotators see a greeting.",
+}
 
 
 def _drops_views(stub: StubBackend) -> None:

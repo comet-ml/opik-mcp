@@ -48,8 +48,11 @@ default is not added: a queue also holds playground and experiment traces.
 - `annotation_queue.update`: `id` plus any of the editable fields. Only the
   fields passed change. `clear_annotator_view: true` removes the view.
 - `annotator_view` is `{html, kit_version, summary}`: html up to 200,000
-  characters, `kit_version` 1 (the default), summary up to 1,000. The limits
-  are checked before anything is sent.
+  characters, `kit_version` 1 (the default). The limits are checked before
+  anything is sent.
+- `summary` is required with html: one line, at most 1,000 characters,
+  starting "Annotators see…". The queue form in Opik shows it as written, and
+  an update replaces the whole view, so html sent alone would erase it.
 - The answer links the queue's page and its `annotator_url`. A create without
   an `id` answers with the `id` the backend chose, read from the response's
   `Location`.

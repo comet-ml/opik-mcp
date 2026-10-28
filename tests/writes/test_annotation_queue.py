@@ -18,7 +18,10 @@ OPIK_BASE = "https://opik.test"
 QUEUES = "/v1/private/annotation-queues"
 PROJECT_ID = "0193a300-0000-7000-8000-00000000b001"
 QUEUE_ID = "0193a300-0000-7000-8000-00000000a001"
-VIEW = {"html": "<script>kit.mount(() => kit.h('p', { text: 'hi' }));</script>"}
+VIEW = {
+    "html": "<script>kit.mount(() => kit.h('p', { text: 'hi' }));</script>",
+    "summary": "Annotators see a greeting.",
+}
 SETTINGS = Settings(opik_api_key="key-abc", comet_workspace="ws", opik_url=f"{OPIK_BASE}/api")
 QUEUE_PAGE = f"{OPIK_BASE}/ws/projects/{PROJECT_ID}/annotation-queues"
 ANNOTATOR_PAGE = f"{OPIK_BASE}/ws/sme?queueId={QUEUE_ID}"
@@ -183,6 +186,25 @@ async def test_a_failed_project_lookup_costs_only_the_link(
     assert out["ok"] is True
     assert "url" not in out
     assert "project lookup failed" in caplog.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("view", "code"),
+    [
+        ({"html": VIEW["html"]}, "missing"),
+        ({**VIEW, "summary": "Annotators see the email.\nThen the reply."}, "summary_multiline"),
+    ],
+)
+async def test_a_view_needs_a_one_line_summary_since_the_queue_form_shows_it(
+    view: dict[str, str], code: str
+) -> None:
+    """An update replaces the whole view, so html sent alone would erase the summary."""
+    with respx.mock(base_url=OPIK_BASE, assert_all_called=False) as mock:
+        patch = mock.patch(f"{QUEUES}/{QUEUE_ID}").mock(return_value=httpx.Response(204))
+        with pytest.raises(ValidationFailedError, match=code):
+            await _write("annotation_queue.update", {"id": QUEUE_ID, "annotator_view": view})
+    assert not patch.called
 
 
 @pytest.mark.anyio
