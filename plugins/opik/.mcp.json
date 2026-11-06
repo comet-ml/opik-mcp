@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "opik-mcp": {
+    "opik-cloud": {
       "type": "http",
-      "url": "${user_config.opik_mcp_url}"
+      "url": "https://www.comet.com/opik/api/v1/mcp"
     }
   }
 }

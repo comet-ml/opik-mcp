@@ -8,9 +8,11 @@ from pydantic import Field
 
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.server.tools.description import described
-from opik_mcp.server.tools.hints import READS
+from opik_mcp.server.tools.hints import reads
 from opik_mcp.writes import SCHEMA_TOOL_DESCRIPTION, run_schema
 from opik_mcp.writes.schema_tool import SCHEMA_KEYS
+
+TITLE = "Show a write operation's input"
 
 
 def _schema_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
@@ -43,7 +45,7 @@ async def schema(
 def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
         description=described(sentence, SCHEMA_TOOL_DESCRIPTION),
-        title="Show a write operation's input",
-        annotations=READS,
+        title=TITLE,
+        annotations=reads(TITLE),
         structured_output=False,
     )(schema)

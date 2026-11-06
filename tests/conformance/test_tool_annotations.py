@@ -41,6 +41,7 @@ async def test_every_tool_has_a_title_and_all_hints() -> None:
         assert tool.title, f"{name} has no title"
         hints = tool.annotations
         assert hints is not None, f"{name} has no annotations"
+        assert hints.title == tool.title, f"{name} has no title in its annotations"
         for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"):
             assert getattr(hints, hint) is not None, f"{name} leaves {hint} to the host default"
 

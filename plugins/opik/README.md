@@ -13,9 +13,7 @@ In Claude Code:
 /plugin install opik --marketplace comet-ml/opik-mcp
 ```
 
-The install asks for the **Opik MCP server URL**. Keep the default for Opik
-Cloud. Then start a new session and sign in from `/mcp` → **Authenticate**.
-To change the URL later, run `/plugin configure opik@opik`.
+Then start a new session and sign in from `/mcp` → **Authenticate**.
 
 ## What it adds
 
@@ -23,21 +21,24 @@ To change the URL later, run `/plugin configure opik@opik`.
   `opik-diagnose`, `opik-explain`, `opik-evaluate`, `opik-compare`,
   `opik-test`, `opik-verify`, `opik-online-eval`, `opik-optimize` and
   `opik-annotate`.
-- **MCP server `opik-mcp`:** by default, Comet's hosted server at
-  `https://www.comet.com/opik/api/v1/mcp`. You sign in once in the browser
-  (OAuth); there is no API key to set. Its tools are `read`, `list`, `write`,
-  `schema` and `read_skill`.
+- **MCP server `opik-cloud`:** Comet's hosted server at
+  `https://www.comet.com/opik/api/v1/mcp`, for Opik Cloud. You sign in once in
+  the browser (OAuth); there is no API key to set. Its tools are `read`,
+  `list`, `write`, `schema` and `read_skill`.
 
-For a self-hosted Opik that serves the MCP server, set the URL to its
-address, such as `https://<host>/opik/api/v1/mcp`. Otherwise, set up the
-local server with `uvx opik@latest mcp configure`. The skills work with any
-Opik.
+## Self-hosted Opik
+
+The skills work with any Opik. For your own server:
+
+1. Add it. For a self-hosted Comet that serves the MCP server:
+   `claude mcp add --transport http opik-mcp https://<host>/opik/api/v1/mcp`.
+   For any other Opik, run `uvx opik@latest mcp configure`.
+2. In `/mcp`, disable `plugin:opik:opik-cloud`, the Cloud server.
 
 ## What it sends, and where
 
-- The MCP server calls the Opik API at `www.comet.com`, or at the URL that
-  you set, with your sign-in. It reads or changes only the Opik data that you
-  ask Claude to work with.
+- The MCP server calls the Opik API at `www.comet.com` with your sign-in. It
+  reads or changes only the Opik data that you ask Claude to work with.
 - The hosted server records product usage events: which tool ran, whether it
   failed and how long it took, with your Comet login and workspace. These
   events never include argument values, filter values, free text, paths or
@@ -48,6 +49,9 @@ Opik.
 - The skills can ask Claude to install the Opik SDK (`pip install opik` or
   `npm install opik`) and to run code that sends traces from your app to your
   Opik workspace.
+- The evaluation and optimization skills run LLM calls through the model
+  provider that you configure (such as OpenAI or Anthropic), with your own
+  key, and send its inputs and outputs to that provider.
 
 Source, issues and the full documentation:
 [github.com/comet-ml/opik-mcp](https://github.com/comet-ml/opik-mcp).

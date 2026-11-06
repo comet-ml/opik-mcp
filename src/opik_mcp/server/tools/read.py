@@ -14,7 +14,9 @@ from opik_mcp.read_list.uri import looks_like_opik_link
 from opik_mcp.read_list.visibility import DEFAULT_READABLE_TYPES
 from opik_mcp.server.tools.description import described
 from opik_mcp.server.tools.fields import FIELDS_READ_DESCRIPTION
-from opik_mcp.server.tools.hints import READS
+from opik_mcp.server.tools.hints import reads
+
+TITLE = "Read an Opik record"
 
 
 def _looks_like_uuid(s: str) -> bool:
@@ -172,8 +174,8 @@ async def read(
 
 def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
-        title="Read an Opik record",
-        annotations=READS,
+        title=TITLE,
+        annotations=reads(TITLE),
         structured_output=False,
         description=described(sentence, read.__doc__),
     )(read)

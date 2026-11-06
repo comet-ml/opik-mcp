@@ -9,9 +9,11 @@ from pydantic import Field
 from opik_mcp.analytics.events import bucket_count
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.server.tools.description import described
-from opik_mcp.server.tools.hints import WRITES
+from opik_mcp.server.tools.hints import writes
 from opik_mcp.writes import WRITE_TOOL_DESCRIPTION, run_write
 from opik_mcp.writes.registry import WRITE_OPERATIONS
+
+TITLE = "Write to Opik"
 
 
 def _write_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
@@ -103,7 +105,7 @@ async def write(
 def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
         description=described(sentence, WRITE_TOOL_DESCRIPTION),
-        title="Write to Opik",
-        annotations=WRITES,
+        title=TITLE,
+        annotations=writes(TITLE),
         structured_output=False,
     )(write)

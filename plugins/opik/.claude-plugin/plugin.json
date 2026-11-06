@@ -1,7 +1,8 @@
 {
   "name": "opik",
+  "displayName": "Opik",
   "version": "3.0.9",
-  "description": "Opik agent skills and the hosted Opik MCP server: instrument, trace, evaluate and debug LLM applications with Opik.",
+  "description": "Find what broke in your production agents, then test and fix it with Opik, the open-source LLM observability and evaluation platform from Comet.",
   "author": {
     "name": "Comet ML",
     "url": "https://www.comet.com"
@@ -9,15 +10,10 @@
   "homepage": "https://www.comet.com/docs/opik/",
   "repository": "https://github.com/comet-ml/opik-mcp",
   "license": "Apache-2.0",
-  "keywords": ["opik", "comet", "llm", "observability", "tracing", "evaluation", "mcp", "skills"],
+  "keywords": ["opik", "comet", "llm", "observability", "tracing", "evaluation", "evals", "agents", "monitoring", "mcp", "skills"],
   "documentationUrl": "https://www.comet.com/docs/opik/mcp-server",
   "supportUrl": "https://github.com/comet-ml/opik-mcp/issues",
-  "userConfig": {
-    "opik_mcp_url": {
-      "type": "string",
-      "title": "Opik MCP server URL",
-      "description": "Keep the default for Opik Cloud. For a self-hosted Opik that serves the MCP server, enter its URL, such as https://<host>/opik/api/v1/mcp.",
-      "default": "https://www.comet.com/opik/api/v1/mcp"
-    }
-  }
+  "privacyPolicyUrl": "https://www.comet.com/site/privacy-policy/",
+  "termsOfServiceUrl": "https://www.comet.com/site/terms-of-service/",
+  "icon": "./assets/icon.png"
 }

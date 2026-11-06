@@ -111,6 +111,8 @@ from opik_mcp.server import mcp
 #           write description, and `read_skill` routes to `opik-annotate`
 #           after its intro stops repeating "if not already loaded" (1,986
 #           characters). +694 bytes.
+#   23,231  OPIK-9161 — each tool's title is repeated in its annotations,
+#           where the Connectors Directory reads it. +158 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
