@@ -49,6 +49,9 @@ The skills work with any Opik. For your own server:
 - The skills can ask Claude to install the Opik SDK (`pip install opik` or
   `npm install opik`) and to run code that sends traces from your app to your
   Opik workspace.
+- The evaluation and optimization skills run LLM calls through the model
+  provider that you configure (such as OpenAI or Anthropic), with your own
+  key, and send its inputs and outputs to that provider.
 
 Source, issues and the full documentation:
 [github.com/comet-ml/opik-mcp](https://github.com/comet-ml/opik-mcp).
