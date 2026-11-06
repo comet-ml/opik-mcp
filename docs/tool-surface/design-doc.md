@@ -14,8 +14,9 @@ a read or a list promises, what is refused, and which test holds each promise.
 ### The advertised surface
 
 - Exactly `read`, `list`, `write`, `schema` and `read_skill`, each with a
-  title and all four hints. Only `write` is destructive (`READS`, `WRITES`
-  in `src/opik_mcp/server/tools/hints.py`).
+  title and all four hints. The title is also in the annotations, where the
+  Connectors Directory reads it. Only `write` is destructive (`reads`,
+  `writes` in `src/opik_mcp/server/tools/hints.py`).
 - `structured_output=False` everywhere: one text copy per answer.
 - The surface and the instructions have byte ceilings (`SURFACE_BUDGET_BYTES`,
   `INSTRUCTIONS_BUDGET_BYTES` in `tests/conformance/test_tool_inventory.py`),
@@ -268,6 +269,7 @@ Boundaries:
 
 ## Log
 
+- 2026-11-06: each tool's title is repeated in its annotations, for the Connectors Directory listing; +158 bytes (#272).
 - 2026-10-23: `read_view_fn` lets an entity state a long field of its own by size on a read without `fields`; "covered by Phase 1" left the instructions (OPIK-8951).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
 - 2026-09-25: `read_skill` names skills only; each `SKILL.md` footer lists its references (OPIK-8496).

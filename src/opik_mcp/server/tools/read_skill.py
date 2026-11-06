@@ -9,7 +9,7 @@ from pydantic import Field
 from opik_mcp.analytics.wrappers import instrument_tool
 from opik_mcp.config import get_settings
 from opik_mcp.server.tools.description import described
-from opik_mcp.server.tools.hints import READS
+from opik_mcp.server.tools.hints import reads
 from opik_mcp.skills_catalog import (
     SKILLS_URI_PREFIX,
     feature_skill_names,
@@ -18,6 +18,8 @@ from opik_mcp.skills_catalog import (
     run_read_skill,
     skill_names,
 )
+
+TITLE = "Read an Opik agent skill"
 
 
 def _read_skill_props(_result: Any, kwargs: dict[str, Any]) -> dict[str, str]:
@@ -97,7 +99,7 @@ async def read_skill(
 def register(mcp: FastMCP[object], sentence: str | None = None) -> None:
     mcp.tool(
         description=described(sentence, read_skill_tool_description()),
-        title="Read an Opik agent skill",
-        annotations=READS,
+        title=TITLE,
+        annotations=reads(TITLE),
         structured_output=False,
     )(read_skill)
