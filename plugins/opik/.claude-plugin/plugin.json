@@ -15,13 +15,5 @@
   "supportUrl": "https://github.com/comet-ml/opik-mcp/issues",
   "privacyPolicyUrl": "https://www.comet.com/site/privacy-policy/",
   "termsOfServiceUrl": "https://www.comet.com/site/terms-of-service/",
-  "icon": "./assets/icon.svg",
-  "userConfig": {
-    "opik_mcp_url": {
-      "type": "string",
-      "title": "Opik MCP server URL",
-      "description": "Keep the default for Opik Cloud. For a self-hosted Opik that serves the MCP server, enter its URL, such as https://<host>/opik/api/v1/mcp.",
-      "default": "https://www.comet.com/opik/api/v1/mcp"
-    }
-  }
+  "icon": "./assets/icon.svg"
 }

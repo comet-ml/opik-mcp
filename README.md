@@ -89,14 +89,13 @@ default the hosted one:
 
 On Claude Code before 2.1.275, run `/plugin marketplace add comet-ml/opik-mcp`,
 then `/plugin install opik@opik`. The skills load as `opik:<skill>`, such as
-`opik:opik-instrument`, and `/mcp` shows the server as `plugin:opik:opik-mcp`.
-The install asks for the **Opik MCP server URL**: keep the default for Opik
-Cloud, or enter `https://<host>/opik/api/v1/mcp` for a self-hosted Comet that
-runs the MCP OAuth server. `/plugin configure opik@opik` changes it later.
-Start a new session, then sign in from `/mcp` → **Authenticate**. For any other
-self-hosted or open-source Opik, use the [Quick start](#quick-start) command.
-claude.ai chat ignores a URL built from a setting, so there the plugin adds the
-skills only. Claude Code does not update a plugin from
+`opik:opik-instrument`, and `/mcp` shows the server as `plugin:opik:opik-cloud`.
+The server is Opik Cloud's. Start a new session, then sign in from `/mcp` →
+**Authenticate**. For a self-hosted Comet that runs the MCP OAuth server, add
+it with `claude mcp add --transport http opik-mcp https://<host>/opik/api/v1/mcp`;
+for any other self-hosted or open-source Opik, use the
+[Quick start](#quick-start) command. Then disable `plugin:opik:opik-cloud` in
+`/mcp`. Claude Code does not update a plugin from
 this marketplace on its own: run `/plugin marketplace update opik`, then
 `/plugin update opik@opik`, or turn on auto-update for the marketplace in
 `/plugin`. This marketplace serves `main`, which can be ahead of the last

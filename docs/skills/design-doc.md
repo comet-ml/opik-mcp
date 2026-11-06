@@ -95,12 +95,11 @@ that folder.
 
 - `/plugin install opik --marketplace comet-ml/opik-mcp` installs it from
   `.claude-plugin/marketplace.json`. The skills load as `opik:<skill>`.
-- `.mcp.json` registers `opik-mcp` (`type: http`, OAuth, no key) at
-  `${user_config.opik_mcp_url}`. The `opik_mcp_url` option in `plugin.json`
-  defaults to the hosted server, so a Cloud user keeps the default and a
-  self-hosted Comet user enters `https://<host>/opik/api/v1/mcp`. `/mcp` shows
-  it as `plugin:opik:opik-mcp`. A server the user added by hand at the same
-  URL wins, and Claude Code skips the plugin's.
+- `.mcp.json` registers `opik-cloud` (`type: http`, OAuth, no key) at the
+  fixed URL `https://www.comet.com/opik/api/v1/mcp`. `/mcp` shows it as
+  `plugin:opik:opik-cloud`. A server the user added by hand at the same URL
+  wins, and Claude Code skips the plugin's. A self-hosted user adds their own
+  server by hand and disables the plugin's in `/mcp`.
 - This repo's marketplace serves `main`. Anthropic's directory tracks the
   `claude-plugin` branch, which each release moves forward (see
   [release](../release/design-doc.md)).
@@ -172,16 +171,17 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   and not the other way round. The directory blocks a symlink the plugin
   loads, and a Claude Code install from GitHub drops a link that leaves the
   plugin folder (OPIK-8848).
-- The plugin registers one remote server, with its URL in a `userConfig`
-  option that defaults to the hosted server. A fixed URL left self-hosted
-  users pointed at Cloud. The option costs the server in claude.ai chat,
-  which ignores a URL built from a setting; Cowork uses the default. The
-  plugin runs no `uvx`, because the directory holds every version of a plugin
-  that does for a reviewer (OPIK-8848).
-- The option has a `default` and no `required`. Claude Code applies the
-  default when nothing is saved; in Claude Code 2.1.304 the configure dialog
-  did not accept Enter on a required field. `${user_config.KEY:-default}` is not a fallback: the
-  validator rejects it and the loader drops the server.
+- The plugin registers one remote server at a fixed URL, the hosted server.
+  The directory matches a remote server to a registered connector by its URL.
+  The portal showed the `${user_config.KEY}` URL as unregistered, with a
+  warning at install, and claude.ai chat ignored the server. A self-hosted
+  user adds their own server by hand. An env var URL such as
+  `${OPIK_MCP_URL:-https://…}` works in Claude Code, but the directory accepts
+  only an `https://` URL, a `${user_config.KEY}` reference or `""`.
+  `${user_config.KEY:-default}` is not a fallback either: the validator
+  rejects it and the loader drops the server.
+- The plugin runs no `uvx`, because the directory holds every version of a
+  plugin that does for a reviewer (OPIK-8848).
 
 ### Traps
 
@@ -217,6 +217,7 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
 
 ## Log
 
+- 2026-11-06: the plugin's server is `opik-cloud` at the fixed hosted URL, with no `opik_mcp_url` option, so the directory can match it to the Opik connector; self-hosted users add their server by hand.
 - 2026-10-23: `opik-annotate` added; the `read_skill` intro says "if not already loaded" once to fit its line (OPIK-8951).
 - 2026-10-21: the plugin's server URL becomes the `opik_mcp_url` option, default the hosted server, so a self-hosted Comet can use the plugin (OPIK-8848).
 - 2026-10-17: the plugin folder gains `plugin.json`, `.mcp.json` with the hosted server, and a README, so it can be listed in Anthropic's directory (OPIK-8848).
