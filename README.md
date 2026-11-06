@@ -80,8 +80,8 @@ it to Cursor or VS Code in one click; other ways to register it by hand are unde
 
 ### Claude Code plugin
 
-The `opik` plugin installs the Opik skills and registers the MCP server, by
-default the hosted one:
+The `opik` plugin installs the Opik skills and registers the hosted MCP server
+for Opik Cloud:
 
 ```
 /plugin install opik --marketplace comet-ml/opik-mcp
