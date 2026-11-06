@@ -84,14 +84,16 @@ the verified artifact to the pre-release tag `skills-pack`, where
 ### The Claude Code plugin
 
 `plugins/opik/` is the plugin folder. It holds `.claude-plugin/plugin.json`,
-`.mcp.json`, a `README.md`, `skills/` and `assets/icon.svg`, and nothing it
+`.mcp.json`, a `README.md`, `skills/` and `assets/icon.png`, and nothing it
 loads lives outside it, because Anthropic's directory installs and scans only
 that folder.
 
 - The directory listing reads `displayName`, `description`, `keywords`,
   `icon`, `privacyPolicyUrl` and `termsOfServiceUrl` from `plugin.json`.
-  Claude Code ignores `icon` and the two URLs. The icon is the Opik mark from
-  `comet-ml/opik` (`apps/opik-frontend/src/icons/opik.svg`).
+  Claude Code ignores `icon` and the two URLs. The icon is a square PNG,
+  1024 px, of `Opik-Icon-Primary` from the Opik Design System in Figma. The
+  directory accepts only PNG or JPEG, 512 to 2048 px, and reads the icon
+  once, on the first save in the developer portal.
 
 - `/plugin install opik --marketplace comet-ml/opik-mcp` installs it from
   `.claude-plugin/marketplace.json`. The skills load as `opik:<skill>`.
