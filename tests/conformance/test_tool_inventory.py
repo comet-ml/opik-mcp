@@ -114,6 +114,12 @@ from opik_mcp.server import mcp
 #           `list.automation`), `read` 58 (two names), `read_skill` 5 (the
 #           opik-loop line, paid for by trimming four summaries). The budget
 #           rises by the same amount, so the headroom stays 1,621.
+#   25,089  2026-11-13, automations Gate increment. +208 bytes: `write` 205
+#           (gate and its four overrides on the recipe line; three events,
+#           three steps and only_if on the create line), `list` 21 (`pending`
+#           on `status`), `read_skill` -18 (the opik-loop line names "gate my
+#           PRs" and drops a phrase to stay under the 2,048-character host
+#           cut). The budget is unchanged; the headroom is 1,413.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the

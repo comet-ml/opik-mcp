@@ -298,6 +298,7 @@
             "open",
             "resolved",
             "closed",
+            "pending",
             "done",
             "partial",
             "failed"
@@ -309,7 +310,7 @@
         }
       ],
       "default": null,
-      "description": "agent_insights_issue: which Diagnostics issues to list, 'open' by default (what is broken now), 'resolved' or 'closed' for those dealt with. automation_run: 'done', 'partial' or 'failed'. Ignored for other entity types.",
+      "description": "agent_insights_issue: which Diagnostics issues to list, 'open' by default (what is broken now), 'resolved' or 'closed' for those dealt with. automation_run: 'pending', 'done', 'partial' or 'failed'. Ignored for other entity types.",
       "title": "Status"
     },
     "until": {
