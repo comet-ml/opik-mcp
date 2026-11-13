@@ -62,10 +62,14 @@ from tests.hermetic.stub_records import (
     dataset,
     fill,
     fill_list,
+    gate_automation,
+    gate_run,
+    gate_setup,
     issue_details,
     metric_results,
     page,
     page_size,
+    pending_run,
     prompt_version,
     span,
     thread,
@@ -190,10 +194,19 @@ class StubBackend:
     #: A definition code the backend refuses the next create with, as its
     #: 400 carries it: in ``code`` and as the prefix of the first error string.
     automation_refusal: str | None = None
-    #: The project's automations and their runs, as the list routes page them.
-    automations: list[dict[str, object]] = field(default_factory=lambda: [automation()])
+    #: The project's automations and their runs, as the list routes page them:
+    #: the collect automation with two hourly rollups, the gate one with a
+    #: finished single run and a pending one.
+    automations: list[dict[str, object]] = field(
+        default_factory=lambda: [automation(), gate_automation()]
+    )
     automation_runs: list[dict[str, object]] = field(
-        default_factory=lambda: [automation_run("done"), automation_run("failed")]
+        default_factory=lambda: [
+            automation_run("done"),
+            automation_run("failed"),
+            gate_run(),
+            pending_run(),
+        ]
     )
     #: Bearer tokens the backend no longer accepts. Every route, token
     #: introspection included, answers 401 to a request that carries one. A
@@ -382,11 +395,14 @@ class StubBackend:
                 return 200, {"automation": automation(), "estimate": automation_estimate()}
             return 201, None
         if rest == "/workflows/enable" and method == "POST":
+            # Gate is the one recipe with a setup block: the CI step.
+            is_gate = body.get("recipe") == "gate"
+            created = gate_automation() if is_gate else automation()
             return 200, {
-                "created": [] if dry_run else [automation()],
-                "would_create": ["Low-resolution traces to the suite"] if dry_run else [],
+                "created": [] if dry_run else [created],
+                "would_create": [str(created["name"])] if dry_run else [],
                 "estimate": automation_estimate(),
-                "setup": None,
+                "setup": gate_setup() if is_gate else None,
             }
         if rest == "/workflows/disable" and method == "POST":
             return 200, {"disabled": [AUTOMATION_ID]}
@@ -406,21 +422,25 @@ class StubBackend:
         if rest == "":
             return 200, page(self.automations)
         if rest == "/runs":
-            # The backend narrows the page it returns by status and leaves the
-            # total alone, which is why a narrowed page says so.
+            # An automation id scopes the runs and their total; the backend then
+            # narrows the page it returns by status and leaves the total alone,
+            # which is why a narrowed page says so.
+            scoped = query_value(query, "automation_id", "")
+            runs = [r for r in self.automation_runs if not scoped or r["automation_id"] == scoped]
             wanted = query_value(query, "status", "")
-            rows = [r for r in self.automation_runs if not wanted or r["status"] == wanted]
-            return 200, page(rows, total=len(self.automation_runs))
+            rows = [r for r in runs if not wanted or r["status"] == wanted]
+            return 200, page(rows, total=len(runs))
         if rest == "/workflows":
             return 200, fill_list("automation_workflows")
         if rest == "/recommendations":
             return 200, fill_list("automation_recommendations")
-        if rest == f"/runs/{AUTOMATION_RUN_ID}":
-            return 200, automation_run("done")
         if rest.startswith("/runs/"):
-            return 404, {"errors": ["Run not found"]}
-        if rest == f"/{AUTOMATION_ID}":
-            return 200, next(iter(self.automations), automation())
+            run_id = rest.removeprefix("/runs/")
+            run = next((r for r in self.automation_runs if r["id"] == run_id), None)
+            return (200, run) if run is not None else (404, {"errors": ["Run not found"]})
+        found = next((a for a in self.automations if rest == f"/{a['id']}"), None)
+        if found is not None:
+            return 200, found
         return 404, {"errors": ["Automation not found"]}
 
     # --- the write routes ------------------------------------------------- #

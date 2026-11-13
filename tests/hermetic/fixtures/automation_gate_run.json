@@ -1,0 +1,47 @@
+{
+  "id": "${gate_run_id}",
+  "automation_id": "${gate_automation_id}",
+  "project_id": "${project_id}",
+  "kind": "single",
+  "status": "done",
+  "item_id": "example-org/checkout-agent@9f3c2d1",
+  "trigger": {"event": "ci:run", "repository": "example-org/checkout-agent", "branch": "pr-482"},
+  "trigger_payload": {
+    "repository": "example-org/checkout-agent",
+    "branch": "pr-482",
+    "commit": "9f3c2d1",
+    "run_url": "https://github.com/example-org/checkout-agent/actions/runs/482"
+  },
+  "steps": [
+    {
+      "id": "run",
+      "type": "test_suite.run",
+      "status": "done",
+      "output": {
+        "pass_rate": 0.9,
+        "baseline_pass_rate": 0.95,
+        "regressions": 2,
+        "experiment_id": "${experiment_b}",
+        "baseline_experiment_id": "${experiment_a}"
+      },
+      "reason": null
+    },
+    {"id": "check", "type": "github.check", "status": "done", "output": {"state": "failure", "context": "opik/Test new versions"}, "reason": null},
+    {"id": "notify", "type": "notify", "status": "done", "output": null, "reason": null}
+  ],
+  "outputs": {
+    "run.pass_rate": 0.9,
+    "run.baseline_pass_rate": 0.95,
+    "run.regressions": 2,
+    "run.experiment_id": "${experiment_b}",
+    "run.baseline_experiment_id": "${experiment_a}"
+  },
+  "resume_step": null,
+  "waiting_on": null,
+  "depth": 0,
+  "cost_usd": 0.42,
+  "parent_run_id": null,
+  "child_run_ids": [],
+  "started_at": "2026-11-12T11:00:02Z",
+  "finished_at": "2026-11-12T11:03:10Z"
+}

@@ -12,6 +12,18 @@
     "available_score_names": ["resolution", "Hallucination"]
   },
   {
+    "recipe": "gate",
+    "version": 1,
+    "name": "Gate",
+    "state": "off",
+    "prerequisites_met": true,
+    "blocked_reason": null,
+    "automations": [{"name": "Test new versions", "enabled": false}],
+    "estimate": {"window_days": 14, "fired": 11, "items": 0, "cost_usd": 4.2},
+    "overrides": {"prompt_name": null, "model": null, "test_suite_name": "${suite_name}", "repository": null, "notify_url": null},
+    "available_score_names": ["resolution", "Hallucination"]
+  },
+  {
     "recipe": "align",
     "version": 1,
     "name": "Align",

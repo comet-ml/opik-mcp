@@ -1,0 +1,50 @@
+{
+  "id": "${gate_automation_id}",
+  "project_id": "${project_id}",
+  "project_name": "${project_name}",
+  "name": "Test new versions",
+  "enabled": true,
+  "recipe": {"id": "gate", "version": 1},
+  "triggers": [
+    {"event": "prompt:committed", "prompt_id": "${prompt_id}", "prompt_name": "${prompt_name}"},
+    {"event": "ci:run", "repository": "example-org/checkout-agent", "branch": null}
+  ],
+  "steps": [
+    {
+      "id": "run",
+      "type": "test_suite.run",
+      "test_suite_id": "${suite_id}",
+      "test_suite_name": "${suite_name}",
+      "model": "gpt-4o-mini",
+      "prompt_id": "${prompt_id}",
+      "prompt_name": "${prompt_name}",
+      "only_if": null
+    },
+    {"id": "check", "type": "github.check", "repository": "example-org/checkout-agent", "context": "opik/Test new versions", "only_if": null},
+    {
+      "id": "notify",
+      "type": "notify",
+      "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+      "kind": "slack",
+      "message": null,
+      "only_if": {"groups": [{"conditions": [{"step_output": "run.regressions", "operator": ">", "value": 0}]}]}
+    }
+  ],
+  "limits": {"max_items_per_day": null, "max_runs_per_day": 20, "max_cost_usd_per_day": 5},
+  "created_via": "mcp",
+  "stats": {
+    "window_days": 7,
+    "fired": 6,
+    "sampled": 6,
+    "steps_done": 14,
+    "steps_skipped": 4,
+    "steps_failed": 0,
+    "items_written": 0,
+    "cost_usd": 2.52
+  },
+  "paused_reason": null,
+  "created_at": "2026-11-10T09:00:00Z",
+  "created_by": "dev",
+  "last_updated_at": "2026-11-10T09:00:00Z",
+  "last_updated_by": "dev"
+}

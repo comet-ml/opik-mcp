@@ -1,0 +1,24 @@
+{
+  "id": "${pending_run_id}",
+  "automation_id": "${gate_automation_id}",
+  "project_id": "${project_id}",
+  "kind": "single",
+  "status": "pending",
+  "item_id": "${prompt_version_id}",
+  "trigger": {"event": "prompt:committed", "prompt_id": "${prompt_id}", "prompt_name": "${prompt_name}"},
+  "trigger_payload": {"prompt_version_id": "${prompt_version_id}", "commit": "c4d5e6f"},
+  "steps": [
+    {"id": "run", "type": "test_suite.run", "status": "pending", "output": null, "reason": null},
+    {"id": "check", "type": "github.check", "status": "pending", "output": null, "reason": null},
+    {"id": "notify", "type": "notify", "status": "pending", "output": null, "reason": null}
+  ],
+  "outputs": {},
+  "resume_step": "run",
+  "waiting_on": "experiment:finished:${experiment_b}",
+  "depth": 1,
+  "cost_usd": 0,
+  "parent_run_id": "${run_id}",
+  "child_run_ids": [],
+  "started_at": "2026-11-12T12:00:02Z",
+  "finished_at": null
+}

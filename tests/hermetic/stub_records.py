@@ -44,6 +44,12 @@ AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000060"
 AUTOMATION_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000061"
 RECOMMENDATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000062"
 OTHER_RECOMMENDATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000063"
+#: The gate automation and its two single runs: one finished with the suite's
+#: outputs, one still waiting on its experiment.
+GATE_AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000064"
+GATE_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000065"
+PENDING_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000066"
+PROMPT_VERSION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000067"
 
 #: What the backend stores for a test suite, on the dataset's ``type`` and on
 #: the experiment's ``evaluation_method``. Not ``test_suite``: opik-backend's
@@ -75,6 +81,12 @@ _IDS: dict[str, object] = {
     "run_id": AUTOMATION_RUN_ID,
     "recommendation_id": RECOMMENDATION_ID,
     "other_recommendation_id": OTHER_RECOMMENDATION_ID,
+    "gate_automation_id": GATE_AUTOMATION_ID,
+    "gate_run_id": GATE_RUN_ID,
+    "pending_run_id": PENDING_RUN_ID,
+    "prompt_version_id": PROMPT_VERSION_ID,
+    "experiment_a": EXPERIMENT_A,
+    "experiment_b": EXPERIMENT_B,
 }
 
 
@@ -195,6 +207,42 @@ def automation(
 def automation_run(status: str = "done") -> dict[str, object]:
     """One hourly rollup of a score-triggered automation."""
     return fill("automation_run", status=status)
+
+
+def gate_automation() -> dict[str, object]:
+    """The gate recipe's automation: a prompt commit or a CI run, then run, check, notify."""
+    return fill("automation_gate")
+
+
+def gate_run() -> dict[str, object]:
+    """A single run a CI call fired, finished with two regressions."""
+    return fill("automation_gate_run")
+
+
+def pending_run() -> dict[str, object]:
+    """A single run a prompt commit fired, still waiting on its experiment."""
+    return fill("automation_pending_run")
+
+
+def gate_setup() -> dict[str, object]:
+    """The CI step a gate enable hands back, with the placeholders the agent fills."""
+    event = (
+        f'{{"project_id": "{PROJECT_ID}", "repository": "${{{{ github.repository }}}}", '
+        '"commit": "${{ github.sha }}", "branch": "${{ github.head_ref }}"}'
+    )
+    return {
+        "github_action": (
+            "- name: Tell Opik about this run\n"
+            "  env:\n"
+            "    OPIK_API_KEY: ${{ secrets.OPIK_API_KEY }}\n"
+            "    OPIK_WORKSPACE: <workspace>\n"
+            "    OPIK_URL: https://www.comet.com/opik/api\n"
+            "  run: |\n"
+            '    curl -sS -X POST "$OPIK_URL/v1/private/automations/events/ci" \\\n'
+            '      -H "Authorization: $OPIK_API_KEY" -H "Comet-Workspace: $OPIK_WORKSPACE" \\\n'
+            f"      -d '{event}'\n"
+        )
+    }
 
 
 def automation_estimate() -> dict[str, object]:
