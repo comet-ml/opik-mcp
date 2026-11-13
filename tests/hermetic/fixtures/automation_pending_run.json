@@ -13,11 +13,11 @@
     {"id": "notify", "type": "notify", "status": "pending", "output": null, "reason": null}
   ],
   "outputs": {},
-  "resume_step": "run",
+  "resume_step": 0,
   "waiting_on": "experiment:finished:${experiment_b}",
   "depth": 1,
   "cost_usd": 0,
-  "parent_run_id": "${run_id}",
+  "parent_run_id": "${improved_run_id}",
   "child_run_ids": [],
   "started_at": "2026-11-12T12:00:02Z",
   "finished_at": null

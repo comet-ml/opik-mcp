@@ -69,7 +69,12 @@ from tests.hermetic.stub_backend import (
     Request,
     StubBackend,
 )
-from tests.hermetic.stub_records import GATE_AUTOMATION_ID, GATE_RUN_ID, PENDING_RUN_ID
+from tests.hermetic.stub_records import (
+    GATE_AUTOMATION_ID,
+    GATE_RUN_ID,
+    IMPROVED_RUN_ID,
+    PENDING_RUN_ID,
+)
 
 _TIMEOUT_S = 90
 
@@ -1044,7 +1049,7 @@ async def _automation_run_single(drive: Driver) -> None:
     assert pending["status"] == "pending"
     assert pending["waiting_on"] == f"experiment:finished:{EXPERIMENT_B}"
     assert pending["outputs"] == {}
-    assert pending["depth"] == 1 and pending["parent_run_id"] == AUTOMATION_RUN_ID
+    assert pending["depth"] == 1 and pending["parent_run_id"] == IMPROVED_RUN_ID
 
 
 @probe("automation_run_list_narrows_by_automation_and_status")

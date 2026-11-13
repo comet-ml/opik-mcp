@@ -1,0 +1,57 @@
+{
+  "id": "${improve_automation_id}",
+  "project_id": "${project_id}",
+  "project_name": "${project_name}",
+  "name": "Optimize ${prompt_name} as the suite grows",
+  "enabled": true,
+  "recipe": {"id": "improve", "version": 1},
+  "triggers": [
+    {"event": "test_suite:grew", "test_suite_id": "${suite_id}", "test_suite_name": "${suite_name}", "n": 50}
+  ],
+  "steps": [
+    {
+      "id": "optimize",
+      "type": "optimizer.run",
+      "prompt_id": "${prompt_id}",
+      "prompt_name": "${prompt_name}",
+      "model": "gpt-4o-mini",
+      "test_suite_id": "${suite_id}",
+      "test_suite_name": "${suite_name}",
+      "metric": "levenshtein_ratio",
+      "optimizer": "metaprompt",
+      "only_if": null
+    },
+    {
+      "id": "save",
+      "type": "prompt_version.save",
+      "prompt_id": "${prompt_id}",
+      "prompt_name": "${prompt_name}",
+      "only_if": {"groups": [{"conditions": [{"step_output": "optimize.gain", "operator": ">=", "value": 0.05}]}]}
+    },
+    {
+      "id": "notify",
+      "type": "notify",
+      "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+      "kind": "slack",
+      "message": null,
+      "only_if": {"groups": [{"conditions": [{"step_output": "optimize.gain", "operator": ">=", "value": 0.05}]}]}
+    }
+  ],
+  "limits": {"max_items_per_day": null, "max_runs_per_day": 4, "max_cost_usd_per_day": 10},
+  "created_via": "mcp",
+  "stats": {
+    "window_days": 7,
+    "fired": 3,
+    "sampled": 3,
+    "steps_done": 4,
+    "steps_skipped": 0,
+    "steps_failed": 1,
+    "items_written": 1,
+    "cost_usd": 6.4
+  },
+  "paused_reason": null,
+  "created_at": "2026-11-11T09:00:00Z",
+  "created_by": "dev",
+  "last_updated_at": "2026-11-11T09:00:00Z",
+  "last_updated_by": "dev"
+}

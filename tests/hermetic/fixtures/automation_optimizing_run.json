@@ -1,0 +1,34 @@
+{
+  "id": "${optimizing_run_id}",
+  "automation_id": "${improve_automation_id}",
+  "project_id": "${project_id}",
+  "kind": "single",
+  "status": "pending",
+  "item_id": "${suite_id}@2026-11-13T09:00:00Z",
+  "trigger": {"event": "test_suite:grew", "test_suite_id": "${suite_id}", "test_suite_name": "${suite_name}", "n": 50},
+  "trigger_payload": {"test_suite_id": "${suite_id}", "test_suite_name": "${suite_name}", "count": 53, "since": "2026-11-12T09:00:00Z"},
+  "steps": [
+    {
+      "id": "optimize",
+      "type": "optimizer.run",
+      "status": "done",
+      "output": {"optimization_id": "${optimization_id}", "prompt_version_id": "${prompt_version_id}"},
+      "reason": null
+    },
+    {"id": "save", "type": "prompt_version.save", "status": "pending", "output": null, "reason": null},
+    {"id": "notify", "type": "notify", "status": "pending", "output": null, "reason": null}
+  ],
+  "outputs": {
+    "optimize.optimization_id": "${optimization_id}",
+    "optimize.prompt_version_id": "${prompt_version_id}"
+  },
+  "resume_step": 1,
+  "waiting_on": "optimization:finished:${optimization_id}",
+  "last_error": null,
+  "depth": 0,
+  "cost_usd": 0,
+  "parent_run_id": null,
+  "child_run_ids": [],
+  "started_at": "2026-11-13T09:00:02Z",
+  "finished_at": null
+}

@@ -1,0 +1,51 @@
+{
+  "id": "${improved_run_id}",
+  "automation_id": "${improve_automation_id}",
+  "project_id": "${project_id}",
+  "kind": "single",
+  "status": "done",
+  "item_id": "${suite_id}@2026-11-12T09:00:00Z",
+  "trigger": {"event": "test_suite:grew", "test_suite_id": "${suite_id}", "test_suite_name": "${suite_name}", "n": 50},
+  "trigger_payload": {"test_suite_id": "${suite_id}", "test_suite_name": "${suite_name}", "count": 51, "since": "2026-11-10T09:00:00Z"},
+  "steps": [
+    {
+      "id": "optimize",
+      "type": "optimizer.run",
+      "status": "done",
+      "output": {
+        "optimization_id": "${optimization_id}",
+        "prompt_version_id": "${prompt_version_id}",
+        "best_score": 0.86,
+        "baseline_score": 0.78,
+        "gain": 0.08
+      },
+      "reason": null
+    },
+    {
+      "id": "save",
+      "type": "prompt_version.save",
+      "status": "done",
+      "output": {"prompt_version_id": "${saved_prompt_version_id}", "commit": "d7e8f9a"},
+      "reason": null
+    },
+    {"id": "notify", "type": "notify", "status": "done", "output": null, "reason": null}
+  ],
+  "outputs": {
+    "optimize.optimization_id": "${optimization_id}",
+    "optimize.prompt_version_id": "${prompt_version_id}",
+    "optimize.best_score": 0.86,
+    "optimize.baseline_score": 0.78,
+    "optimize.gain": 0.08,
+    "save.prompt_version_id": "${saved_prompt_version_id}",
+    "save.commit": "d7e8f9a"
+  },
+  "resume_step": null,
+  "waiting_on": null,
+  "last_error": null,
+  "depth": 0,
+  "cost_usd": 3.2,
+  "parent_run_id": null,
+  "child_run_ids": ["${pending_run_id}"],
+  "started_at": "2026-11-12T09:00:02Z",
+  "finished_at": "2026-11-12T09:41:10Z"
+}

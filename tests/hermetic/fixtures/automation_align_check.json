@@ -1,0 +1,48 @@
+{
+  "id": "${align_check_automation_id}",
+  "project_id": "${project_id}",
+  "project_name": "${project_name}",
+  "name": "Check resolution against reviewers",
+  "enabled": true,
+  "recipe": {"id": "align", "version": 1},
+  "triggers": [
+    {"event": "annotation_queue:submitted", "annotation_queue_id": "${queue_id}", "annotation_queue_name": "${queue_name}", "n": 20}
+  ],
+  "steps": [
+    {
+      "id": "agreement",
+      "type": "judge.agreement",
+      "score_name": "resolution",
+      "annotation_queue_id": "${queue_id}",
+      "annotation_queue_name": "${queue_name}",
+      "threshold": 0.5,
+      "only_if": null
+    },
+    {
+      "id": "revise",
+      "type": "judge.revise",
+      "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+      "kind": "slack",
+      "message": null,
+      "score_name": "resolution",
+      "only_if": {"groups": [{"conditions": [{"step_output": "agreement.agreement", "operator": "<", "value": 0.8}]}]}
+    }
+  ],
+  "limits": {"max_items_per_day": null, "max_runs_per_day": null, "max_cost_usd_per_day": null},
+  "created_via": "mcp",
+  "stats": {
+    "window_days": 7,
+    "fired": 1,
+    "sampled": 1,
+    "steps_done": 2,
+    "steps_skipped": 0,
+    "steps_failed": 0,
+    "items_written": 0,
+    "cost_usd": 0
+  },
+  "paused_reason": null,
+  "created_at": "2026-11-11T09:00:00Z",
+  "created_by": "dev",
+  "last_updated_at": "2026-11-11T09:00:00Z",
+  "last_updated_by": "dev"
+}

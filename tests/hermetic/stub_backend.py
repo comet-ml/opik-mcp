@@ -56,6 +56,8 @@ from tests.hermetic.stub_records import (
     THREAD_MODEL_ID,
     THREAD_TRACE_IDS,
     TRACE_ID,
+    align_check_automation,
+    align_sample_automation,
     automation,
     automation_estimate,
     automation_run,
@@ -65,14 +67,19 @@ from tests.hermetic.stub_records import (
     gate_automation,
     gate_run,
     gate_setup,
+    improve_automation,
+    improved_run,
     issue_details,
+    loop,
     metric_results,
+    optimizing_run,
     page,
     page_size,
     pending_run,
     prompt_version,
     span,
     thread,
+    timed_out_run,
     traces,
 )
 from tests.hermetic.stub_spend import spend_answer
@@ -196,9 +203,16 @@ class StubBackend:
     automation_refusal: str | None = None
     #: The project's automations and their runs, as the list routes page them:
     #: the collect automation with two hourly rollups, the gate one with a
-    #: finished single run and a pending one.
+    #: finished single run and a pending one, the improve one with a run
+    #: parked on its optimization, one that resumed and one that timed out,
+    #: and the align check with no runs yet.
     automations: list[dict[str, object]] = field(
-        default_factory=lambda: [automation(), gate_automation()]
+        default_factory=lambda: [
+            automation(),
+            gate_automation(),
+            improve_automation(),
+            align_check_automation(),
+        ]
     )
     automation_runs: list[dict[str, object]] = field(
         default_factory=lambda: [
@@ -206,6 +220,9 @@ class StubBackend:
             automation_run("failed"),
             gate_run(),
             pending_run(),
+            optimizing_run(),
+            improved_run(),
+            timed_out_run(),
         ]
     )
     #: Bearer tokens the backend no longer accepts. Every route, token
@@ -395,14 +412,16 @@ class StubBackend:
                 return 200, {"automation": automation(), "estimate": automation_estimate()}
             return 201, None
         if rest == "/workflows/enable" and method == "POST":
-            # Gate is the one recipe with a setup block: the CI step.
-            is_gate = body.get("recipe") == "gate"
-            created = gate_automation() if is_gate else automation()
+            # Gate is the one recipe with a setup block: the CI step. Align
+            # creates two automations, and a counted trigger has nothing to
+            # replay, so improve's estimate is empty.
+            recipe = body.get("recipe")
+            created = _RECIPE_CREATES.get(str(recipe), (automation(),))
             return 200, {
-                "created": [] if dry_run else [created],
-                "would_create": [str(created["name"])] if dry_run else [],
-                "estimate": automation_estimate(),
-                "setup": gate_setup() if is_gate else None,
+                "created": [] if dry_run else list(created),
+                "would_create": [str(a["name"]) for a in created] if dry_run else [],
+                "estimate": {} if recipe == "improve" else automation_estimate(),
+                "setup": gate_setup() if recipe == "gate" else None,
             }
         if rest == "/workflows/disable" and method == "POST":
             return 200, {"disabled": [AUTOMATION_ID]}
@@ -434,6 +453,8 @@ class StubBackend:
             return 200, fill_list("automation_workflows")
         if rest == "/recommendations":
             return 200, fill_list("automation_recommendations")
+        if rest == "/loop":
+            return 200, loop()
         if rest.startswith("/runs/"):
             run_id = rest.removeprefix("/runs/")
             run = next((r for r in self.automation_runs if r["id"] == run_id), None)
@@ -541,6 +562,12 @@ _WRITE_ROUTES: tuple[tuple[str, re.Pattern[str], int], ...] = tuple(
 )
 _THREAD_COMMENT = re.compile("/v1/private/traces/threads/[^/]+/comments")
 _AUTOMATIONS = "/v1/private/automations"
+#: What each recipe's enable creates; any other recipe makes the collect automation.
+_RECIPE_CREATES: dict[str, tuple[dict[str, object], ...]] = {
+    "gate": (gate_automation(),),
+    "align": (align_sample_automation(), align_check_automation()),
+    "improve": (improve_automation(),),
+}
 _ONE = re.compile(f"/{_UUID}")
 _TEST = re.compile(f"/{_UUID}/test")
 _DISMISS = re.compile(f"/recommendations/{_UUID}/dismiss")

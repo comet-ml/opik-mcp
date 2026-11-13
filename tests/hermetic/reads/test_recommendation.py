@@ -33,6 +33,6 @@ async def test_the_page_is_cut_here_and_says_what_is_left_out(backend: StubBacke
         answer = await call(
             session, "list", entity_type="recommendation", project_name=PROJECT_NAME, size=1
         )
-    assert "showing 1 of 2" in answer
+    assert "showing 1 of 4" in answer
     assert "Use page=2" in answer
     assert "omitted: evidence" in answer

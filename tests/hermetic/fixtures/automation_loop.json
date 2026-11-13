@@ -1,0 +1,46 @@
+{
+  "project_id": "${project_id}",
+  "window_days": 14,
+  "nodes": [
+    {"id": "production", "kind": "project", "name": "production traces", "object_id": "${project_id}"},
+    {"id": "suite:${suite_id}", "kind": "test_suite", "name": "${suite_name}", "object_id": "${suite_id}"},
+    {"id": "prompt:${prompt_id}", "kind": "prompt", "name": "${prompt_name}", "object_id": "${prompt_id}"},
+    {"id": "ci:example-org/checkout-agent", "kind": "ci", "name": "example-org/checkout-agent", "object_id": null},
+    {"id": "queue:${queue_id}", "kind": "annotation_queue", "name": "${queue_name}", "object_id": "${queue_id}"},
+    {"id": "judge:resolution", "kind": "judge", "name": "resolution", "object_id": null}
+  ],
+  "edges": [
+    {
+      "automation_id": "${automation_id}",
+      "name": "Low-resolution traces to the suite",
+      "recipe": "collect",
+      "from": "production",
+      "to": ["suite:${suite_id}"],
+      "produced": {"fired": 240, "matched": 62, "items_written": 62, "steps_failed": 0}
+    },
+    {
+      "automation_id": "${gate_automation_id}",
+      "name": "Test new versions",
+      "recipe": "gate",
+      "from": "prompt:${prompt_id}",
+      "to": ["suite:${suite_id}", "ci:example-org/checkout-agent"],
+      "produced": {"fired": 11, "matched": 11, "items_written": 0, "steps_failed": 0}
+    },
+    {
+      "automation_id": "${improve_automation_id}",
+      "name": "Optimize ${prompt_name} as the suite grows",
+      "recipe": "improve",
+      "from": "suite:${suite_id}",
+      "to": ["prompt:${prompt_id}"],
+      "produced": {"fired": 3, "matched": 3, "items_written": 1, "steps_failed": 1}
+    },
+    {
+      "automation_id": "${align_check_automation_id}",
+      "name": "Check resolution against reviewers",
+      "recipe": "align",
+      "from": "queue:${queue_id}",
+      "to": ["judge:resolution"],
+      "produced": {"fired": 1, "matched": 1, "items_written": 0, "steps_failed": 0}
+    }
+  ]
+}

@@ -13,6 +13,32 @@
     }
   },
   {
+    "id": "${tune_recommendation_id}",
+    "kind": "tune",
+    "workflow": "collect",
+    "automation_id": "${automation_id}",
+    "reason": "'Low-resolution traces to the suite' hit its max_items_per_day limit and is paused until 2026-11-14T00:00:00Z. Raise max_items_per_day to 400, or tighten the threshold so fewer traces match.",
+    "evidence": {"limit": "max_items_per_day", "until": "2026-11-14T00:00:00Z"},
+    "blocked_until": null,
+    "apply": {
+      "operation": "automation.update",
+      "data": {"id": "${automation_id}", "limits": {"max_items_per_day": 400}}
+    }
+  },
+  {
+    "id": "${remove_recommendation_id}",
+    "kind": "remove",
+    "workflow": "align",
+    "automation_id": "${align_check_automation_id}",
+    "reason": "Every step of 'Check resolution against reviewers' failed in 14 days (2 failures). Disable it until the target is fixed.",
+    "evidence": {"steps_failed": 2},
+    "blocked_until": null,
+    "apply": {
+      "operation": "automation.disable",
+      "data": {"id": "${align_check_automation_id}"}
+    }
+  },
+  {
     "id": "${other_recommendation_id}",
     "kind": "setup",
     "workflow": "align",

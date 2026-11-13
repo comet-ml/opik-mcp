@@ -30,9 +30,24 @@
     "state": "off",
     "prerequisites_met": false,
     "blocked_reason": "no judge decides what gets collected yet",
-    "automations": [{"name": "Judge review sample", "enabled": false}],
+    "automations": [
+      {"name": "Random resolution traces to review", "enabled": false},
+      {"name": "Check resolution against reviewers", "enabled": false}
+    ],
     "estimate": {"window_days": 14, "fired": 0, "items": 0, "cost_usd": 0},
-    "overrides": {"score_name": "resolution", "per_day": 10, "annotation_queue_name": "Judge review"},
+    "overrides": {"score_name": "resolution", "per_day": 10, "annotation_queue_name": "${queue_name}", "n": 20, "threshold": 0.5, "notify_url": null},
+    "available_score_names": ["resolution", "Hallucination"]
+  },
+  {
+    "recipe": "improve",
+    "version": 1,
+    "name": "Improve",
+    "state": "on",
+    "prerequisites_met": true,
+    "blocked_reason": null,
+    "automations": [{"id": "${improve_automation_id}", "name": "Optimize ${prompt_name} as the suite grows", "enabled": true}],
+    "estimate": {"window_days": 14, "fired": 0, "items": 0, "cost_usd": 0},
+    "overrides": {"prompt_name": "${prompt_name}", "model": "gpt-4o-mini", "test_suite_name": "${suite_name}", "metric": "levenshtein_ratio", "optimizer": "metaprompt", "n": 50, "min_gain": 0.05, "notify_url": "https://hooks.slack.com/services/T000/B000/XXXX"},
     "available_score_names": ["resolution", "Hallucination"]
   }
 ]

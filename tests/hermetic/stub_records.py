@@ -50,6 +50,23 @@ GATE_AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000064"
 GATE_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000065"
 PENDING_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000066"
 PROMPT_VERSION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000067"
+#: The improve automation and its three single runs: one parked on its
+#: optimization, one that resumed and saved a version (the gate's pending run
+#: is its child), one that timed out waiting. The align check automation is
+#: the recipe's second half; the sample half is what an align enable adds.
+IMPROVE_AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000068"
+ALIGN_CHECK_AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000069"
+ALIGN_SAMPLE_AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-00000000006a"
+OPTIMIZING_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-00000000006b"
+IMPROVED_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-00000000006c"
+TIMED_OUT_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-00000000006d"
+OPTIMIZATION_ID = "0199c6a4-3a4c-7f1e-9d2b-00000000006e"
+STALE_OPTIMIZATION_ID = "0199c6a4-3a4c-7f1e-9d2b-00000000006f"
+SAVED_PROMPT_VERSION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000070"
+QUEUE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000071"
+QUEUE_NAME = "Judge review"
+TUNE_RECOMMENDATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000072"
+REMOVE_RECOMMENDATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000073"
 
 #: What the backend stores for a test suite, on the dataset's ``type`` and on
 #: the experiment's ``evaluation_method``. Not ``test_suite``: opik-backend's
@@ -85,6 +102,19 @@ _IDS: dict[str, object] = {
     "gate_run_id": GATE_RUN_ID,
     "pending_run_id": PENDING_RUN_ID,
     "prompt_version_id": PROMPT_VERSION_ID,
+    "improve_automation_id": IMPROVE_AUTOMATION_ID,
+    "align_check_automation_id": ALIGN_CHECK_AUTOMATION_ID,
+    "align_sample_automation_id": ALIGN_SAMPLE_AUTOMATION_ID,
+    "optimizing_run_id": OPTIMIZING_RUN_ID,
+    "improved_run_id": IMPROVED_RUN_ID,
+    "timed_out_run_id": TIMED_OUT_RUN_ID,
+    "optimization_id": OPTIMIZATION_ID,
+    "stale_optimization_id": STALE_OPTIMIZATION_ID,
+    "saved_prompt_version_id": SAVED_PROMPT_VERSION_ID,
+    "queue_id": QUEUE_ID,
+    "queue_name": QUEUE_NAME,
+    "tune_recommendation_id": TUNE_RECOMMENDATION_ID,
+    "remove_recommendation_id": REMOVE_RECOMMENDATION_ID,
     "experiment_a": EXPERIMENT_A,
     "experiment_b": EXPERIMENT_B,
 }
@@ -222,6 +252,41 @@ def gate_run() -> dict[str, object]:
 def pending_run() -> dict[str, object]:
     """A single run a prompt commit fired, still waiting on its experiment."""
     return fill("automation_pending_run")
+
+
+def improve_automation() -> dict[str, object]:
+    """The improve recipe's automation: the suite grew, so optimize, save on a gain, notify."""
+    return fill("automation_improve")
+
+
+def align_check_automation() -> dict[str, object]:
+    """The align recipe's second half: reviews landed, so check the judge against them."""
+    return fill("automation_align_check")
+
+
+def align_sample_automation() -> dict[str, object]:
+    """The align recipe's first half, which an align enable adds beside the check."""
+    return fill("automation_align_sample")
+
+
+def optimizing_run() -> dict[str, object]:
+    """A single run the suite's growth fired, parked on its optimization."""
+    return fill("automation_optimizing_run")
+
+
+def improved_run() -> dict[str, object]:
+    """A single run that resumed when its optimization finished and saved the winner."""
+    return fill("automation_improved_run")
+
+
+def timed_out_run() -> dict[str, object]:
+    """A single run the poll failed after a day parked on an optimization that never ended."""
+    return fill("automation_timed_out_run")
+
+
+def loop() -> dict[str, object]:
+    """The project's loop: its objects as nodes and its running automations as edges."""
+    return fill("automation_loop")
 
 
 def gate_setup() -> dict[str, object]:
