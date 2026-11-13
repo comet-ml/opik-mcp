@@ -478,7 +478,9 @@ async def test_an_improve_dry_run_names_its_automation_and_carries_no_estimate(
     assert preview["estimate"] == {}
     assert "setup" not in preview
     (sent,) = wire.backend.sent(f"{_PREFIX}/workflows/enable")
-    assert sent.payload["overrides"]["min_gain"] == 0.05
+    overrides = sent.payload["overrides"]
+    assert isinstance(overrides, dict)
+    assert overrides["min_gain"] == 0.05
     assert sent.payload["project_id"] == PROJECT_ID
 
 

@@ -63,67 +63,69 @@ _GATE_CREATE = {
 _GAIN = {
     "groups": [{"conditions": [{"step_output": "optimize.gain", "operator": ">=", "value": 0.05}]}]
 }
+_IMPROVE_STEPS: list[dict[str, object]] = [
+    {
+        "id": "optimize",
+        "type": "optimizer.run",
+        "prompt_name": "refund-answer",
+        "model": "gpt-4o-mini",
+        "test_suite_name": "regressions",
+        "metric": "levenshtein_ratio",
+        "optimizer": "metaprompt",
+    },
+    {
+        "id": "save",
+        "type": "prompt_version.save",
+        "prompt_name": "refund-answer",
+        "only_if": _GAIN,
+    },
+    {
+        "id": "notify",
+        "type": "notify",
+        "url": "https://example.test/hook",
+        "kind": "webhook",
+        "only_if": _GAIN,
+    },
+]
 _IMPROVE_CREATE = {
     "project_id": PROJECT,
     "name": "improve",
     "triggers": [{"event": "test_suite:grew", "test_suite_name": "regressions", "n": 50}],
-    "steps": [
-        {
-            "id": "optimize",
-            "type": "optimizer.run",
-            "prompt_name": "refund-answer",
-            "model": "gpt-4o-mini",
-            "test_suite_name": "regressions",
-            "metric": "levenshtein_ratio",
-            "optimizer": "metaprompt",
-        },
-        {
-            "id": "save",
-            "type": "prompt_version.save",
-            "prompt_name": "refund-answer",
-            "only_if": _GAIN,
-        },
-        {
-            "id": "notify",
-            "type": "notify",
-            "url": "https://example.test/hook",
-            "kind": "webhook",
-            "only_if": _GAIN,
-        },
-    ],
+    "steps": _IMPROVE_STEPS,
     "limits": {"max_cost_usd_per_day": 10},
 }
+_JUDGE_STEPS: list[dict[str, object]] = [
+    {
+        "id": "agreement",
+        "type": "judge.agreement",
+        "score_name": "resolution",
+        "annotation_queue_name": "review",
+        "threshold": 0.5,
+    },
+    {
+        "id": "revise",
+        "type": "judge.revise",
+        "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+        "kind": "slack",
+        "score_name": "resolution",
+        "only_if": {
+            "groups": [
+                {
+                    "conditions": [
+                        {"step_output": "agreement.agreement", "operator": "<", "value": 0.8}
+                    ]
+                }
+            ]
+        },
+    },
+]
 _ALIGN_CHECK_CREATE = {
     "project_id": PROJECT,
     "name": "check the judge",
     "triggers": [
         {"event": "annotation_queue:submitted", "annotation_queue_name": "review", "n": 20}
     ],
-    "steps": [
-        {
-            "id": "agreement",
-            "type": "judge.agreement",
-            "score_name": "resolution",
-            "annotation_queue_name": "review",
-            "threshold": 0.5,
-        },
-        {
-            "id": "revise",
-            "type": "judge.revise",
-            "url": "https://hooks.slack.com/services/T000/B000/XXXX",
-            "kind": "slack",
-            "score_name": "resolution",
-            "only_if": {
-                "groups": [
-                    {
-                        "conditions": [
-                            {"step_output": "agreement.agreement", "operator": "<", "value": 0.8}
-                        ]
-                    }
-                ]
-            },
-        },
-    ],
+    "steps": _JUDGE_STEPS,
 }
 
 
@@ -339,7 +341,7 @@ async def test_a_counted_trigger_and_the_improve_steps_send_their_fields() -> No
     assert body["triggers"] == [
         {"event": "test_suite:grew", "scope": "trace", "test_suite_name": "regressions", "n": 50}
     ]
-    assert body["steps"][0] == _IMPROVE_CREATE["steps"][0]
+    assert body["steps"][0] == _IMPROVE_STEPS[0]
     assert body["steps"][1]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
         "optimize.gain"
     )
@@ -367,7 +369,7 @@ async def test_a_review_trigger_and_the_judge_steps_send_their_fields() -> None:
             "n": 20,
         }
     ]
-    assert body["steps"][0] == _ALIGN_CHECK_CREATE["steps"][0]
+    assert body["steps"][0] == _JUDGE_STEPS[0]
     assert body["steps"][1]["score_name"] == "resolution"
     assert body["steps"][1]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
         "agreement.agreement"
