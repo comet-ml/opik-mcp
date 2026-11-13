@@ -120,8 +120,8 @@ SKILL_SUMMARIES: dict[str, str] = {
         'this release".'
     ),
     "opik-loop": (
-        '"set up Opik for this agent", "what should I do next", "is Collect still worth '
-        'it", "send refund answers to review" — the improvement loop.'
+        '"set up Opik for this agent", "gate my PRs", "what should I do next", "is '
+        'Collect still worth it" — the improvement loop.'
     ),
 }
 
