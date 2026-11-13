@@ -25,6 +25,41 @@ _CREATE = {
     "triggers": [{"event": "feedback_score:created"}],
     "steps": [{"id": "keep", "type": "test_suite.add", "test_suite_name": "regressions"}],
 }
+_GATE_CREATE = {
+    "project_id": PROJECT,
+    "name": "gate",
+    "triggers": [
+        {"event": "ci:run", "repository": "example-org/checkout-agent", "branch": "main"},
+        {"event": "experiment:finished", "test_suite_name": "regressions"},
+    ],
+    "steps": [
+        {
+            "id": "run",
+            "type": "test_suite.run",
+            "test_suite_name": "regressions",
+            "model": "gpt-4o-mini",
+            "prompt_name": "refund-answer",
+        },
+        {"id": "check", "type": "github.check", "context": "opik/gate"},
+        {
+            "id": "notify",
+            "type": "notify",
+            "url": "https://example.test/hook",
+            "kind": "webhook",
+            "message": "regressions",
+            "only_if": {
+                "groups": [
+                    {
+                        "conditions": [
+                            {"step_output": "run.regressions", "operator": ">", "value": 0}
+                        ]
+                    }
+                ]
+            },
+        },
+    ],
+    "limits": {"max_cost_usd_per_day": 5},
+}
 
 
 @pytest.fixture
@@ -110,7 +145,154 @@ async def test_a_dry_run_recipe_enable_resolves_the_project_first() -> None:
     assert body == {"recipe": "gate", "project_id": PROJECT, "created_via": "mcp"}
     assert out["would_create"] == ["Test new versions"]
     assert out["setup"] == {"github_action": "- uses: comet-ml/opik-ci@v1"}
+    assert ".github/workflows/" in out["note"]
+    assert "review" in out["note"]
     assert "note" not in out["would_call"], "the project was resolved, so nothing is left to say"
+
+
+@pytest.mark.anyio
+async def test_a_dry_run_without_a_setup_block_says_nothing_about_one() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post(f"{_PREFIX}/workflows/enable", params={"dry_run": "true"}).mock(
+            return_value=httpx.Response(
+                200, json={"created": [], "would_create": ["x"], "estimate": {}, "setup": None}
+            )
+        )
+        out = await run_write(
+            operation="workflow.enable",
+            data={"recipe": "collect", "project_id": PROJECT},
+            dry_run=True,
+            client=_client(),
+        )
+    assert "setup" not in out
+    assert "note" not in out
+
+
+@pytest.mark.anyio
+async def test_a_live_gate_enable_lifts_the_setup_beside_the_note() -> None:
+    """The live answer reads like the preview: ``setup`` at the top, and the
+    note says the step is written for review, not merged."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post(f"{_PREFIX}/workflows/enable").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "created": [{"id": AUTOMATION, "name": "Test new versions"}],
+                    "would_create": [],
+                    "estimate": {"fired": 11},
+                    "setup": {"github_action": "- uses: comet-ml/opik-ci@v1"},
+                },
+            )
+        )
+        out = await run_write(
+            operation="workflow.enable",
+            data={
+                "recipe": "gate",
+                "project_id": PROJECT,
+                "overrides": {"prompt_name": "refund-answer", "model": "gpt-4o-mini"},
+            },
+            client=_client(),
+        )
+    assert out["setup"] == {"github_action": "- uses: comet-ml/opik-ci@v1"}
+    assert ".github/workflows/" in out["note"]
+    assert "never merge" in out["note"]
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post(f"{_PREFIX}/workflows/enable").mock(
+            return_value=httpx.Response(200, json={"created": [], "estimate": {}, "setup": None})
+        )
+        out = await run_write(
+            operation="workflow.enable",
+            data={"recipe": "collect", "project_id": PROJECT},
+            client=_client(),
+        )
+    assert "setup" not in out
+    assert "merge" not in out["note"]
+
+
+@pytest.mark.anyio
+async def test_a_gate_enable_without_a_prompt_or_model_is_refused_with_what_to_ask() -> None:
+    """The backend refuses; the refusal names the override and says to ask,
+    so an agent never fills the prompt or the model in on its own."""
+    for code, field in (
+        ("prompt_name_required", "overrides.prompt_name"),
+        ("model_required", "overrides.model"),
+    ):
+        with respx.mock(base_url=OPIK_BASE) as mock:
+            mock.post(f"{_PREFIX}/workflows/enable", params={"dry_run": "true"}).mock(
+                return_value=httpx.Response(400, json={"errors": [f"{code}: gate needs it"]})
+            )
+            with pytest.raises(ValidationFailedError) as refused:
+                await run_write(
+                    operation="workflow.enable",
+                    data={"recipe": "gate", "project_id": PROJECT},
+                    dry_run=True,
+                    client=_client(),
+                )
+        envelope = json.loads(refused.value.to_json())
+        assert envelope["issues"] == [{"field": field, "code": code}]
+        assert "ask the user" in envelope["message"]
+
+
+@pytest.mark.anyio
+async def test_a_github_check_without_the_workspace_token_names_the_put_the_user_runs() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post(_PREFIX).mock(
+            return_value=httpx.Response(
+                400, json={"errors": ["integration_required: no GitHub token"]}
+            )
+        )
+        with pytest.raises(ValidationFailedError) as refused:
+            await run_write(operation="automation.create", data=_GATE_CREATE, client=_client())
+    envelope = json.loads(refused.value.to_json())
+    assert envelope["issues"] == [{"field": "steps", "code": "integration_required"}]
+    assert "PUT /v1/private/automations/integrations/github" in envelope["message"]
+    assert "never goes through the MCP" in envelope["message"]
+
+
+@pytest.mark.anyio
+async def test_a_custom_gate_automation_sends_its_trigger_params_and_step_fields() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post(_PREFIX, params={"dry_run": "true"}).mock(
+            return_value=httpx.Response(200, json={"automation": {}, "estimate": {}})
+        )
+        await run_write(
+            operation="automation.create", data=_GATE_CREATE, dry_run=True, client=_client()
+        )
+    body = json.loads(route.calls.last.request.content)
+    assert body["triggers"] == [
+        {
+            "event": "ci:run",
+            "scope": "trace",
+            "repository": "example-org/checkout-agent",
+            "branch": "main",
+        },
+        {"event": "experiment:finished", "scope": "trace", "test_suite_name": "regressions"},
+    ]
+    assert body["steps"][0] == {
+        "id": "run",
+        "type": "test_suite.run",
+        "test_suite_name": "regressions",
+        "model": "gpt-4o-mini",
+        "prompt_name": "refund-answer",
+    }
+    assert body["steps"][1] == {"id": "check", "type": "github.check", "context": "opik/gate"}
+    assert body["steps"][2]["kind"] == "webhook"
+    assert body["steps"][2]["message"] == "regressions"
+    assert body["steps"][2]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
+        "run.regressions"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_notify_kind_outside_webhook_or_slack_is_refused_unsent() -> None:
+    steps = [{"id": "n", "type": "notify", "url": "https://example.test/hook", "kind": "email"}]
+    with pytest.raises(ValidationFailedError) as refused:
+        await run_write(
+            operation="automation.create", data={**_CREATE, "steps": steps}, client=_client()
+        )
+    (issue,) = json.loads(refused.value.to_json())["issues"]
+    assert issue["field"] == "steps.0.kind"
+    assert issue["code"] == "literal_error"
 
 
 @pytest.mark.anyio
@@ -122,6 +304,10 @@ async def test_a_recipe_enable_accepts_every_override_a_recommendation_sends() -
         "annotation_queue_name": "Judge review",
         "per_day": 10,
         "max_items_per_day": 200,
+        "prompt_name": "refund-answer",
+        "model": "gpt-4o-mini",
+        "repository": "example-org/demo",
+        "notify_url": "https://hooks.slack.com/services/T000/B000/XXXX",
     }
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/projects").mock(

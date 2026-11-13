@@ -412,10 +412,11 @@ _REGISTRY: dict[str, WriteOperation] = {
         oauth_scope=SCOPE_AUTOMATION_MANAGE,
         supports_batch=False,
         description=(
-            "Turn a recipe (collect, align) on for a project: creates its automations and "
-            "any missing suite or queue; overrides pick score_name, threshold, "
-            "test_suite_name, per_day, annotation_queue_name. dry_run=true returns the "
-            "definitions and a 14-day estimate."
+            "Turn a recipe (collect, align, gate) on for a project: creates its automations "
+            "and any missing suite or queue; overrides pick score_name, threshold, "
+            "test_suite_name, per_day, annotation_queue_name, and for gate prompt_name, "
+            "model, repository, notify_url. dry_run=true returns the definitions, a 14-day "
+            "estimate and gate's setup (the CI step)."
         ),
         example=automations.WORKFLOW_ENABLE_EXAMPLE,
         failure_modes=(
@@ -424,6 +425,9 @@ _REGISTRY: dict[str, WriteOperation] = {
             "limit_required",
             "automations_unavailable",
             "score_name_required",
+            "prompt_name_required",
+            "model_required",
+            "integration_required",
         ),
     ),
     "workflow.disable": WriteOperation(
@@ -456,19 +460,22 @@ _REGISTRY: dict[str, WriteOperation] = {
         supports_batch=False,
         description=(
             "Create a custom automation: triggers (feedback_score:created with score "
-            "conditions and a per_day cap), ordered steps (test_suite.add, dataset.add, "
-            "annotation_queue.add) and daily limits. dry_run=true returns the validated "
-            "definition and a 14-day estimate."
+            "conditions and a per_day cap; prompt:committed, experiment:finished, ci:run), "
+            "ordered steps (test_suite.add, dataset.add, annotation_queue.add; "
+            "test_suite.run, github.check, notify, with only_if on run outputs) and daily "
+            "limits. dry_run=true returns the validated definition and a 14-day estimate."
         ),
         example=automations.AUTOMATION_CREATE_EXAMPLE,
         failure_modes=(
             "project_scope_missing",
             "unknown_event",
             "unknown_step",
+            "step_scope_mismatch",
             "condition_unknown_step",
             "condition_unknown_output",
             "target_not_found",
             "limit_required",
+            "integration_required",
             "automations_unavailable",
         ),
     ),
@@ -493,10 +500,12 @@ _REGISTRY: dict[str, WriteOperation] = {
             "nothing_to_update",
             "unknown_event",
             "unknown_step",
+            "step_scope_mismatch",
             "condition_unknown_step",
             "condition_unknown_output",
             "target_not_found",
             "limit_required",
+            "integration_required",
         ),
     ),
     "automation.enable": WriteOperation(

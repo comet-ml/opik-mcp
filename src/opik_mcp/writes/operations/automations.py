@@ -105,18 +105,38 @@ Trigger = create_model(
     __base__=_StrictBase,
     __doc__="What fires the automation; triggers are joined by OR.",
     __module__=__name__,
-    event=(str, Field(min_length=1, max_length=100, description="feedback_score:created today.")),
+    event=(
+        str,
+        Field(
+            min_length=1,
+            max_length=100,
+            description=(
+                "feedback_score:created (scope, conditions, per_day), prompt:committed "
+                "(prompt_id or prompt_name; any prompt when absent), experiment:finished "
+                "(test_suite_id or test_suite_name) or ci:run (repository, branch)."
+            ),
+        ),
+    ),
     scope=(Literal["trace", "thread"], Field(default="trace")),
     conditions=(Conditions | None, Field(default=None)),
     per_day=(
         int | None,
         Field(default=None, ge=1, description="At most this many matches a day, at random."),
     ),
+    prompt_id=(UUID | None, Field(default=None)),
+    prompt_name=(str | None, Field(default=None, max_length=200)),
+    test_suite_id=(UUID | None, Field(default=None)),
+    test_suite_name=(str | None, Field(default=None, max_length=200)),
+    repository=(str | None, Field(default=None, max_length=200, description="owner/name.")),
+    branch=(str | None, Field(default=None, max_length=200)),
 )
 Step = create_model(
     "Step",
     __base__=_StrictBase,
-    __doc__="One ordered step; its target is a suite, dataset or queue, by id or name.",
+    __doc__=(
+        "One ordered step: add the item to a suite, dataset or queue (by id or name), "
+        "run a suite, post a GitHub commit status, or notify."
+    ),
     __module__=__name__,
     id=(str, Field(min_length=1, max_length=100)),
     type=(
@@ -124,7 +144,10 @@ Step = create_model(
         Field(
             min_length=1,
             max_length=100,
-            description="test_suite.add, dataset.add or annotation_queue.add today.",
+            description=(
+                "test_suite.add, dataset.add, annotation_queue.add (score events); "
+                "test_suite.run, github.check, notify (prompt, experiment and CI events)."
+            ),
         ),
     ),
     test_suite_id=(UUID | None, Field(default=None)),
@@ -134,7 +157,50 @@ Step = create_model(
     annotation_queue_id=(UUID | None, Field(default=None)),
     annotation_queue_name=(str | None, Field(default=None, max_length=200)),
     assertion=(str | None, Field(default=None, max_length=10_000)),
-    only_if=(OnlyIf | None, Field(default=None)),
+    model=(
+        str | None,
+        Field(default=None, max_length=200, description="test_suite.run: required."),
+    ),
+    prompt_id=(UUID | None, Field(default=None)),
+    prompt_name=(
+        str | None,
+        Field(
+            default=None,
+            max_length=200,
+            description="test_suite.run: default the prompt version the event names.",
+        ),
+    ),
+    repository=(
+        str | None,
+        Field(default=None, max_length=200, description="github.check: default the event's."),
+    ),
+    context=(
+        str | None,
+        Field(
+            default=None,
+            max_length=200,
+            description="github.check: the status context, default opik/<automation name>.",
+        ),
+    ),
+    url=(str | None, Field(default=None, max_length=2000, description="notify: required.")),
+    kind=(
+        Literal["webhook", "slack"] | None,
+        Field(
+            default=None,
+            description="notify: a webhook gets the run summary JSON, slack gets {text}.",
+        ),
+    ),
+    message=(str | None, Field(default=None, max_length=10_000, description="notify.")),
+    only_if=(
+        OnlyIf | None,
+        Field(
+            default=None,
+            description=(
+                "On an earlier step's outputs; test_suite.run declares pass_rate, "
+                "baseline_pass_rate, regressions and experiment_id."
+            ),
+        ),
+    ),
 )
 Limits = create_model(
     "Limits",
@@ -156,6 +222,26 @@ WorkflowOverrides = create_model(
     per_day=(int | None, Field(default=None, ge=1)),
     annotation_queue_name=(str | None, Field(default=None, max_length=200)),
     max_items_per_day=(int | None, Field(default=None, ge=1)),
+    prompt_name=(
+        str | None,
+        Field(default=None, max_length=200, description="gate: the prompt it runs; asked."),
+    ),
+    model=(
+        str | None,
+        Field(default=None, max_length=200, description="gate: the model it runs with; asked."),
+    ),
+    repository=(
+        str | None,
+        Field(default=None, max_length=200, description="gate: owner/name adds the GitHub check."),
+    ),
+    notify_url=(
+        str | None,
+        Field(
+            default=None,
+            max_length=2000,
+            description="gate: adds a notify step on regressions; Slack for a hooks.slack.com URL.",
+        ),
+    ),
 )
 
 AutomationCreate = create_model(
@@ -318,7 +404,13 @@ _DEFINITION_CODES: Final[dict[str, tuple[str, str]]] = {
     "condition_unknown_step": ("steps", "An only_if names a step that is not earlier in steps."),
     "condition_unknown_output": (
         "steps",
-        "An only_if names an output no earlier step declares; phase-1 steps declare none.",
+        "An only_if names an output no earlier step declares; test_suite.run declares "
+        "pass_rate, baseline_pass_rate, regressions and experiment_id, the add steps none.",
+    ),
+    "step_scope_mismatch": (
+        "steps",
+        "An automation listens to score events with add steps, or to prompt, experiment and "
+        "CI events with run, check and notify steps; not both.",
     ),
     "target_not_found": (
         "steps",
@@ -334,7 +426,31 @@ _DEFINITION_CODES: Final[dict[str, tuple[str, str]]] = {
         "A recipe never picks the judge: ask the user which score to act on (the workflow row's "
         "available_score_names lists what the project writes) and pass it in overrides.score_name.",
     ),
+    "prompt_name_required": (
+        "overrides.prompt_name",
+        "A recipe never picks the prompt: ask the user which prompt Gate runs the suite "
+        "against and pass it in overrides.prompt_name.",
+    ),
+    "model_required": (
+        "overrides.model",
+        "A recipe never picks the model: ask the user which model runs the suite and pass it "
+        "in overrides.model.",
+    ),
+    "integration_required": (
+        "steps",
+        "github.check posts with the workspace's GitHub token, which is not set. The user sets "
+        'it themselves with PUT /v1/private/automations/integrations/github {"token": …}; '
+        "it never goes through the MCP, so do not ask for it.",
+    ),
 }
+
+#: What to do with the CI step a recipe hands back: it is the user's repo
+#: that changes, as a change they review, and nothing here merges it.
+_SETUP_NOTE: Final = (
+    "setup.github_action is the step a GitHub workflow in the user's repo adds, with the "
+    "OPIK_API_KEY, OPIK_WORKSPACE and OPIK_URL placeholders filled from the repo's secrets: "
+    "write it into .github/workflows/ as a change for review; never merge it."
+)
 
 _SWITCH: Final = {"automation.enable": True, "automation.disable": False}
 _CREATED_VIA: Final = "mcp"
@@ -496,6 +612,8 @@ async def dry_run(
     for key in ("estimate", "setup", "warnings"):
         if answer.get(key) is not None:
             shaped[key] = answer[key]
+    if "setup" in shaped:
+        shaped["note"] = _SETUP_NOTE
     return shaped
 
 
@@ -513,10 +631,17 @@ def decorate(
             "with its stats, and automation.test runs it on one trace with nothing written."
         )
     elif op.name == "workflow.enable":
-        out["note"] = (
-            "backend_body carries the automations created, the 14-day estimate and any "
-            "setup step; list('automation', project_id=…) lists them."
+        note = (
+            "backend_body carries the automations created and the 14-day estimate; "
+            "list('automation', project_id=…) lists them."
         )
+        body = out.get("backend_body")
+        setup = body.get("setup") if isinstance(body, dict) else None
+        if setup is not None:
+            # Beside the body as the dry run shows it, so the two answers read alike.
+            out["setup"] = setup
+            note = f"{note} {_SETUP_NOTE}"
+        out["note"] = note
 
 
 def dry_run_note(op: WriteOperation, items: list[BaseModel], _prepared: str | None) -> str | None:

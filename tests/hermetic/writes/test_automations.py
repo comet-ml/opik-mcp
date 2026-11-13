@@ -14,6 +14,7 @@ from tests.hermetic.stub_records import (
     AUTOMATION_ID,
     PROJECT_ID,
     PROJECT_NAME,
+    PROMPT_NAME,
     RECOMMENDATION_ID,
     SUITE_NAME,
     TRACE_ID,
@@ -38,6 +39,29 @@ _TRIGGER = {
     },
 }
 _STEP = {"id": "keep", "type": "test_suite.add", "test_suite_name": SUITE_NAME}
+#: A gate-shaped custom automation: a prompt commit runs the suite, posts the
+#: check, and notifies only when the run found regressions.
+_PROMPT_TRIGGER = {"event": "prompt:committed", "prompt_name": PROMPT_NAME}
+_GATE_STEPS = [
+    {"id": "run", "type": "test_suite.run", "test_suite_name": SUITE_NAME, "model": "gpt-4o-mini"},
+    {"id": "check", "type": "github.check", "repository": "example-org/checkout-agent"},
+    {
+        "id": "notify",
+        "type": "notify",
+        "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+        "kind": "slack",
+        "only_if": {
+            "groups": [
+                {"conditions": [{"step_output": "run.regressions", "operator": ">", "value": 0}]}
+            ]
+        },
+    },
+]
+_GATE_OVERRIDES = {
+    "prompt_name": PROMPT_NAME,
+    "model": "gpt-4o-mini",
+    "repository": "example-org/checkout-agent",
+}
 
 CASES: tuple[WriteCase, ...] = (
     WriteCase(
@@ -91,6 +115,36 @@ CASES: tuple[WriteCase, ...] = (
                     "triggers": [{**_TRIGGER}],
                     "steps": [_STEP],
                     "limits": {"max_items_per_day": 200},
+                    "enabled": True,
+                    "project_id": PROJECT_ID,
+                    "created_via": "mcp",
+                },
+            ),
+        ),
+        url_suffix=None,
+        extra_keys=frozenset({"note"}),
+    ),
+    WriteCase(
+        case_id="automation.create (gate steps)",
+        operation="automation.create",
+        data={
+            "project_id": PROJECT_ID,
+            "name": "Test new versions",
+            "triggers": [_PROMPT_TRIGGER],
+            "steps": _GATE_STEPS,
+            "limits": {"max_cost_usd_per_day": 5},
+        },
+        sent=(
+            Sent(
+                "POST",
+                _PREFIX,
+                {
+                    "name": "Test new versions",
+                    # ``scope`` is the trigger's default and rides along; the
+                    # backend reads it for score events only.
+                    "triggers": [{**_PROMPT_TRIGGER, "scope": "trace"}],
+                    "steps": _GATE_STEPS,
+                    "limits": {"max_cost_usd_per_day": 5},
                     "enabled": True,
                     "project_id": PROJECT_ID,
                     "created_via": "mcp",
@@ -214,6 +268,56 @@ async def test_a_dry_run_recipe_enable_sends_the_flag_as_a_query_parameter(wire:
     # and the recipe is enabled for real.
     assert sent.query.get("dry_run") == ["true"]
     assert "dry_run" not in sent.payload
+
+
+async def test_a_gate_dry_run_hands_back_the_ci_step_to_write_for_review(wire: Wire) -> None:
+    """Gate is the one recipe with a setup block; the preview carries it whole
+    and says where it goes, because the user's repo is what changes."""
+    async with wire.connect() as session:
+        result = await session.call_tool(
+            "write",
+            {
+                "operation": "workflow.enable",
+                "data": {
+                    "recipe": "gate",
+                    "project_name": PROJECT_NAME,
+                    "overrides": _GATE_OVERRIDES,
+                },
+                "dry_run": True,
+            },
+        )
+    assert not result.isError, result_json(result)
+    preview = result_json(result)
+    assert preview["would_create"] == ["Test new versions"]
+    setup = preview["setup"]
+    assert isinstance(setup, dict)
+    assert "OPIK_API_KEY" in setup["github_action"]
+    note = str(preview["note"])
+    assert ".github/workflows/" in note
+    assert "review" in note
+    (sent,) = wire.backend.sent(f"{_PREFIX}/workflows/enable")
+    assert sent.query.get("dry_run") == ["true"]
+    assert sent.payload["overrides"] == _GATE_OVERRIDES
+
+
+async def test_a_live_gate_enable_answers_with_the_setup_beside_the_note(wire: Wire) -> None:
+    async with wire.connect() as session:
+        result = await session.call_tool(
+            "write",
+            {
+                "operation": "workflow.enable",
+                "data": {"recipe": "gate", "project_id": PROJECT_ID, "overrides": _GATE_OVERRIDES},
+            },
+        )
+    assert not result.isError, result_json(result)
+    answer = result_json(result)
+    body = answer["backend_body"]
+    assert isinstance(body, dict)
+    setup = answer["setup"]
+    assert isinstance(setup, dict)
+    assert setup == body["setup"]
+    assert "OPIK_WORKSPACE" in setup["github_action"]
+    assert "never merge" in str(answer["note"])
 
 
 async def test_a_definition_the_backend_refuses_comes_back_as_its_code(wire: Wire) -> None:
