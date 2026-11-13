@@ -484,7 +484,8 @@ async def dry_run(
         return {}
     shaped: dict[str, object] = {}
     if op.name == "workflow.enable":
-        shaped["would_create"] = answer.get("created", [])
+        # The backend names what it would create; `created` is empty on a dry run.
+        shaped["would_create"] = answer.get("would_create", [])
     elif "automation" in answer:
         shaped["automation"] = answer["automation"]
     for key in ("estimate", "setup", "warnings"):

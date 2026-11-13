@@ -207,9 +207,7 @@ async def test_a_dry_run_recipe_enable_sends_the_flag_as_a_query_parameter(wire:
         )
     assert not result.isError, result_json(result)
     preview = result_json(result)
-    would_create = preview["would_create"]
-    assert isinstance(would_create, list)
-    assert would_create[0]["name"] == "Low-resolution traces to the suite"
+    assert preview["would_create"] == ["Low-resolution traces to the suite"]
     assert "estimate" in preview
     (sent,) = wire.backend.sent(f"{_PREFIX}/workflows/enable")
     # The backend reads the flag from the query string only; in the body it is ignored

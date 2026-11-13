@@ -383,7 +383,8 @@ class StubBackend:
             return 201, None
         if rest == "/workflows/enable" and method == "POST":
             return 200, {
-                "created": [automation()],
+                "created": [] if dry_run else [automation()],
+                "would_create": ["Low-resolution traces to the suite"] if dry_run else [],
                 "estimate": automation_estimate(),
                 "setup": None,
             }

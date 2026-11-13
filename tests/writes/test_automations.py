@@ -93,7 +93,8 @@ async def test_a_dry_run_recipe_enable_resolves_the_project_first() -> None:
             return_value=httpx.Response(
                 200,
                 json={
-                    "created": [{"name": "Test new versions"}],
+                    "created": [],
+                    "would_create": ["Test new versions"],
                     "estimate": {"fired_14d": 11},
                     "setup": {"github_action": "- uses: comet-ml/opik-ci@v1"},
                 },
@@ -107,7 +108,7 @@ async def test_a_dry_run_recipe_enable_resolves_the_project_first() -> None:
         )
     body = json.loads(route.calls.last.request.content)
     assert body == {"recipe": "gate", "project_id": PROJECT, "created_via": "mcp"}
-    assert out["would_create"] == [{"name": "Test new versions"}]
+    assert out["would_create"] == ["Test new versions"]
     assert out["setup"] == {"github_action": "- uses: comet-ml/opik-ci@v1"}
     assert "note" not in out["would_call"], "the project was resolved, so nothing is left to say"
 
