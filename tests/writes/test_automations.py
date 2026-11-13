@@ -192,6 +192,20 @@ async def test_a_create_hands_back_the_id_from_location() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_create_keeps_the_backends_warnings_beside_the_id() -> None:
+    """A cycle is written and flagged: the flag must survive the id being put in."""
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        location = f"{OPIK_BASE}{_PREFIX}/{AUTOMATION}"
+        mock.post(_PREFIX).mock(
+            return_value=httpx.Response(
+                201, headers={"Location": location}, json={"warnings": ["cycle_warning: …"]}
+            )
+        )
+        out = await run_write(operation="automation.create", data=_CREATE, client=_client())
+    assert out["backend_body"] == {"warnings": ["cycle_warning: …"], "id": AUTOMATION}
+
+
+@pytest.mark.anyio
 async def test_the_subject_of_a_shadow_test_is_one_trace_or_one_thread() -> None:
     with pytest.raises(ValidationFailedError) as neither:
         await run_write(

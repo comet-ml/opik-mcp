@@ -453,7 +453,10 @@ async def retry(
     _raise_for_definition(op, request, resp)
     location = resp.headers.get("location") if resp.status_code == 201 else None
     if location:
-        created = {"id": location.rstrip("/").rsplit("/", 1)[-1]}
+        # Beside whatever the body already says (a cycle warning), not instead.
+        body = safe_body(resp)
+        said = body if isinstance(body, dict) else {}
+        created = {**said, "id": location.rstrip("/").rsplit("/", 1)[-1]}
         return request, httpx.Response(201, json=created, request=resp.request)
     return request, resp
 
