@@ -113,6 +113,35 @@ async def test_a_dry_run_recipe_enable_resolves_the_project_first() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_recipe_enable_accepts_every_override_a_recommendation_sends() -> None:
+    overrides = {
+        "score_name": "resolution",
+        "threshold": 0.5,
+        "test_suite_name": "Regression · demo",
+        "annotation_queue_name": "Judge review",
+        "per_day": 10,
+        "max_items_per_day": 200,
+    }
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.get("/v1/private/projects").mock(
+            return_value=httpx.Response(
+                200, json={"content": [{"id": PROJECT, "name": "demo"}], "total": 1}
+            )
+        )
+        route = mock.post(f"{_PREFIX}/workflows/enable", params={"dry_run": "true"}).mock(
+            return_value=httpx.Response(200, json={"created": [], "estimate": {"fired": 3}})
+        )
+        await run_write(
+            operation="workflow.enable",
+            data={"recipe": "collect", "project_name": "demo", "overrides": overrides},
+            dry_run=True,
+            client=_client(),
+        )
+    body = json.loads(route.calls.last.request.content)
+    assert body["overrides"] == overrides
+
+
+@pytest.mark.anyio
 async def test_a_plain_dry_run_still_says_the_name_resolves_at_execution() -> None:
     out = await run_write(
         operation="workflow.disable",

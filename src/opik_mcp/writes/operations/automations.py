@@ -155,6 +155,7 @@ WorkflowOverrides = create_model(
     test_suite_name=(str | None, Field(default=None, max_length=200)),
     per_day=(int | None, Field(default=None, ge=1)),
     annotation_queue_name=(str | None, Field(default=None, max_length=200)),
+    max_items_per_day=(int | None, Field(default=None, ge=1)),
 )
 
 AutomationCreate = create_model(
