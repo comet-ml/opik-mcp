@@ -9,10 +9,13 @@ set up and tend a project's improvement loop without the UI. This doc answers
 what each read and write promises, how a dry run differs here from everywhere
 else, and what an older backend answers.
 
-Phase 1 of the product spec: the `feedback_score:created` event, the
-`test_suite.add`, `dataset.add` and `annotation_queue.add` steps, the `collect`
-and `align` recipes, setup recommendations. The `loop` read, the other events
-and steps, and upkeep recommendations are later phases and are not here.
+Phase 1 of the product spec plus the Gate increment: the `feedback_score:created`,
+`prompt:committed`, `experiment:finished` and `ci:run` events; the
+`test_suite.add`, `dataset.add` and `annotation_queue.add` steps on score
+events, and `test_suite.run`, `github.check` and `notify` (with `only_if` on a
+run's outputs) on the others; the `collect`, `align` and `gate` recipes; setup
+recommendations. The `loop` read, `improve`, the remaining events and steps,
+and upkeep recommendations are later phases and are not here.
 
 ## What it does now
 
@@ -21,8 +24,8 @@ and steps, and upkeep recommendations are later phases and are not here.
 | Entity | list | read |
 |---|---|---|
 | `automation` | by project; `filters` on `enabled`, `recipe`, `event`, each lifted to its own query parameter (`schema('list.automation')`) | the definition with its 7-day `stats` and `paused_reason` |
-| `automation_run` | by `automation_id` (a new `list` argument, no project needed) or by project; `status` is `done`, `partial` or `failed` | the run with `parent_run_id` and `child_run_ids` |
-| `workflow` | by project: each recipe's state, what it would create, the 14-day estimate, `available_score_names` | list-only |
+| `automation_run` | by `automation_id` (a new `list` argument, no project needed) or by project; `status` is `pending`, `done`, `partial` or `failed` | the run with `parent_run_id` and `child_run_ids`; a single run also carries `item_id`, `outputs`, `waiting_on`, `depth` |
+| `workflow` | by project: each recipe's state, what it would create, the 14-day estimate, `available_score_names`; `gate`'s overrides (`prompt_name`, `model`, the suite name, `repository`, `notify_url`) | list-only |
 | `recommendation` | by project, ranked by the backend, never empty; each row carries `apply_call`, the `write` call that applies it, verbatim | list-only |
 
 - The entity descriptions in `src/opik_mcp/read_list/entities/automations/`
@@ -30,6 +33,12 @@ and steps, and upkeep recommendations are later phases and are not here.
   `tests/hermetic/test_description_claims.py`.
 - The backend applies `status` to the page it returns and not to the total,
   so a narrowed `automation_run` page says so (`status_note`).
+- An `automation_run` row renders `item_id` (the prompt version, the experiment,
+  or `<repository>@<commit>`), `outputs` (the flat `<step id>.<output>` map) and
+  `waiting_on`; its cells are cut at 200 characters rather than the table's 60,
+  so the outputs read whole up to the regressions count (`project_runs`).
+- An automation row's `step_targets` names a check's repository and a
+  notification's URL as the step's target, beside the suites, datasets and queues.
 - `workflow` and `recommendation` come back as arrays, so their pages are cut
   here (`page_of`), as `score_name`'s are.
 - Rows derive their cells under new names (`recipe_id`, `step_targets`,
@@ -62,15 +71,27 @@ and steps, and upkeep recommendations are later phases and are not here.
   recipe enable's body and would enable it for real). The preview adds the backend's
   answer: `automation` or `would_create`, `estimate`, and `setup` or
   `warnings` when present. Every other operation's dry run is unchanged.
-- A recipe never picks the judge. `workflow.enable` without `overrides.score_name` is
-  refused by the backend with `score_name_required`, whose sentence lists the scores the
-  project writes; the skill asks the user before the dry run.
+- A recipe never picks the judge, the prompt or the model. `workflow.enable` without
+  `overrides.score_name` is refused by the backend with `score_name_required`, whose
+  sentence lists the scores the project writes; `gate` without `overrides.prompt_name`
+  or `overrides.model` is refused with `prompt_name_required` / `model_required`. The
+  skill asks the user before the dry run.
+- Gate's `setup.github_action` (the YAML step a GitHub workflow adds) comes back
+  on the dry run and, lifted to `setup` beside `backend_body`, on the live
+  answer; both carry a `note` saying it goes into `.github/workflows/` as a
+  change for review and is never merged here. The `OPIK_API_KEY`,
+  `OPIK_WORKSPACE` and `OPIK_URL` placeholders are the agent's to fill.
+- The GitHub token a `github.check` step posts with never passes through the
+  MCP: there is no write for `PUT /v1/private/automations/integrations/github`,
+  and the `integration_required` sentence tells the user to run that PUT
+  themselves.
 - A 400 whose first error string starts with a definition code
-  (`unknown_event`, `unknown_step`, `condition_unknown_step`,
-  `condition_unknown_output`, `target_not_found`, `limit_required`) is a
-  `validation_failed` with that code, our sentence for it, the field it is
-  about, and the backend's words after `Backend said:`, capped. Any other 400
-  stays a `backend_error`.
+  (`unknown_event`, `unknown_step`, `step_scope_mismatch`, `condition_unknown_step`,
+  `condition_unknown_output`, `target_not_found`, `limit_required`,
+  `integration_required`, and on a recipe enable `score_name_required`,
+  `prompt_name_required`, `model_required`) is a `validation_failed` with that
+  code, our sentence for it, the field it is about, and the backend's words
+  after `Backend said:`, capped. Any other 400 stays a `backend_error`.
 - A 404 on a route that names no record (the collection, `delete`, the two
   workflow routes) means the backend predates the feature: refused as
   `automations_unavailable` with the sentence the reads use
@@ -81,12 +102,17 @@ and steps, and upkeep recommendations are later phases and are not here.
 ### The skill
 
 `opik-loop` (`src/opik_mcp/skills/opik-loop/`) owns the flows: set up after
-instrument, apply the top recommendation, answer "is it worth it" from the
-stats, explain a failed run, build and shadow-test a custom automation. Its
-rules: dry run first and show the estimate, ask before every write, never a
-paying step without `max_cost_usd_per_day`, name the recipe and what it writes
-to, hand off to `opik-online-eval`, `opik-test`, `opik-compare` and
-`opik-explain`, and suggest the weekly check-in once.
+instrument, gate PRs on the suite (ask the prompt and the model, dry run, write
+the CI step for review, enable), apply the top recommendation, answer "is it
+worth it" from the stats, explain a failed run or a gate run from its
+`outputs` and hand the two experiments to `opik-compare`, build and
+shadow-test a custom automation. Its rules: dry run first and show the
+estimate, ask before every write, never a paying step without
+`max_cost_usd_per_day`, name the recipe and what it writes to, never ask for
+or echo the GitHub token, hand off to `opik-online-eval`, `opik-test`,
+`opik-compare` and `opik-explain`, and suggest the weekly check-in once. For
+a code agent Opik cannot run, the skill builds the custom `experiment:finished`
+automation instead of the `gate` recipe.
 
 ## How it works
 
@@ -129,8 +155,13 @@ write      dispatch.py -> hooks in writes/operations/automations.py
 - `since` is not taken on `automation_run` in phase 1: the list tool's
   window travels with free-text search and `should_truncate`, which the runs
   route has no use for. The refusal says to page newest-first instead.
-- `recipe` is the four names the spec gives; a phase-1 backend lists and
-  accepts `collect` and `align` and answers the others itself.
+- `recipe` is the four names the spec gives; a backend lists and accepts the
+  ones it runs (`collect`, `align`, `gate`) and answers the others itself.
+- The write models accept every trigger parameter and step field of every
+  event and step type on one `Trigger` and one `Step` model, as optional
+  fields, and the backend decides which combination is valid (`unknown_step`,
+  `step_scope_mismatch`, `integration_required`): one model is what
+  `schema('automation.create')` can show, and the rules live in one place.
 - No UI link: there is no automations page yet, and a guessed link opens the
   wrong page under the reader's last project.
 
@@ -142,6 +173,12 @@ write      dispatch.py -> hooks in writes/operations/automations.py
   optional) and is refused by `validate_update`, not by the model.
 - The hermetic stub answers a create with 201 and no `Location`, so the
   Location-to-id path is proven by `test_a_create_hands_back_the_id_from_location` only.
+- The hermetic stub enables `gate` with or without `prompt_name` and `model`;
+  the refusal is proven against a mocked 400 in `tests/writes/test_automations.py`.
+- The contract lists `test_suite.run`'s outputs as `pass_rate`,
+  `baseline_pass_rate`, `regressions` and `experiment_id`; the compare hand-off
+  also wants `baseline_experiment_id`, which the fixtures carry and the skill
+  reads when present, falling back to the suite's previous finished experiment.
 
 ## Proven by
 
@@ -166,3 +203,4 @@ write      dispatch.py -> hooks in writes/operations/automations.py
 ## Log
 
 - 2026-11-13: phase 1 — the four reads, the nine writes with a backend-answered dry run, the `opik-loop` skill (NA).
+- 2026-11-13: Gate increment — the three event triggers and their params, the run, check and notify steps with `only_if`, the `gate` recipe and its overrides, single runs with `item_id`, `outputs`, `waiting_on` and `depth`, the `pending` status, the setup step lifted beside the note, the `integration_required`, `prompt_name_required`, `model_required` and `step_scope_mismatch` codes, the skill's Gate flows (NA).
