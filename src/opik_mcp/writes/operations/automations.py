@@ -466,16 +466,13 @@ async def dry_run(
 ) -> dict[str, object]:
     """What the backend says it would do: the validated definition and a 14-day estimate.
 
-    A create and an update take the flag as a query parameter; a recipe enable
-    takes it in the body. Either way the backend validates the same way it
-    would on the live call, so a refusal here is the one the live call would give.
+    The flag is a query parameter on every route, a recipe enable included: a
+    ``dry_run`` field in the body is ignored there and the enable runs for real.
+    The backend validates as it would on the live call, so a refusal here is
+    the one the live call would give.
     """
-    path, body = request.path, request.body
-    if op.name == "workflow.enable" and isinstance(body, dict):
-        body = {**body, "dry_run": True}
-    else:
-        path = f"{path}?dry_run=true"
-    resp = await client.write_json(request.method or op.method, path, body)
+    path = f"{request.path}?dry_run=true"
+    resp = await client.write_json(request.method or op.method, path, request.body)
     if not (200 <= resp.status_code < 300):
         _raise_for_definition(op, request, resp)
         if resp.status_code == 401:

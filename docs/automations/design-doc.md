@@ -58,7 +58,8 @@ and steps, and upkeep recommendations are later phases and are not here.
 - **Dry run asks the backend.** `automation.create`, `automation.update` and
   `workflow.enable` carry a `dry_run_fn`: the dispatcher then resolves the
   project on the dry run too and the hook sends the real request with
-  `?dry_run=true` (in the body for a recipe). The preview adds the backend's
+  `?dry_run=true` on every route (the backend ignores a `dry_run` field in a
+  recipe enable's body and would enable it for real). The preview adds the backend's
   answer: `automation` or `would_create`, `estimate`, and `setup` or
   `warnings` when present. Every other operation's dry run is unchanged.
 - A 400 whose first error string starts with a definition code

@@ -195,7 +195,7 @@ async def test_a_dry_run_create_asks_the_backend_and_shows_its_estimate(wire: Wi
     assert sent.payload["project_id"] == PROJECT_ID
 
 
-async def test_a_dry_run_recipe_enable_carries_the_flag_in_its_body(wire: Wire) -> None:
+async def test_a_dry_run_recipe_enable_sends_the_flag_as_a_query_parameter(wire: Wire) -> None:
     async with wire.connect() as session:
         result = await session.call_tool(
             "write",
@@ -212,8 +212,10 @@ async def test_a_dry_run_recipe_enable_carries_the_flag_in_its_body(wire: Wire) 
     assert would_create[0]["name"] == "Low-resolution traces to the suite"
     assert "estimate" in preview
     (sent,) = wire.backend.sent(f"{_PREFIX}/workflows/enable")
-    assert sent.payload["dry_run"] is True
-    assert "dry_run" not in sent.query
+    # The backend reads the flag from the query string only; in the body it is ignored
+    # and the recipe is enabled for real.
+    assert sent.query.get("dry_run") == ["true"]
+    assert "dry_run" not in sent.payload
 
 
 async def test_a_definition_the_backend_refuses_comes_back_as_its_code(wire: Wire) -> None:
