@@ -13,7 +13,8 @@ Stages, fail-fast:
    path-template filled from ``data`` for path-encoded operations.
 
 ``dry_run=True`` runs stages 1-3 and returns ``{dry_run, would_call}``
-without touching the backend.
+without touching the backend, unless the operation carries a ``dry_run_fn``:
+then the backend is asked what it would do, and its answer rides along.
 
 All non-success outcomes raise a ``WriteError`` subclass; the tool layer
 converts those into MCP-friendly error envelopes.
@@ -78,12 +79,14 @@ async def run_write(
     effective_idem = _resolve_idempotency_key(idempotency_key, items)
 
     # Live path only: build the client and let the operation resolve whatever
-    # the wire needs but the caller does not carry. dry_run stays pure — no
-    # client, no backend calls — so it never depends on config or network.
+    # the wire needs but the caller does not carry. A dry run stays pure — no
+    # client, no backend calls — so it never depends on config or network,
+    # except for an operation whose backend answers dry runs itself: that one
+    # resolves too, so the request the backend is shown is the real one.
     http_client: OpikClient | None = None
     resolved_settings = settings or get_settings()
     prepared: str | None = None
-    if not dry_run:
+    if not dry_run or op.dry_run_fn is not None:
         http_client = client if client is not None else make_opik_client(resolved_settings)
         if op.prepare_fn is not None:
             prepared = await op.prepare_fn(op, items, http_client)
@@ -108,7 +111,11 @@ async def run_write(
             note = op.dry_run_note_fn(op, items, prepared)
             if note is not None:
                 would_call["note"] = note
-        return {"dry_run": True, "would_call": would_call}
+        preview: dict[str, object] = {"dry_run": True, "would_call": would_call}
+        if op.dry_run_fn is not None:
+            assert http_client is not None  # built above whenever the hook is set
+            preview.update(await op.dry_run_fn(op, items, http_client, request))
+        return preview
 
     assert http_client is not None  # set above whenever not dry_run
     resp = await http_client.write_json(

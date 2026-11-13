@@ -21,6 +21,9 @@ SCOPE_EXPERIMENT_CREATE: Final = "experiment_create"
 #: (create, get, update, trigger) — the same one that gates reading issues, so
 #: turning Diagnostics on through the MCP grants nothing the REST API doesn't.
 SCOPE_PROJECT_DATA_VIEW: Final = "project_data_view"
+#: Creating, changing and deleting automations and turning recipes on and off;
+#: testing one in shadow mode reads project data and stays under the view scope.
+SCOPE_AUTOMATION_MANAGE: Final = "automation_manage"
 
 
 ALL_WRITE_SCOPES: Final[frozenset[str]] = frozenset(
@@ -31,12 +34,14 @@ ALL_WRITE_SCOPES: Final[frozenset[str]] = frozenset(
         SCOPE_DATASET_EDIT,
         SCOPE_EXPERIMENT_CREATE,
         SCOPE_PROJECT_DATA_VIEW,
+        SCOPE_AUTOMATION_MANAGE,
     }
 )
 
 
 __all__ = [
     "ALL_WRITE_SCOPES",
+    "SCOPE_AUTOMATION_MANAGE",
     "SCOPE_DATASET_EDIT",
     "SCOPE_EXPERIMENT_CREATE",
     "SCOPE_PROJECT_DATA_VIEW",

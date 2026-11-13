@@ -86,6 +86,14 @@ DecorateFn = Callable[
 #: What a preview cannot show, when it cannot show it.
 DryRunNoteFn = Callable[["WriteOperation", list[BaseModel], str | None], str | None]
 
+#: Ask the backend what it would do with the built request, and return what
+#: it said, merged into the dry-run answer. For an operation whose backend
+#: validates and estimates on request; the dispatcher then also runs
+#: ``prepare_fn`` on the dry run, so the request it hands over is the real one.
+DryRunFn = Callable[
+    ["WriteOperation", list[BaseModel], OpikClient, WireRequest], Awaitable[dict[str, object]]
+]
+
 
 def refuse(op: WriteOperation, field: str, message: str, code: str) -> ValidationFailedError:
     """A ``validation_failed`` for a precondition the payload cannot express.
@@ -137,6 +145,7 @@ __all__ = [
     "BuildContext",
     "BuildFn",
     "DecorateFn",
+    "DryRunFn",
     "DryRunNoteFn",
     "PrepareFn",
     "RetryFn",

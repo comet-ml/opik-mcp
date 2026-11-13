@@ -21,8 +21,15 @@ from typing import Any, Final
 
 from pydantic import BaseModel
 
-from opik_mcp.writes.operations import diagnostics, evaluation, observability, threads
+from opik_mcp.writes.operations import (
+    automations,
+    diagnostics,
+    evaluation,
+    observability,
+    threads,
+)
 from opik_mcp.writes.scopes import (
+    SCOPE_AUTOMATION_MANAGE,
     SCOPE_DATASET_EDIT,
     SCOPE_EXPERIMENT_CREATE,
     SCOPE_PROJECT_DATA_VIEW,
@@ -33,6 +40,7 @@ from opik_mcp.writes.scopes import (
 from opik_mcp.writes.wire import (
     BuildFn,
     DecorateFn,
+    DryRunFn,
     DryRunNoteFn,
     PrepareFn,
     RetryFn,
@@ -89,6 +97,9 @@ class WriteOperation:
     """Add to the success envelope: a link to open, what to expect next."""
     dry_run_note_fn: DryRunNoteFn | None = None
     """What a preview cannot show, when it cannot show it."""
+    dry_run_fn: DryRunFn | None = None
+    """Ask the backend what it would do, for an operation whose backend offers
+    a dry run; its answer is merged into the preview."""
 
 
 # Internal mutable map, frozen via ``MappingProxyType`` before export so
@@ -386,6 +397,183 @@ _REGISTRY: dict[str, WriteOperation] = {
             "diagnostics_unavailable",
             "diagnostics_not_enabled",
         ),
+    ),
+    "workflow.enable": WriteOperation(
+        name="workflow.enable",
+        build_fn=automations.build_workflow,
+        prepare_fn=automations.prepare_scope,
+        retry_fn=automations.retry,
+        dry_run_fn=automations.dry_run,
+        decorate_fn=automations.decorate,
+        dry_run_note_fn=automations.dry_run_note,
+        pydantic_model=automations.WorkflowEnable,
+        endpoint="/v1/private/automations/workflows/enable",
+        method="POST",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        description=(
+            "Turn a recipe on for a project (collect: low scores into a suite; align: a "
+            "daily review sample): creates its automations and missing targets. overrides "
+            "pick score_name, threshold, test_suite_name, per_day, annotation_queue_name. "
+            "dry_run=true returns the definitions and a 14-day estimate instead."
+        ),
+        example=automations.WORKFLOW_ENABLE_EXAMPLE,
+        failure_modes=(
+            "project_scope_missing",
+            "target_not_found",
+            "limit_required",
+            "automations_unavailable",
+        ),
+    ),
+    "workflow.disable": WriteOperation(
+        name="workflow.disable",
+        build_fn=automations.build_workflow,
+        prepare_fn=automations.prepare_scope,
+        retry_fn=automations.retry,
+        dry_run_note_fn=automations.dry_run_note,
+        pydantic_model=automations.WorkflowDisable,
+        endpoint="/v1/private/automations/workflows/disable",
+        method="POST",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        description="Turn off every automation a recipe created for a project.",
+        example=automations.WORKFLOW_DISABLE_EXAMPLE,
+        failure_modes=("project_scope_missing", "automations_unavailable"),
+    ),
+    "automation.create": WriteOperation(
+        name="automation.create",
+        build_fn=automations.build_create,
+        prepare_fn=automations.prepare_scope,
+        retry_fn=automations.retry,
+        dry_run_fn=automations.dry_run,
+        decorate_fn=automations.decorate,
+        dry_run_note_fn=automations.dry_run_note,
+        pydantic_model=automations.AutomationCreate,
+        endpoint="/v1/private/automations",
+        method="POST",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        description=(
+            "Create a custom automation: triggers (feedback_score:created with score "
+            "conditions and a per_day cap), ordered steps (test_suite.add, dataset.add, "
+            "annotation_queue.add) and daily limits. dry_run=true returns the validated "
+            "definition and a 14-day estimate instead."
+        ),
+        example=automations.AUTOMATION_CREATE_EXAMPLE,
+        failure_modes=(
+            "project_scope_missing",
+            "unknown_event",
+            "unknown_step",
+            "condition_unknown_step",
+            "condition_unknown_output",
+            "target_not_found",
+            "limit_required",
+            "automations_unavailable",
+        ),
+    ),
+    "automation.update": WriteOperation(
+        name="automation.update",
+        build_fn=automations.build_update,
+        validate_fn=automations.validate_update,
+        retry_fn=automations.retry,
+        dry_run_fn=automations.dry_run,
+        pydantic_model=automations.AutomationUpdate,
+        endpoint="/v1/private/automations/{automation_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        parent_id_fields=("automation_id",),
+        description=(
+            "Change an automation's name, enabled, triggers, steps or limits; "
+            "dry_run=true validates and estimates instead."
+        ),
+        example=automations.AUTOMATION_UPDATE_EXAMPLE,
+        failure_modes=(
+            "nothing_to_update",
+            "unknown_event",
+            "unknown_step",
+            "condition_unknown_step",
+            "condition_unknown_output",
+            "target_not_found",
+            "limit_required",
+        ),
+    ),
+    "automation.enable": WriteOperation(
+        name="automation.enable",
+        build_fn=automations.build_switch,
+        retry_fn=automations.retry,
+        pydantic_model=automations.AutomationEnable,
+        endpoint="/v1/private/automations/{automation_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        parent_id_fields=("automation_id",),
+        description="Turn one automation on.",
+        example=automations.AUTOMATION_ENABLE_EXAMPLE,
+    ),
+    "automation.disable": WriteOperation(
+        name="automation.disable",
+        build_fn=automations.build_switch,
+        retry_fn=automations.retry,
+        pydantic_model=automations.AutomationDisable,
+        endpoint="/v1/private/automations/{automation_id}",
+        method="PATCH",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        parent_id_fields=("automation_id",),
+        description="Turn one automation off; items it already added stay.",
+        example=automations.AUTOMATION_DISABLE_EXAMPLE,
+    ),
+    "automation.delete": WriteOperation(
+        name="automation.delete",
+        build_fn=automations.build_delete,
+        retry_fn=automations.retry,
+        pydantic_model=automations.AutomationDelete,
+        endpoint="/v1/private/automations/delete",
+        method="POST",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        parent_id_fields=("automation_id",),
+        description="Delete an automation; its runs are kept 30 days.",
+        example=automations.AUTOMATION_DELETE_EXAMPLE,
+        failure_modes=("automations_unavailable",),
+    ),
+    "automation.test": WriteOperation(
+        name="automation.test",
+        build_fn=automations.build_test,
+        validate_fn=automations.validate_test_subject,
+        retry_fn=automations.retry,
+        pydantic_model=automations.AutomationTest,
+        endpoint="/v1/private/automations/{automation_id}/test",
+        method="POST",
+        oauth_scope=SCOPE_PROJECT_DATA_VIEW,
+        supports_batch=False,
+        parent_id_fields=("automation_id",),
+        description=(
+            "Run an automation's steps on one trace_id or thread_id in shadow mode: "
+            "each step's outcome comes back and nothing is written."
+        ),
+        example=automations.AUTOMATION_TEST_EXAMPLE,
+        failure_modes=("test_subject_missing", "test_subject_conflict"),
+    ),
+    "recommendation.dismiss": WriteOperation(
+        name="recommendation.dismiss",
+        build_fn=automations.build_dismiss,
+        prepare_fn=automations.prepare_scope,
+        retry_fn=automations.retry,
+        dry_run_note_fn=automations.dry_run_note,
+        pydantic_model=automations.RecommendationDismiss,
+        endpoint="/v1/private/automations/recommendations/{recommendation_id}/dismiss",
+        method="POST",
+        oauth_scope=SCOPE_AUTOMATION_MANAGE,
+        supports_batch=False,
+        parent_id_fields=("recommendation_id",),
+        description=(
+            "Hide a recommendation from list('recommendation') for 30 days. "
+            "Pass project_id or project_name."
+        ),
+        example=automations.RECOMMENDATION_DISMISS_EXAMPLE,
+        failure_modes=("project_scope_missing",),
     ),
 }
 

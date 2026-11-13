@@ -36,8 +36,9 @@ def build_write_description() -> str:
             "- `data` shape: object for single, array for batch (where supported). "
             "Always-envelope ops (dataset_item.upsert, experiment_item.create) "
             "take their list inside the envelope, not at the top level.",
-            "- `dry_run=true`: validate + check authorization without calling the "
-            "backend. Returns {dry_run, would_call: {method, path, body_size}}.",
+            "- `dry_run=true`: validate + check authorization and return {dry_run, "
+            "would_call: {method, path, body_size}} unsent; an operation whose backend "
+            "offers a dry run adds its validated definition and estimate.",
             "- A schema mismatch returns `validation_failed` with the issues and one "
             "corrected example; `schema(operation)` returns the JSON Schema.",
         ]

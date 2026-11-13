@@ -82,8 +82,9 @@ async def write(
         bool,
         Field(
             description=(
-                "Validate against the operation's schema and OAuth scope without "
-                "calling the backend. Returns {dry_run: true, would_call: ...}."
+                "Validate against the operation's schema and OAuth scope and return "
+                "{dry_run: true, would_call: ...} unsent; where the backend offers a "
+                "dry run, its estimate too."
             ),
         ),
     ] = False,

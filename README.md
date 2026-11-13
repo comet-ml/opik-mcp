@@ -809,6 +809,19 @@ list(entity_type="score_name", project_name="demo")
 list(entity_type="online_rule", project_name="demo")
 ```
 
+**Automations.** `automation` is what runs when a score lands on a production
+trace (its recipe, event, step targets and 7-day stats; `read` adds
+`paused_reason`), `automation_run` its firings (by `automation_id` or project,
+narrowed by `status`), `workflow` each recipe's state for a project with a
+14-day estimate, and `recommendation` the ranked next steps, each with the
+`write` call that applies it. The `opik-loop` skill owns the flows.
+
+```python
+list(entity_type="recommendation", project_name="demo")
+list(entity_type="automation", project_name="demo", filters='recipe = "collect"')
+list(entity_type="automation_run", automation_id="<uuid>", status="failed")
+```
+
 ### `write`
 
 Universal write dispatcher. Pass `operation` + `data` and the dispatcher
@@ -836,6 +849,15 @@ backend response.
 | `agent_insights_issue.resolve` | Mark a Diagnostics issue dealt with (ask the user first). |
 | `agent_insights_issue.close` | Mark a Diagnostics issue not worth acting on (ask the user first). |
 | `agent_insights_issue.reopen` | Put a resolved or closed Diagnostics issue back on the open list. |
+| `workflow.enable` | Turn a recipe (collect, align) on for a project; `dry_run=true` returns the definitions and a 14-day estimate. |
+| `workflow.disable` | Turn off every automation a recipe created for a project. |
+| `automation.create` | Create a custom automation: triggers, ordered steps and daily limits; `dry_run=true` validates and estimates. |
+| `automation.update` | Change an automation's name, enabled, triggers, steps or limits. |
+| `automation.enable` | Turn one automation on. |
+| `automation.disable` | Turn one automation off; items it already added stay. |
+| `automation.delete` | Delete an automation; its runs are kept 30 days. |
+| `automation.test` | Run an automation's steps on one trace or thread in shadow mode; nothing is written. |
+| `recommendation.dismiss` | Hide a recommendation for 30 days. |
 
 ```python
 write(
