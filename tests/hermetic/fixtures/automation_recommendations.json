@@ -1,0 +1,25 @@
+[
+  {
+    "id": "${recommendation_id}",
+    "kind": "setup",
+    "workflow": "collect",
+    "automation_id": null,
+    "reason": "Nothing adds production failures to a test suite. 1,240 traces scored resolution in 14 days, 189 below 0.5.",
+    "evidence": {"scored_14d": 1240, "below_threshold_14d": 189, "suites": []},
+    "blocked_until": null,
+    "apply": {
+      "operation": "workflow.enable",
+      "data": {"recipe": "collect", "project_id": "${project_id}", "overrides": {"score_name": "resolution", "threshold": 0.5}}
+    }
+  },
+  {
+    "id": "${other_recommendation_id}",
+    "kind": "setup",
+    "workflow": "align",
+    "automation_id": null,
+    "reason": "No judge decides what gets collected yet.",
+    "evidence": {},
+    "blocked_until": "a judge is used",
+    "apply": null
+  }
+]

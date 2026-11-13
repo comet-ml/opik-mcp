@@ -1,0 +1,46 @@
+{
+  "id": "${automation_id}",
+  "project_id": "${project_id}",
+  "project_name": "${project_name}",
+  "name": "Low-resolution traces to the suite",
+  "enabled": "${enabled}",
+  "recipe": {"id": "collect", "version": 1},
+  "triggers": [
+    {
+      "event": "feedback_score:created",
+      "scope": "trace",
+      "conditions": {
+        "groups": [
+          {"conditions": [{"score_name": "resolution", "operator": "<", "value": 0.5}]}
+        ]
+      },
+      "per_day": null
+    }
+  ],
+  "steps": [
+    {
+      "id": "keep",
+      "type": "test_suite.add",
+      "test_suite_id": "${suite_id}",
+      "test_suite_name": "${suite_name}",
+      "only_if": null
+    }
+  ],
+  "limits": {"max_items_per_day": 200, "max_runs_per_day": null, "max_cost_usd_per_day": null},
+  "created_via": "mcp",
+  "stats": {
+    "window_days": 7,
+    "fired": 120,
+    "sampled": 31,
+    "steps_done": 31,
+    "steps_skipped": 0,
+    "steps_failed": 0,
+    "items_written": 31,
+    "cost_usd": 0
+  },
+  "paused_reason": "${paused_reason}",
+  "created_at": "2026-11-01T09:00:00Z",
+  "created_by": "dev",
+  "last_updated_at": "2026-11-01T09:00:00Z",
+  "last_updated_by": "dev"
+}

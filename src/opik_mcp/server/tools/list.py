@@ -79,7 +79,7 @@ async def list_entities(
         Field(
             description=(
                 "OQL filter for trace, span, thread, experiment, dataset_item, "
-                "project_metric: "
+                "project_metric, automation: "
                 "<field>[.<key>] <op> <value> [AND ...]; ops = != > >= < <= contains "
                 "not_contains starts_with ends_with is_empty is_not_empty in not_in; "
                 "strings quoted, numbers bare (duration in ms). E.g. "
@@ -187,13 +187,18 @@ async def list_entities(
         str | None,
         Field(description="Required when listing prompt_versions. UUID of the prompt."),
     ] = None,
+    automation_id: Annotated[
+        str | None,
+        Field(description="automation_run only: the runs of one automation; no project needed."),
+    ] = None,
     status: Annotated[
-        Literal["open", "resolved", "closed"] | None,
+        Literal["open", "resolved", "closed", "done", "partial", "failed"] | None,
         Field(
             description=(
-                "agent_insights_issue only: which Diagnostics issues to list. "
-                "Defaults to 'open' (what is broken now); 'resolved' and 'closed' "
-                "show issues already dealt with. Ignored for other entity types."
+                "agent_insights_issue: which Diagnostics issues to list, 'open' by "
+                "default (what is broken now), 'resolved' or 'closed' for those dealt "
+                "with. automation_run: 'done', 'partial' or 'failed'. Ignored for "
+                "other entity types."
             ),
         ),
     ] = None,
@@ -259,6 +264,10 @@ async def list_entities(
       names — trace, span and thread scores together, paged, no id)
     - online_rule: project_id or project_name (the automation rules scoring
       this project's traces)
+    - automation: project_id or project_name; filters on enabled, recipe, event
+    - automation_run: automation_id, or project_id or project_name; status
+      done, partial or failed
+    - workflow, recommendation: project_id or project_name
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
     - dataset_item: dataset_id, or experiment_ids to compare runs case by case.
@@ -290,6 +299,7 @@ async def list_entities(
         dataset_id=dataset_id,
         experiment_ids=experiment_ids,
         prompt_id=prompt_id,
+        automation_id=automation_id,
         status=status,
         metric_type=metric_type,
         interval=interval,

@@ -172,6 +172,8 @@ EXPECTED_TOOLS: frozenset[str] = frozenset(EXPECTED_TOOL_ORDER)
 EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
     "read": (
         "agent_insights_issue",
+        "automation",
+        "automation_run",
         "dataset",
         "dataset_item",
         "experiment",
@@ -183,6 +185,8 @@ EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
     ),
     "list": (
         "agent_insights_issue",
+        "automation",
+        "automation_run",
         "dataset",
         "dataset_item",
         "experiment",
@@ -191,10 +195,12 @@ EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
         "project_metric",
         "prompt",
         "prompt_version",
+        "recommendation",
         "score_name",
         "span",
         "thread",
         "trace",
+        "workflow",
     ),
 }
 

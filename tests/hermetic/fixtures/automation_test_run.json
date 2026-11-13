@@ -1,0 +1,15 @@
+{
+  "id": "${run_id}",
+  "automation_id": "${automation_id}",
+  "project_id": "${project_id}",
+  "kind": "single",
+  "item_id": "${trace_id}",
+  "status": "done",
+  "trigger": {"event": "feedback_score:created", "scope": "trace"},
+  "steps": [{"id": "keep", "type": "test_suite.add", "status": "done", "output": null, "reason": null}],
+  "cost_usd": 0,
+  "parent_run_id": null,
+  "child_run_ids": [],
+  "started_at": "2026-11-12T11:00:02Z",
+  "finished_at": "2026-11-12T11:00:04Z"
+}

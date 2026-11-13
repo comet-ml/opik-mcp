@@ -40,6 +40,10 @@ THREAD_MODEL_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000032"
 PROMPT_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000040"
 PROMPT_NAME = "refund-answer"
 ISSUE_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000050"
+AUTOMATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000060"
+AUTOMATION_RUN_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000061"
+RECOMMENDATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000062"
+OTHER_RECOMMENDATION_ID = "0199c6a4-3a4c-7f1e-9d2b-000000000063"
 
 #: What the backend stores for a test suite, on the dataset's ``type`` and on
 #: the experiment's ``evaluation_method``. Not ``test_suite``: opik-backend's
@@ -65,7 +69,12 @@ _IDS: dict[str, object] = {
     "prompt_name": PROMPT_NAME,
     "issue_id": ISSUE_ID,
     "suite_id": SUITE_ID,
+    "suite_name": SUITE_NAME,
     "test_suite_method": TEST_SUITE_METHOD,
+    "automation_id": AUTOMATION_ID,
+    "run_id": AUTOMATION_RUN_ID,
+    "recommendation_id": RECOMMENDATION_ID,
+    "other_recommendation_id": OTHER_RECOMMENDATION_ID,
 }
 
 
@@ -174,6 +183,23 @@ def dataset_item(index: int) -> dict[str, object]:
         index=index,
         notes=_NOTES,
     )
+
+
+def automation(
+    *, enabled: bool = True, paused_reason: dict[str, object] | None = None
+) -> dict[str, object]:
+    """One automation as the list and the read both send it, stats included."""
+    return fill("automation", enabled=enabled, paused_reason=paused_reason)
+
+
+def automation_run(status: str = "done") -> dict[str, object]:
+    """One hourly rollup of a score-triggered automation."""
+    return fill("automation_run", status=status)
+
+
+def automation_estimate() -> dict[str, object]:
+    """The 14-day estimate every dry run and workflow enable carries."""
+    return {"window_days": 14, "fired": 240, "matched": 62, "items": 62, "cost_usd": 0}
 
 
 def issue_details(issue: dict[str, object]) -> dict[str, object]:

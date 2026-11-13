@@ -69,6 +69,8 @@ def test_the_default_views_are_what_they_were_before_features_existed() -> None:
         "dataset_item",
         "prompt",
         "agent_insights_issue",
+        "automation",
+        "automation_run",
     )
     assert DEFAULT_LISTABLE_TYPES == (
         "project",
@@ -84,6 +86,10 @@ def test_the_default_views_are_what_they_were_before_features_existed() -> None:
         "score_name",
         "online_rule",
         "agent_insights_issue",
+        "automation",
+        "automation_run",
+        "workflow",
+        "recommendation",
     )
     assert LIST_SCHEMA_KEYS == (
         "list.trace",
@@ -92,6 +98,7 @@ def test_the_default_views_are_what_they_were_before_features_existed() -> None:
         "list.experiment",
         "list.dataset_item",
         "list.dataset_item_case",
+        "list.automation",
         "list.project_metric",
     )
 

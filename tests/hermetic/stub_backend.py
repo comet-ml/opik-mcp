@@ -37,6 +37,8 @@ from tests.hermetic.stub_compare import (
     query_value,
 )
 from tests.hermetic.stub_records import (
+    AUTOMATION_ID,
+    AUTOMATION_RUN_ID,
     CASE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
@@ -46,6 +48,7 @@ from tests.hermetic.stub_records import (
     PROJECT_NAME,
     PROMPT_ID,
     PROMPT_NAME,
+    RECOMMENDATION_ID,
     SPAN_ID,
     SUITE_ID,
     SUITE_NAME,
@@ -53,6 +56,9 @@ from tests.hermetic.stub_records import (
     THREAD_MODEL_ID,
     THREAD_TRACE_IDS,
     TRACE_ID,
+    automation,
+    automation_estimate,
+    automation_run,
     dataset,
     fill,
     fill_list,
@@ -69,6 +75,8 @@ from tests.hermetic.stub_spend import spend_answer
 
 #: The ids the probes import from here. New tests take them from stub_records.
 __all__ = [
+    "AUTOMATION_ID",
+    "AUTOMATION_RUN_ID",
     "CASE_ID",
     "EXPERIMENT_A",
     "EXPERIMENT_B",
@@ -78,6 +86,7 @@ __all__ = [
     "PROJECT_NAME",
     "PROMPT_ID",
     "PROMPT_NAME",
+    "RECOMMENDATION_ID",
     "SPAN_ID",
     "SUITE_ID",
     "SUITE_NAME",
@@ -175,6 +184,17 @@ class StubBackend:
     #: Diagnostics issues the project has, newest-seen first. Keyed by status
     #: so a probe can ask for the closed ones the default page leaves out.
     issues: list[dict[str, object]] = field(default_factory=lambda: [_issue()])
+    #: Does this backend ship automations? ``False`` answers 404 on every
+    #: automations route, as a backend from before the feature does.
+    has_automations: bool = True
+    #: A definition code the backend refuses the next create with, as its
+    #: 400 carries it: in ``code`` and as the prefix of the first error string.
+    automation_refusal: str | None = None
+    #: The project's automations and their runs, as the list routes page them.
+    automations: list[dict[str, object]] = field(default_factory=lambda: [automation()])
+    automation_runs: list[dict[str, object]] = field(
+        default_factory=lambda: [automation_run("done"), automation_run("failed")]
+    )
     #: Bearer tokens the backend no longer accepts. Every route, token
     #: introspection included, answers 401 to a request that carries one. A
     #: test adds a token here partway through a session to expire it.
@@ -255,6 +275,9 @@ class StubBackend:
         spend = spend_answer(method, path, self.spend_payloads)
         if spend is not None:
             return spend
+        automations = self._automation_routes(method, path, query, body or {})
+        if automations is not None:
+            return automations
         written = self._write(method, path)
         if written is not None:
             return written
@@ -331,6 +354,73 @@ class StubBackend:
         if path.startswith("/v1/private/datasets/") and path.count("/") == 4:
             return 200, dataset(path.rsplit("/", 1)[-1])
         return None
+
+    # --- the automations routes ------------------------------------------- #
+
+    def _automation_routes(
+        self, method: str, path: str, query: dict[str, list[str]], body: dict[str, object]
+    ) -> tuple[int, object] | None:
+        """Reads and writes under ``/v1/private/automations``, or ``None``.
+
+        The evaluators route under the same prefix is the older online-rules
+        listing and keeps its place in the read table. A backend without the
+        feature answers 404 to all of these, which ``has_automations`` stands for.
+        """
+        if not path.startswith(_AUTOMATIONS) or path.startswith(f"{_AUTOMATIONS}/evaluators"):
+            return None
+        if not self.has_automations:
+            return 404, {"message": "HTTP 404 Not Found"}
+        rest = path.removeprefix(_AUTOMATIONS)
+        dry_run = query.get("dry_run") == ["true"] or body.get("dry_run") is True
+        if method == "GET":
+            return self._automation_reads(rest, query)
+        if rest == "" and method == "POST":
+            if self.automation_refusal is not None:
+                code = self.automation_refusal
+                return 400, {"errors": [f"{code}: step 'keep' names no suite"], "code": code}
+            if dry_run:
+                return 200, {"automation": automation(), "estimate": automation_estimate()}
+            return 201, None
+        if rest == "/workflows/enable" and method == "POST":
+            return 200, {
+                "created": [automation()],
+                "estimate": automation_estimate(),
+                "setup": None,
+            }
+        if rest == "/workflows/disable" and method == "POST":
+            return 200, {"disabled": [AUTOMATION_ID]}
+        if rest == "/delete" and method == "POST":
+            return 204, None
+        if _DISMISS.fullmatch(rest) and method == "POST":
+            return 204, None
+        if _TEST.fullmatch(rest) and method == "POST":
+            return 200, fill("automation_test_run", trace_id=TRACE_ID)
+        if _ONE.fullmatch(rest) and method == "PATCH":
+            if dry_run:
+                return 200, {"automation": automation(), "estimate": automation_estimate()}
+            return 204, None
+        return None
+
+    def _automation_reads(self, rest: str, query: dict[str, list[str]]) -> tuple[int, object]:
+        if rest == "":
+            return 200, page(self.automations)
+        if rest == "/runs":
+            # The backend narrows the page it returns by status and leaves the
+            # total alone, which is why a narrowed page says so.
+            wanted = query_value(query, "status", "")
+            rows = [r for r in self.automation_runs if not wanted or r["status"] == wanted]
+            return 200, page(rows, total=len(self.automation_runs))
+        if rest == "/workflows":
+            return 200, fill_list("automation_workflows")
+        if rest == "/recommendations":
+            return 200, fill_list("automation_recommendations")
+        if rest == f"/runs/{AUTOMATION_RUN_ID}":
+            return 200, automation_run("done")
+        if rest.startswith("/runs/"):
+            return 404, {"errors": ["Run not found"]}
+        if rest == f"/{AUTOMATION_ID}":
+            return 200, next(iter(self.automations), automation())
+        return 404, {"errors": ["Automation not found"]}
 
     # --- the write routes ------------------------------------------------- #
 
@@ -418,9 +508,21 @@ _WRITE_ROUTES: tuple[tuple[str, re.Pattern[str], int], ...] = tuple(
         ("POST", "/v1/private/experiments/items", 204),
         ("PUT", "/v1/private/traces/threads/(close|open)", 204),
         ("PATCH", f"/v1/private/agent-insights/issues/{_UUID}", 204),
+        # Answered by ``_automation_routes`` before this table is consulted;
+        # listed so ``writes()`` counts them as the writes they are.
+        ("POST", "/v1/private/automations", 201),
+        ("PATCH", f"/v1/private/automations/{_UUID}", 204),
+        ("POST", "/v1/private/automations/delete", 204),
+        ("POST", f"/v1/private/automations/{_UUID}/test", 200),
+        ("POST", "/v1/private/automations/workflows/(enable|disable)", 200),
+        ("POST", f"/v1/private/automations/recommendations/{_UUID}/dismiss", 204),
     )
 )
 _THREAD_COMMENT = re.compile("/v1/private/traces/threads/[^/]+/comments")
+_AUTOMATIONS = "/v1/private/automations"
+_ONE = re.compile(f"/{_UUID}")
+_TEST = re.compile(f"/{_UUID}/test")
+_DISMISS = re.compile(f"/recommendations/{_UUID}/dismiss")
 _JOB = re.compile(f"/v1/private/agent-insights/jobs/(?P<project_id>{_UUID})(?P<trigger>/trigger)?")
 
 

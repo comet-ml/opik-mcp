@@ -166,6 +166,7 @@ class OpikListClient(Protocol):
     async def list_automation_rules(
         self, *, project_id: str, page: int = 1, size: int = 10
     ) -> dict[str, Any]: ...
+
     async def get_agent_insights_job(self, project_id: str, /) -> dict[str, Any]: ...
 
     async def get_service_toggles(self) -> dict[str, Any]: ...
@@ -231,6 +232,43 @@ class OpikReadClient(OpikListClient, Protocol):
         from_date: str | None = None,
         to_date: str | None = None,
     ) -> dict[str, Any]: ...
+
+
+class AutomationClient(OpikListClient, Protocol):
+    """The automations endpoints, over the list client's project lookup; the
+    automation entities type against this, so the shared protocols and every
+    fake of them stay as they were."""
+
+    async def list_automations(
+        self,
+        *,
+        project_id: str,
+        enabled: str | None = None,
+        recipe: str | None = None,
+        event: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def get_automation(self, automation_id: str, /) -> dict[str, Any]: ...
+
+    async def list_automation_runs(
+        self,
+        *,
+        project_id: str | None = None,
+        automation_id: str | None = None,
+        status: str | None = None,
+        since: str | None = None,
+        parent_run_id: str | None = None,
+        page: int = 1,
+        size: int = 10,
+    ) -> dict[str, Any]: ...
+
+    async def get_automation_run(self, run_id: str, /) -> dict[str, Any]: ...
+
+    async def list_workflows(self, *, project_id: str) -> list[Any]: ...
+
+    async def list_recommendations(self, *, project_id: str) -> list[Any]: ...
 
 
 class AiSpendClient(Protocol):

@@ -75,6 +75,7 @@ def resolve_list_args(
     project_name: str | None,
     dataset_id: str | None,
     prompt_id: str | None,
+    automation_id: str | None,
     status: str | None,
     features: FeatureToggles,
 ) -> ListArgs:
@@ -100,6 +101,7 @@ def resolve_list_args(
         "project_name": project_name,
         "dataset_id": dataset_id,
         "prompt_id": prompt_id,
+        "automation_id": automation_id,
         "status": status,
     }
     list_kwargs.update(

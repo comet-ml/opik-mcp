@@ -1,0 +1,16 @@
+{
+  "id": "${run_id}",
+  "automation_id": "${automation_id}",
+  "project_id": "${project_id}",
+  "kind": "rollup",
+  "window_start": "2026-11-12T10:00:00Z",
+  "window_end": "2026-11-12T11:00:00Z",
+  "status": "${status}",
+  "trigger": {"event": "feedback_score:created", "scope": "trace", "fired": 120, "matched": 31, "sampled": 10},
+  "steps": [{"id": "keep", "type": "test_suite.add", "done": 10, "skipped": 0, "failed": 0, "last_error": null}],
+  "cost_usd": 0,
+  "parent_run_id": null,
+  "child_run_ids": [],
+  "started_at": "2026-11-12T11:00:02Z",
+  "finished_at": "2026-11-12T11:00:04Z"
+}

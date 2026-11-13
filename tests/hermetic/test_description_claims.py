@@ -49,6 +49,8 @@ from mcp.client.stdio import stdio_client
 from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 from tests.hermetic.stub_backend import (
+    AUTOMATION_ID,
+    AUTOMATION_RUN_ID,
     CASE_ID,
     EXPERIMENT_A,
     EXPERIMENT_B,
@@ -58,6 +60,7 @@ from tests.hermetic.stub_backend import (
     PROJECT_NAME,
     PROMPT_ID,
     PROMPT_NAME,
+    RECOMMENDATION_ID,
     SPAN_ID,
     SUITE_ID,
     SUITE_NAME,
@@ -326,6 +329,72 @@ CLAIMS: tuple[Claim, ...] = (
         "agent_insights_issue",
         "Counts are all-time unless since/until narrow the window (truncated to UTC report days)",
         "issue_counts_are_all_time_unless_windowed",
+    ),
+    # -- automation ------------------------------------------------------------- #
+    Claim(
+        "automation",
+        "when an event fires on a trace or thread, run its steps in order",
+        "automation_is_an_event_then_steps",
+    ),
+    Claim(
+        "automation",
+        "returns the project's automations with their recipe, event, step targets and 7-day stats",
+        "automation_list_shows_recipe_event_targets_and_stats",
+    ),
+    Claim(
+        "automation",
+        "filters narrow by enabled, recipe or event",
+        "automation_filters_become_query_parameters",
+    ),
+    Claim(
+        "automation",
+        "returns the definition with its 7-day stats and paused_reason",
+        "automation_read_carries_stats_and_paused_reason",
+    ),
+    Claim(
+        "automation",
+        "Online evaluation rules are listed under online_rule, not here",
+        "automation_list_leaves_online_rules_to_online_rule",
+    ),
+    # -- automation_run ---------------------------------------------------------- #
+    Claim(
+        "automation_run",
+        "with the trigger's fired/matched/sampled counts, each step's done, skipped and "
+        "failed counts, and cost",
+        "automation_run_rows_carry_trigger_and_step_counts",
+    ),
+    Claim(
+        "automation_run",
+        "narrows by status (done, partial, failed)",
+        "automation_run_list_narrows_by_automation_and_status",
+    ),
+    Claim(
+        "automation_run",
+        "adds parent_run_id and child_run_ids",
+        "automation_run_read_carries_its_chain",
+    ),
+    # -- workflow ------------------------------------------------------------------ #
+    Claim(
+        "workflow",
+        "with the automations it would create filled in for this project and a 14-day estimate",
+        "workflow_rows_carry_automations_and_estimate",
+    ),
+    Claim(
+        "workflow",
+        "List-only, by project; blocked_reason says what a recipe is waiting for",
+        "workflow_is_list_only_and_names_the_block",
+    ),
+    # -- recommendation ------------------------------------------------------------ #
+    Claim(
+        "recommendation",
+        "each row's kind, workflow or automation_id, reason and the write call that "
+        "applies it, verbatim",
+        "recommendation_rows_carry_the_apply_call",
+    ),
+    Claim(
+        "recommendation",
+        "List-only, by project; dismiss one with recommendation.dismiss",
+        "recommendation_is_list_only_and_dismissable",
     ),
     # -- spend_summary (AI Spend workspace) ------------------------------------ #
     Claim(
@@ -872,6 +941,145 @@ async def _issue_window(drive: Driver) -> None:
     # silently drops rows, which is the defect the truncation exists to stop.
     assert windowed.query["from_date"] == ["2026-09-08"]
     assert windowed.query["to_date"] == ["2026-09-09"]
+
+
+# -- automations --------------------------------------------------------- #
+
+_AUTOMATIONS = "/v1/private/automations"
+
+
+@probe("automation_is_an_event_then_steps")
+async def _automation_shape(drive: Driver) -> None:
+    payload = await drive.read_json(entity_type="automation", id=AUTOMATION_ID)
+    assert payload["triggers"][0]["event"] == "feedback_score:created"
+    assert payload["triggers"][0]["scope"] == "trace"
+    assert [step["type"] for step in payload["steps"]] == ["test_suite.add"]
+
+
+@probe("automation_list_shows_recipe_event_targets_and_stats")
+async def _automation_rows(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="automation", project_name=PROJECT_NAME)
+    assert "Low-resolution traces to the suite" in answer
+    assert "collect" in answer
+    assert "feedback_score:created" in answer
+    assert f"test_suite.add→{SUITE_NAME}" in answer
+    assert "fired_7d" in answer and "| 120 |" in answer
+    sent = [r for r in drive.backend.sent(_AUTOMATIONS) if r.path == _AUTOMATIONS][-1]
+    assert sent.query.get("project_id") == [PROJECT_ID]
+
+
+@probe("automation_filters_become_query_parameters")
+async def _automation_filters(drive: Driver) -> None:
+    await drive.call(
+        "list",
+        entity_type="automation",
+        project_name=PROJECT_NAME,
+        filters='recipe = "collect" AND enabled = "true" AND event = "feedback_score:created"',
+    )
+    sent = [r for r in drive.backend.sent(_AUTOMATIONS) if r.path == _AUTOMATIONS][-1]
+    assert sent.query.get("recipe") == ["collect"]
+    assert sent.query.get("enabled") == ["true"]
+    assert sent.query.get("event") == ["feedback_score:created"]
+    assert "filters" not in sent.query, "each is a parameter of its own, not a filter entry"
+
+
+@probe("automation_read_carries_stats_and_paused_reason")
+async def _automation_read(drive: Driver) -> None:
+    payload = await drive.read_json(entity_type="automation", id=AUTOMATION_ID)
+    assert payload["stats"]["window_days"] == 7
+    assert payload["stats"]["fired"] == 120
+    assert "paused_reason" in payload
+    assert "url_absent" in payload, "no UI page yet, and the answer says so"
+
+
+@probe("automation_list_leaves_online_rules_to_online_rule")
+async def _automation_not_rules(drive: Driver) -> None:
+    automations = await drive.call("list", entity_type="automation", project_name=PROJECT_NAME)
+    rules = await drive.call("list", entity_type="online_rule", project_name=PROJECT_NAME)
+    assert "hallucination-judge" in rules
+    assert "hallucination-judge" not in automations
+
+
+@probe("automation_run_rows_carry_trigger_and_step_counts")
+async def _automation_run_rows(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="automation_run", automation_id=AUTOMATION_ID)
+    assert "fired | matched | sampled" in answer
+    assert "| 120 | 31 | 10 |" in answer
+    assert "keep: 10 done/0 skipped/0 failed" in answer
+    assert "cost_usd" in answer
+
+
+@probe("automation_run_list_narrows_by_automation_and_status")
+async def _automation_run_filters(drive: Driver) -> None:
+    answer = await drive.call(
+        "list", entity_type="automation_run", automation_id=AUTOMATION_ID, status="failed"
+    )
+    sent = drive.backend.sent(f"{_AUTOMATIONS}/runs")[-1]
+    assert sent.query.get("automation_id") == [AUTOMATION_ID]
+    assert sent.query.get("status") == ["failed"]
+    assert "project_id" not in sent.query, "an automation id names its project"
+    # The backend narrows the page and not the count, and the page says so.
+    assert "showing 1 of 2" in answer
+    assert "counts runs of every status" in answer
+    # Without an automation, a project is the scope.
+    await drive.call("list", entity_type="automation_run", project_name=PROJECT_NAME)
+    assert drive.backend.sent(f"{_AUTOMATIONS}/runs")[-1].query.get("project_id") == [PROJECT_ID]
+    await drive.refuse("list", entity_type="automation_run")
+
+
+@probe("automation_run_read_carries_its_chain")
+async def _automation_run_read(drive: Driver) -> None:
+    payload = await drive.read_json(entity_type="automation_run", id=AUTOMATION_RUN_ID)
+    assert "parent_run_id" in payload
+    assert payload["child_run_ids"] == []
+
+
+@probe("workflow_rows_carry_automations_and_estimate")
+async def _workflow_rows(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="workflow", project_name=PROJECT_NAME)
+    assert "Collect" in answer and "Align" in answer
+    assert "| on |" in answer and "| off |" in answer
+    assert "Low-resolution traces to the suite" in answer
+    assert "fired 240, items 62, cost $0" in answer
+    sent = drive.backend.sent(f"{_AUTOMATIONS}/workflows")[-1]
+    assert sent.query.get("project_id") == [PROJECT_ID]
+
+
+@probe("workflow_is_list_only_and_names_the_block")
+async def _workflow_list_only(drive: Driver) -> None:
+    refusal = await drive.refuse("read", entity_type="workflow", id="collect")
+    assert "workflow" in refusal
+    await drive.refuse("list", entity_type="workflow")
+    answer = await drive.call("list", entity_type="workflow", project_name=PROJECT_NAME)
+    assert "no judge decides what gets collected yet" in answer
+
+
+@probe("recommendation_rows_carry_the_apply_call")
+async def _recommendation_rows(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="recommendation", project_name=PROJECT_NAME)
+    assert "| setup | collect |" in answer
+    assert "Nothing adds production failures to a test suite." in answer
+    # The call is whole: the data it carries is what ``write`` will be sent.
+    assert (
+        f'write(\'workflow.enable\', data={{"recipe":"collect","project_id":"{PROJECT_ID}",'
+        '"overrides":{"score_name":"resolution","threshold":0.5}})' in answer
+    )
+    assert "a judge is used" in answer, "a blocked row says what it waits for"
+
+
+@probe("recommendation_is_list_only_and_dismissable")
+async def _recommendation_list_only(drive: Driver) -> None:
+    await drive.refuse("read", entity_type="recommendation", id=RECOMMENDATION_ID)
+    await drive.refuse("list", entity_type="recommendation")
+    answer = await drive.call(
+        "write",
+        operation="recommendation.dismiss",
+        data={"recommendation_id": RECOMMENDATION_ID, "project_name": PROJECT_NAME},
+    )
+    assert '"ok":true' in answer.replace(" ", "")
+    sent = drive.backend.sent(f"/recommendations/{RECOMMENDATION_ID}/dismiss")[-1]
+    assert sent.method == "POST"
+    assert sent.payload == {"project_id": PROJECT_ID}
 
 
 # --- the coverage guard (runs in `make check`) ------------------------------- #

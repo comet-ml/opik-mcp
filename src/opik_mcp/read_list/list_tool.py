@@ -212,6 +212,7 @@ async def run_list(
     dataset_id: str | None = None,
     prompt_id: str | None = None,
     experiment_ids: list[str] | None = None,
+    automation_id: str | None = None,
     status: str | None = None,
     metric_type: str | None = None,
     interval: str | None = None,
@@ -244,6 +245,7 @@ async def run_list(
         "dataset_id": dataset_id,
         "prompt_id": prompt_id,
         "experiment_ids": experiment_ids,
+        "automation_id": automation_id,
         "status": status,
         "metric_type": metric_type,
         "interval": interval,
@@ -289,6 +291,7 @@ async def run_list(
         project_name=project_name,
         dataset_id=dataset_id,
         prompt_id=prompt_id,
+        automation_id=automation_id,
         status=status,
         features=features,
     )

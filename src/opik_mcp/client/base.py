@@ -132,6 +132,31 @@ class OpikClientBase:
         Non-2xx maps to the same typed errors as the write path via
         ``errors.raise_for_status`` so resource callers don't have to translate.
         """
+        body = await self._get_parsed(path, params, entity_hint)
+        if not isinstance(body, dict):
+            raise OpikServerError(
+                f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
+            )
+        return body
+
+    async def _get_json_list(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None,
+        entity_hint: str,
+    ) -> list[Any]:
+        """``_get_json`` for endpoints whose answer is a top-level JSON array."""
+        body = await self._get_parsed(path, params, entity_hint)
+        if not isinstance(body, list):
+            raise OpikServerError(
+                f"Opik returned non-array JSON for {entity_hint}: {type(body).__name__}."
+            )
+        return body
+
+    async def _get_parsed(
+        self, path: str, params: dict[str, Any] | None, entity_hint: str
+    ) -> object:
         url = f"{self._base_url}{path}"
         async with self._http() as http:
             resp = await http.request("GET", url, params=params, headers=self._headers())
@@ -141,14 +166,9 @@ class OpikClientBase:
                 f"Unexpected status {resp.status_code} for {entity_hint} (expected 200)."
             )
         try:
-            body = resp.json()
+            return resp.json()
         except ValueError as exc:
             raise OpikServerError(f"Opik returned a non-JSON answer for {entity_hint}.") from exc
-        if not isinstance(body, dict):
-            raise OpikServerError(
-                f"Opik returned non-object JSON for {entity_hint}: {type(body).__name__}."
-            )
-        return body
 
     async def _post_json(
         self,

@@ -1,0 +1,26 @@
+[
+  {
+    "recipe": "collect",
+    "version": 1,
+    "name": "Collect",
+    "state": "on",
+    "prerequisites_met": true,
+    "blocked_reason": null,
+    "automations": [{"id": "${automation_id}", "name": "Low-resolution traces to the suite", "enabled": true}],
+    "estimate": {"window_days": 14, "fired": 240, "items": 62, "cost_usd": 0},
+    "overrides": {"score_name": "resolution", "threshold": 0.5, "test_suite_name": "${suite_name}"},
+    "available_score_names": ["resolution", "Hallucination"]
+  },
+  {
+    "recipe": "align",
+    "version": 1,
+    "name": "Align",
+    "state": "off",
+    "prerequisites_met": false,
+    "blocked_reason": "no judge decides what gets collected yet",
+    "automations": [{"name": "Judge review sample", "enabled": false}],
+    "estimate": {"window_days": 14, "fired": 0, "items": 0, "cost_usd": 0},
+    "overrides": {"score_name": "resolution", "per_day": 10, "annotation_queue_name": "Judge review"},
+    "available_score_names": ["resolution", "Hallucination"]
+  }
+]

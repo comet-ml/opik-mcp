@@ -90,6 +90,10 @@ def test_optional_kwargs_never_overlap_required_ones() -> None:
 _DECLARES_OPTIONAL_KWARGS = {
     # Diagnostics issues: which status to list, and the report-day window.
     "agent_insights_issue": {"status", "from_date", "to_date"},
+    # Automations: the three query parameters its filters are lifted into.
+    "automation": {"enabled", "recipe", "event"},
+    # Runs: scoped by an automation or a project, and narrowed by status.
+    "automation_run": {"project_id", "automation_id", "status"},
 }
 
 
