@@ -204,6 +204,7 @@ EXPECTED_ENTITY_ENUM: dict[str, tuple[str, ...]] = {
         "dataset",
         "dataset_item",
         "experiment",
+        "loop",
         "online_rule",
         "project",
         "project_metric",

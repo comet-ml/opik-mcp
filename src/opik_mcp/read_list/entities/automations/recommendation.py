@@ -31,10 +31,23 @@ async def list_page(client: AutomationClient, **kw: object) -> dict[str, object]
 def derive_columns(record: dict[str, object]) -> dict[str, object]:
     """The ``write`` call that applies the recommendation, ready to send."""
     apply = child(record, "apply")
+    operation = text(apply, "operation")
     call = (
-        f"write({text(apply, 'operation')!r}, data={compact(apply.get('data'))})" if apply else ""
+        f"write({operation!r}, data={compact(_in_the_writes_words(operation, apply.get('data')))})"
+        if apply
+        else ""
     )
     return {**record, "apply_call": call}
+
+
+def _in_the_writes_words(operation: str, data: object) -> object:
+    """The data as the write takes it: an upkeep apply names the automation
+    ``id``, and every ``automation.*`` operation spells that ``automation_id``."""
+    if not operation.startswith("automation.") or not isinstance(data, dict):
+        return data
+    if "id" not in data or "automation_id" in data:
+        return data
+    return {"automation_id": data["id"], **{k: v for k, v in data.items() if k != "id"}}
 
 
 def project_recommendations(_items: list[dict[str, object]]) -> ListProjection:
@@ -58,8 +71,9 @@ HANDLER = EntityHandler(
     list_required_kwargs=("project_id",),
     list_has_name=False,
     description=(
-        "Ranked next steps for a project, never empty: each row's kind, workflow or "
-        "automation_id, reason and the write call that applies it, verbatim. "
+        "Ranked next steps for a project, never empty: each row's kind (setup, tune, "
+        "remove or review), workflow or automation_id, reason and the write call that "
+        "applies it, ready to send. "
         "List-only, by project; dismiss one with recommendation.dismiss."
     ),
 )

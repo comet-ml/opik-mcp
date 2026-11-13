@@ -270,6 +270,8 @@ class AutomationClient(OpikListClient, Protocol):
 
     async def list_recommendations(self, *, project_id: str) -> list[Any]: ...
 
+    async def get_loop(self, *, project_id: str) -> dict[str, Any]: ...
+
 
 class AiSpendClient(Protocol):
     """The AI Spend endpoints; spend entities narrow a client to this with a cast."""

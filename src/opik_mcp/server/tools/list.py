@@ -266,8 +266,8 @@ async def list_entities(
       this project's traces)
     - automation: project_id or project_name; filters on enabled, recipe, event
     - automation_run: automation_id, or project_id or project_name; status
-      done, partial or failed
-    - workflow, recommendation: project_id or project_name
+      pending, done, partial or failed
+    - workflow, recommendation, loop: project_id or project_name
     - project_metric: project_id or project_name, plus metric_type — one
       metric over time. Rows are time buckets, so page/size/sort are refused.
     - dataset_item: dataset_id, or experiment_ids to compare runs case by case.

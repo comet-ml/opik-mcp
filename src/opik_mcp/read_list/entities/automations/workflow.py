@@ -78,7 +78,8 @@ HANDLER = EntityHandler(
     list_required_kwargs=("project_id",),
     list_has_id=False,
     description=(
-        "A recipe's state for a project — collect, align or gate, on, partly_on or off — with "
+        "A recipe's state for a project — collect, gate, align or improve, on, partly_on or off "
+        "— with "
         "the automations it would create filled in for this project and a 14-day "
         "estimate. List-only, by project; blocked_reason says what a recipe is waiting for."
     ),

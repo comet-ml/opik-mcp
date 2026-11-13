@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from opik_mcp.client.protocols import AutomationClient
 from opik_mcp.read_list.entities.automations._shared import (
     child,
@@ -18,7 +20,22 @@ from opik_mcp.read_list.project_scope import scope_of
 
 #: What a step writes to: the first of these a step names is its target. A
 #: check's target is its repository and a notification's its URL.
-_TARGET_NAMES = ("test_suite_name", "dataset_name", "annotation_queue_name", "repository", "url")
+_TARGET_NAMES: Final = (
+    "test_suite_name",
+    "dataset_name",
+    "annotation_queue_name",
+    "repository",
+    "url",
+)
+#: The steps whose target is not the first name they carry: the optimizer
+#: names the suite it runs on but writes the prompt, and a judge step names
+#: the queue but is about the score.
+_TARGET_OF: Final = {
+    "optimizer.run": "prompt_name",
+    "prompt_version.save": "prompt_name",
+    "judge.agreement": "score_name",
+    "judge.revise": "score_name",
+}
 
 
 async def fetch(client: AutomationClient, entity_id: str) -> dict[str, object]:
@@ -59,6 +76,9 @@ def derive_columns(record: dict[str, object]) -> dict[str, object]:
 
 
 def _target(step: dict[str, object]) -> str:
+    own = _TARGET_OF.get(text(step, "type"))
+    if own is not None and step.get(own):
+        return text(step, own)
     return next((text(step, key) for key in _TARGET_NAMES if step.get(key)), "")
 
 
@@ -115,7 +135,7 @@ HANDLER = EntityHandler(
     no_window_reason="automations have no time window; their runs do, under automation_run.",
     description=(
         "An automation on a project: when an event fires on a trace or thread, a "
-        "prompt, a suite or a CI run, run its steps in order. "
+        "prompt, a suite, a queue or a CI run, run its steps in order. "
         "list('automation', project_id=… | project_name=…) "
         "returns the project's automations with their recipe, event, step targets "
         "and 7-day stats; filters narrow by enabled, recipe or event. "

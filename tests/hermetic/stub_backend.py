@@ -225,6 +225,8 @@ class StubBackend:
             timed_out_run(),
         ]
     )
+    #: The project's loop as the backend derives it from the enabled automations.
+    loop: dict[str, object] = field(default_factory=loop)
     #: Bearer tokens the backend no longer accepts. Every route, token
     #: introspection included, answers 401 to a request that carries one. A
     #: test adds a token here partway through a session to expire it.
@@ -454,7 +456,7 @@ class StubBackend:
         if rest == "/recommendations":
             return 200, fill_list("automation_recommendations")
         if rest == "/loop":
-            return 200, loop()
+            return 200, self.loop
         if rest.startswith("/runs/"):
             run_id = rest.removeprefix("/runs/")
             run = next((r for r in self.automation_runs if r["id"] == run_id), None)

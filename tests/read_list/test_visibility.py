@@ -90,6 +90,7 @@ def test_the_default_views_are_what_they_were_before_features_existed() -> None:
         "automation_run",
         "workflow",
         "recommendation",
+        "loop",
     )
     assert LIST_SCHEMA_KEYS == (
         "list.trace",

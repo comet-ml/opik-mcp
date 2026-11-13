@@ -2,8 +2,9 @@
 
 A score-triggered automation fires thousands of times a day and its runs are
 hourly rollups with counts. An event-triggered one (a prompt commit, a finished
-experiment, a CI run) makes a single run with the item, the steps' outputs and,
-while it waits on an experiment, what it waits for.
+experiment, a CI run, a suite that grew, a queue that was reviewed) makes a
+single run with the item, the steps' outputs and, while it waits on an
+experiment or an optimization, what it waits for.
 """
 
 from __future__ import annotations
@@ -26,10 +27,11 @@ from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler, ListProjection, PageContext
 from opik_mcp.read_list.project_scope import scope_of
 
-#: A single run's ``outputs`` cell is a JSON object of four or five
-#: ``step.output`` pairs, and the table's default width would cut it before
-#: the regressions count, which is the figure a gate run is read for.
-_CELL_LIMIT: Final = 200
+#: A single run's ``outputs`` cell is a JSON object of up to seven
+#: ``step.output`` pairs, three of them ids, and the table's default width
+#: would cut it before the regressions count or the gain, which are the
+#: figures a gate run and an improve run are read for.
+_CELL_LIMIT: Final = 400
 
 
 async def fetch(client: AutomationClient, entity_id: str) -> dict[str, object]:
@@ -61,15 +63,30 @@ async def list_page(client: AutomationClient, **kw: object) -> dict[str, object]
 
 
 def derive_columns(record: dict[str, object]) -> dict[str, object]:
-    """The trigger's counts and each step's outcome, flattened into cells."""
+    """The trigger's counts, each step's outcome and the last error, flattened into cells."""
     trigger = child(record, "trigger")
+    steps = rows_of(record.get("steps"))
     return {
         **record,
         "fired": count(trigger, "fired"),
         "matched": count(trigger, "matched"),
         "sampled": count(trigger, "sampled"),
-        "step_outcomes": "; ".join(_outcome(step) for step in rows_of(record.get("steps"))),
+        "step_outcomes": "; ".join(_outcome(step) for step in steps),
+        "last_error": text(record, "last_error") or _step_error(steps),
     }
+
+
+def _step_error(steps: list[dict[str, object]]) -> str:
+    """The first error a step carries: a rollup's ``last_error``, a single
+    run's failed step's ``reason``."""
+    return next(
+        (
+            text(step, "last_error") or text(step, "reason")
+            for step in steps
+            if step.get("last_error") or (text(step, "status") == "failed" and step.get("reason"))
+        ),
+        "",
+    )
 
 
 def _outcome(step: dict[str, object]) -> str:
@@ -96,6 +113,7 @@ def project_runs(_items: list[dict[str, object]]) -> ListProjection:
             "step_outcomes",
             "outputs",
             "waiting_on",
+            "last_error",
             "cost_usd",
             "parent_run_id",
         ),
@@ -136,7 +154,9 @@ HANDLER = EntityHandler(
         "One firing of an automation — score-triggered ones are rolled up per UTC hour — "
         "with the trigger's fired/matched/sampled counts, each step's done, skipped and "
         "failed counts, and cost. An event-triggered run is single: it carries item_id, "
-        "outputs keyed step.output (run.regressions), waiting_on while pending, and depth. "
+        "outputs keyed step.output (run.regressions, optimize.gain), waiting_on while "
+        "pending (experiment:finished:<id> or optimization:finished:<id>), last_error when "
+        "it failed (a day parked on an optimization times out), and depth. "
         "list('automation_run', automation_id=… | project_id=… | project_name=…) narrows "
         "by status (pending, done, partial, failed). "
         "read('automation_run', id) adds parent_run_id and child_run_ids."

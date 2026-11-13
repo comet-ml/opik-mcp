@@ -70,10 +70,16 @@ from tests.hermetic.stub_backend import (
     StubBackend,
 )
 from tests.hermetic.stub_records import (
+    ALIGN_CHECK_AUTOMATION_ID,
     GATE_AUTOMATION_ID,
     GATE_RUN_ID,
+    IMPROVE_AUTOMATION_ID,
     IMPROVED_RUN_ID,
+    OPTIMIZATION_ID,
+    OPTIMIZING_RUN_ID,
     PENDING_RUN_ID,
+    QUEUE_ID,
+    TIMED_OUT_RUN_ID,
 )
 
 _TIMEOUT_S = 90
@@ -339,8 +345,8 @@ CLAIMS: tuple[Claim, ...] = (
     # -- automation ------------------------------------------------------------- #
     Claim(
         "automation",
-        "when an event fires on a trace or thread, a prompt, a suite or a CI run, run its "
-        "steps in order",
+        "when an event fires on a trace or thread, a prompt, a suite, a queue or a CI run, "
+        "run its steps in order",
         "automation_is_an_event_then_steps",
     ),
     Claim(
@@ -373,7 +379,9 @@ CLAIMS: tuple[Claim, ...] = (
     Claim(
         "automation_run",
         "An event-triggered run is single: it carries item_id, outputs keyed step.output "
-        "(run.regressions), waiting_on while pending, and depth",
+        "(run.regressions, optimize.gain), waiting_on while pending (experiment:finished:<id> "
+        "or optimization:finished:<id>), last_error when it failed (a day parked on an "
+        "optimization times out), and depth",
         "automation_run_single_runs_carry_item_outputs_and_waiting_on",
     ),
     Claim(
@@ -400,14 +408,28 @@ CLAIMS: tuple[Claim, ...] = (
     # -- recommendation ------------------------------------------------------------ #
     Claim(
         "recommendation",
-        "each row's kind, workflow or automation_id, reason and the write call that "
-        "applies it, verbatim",
+        "each row's kind (setup, tune, remove or review), workflow or automation_id, reason "
+        "and the write call that applies it, ready to send",
         "recommendation_rows_carry_the_apply_call",
     ),
     Claim(
         "recommendation",
         "List-only, by project; dismiss one with recommendation.dismiss",
         "recommendation_is_list_only_and_dismissable",
+    ),
+    # -- loop ---------------------------------------------------------------------- #
+    Claim(
+        "loop",
+        "its objects as nodes (production traces, suites, queues, prompts, judges, CI) and "
+        "each enabled automation as an edge from what its trigger reads to what its steps "
+        "write, with fired, matched, items_written and steps_failed over 14 days",
+        "loop_is_nodes_and_edges_with_what_each_produced",
+    ),
+    Claim("loop", "A node whose object has a page links it", "loop_nodes_link_their_pages"),
+    Claim(
+        "loop",
+        "List-only, by project; takes no filters, sort, window or page",
+        "loop_is_list_only_and_takes_no_narrowing",
     ),
     # -- spend_summary (AI Spend workspace) ------------------------------------ #
     Claim(
@@ -974,8 +996,28 @@ async def _automation_shape(drive: Driver) -> None:
     assert gate["steps"][2]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
         "run.regressions"
     )
+    improve = await drive.read_json(entity_type="automation", id=IMPROVE_AUTOMATION_ID)
+    assert improve["triggers"][0]["event"] == "test_suite:grew"
+    assert improve["triggers"][0]["n"] == 50
+    assert [s["type"] for s in improve["steps"]] == [
+        "optimizer.run",
+        "prompt_version.save",
+        "notify",
+    ]
+    check = await drive.read_json(entity_type="automation", id=ALIGN_CHECK_AUTOMATION_ID)
+    assert check["triggers"][0]["event"] == "annotation_queue:submitted"
+    assert check["triggers"][0]["annotation_queue_id"] == QUEUE_ID
+    assert [s["type"] for s in check["steps"]] == ["judge.agreement", "judge.revise"]
     rows = await drive.call("list", entity_type="automation", project_name=PROJECT_NAME)
     assert f"test_suite.run→{SUITE_NAME}; github.check→example-org" in rows
+    # The optimizer names the suite it runs on but writes the prompt; a judge
+    # step names the queue but is about the score. Read whole through fields,
+    # since three targets outrun the table's cell.
+    targets = await drive.call(
+        "list", entity_type="automation", project_name=PROJECT_NAME, fields=["step_targets"]
+    )
+    assert f"optimizer.run→{PROMPT_NAME}; prompt_version.save→{PROMPT_NAME}; notify→" in targets
+    assert "judge.agreement→resolution; judge.revise→resolution" in targets
 
 
 @probe("automation_list_shows_recipe_event_targets_and_stats")
@@ -1050,6 +1092,25 @@ async def _automation_run_single(drive: Driver) -> None:
     assert pending["waiting_on"] == f"experiment:finished:{EXPERIMENT_B}"
     assert pending["outputs"] == {}
     assert pending["depth"] == 1 and pending["parent_run_id"] == IMPROVED_RUN_ID
+    # An improve run waits on its optimization, and one parked a day fails with
+    # the timeout as its last error; both read off the list as well.
+    improve = await drive.call(
+        "list", entity_type="automation_run", automation_id=IMPROVE_AUTOMATION_ID
+    )
+    assert f"optimization:finished:{OPTIMIZATION_ID}" in improve
+    assert '"optimize.gain":0.08' in improve
+    assert "last_error" in improve and "timed out after PT24H waiting" in improve
+    parked = await drive.read_json(entity_type="automation_run", id=OPTIMIZING_RUN_ID)
+    assert parked["status"] == "pending"
+    assert parked["waiting_on"] == f"optimization:finished:{OPTIMIZATION_ID}"
+    assert parked["outputs"]["optimize.optimization_id"] == OPTIMIZATION_ID
+    timed_out = await drive.read_json(entity_type="automation_run", id=TIMED_OUT_RUN_ID)
+    assert timed_out["status"] == "failed"
+    assert timed_out["last_error"] == "timed out after PT24H waiting"
+    assert timed_out["waiting_on"] is None
+    improved = await drive.read_json(entity_type="automation_run", id=IMPROVED_RUN_ID)
+    assert improved["outputs"]["save.commit"] == "d7e8f9a"
+    assert improved["child_run_ids"] == [PENDING_RUN_ID]
 
 
 @probe("automation_run_list_narrows_by_automation_and_status")
@@ -1085,11 +1146,14 @@ async def _automation_run_read(drive: Driver) -> None:
 @probe("workflow_rows_carry_automations_and_estimate")
 async def _workflow_rows(drive: Driver) -> None:
     answer = await drive.call("list", entity_type="workflow", project_name=PROJECT_NAME)
-    assert "Collect" in answer and "Gate" in answer and "Align" in answer
+    assert "Collect" in answer and "Gate" in answer and "Align" in answer and "Improve" in answer
     assert "Test new versions" in answer
     assert "| on |" in answer and "| off |" in answer
     assert "Low-resolution traces to the suite" in answer
     assert "fired 240, items 62, cost $0" in answer
+    # An enabled recipe's overrides show the values in use, the new ones included.
+    assert '"min_gain":0.05' in answer and '"optimizer":"metaprompt"' in answer
+    assert '"n":20' in answer and '"threshold":0.5' in answer
     sent = drive.backend.sent(f"{_AUTOMATIONS}/workflows")[-1]
     assert sent.query.get("project_id") == [PROJECT_ID]
 
@@ -1114,6 +1178,80 @@ async def _recommendation_rows(drive: Driver) -> None:
         '"overrides":{"score_name":"resolution","threshold":0.5}})' in answer
     )
     assert "a judge is used" in answer, "a blocked row says what it waits for"
+    # Upkeep rows name their automation, and their call is in the write's own
+    # words: the backend says ``id`` where automation.update takes automation_id.
+    assert f"| tune | collect | {AUTOMATION_ID} |" in answer
+    assert f"| remove | align | {ALIGN_CHECK_AUTOMATION_ID} |" in answer
+    tune_call = (
+        f'write(\'automation.update\', data={{"automation_id":"{AUTOMATION_ID}",'
+        '"limits":{"max_items_per_day":400}})'
+    )
+    assert tune_call in answer
+    assert (
+        f'write(\'automation.disable\', data={{"automation_id":"{ALIGN_CHECK_AUTOMATION_ID}"}})'
+        in (answer)
+    )
+    applied = await drive.call(
+        "write",
+        operation="automation.update",
+        data={"automation_id": AUTOMATION_ID, "limits": {"max_items_per_day": 400}},
+    )
+    assert '"ok": true' in applied or '"ok":true' in applied
+    (sent,) = [r for r in drive.backend.writes() if r.method == "PATCH"]
+    assert sent.path == f"{_AUTOMATIONS}/{AUTOMATION_ID}"
+    assert sent.json_body == {"limits": {"max_items_per_day": 400}}
+
+
+@probe("loop_is_nodes_and_edges_with_what_each_produced")
+async def _loop_shape(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="loop", project_name=PROJECT_NAME)
+    assert "Found 4 edges over 6 nodes (14 days)" in answer
+    assert "production | project | production traces" in answer
+    assert f"suite:{SUITE_ID} | test_suite | {SUITE_NAME}" in answer
+    assert f"queue:{QUEUE_ID} | annotation_queue | Judge review" in answer
+    assert "judge:resolution | judge | resolution" in answer
+    assert "ci:example-org/checkout-agent | ci | example-org/checkout-agent" in answer
+    assert (
+        f"| collect | project:production traces | test_suite:{SUITE_NAME} | 240 | 62 | 62 | 0"
+        in answer
+    )
+    assert f"| improve | test_suite:{SUITE_NAME} | prompt:{PROMPT_NAME} | 3 | 3 | 1 | 1" in answer
+    assert (
+        f"| gate | prompt:{PROMPT_NAME} | test_suite:{SUITE_NAME}, ci:example-org/checkout-agent"
+        in answer
+    )
+    assert "| align | annotation_queue:Judge review | judge:resolution | 1 | 1 | 0 | 0" in answer
+    (sent,) = drive.backend.sent(f"{_AUTOMATIONS}/loop")
+    assert sent.query.get("project_id") == [PROJECT_ID]
+
+
+@probe("loop_nodes_link_their_pages")
+async def _loop_links(drive: Driver) -> None:
+    answer = await drive.call("list", entity_type="loop", project_id=PROJECT_ID)
+    assert f"/projects/{PROJECT_ID}/datasets/{SUITE_ID}" in answer
+    assert f"/projects/{PROJECT_ID}/annotation-queues/{QUEUE_ID}" in answer
+    assert f"/projects/{PROJECT_ID}/prompts/{PROMPT_ID}" in answer
+    for unpaged in ("judge:resolution |", "ci:example-org/checkout-agent |"):
+        (row,) = [line for line in answer.splitlines() if line.startswith(unpaged)]
+        assert "http" not in row, f"a {unpaged} node has no page, so no link: {row}"
+
+
+@probe("loop_is_list_only_and_takes_no_narrowing")
+async def _loop_list_only(drive: Driver) -> None:
+    refusal = await drive.refuse("read", entity_type="loop", id=PROJECT_ID)
+    assert "list-only" in refusal
+    await drive.refuse("list", entity_type="loop")
+    narrowed = await drive.refuse(
+        "list", entity_type="loop", project_name=PROJECT_NAME, filters='recipe = "collect"', page=2
+    )
+    assert "does not take filters, page" in narrowed
+    assert "list('loop', project_id=…)" in narrowed
+    drive.backend.has_automations = False
+    try:
+        missing = await drive.refuse("list", entity_type="loop", project_name=PROJECT_NAME)
+    finally:
+        drive.backend.has_automations = True
+    assert "no automations yet" in missing
 
 
 @probe("recommendation_is_list_only_and_dismissable")

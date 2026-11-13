@@ -104,3 +104,12 @@ class AutomationEndpoints(OpikClientBase):
             params={"project_id": project_id},
             entity_hint="recommendations",
         )
+
+    async def get_loop(self, *, project_id: str) -> dict[str, object]:
+        """``GET /v1/private/automations/loop`` — the project's objects as nodes and
+        its enabled automations as the edges between them."""
+        return await self._get_json(
+            f"{_PREFIX}/loop",
+            params={"project_id": project_id},
+            entity_hint="loop",
+        )
