@@ -329,6 +329,11 @@ _DEFINITION_CODES: Final[dict[str, tuple[str, str]]] = {
         "limits",
         "A step that costs money needs max_cost_usd_per_day in limits.",
     ),
+    "score_name_required": (
+        "overrides.score_name",
+        "A recipe never picks the judge: ask the user which score to act on (the workflow row's "
+        "available_score_names lists what the project writes) and pass it in overrides.score_name.",
+    ),
 }
 
 _SWITCH: Final = {"automation.enable": True, "automation.disable": False}

@@ -62,6 +62,9 @@ and steps, and upkeep recommendations are later phases and are not here.
   recipe enable's body and would enable it for real). The preview adds the backend's
   answer: `automation` or `would_create`, `estimate`, and `setup` or
   `warnings` when present. Every other operation's dry run is unchanged.
+- A recipe never picks the judge. `workflow.enable` without `overrides.score_name` is
+  refused by the backend with `score_name_required`, whose sentence lists the scores the
+  project writes; the skill asks the user before the dry run.
 - A 400 whose first error string starts with a definition code
   (`unknown_event`, `unknown_step`, `condition_unknown_step`,
   `condition_unknown_output`, `target_not_found`, `limit_required`) is a

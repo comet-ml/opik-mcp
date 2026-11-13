@@ -23,7 +23,7 @@ Operate: **read before you propose, dry-run before you write, ask before every w
 
 The entry point is `/opik-loop` right after `/opik-instrument` (set the project up), `/opik-loop <recipe>` (`collect`, `align`; `gate` and `improve` once the backend lists them), `/opik-loop <question>` ("what should I do next", "is Collect still worth it", "why did this run fail"), or `/opik-loop <a custom automation in words>` ("send refund answers below 0.5 to review"). Infer the rest; treat these as **optional overrides**:
 
-- project (default: the configured one, else the project of the trace in hand) · score name (default: the recipe's, from `available_score_names` on the workflow row) · threshold (default: the recipe's, 0.5) · suite or queue name (default: the recipe's; it creates a missing one) · per_day cap (default: the recipe's) · daily limits (default: ask; required for any step that costs money).
+- project (default: the configured one, else the project of the trace in hand) · **score name: always asked, never inferred** — a recipe has no default judge, so show `available_score_names` from the workflow row and let the user choose (the backend refuses an enable without one: `score_name_required`) · threshold (default: the recipe's, 0.5) · suite or queue name (default: the recipe's; it creates a missing one) · per_day cap (default: the recipe's) · daily limits (default: ask; required for any step that costs money).
 
 Ask only at a genuine, non-inferable blocker (see **Blockers**).
 
@@ -43,7 +43,7 @@ Say what is already on before proposing anything: a recipe that is on is not a r
 
 | User says | Do |
 |---|---|
-| "Set up Opik for this agent" (right after instrument) | Take the top recommendation (Collect, on a project with no suite being filled). Show its reason, then `write('workflow.enable', data=…, dry_run=true)` and show the automation it would create and the estimate. On yes, the same call without `dry_run`. |
+| "Set up Opik for this agent" (right after instrument) | Take the top recommendation (Collect, on a project with no suite being filled). Show its reason and **ask which judge score to act on** from the workflow row's `available_score_names` (none listed: hand off to `/opik-online-eval` first). Then `write('workflow.enable', data=…, dry_run=true)` with that `overrides.score_name` and show the automation it would create and the estimate. On yes, the same call without `dry_run`. |
 | "Gate my PRs on the regression suite" | `list('workflow', …)`: if `gate` is not a row, this backend does not run it yet — say so and offer Collect. If it is, dry-run `workflow.enable` with `recipe: "gate"`; the answer's `setup` holds the CI step. Write it into `.github/workflows/` as a change for review, then enable on yes. |
 | "What should I do next?" | The top recommendation's `reason`, its evidence, and its `apply_call`. On yes, send the call verbatim to `write` — with `dry_run=true` first when it creates or changes anything. |
 | "Is Collect still worth it?" | `read('automation', id)` for the Collect automation: `stats` (fired, sampled, items_written, cost) and `paused_reason`; plus any recommendation whose `automation_id` is it. Answer from the numbers, not from the fact that it is on. |
@@ -71,6 +71,7 @@ Return what is on now, what it writes to, the estimate, and one next step (see *
 Stop at the **earliest** blocker and return **exactly one** next step:
 - "The Opik MCP is not connected — connect it (hosted or local) and rerun; the automations API has no SDK path."
 - "This Opik has no automations yet — it needs a backend version that ships them; `list('online_rule', …)` still shows the judges."
+- "Which judge score should this act on? `<project>` writes: `<available_score_names>`." (always asked; a recipe never chooses)
 - "No score named `<name>` has landed in `<project>` in 14 days — run `/opik-online-eval` to take a judge live, then rerun `/opik-loop collect`."
 - "Which project? None is configured and no trace is in hand."
 - "That step costs money and has no daily limit — name a `max_cost_usd_per_day` and I'll dry-run it again."
@@ -86,7 +87,7 @@ Stop at the **earliest** blocker and return **exactly one** next step:
 Worked runs (set up after instrument, next step applied, upkeep answered from stats, a failed run explained, a custom automation tested first, blocked without the backend): `references/examples.md`.
 
 ## Anti-patterns
-Writing without a dry run, or without showing the estimate; enabling anything the user did not say yes to; turning on a step that costs money with no daily limit; building the judge here instead of handing off to `/opik-online-eval`; recommending a recipe that is already on; answering "is it worth it" from the enabled flag instead of the stats; reporting success from the write's status instead of reading the automation back; merging a `setup` CI step instead of opening it for review; **editing application code**; suggesting the weekly check-in more than once.
+Choosing the judge score for the user instead of asking; writing without a dry run, or without showing the estimate; enabling anything the user did not say yes to; turning on a step that costs money with no daily limit; building the judge here instead of handing off to `/opik-online-eval`; recommending a recipe that is already on; answering "is it worth it" from the enabled flag instead of the stats; reporting success from the write's status instead of reading the automation back; merging a `setup` CI step instead of opening it for review; **editing application code**; suggesting the weekly check-in more than once.
 
 ## References
 

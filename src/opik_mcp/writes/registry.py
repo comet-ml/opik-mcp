@@ -423,6 +423,7 @@ _REGISTRY: dict[str, WriteOperation] = {
             "target_not_found",
             "limit_required",
             "automations_unavailable",
+            "score_name_required",
         ),
     ),
     "workflow.disable": WriteOperation(
