@@ -120,6 +120,15 @@ from opik_mcp.server import mcp
 #           on `status`), `read_skill` -18 (the opik-loop line names "gate my
 #           PRs" and drops a phrase to stay under the 2,048-character host
 #           cut). The budget is unchanged; the headroom is 1,413.
+#   25,329  2026-11-13, automations increment 2 (Improve, Align's second
+#           half, upkeep, the loop). +240 bytes: `write` 190 (two counted
+#           events and four steps on the create line; improve and its four
+#           overrides on the recipe line; the field detail is behind
+#           schema()), `list` 28 (`loop` in the enum and on the
+#           project-scoped line, `pending` on the run line), `read_skill` 22
+#           (the opik-loop line names "improve the prompt"; the description
+#           is 2,045 characters against the 2,048-character host cut). The
+#           budget is unchanged; the headroom is 1,173.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the

@@ -41,7 +41,7 @@
       "title": "Dataset Id"
     },
     "entity_type": {
-      "description": "One of: agent_insights_issue, automation, automation_run, dataset, dataset_item, experiment, online_rule, project, project_metric, prompt, prompt_version, recommendation, score_name, span, thread, trace, workflow.",
+      "description": "One of: agent_insights_issue, automation, automation_run, dataset, dataset_item, experiment, loop, online_rule, project, project_metric, prompt, prompt_version, recommendation, score_name, span, thread, trace, workflow.",
       "enum": [
         "agent_insights_issue",
         "automation",
@@ -49,6 +49,7 @@
         "dataset",
         "dataset_item",
         "experiment",
+        "loop",
         "online_rule",
         "project",
         "project_metric",
