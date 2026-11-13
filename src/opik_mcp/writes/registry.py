@@ -412,11 +412,12 @@ _REGISTRY: dict[str, WriteOperation] = {
         oauth_scope=SCOPE_AUTOMATION_MANAGE,
         supports_batch=False,
         description=(
-            "Turn a recipe (collect, align, gate) on for a project: creates its automations "
-            "and any missing suite or queue; overrides pick score_name, threshold, "
-            "test_suite_name, per_day, annotation_queue_name, and for gate prompt_name, "
-            "model, repository, notify_url. dry_run=true returns the definitions, a 14-day "
-            "estimate and gate's setup (the CI step)."
+            "Turn a recipe (collect, gate, align, improve) on for a project: creates its "
+            "automations and any missing suite or queue; overrides pick score_name, "
+            "threshold, test_suite_name, per_day, annotation_queue_name, n, notify_url, for "
+            "gate and improve prompt_name, model, for gate repository, for improve metric, "
+            "optimizer, min_gain. dry_run=true returns the definitions, a 14-day estimate "
+            "and gate's setup (the CI step)."
         ),
         example=automations.WORKFLOW_ENABLE_EXAMPLE,
         failure_modes=(
@@ -460,10 +461,12 @@ _REGISTRY: dict[str, WriteOperation] = {
         supports_batch=False,
         description=(
             "Create a custom automation: triggers (feedback_score:created with score "
-            "conditions and a per_day cap; prompt:committed, experiment:finished, ci:run), "
-            "ordered steps (test_suite.add, dataset.add, annotation_queue.add; "
-            "test_suite.run, github.check, notify, with only_if on run outputs) and daily "
-            "limits. dry_run=true returns the validated definition and a 14-day estimate."
+            "conditions and a per_day cap; prompt:committed, experiment:finished, ci:run; "
+            "test_suite:grew, annotation_queue:submitted with n), ordered steps "
+            "(test_suite.add, dataset.add, annotation_queue.add; test_suite.run, "
+            "github.check, notify, optimizer.run, prompt_version.save, judge.agreement, "
+            "judge.revise, with only_if on step outputs) and daily limits. dry_run=true "
+            "returns the validated definition and a 14-day estimate."
         ),
         example=automations.AUTOMATION_CREATE_EXAMPLE,
         failure_modes=(

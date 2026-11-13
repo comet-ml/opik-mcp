@@ -15,6 +15,7 @@ from tests.hermetic.stub_records import (
     PROJECT_ID,
     PROJECT_NAME,
     PROMPT_NAME,
+    QUEUE_NAME,
     RECOMMENDATION_ID,
     SUITE_NAME,
     TRACE_ID,
@@ -62,6 +63,50 @@ _GATE_OVERRIDES = {
     "model": "gpt-4o-mini",
     "repository": "example-org/checkout-agent",
 }
+#: An improve-shaped custom automation: the suite grew by 50, so optimize the
+#: prompt and save the winner only when it gained enough.
+_GROWTH_TRIGGER = {"event": "test_suite:grew", "test_suite_name": SUITE_NAME, "n": 50}
+_GAIN = {
+    "groups": [{"conditions": [{"step_output": "optimize.gain", "operator": ">=", "value": 0.05}]}]
+}
+_IMPROVE_STEPS = [
+    {
+        "id": "optimize",
+        "type": "optimizer.run",
+        "prompt_name": PROMPT_NAME,
+        "model": "gpt-4o-mini",
+        "test_suite_name": SUITE_NAME,
+        "metric": "levenshtein_ratio",
+        "optimizer": "metaprompt",
+    },
+    {"id": "save", "type": "prompt_version.save", "prompt_name": PROMPT_NAME, "only_if": _GAIN},
+]
+#: Align's second half: reviews landed, so check the judge against them.
+_REVIEW_TRIGGER = {"event": "annotation_queue:submitted", "annotation_queue_name": QUEUE_NAME}
+_JUDGE_STEPS = [
+    {
+        "id": "agreement",
+        "type": "judge.agreement",
+        "score_name": "resolution",
+        "annotation_queue_name": QUEUE_NAME,
+        "threshold": 0.5,
+    },
+    {
+        "id": "revise",
+        "type": "judge.revise",
+        "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+        "kind": "slack",
+        "only_if": {
+            "groups": [
+                {
+                    "conditions": [
+                        {"step_output": "agreement.agreement", "operator": "<", "value": 0.8}
+                    ]
+                }
+            ]
+        },
+    },
+]
 
 CASES: tuple[WriteCase, ...] = (
     WriteCase(
@@ -145,6 +190,60 @@ CASES: tuple[WriteCase, ...] = (
                     "triggers": [{**_PROMPT_TRIGGER, "scope": "trace"}],
                     "steps": _GATE_STEPS,
                     "limits": {"max_cost_usd_per_day": 5},
+                    "enabled": True,
+                    "project_id": PROJECT_ID,
+                    "created_via": "mcp",
+                },
+            ),
+        ),
+        url_suffix=None,
+        extra_keys=frozenset({"note"}),
+    ),
+    WriteCase(
+        case_id="automation.create (improve steps)",
+        operation="automation.create",
+        data={
+            "project_id": PROJECT_ID,
+            "name": "Optimize as the suite grows",
+            "triggers": [_GROWTH_TRIGGER],
+            "steps": _IMPROVE_STEPS,
+            "limits": {"max_cost_usd_per_day": 10},
+        },
+        sent=(
+            Sent(
+                "POST",
+                _PREFIX,
+                {
+                    "name": "Optimize as the suite grows",
+                    "triggers": [{**_GROWTH_TRIGGER, "scope": "trace"}],
+                    "steps": _IMPROVE_STEPS,
+                    "limits": {"max_cost_usd_per_day": 10},
+                    "enabled": True,
+                    "project_id": PROJECT_ID,
+                    "created_via": "mcp",
+                },
+            ),
+        ),
+        url_suffix=None,
+        extra_keys=frozenset({"note"}),
+    ),
+    WriteCase(
+        case_id="automation.create (judge steps)",
+        operation="automation.create",
+        data={
+            "project_id": PROJECT_ID,
+            "name": "Check the judge",
+            "triggers": [_REVIEW_TRIGGER],
+            "steps": _JUDGE_STEPS,
+        },
+        sent=(
+            Sent(
+                "POST",
+                _PREFIX,
+                {
+                    "name": "Check the judge",
+                    "triggers": [{**_REVIEW_TRIGGER, "scope": "trace"}],
+                    "steps": _JUDGE_STEPS,
                     "enabled": True,
                     "project_id": PROJECT_ID,
                     "created_via": "mcp",
@@ -318,6 +417,69 @@ async def test_a_live_gate_enable_answers_with_the_setup_beside_the_note(wire: W
     assert setup == body["setup"]
     assert "OPIK_WORKSPACE" in setup["github_action"]
     assert "never merge" in str(answer["note"])
+
+
+async def test_an_align_enable_answers_with_both_automations_it_created(wire: Wire) -> None:
+    """The recipe is two automations now: the sample and the check. A live
+    enable hands both back, and a dry run names both."""
+    data = {
+        "recipe": "align",
+        "project_id": PROJECT_ID,
+        "overrides": {"score_name": "resolution", "n": 20, "threshold": 0.5},
+    }
+    async with wire.connect() as session:
+        preview = await session.call_tool(
+            "write", {"operation": "workflow.enable", "data": data, "dry_run": True}
+        )
+        result = await session.call_tool("write", {"operation": "workflow.enable", "data": data})
+    assert not preview.isError, result_json(preview)
+    assert result_json(preview)["would_create"] == [
+        "Random resolution traces to review",
+        "Check resolution against reviewers",
+    ]
+    assert not result.isError, result_json(result)
+    body = result_json(result)["backend_body"]
+    assert isinstance(body, dict)
+    assert [a["name"] for a in body["created"]] == [
+        "Random resolution traces to review",
+        "Check resolution against reviewers",
+    ]
+    assert "setup" not in result_json(result)
+
+
+async def test_an_improve_dry_run_names_its_automation_and_carries_no_estimate(
+    wire: Wire,
+) -> None:
+    """A counted trigger has nothing to replay, so the backend's estimate is
+    empty; the preview carries it as it came rather than inventing figures."""
+    async with wire.connect() as session:
+        result = await session.call_tool(
+            "write",
+            {
+                "operation": "workflow.enable",
+                "data": {
+                    "recipe": "improve",
+                    "project_name": PROJECT_NAME,
+                    "overrides": {
+                        "prompt_name": PROMPT_NAME,
+                        "model": "gpt-4o-mini",
+                        "n": 50,
+                        "min_gain": 0.05,
+                        "metric": "levenshtein_ratio",
+                        "optimizer": "metaprompt",
+                    },
+                },
+                "dry_run": True,
+            },
+        )
+    assert not result.isError, result_json(result)
+    preview = result_json(result)
+    assert preview["would_create"] == [f"Optimize {PROMPT_NAME} as the suite grows"]
+    assert preview["estimate"] == {}
+    assert "setup" not in preview
+    (sent,) = wire.backend.sent(f"{_PREFIX}/workflows/enable")
+    assert sent.payload["overrides"]["min_gain"] == 0.05
+    assert sent.payload["project_id"] == PROJECT_ID
 
 
 async def test_a_definition_the_backend_refuses_comes_back_as_its_code(wire: Wire) -> None:

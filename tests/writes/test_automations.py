@@ -60,6 +60,71 @@ _GATE_CREATE = {
     ],
     "limits": {"max_cost_usd_per_day": 5},
 }
+_GAIN = {
+    "groups": [{"conditions": [{"step_output": "optimize.gain", "operator": ">=", "value": 0.05}]}]
+}
+_IMPROVE_CREATE = {
+    "project_id": PROJECT,
+    "name": "improve",
+    "triggers": [{"event": "test_suite:grew", "test_suite_name": "regressions", "n": 50}],
+    "steps": [
+        {
+            "id": "optimize",
+            "type": "optimizer.run",
+            "prompt_name": "refund-answer",
+            "model": "gpt-4o-mini",
+            "test_suite_name": "regressions",
+            "metric": "levenshtein_ratio",
+            "optimizer": "metaprompt",
+        },
+        {
+            "id": "save",
+            "type": "prompt_version.save",
+            "prompt_name": "refund-answer",
+            "only_if": _GAIN,
+        },
+        {
+            "id": "notify",
+            "type": "notify",
+            "url": "https://example.test/hook",
+            "kind": "webhook",
+            "only_if": _GAIN,
+        },
+    ],
+    "limits": {"max_cost_usd_per_day": 10},
+}
+_ALIGN_CHECK_CREATE = {
+    "project_id": PROJECT,
+    "name": "check the judge",
+    "triggers": [
+        {"event": "annotation_queue:submitted", "annotation_queue_name": "review", "n": 20}
+    ],
+    "steps": [
+        {
+            "id": "agreement",
+            "type": "judge.agreement",
+            "score_name": "resolution",
+            "annotation_queue_name": "review",
+            "threshold": 0.5,
+        },
+        {
+            "id": "revise",
+            "type": "judge.revise",
+            "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+            "kind": "slack",
+            "score_name": "resolution",
+            "only_if": {
+                "groups": [
+                    {
+                        "conditions": [
+                            {"step_output": "agreement.agreement", "operator": "<", "value": 0.8}
+                        ]
+                    }
+                ]
+            },
+        },
+    ],
+}
 
 
 @pytest.fixture
@@ -210,7 +275,10 @@ async def test_a_live_gate_enable_lifts_the_setup_beside_the_note() -> None:
 
 
 @pytest.mark.anyio
-async def test_a_gate_enable_without_a_prompt_or_model_is_refused_with_what_to_ask() -> None:
+@pytest.mark.parametrize("recipe", ["gate", "improve"])
+async def test_an_enable_without_a_prompt_or_model_is_refused_with_what_to_ask(
+    recipe: str,
+) -> None:
     """The backend refuses; the refusal names the override and says to ask,
     so an agent never fills the prompt or the model in on its own."""
     for code, field in (
@@ -219,18 +287,100 @@ async def test_a_gate_enable_without_a_prompt_or_model_is_refused_with_what_to_a
     ):
         with respx.mock(base_url=OPIK_BASE) as mock:
             mock.post(f"{_PREFIX}/workflows/enable", params={"dry_run": "true"}).mock(
-                return_value=httpx.Response(400, json={"errors": [f"{code}: gate needs it"]})
+                return_value=httpx.Response(400, json={"errors": [f"{code}: {recipe} needs it"]})
             )
             with pytest.raises(ValidationFailedError) as refused:
                 await run_write(
                     operation="workflow.enable",
-                    data={"recipe": "gate", "project_id": PROJECT},
+                    data={"recipe": recipe, "project_id": PROJECT},
                     dry_run=True,
                     client=_client(),
                 )
         envelope = json.loads(refused.value.to_json())
         assert envelope["issues"] == [{"field": field, "code": code}]
         assert "ask the user" in envelope["message"]
+
+
+@pytest.mark.anyio
+async def test_an_align_enable_hands_back_every_automation_it_created() -> None:
+    created = [
+        {"id": AUTOMATION, "name": "Random resolution traces to review"},
+        {"id": PROJECT, "name": "Check resolution against reviewers"},
+    ]
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        mock.post(f"{_PREFIX}/workflows/enable").mock(
+            return_value=httpx.Response(
+                200, json={"created": created, "estimate": {"fired": 3}, "setup": None}
+            )
+        )
+        out = await run_write(
+            operation="workflow.enable",
+            data={
+                "recipe": "align",
+                "project_id": PROJECT,
+                "overrides": {"score_name": "resolution", "n": 20, "threshold": 0.5},
+            },
+            client=_client(),
+        )
+    assert out["backend_body"]["created"] == created
+    assert "list('automation'" in out["note"]
+
+
+@pytest.mark.anyio
+async def test_a_counted_trigger_and_the_improve_steps_send_their_fields() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post(_PREFIX, params={"dry_run": "true"}).mock(
+            return_value=httpx.Response(200, json={"automation": {}, "estimate": {}})
+        )
+        await run_write(
+            operation="automation.create", data=_IMPROVE_CREATE, dry_run=True, client=_client()
+        )
+    body = json.loads(route.calls.last.request.content)
+    assert body["triggers"] == [
+        {"event": "test_suite:grew", "scope": "trace", "test_suite_name": "regressions", "n": 50}
+    ]
+    assert body["steps"][0] == _IMPROVE_CREATE["steps"][0]
+    assert body["steps"][1]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
+        "optimize.gain"
+    )
+    assert body["steps"][2]["only_if"] == _GAIN
+
+
+@pytest.mark.anyio
+async def test_a_review_trigger_and_the_judge_steps_send_their_fields() -> None:
+    with respx.mock(base_url=OPIK_BASE) as mock:
+        route = mock.post(_PREFIX, params={"dry_run": "true"}).mock(
+            return_value=httpx.Response(200, json={"automation": {}, "estimate": {}})
+        )
+        await run_write(
+            operation="automation.create",
+            data=_ALIGN_CHECK_CREATE,
+            dry_run=True,
+            client=_client(),
+        )
+    body = json.loads(route.calls.last.request.content)
+    assert body["triggers"] == [
+        {
+            "event": "annotation_queue:submitted",
+            "scope": "trace",
+            "annotation_queue_name": "review",
+            "n": 20,
+        }
+    ]
+    assert body["steps"][0] == _ALIGN_CHECK_CREATE["steps"][0]
+    assert body["steps"][1]["score_name"] == "resolution"
+    assert body["steps"][1]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
+        "agreement.agreement"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_trigger_without_its_count_or_a_zero_count_is_refused_unsent() -> None:
+    data = {**_IMPROVE_CREATE, "triggers": [{"event": "test_suite:grew", "n": 0}]}
+    with pytest.raises(ValidationFailedError) as refused:
+        await run_write(operation="automation.create", data=data, client=_client())
+    (issue,) = json.loads(refused.value.to_json())["issues"]
+    assert issue["field"] == "triggers.0.n"
 
 
 @pytest.mark.anyio
@@ -308,6 +458,10 @@ async def test_a_recipe_enable_accepts_every_override_a_recommendation_sends() -
         "model": "gpt-4o-mini",
         "repository": "example-org/demo",
         "notify_url": "https://hooks.slack.com/services/T000/B000/XXXX",
+        "metric": "levenshtein_ratio",
+        "optimizer": "metaprompt",
+        "n": 50,
+        "min_gain": 0.05,
     }
     with respx.mock(base_url=OPIK_BASE) as mock:
         mock.get("/v1/private/projects").mock(

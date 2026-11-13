@@ -113,7 +113,9 @@ Trigger = create_model(
             description=(
                 "feedback_score:created (scope, conditions, per_day), prompt:committed "
                 "(prompt_id or prompt_name; any prompt when absent), experiment:finished "
-                "(test_suite_id or test_suite_name) or ci:run (repository, branch)."
+                "(test_suite_id or test_suite_name), ci:run (repository, branch), "
+                "test_suite:grew (the suite, n) or annotation_queue:submitted (the queue, "
+                "n). optimization:finished is a wait handle a run carries, not an event."
             ),
         ),
     ),
@@ -127,6 +129,19 @@ Trigger = create_model(
     prompt_name=(str | None, Field(default=None, max_length=200)),
     test_suite_id=(UUID | None, Field(default=None)),
     test_suite_name=(str | None, Field(default=None, max_length=200)),
+    annotation_queue_id=(UUID | None, Field(default=None)),
+    annotation_queue_name=(str | None, Field(default=None, max_length=200)),
+    n=(
+        int | None,
+        Field(
+            default=None,
+            ge=1,
+            description=(
+                "test_suite:grew: cases added since the last firing, default 50; "
+                "annotation_queue:submitted: items reviewed since it, default 20."
+            ),
+        ),
+    ),
     repository=(str | None, Field(default=None, max_length=200, description="owner/name.")),
     branch=(str | None, Field(default=None, max_length=200)),
 )
@@ -134,8 +149,9 @@ Step = create_model(
     "Step",
     __base__=_StrictBase,
     __doc__=(
-        "One ordered step: add the item to a suite, dataset or queue (by id or name), "
-        "run a suite, post a GitHub commit status, or notify."
+        "One ordered step: add the item to a suite, dataset or queue (by id or name); run "
+        "a suite, post a GitHub commit status, notify; optimize a prompt, save its best "
+        "version, check a judge against reviewers, or tell someone to revise it."
     ),
     __module__=__name__,
     id=(str, Field(min_length=1, max_length=100)),
@@ -146,7 +162,8 @@ Step = create_model(
             max_length=100,
             description=(
                 "test_suite.add, dataset.add, annotation_queue.add (score events); "
-                "test_suite.run, github.check, notify (prompt, experiment and CI events)."
+                "test_suite.run, github.check, notify, optimizer.run, prompt_version.save, "
+                "judge.agreement, judge.revise (every other event)."
             ),
         ),
     ),
@@ -159,7 +176,7 @@ Step = create_model(
     assertion=(str | None, Field(default=None, max_length=10_000)),
     model=(
         str | None,
-        Field(default=None, max_length=200, description="test_suite.run: required."),
+        Field(default=None, max_length=200, description="test_suite.run, optimizer.run: required."),
     ),
     prompt_id=(UUID | None, Field(default=None)),
     prompt_name=(
@@ -167,7 +184,10 @@ Step = create_model(
         Field(
             default=None,
             max_length=200,
-            description="test_suite.run: default the prompt version the event names.",
+            description=(
+                "test_suite.run: default the prompt version the event names; "
+                "optimizer.run, prompt_version.save: required."
+            ),
         ),
     ),
     repository=(
@@ -182,22 +202,58 @@ Step = create_model(
             description="github.check: the status context, default opik/<automation name>.",
         ),
     ),
-    url=(str | None, Field(default=None, max_length=2000, description="notify: required.")),
+    url=(
+        str | None,
+        Field(default=None, max_length=2000, description="notify, judge.revise: required."),
+    ),
     kind=(
         Literal["webhook", "slack"] | None,
         Field(
             default=None,
-            description="notify: a webhook gets the run summary JSON, slack gets {text}.",
+            description=(
+                "notify, judge.revise: a webhook gets the run summary JSON, slack gets {text}."
+            ),
         ),
     ),
-    message=(str | None, Field(default=None, max_length=10_000, description="notify.")),
+    message=(
+        str | None,
+        Field(default=None, max_length=10_000, description="notify, judge.revise."),
+    ),
+    metric=(
+        str | None,
+        Field(
+            default=None, max_length=200, description="optimizer.run: default levenshtein_ratio."
+        ),
+    ),
+    optimizer=(
+        str | None,
+        Field(default=None, max_length=200, description="optimizer.run: default metaprompt."),
+    ),
+    score_name=(
+        str | None,
+        Field(
+            default=None,
+            max_length=200,
+            description="judge.agreement: required, the judge's score; judge.revise: optional.",
+        ),
+    ),
+    threshold=(
+        float | None,
+        Field(
+            default=None,
+            description="judge.agreement: the side a score counts on, default 0.5.",
+        ),
+    ),
     only_if=(
         OnlyIf | None,
         Field(
             default=None,
             description=(
-                "On an earlier step's outputs; test_suite.run declares pass_rate, "
-                "baseline_pass_rate, regressions and experiment_id."
+                "On an earlier step's outputs: test_suite.run declares pass_rate, "
+                "baseline_pass_rate, regressions, experiment_id, baseline_experiment_id; "
+                "optimizer.run gain, best_score, baseline_score, optimization_id, "
+                "prompt_version_id; prompt_version.save prompt_version_id, commit; "
+                "judge.agreement agreement, compared."
             ),
         ),
     ),
@@ -224,11 +280,19 @@ WorkflowOverrides = create_model(
     max_items_per_day=(int | None, Field(default=None, ge=1)),
     prompt_name=(
         str | None,
-        Field(default=None, max_length=200, description="gate: the prompt it runs; asked."),
+        Field(
+            default=None,
+            max_length=200,
+            description="gate: the prompt it runs; improve: the prompt it optimizes; asked.",
+        ),
     ),
     model=(
         str | None,
-        Field(default=None, max_length=200, description="gate: the model it runs with; asked."),
+        Field(
+            default=None,
+            max_length=200,
+            description="gate, improve: the model the suite or the optimizer runs with; asked.",
+        ),
     ),
     repository=(
         str | None,
@@ -239,7 +303,40 @@ WorkflowOverrides = create_model(
         Field(
             default=None,
             max_length=2000,
-            description="gate: adds a notify step on regressions; Slack for a hooks.slack.com URL.",
+            description=(
+                "gate: a notify step on regressions; improve: on a saved version; align: a "
+                "judge.revise step below 0.8 agreement. Slack for a hooks.slack.com URL."
+            ),
+        ),
+    ),
+    metric=(
+        str | None,
+        Field(
+            default=None,
+            max_length=200,
+            description="improve: the optimizer's metric, default levenshtein_ratio.",
+        ),
+    ),
+    optimizer=(
+        str | None,
+        Field(default=None, max_length=200, description="improve: default metaprompt."),
+    ),
+    n=(
+        int | None,
+        Field(
+            default=None,
+            ge=1,
+            description=(
+                "improve: new suite cases per optimization, default 50; align: reviews per "
+                "judge check, default 20."
+            ),
+        ),
+    ),
+    min_gain=(
+        float | None,
+        Field(
+            default=None,
+            description="improve: the gain a version needs to be saved, default 0.05.",
         ),
     ),
 )
@@ -399,23 +496,33 @@ _COLLECTION_ROUTES: Final = frozenset(
 #: The definition codes the backend answers a 400 with, each as our own
 #: sentence; the backend's words follow it, capped, the way a read quotes them.
 _DEFINITION_CODES: Final[dict[str, tuple[str, str]]] = {
-    "unknown_event": ("triggers", "A trigger names an event this backend does not fire."),
+    "unknown_event": (
+        "triggers",
+        "A trigger names an event this backend does not fire; optimization:finished is a "
+        "wait handle a run carries, never a trigger.",
+    ),
     "unknown_step": ("steps", "A step has a type this backend cannot run."),
     "condition_unknown_step": ("steps", "An only_if names a step that is not earlier in steps."),
     "condition_unknown_output": (
         "steps",
-        "An only_if names an output no earlier step declares; test_suite.run declares "
-        "pass_rate, baseline_pass_rate, regressions and experiment_id, the add steps none.",
+        "An only_if names an output no earlier step declares: test_suite.run declares "
+        "pass_rate, baseline_pass_rate, regressions, experiment_id and "
+        "baseline_experiment_id; optimizer.run gain, best_score, baseline_score, "
+        "optimization_id and prompt_version_id; prompt_version.save prompt_version_id and "
+        "commit; judge.agreement agreement and compared; the add steps, notify and "
+        "judge.revise none.",
     ),
     "step_scope_mismatch": (
         "steps",
-        "An automation listens to score events with add steps, or to prompt, experiment and "
-        "CI events with run, check and notify steps; not both.",
+        "An automation listens to score events with add steps, or to prompt, experiment, "
+        "CI, suite-growth and review events with the other steps; not both.",
     ),
     "target_not_found": (
         "steps",
-        "A step names a suite, dataset or queue this project does not have; create it or "
-        "name an existing one.",
+        "A step or a counted trigger names a suite, dataset, queue or prompt this project "
+        "does not have, or leaves out what its type needs (optimizer.run a prompt and a "
+        "model, prompt_version.save a prompt, judge.agreement a score and a queue, "
+        "judge.revise a url): create it or name an existing one, or add the field.",
     ),
     "limit_required": (
         "limits",
@@ -429,12 +536,12 @@ _DEFINITION_CODES: Final[dict[str, tuple[str, str]]] = {
     "prompt_name_required": (
         "overrides.prompt_name",
         "A recipe never picks the prompt: ask the user which prompt Gate runs the suite "
-        "against and pass it in overrides.prompt_name.",
+        "against, or Improve optimizes, and pass it in overrides.prompt_name.",
     ),
     "model_required": (
         "overrides.model",
-        "A recipe never picks the model: ask the user which model runs the suite and pass it "
-        "in overrides.model.",
+        "A recipe never picks the model: ask the user which model runs the suite or the "
+        "optimizer and pass it in overrides.model.",
     ),
     "integration_required": (
         "steps",
