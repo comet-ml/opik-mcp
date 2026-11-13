@@ -412,10 +412,10 @@ _REGISTRY: dict[str, WriteOperation] = {
         oauth_scope=SCOPE_AUTOMATION_MANAGE,
         supports_batch=False,
         description=(
-            "Turn a recipe on for a project (collect: low scores into a suite; align: a "
-            "daily review sample): creates its automations and missing targets. overrides "
-            "pick score_name, threshold, test_suite_name, per_day, annotation_queue_name. "
-            "dry_run=true returns the definitions and a 14-day estimate instead."
+            "Turn a recipe (collect, align) on for a project: creates its automations and "
+            "any missing suite or queue; overrides pick score_name, threshold, "
+            "test_suite_name, per_day, annotation_queue_name. dry_run=true returns the "
+            "definitions and a 14-day estimate."
         ),
         example=automations.WORKFLOW_ENABLE_EXAMPLE,
         failure_modes=(
@@ -457,7 +457,7 @@ _REGISTRY: dict[str, WriteOperation] = {
             "Create a custom automation: triggers (feedback_score:created with score "
             "conditions and a per_day cap), ordered steps (test_suite.add, dataset.add, "
             "annotation_queue.add) and daily limits. dry_run=true returns the validated "
-            "definition and a 14-day estimate instead."
+            "definition and a 14-day estimate."
         ),
         example=automations.AUTOMATION_CREATE_EXAMPLE,
         failure_modes=(
@@ -485,7 +485,7 @@ _REGISTRY: dict[str, WriteOperation] = {
         parent_id_fields=("automation_id",),
         description=(
             "Change an automation's name, enabled, triggers, steps or limits; "
-            "dry_run=true validates and estimates instead."
+            "dry_run=true validates and estimates."
         ),
         example=automations.AUTOMATION_UPDATE_EXAMPLE,
         failure_modes=(

@@ -16,7 +16,7 @@
     },
     "dry_run": {
       "default": false,
-      "description": "Validate against the operation's schema and OAuth scope without calling the backend. Returns {dry_run: true, would_call: ...}.",
+      "description": "Validate against the operation's schema and OAuth scope and return {dry_run: true, would_call: ...} unsent; where the backend offers a dry run, its estimate too.",
       "title": "Dry Run",
       "type": "boolean"
     },
@@ -53,7 +53,16 @@
         "agent_insights_issue.close",
         "agent_insights_issue.reopen",
         "agent_insights_job.enable",
-        "agent_insights_job.trigger"
+        "agent_insights_job.trigger",
+        "workflow.enable",
+        "workflow.disable",
+        "automation.create",
+        "automation.update",
+        "automation.enable",
+        "automation.disable",
+        "automation.delete",
+        "automation.test",
+        "recommendation.dismiss"
       ],
       "title": "Operation",
       "type": "string"

@@ -106,6 +106,14 @@ from opik_mcp.server import mcp
 #           description, since the `skill_name` argument documents that form.
 #           -94 bytes; the description is 2,036 characters and now fits the
 #           2,048-character host cut.
+#   24,881  2026-11-13, automations: 4 entity types, 9 operations, opik-loop
+#           skill. +2,502 bytes: `write` 1,647 (nine operation lines, each
+#           name three times, and the dry-run note), `list` 593 (the
+#           `automation_id` argument, three run statuses on `status`, four
+#           entity names and their lines), `schema` 199 (the operations and
+#           `list.automation`), `read` 58 (two names), `read_skill` 5 (the
+#           opik-loop line, paid for by trimming four summaries). The budget
+#           rises by the same amount, so the headroom stays 1,621.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -123,7 +131,7 @@ from opik_mcp.server import mcp
 # An AI Spend workspace adds one sentence each to the `read` and `list`
 # descriptions, plus the names its spend types add: 22,817 bytes, 438 over the
 # default surface, which is unchanged at 22,379. The same cap measures it.
-SURFACE_BUDGET_BYTES = 24_000
+SURFACE_BUDGET_BYTES = 26_502
 
 
 def surface_report(
@@ -370,7 +378,10 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # in test_tool_annotations.py. Lower this to match once the text fits.
 # An AI Spend workspace adds one paragraph: 4,897 bytes with the longest
 # settings, +186 over the default text, which is unchanged at 4,711.
-INSTRUCTIONS_BUDGET_BYTES = 5_000
+# 4,948 default and 5,134 with the paragraph on 2026-11-13: the nine
+# automation operation names and the opik-loop skill name are rendered into
+# the text from the registries (+237). Raised to 5,200 for them.
+INSTRUCTIONS_BUDGET_BYTES = 5_200
 
 
 def longest_instructions() -> str:
