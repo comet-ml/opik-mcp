@@ -81,15 +81,15 @@ SKILLS_CACHE_SCOPE = "public"
 #: here is charged to every session's context.
 SKILL_SUMMARIES: dict[str, str] = {
     "opik": (
-        '"why aren\'t my traces showing up", "how do I add metadata to a span", "how '
-        'do I version a prompt" — any SDK lookup. To instrument, use opik-instrument.'
+        '"why aren\'t my traces showing up", "how do I version a prompt" — any SDK '
+        "lookup. To instrument, use opik-instrument."
     ),
     "opik-instrument": (
         '"instrument my code", "add opik tracing", "add observability", "trace my agent".'
     ),
     "opik-evaluate": (
         '"evaluate my agent", "measure quality", "build an eval", "write an LLM judge", '
-        '"how good is my RAG" — a first experiment with scores.'
+        '"how good is my RAG".'
     ),
     "opik-diagnose": (
         '"what is broken in production", "which traces need attention", "find failing '
@@ -105,7 +105,7 @@ SKILL_SUMMARIES: dict[str, str] = {
     ),
     "opik-compare": (
         '"did my fix work", "compare against the baseline", "run the regression suite", '
-        '"why did quality drop", "which cases regressed", "compare these two experiments".'
+        '"why did quality drop", "which cases regressed".'
     ),
     "opik-online-eval": (
         '"score production traces", "monitor hallucinations in prod", "take this judge '
@@ -117,7 +117,11 @@ SKILL_SUMMARIES: dict[str, str] = {
     ),
     "opik-verify": (
         '"is this safe to ship", "can I merge this", "go/no-go on this change", "gate '
-        'this release" — a ship/hold verdict against a release policy.'
+        'this release".'
+    ),
+    "opik-loop": (
+        '"set up Opik for this agent", "what should I do next", "is Collect still worth '
+        'it", "send refund answers to review" — the improvement loop.'
     ),
 }
 
