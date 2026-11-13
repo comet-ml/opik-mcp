@@ -33,7 +33,11 @@ promises, what comes back on success and failure, and where to change or add an 
   for a single write, the Logs view for a batch. It needs a known project id;
   a `project_name` alone gives no link.
 - A dry run returns `{"dry_run": true, "would_call": {...}}` with method, path,
-  body, item count and a `note` where the preview cannot be exact.
+  body, item count and a `note` where the preview cannot be exact. An
+  operation with a `dry_run_fn` also asks the backend what it would do and
+  merges the answer in (the automation writes: a validated definition and an
+  estimate, [automations](../automations/design-doc.md)); only those resolve
+  a project on a dry run.
 
 ### Failure
 
@@ -101,7 +105,8 @@ server.write                  src/opik_mcp/server/tools/write.py
   -> OpikClient.write_json    src/opik_mcp/client/base.py
 ```
 
-- prepare: live calls only; a hook resolves an id the caller did not pass.
+- prepare: live calls only, and dry runs of an operation with a `dry_run_fn`;
+  a hook resolves an id the caller did not pass.
 - retry: after the send, a hook may reread the answer and send a follow-up
   (a Diagnostics enable that gets 409 switches the existing job on).
 - finalize: a non-2xx status becomes `backend_error`, a 2xx the success result.
@@ -203,6 +208,7 @@ description and `schema` follow. Also:
 
 ## Log
 
+- 2026-11-13: `dry_run_fn` hook and the `automation_manage` scope, for the automation writes (NA).
 - 2026-09-25: error envelopes shrink to a sentence and the retry call; the schema is behind `schema(op)`, `backend_error` is `{status}`, and a 400/409/422 adds a capped `backend_message` (OPIK-8496).
 - 2026-09-25: operation models and examples moved from `models.py` into `writes/operations/`; write errors became plain classes (OPIK-8496).
 - 2026-09-23: observability and thread writes return a UI link, so the caller knows where to look (#201).
