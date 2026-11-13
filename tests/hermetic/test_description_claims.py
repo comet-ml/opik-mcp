@@ -69,6 +69,7 @@ from tests.hermetic.stub_backend import (
     Request,
     StubBackend,
 )
+from tests.hermetic.stub_records import GATE_AUTOMATION_ID, GATE_RUN_ID, PENDING_RUN_ID
 
 _TIMEOUT_S = 90
 
@@ -333,7 +334,8 @@ CLAIMS: tuple[Claim, ...] = (
     # -- automation ------------------------------------------------------------- #
     Claim(
         "automation",
-        "when an event fires on a trace or thread, run its steps in order",
+        "when an event fires on a trace or thread, a prompt, a suite or a CI run, run its "
+        "steps in order",
         "automation_is_an_event_then_steps",
     ),
     Claim(
@@ -365,7 +367,13 @@ CLAIMS: tuple[Claim, ...] = (
     ),
     Claim(
         "automation_run",
-        "narrows by status (done, partial, failed)",
+        "An event-triggered run is single: it carries item_id, outputs keyed step.output "
+        "(run.regressions), waiting_on while pending, and depth",
+        "automation_run_single_runs_carry_item_outputs_and_waiting_on",
+    ),
+    Claim(
+        "automation_run",
+        "narrows by status (pending, done, partial, failed)",
         "automation_run_list_narrows_by_automation_and_status",
     ),
     Claim(
@@ -954,6 +962,15 @@ async def _automation_shape(drive: Driver) -> None:
     assert payload["triggers"][0]["event"] == "feedback_score:created"
     assert payload["triggers"][0]["scope"] == "trace"
     assert [step["type"] for step in payload["steps"]] == ["test_suite.add"]
+    gate = await drive.read_json(entity_type="automation", id=GATE_AUTOMATION_ID)
+    assert [t["event"] for t in gate["triggers"]] == ["prompt:committed", "ci:run"]
+    assert gate["triggers"][0]["prompt_name"] == PROMPT_NAME
+    assert [s["type"] for s in gate["steps"]] == ["test_suite.run", "github.check", "notify"]
+    assert gate["steps"][2]["only_if"]["groups"][0]["conditions"][0]["step_output"] == (
+        "run.regressions"
+    )
+    rows = await drive.call("list", entity_type="automation", project_name=PROJECT_NAME)
+    assert f"test_suite.run→{SUITE_NAME}; github.check→example-org" in rows
 
 
 @probe("automation_list_shows_recipe_event_targets_and_stats")
@@ -1009,6 +1026,27 @@ async def _automation_run_rows(drive: Driver) -> None:
     assert "cost_usd" in answer
 
 
+@probe("automation_run_single_runs_carry_item_outputs_and_waiting_on")
+async def _automation_run_single(drive: Driver) -> None:
+    answer = await drive.call(
+        "list", entity_type="automation_run", automation_id=GATE_AUTOMATION_ID
+    )
+    assert "| single | done |" in answer and "| single | pending |" in answer
+    assert "example-org/checkout-agent@9f3c2d1" in answer
+    assert '"run.regressions":2' in answer, "the outputs cell is wide enough for the count"
+    assert f"experiment:finished:{EXPERIMENT_B}" in answer
+    done = await drive.read_json(entity_type="automation_run", id=GATE_RUN_ID)
+    assert done["item_id"] == "example-org/checkout-agent@9f3c2d1"
+    assert done["outputs"]["run.regressions"] == 2
+    assert done["outputs"]["run.experiment_id"] == EXPERIMENT_B
+    assert done["depth"] == 0
+    pending = await drive.read_json(entity_type="automation_run", id=PENDING_RUN_ID)
+    assert pending["status"] == "pending"
+    assert pending["waiting_on"] == f"experiment:finished:{EXPERIMENT_B}"
+    assert pending["outputs"] == {}
+    assert pending["depth"] == 1 and pending["parent_run_id"] == AUTOMATION_RUN_ID
+
+
 @probe("automation_run_list_narrows_by_automation_and_status")
 async def _automation_run_filters(drive: Driver) -> None:
     answer = await drive.call(
@@ -1021,6 +1059,11 @@ async def _automation_run_filters(drive: Driver) -> None:
     # The backend narrows the page and not the count, and the page says so.
     assert "showing 1 of 2" in answer
     assert "counts runs of every status" in answer
+    pending = await drive.call(
+        "list", entity_type="automation_run", automation_id=GATE_AUTOMATION_ID, status="pending"
+    )
+    assert drive.backend.sent(f"{_AUTOMATIONS}/runs")[-1].query.get("status") == ["pending"]
+    assert "showing 1 of 2" in pending and PENDING_RUN_ID in pending
     # Without an automation, a project is the scope.
     await drive.call("list", entity_type="automation_run", project_name=PROJECT_NAME)
     assert drive.backend.sent(f"{_AUTOMATIONS}/runs")[-1].query.get("project_id") == [PROJECT_ID]
@@ -1037,7 +1080,8 @@ async def _automation_run_read(drive: Driver) -> None:
 @probe("workflow_rows_carry_automations_and_estimate")
 async def _workflow_rows(drive: Driver) -> None:
     answer = await drive.call("list", entity_type="workflow", project_name=PROJECT_NAME)
-    assert "Collect" in answer and "Align" in answer
+    assert "Collect" in answer and "Gate" in answer and "Align" in answer
+    assert "Test new versions" in answer
     assert "| on |" in answer and "| off |" in answer
     assert "Low-resolution traces to the suite" in answer
     assert "fired 240, items 62, cost $0" in answer

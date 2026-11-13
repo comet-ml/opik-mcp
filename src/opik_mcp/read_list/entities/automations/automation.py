@@ -16,8 +16,9 @@ from opik_mcp.read_list.entities.automations.availability import missing_feature
 from opik_mcp.read_list.handler import EntityHandler, ParamField, Vocabulary
 from opik_mcp.read_list.project_scope import scope_of
 
-#: What a step writes to: the first of these a step names is its target.
-_TARGET_NAMES = ("test_suite_name", "dataset_name", "annotation_queue_name")
+#: What a step writes to: the first of these a step names is its target. A
+#: check's target is its repository and a notification's its URL.
+_TARGET_NAMES = ("test_suite_name", "dataset_name", "annotation_queue_name", "repository", "url")
 
 
 async def fetch(client: AutomationClient, entity_id: str) -> dict[str, object]:
@@ -113,8 +114,9 @@ HANDLER = EntityHandler(
     id_only=True,
     no_window_reason="automations have no time window; their runs do, under automation_run.",
     description=(
-        "An automation on a project: when an event fires on a trace or thread, run "
-        "its steps in order. list('automation', project_id=… | project_name=…) "
+        "An automation on a project: when an event fires on a trace or thread, a "
+        "prompt, a suite or a CI run, run its steps in order. "
+        "list('automation', project_id=… | project_name=…) "
         "returns the project's automations with their recipe, event, step targets "
         "and 7-day stats; filters narrow by enabled, recipe or event. "
         "read('automation', id) returns the definition with its 7-day stats and "

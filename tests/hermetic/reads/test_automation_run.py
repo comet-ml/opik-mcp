@@ -13,13 +13,23 @@ from tests.hermetic.reads.answers import (
 )
 from tests.hermetic.servers import stdio_session
 from tests.hermetic.stub_backend import StubBackend
-from tests.hermetic.stub_records import AUTOMATION_ID, AUTOMATION_RUN_ID, PROJECT_NAME
+from tests.hermetic.stub_records import (
+    AUTOMATION_ID,
+    AUTOMATION_RUN_ID,
+    GATE_AUTOMATION_ID,
+    GATE_RUN_ID,
+    PENDING_RUN_ID,
+    PROJECT_NAME,
+)
 
 pytestmark = [pytest.mark.hermetic, pytest.mark.anyio]
 
 CALLS: list[Call] = [
     ("read", {"id": AUTOMATION_RUN_ID}),
+    ("read", {"id": GATE_RUN_ID}),
+    ("read", {"id": PENDING_RUN_ID}),
     ("list", {"automation_id": AUTOMATION_ID}),
+    ("list", {"automation_id": GATE_AUTOMATION_ID, "status": "pending"}),
     ("list", {"project_name": PROJECT_NAME, "status": "failed"}),
 ]
 

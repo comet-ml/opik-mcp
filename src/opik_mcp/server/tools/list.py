@@ -192,13 +192,13 @@ async def list_entities(
         Field(description="automation_run only: the runs of one automation; no project needed."),
     ] = None,
     status: Annotated[
-        Literal["open", "resolved", "closed", "done", "partial", "failed"] | None,
+        Literal["open", "resolved", "closed", "pending", "done", "partial", "failed"] | None,
         Field(
             description=(
                 "agent_insights_issue: which Diagnostics issues to list, 'open' by "
                 "default (what is broken now), 'resolved' or 'closed' for those dealt "
-                "with. automation_run: 'done', 'partial' or 'failed'. Ignored for "
-                "other entity types."
+                "with. automation_run: 'pending', 'done', 'partial' or 'failed'. Ignored "
+                "for other entity types."
             ),
         ),
     ] = None,
