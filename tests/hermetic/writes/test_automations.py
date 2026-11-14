@@ -77,7 +77,7 @@ _IMPROVE_STEPS = [
         "model": "gpt-4o-mini",
         "test_suite_name": SUITE_NAME,
         "metric": "levenshtein_ratio",
-        "optimizer": "metaprompt",
+        "optimizer": "hierarchical_reflective",
     },
     {"id": "save", "type": "prompt_version.save", "prompt_name": PROMPT_NAME, "only_if": _GAIN},
 ]
@@ -466,7 +466,7 @@ async def test_an_improve_dry_run_names_its_automation_and_carries_no_estimate(
                         "n": 50,
                         "min_gain": 0.05,
                         "metric": "levenshtein_ratio",
-                        "optimizer": "metaprompt",
+                        "optimizer": "hierarchical_reflective",
                     },
                 },
                 "dry_run": True,

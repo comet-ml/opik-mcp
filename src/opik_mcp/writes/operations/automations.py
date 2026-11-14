@@ -227,7 +227,11 @@ Step = create_model(
     ),
     optimizer=(
         str | None,
-        Field(default=None, max_length=200, description="optimizer.run: default metaprompt."),
+        Field(
+            default=None,
+            max_length=200,
+            description="optimizer.run: default hierarchical_reflective.",
+        ),
     ),
     score_name=(
         str | None,
@@ -319,7 +323,9 @@ WorkflowOverrides = create_model(
     ),
     optimizer=(
         str | None,
-        Field(default=None, max_length=200, description="improve: default metaprompt."),
+        Field(
+            default=None, max_length=200, description="improve: default hierarchical_reflective."
+        ),
     ),
     n=(
         int | None,

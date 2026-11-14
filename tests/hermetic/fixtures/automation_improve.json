@@ -18,7 +18,7 @@
       "test_suite_id": "${suite_id}",
       "test_suite_name": "${suite_name}",
       "metric": "levenshtein_ratio",
-      "optimizer": "metaprompt",
+      "optimizer": "hierarchical_reflective",
       "only_if": null
     },
     {

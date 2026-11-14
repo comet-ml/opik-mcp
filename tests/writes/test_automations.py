@@ -71,7 +71,7 @@ _IMPROVE_STEPS: list[dict[str, object]] = [
         "model": "gpt-4o-mini",
         "test_suite_name": "regressions",
         "metric": "levenshtein_ratio",
-        "optimizer": "metaprompt",
+        "optimizer": "hierarchical_reflective",
     },
     {
         "id": "save",
@@ -461,7 +461,7 @@ async def test_a_recipe_enable_accepts_every_override_a_recommendation_sends() -
         "repository": "example-org/demo",
         "notify_url": "https://hooks.slack.com/services/T000/B000/XXXX",
         "metric": "levenshtein_ratio",
-        "optimizer": "metaprompt",
+        "optimizer": "hierarchical_reflective",
         "n": 50,
         "min_gain": 0.05,
     }

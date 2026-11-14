@@ -1152,7 +1152,7 @@ async def _workflow_rows(drive: Driver) -> None:
     assert "Low-resolution traces to the suite" in answer
     assert "fired 240, items 62, cost $0" in answer
     # An enabled recipe's overrides show the values in use, the new ones included.
-    assert '"min_gain":0.05' in answer and '"optimizer":"metaprompt"' in answer
+    assert '"min_gain":0.05' in answer and '"optimizer":"hierarchical_reflective"' in answer
     assert '"n":20' in answer and '"threshold":0.5' in answer
     sent = drive.backend.sent(f"{_AUTOMATIONS}/workflows")[-1]
     assert sent.query.get("project_id") == [PROJECT_ID]
