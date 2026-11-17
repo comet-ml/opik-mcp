@@ -13,7 +13,7 @@ from opik_mcp.feedback.redaction import REDACTED, redact
         ('config had "password": "s3cr3t-pass"', "s3cr3t-pass"),
         ("it fetched https://example.com/x?token=abc&sig=def", "sig=def"),
         ("it fetched https://admin:pw123@example.com/x", "admin:pw123"),
-        ("AWS key AKIAABCDEFGHIJKLMNOP leaked", "AKIAABCDEFGHIJKLMNOP"),
+        ("AWS key AKIAIOSFODNN7EXAMPLE leaked", "AKIAIOSFODNN7EXAMPLE"),
         ("jwt eyJhbGciOi.eyJzdWIiOiIx.c2lnbmF0dXJl here", "eyJhbGciOi"),
         ("ghp_abcdefghijklmnopqrstuvwxyz0123456789 was set", "ghp_abcdefghij"),
         ("mail me at ops+mcp@example.co.uk please", "ops+mcp@example.co.uk"),

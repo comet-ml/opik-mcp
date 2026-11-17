@@ -31,10 +31,6 @@ _PATTERNS: Final = (
     re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"),
     re.compile(r"(?i)\b(?:bearer|basic)\s+[\w.~+/=-]{8,}"),
     re.compile(r"\b(?:sk|pk|rk)-[\w-]{16,}"),
-    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_\w{30,}"),
-    re.compile(r"\bxox[abposr]-[\w-]{10,}"),
-    re.compile(r"\bAIza[\w-]{35}"),
     # The last label has letters only, so a package pin like ``opik-mcp@3.0.10`` stays.
     re.compile(r"[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b"),
     re.compile(r"(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"),
