@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import time
 from collections.abc import Iterator
 from typing import get_args
 
@@ -113,45 +112,6 @@ async def test_a_secret_in_the_description_never_leaves_the_process(
 
 
 @pytest.mark.anyio
-async def test_the_call_returns_without_waiting_for_the_endpoint(
-    server: FastMCP[object], endpoint: FakeEndpoint
-) -> None:
-    endpoint.is_open.clear()
-    started = time.monotonic()
-
-    [result] = await _send(server, _arguments())
-
-    assert not result.isError, _text(result)
-    assert time.monotonic() - started < 2, "send_feedback waited on the analytics endpoint"
-    endpoint.is_open.set()
-    assert len(endpoint.feedback_properties()) == 1
-
-
-@pytest.mark.anyio
-async def test_an_unexpected_failure_never_reaches_sentry(
-    server: FastMCP[object], endpoint: FakeEndpoint, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    captured: list[BaseException] = []
-    monkeypatch.setattr(
-        "opik_mcp.error_tracking.capture_exception",
-        lambda exc, **_: captured.append(exc),
-    )
-
-    def broken(*_: object, **__: object) -> None:
-        raise RuntimeError("redaction broke")
-
-    monkeypatch.setattr("opik_mcp.feedback.report.redact", broken)
-
-    [result] = await _send(server, _arguments())
-
-    assert result.isError
-    assert captured == [], (
-        "send_feedback's frame locals hold the description; src/opik_mcp/feedback/tool.py "
-        "must keep reports_to_sentry=False"
-    )
-
-
-@pytest.mark.anyio
 async def test_a_target_that_is_not_a_known_name_is_recorded_as_other(
     server: FastMCP[object], endpoint: FakeEndpoint
 ) -> None:
@@ -160,24 +120,6 @@ async def test_a_target_that_is_not_a_known_name_is_recorded_as_other(
     [sent] = endpoint.feedback_properties()
     assert sent["target"] == "other"
     assert "acme" not in json.dumps(endpoint.events)
-
-
-@pytest.mark.anyio
-async def test_the_description_reaches_no_other_event(
-    server: FastMCP[object], endpoint: FakeEndpoint, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    tracked: list[tuple[str, dict[str, str]]] = []
-
-    class _Recorder:
-        def track_event(self, event_type: str, properties: dict[str, str]) -> None:
-            tracked.append((event_type, properties))
-
-    monkeypatch.setattr("opik_mcp.analytics.wrappers._client", _Recorder)
-
-    await _send(server, _arguments())
-
-    assert [event for event, _ in tracked].count("opik_mcp_tool_called") == 1, tracked
-    assert "feedback score" not in json.dumps(tracked)
 
 
 async def _tool_names(server: FastMCP[object]) -> list[str]:

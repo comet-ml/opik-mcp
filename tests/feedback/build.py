@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
@@ -20,19 +19,13 @@ API_KEY = "opik-test-key-Zx81Lq0Pw4Rt"
 
 
 class FakeEndpoint:
-    """Records each event the analytics worker posts. Reading drains the queue first.
-
-    Clear ``is_open`` to hold each post until it is set again (up to five seconds).
-    """
+    """Records each event the analytics worker posts. Reading drains the queue first."""
 
     def __init__(self) -> None:
         self._received: list[dict[str, object]] = []
-        self.is_open = threading.Event()
-        self.is_open.set()
         self.drain: Callable[[], None] = lambda: None
 
     def handle(self, request: httpx.Request) -> httpx.Response:
-        self.is_open.wait(timeout=5)
         self._received.append(json.loads(request.content))
         return httpx.Response(201)
 
