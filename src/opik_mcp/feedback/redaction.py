@@ -21,10 +21,12 @@ _PRIVATE_KEY = re.compile(
 )
 _URL_USERINFO = re.compile(r"(?i)(\bhttps?://)[^\s/@]+@")
 _URL_QUERY = re.compile(r"(?i)(\bhttps?://[^\s?#]+)\?[^\s#]*")
-# The name stays so the team can read which setting was involved.
+# The name stays so the team can read which setting was involved. A prefix such
+# as ``OPIK_`` or ``AWS_SECRET_`` is allowed, because env var names carry one.
 _ASSIGNMENT = re.compile(
-    r"(?i)\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|password|"
-    r"passwd|pwd|authorization|cookie|credentials?)[\"']?\s*[:=]\s*)"
+    r"(?i)(?<![A-Za-z0-9])((?:[A-Za-z0-9]+[_-])*"
+    r"(?:api[_-]?key|access[_-]?key|access[_-]?token|refresh[_-]?token|token|secret|"
+    r"password|passwd|pwd|authorization|cookie|credentials?)[\"']?\s*[:=]\s*)"
     r"(\"[^\"\n]*\"|'[^'\n]*'|[^\s\"',;&\[][^\s\"',;&]*)"
 )
 _PATTERNS: Final = (

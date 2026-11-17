@@ -19,6 +19,9 @@ from opik_mcp.feedback.redaction import REDACTED, redact
         ("mail me at ops+mcp@example.co.uk please", "ops+mcp@example.co.uk"),
         ("trace 0199a3f2-7c41-7d55-9e2b-1f6c0a8d4b37 failed", "0199a3f2"),
         ('secret="two words here" was rejected', "words here"),
+        ("export OPIK_API_KEY=myOpikKeyValue", "myOpikKeyValue"),
+        ('{"DB_PASSWORD": "correcthorsebattery"}', "correcthorsebattery"),
+        ("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "wJalrXUtnFEMI"),
     ],
 )
 def test_a_secret_or_personal_value_is_removed(text: str, secret: str) -> None:
