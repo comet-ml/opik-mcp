@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
+from opik_mcp.config import Settings
 from opik_mcp.features.contributions import tool_sentences
 from opik_mcp.features.toggles import FeatureToggles
+from opik_mcp.feedback import is_feedback_enabled
+from opik_mcp.feedback import tool as send_feedback
 from opik_mcp.server.tools import list as list_tool
 from opik_mcp.server.tools import read, read_skill, schema, write
 from opik_mcp.server.tools.feature_surface import extend_advertised_schemas
 
 
-def register_tools(mcp: FastMCP[object], toggles: FeatureToggles) -> None:
+def register_tools(mcp: FastMCP[object], toggles: FeatureToggles, settings: Settings) -> None:
     # A feature's sentence goes on at registration, through FastMCP's own
     # ``description`` argument; only the advertised enums need patching after.
     sentence = dict(tool_sentences(toggles))
@@ -21,4 +24,6 @@ def register_tools(mcp: FastMCP[object], toggles: FeatureToggles) -> None:
     write.register(mcp, sentence.get("write"))
     schema.register(mcp, sentence.get("schema"))
     read_skill.register(mcp, sentence.get("read_skill"))
+    if is_feedback_enabled(settings):
+        send_feedback.register(mcp)
     extend_advertised_schemas(mcp, toggles)

@@ -13,6 +13,7 @@ from opik_mcp.analytics import transport_probe
 from opik_mcp.analytics.client import AnalyticsClient
 from opik_mcp.analytics.events import (
     EVENT_AUTH_REJECTED,
+    EVENT_FEEDBACK_SENT,
     EVENT_SERVER_SHUTDOWN,
     EVENT_SERVER_STARTED,
     EVENT_SESSION_INITIALIZED,
@@ -29,6 +30,7 @@ from opik_mcp.config import get_settings
 
 __all__ = [
     "EVENT_AUTH_REJECTED",
+    "EVENT_FEEDBACK_SENT",
     "EVENT_SERVER_SHUTDOWN",
     "EVENT_SERVER_STARTED",
     "EVENT_SESSION_INITIALIZED",

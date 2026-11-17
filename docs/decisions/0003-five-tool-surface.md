@@ -40,3 +40,7 @@ for the model. A new entity or operation is a registry entry, not a new tool.
 - 2026-09-23: duplicate `structuredContent` removed (#201).
 - 2026-09-25: the tool set is pinned by `EXPECTED_TOOLS` in
   `tests/conformance/test_tool_inventory.py` (OPIK-8496).
+- 2026-11-17: `send_feedback` added as a sixth tool, advertised only when
+  analytics is on. Not a `write` operation: `write` acts on the user's
+  workspace and is marked destructive, and a report leaves the workspace.
+  Pinned in `tests/conformance/test_feedback_surface.py` (OPIK-9240).

@@ -217,8 +217,13 @@ def instrument_tool(
     name: str,
     *,
     props_fn: PropsFn | None = None,
+    reports_to_sentry: bool = True,
 ) -> Callable[[Callable[P, Awaitable[T]]], Callable[P, Awaitable[T]]]:
-    """Wrap an async MCP tool handler so every call emits `opik_mcp_tool_called`."""
+    """Wrap an async MCP tool handler so every call emits `opik_mcp_tool_called`.
+
+    ``reports_to_sentry=False`` is for a tool whose arguments must never leave in
+    a stack trace: Sentry sends frame locals, and the arguments are among them.
+    """
 
     def decorator(fn: Callable[P, Awaitable[T]]) -> Callable[P, Awaitable[T]]:
         @functools.wraps(fn)
@@ -263,8 +268,10 @@ def instrument_tool(
                     # The class-level skip-list runs against ``real`` so a
                     # ToolError wrapping ``MissingConfigError`` is recognized
                     # as user-side and not paged to Sentry.
-                    if error_kind not in _USER_SIDE_ERROR_KINDS and not isinstance(
-                        real, _USER_SIDE_EXCEPTIONS
+                    if (
+                        reports_to_sentry
+                        and error_kind not in _USER_SIDE_ERROR_KINDS
+                        and not isinstance(real, _USER_SIDE_EXCEPTIONS)
                     ):
                         _report_to_sentry(
                             exc,
