@@ -41,8 +41,8 @@ server adds:
 
 Every spend type queries the AI Spend endpoints for project `claude-code`
 over a window (`since`/`until`, 30 days by default) and links the matching
-AI Spend page. Each answer states its size and labels its dollars as billed or
-list price, because the backend uses one field name for both.
+AI Spend page. Each answer states its size and labels its dollars as list price: the
+tokens at API rates, for every org.
 
 | Call | Answers |
 |---|---|
@@ -151,8 +151,6 @@ Where to start:
   (`tests/conformance/test_tool_annotations.py`), so the added sentence goes
   first, not last. `list` stays under it in this workspace; `read` is over it
   on the default surface already.
-- `cost_usd` is billed money on the leaderboard and list price on lanes; the
-  types label each figure.
 - `list('spend_lane')` and `read('spend_lane', key)` come from two backend
   views and can differ by a few percent for the same lane.
 

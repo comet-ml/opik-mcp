@@ -47,7 +47,7 @@ SUMMARY_HANDLER = EntityHandler(
     vocabularies=(SUMMARY_VOCABULARY,),
     description=(
         "Claude Code usage totals for the window against the window before it, with "
-        "billed dollars split into seat, over-plan and API."
+        "list-price dollars."
     ),
 )
 
@@ -78,7 +78,7 @@ USER_HANDLER = EntityHandler(
     run_timeout_hint=_hint("spend_user"),
     vocabularies=(USER_VOCABULARY,),
     description=(
-        "The per-user leaderboard by total tokens, with billed dollars; a filter on "
+        "The per-user leaderboard by total tokens, with list-price dollars; a filter on "
         "mcp_server, skill or built_in_tool lists the users of that item instead."
     ),
 )

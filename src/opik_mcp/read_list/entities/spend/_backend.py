@@ -1,8 +1,8 @@
 """What the five spend entities share: the window, the client, the errors, the text.
 
 Entities may not import each other, so everything two of them need lives here.
-Dollars are quoted from the backend and never computed: "billed $" is what an
-org pays (seat + over-plan + API), "list $" is the API-rate value of the tokens.
+Dollars are quoted from the backend and never computed: "list $" is the
+API-rate value of the tokens.
 """
 
 from __future__ import annotations
@@ -194,12 +194,6 @@ def usd(value: float | None) -> str:
     return "n/a" if value is None else f"${value:,.2f}"
 
 
-def billed(row: Row, *keys: str) -> float | None:
-    """The sum of the components, or ``None`` unless every one is present."""
-    present = [value for key in keys if (value := number(row, key)) is not None]
-    return sum(present) if len(present) == len(keys) else None
-
-
 def tokens(count: float | int | None) -> str:
     """Three significant figures: a leaderboard is read for order, not the last digit."""
     if count is None:
@@ -239,7 +233,6 @@ __all__ = [
     "Row",
     "Scope",
     "SpendWindow",
-    "billed",
     "child",
     "count",
     "counted",

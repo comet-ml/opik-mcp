@@ -51,10 +51,7 @@ LANE_KEYS: Final = (
     "mcp_tool_calls",
     "skill_invocations",
 )
-_LEGEND: Final = (
-    "list_usd is the API-rate value of the tokens; billed_usd is cash spend "
-    "(seat + over-plan + API)"
-)
+_LEGEND: Final = "list_usd is the API-rate value of the tokens"
 
 
 def _dollars(row: Row, key: str) -> float | None:
@@ -137,7 +134,6 @@ def _item(row: Row) -> dict[str, object]:
         "definition_tokens": counted(row, "definition_tokens"),
         "usage_tokens": counted(row, "usage_tokens"),
         "list_usd": _dollars(row, "cost_usd"),
-        "billed_usd": _dollars(row, "cash_cost_usd"),
         "recoverable_usd": _dollars(row, "recoverable_cost_usd"),
         "active_users": row.get("active_users"),
         "inactive_users": row.get("inactive_users"),
@@ -182,9 +178,6 @@ async def fetch_lane(
         "window": window.label,
         "tokens": counted(body, "total_tokens"),
         "list_usd": _dollars(body, "cost_usd"),
-        "billed_usd": _dollars(body, "cash_cost_usd"),
-        "over_plan_usd": _dollars(body, "over_plan_cost_usd"),
-        "api_usd": _dollars(body, "api_cost_usd"),
         "legend": _LEGEND,
         "item_unit": text(body, "item_unit") or None,
         "items": [_item(row) for row in items[:TOP_ITEMS]],

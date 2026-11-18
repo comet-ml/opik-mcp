@@ -168,10 +168,7 @@ def _user_row(email: str, tokens: int) -> dict[str, object]:
         "user_email": email,
         "user_display_name": "Dev One",
         "total_tokens": tokens,
-        "subscription_cost_usd": 20.0,
-        "over_plan_cost_usd": 5.5,
-        "api_cost_usd": 1.25,
-        "seat_type": "Premium",
+        "cost_usd": 26.75,
         "requests": 40,
         "skills": 3,
         "mcps": 2,
@@ -260,13 +257,13 @@ async def test_the_leaderboard_is_sorted_by_total_tokens_unless_asked_otherwise(
     assert (fake.last["page"], fake.last["size"], fake.last["name"]) == (2, 5, "dev")
 
 
-async def test_the_leaderboard_says_billed_dollars_and_its_ranking_by_tokens() -> None:
+async def test_the_leaderboard_says_list_dollars_and_its_ranking_by_tokens() -> None:
     fake = FakeSpend(users={"total": 1, "content": [_user_row("a@example.com", 5_000_000)]})
     answer = await _list(fake, "spend_user")
     assert "by tokens" in _first_line(answer)
     rows = answer.split("\n")
-    assert rows[1].split(" | ")[:4] == ["email", "name", "tokens", "billed $"]
-    assert rows[2].startswith("a@example.com | Dev One | 5M | $26.75 | $20.00 | $5.50 | $1.25")
+    assert rows[1].split(" | ")[:4] == ["email", "name", "tokens", "list $"]
+    assert rows[2].startswith("a@example.com | Dev One | 5M | $26.75 | 40")
 
 
 async def test_an_unknown_sort_field_is_refused_with_the_valid_ones() -> None:
@@ -289,7 +286,6 @@ async def test_a_routing_filter_lists_the_users_of_that_item(field_name: str, ki
                 "definition_tokens": 10,
                 "usage_tokens": 5,
                 "cost_usd": 0.1,
-                "cash_cost_usd": 0.05,
             },
             {
                 "user_email": "high@example.com",
@@ -299,7 +295,6 @@ async def test_a_routing_filter_lists_the_users_of_that_item(field_name: str, ki
                 "definition_tokens": 1000,
                 "usage_tokens": 5000,
                 "cost_usd": 3.0,
-                "cash_cost_usd": 1.5,
             },
         ]
     )
@@ -307,9 +302,9 @@ async def test_a_routing_filter_lists_the_users_of_that_item(field_name: str, ki
     assert fake.calls[-1][0] == "item_users"
     assert (fake.last["kind"], fake.last["item"]) == (kind, "the-item")
     lines = answer.split("\n")
-    assert "list $ | billed $" in lines[1]
+    assert lines[1].endswith("usage tokens | list $")
     assert lines[2].startswith("high@example.com")
-    assert lines[2].endswith("$3.00 | $1.50")
+    assert lines[2].endswith("$3.00")
 
 
 async def test_two_routing_filters_or_paging_a_routing_answer_are_refused() -> None:
@@ -509,21 +504,18 @@ async def test_a_session_read_without_an_analysis_shows_what_its_list_row_shows(
 # --- summary, lanes, agents ------------------------------------------------ #
 
 
-async def test_the_summary_splits_billed_dollars_and_labels_list_dollars() -> None:
+async def test_the_summary_labels_its_dollars_as_list_price() -> None:
     fake = FakeSpend(
         summary={
             "results": [{"name": "total_messages", "current": 120.0, "previous": 100.0}],
             "spend_current_usd": 400.0,
             "spend_previous_usd": 300.0,
-            "subscription_seat_cost_usd": 40.0,
-            "spend_over_plan_usd": 10.0,
-            "spend_api_usd": 5.0,
         }
     )
     answer = await _list(fake, "spend_summary")
     assert "total_messages | 120 | 100" in answer
-    assert "billed $55.00 = seat $40.00 + over-plan $10.00 + API $5.00" in answer
-    assert "list value at API rates $400.00 vs $300.00" in answer
+    assert "list price at API rates $400.00 vs $300.00" in answer
+    assert "billed" not in answer
     assert "/__ai_spend_test__/ai-spend/home" in answer
 
 
@@ -572,17 +564,19 @@ async def test_a_lane_read_rounds_dollars_to_cents_and_keeps_tokens_exact() -> N
         breakdown={
             "total_tokens": 123456789,
             "cost_usd": 27.165666499999997,
-            "cash_cost_usd": 1.005,
-            "over_plan_cost_usd": 2.3333333,
-            "api_cost_usd": 0.1 + 0.2,
             "items": [
-                {"label": "a", "total_tokens": 7, "cost_usd": 1.23456, "cash_cost_usd": 0.999}
+                {
+                    "label": "a",
+                    "total_tokens": 7,
+                    "cost_usd": 1.23456,
+                    "recoverable_cost_usd": 0.1 + 0.2,
+                }
             ],
         }
     )
     data = json.loads((await _read(fake, "spend_lane", "mcp_servers")).split("\n", 1)[1])
-    assert (data["list_usd"], data["over_plan_usd"], data["api_usd"]) == (27.17, 2.33, 0.3)
-    assert (data["items"][0]["list_usd"], data["items"][0]["billed_usd"]) == (1.23, 1.0)
+    assert data["list_usd"] == 27.17
+    assert (data["items"][0]["list_usd"], data["items"][0]["recoverable_usd"]) == (1.23, 0.3)
     assert data["tokens"] == 123456789
 
 
@@ -597,9 +591,6 @@ async def test_a_lane_read_keeps_the_top_25_items_and_counts_the_rest() -> None:
             "subtitle": "Server definitions.",
             "total_tokens": 100,
             "cost_usd": 820.0,
-            "cash_cost_usd": 7.0,
-            "over_plan_cost_usd": 2.0,
-            "api_cost_usd": 3.0,
             "item_count": 40,
             "items": items,
         }
@@ -609,8 +600,8 @@ async def test_a_lane_read_keeps_the_top_25_items_and_counts_the_rest() -> None:
     assert [item["label"] for item in data["items"]][:2] == ["item-40", "item-39"]
     assert len(data["items"]) == TOP_ITEMS
     assert "15 more items" in data["more"]
-    assert (data["list_usd"], data["billed_usd"]) == (820.0, 7.0)
-    assert "billed_usd" in data["legend"]
+    assert data["list_usd"] == 820.0
+    assert "list_usd" in data["legend"]
     assert data["url"].endswith("/ai-spend/home")
 
 
@@ -806,22 +797,13 @@ def test_the_spend_workspace_adds_exactly_the_spend_types() -> None:
 
 async def test_a_missing_dollar_field_reads_n_a_not_zero() -> None:
     fake = FakeSpend(
-        summary={"results": [{"name": "m", "current": 1.0}], "spend_api_usd": 5.0},
+        summary={"results": [{"name": "m", "current": 1.0}], "spend_previous_usd": 5.0},
         users={"total": 1, "content": [{"user_email": "a@example.com", "total_tokens": 10}]},
     )
     summary = await _list(fake, "spend_summary")
-    assert "billed n/a = seat n/a + over-plan n/a + API $5.00" in summary
-    assert "list value at API rates n/a" in summary
+    assert "list price at API rates n/a vs $5.00" in summary
     row = (await _list(fake, "spend_user")).split("\n")[2]
-    assert row.split(" | ")[3:7] == ["n/a", "n/a", "n/a", "n/a"]
-
-
-async def test_billed_dollars_are_n_a_when_any_part_is_missing_but_the_parts_still_print() -> None:
-    partial = _user_row("a@example.com", 10)
-    del partial["api_cost_usd"]
-    fake = FakeSpend(users={"total": 1, "content": [partial]})
-    row = (await _list(fake, "spend_user")).split("\n")[2]
-    assert row.split(" | ")[3:7] == ["n/a", "$20.00", "$5.50", "n/a"]
+    assert row.split(" | ")[3] == "n/a"
 
 
 async def test_a_zero_dollar_lane_ranks_above_a_lane_with_no_dollars() -> None:

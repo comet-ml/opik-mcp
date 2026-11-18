@@ -14,13 +14,8 @@ project, as in any workspace.
 Dollars come only from the `spend_*` types. Opik's own cost fields on traces, threads and
 `read('project')` are empty here and read $0 — never report them.
 
-There are two dollar figures. Always say which one you quote:
-
-- **Billed** — what the organization pays: the seat fee for the window, plus over-plan and
-  API charges. The leaderboard (`spend_user`) and `spend_summary` use it. Everyone inside
-  the same plan shows the same seat price, so their tokens are what tells them apart.
-- **List price** — what the tokens would cost at API rates. Lanes, lane items and
-  `spend_agent` use it. Lane items also carry the billed share, which is zero inside a plan.
+Every dollar figure is **list price**: what the tokens would cost at API rates, whatever
+plan the organization is on. It is not an invoice; say "list price" when you quote one.
 
 Rankings are by total tokens: input, cache reads, cache writes and output, weighted
 equally. A cache read costs about a tenth of fresh input and output costs several times
@@ -44,7 +39,7 @@ again.
 | `mcp_servers` | MCP tool definitions, server instructions and tool results. |
 | `memory` | CLAUDE.md, rules and auto-memory. |
 | `static_overhead` | The system prompt, environment block and other fixed harness text. |
-| `unattributed` | Billed tokens no block claimed. It has no breakdown. |
+| `unattributed` | Tokens no block claimed. It has no breakdown. |
 
 Output lanes are what the model writes: `thinking`, `assistant_text`,
 `built_in_tool_calls`, `mcp_tool_calls`, `skill_invocations`.
@@ -89,8 +84,7 @@ you describe what someone did.
 
 ## Recipes
 
-**Who spends the most?** `list('spend_user')` ranks by tokens. Quote the billed figure and
-seat type, and say that users inside a plan share the same seat price.
+**Who spends the most?** `list('spend_user')` ranks by tokens. Quote each user's list price.
 
 **What are we spending on?** `list('spend_lane')` lists lanes by list price. Then
 `read('spend_lane', '<lane>')` names the servers, skills or tools inside a lane.

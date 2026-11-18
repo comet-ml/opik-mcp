@@ -7,8 +7,7 @@
     "runs": 4,
     "definition_tokens": 90000,
     "usage_tokens": 300000,
-    "cost_usd": 30.0,
-    "cash_cost_usd": 4.0
+    "cost_usd": 30.0
   },
   {
     "user_email": "ops@example.com",
@@ -18,7 +17,6 @@
     "runs": 1,
     "definition_tokens": 10000,
     "usage_tokens": 100000,
-    "cost_usd": 10.0,
-    "cash_cost_usd": 1.0
+    "cost_usd": 10.0
   }
 ]
