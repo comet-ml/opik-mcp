@@ -357,8 +357,8 @@ CLAIMS: tuple[Claim, ...] = (
     ),
     Claim(
         "spend_summary",
-        "billed dollars split into seat, over-plan and API",
-        "spend_summary_splits_billed_dollars",
+        "list-price dollars",
+        "spend_summary_quotes_list_price",
     ),
     # -- spend_lane ------------------------------------------------------------------ #
     Claim(
@@ -374,7 +374,7 @@ CLAIMS: tuple[Claim, ...] = (
     # -- spend_user ------------------------------------------------------------------ #
     Claim(
         "spend_user",
-        "The per-user leaderboard by total tokens, with billed dollars",
+        "The per-user leaderboard by total tokens, with list-price dollars",
         "spend_user_is_a_leaderboard_by_tokens",
     ),
     Claim(
@@ -950,10 +950,10 @@ async def _spend_summary_windows(drive: Driver) -> None:
     assert str(body["interval_start"]) < str(body["interval_end"]), "one closed window is asked for"
 
 
-@probe("spend_summary_splits_billed_dollars")
-async def _spend_summary_billed(drive: Driver) -> None:
+@probe("spend_summary_quotes_list_price")
+async def _spend_summary_list_price(drive: Driver) -> None:
     text = await drive.call("list", entity_type="spend_summary")
-    assert "billed $79.75 = seat $60.00 + over-plan $12.50 + API $7.25" in text
+    assert "list price at API rates $310.40 vs $220.10" in text
 
 
 @probe("spend_lane_is_one_row_per_lane")
@@ -990,8 +990,8 @@ async def _spend_lane_top_25(drive: Driver) -> None:
 async def _spend_user_leaderboard(drive: Driver) -> None:
     text = await drive.call("list", entity_type="spend_user")
     assert "| by tokens |" in text
-    assert "email | name | tokens | billed $ |" in text
-    assert "dev@example.com | Dev One | 3M | $52.00 |" in text, "billed = seat + over-plan + API"
+    assert "email | name | tokens | list $ |" in text
+    assert "dev@example.com | Dev One | 3M | $52.00 |" in text
     sorting = _spend_sent(drive, "/users").query["sorting"][0]
     assert json.loads(sorting) == [{"field": "total_tokens", "direction": "DESC"}]
 

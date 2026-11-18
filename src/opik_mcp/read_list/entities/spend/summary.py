@@ -1,4 +1,4 @@
-"""``list('spend_summary')``: usage totals and billed dollars for the window."""
+"""``list('spend_summary')``: usage totals and list-price dollars for the window."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from opik_mcp.cost_intelligence import FIXED_PROJECT
 from opik_mcp.read_list.entities.spend._backend import (
     HOME_PAGE,
     Row,
-    billed,
     count,
     link_line,
     list_header,
@@ -30,13 +29,8 @@ VOCABULARY = user_email_vocabulary(ENTITY)
 
 
 def _dollar_line(body: Row) -> str:
-    seat = number(body, "subscription_seat_cost_usd")
-    over_plan = number(body, "spend_over_plan_usd")
-    api = number(body, "spend_api_usd")
-    total = billed(body, "subscription_seat_cost_usd", "spend_over_plan_usd", "spend_api_usd")
     return (
-        f"billed {usd(total)} = seat {usd(seat)} + over-plan {usd(over_plan)} + API {usd(api)}"
-        f" | list value at API rates {usd(number(body, 'spend_current_usd'))}"
+        f"list price at API rates {usd(number(body, 'spend_current_usd'))}"
         f" vs {usd(number(body, 'spend_previous_usd'))} in the previous window"
     )
 
