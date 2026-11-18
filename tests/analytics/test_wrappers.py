@@ -497,6 +497,20 @@ def sentry_recorder(monkeypatch: pytest.MonkeyPatch, recorder: _Recorder) -> _Se
     return sr
 
 
+@pytest.mark.anyio
+async def test_a_tool_that_opts_out_of_sentry_sends_no_capture(
+    sentry_recorder: _SentryRecorder,
+) -> None:
+    @instrument_tool("read", reports_to_sentry=False)
+    async def fn() -> str:
+        raise httpx.ConnectError("x")
+
+    with pytest.raises(httpx.ConnectError):
+        await fn()
+
+    assert sentry_recorder.calls == []
+
+
 @pytest.mark.parametrize(
     "exc, expected_kind",
     [

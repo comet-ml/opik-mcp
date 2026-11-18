@@ -21,7 +21,7 @@ Each Literal documents the *only* values the receiver will ever see for that
 property. Anything outside the allowlist is bucketed to a fallback ("other",
 "unknown", "") at the emit site — the receiver never sees raw host input.
 
-Three declared exceptions to "boolean / enum / bucket":
+Four declared exceptions to "boolean / enum / bucket":
 
 - Pseudonymous identity hashes (``api_key_sha256``, ``token_sha256``,
   ``mcp_session_sha256``, ``env_id_sha256``) are 64-char SHA-256 hex digests. Not enums, but safe:
@@ -75,6 +75,14 @@ Three declared exceptions to "boolean / enum / bucket":
   that the login appears ONLY as ``user_id`` and never bleeds into
   ``event_properties`` is pinned in ``tests/analytics/test_client_build_event.py``
   (the recorder-based suite cannot see the common block — see its docstring).
+
+- **Feedback text** (``description`` on ``opik_mcp_feedback_sent`` only) is
+  prose, on purpose: the event exists to carry it to the Opik team. It is the
+  agent's account of a problem with opik-mcp, not the user's data. The tool
+  description tells the agent to leave user data out, and
+  ``feedback.redaction`` removes secrets before the event is built.
+  No other event and no other property carries it, pinned in
+  ``tests/feedback/test_send_feedback.py``.
 
 Never emit free-text queries, paths, filenames, or other user prose.
 """
@@ -381,6 +389,10 @@ EVENT_SERVER_SHUTDOWN = "opik_mcp_server_shutdown"
 # health signal — without it auth failures are invisible. See
 # ``AuthRejectionMiddleware`` in server/http/middleware.py.
 EVENT_AUTH_REJECTED = "opik_mcp_auth_rejected"
+# Emitted by the ``send_feedback`` tool, the one event that carries prose: the
+# agent's description of a problem with opik-mcp, redacted first. See the
+# fourth exception in this module's docstring.
+EVENT_FEEDBACK_SENT = "opik_mcp_feedback_sent"
 
 
 def bucket_tokens(token_count: int) -> str:

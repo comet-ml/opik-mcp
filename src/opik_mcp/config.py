@@ -225,6 +225,9 @@ class Settings(BaseSettings):
     # opik-mcp Phase 1 ships as a cloud-Comet client. On-prem installs
     # should override to "" (omit the field) or to their own domain.
     opik_mcp_analytics_source: str = "comet.com"
+    # The feedback tool delivers through the analytics endpoint, so it is
+    # advertised only when analytics is on too. This switch hides it alone.
+    opik_mcp_feedback_enabled: bool = True
 
     # Sentry error tracking. Separate from analytics on purpose: analytics
     # ships low-cardinality buckets to the BI funnel; Sentry ships stack

@@ -1,0 +1,67 @@
+{
+  "properties": {
+    "category": {
+      "description": "What went wrong.",
+      "enum": [
+        "error",
+        "wrong_result",
+        "confusing",
+        "missing_capability",
+        "slow",
+        "other"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "description": {
+      "description": "2-4 sentences: what you tried, what came back, what you expected. No user data.",
+      "maxLength": 2000,
+      "title": "Description",
+      "type": "string"
+    },
+    "impact": {
+      "description": "blocked: the task could not be done. workaround: it was done another way. minor: it cost time only.",
+      "enum": [
+        "blocked",
+        "workaround",
+        "minor"
+      ],
+      "title": "Impact",
+      "type": "string"
+    },
+    "requested_by_user": {
+      "default": false,
+      "description": "True when the user asked to send this.",
+      "title": "Requested By User",
+      "type": "boolean"
+    },
+    "target": {
+      "default": "",
+      "description": "The entity type or write operation, e.g. trace.",
+      "maxLength": 64,
+      "title": "Target",
+      "type": "string"
+    },
+    "tool": {
+      "default": "none",
+      "description": "The opik-mcp tool it concerns.",
+      "enum": [
+        "read",
+        "list",
+        "write",
+        "schema",
+        "read_skill",
+        "none"
+      ],
+      "title": "Tool",
+      "type": "string"
+    }
+  },
+  "required": [
+    "category",
+    "impact",
+    "description"
+  ],
+  "title": "send_feedbackArguments",
+  "type": "object"
+}

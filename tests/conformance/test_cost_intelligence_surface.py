@@ -179,6 +179,7 @@ def spend_instructions() -> str:
         comet_workspace="__ai_spend_" + "w" * 29,
         opik_mcp_transport="stdio",
         opik_url="https://www.comet.com/opik/api",
+        opik_mcp_analytics_enabled=True,
     )
     return render_instructions(settings, user_email="u" * 40 + "@example.com")
 

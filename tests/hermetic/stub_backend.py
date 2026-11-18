@@ -128,6 +128,10 @@ def _issue() -> dict[str, object]:
     return fill("issue")
 
 
+#: Where a test that turns analytics on sends the server's events.
+ANALYTICS_PATH = "/notify/event/"
+
+
 @dataclass
 class StubBackend:
     """The recorded conversation, plus the knobs a test needs to bend."""
@@ -257,6 +261,10 @@ class StubBackend:
             return 403, {"message": "stub forbids this path"}
         if method == "POST" and path == "/opik/auth-oauth":
             return 200, load("oauth_introspection", workspace=self.oauth_workspace)
+        if method == "POST" and path == ANALYTICS_PATH:
+            # comet-stats' JsonBiEventView, for a test that turns analytics on
+            # and points OPIK_MCP_ANALYTICS_URL here.
+            return 201, {"message": "Event added successfully", "success": "true"}
         spend = spend_answer(method, path, self.spend_payloads)
         if spend is not None:
             return spend

@@ -28,6 +28,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from opik_mcp import feedback
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.features.contributions import instructions_paragraphs
 from opik_mcp.features.toggles import FeatureToggles
@@ -153,6 +154,9 @@ def render_instructions(
     today = today if today is not None else datetime.now(UTC)
     date = today.strftime("%Y-%m-%d")
     default_project_clause = _render_default_project_clause(s)
+    paragraphs = list(instructions_paragraphs(FeatureToggles.resolve(s)))
+    if feedback.is_feedback_enabled(s):
+        paragraphs.append(feedback.INSTRUCTIONS_PARAGRAPH)
 
     return _TEMPLATE.format(
         user_clause=user_clause,
@@ -160,9 +164,7 @@ def render_instructions(
         opik_url=opik_url,
         date=date,
         default_project_clause=default_project_clause,
-        feature_clause="".join(
-            f"\n{paragraph}\n" for paragraph in instructions_paragraphs(FeatureToggles.resolve(s))
-        ),
+        feature_clause="".join(f"\n{paragraph}\n" for paragraph in paragraphs),
         write_operations=", ".join(sorted(WRITE_OPERATIONS)),
         skill_names=", ".join(skill_names()),
     )

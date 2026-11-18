@@ -17,7 +17,7 @@ def build_server(settings: Settings) -> FastMCP[object]:
     # blob as system-prompt context once per session. Rendered eagerly so the
     # server logs any settings issues at startup rather than mid-call.
     server = FastMCP("opik-mcp", instructions=render_instructions(settings))
-    register_tools(server, FeatureToggles.resolve(settings))
+    register_tools(server, FeatureToggles.resolve(settings), settings)
     return server
 
 

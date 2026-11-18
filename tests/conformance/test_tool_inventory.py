@@ -113,6 +113,17 @@ from opik_mcp.server import mcp
 #           characters). +694 bytes.
 #   23,231  OPIK-9161 — each tool's title is repeated in its annotations,
 #           where the Connectors Directory reads it. +158 bytes.
+#   25,112  2026-11-17, OPIK-9240 — `send_feedback`, +1,881 bytes, measured on
+#           the analytics-on server in test_feedback_surface.py (production's
+#           default; this process runs with analytics off, so the five-tool
+#           surface above stays 23,231). About 600 of it is the description,
+#           which has to say when to call the tool and when not to, and what
+#           the report carries, because the agent decides that alone. The rest
+#           is three closed enums the team counts reports by, and the free
+#           description argument with its 2,000-character cap.
+#   25,040  OPIK-9240 — the sentence asking the agent to get the user's yes
+#           first leaves the `send_feedback` description: reports go without
+#           asking. -72 bytes.
 #
 # The ceiling used to sit ~400 bytes above the measurement. That proved to be
 # the wrong slack: it was hit three times inside one ticket, and each time the
@@ -130,7 +141,9 @@ from opik_mcp.server import mcp
 # An AI Spend workspace adds one sentence each to the `read` and `list`
 # descriptions, plus the names its spend types add: 22,817 bytes, 438 over the
 # default surface, which is unchanged at 22,379. The same cap measures it.
-SURFACE_BUDGET_BYTES = 24_000
+# Raised from 24,000 to 26,000 for `send_feedback` (OPIK-9240): 888 bytes of
+# headroom over 25,112, about what the old ceiling left; 960 over 25,040.
+SURFACE_BUDGET_BYTES = 26_000
 
 
 def surface_report(
@@ -376,12 +389,21 @@ def test_budget_report_names_the_biggest_tool_first() -> None:
 # 4,811 with the longest settings after OPIK-8951 (4,765 before it): the two
 # queue operations and opik-annotate are named, and "covered by Phase 1"
 # leaves the write line.
-INSTRUCTIONS_BUDGET_BYTES = 5_000
+# 2026-11-17, OPIK-9240: one line routes a failed call to `send_feedback`, +92
+# bytes: 4,903 by default and 5,089 in an AI Spend workspace, both with
+# analytics on, the production default that advertises the tool. The ceiling
+# goes from 5,000, which the AI Spend text already met within 3 bytes, to
+# 5,300. A host that defers tools learns the tool only from this text.
+INSTRUCTIONS_BUDGET_BYTES = 5_300
 
 
 def longest_instructions() -> str:
     return render_instructions(
-        Settings(comet_workspace="w" * 40, opik_url="https://www.comet.com/opik/api"),
+        Settings(
+            comet_workspace="w" * 40,
+            opik_url="https://www.comet.com/opik/api",
+            opik_mcp_analytics_enabled=True,
+        ),
         user_email="u" * 40 + "@example.com",
     )
 
