@@ -33,6 +33,9 @@ spec:
               value: {{ $v | quote }}
             {{- end }}
           {{- end }}
+          {{- with .Values.envFrom }}
+          envFrom: {{- toYaml . | nindent 12 }}
+          {{- end }}
           livenessProbe: {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe: {{- toYaml .Values.readinessProbe | nindent 12 }}
           startupProbe: {{- toYaml .Values.startupProbe | nindent 12 }}
