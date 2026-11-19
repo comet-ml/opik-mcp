@@ -69,6 +69,8 @@ env:
   # COMET_URL_OVERRIDE: "https://www.comet.com"
   # OPIK_URL: ""
 
+envFrom: []
+
 ingress:
   enabled: false
   ingressClassName: ""
