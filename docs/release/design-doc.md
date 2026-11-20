@@ -227,6 +227,7 @@ No ADR covers release; the reasons come from workflow comments and PRs.
 
 ## Log
 
+- 2026-11-20: actions pinned to commit SHAs, and their updates moved from Dependabot to Renovate, so a moved tag cannot change what CI runs (#276).
 - 2026-10-17: each release fast-forwards `claude-plugin`, the branch Anthropic's directory tracks for the plugin, and bumps the plugin version with `version.txt` (OPIK-8848).
 - 2026-10-05: version 3.0.0 after 0.2.39, so the Python registry entry outranks the npm 2.x ones and becomes `latest` (#242).
 - 2026-10-05: the MCP Registry entry is published by the Python release instead of the TypeScript workflow, so registry clients stop installing the deprecated npm server (#240).
