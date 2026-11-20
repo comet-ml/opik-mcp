@@ -20,19 +20,3 @@ updates:
     open-pull-requests-limit: 5
     labels:
       - "dependencies"
-
-  # GitHub Actions workflows. One PR for all minor and patch bumps; a major
-  # bump gets its own.
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    groups:
-      github-actions-minor:
-        update-types:
-          - "minor"
-          - "patch"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
-      - "infrastructure"
