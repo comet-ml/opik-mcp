@@ -73,7 +73,7 @@ jobs:
       opik_version: ${{ steps.release.outputs.version }}
       report: ${{ steps.report.outputs.report }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Resolve the Opik release to test against
         id: release
@@ -87,7 +87,7 @@ jobs:
           echo "### Opik $VERSION (open source, local)" >> "$GITHUB_STEP_SUMMARY"
 
       # opik.sh and the compose files at the tag, so they match the images.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: comet-ml/opik
           ref: ${{ steps.release.outputs.version }}
@@ -124,7 +124,7 @@ jobs:
 
       - name: Generate _version.py (required before any uv build)
         run: make version
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Install Python
         run: uv python install 3.13
       - name: Install dependencies
@@ -150,7 +150,7 @@ jobs:
           for c in $(docker ps -a --format '{{.Names}}' | grep -E 'backend'); do
             docker logs "$c" > "${RUNNER_TEMP}/logs/$c.log" 2>&1 || true
           done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: failure()
         with:
           name: opik-backend-logs
@@ -194,12 +194,12 @@ jobs:
           echo "version=$VERSION" | tee -a "$GITHUB_OUTPUT"
           echo "### Opik $VERSION (cloud)" >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         if: steps.configured.outputs.ok == 'true'
       - name: Generate _version.py (required before any uv build)
         if: steps.configured.outputs.ok == 'true'
         run: make version
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         if: steps.configured.outputs.ok == 'true'
       - name: Install Python
         if: steps.configured.outputs.ok == 'true'
@@ -241,7 +241,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: scripts/live_alert.py
           sparse-checkout-cone-mode: false
