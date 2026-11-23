@@ -98,8 +98,10 @@ def _reset_process_caches() -> None:
     from opik_mcp.analytics import identity
     from opik_mcp.analytics.mcp_client_info import _reset_call_context_cache_for_tests
     from opik_mcp.identity.account import reset_account_identity_for_tests
+    from opik_mcp.read_list import record_shapes
 
     config.get_settings.cache_clear()
+    record_shapes.reset_for_tests()
     identity._get_install_id.cache_clear()
     _reset_call_context_cache_for_tests()
     reset_account_identity_for_tests()

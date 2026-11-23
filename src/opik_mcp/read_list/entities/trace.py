@@ -240,6 +240,9 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="trace",
+    list_record_schema="Trace_Public",
+    list_derived_fields=("experiment_id", "error_type"),
+    read_record_schemas={"trace": "Trace_Public"},
     is_windowed=True,
     # ``tls_trace`` is the UI's key, ``trace_id`` our own redirect's, so a
     # link this server handed out is one it takes back.

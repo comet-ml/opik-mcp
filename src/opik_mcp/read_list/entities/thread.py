@@ -237,6 +237,8 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="thread",
+    list_record_schema="TraceThread",
+    read_record_schemas={"thread": "TraceThread"},
     is_windowed=True,
     uri_patterns=(
         opik_uri("projects/{project}/threads/{id}"),

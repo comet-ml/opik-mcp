@@ -67,6 +67,9 @@ SHARED: frozenset[str] = frozenset(
         # comparison's own table apply the same three rules, and a projection
         # each of them wrote for itself would be three ways to cut silently.
         "projection",
+        # The fields of each backend record, read from the file generated from
+        # Opik's OpenAPI spec. Every entity names its schema; none is named here.
+        "record_shapes",
         "read_tool",
         "reference",
         "registry",
