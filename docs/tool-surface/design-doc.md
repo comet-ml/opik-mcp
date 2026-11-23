@@ -80,7 +80,8 @@ project if set, tool selection, the link rule, and today's UTC date.
   - `prompt`: versions up to `VERSIONS_INLINE_LIMIT`, then `moreVersions`.
   - Others: [project-overview](../project-overview/design-doc.md), [experiment-flows](../experiment-flows/design-doc.md), [diagnostics](../diagnostics/design-doc.md).
 - `fields=[…]` returns only the named dotted paths, uncut, and always keeps
-  the id. It is marked `| projected` in the header and on the line under it.
+  the id and the entity's `list_identity_fields`, so a row link template's
+  slots stay filled (a span keeps its `trace_id`). It is marked `| projected` in the header and on the line under it.
   An unknown path is refused with the valid ones.
 - A backend failure is one sentence: what was asked and what to change
   (`raise_for_status` in `src/opik_mcp/client/errors/__init__.py`). A missing record
@@ -269,6 +270,7 @@ Boundaries:
 
 ## Log
 
+- 2026-11-23: a projected span list keeps `trace_id`, the second slot of its row link (NA).
 - 2026-11-06: each tool's title is repeated in its annotations, for the Connectors Directory listing; +158 bytes (#272).
 - 2026-10-23: `read_view_fn` lets an entity state a long field of its own by size on a read without `fields`; "covered by Phase 1" left the instructions (OPIK-8951).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).

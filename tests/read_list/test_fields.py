@@ -11,6 +11,7 @@ here is aimed at.
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 from mcp.server.fastmcp.exceptions import ToolError
@@ -21,7 +22,7 @@ from opik_mcp.read_list.projection import FieldsError
 from opik_mcp.read_list.read_tool import run_read
 
 from .test_dataset_compare import DATASET, A, B, _case, _fake, _run
-from .test_list_tool import FakeOpikClient
+from .test_list_tool import _UI, FakeOpikClient
 from .test_read_tool import FakeOpikClient as FakeReadClient
 
 TRACE = "019f8d97-c83c-7597-b40a-bd2e0e1ad500"
@@ -523,6 +524,25 @@ async def test_a_hand_authored_case_grows_no_empty_trace_column() -> None:
     out = await run_list("dataset_item", dataset_id=DATASET, fields=["data.question"], client=fake)
     assert "id | data.question" in out
     assert "trace_id" not in out
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fields", [["name"], ["name", "trace_id"]])
+async def test_every_slot_of_a_span_row_link_is_a_column_of_the_projected_row(
+    fields: list[str],
+) -> None:
+    fake = FakeOpikClient(
+        spans={
+            "content": [{"id": "s-1", "trace_id": "tr-9", "name": "search_docs", "type": "tool"}],
+            "total": 1,
+        }
+    )
+    out = await run_list("span", project_id=PROJECT, fields=fields, client=fake, settings=_UI)
+    columns = next(one for one in out.splitlines() if one.startswith("id |")).split(" | ")
+    link = next(one for one in out.splitlines() if one.startswith("Open a row in Opik:"))
+    slots = re.findall(r"\{(\w+)\}", link)
+    assert slots, f"no slots in the row link: {link}"
+    assert set(slots) <= set(columns), f"slots {slots} not all in columns {columns}"
 
 
 @pytest.mark.anyio
