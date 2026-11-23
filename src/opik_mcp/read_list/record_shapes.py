@@ -59,9 +59,11 @@ def for_list(handler: EntityHandler) -> DeclaredFields:
     schema = handler.list_record_schema
     base = declared(schema) if schema is not None else NOTHING_DECLARED
     derived = handler.list_derived_fields
-    hidden = tuple(f"{name}." for name in derived)
+    unsent = set(handler.list_unsent_fields)
+    hidden = tuple(f"{name}." for name in (*derived, *unsent))
     return DeclaredFields(
-        paths=frozenset(p for p in base.paths if not p.startswith(hidden)) | set(derived),
+        paths=frozenset(p for p in base.paths if p not in unsent and not p.startswith(hidden))
+        | set(derived),
         open_paths=frozenset(p for p in base.open_paths if not p.startswith(hidden)),
     )
 

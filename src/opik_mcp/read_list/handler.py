@@ -335,6 +335,7 @@ class EntityHandler:
     """
     list_record_schema: str | None = None
     list_derived_fields: tuple[str, ...] = ()
+    list_unsent_fields: tuple[str, ...] = ()
     read_record_schemas: Mapping[str, str] = field(default_factory=dict)
     """``{"": schema}`` for a flat record, ``{"trace": schema}`` for ``{trace, spans, …}``."""
     vocabularies: tuple[Vocabulary, ...] = ()

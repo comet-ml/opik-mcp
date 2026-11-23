@@ -57,7 +57,7 @@ async def test_spans_take_fields_the_backend_left_out(mcp: Live, manifest: Manif
     assert len(answer.rows()) == manifest.typical.span_count
 
 
-async def _empty_in_list(
+async def _falsely_unset_in_list(
     mcp: Live, manifest: Manifest, entity_type: str, record: object, schema: str
 ) -> list[str]:
     assert isinstance(record, dict), f"the {schema} record is not an object: {record!r}"
@@ -66,30 +66,31 @@ async def _empty_in_list(
         for key, value in record.items()
         if key in _declared(schema) and value not in (None, "", [], {})
     )
-    answer = await mcp.list(
-        entity_type,
-        project_name=manifest.project_name,
-        filters=f'id = "{record["id"]}"',
-        fields=filled,
-        size=1,
-    )
+    scope = {"project_name": manifest.project_name, "filters": f'id = "{record["id"]}"'}
+    answer = await mcp.list(entity_type, **scope, fields=filled, size=1)
     rows = answer.rows()
     assert len(rows) == 1, f"{answer.call} did not list the record once: {answer.text[:300]}"
     columns = ["id", *(key for key in filled if key != "id")]
     cells = list(rows[0].values())
     assert len(cells) == len(columns), f"{answer.call} has columns {list(rows[0])}"
-    return [key for key, cell in zip(columns, cells, strict=True) if not cell]
+    empty = [key for key, cell in zip(columns, cells, strict=True) if not cell]
+    falsely_unset: list[str] = []
+    for key in empty:
+        alone = await mcp.list(entity_type, **scope, fields=[key], size=1)
+        if not alone.is_error:
+            falsely_unset.append(key)
+    return falsely_unset
 
 
-async def test_a_listed_trace_and_span_fill_what_their_reads_fill(
+async def test_a_list_never_reports_unset_a_field_the_read_fills(
     mcp: Live, manifest: Manifest
 ) -> None:
     trace = (await mcp.read("trace", manifest.typical.id)).record()
-    empty = await _empty_in_list(mcp, manifest, "trace", trace["trace"], "Trace_Public")
-    assert not empty, f"list('trace') leaves out {empty}; take them out of Trace_Public's list use"
+    unset = await _falsely_unset_in_list(mcp, manifest, "trace", trace["trace"], "Trace_Public")
+    assert not unset, f"list('trace') says {unset} not set; add them to list_unsent_fields"
     spans = trace["spans"]
     assert isinstance(spans, list), f"trace {manifest.typical.id} spans is not a list"
     assert spans, f"trace {manifest.typical.id} has no spans"
     span = (await mcp.read("span", str(spans[0]["id"]))).record()
-    empty = await _empty_in_list(mcp, manifest, "span", span, "Span_Public")
-    assert not empty, f"list('span') leaves out {empty}; take them out of Span_Public's list use"
+    unset = await _falsely_unset_in_list(mcp, manifest, "span", span, "Span_Public")
+    assert not unset, f"list('span') says {unset} not set; add them to list_unsent_fields"

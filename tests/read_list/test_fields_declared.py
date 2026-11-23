@@ -136,6 +136,12 @@ async def test_a_derived_column_that_no_row_fills_is_taken() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_field_the_span_list_never_sends_is_refused_not_reported_unset() -> None:
+    with pytest.raises(ToolError):
+        await run_list("span", project_id=PROJECT, fields=["project_name"], client=_root_spans())
+
+
+@pytest.mark.anyio
 async def test_a_path_two_keys_into_metadata_is_refused_not_reported_unset() -> None:
     row = {"id": "t-1", "metadata": {"env": {"region": "eu"}}}
     fake = FakeOpikClient(traces={"content": [row], "total": 1, "page": 1, "size": 10})

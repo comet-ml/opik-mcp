@@ -182,7 +182,9 @@ cannot tell an empty field from an unknown one.
   (`feedback_scores`). Its `source` names the opik commit.
 - An entity names its schemas on its `EntityHandler`: `list_record_schema`,
   `read_record_schemas` (one per block of a composite read) and
-  `list_derived_fields` for the columns `list_row_fn` adds. A derived column
+  `list_derived_fields` for the columns `list_row_fn` adds, and
+  `list_unsent_fields` for schema fields a list endpoint never sends (a span
+  list has no `project_name`), which stay refused. A derived column
   replaces the schema's value of that name, so its sub-paths are not declared.
   `agent_insights_issue` names no read schema: its read moves `details` out
   of the `issue` block.
@@ -309,7 +311,7 @@ Boundaries:
   `tests/read_list/test_record_shapes.py`
   (`test_every_entity_that_lists_backend_rows_names_its_schema`), and against a
   real backend `tests/live/test_record_shapes.py`
-  (`test_a_listed_trace_and_span_fill_what_their_reads_fill`).
+  (`test_a_list_never_reports_unset_a_field_the_read_fills`).
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
   and each entity's file in `tests/hermetic/reads/`, which also checks the size
   header and that a refusal carries no backend body or REST path
