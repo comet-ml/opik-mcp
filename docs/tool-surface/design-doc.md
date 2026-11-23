@@ -274,7 +274,7 @@ Boundaries:
 
 ## Log
 
-- 2026-11-23: a list cell of annotation queues names the queues instead of printing `<name>=None` (OPIK_8948 follow-up).
+- 2026-11-23: a list cell of annotation queues names the queues instead of printing `<name>=None` (#279).
 - 2026-11-06: each tool's title is repeated in its annotations, for the Connectors Directory listing; +158 bytes (#272).
 - 2026-10-23: `read_view_fn` lets an entity state a long field of its own by size on a read without `fields`; "covered by Phase 1" left the instructions (OPIK-8951).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).
