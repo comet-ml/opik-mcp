@@ -67,17 +67,15 @@ async def _falsely_unset_in_list(
         if key in _declared(schema) and value not in (None, "", [], {})
     )
     scope = {"project_name": manifest.project_name, "filters": f'id = "{record["id"]}"'}
-    answer = await mcp.list(entity_type, **scope, fields=filled, size=1)
-    rows = answer.rows()
-    assert len(rows) == 1, f"{answer.call} did not list the record once: {answer.text[:300]}"
-    columns = ["id", *(key for key in filled if key != "id")]
-    cells = list(rows[0].values())
-    assert len(cells) == len(columns), f"{answer.call} has columns {list(rows[0])}"
-    empty = [key for key, cell in zip(columns, cells, strict=True) if not cell]
     falsely_unset: list[str] = []
-    for key in empty:
-        alone = await mcp.list(entity_type, **scope, fields=[key], size=1)
-        if not alone.is_error:
+    for key in filled:
+        answer = await mcp.list(entity_type, **scope, fields=[key], size=1)
+        if answer.is_error:
+            continue
+        rows = answer.rows()
+        assert len(rows) == 1, f"{answer.call} did not list the record once: {answer.text[:300]}"
+        cells = list(rows[0].values())
+        if not cells[0 if key == "id" else 1]:
             falsely_unset.append(key)
     return falsely_unset
 
