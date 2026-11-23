@@ -63,11 +63,11 @@ async def test_a_span_with_no_error_returns_error_info_as_null() -> None:
 
 
 @pytest.mark.anyio
-async def test_a_field_of_a_declared_object_comes_back_null_on_a_composite_read() -> None:
+async def test_a_field_of_an_absent_object_comes_back_as_a_null_object() -> None:
     fake = FakeReadClient(traces_by_id={TRACE: {"id": TRACE, "project_id": PROJECT}})
     out = await run_read("trace", TRACE, fields=["trace.error_info.message"], client=fake)
-    trace = _payload(out)["trace"]
-    assert trace == {"id": TRACE, "error_info": {"message": None}}
+    assert _payload(out)["trace"] == {"id": TRACE, "error_info": None}
+    assert "not set: trace.error_info.message" in _marker(out)
 
 
 @pytest.mark.anyio

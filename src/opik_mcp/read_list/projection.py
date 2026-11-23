@@ -355,9 +355,16 @@ def project_record(
 
     out: dict[str, Any] = {}
     for path in kept:
-        _plant(out, path, dig(record, path, named_lists=named)[1])
+        found, value = dig(record, path, named_lists=named)
+        _plant(out, path if found else _first_missing(record, path, named), value)
     omitted = tuple(p for p in leaves(paths) if not any(covers(f, p) for f in kept))
     return out, tuple(kept), omitted
+
+
+def _first_missing(record: Mapping[str, object], path: str, named: frozenset[str]) -> str:
+    parts = path.split(".")
+    prefixes = (".".join(parts[:end]) for end in range(1, len(parts) + 1))
+    return next((p for p in prefixes if not dig(record, p, named_lists=named)[0]), path)
 
 
 def _open_keys(record: Mapping[str, object], declared: DeclaredFields) -> list[str]:
