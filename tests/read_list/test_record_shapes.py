@@ -1,5 +1,3 @@
-"""``record_shapes.json`` covers every entity, and the generator reads the spec correctly."""
-
 from __future__ import annotations
 
 import json
@@ -11,7 +9,6 @@ from scripts.generate_record_shapes import build, changes, load_spec, render, wr
 from opik_mcp.read_list import record_shapes
 from opik_mcp.read_list.registry import ENTITY_REGISTRY
 
-#: Entities that list rows but name no schema, and why.
 NO_SCHEMA: dict[str, str] = {
     "score_name": "the server builds its rows from a list of names",
     "online_rule": "each row is one of several rule types (oneOf in the spec)",
@@ -117,7 +114,6 @@ def test_the_file_has_one_line_per_field_and_reads_back_as_written() -> None:
 
 
 def test_a_new_spec_commit_with_no_field_change_leaves_the_file_alone(tmp_path: Path) -> None:
-    """Otherwise the daily workflow pushes to its PR with nothing to review."""
     spec = load_spec(_SPEC)
     assert isinstance(spec, dict)
     schemas = build(spec, ["Thing"])

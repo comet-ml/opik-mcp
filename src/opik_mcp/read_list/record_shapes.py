@@ -1,10 +1,4 @@
-"""The fields of each backend record, from Opik's OpenAPI spec.
-
-The backend serialises with ``NON_NULL``, so a record's JSON never shows the
-fields it leaves empty. ``record_shapes.json`` holds what the spec declares
-instead. ``make record-shapes`` writes it, and the ``record-shapes`` workflow
-opens a PR when the spec on opik ``main`` changes it. Never edit it by hand.
-"""
+"""Reads ``record_shapes.json``, which ``make record-shapes`` generates from opik's OpenAPI spec."""
 
 from __future__ import annotations
 
@@ -23,8 +17,6 @@ FieldKind = Literal["scalar", "object", "open", "named_list", "list"]
 
 
 class FieldShape(TypedDict, total=False):
-    """One property of a schema, as the generator writes it."""
-
     kind: FieldKind
     fields: list[str]
     enum: list[str]
@@ -46,7 +38,6 @@ def schema_names() -> frozenset[str]:
 
 
 def schema_fields(schema: str) -> Mapping[str, FieldShape]:
-    """The properties of ``schema``; a ``KeyError`` names a schema the file does not hold."""
     return _shapes()["schemas"][schema]
 
 
@@ -65,12 +56,9 @@ def declared(schema: str, *, prefix: str = "") -> DeclaredFields:
 
 
 def for_list(handler: EntityHandler) -> DeclaredFields:
-    """What ``fields=`` takes on a page of this entity, beyond what its rows carry."""
     schema = handler.list_record_schema
     base = declared(schema) if schema is not None else NOTHING_DECLARED
     derived = handler.list_derived_fields
-    # A derived column replaces the value it is named after (an experiment's
-    # prompt_version object becomes a label), so the object's sub-paths are gone.
     hidden = tuple(f"{name}." for name in derived)
     return DeclaredFields(
         paths=frozenset(p for p in base.paths if not p.startswith(hidden)) | set(derived),
@@ -79,7 +67,6 @@ def for_list(handler: EntityHandler) -> DeclaredFields:
 
 
 def for_read(handler: EntityHandler) -> DeclaredFields:
-    """What ``fields=`` takes on a read of this entity, beyond what the record carries."""
     out = NOTHING_DECLARED
     for block, schema in handler.read_record_schemas.items():
         out |= declared(schema, prefix=f"{block}." if block else "")

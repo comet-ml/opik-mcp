@@ -1,12 +1,3 @@
-"""``fields=[…]`` takes what the entity's schema declares, not only what the records carry.
-
-The backend leaves null fields out of its JSON. A page of root spans has no
-``parent_span_id`` key and a span with no error has no ``error_info``, and
-both were refused as unknown fields (OPIK-8948: 360 failed calls from 68 users
-in seven days). The schema comes from Opik's OpenAPI spec, through
-``record_shapes.json``, so a misspelt field is still refused.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,7 +22,6 @@ def anyio_backend() -> str:
 
 
 def _root_spans() -> FakeOpikClient:
-    """Two spans with no parent and no error: the keys the backend leaves out."""
     rows = [
         {"id": f"s-{n}", "trace_id": TRACE, "name": "agent", "type": "general"} for n in range(2)
     ]
@@ -91,7 +81,6 @@ async def test_a_misspelt_field_is_refused_although_no_row_has_the_real_one() ->
 
 @pytest.mark.anyio
 async def test_a_misspelt_score_is_refused_with_the_score_the_records_hold() -> None:
-    """``not set`` here would make the agent report that the run has no such score."""
     with pytest.raises(ToolError) as excinfo:
         await run_list(
             "trace",
@@ -148,7 +137,6 @@ async def test_a_derived_column_that_no_row_fills_is_taken() -> None:
 
 @pytest.mark.anyio
 async def test_a_path_two_keys_into_metadata_is_refused_not_reported_unset() -> None:
-    """The table reads one level into a container, so the value would be reported missing."""
     row = {"id": "t-1", "metadata": {"env": {"region": "eu"}}}
     fake = FakeOpikClient(traces={"content": [row], "total": 1, "page": 1, "size": 10})
     with pytest.raises(ToolError):
@@ -182,7 +170,6 @@ async def test_a_read_does_not_pick_one_span_by_name_out_of_several() -> None:
 
 @pytest.mark.anyio
 async def test_a_sub_field_of_a_column_the_entity_derives_is_refused() -> None:
-    """The experiment row's prompt_version object is replaced by a label before the check."""
     row = {
         "id": "e-1",
         "name": "run",

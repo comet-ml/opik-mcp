@@ -21,11 +21,7 @@ is a short menu; accepting less than is offered would be a lie.
 
 *Refusing.* A field that names nothing is an error with the valid names in it,
 never an empty column. An empty column is indistinguishable from a field the
-records genuinely do not fill, and the caller acts on the difference. What
-"names nothing" means comes from the entity's schema as well as the records:
-the backend leaves a null field out of its JSON, so a page of root spans has
-no ``parent_span_id`` key, and the records alone would refuse a real field
-(:class:`DeclaredFields`).
+records genuinely do not fill, and the caller acts on the difference.
 
 *Declaring.* A projected answer says it was projected and what it left out
 (spec invariant D3). This is the load-bearing one: the whole point of
@@ -58,13 +54,6 @@ class FieldsError(EntityArgValidationError):
 
 @dataclass(frozen=True)
 class DeclaredFields:
-    """The paths an entity's schema names, which ``fields=`` takes even when no record fills them.
-
-    ``paths`` are fixed fields and come back null when absent. ``open_paths``
-    hold keys the user chose (``metadata``, score names): a key under one is
-    taken as not set, unless it is a near miss of a key the records carry.
-    """
-
     paths: frozenset[str] = frozenset()
     open_paths: frozenset[str] = frozenset()
 
@@ -75,8 +64,6 @@ class DeclaredFields:
 NOTHING_DECLARED: Final = DeclaredFields()
 
 _NEAR_MISS_CUTOFF: Final = 0.8
-"""How alike a user key and a key on the records must be to read as a typo.
-``gevl`` and ``geval`` score 0.89; two real score names rarely pass 0.8."""
 
 
 MAX_NESTED_NAMES: Final = 12
@@ -239,8 +226,7 @@ def check(
     ``accepts`` lets a caller admit a path it did not advertise — a read
     enumerates two levels and a deeper path that genuinely resolves is still
     the caller's to ask for. Refusing what works would be the one failure mode
-    worse than not advertising it. ``declared`` admits what the schema names
-    and the records in hand happen not to fill.
+    worse than not advertising it.
     """
     known = set(valid)
     unknown: list[str] = []
@@ -250,8 +236,6 @@ def check(
             continue
         container = _open_container(name, declared)
         if container is None or "." in name.removeprefix(f"{container}."):
-            # A deeper path must resolve: the list table reads one level into a
-            # container, and a missing middle key would plant the wrong shape.
             unknown.append(name)
             continue
         near = _near_miss(name, container, known)
@@ -271,16 +255,10 @@ def check(
 
 
 def _open_container(name: str, declared: DeclaredFields) -> str | None:
-    """The declared open container ``name`` is a key of, if any."""
     return next((path for path in declared.open_paths if name.startswith(f"{path}.")), None)
 
 
 def _near_miss(name: str, container: str, known: set[str]) -> str | None:
-    """A key on the records that ``name`` looks like a misspelling of.
-
-    A score asked for as ``feedback_scores.gevl`` must not come back as "not
-    set": the agent would report that the run has no geval score.
-    """
     prefix = f"{container}."
     siblings = [path.removeprefix(prefix) for path in known if path.startswith(prefix)]
     match = difflib.get_close_matches(
@@ -295,12 +273,7 @@ def _near_miss(name: str, container: str, known: set[str]) -> str | None:
 def dig(
     record: Mapping[str, Any], path: str, *, named_lists: frozenset[str] = frozenset()
 ) -> tuple[bool, Any]:
-    """``(found, value)`` for a dotted path: a dict by key, a list in ``named_lists`` by name.
-
-    The named entry comes back whole, so ``trace.feedback_scores.helpfulness``
-    keeps the judge's reason beside the value. Any other list is a leaf:
-    ``spans.llm`` would pick the first of several spans with that name.
-    """
+    """``(found, value)`` for a dotted path, descending dicts and the lists in ``named_lists``."""
     node: Any = record
     walked = ""
     for part in path.split("."):
@@ -363,7 +336,7 @@ def project_record(
     ``kept`` is what the payload actually holds — the requested paths plus the
     id, which is there whether or not it was asked for — so the marker's count
     describes the answer in front of the caller rather than the request behind
-    it. A declared field the record does not fill is kept as ``null``.
+    it.
     """
     paths = record_paths(record)
     named = declared.open_paths
@@ -388,11 +361,6 @@ def project_record(
 
 
 def _open_keys(record: Mapping[str, object], declared: DeclaredFields) -> list[str]:
-    """The keys the record holds under each declared open container.
-
-    :func:`record_paths` stops at lists and at two levels, so without these a
-    misspelt score on a read could not be told from one the record lacks.
-    """
     out: list[str] = []
     for container in sorted(declared.open_paths):
         found, value = dig(record, container)
@@ -409,7 +377,6 @@ def unset(
     *,
     declared: DeclaredFields = NOTHING_DECLARED,
 ) -> tuple[str, ...]:
-    """The named fields this record does not fill."""
     return tuple(f for f in fields if not dig(record, f, named_lists=declared.open_paths)[0])
 
 
@@ -440,9 +407,7 @@ def marker(
     It states a count, which cannot be argued with, then names as much of the
     remainder as is useful, then says how to get the rest. Every projected
     answer carries it, on both tools, whether or not anything was omitted —
-    "nothing was omitted" is itself the fact a reader needs. ``unset`` names
-    the fields that came back empty because nothing filled them, so an empty
-    value never reads as a field the server failed to find.
+    "nothing was omitted" is itself the fact a reader needs.
     """
     total = len(kept) + len(omitted)
     not_set = f"; not set: {one_line(', '.join(_capped(unset)))}" if unset else ""

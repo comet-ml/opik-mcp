@@ -1,13 +1,4 @@
-"""Write ``src/opik_mcp/read_list/record_shapes.json`` from Opik's OpenAPI spec.
-
-    uv run python scripts/generate_record_shapes.py               # opik main
-    uv run python scripts/generate_record_shapes.py --ref <sha>
-    uv run python scripts/generate_record_shapes.py --spec opik.yaml --ref <sha>
-
-Only the schemas that an entity names (``list_record_schema``,
-``read_record_schemas``) are written. Prints the fields each schema gained or
-lost, which the ``record-shapes`` workflow puts in its PR body.
-"""
+"""Write ``src/opik_mcp/read_list/record_shapes.json`` from opik's OpenAPI spec."""
 
 from __future__ import annotations
 
@@ -56,7 +47,6 @@ def _get(url: str, *, accept: str | None = None) -> bytes:
 
 
 def resolve_ref(ref: str) -> str:
-    """The commit SHA ``ref`` names in the opik repo."""
     if _SHA.match(ref):
         return ref
     url = f"https://api.github.com/repos/{REPOSITORY}/commits/{ref}"
@@ -80,7 +70,6 @@ def _mapping(value: object) -> Mapping[str, object]:
 
 
 def _resolve(node: Mapping[str, object], schemas: Mapping[str, object]) -> Mapping[str, object]:
-    """``node`` with one ``$ref`` (or a one-item ``allOf``) followed."""
     all_of = node.get("allOf")
     if isinstance(all_of, list) and len(all_of) == 1:
         node = _mapping(all_of[0])
@@ -91,12 +80,6 @@ def _resolve(node: Mapping[str, object], schemas: Mapping[str, object]) -> Mappi
 
 
 def classify(prop: Mapping[str, object], schemas: Mapping[str, object]) -> FieldShape:
-    """How ``fields=`` can address one property.
-
-    ``object`` has fixed sub-fields; ``open`` holds keys the user chose
-    (``metadata``, ``usage``); ``named_list`` is a list addressed by entry name
-    (``feedback_scores``); ``list`` is kept whole.
-    """
     node = _resolve(prop, schemas)
     if node.get("type") == "array":
         items = _resolve(_mapping(node.get("items")), schemas)
@@ -138,7 +121,6 @@ def entity_schema_names() -> set[str]:
 def changes(
     old: Mapping[str, Mapping[str, object]], new: Mapping[str, Mapping[str, object]]
 ) -> list[str]:
-    """One line per schema whose fields changed."""
     lines: list[str] = []
     for name in sorted(set(old) | set(new)):
         before, after = _mapping(old.get(name)), _mapping(new.get(name))
@@ -156,7 +138,6 @@ def changes(
 
 
 def render(source: Mapping[str, str], schemas: Schemas) -> str:
-    """The file's JSON, one line per field, so a spec change is one changed line."""
     lines = ["{", f' "source": {json.dumps(source, sort_keys=True)},', ' "schemas": {']
     for index, (name, fields) in enumerate(sorted(schemas.items())):
         lines.append(f"  {json.dumps(name)}: {{")
@@ -171,11 +152,6 @@ def render(source: Mapping[str, str], schemas: Schemas) -> str:
 
 
 def write_if_changed(output: Path, source: Mapping[str, str], schemas: Schemas) -> list[str]:
-    """Write the file only when a field changed, and say what changed.
-
-    opik ``main`` moves every day, so rewriting ``source`` alone would push to
-    the sync PR every weekday with nothing in it to review.
-    """
     old = json.loads(output.read_text()).get("schemas", {}) if output.exists() else {}
     lines = changes(old, schemas)
     if lines or not output.exists():

@@ -135,9 +135,6 @@ typecheck:
 
 check: version lint typecheck test
 
-# The fields of each backend record, from opik's OpenAPI spec (OPIK-8948).
-# REF is an opik branch, tag or SHA. SPEC=path/to/opik.yaml reads a local file
-# and then REF must be the commit SHA that file comes from.
 REF ?= main
 record-shapes:
 	uv run python scripts/generate_record_shapes.py --ref $(REF) $(if $(SPEC),--spec $(SPEC))

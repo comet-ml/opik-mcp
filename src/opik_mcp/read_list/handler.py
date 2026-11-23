@@ -334,17 +334,9 @@ class EntityHandler:
     of :mod:`opik_mcp.read_list.projection`'s naming rule.
     """
     list_record_schema: str | None = None
-    """The backend schema of one list row, by its name in ``record_shapes.json``.
-
-    The backend leaves null fields out of its JSON, so a page of rows does not
-    show every field the entity has. ``fields=`` takes the schema's fields too,
-    and one that no row fills comes back empty instead of being refused.
-    """
     list_derived_fields: tuple[str, ...] = ()
-    """The columns ``list_row_fn`` adds when a row has what they come from."""
     read_record_schemas: Mapping[str, str] = field(default_factory=dict)
-    """The backend schema of each block a read returns: ``{"": "Span_Public"}``
-    for a flat record, ``{"trace": "Trace_Public"}`` for ``{trace, spans, …}``."""
+    """``{"": schema}`` for a flat record, ``{"trace": schema}`` for ``{trace, spans, …}``."""
     vocabularies: tuple[Vocabulary, ...] = ()
     """The field tables this entity's ``list`` validates against: its own,
     named after it, and any other one ``list_vocabulary`` names."""

@@ -1,22 +1,10 @@
 name: Record shapes
 run-name: "Record shapes from opik ${{ inputs.ref || 'main' }}"
 
-# Regenerates src/opik_mcp/read_list/record_shapes.json from opik's OpenAPI
-# spec (OPIK-8948) and opens or updates one PR when the fields change. The same
-# pattern as comet-ml/opik's sdks_generate_openapi_spec_and_fern_code.yml,
-# which commits that spec to opik main on weekdays at 00:00 UTC. This runs
-# after it.
-#
-# The PR's own CI is the check: if `make check` fails there, an entity uses a
-# field the spec removed, and a person fixes the entity in that PR.
-#
-# TOKEN. CI does not start on a PR that GITHUB_TOKEN opens. Until the
-# COMET_ACTION_CREATE_PR secret is added to this repo, the PR opens without
-# checks; close and reopen it to start them.
+# CI does not start on a PR that GITHUB_TOKEN opens, hence COMET_ACTION_CREATE_PR.
 
 on:
   schedule:
-    # Off the hour: scheduled runs are delayed most at the top of the hour.
     - cron: "37 6 * * 1-5"
   workflow_dispatch:
     inputs:
@@ -59,8 +47,6 @@ jobs:
         id: generate
         env:
           REF: ${{ inputs.ref || 'main' }}
-        # A random delimiter: the summary is built from the spec at a ref the
-        # dispatcher chooses, and a fixed one could end the value early.
         run: |
           delimiter="summary_$(openssl rand -hex 16)"
           {

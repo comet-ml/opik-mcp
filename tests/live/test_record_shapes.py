@@ -1,10 +1,3 @@
-"""A real backend sends only the fields ``record_shapes.json`` declares.
-
-The file comes from opik's OpenAPI spec on ``main``. A key the spec does not
-declare means the spec is behind the backend, or the backend drifted from it;
-either way ``fields=`` would refuse that key on a record that leaves it out.
-"""
-
 from __future__ import annotations
 
 import json
@@ -53,7 +46,6 @@ async def test_a_thread_carries_only_declared_fields(mcp: Live, manifest: Manife
 
 
 async def test_spans_take_fields_the_backend_left_out(mcp: Live, manifest: Manifest) -> None:
-    """The OPIK-8948 report: a root span has no parent_span_id, a clean span no error_info."""
     answer = await mcp.list(
         "span",
         project_name=manifest.project_name,
@@ -68,7 +60,6 @@ async def test_spans_take_fields_the_backend_left_out(mcp: Live, manifest: Manif
 async def _empty_in_list(
     mcp: Live, manifest: Manifest, entity_type: str, record: object, schema: str
 ) -> list[str]:
-    """The declared fields the read fills and the listed row of the same record leaves empty."""
     assert isinstance(record, dict), f"the {schema} record is not an object: {record!r}"
     filled = sorted(
         key
@@ -90,7 +81,6 @@ async def _empty_in_list(
 async def test_a_listed_trace_and_span_fill_what_their_reads_fill(
     mcp: Live, manifest: Manifest
 ) -> None:
-    """A field a list endpoint leaves out would come back "not set" under fields=."""
     trace = (await mcp.read("trace", manifest.typical.id)).record()
     empty = await _empty_in_list(mcp, manifest, "trace", trace["trace"], "Trace_Public")
     assert not empty, f"list('trace') leaves out {empty}; take them out of Trace_Public's list use"
