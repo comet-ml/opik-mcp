@@ -75,7 +75,10 @@ async def _empty_in_list(
     )
     rows = answer.rows()
     assert len(rows) == 1, f"{answer.call} did not list the record once: {answer.text[:300]}"
-    return [key for key in filled if not rows[0].get(key)]
+    columns = ["id", *(key for key in filled if key != "id")]
+    cells = list(rows[0].values())
+    assert len(cells) == len(columns), f"{answer.call} has columns {list(rows[0])}"
+    return [key for key, cell in zip(columns, cells, strict=True) if not cell]
 
 
 async def test_a_listed_trace_and_span_fill_what_their_reads_fill(
