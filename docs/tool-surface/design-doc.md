@@ -120,6 +120,9 @@ project if set, tool selection, the link rule, and today's UTC date.
 - Columns are id, name, `list_extra_fields`, then the sort and filter fields.
   Cells past `_TRUNCATE_AT` are cut and counted; `url` cells never are.
   `fields=[…]` picks the columns and lifts the cut.
+- A cell that holds a list of named entries prints `name=value` for each
+  entry with a `value` key (feedback scores), and the name alone for one
+  without (annotation queues).
 - No default column is a trace body: `list('thread')` leaves out
   `first_message`, and `fields=["first_message"]` still returns it.
 - The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`);
@@ -251,7 +254,9 @@ Boundaries:
   `tests/read_list/test_list_tool.py`, `tests/read_list/test_list_filters.py`;
   the size on every page, `test_a_page_states_its_size_on_the_first_line`,
   `test_a_series_states_its_size_on_the_first_line`; no thread body,
-  `test_a_thread_page_does_not_echo_the_first_message_body`.
+  `test_a_thread_page_does_not_echo_the_first_message_body`; named-entry
+  cells, `test_a_queue_cell_names_its_queues`,
+  `test_a_score_cell_still_pairs_each_name_with_its_value`.
 - Refusals: `test_a_refused_read_carries_neither_the_backend_body_nor_the_rest_path`
   and the backend-reason cases in `tests/client/test_read.py`
   (`test_a_400_quotes_the_backends_error_strings_after_the_fix`,
@@ -269,6 +274,7 @@ Boundaries:
 
 ## Log
 
+- 2026-11-23: a list cell of annotation queues names the queues instead of printing `<name>=None` (OPIK_8948 follow-up).
 - 2026-11-06: each tool's title is repeated in its annotations, for the Connectors Directory listing; +158 bytes (#272).
 - 2026-10-23: `read_view_fn` lets an entity state a long field of its own by size on a read without `fields`; "covered by Phase 1" left the instructions (OPIK-8951).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).

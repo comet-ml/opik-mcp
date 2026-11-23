@@ -294,7 +294,8 @@ def _cell(item: dict[str, Any], col: str) -> Any:
 
     ``error_type`` is derived from the error container when the record does
     not carry it flat: the backend's list payload has ``error_info.exception_type``.
-    A feedback-score list (``[{name, value}, …]``) renders as ``name=value`` pairs.
+    A feedback-score list (``[{name, value}, …]``) renders as ``name=value`` pairs,
+    and named entries with no value as their names alone.
     A dotted column (``feedback_scores.accuracy``, ``usage.total_tokens``,
     ``metadata.environment``) resolves into the nested value: a dict by key, a
     list of named entries by ``name``. Anything missing renders empty.
@@ -302,7 +303,7 @@ def _cell(item: dict[str, Any], col: str) -> Any:
     if col in item:
         val = item[col]
         if isinstance(val, list) and val and all(isinstance(s, dict) for s in val):
-            return _score_summary(val)
+            return _named_entry_summary(val)
         return val
     if col == "error_type":
         info = item.get("error_info")
@@ -311,8 +312,12 @@ def _cell(item: dict[str, Any], col: str) -> Any:
     return resolve_column(item, col)
 
 
-def _score_summary(scores: list[dict[str, Any]]) -> str:
-    return ", ".join(f"{s.get('name')}={s.get('value')}" for s in scores if "name" in s)
+def _named_entry_summary(entries: list[dict[str, Any]]) -> str:
+    return ", ".join(
+        f"{s['name']}={s['value']}" if "value" in s else str(s["name"])
+        for s in entries
+        if "name" in s
+    )
 
 
 # Header labels that carry the unit the backend leaves implicit. The field
