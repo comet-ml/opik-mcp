@@ -80,8 +80,9 @@ project if set, tool selection, the link rule, and today's UTC date.
   - `prompt`: versions up to `VERSIONS_INLINE_LIMIT`, then `moreVersions`.
   - Others: [project-overview](../project-overview/design-doc.md), [experiment-flows](../experiment-flows/design-doc.md), [diagnostics](../diagnostics/design-doc.md).
 - `fields=[…]` returns only the named dotted paths, uncut, and always keeps
-  the id and the entity's `list_identity_fields`, so a row link template's
-  slots stay filled (a span keeps its `trace_id`). It is marked `| projected` in the header and on the line under it.
+  the id. It also keeps the entity's `list_identity_fields` when a row on the
+  page fills them, so a row link template's slots stay filled (a span keeps
+  its `trace_id`). It is marked `| projected` in the header and on the line under it.
   An unknown path is refused with the valid ones.
 - A backend failure is one sentence: what was asked and what to change
   (`raise_for_status` in `src/opik_mcp/client/errors/__init__.py`). A missing record
