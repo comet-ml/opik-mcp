@@ -1,4 +1,4 @@
-.PHONY: help version install run run-dev dev inspect test slow conformance hermetic live user-flows lint format typecheck check \
+.PHONY: help version install run run-dev dev inspect test slow conformance hermetic live user-flows lint format typecheck check record-shapes \
         install-branch uninstall-branch \
         skills-pack skills-verify skills-verify-source plugin-validate \
         docker-build docker-run
@@ -37,6 +37,7 @@ help:
 	@echo "  make format     - ruff format + ruff check --fix"
 	@echo "  make typecheck  - mypy"
 	@echo "  make check      - lint + typecheck + test"
+	@echo "  make record-shapes - regenerate read_list/record_shapes.json from opik's OpenAPI spec (REF=main, SPEC=)"
 	@echo ""
 	@echo "Skills pack (published as comet-ml/opik-skills):"
 	@echo "  make skills-pack          - build the pack into dist/opik-skills"
@@ -133,6 +134,13 @@ typecheck:
 	uv run mypy
 
 check: version lint typecheck test
+
+# The fields of each backend record, from opik's OpenAPI spec (OPIK-8948).
+# REF is an opik branch, tag or SHA. SPEC=path/to/opik.yaml reads a local file
+# and then REF must be the commit SHA that file comes from.
+REF ?= main
+record-shapes:
+	uv run python scripts/generate_record_shapes.py --ref $(REF) $(if $(SPEC),--spec $(SPEC))
 
 # --- Skills pack (OPIK-7621) -----------------------------------------------
 #
