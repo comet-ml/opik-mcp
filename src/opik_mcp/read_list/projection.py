@@ -317,10 +317,12 @@ def _quoted_path(keys: Sequence[str]) -> str:
     return f"{plain}.{quoted}" if plain and quoted else plain or quoted
 
 
-def _children(node: Any, walked: tuple[str, ...], named_lists: frozenset[str]) -> Mapping[str, Any]:
+def _children(
+    node: object, walked: tuple[str, ...], named_lists: frozenset[str]
+) -> Mapping[str, object]:
     if isinstance(node, Mapping):
         return node
-    entries: dict[str, Any] = {}
+    entries: dict[str, object] = {}
     if isinstance(node, list) and ".".join(walked) in named_lists:
         for entry in node:
             if isinstance(entry, Mapping) and isinstance(entry.get("name"), str):
@@ -329,8 +331,8 @@ def _children(node: Any, walked: tuple[str, ...], named_lists: frozenset[str]) -
 
 
 def _steps(
-    children: Mapping[str, Any], segments: tuple[_Segment, ...]
-) -> Iterable[tuple[str, Any, tuple[_Segment, ...]]]:
+    children: Mapping[str, object], segments: tuple[_Segment, ...]
+) -> Iterable[tuple[str, object, tuple[_Segment, ...]]]:
     """Each child the first segment can name, with the segments left after it."""
     head, rest = segments[0], segments[1:]
     if isinstance(head, _Quoted):
@@ -345,22 +347,22 @@ def _steps(
 
 
 def _matches(
-    node: Any,
+    node: object,
     segments: tuple[_Segment, ...],
     named_lists: frozenset[str],
     walked: tuple[str, ...] = (),
-) -> list[tuple[tuple[str, ...], Any]]:
+) -> list[tuple[tuple[str, ...], object]]:
     """Every ``(keys, value)`` the path resolves to; more than one when keys hold dots."""
     if not segments:
         return [(walked, node)]
-    out: list[tuple[tuple[str, ...], Any]] = []
+    out: list[tuple[tuple[str, ...], object]] = []
     for key, child, rest in _steps(_children(node, walked, named_lists), segments):
         out.extend(_matches(child, rest, named_lists, (*walked, key)))
     return out
 
 
 def _missing_keys(
-    node: Any,
+    node: object,
     segments: tuple[_Segment, ...],
     named_lists: frozenset[str],
     walked: tuple[str, ...] = (),
@@ -388,7 +390,7 @@ def dig(
 
 
 def _refuse_ambiguous(
-    record: Mapping[str, Any], fields: Sequence[str], named_lists: frozenset[str]
+    record: Mapping[str, object], fields: Sequence[str], named_lists: frozenset[str]
 ) -> None:
     for name in fields:
         found = _matches(record, _segments(name), named_lists)
