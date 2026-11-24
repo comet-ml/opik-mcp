@@ -403,6 +403,53 @@ async def test_a_caller_who_names_first_message_still_gets_it() -> None:
     assert f"conv-1 | {body}" in out
 
 
+def _queue(name: str) -> dict[str, str | int]:
+    return {
+        "id": f"q-{name}",
+        "project_id": "p-1",
+        "name": name,
+        "scope": "trace",
+        "annotators_per_item": 1,
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("entity_type", ["trace", "thread"])
+async def test_a_queue_cell_names_its_queues(entity_type: str) -> None:
+    page = {
+        "content": [
+            {"id": "row-1", "annotation_queues": [_queue("test")]},
+            {"id": "row-2", "annotation_queues": [_queue("a"), _queue("b")]},
+        ],
+        "total": 2,
+    }
+    fake = FakeOpikClient(traces=page, threads=page)
+    out = await run_list(entity_type, project_id="p-1", fields=["annotation_queues"], client=fake)
+    assert "row-1 | test\n" in out
+    assert "row-2 | a, b\n" in out
+    assert "None" not in out
+
+
+@pytest.mark.anyio
+async def test_a_score_cell_still_pairs_each_name_with_its_value() -> None:
+    fake = FakeOpikClient(
+        traces={
+            "content": [
+                {
+                    "id": "t-1",
+                    "feedback_scores": [
+                        {"name": "accuracy", "value": 0.9},
+                        {"name": "hallucination", "value": 0},
+                    ],
+                }
+            ],
+            "total": 1,
+        }
+    )
+    out = await run_list("trace", project_id="p-1", fields=["feedback_scores"], client=fake)
+    assert "t-1 | accuracy=0.9, hallucination=0\n" in out
+
+
 # --- entity-type validation ---------------------------------------------- #
 
 
