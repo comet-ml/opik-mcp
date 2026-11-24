@@ -406,7 +406,7 @@ app.listen(3000, () => console.log("Listening on port 3000"));
 Then pair with the Opik UI:
 
 ```bash
-opik connect --pair <CODE> tsx summarise.ts
+opik connect --pair <CODE> node --import tsx summarise.ts
 ```
 
 ### Multiple Parameters

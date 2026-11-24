@@ -273,9 +273,7 @@ client = track_openai(
 
 ```python
 client = track_openai(
-    OpenAI(
-        base_url="https://api.fireworks.ai/inference/v1", api_key="YOUR_FIREWORKS_API_KEY"
-    )
+    OpenAI(base_url="https://api.fireworks.ai/inference/v1", api_key="YOUR_FIREWORKS_API_KEY")
 )
 ```
 
@@ -290,9 +288,7 @@ client = track_openai(
 ### Portkey
 
 ```python
-client = track_openai(
-    OpenAI(base_url="https://api.portkey.ai/v1", api_key="YOUR_PORTKEY_API_KEY")
-)
+client = track_openai(OpenAI(base_url="https://api.portkey.ai/v1", api_key="YOUR_PORTKEY_API_KEY"))
 ```
 
 ### Cohere

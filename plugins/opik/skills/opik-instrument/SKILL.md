@@ -26,7 +26,7 @@ Never turn inference into a questionnaire. Ask only when you hit a genuine, non-
 
 ### 1. Configure Opik (one source of truth)
 - If `~/.opik.config` exists or `OPIK_API_KEY` is set, use it as-is.
-- Otherwise run the official flow: `opik configure` (Python) / the `opik-ts` CLI's `configure` command (TypeScript).
+- Otherwise run the official flow: `opik configure` (Python) / the `opik-ts configure` CLI from the [TypeScript SDK docs](https://www.comet.com/docs/opik/reference/typescript-sdk/overview) (TypeScript).
 - **Verify the config before instrumenting:** run `opik healthcheck` — it validates the config, the install, and backend/workspace reachability. If it fails, stop at that Blocker and fix config or connectivity before adding any tracing.
 - Only add project-local `.env` vars if the project **already** uses that pattern. Never introduce a second config mechanism; never copy secret values between mechanisms.
 

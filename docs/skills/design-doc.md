@@ -184,6 +184,13 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   rejects it and the loader drops the server.
 - The plugin runs no `uvx`, because the directory holds every version of a
   plugin that does for a reviewer (OPIK-8848).
+- Comet is not a Verified organization, so the directory refuses three more
+  things in `plugins/opik` (OPIK-9351): `allowed-tools` other than Read,
+  Grep, Glob and LS; install commands such as `pip install` or `npx`; and
+  samples that read an API key from the environment. The skills therefore
+  pre-approve no tools, and Claude Code asks before Bash, Write or Edit.
+  Skill text names a package or links its docs instead of an install
+  command. `tests/skills/test_directory_rules.py` checks all three.
 
 ### Traps
 
