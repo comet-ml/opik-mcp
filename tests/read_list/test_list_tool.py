@@ -31,6 +31,7 @@ class FakeOpikClient:
     prompts: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     datasets: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     traces: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
+    spans: dict[str, object] = field(default_factory=lambda: record("empty_page"))
     dataset_items: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     prompt_versions: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
     threads: dict[str, Any] = field(default_factory=lambda: record("empty_page"))
@@ -194,9 +195,7 @@ class FakeOpikClient:
         return self.feedback_definitions
 
     async def list_spans(self, **_: Any) -> dict[str, Any]:
-        # Not exercised by the list tool (span has no list_fn) — included to
-        # satisfy the OpikListClient Protocol structurally.
-        return record("empty_page")
+        return self.spans
 
 
 # --- table format --------------------------------------------------------- #
