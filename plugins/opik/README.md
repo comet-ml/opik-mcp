@@ -19,8 +19,8 @@ Then start a new session and sign in from `/mcp` → **Authenticate**.
 
 - **Skills:** `opik` (the SDK reference) and `opik-instrument`,
   `opik-diagnose`, `opik-explain`, `opik-evaluate`, `opik-compare`,
-  `opik-test`, `opik-verify`, `opik-online-eval`, `opik-optimize` and
-  `opik-annotate`.
+  `opik-test`, `opik-verify`, `opik-online-eval`, `opik-optimize`,
+  `opik-annotate` and `opik-price`.
 - **MCP server `opik-cloud`:** Comet's hosted server at
   `https://www.comet.com/opik/api/v1/mcp`, for Opik Cloud. You sign in once in
   the browser (OAuth); there is no API key to set. Its tools are `read`,

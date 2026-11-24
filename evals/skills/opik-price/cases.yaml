@@ -1,0 +1,18 @@
+# Test cases for the `/opik-price` skill.
+#
+# triggering only: scripts/skills_trigger_eval.py scores every skill's
+# description against these phrases. The script's behaviour is covered by
+# tests/skills/test_price_script.py.
+
+triggering:
+  should_trigger:
+    - "upload our model prices to opik"
+    - "import this rate card into Opik"
+    - "set our negotiated price for gpt-4o"
+    - "add a price for our fine-tuned model"
+    - "here's our Azure price sheet, use it for costs in Opik"
+  should_not_trigger:
+    - "why did this trace cost so much"            # explain
+    - "add opik tracing to my app"                 # instrument
+    - "which traces need attention"                # diagnose
+    - "what's the weather in San Francisco"        # none
