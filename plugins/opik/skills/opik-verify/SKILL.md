@@ -2,12 +2,6 @@
 name: opik-verify
 description: Decide ship or hold for a candidate from the compare skill's numbers, against an explicit release policy — regressions, pass rate, safety-tagged cases, subgroup consistency, latency and cost budgets, flakiness, evidence size, and whether the judge is validated. Reads two experiments on an Opik test suite via the SDK (or the MCP when connected) and returns a verdict with every criterion shown pass/fail. Use for "is this safe to ship", "can I merge this", "go/no-go on this change", "gate this release", "should I roll this out". Not for producing the numbers (use compare), building an evaluation (use evaluate), or deploying anything.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires Opik configured and a test suite with a baseline and a candidate experiment (from the compare skill). Install the `opik` skill alongside this one — it holds the shared test-suite and experiment references; without it, this skill falls back to the public docs.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
-  - Write
 metadata:
   last_updated: "2026-09-17"
   source_commit: "2.0.0"

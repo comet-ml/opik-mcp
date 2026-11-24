@@ -136,9 +136,7 @@ result = tracked_app.invoke({"messages": [HumanMessage(content="Hello")]})
 
 **Option 1: Global handler** (recommended)
 
-```bash
-pip install llama-index-callbacks-opik
-```
+Install the `llama-index-callbacks-opik` package.
 
 ```python
 from llama_index.core import set_global_handler
@@ -243,7 +241,9 @@ Many providers expose OpenAI-compatible endpoints. Use `track_openai` with a cus
 from opik.integrations.openai import track_openai
 from openai import OpenAI
 
-# Generic pattern — change base_url and api_key per provider
+# Generic pattern — change base_url and api_key per provider.
+# The keys below are placeholders: load the real key the way the app already
+# loads its secrets, and never write a real key into code.
 client = track_openai(
     OpenAI(base_url="https://api.provider.com/v1", api_key="your-provider-api-key")
 )
@@ -253,7 +253,7 @@ client = track_openai(
 
 ```python
 client = track_openai(
-    OpenAI(base_url="https://api.groq.com/openai/v1", api_key=os.environ["GROQ_API_KEY"])
+    OpenAI(base_url="https://api.groq.com/openai/v1", api_key="YOUR_GROQ_API_KEY")
 )
 
 response = client.chat.completions.create(
@@ -265,7 +265,7 @@ response = client.chat.completions.create(
 
 ```python
 client = track_openai(
-    OpenAI(base_url="https://api.deepseek.com/v1", api_key=os.environ["DEEPSEEK_API_KEY"])
+    OpenAI(base_url="https://api.deepseek.com/v1", api_key="YOUR_DEEPSEEK_API_KEY")
 )
 ```
 
@@ -274,7 +274,7 @@ client = track_openai(
 ```python
 client = track_openai(
     OpenAI(
-        base_url="https://api.fireworks.ai/inference/v1", api_key=os.environ["FIREWORKS_API_KEY"]
+        base_url="https://api.fireworks.ai/inference/v1", api_key="YOUR_FIREWORKS_API_KEY"
     )
 )
 ```
@@ -283,7 +283,7 @@ client = track_openai(
 
 ```python
 client = track_openai(
-    OpenAI(base_url="https://openrouter.ai/api/v1", api_key=os.environ["OPENROUTER_API_KEY"])
+    OpenAI(base_url="https://openrouter.ai/api/v1", api_key="YOUR_OPENROUTER_API_KEY")
 )
 ```
 
@@ -291,7 +291,7 @@ client = track_openai(
 
 ```python
 client = track_openai(
-    OpenAI(base_url="https://api.portkey.ai/v1", api_key=os.environ["PORTKEY_API_KEY"])
+    OpenAI(base_url="https://api.portkey.ai/v1", api_key="YOUR_PORTKEY_API_KEY")
 )
 ```
 
@@ -299,7 +299,7 @@ client = track_openai(
 
 ```python
 client = track_openai(
-    OpenAI(base_url="https://api.cohere.com/compatibility/v1", api_key=os.environ["COHERE_API_KEY"])
+    OpenAI(base_url="https://api.cohere.com/compatibility/v1", api_key="YOUR_COHERE_API_KEY")
 )
 ```
 
@@ -307,7 +307,7 @@ client = track_openai(
 
 ```python
 client = track_openai(
-    OpenAI(base_url="https://api.byteplus.com/v1", api_key=os.environ["BYTEPLUS_API_KEY"])
+    OpenAI(base_url="https://api.byteplus.com/v1", api_key="YOUR_BYTEPLUS_API_KEY")
 )
 ```
 

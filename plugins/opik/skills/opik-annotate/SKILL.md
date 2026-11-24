@@ -2,11 +2,6 @@
 name: opik-annotate
 description: Set up human review in Opik — create an annotation queue for a project's traces or threads and give it a custom annotator view, an HTML page that shows annotators each item the way they need to judge it (the email beside the reply, the conversation as chat bubbles) instead of raw JSON. Writes through the Opik MCP when connected, the Opik SDK otherwise. Returns the queue, its link, and what annotators will see. Use for "build a custom annotator view", "set up an annotation queue", "make the review queue show the email and the reply side by side", "change what annotators see", "remove the custom view". Not for automatic scoring (use online-eval) or for finding which traces to review (use diagnose).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires Opik configured and a project with traces. Custom annotator views need an Opik version that supports them; an older Opik accepts the view and drops it, and the MCP says so. Without the MCP, it needs the Opik SDK `opik>=2.2.122`.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
 metadata:
   last_updated: "2026-10-28"
   source_commit: "e4a6fa9b424128eb01817b8700761ac249a89e78"

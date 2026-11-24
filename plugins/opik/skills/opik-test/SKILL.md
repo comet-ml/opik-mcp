@@ -2,11 +2,6 @@
 name: opik-test
 description: Turn a failing Opik trace (or a described failure) into a repeatable regression check — a test-suite item with the trace's input and one or two binary assertions — so a fix can be verified by the compare skill. Works over the SDK; uses the MCP write tool when connected. Returns the suite, the item, and the assertion. Use for "turn this into a test", "add a regression case for this trace", "make sure this doesn't happen again", "capture this failure", "add this to the test suite". Not for running the suite (use compare), building an evaluation from scratch (use evaluate), or explaining why the trace failed (use explain).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and at least one trace, or a described input/expected pair. Install the `opik` skill alongside this one — it holds the shared test-suite and dataset references; without it, this skill falls back to the public docs.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
 metadata:
   last_updated: "2026-09-15"
   source_commit: "2.0.0"

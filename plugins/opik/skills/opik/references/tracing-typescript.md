@@ -120,15 +120,13 @@ class TranslationService {
 
 ### OpenAI Integration
 
-```bash
-npm install opik-openai
-```
+Install the `opik-openai` package.
 
 ```typescript
 import OpenAI from "openai";
 import { trackOpenAI } from "opik-openai";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const openai = new OpenAI();
 const trackedOpenAI = trackOpenAI(openai);
 
 // All calls are automatically traced
@@ -143,9 +141,7 @@ await trackedOpenAI.flush();
 
 ### Vercel AI SDK Integration
 
-```bash
-npm install opik-vercel @opentelemetry/sdk-node @opentelemetry/auto-instrumentations-node
-```
+Install `opik-vercel`, `@opentelemetry/sdk-node` and `@opentelemetry/auto-instrumentations-node`.
 
 ```typescript
 import { openai } from "@ai-sdk/openai";
@@ -410,7 +406,7 @@ app.listen(3000, () => console.log("Listening on port 3000"));
 Then pair with the Opik UI:
 
 ```bash
-opik connect --pair <CODE> npx tsx summarise.ts
+opik connect --pair <CODE> tsx summarise.ts
 ```
 
 ### Multiple Parameters

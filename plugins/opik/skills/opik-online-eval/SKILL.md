@@ -2,11 +2,6 @@
 name: opik-online-eval
 description: Take a judge live on production traffic — create an Opik online evaluation rule (LLM-as-judge or Python metric) on a project with sampling, filters, variable mapping, and a cost cap, then confirm new traces are being scored. Works over the SDK's REST client; reads rules and score names via the MCP when connected. Returns the rule, the score name it emits, and how to watch it. Use for "score production traces", "monitor hallucinations in prod", "take this judge live", "set up an online evaluation rule", "alert me when quality drops". Not for offline experiments (use evaluate or compare) or for finding what is already broken (use diagnose).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires Opik configured and a project that receives traces. Install the `opik` skill alongside this one — it holds the shared production and observability references; without it, this skill falls back to the public docs.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
 metadata:
   last_updated: "2026-09-15"
   source_commit: "2.0.0"
