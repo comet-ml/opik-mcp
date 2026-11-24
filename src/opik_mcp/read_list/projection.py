@@ -34,6 +34,7 @@ because the caller who asked is not always the one who reads.
 from __future__ import annotations
 
 import difflib
+import json
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -270,32 +271,137 @@ def _near_miss(name: str, container: str, known: set[str]) -> str | None:
 # --- doing it ----------------------------------------------------------------- #
 
 
+@dataclass(frozen=True)
+class _Quoted:
+    key: str
+
+
+# Plain text is matched against the record's keys and may span a key that holds
+# dots; a ``["…"]`` segment is one key exactly, as the Opik UI writes paths.
+_Segment = str | _Quoted
+
+_NEEDS_QUOTING: Final = frozenset('.[]"')
+
+
+def _segments(path: str) -> tuple[_Segment, ...]:
+    out: list[_Segment] = []
+    plain = ""
+    cursor = 0
+    while cursor < len(path):
+        if path.startswith('["', cursor):
+            try:
+                key, end = json.JSONDecoder().raw_decode(path, cursor + 1)
+            except json.JSONDecodeError:
+                key, end = None, cursor
+            if isinstance(key, str) and path.startswith("]", end):
+                if plain.strip("."):
+                    out.append(plain.strip("."))
+                plain = ""
+                out.append(_Quoted(key))
+                cursor = end + 1
+                if path.startswith(".", cursor):
+                    cursor += 1
+                continue
+        plain += path[cursor]
+        cursor += 1
+    if plain.strip("."):
+        out.append(plain.strip("."))
+    return tuple(out)
+
+
+def _quoted_path(keys: Sequence[str]) -> str:
+    """Keys as one ``fields=`` path: dots until a key needs quoting, ``["…"]`` from there."""
+    first = next((i for i, key in enumerate(keys) if _NEEDS_QUOTING & set(key)), len(keys))
+    plain = ".".join(keys[:first])
+    quoted = "".join(f"[{json.dumps(key, ensure_ascii=False)}]" for key in keys[first:])
+    return f"{plain}.{quoted}" if plain and quoted else plain or quoted
+
+
+def _children(node: Any, walked: tuple[str, ...], named_lists: frozenset[str]) -> Mapping[str, Any]:
+    if isinstance(node, Mapping):
+        return node
+    entries: dict[str, Any] = {}
+    if isinstance(node, list) and ".".join(walked) in named_lists:
+        for entry in node:
+            if isinstance(entry, Mapping) and isinstance(entry.get("name"), str):
+                entries.setdefault(entry["name"], entry)
+    return entries
+
+
+def _steps(
+    children: Mapping[str, Any], segments: tuple[_Segment, ...]
+) -> Iterable[tuple[str, Any, tuple[_Segment, ...]]]:
+    """Each child the first segment can name, with the segments left after it."""
+    head, rest = segments[0], segments[1:]
+    if isinstance(head, _Quoted):
+        if head.key in children:
+            yield head.key, children[head.key], rest
+        return
+    for key, child in children.items():
+        if head == key:
+            yield key, child, rest
+        elif head.startswith(f"{key}."):
+            yield key, child, (head[len(key) + 1 :], *rest)
+
+
+def _matches(
+    node: Any,
+    segments: tuple[_Segment, ...],
+    named_lists: frozenset[str],
+    walked: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], Any]]:
+    """Every ``(keys, value)`` the path resolves to; more than one when keys hold dots."""
+    if not segments:
+        return [(walked, node)]
+    out: list[tuple[tuple[str, ...], Any]] = []
+    for key, child, rest in _steps(_children(node, walked, named_lists), segments):
+        out.extend(_matches(child, rest, named_lists, (*walked, key)))
+    return out
+
+
+def _missing_keys(
+    node: Any,
+    segments: tuple[_Segment, ...],
+    named_lists: frozenset[str],
+    walked: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """The keys of a path that does not resolve, down to the first key the record lacks."""
+    head = segments[0]
+    deepest = (*walked, head.key if isinstance(head, _Quoted) else head.split(".")[0])
+    for key, child, rest in _steps(_children(node, walked, named_lists), segments):
+        if rest:
+            candidate = _missing_keys(child, rest, named_lists, (*walked, key))
+            deepest = max(deepest, candidate, key=len)
+    return deepest
+
+
 def dig(
     record: Mapping[str, Any], path: str, *, named_lists: frozenset[str] = frozenset()
 ) -> tuple[bool, Any]:
-    """``(found, value)`` for a dotted path, descending dicts and the lists in ``named_lists``."""
-    node: Any = record
-    walked = ""
-    for part in path.split("."):
-        if isinstance(node, Mapping):
-            if part not in node:
-                return False, None
-            node = node[part]
-        elif isinstance(node, list) and walked in named_lists:
-            entry = next(
-                (e for e in node if isinstance(e, Mapping) and e.get("name") == part), None
+    """``(found, value)`` for a path, descending dicts and the lists in ``named_lists``.
+
+    A key may hold dots (``gen_ai.request.model``), so the plain path is matched
+    against the keys the record has, at every level.
+    """
+    found = _matches(record, _segments(path), named_lists)
+    return (True, found[0][1]) if found else (False, None)
+
+
+def _refuse_ambiguous(
+    record: Mapping[str, Any], fields: Sequence[str], named_lists: frozenset[str]
+) -> None:
+    for name in fields:
+        found = _matches(record, _segments(name), named_lists)
+        if len(found) > 1:
+            options = one_line(", ".join(repr(_quoted_path(keys)) for keys, _ in found))
+            raise FieldsError(
+                f"{name!r} in fields= names {len(found)} keys of this record, because "
+                f"a key holds dots. Name one: {options}."
             )
-            if entry is None:
-                return False, None
-            node = entry
-        else:
-            return False, None
-        walked = f"{walked}.{part}" if walked else part
-    return True, node
 
 
-def _plant(target: dict[str, Any], path: str, value: Any) -> None:
-    head, _, rest = path.partition(".")
+def _plant(target: dict[str, Any], keys: Sequence[str], value: Any) -> None:
+    head, rest = keys[0], keys[1:]
     if not rest:
         target[head] = value
         return
@@ -340,6 +446,7 @@ def project_record(
     """
     paths = record_paths(record)
     named = declared.open_paths
+    _refuse_ambiguous(record, fields, named)
     check(
         fields,
         [*paths, *_open_keys(record, declared)],
@@ -354,17 +461,20 @@ def project_record(
         kept.append(identity)
 
     out: dict[str, Any] = {}
+    # A quoted path covers the same record paths as the dotted one it names.
+    kept_paths: list[str] = []
     for path in kept:
-        found, value = dig(record, path, named_lists=named)
-        _plant(out, path if found else _first_missing(record, path, named), value)
-    omitted = tuple(p for p in leaves(paths) if not any(covers(f, p) for f in kept))
+        segments = _segments(path)
+        found = _matches(record, segments, named)
+        if found:
+            keys, value = found[0]
+            _plant(out, keys, value)
+            kept_paths.append(".".join(keys))
+        else:
+            _plant(out, _missing_keys(record, segments, named), None)
+            kept_paths.append(path)
+    omitted = tuple(p for p in leaves(paths) if not any(covers(f, p) for f in kept_paths))
     return out, tuple(kept), omitted
-
-
-def _first_missing(record: Mapping[str, object], path: str, named: frozenset[str]) -> str:
-    parts = path.split(".")
-    prefixes = (".".join(parts[:end]) for end in range(1, len(parts) + 1))
-    return next((p for p in prefixes if not dig(record, p, named_lists=named)[0]), path)
 
 
 def _open_keys(record: Mapping[str, object], declared: DeclaredFields) -> list[str]:

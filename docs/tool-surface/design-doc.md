@@ -194,6 +194,11 @@ cannot tell an empty field from an unknown one.
   refused with that key (`feedback_scores.gevl`). A deeper path must resolve.
 - A dotted path goes into a list by entry name only for a declared score list;
   `spans.llm` is refused, since several spans can share a name.
+- A key may hold dots (`gen_ai.request.model` from OpenTelemetry), so a read
+  matches the dotted path against the record's keys at every level. When the
+  path names two keys (`{"a.b": 1, "a": {"b": 2}}`), the read refuses it with
+  each key in the Opik UI's quoted form, `metadata.["a.b"]`, which `fields=`
+  also takes. A list reads one level, so `metadata.<key>` already takes the key whole.
 - `make record-shapes` regenerates the file (`scripts/generate_record_shapes.py`)
   and writes it only when a field changed.
   `.github/workflows/record-shapes.yaml` runs it on weekdays against opik
@@ -307,7 +312,9 @@ Boundaries:
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
 - Record shapes: `tests/read_list/test_fields_declared.py`
   (`test_a_page_of_root_spans_takes_parent_span_id_and_says_no_row_sets_it`,
-  `test_a_misspelt_score_is_refused_with_the_score_the_records_hold`),
+  `test_a_misspelt_score_is_refused_with_the_score_the_records_hold`,
+  `test_a_key_that_holds_dots_under_a_nested_object_is_found`,
+  `test_a_path_naming_a_flat_and_a_nested_key_is_refused_with_both_quoted`),
   `tests/read_list/test_record_shapes.py`
   (`test_every_entity_that_lists_backend_rows_names_its_schema`), and against a
   real backend `tests/live/test_record_shapes.py`

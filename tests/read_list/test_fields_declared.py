@@ -185,3 +185,56 @@ async def test_a_sub_field_of_a_column_the_entity_derives_is_refused() -> None:
     fake = FakeOpikClient(experiments={"content": [row], "total": 1, "page": 1, "size": 10})
     with pytest.raises(ToolError):
         await run_list("experiment", fields=["prompt_version.commit"], client=fake)
+
+
+def _span_with_metadata(metadata: dict[str, object]) -> FakeReadClient:
+    return FakeReadClient(spans_by_id={SPAN: {"id": SPAN, "name": "llm", "metadata": metadata}})
+
+
+@pytest.mark.anyio
+async def test_a_metadata_key_that_holds_dots_is_read_by_its_dotted_path() -> None:
+    fake = _span_with_metadata({"gen_ai.request.model": "gpt-4o", "env": "prod"})
+    out = await run_read("span", SPAN, fields=["metadata.gen_ai.request.model"], client=fake)
+    assert _payload(out) == {"id": SPAN, "metadata": {"gen_ai.request.model": "gpt-4o"}}
+    assert "not set" not in _marker(out)
+
+
+@pytest.mark.anyio
+async def test_a_key_that_holds_dots_under_a_nested_object_is_found() -> None:
+    fake = FakeReadClient(
+        traces_by_id={
+            TRACE: {"id": TRACE, "project_id": PROJECT, "metadata": {"ctx": {"user.id": "u-1"}}}
+        }
+    )
+    out = await run_read("trace", TRACE, fields=["trace.metadata.ctx.user.id"], client=fake)
+    assert _payload(out)["trace"] == {"id": TRACE, "metadata": {"ctx": {"user.id": "u-1"}}}
+    assert "not set" not in _marker(out)
+
+
+@pytest.mark.anyio
+async def test_a_score_whose_name_holds_dots_is_read_by_its_name() -> None:
+    entry = {"name": "llm.judge", "value": 1.0}
+    fake = FakeReadClient(
+        traces_by_id={TRACE: {"id": TRACE, "project_id": PROJECT, "feedback_scores": [entry]}}
+    )
+    out = await run_read("trace", TRACE, fields=["trace.feedback_scores.llm.judge"], client=fake)
+    assert _payload(out)["trace"] == {"id": TRACE, "feedback_scores": {"llm.judge": entry}}
+    assert "not set" not in _marker(out)
+
+
+@pytest.mark.anyio
+async def test_a_path_naming_a_flat_and_a_nested_key_is_refused_with_both_quoted() -> None:
+    fake = _span_with_metadata({"a.b": 1, "a": {"b": 2}})
+    with pytest.raises(ToolError) as excinfo:
+        await run_read("span", SPAN, fields=["metadata.a.b"], client=fake)
+    message = str(excinfo.value)
+    assert """'metadata.["a.b"]'""" in message
+    assert "'metadata.a.b'" in message
+
+
+@pytest.mark.anyio
+async def test_a_quoted_path_reads_the_one_key_it_names() -> None:
+    fake = _span_with_metadata({"a.b": 1, "a": {"b": 2}})
+    out = await run_read("span", SPAN, fields=['metadata.["a.b"]'], client=fake)
+    assert _payload(out) == {"id": SPAN, "metadata": {"a.b": 1}}
+    assert "metadata.a.b" not in _marker(out).partition("omitted:")[2]
