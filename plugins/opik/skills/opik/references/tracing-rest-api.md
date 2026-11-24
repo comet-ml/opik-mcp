@@ -250,7 +250,6 @@ Here's a complete example of tracing an LLM call:
 ```bash
 #!/bin/bash
 WORKSPACE="your-workspace"
-API_KEY="your-api-key"
 BASE_URL="https://www.comet.com/opik/api/v1/private"
 TRACE_ID=$(uuidgen)
 SPAN_ID=$(uuidgen)
@@ -260,7 +259,7 @@ START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 curl -X POST "$BASE_URL/traces" \
   -H "Content-Type: application/json" \
   -H "Comet-Workspace: $WORKSPACE" \
-  -H "authorization: $API_KEY" \
+  -H "authorization: YOUR_API_KEY" \
   -d "{
     \"id\": \"$TRACE_ID\",
     \"name\": \"chat-completion\",
@@ -273,7 +272,7 @@ curl -X POST "$BASE_URL/traces" \
 curl -X POST "$BASE_URL/spans" \
   -H "Content-Type: application/json" \
   -H "Comet-Workspace: $WORKSPACE" \
-  -H "authorization: $API_KEY" \
+  -H "authorization: YOUR_API_KEY" \
   -d "{
     \"id\": \"$SPAN_ID\",
     \"trace_id\": \"$TRACE_ID\",
@@ -292,7 +291,7 @@ END_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 curl -X PATCH "$BASE_URL/spans/$SPAN_ID" \
   -H "Content-Type: application/json" \
   -H "Comet-Workspace: $WORKSPACE" \
-  -H "authorization: $API_KEY" \
+  -H "authorization: YOUR_API_KEY" \
   -d "{
     \"end_time\": \"$END_TIME\",
     \"output\": {\"response\": \"I'm here to help! What can I do for you?\"},
@@ -303,7 +302,7 @@ curl -X PATCH "$BASE_URL/spans/$SPAN_ID" \
 curl -X PATCH "$BASE_URL/traces/$TRACE_ID" \
   -H "Content-Type: application/json" \
   -H "Comet-Workspace: $WORKSPACE" \
-  -H "authorization: $API_KEY" \
+  -H "authorization: YOUR_API_KEY" \
   -d "{
     \"end_time\": \"$END_TIME\",
     \"output\": {\"response\": \"I'm here to help! What can I do for you?\"}
@@ -313,7 +312,7 @@ curl -X PATCH "$BASE_URL/traces/$TRACE_ID" \
 curl -X POST "$BASE_URL/traces/feedback-scores" \
   -H "Content-Type: application/json" \
   -H "Comet-Workspace: $WORKSPACE" \
-  -H "authorization: $API_KEY" \
+  -H "authorization: YOUR_API_KEY" \
   -d "{
     \"scores\": [{
       \"id\": \"$TRACE_ID\",

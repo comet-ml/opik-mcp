@@ -2,10 +2,6 @@
 name: opik
 description: Reference for the Opik SDK — tracing, span types, framework integrations, threads, and the prompt library (Python, TypeScript, REST). Use for "what span types exist", "how do I flush", "track_openai", "add OpikTracer", "version a prompt". To instrument a repo end to end, use the `opik-instrument` skill.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). A reference — needs no Opik connection to read; the snippets assume the `opik` Python or TypeScript SDK 2.x. The task-shaped skills (opik-instrument, opik-diagnose, opik-explain, opik-test, opik-compare, opik-evaluate, opik-online-eval, opik-optimize, opik-verify) read this skill's references and expect it installed beside them.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
 metadata:
   last_updated: "2026-10-23"
   source_commit: "2.0.0"

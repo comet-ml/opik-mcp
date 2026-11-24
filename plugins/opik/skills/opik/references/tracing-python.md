@@ -665,10 +665,11 @@ Groq exposes an OpenAI-compatible API. Use `track_openai` with Groq's base URL:
 ```python
 from opik.integrations.openai import track_openai
 from openai import OpenAI
-import os
 
+# The key is a placeholder: load the real key the way the app already loads
+# its secrets, and never write a real key into code.
 client = track_openai(
-    OpenAI(base_url="https://api.groq.com/openai/v1", api_key=os.environ["GROQ_API_KEY"])
+    OpenAI(base_url="https://api.groq.com/openai/v1", api_key="YOUR_GROQ_API_KEY")
 )
 
 response = client.chat.completions.create(

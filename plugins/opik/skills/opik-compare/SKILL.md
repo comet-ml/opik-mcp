@@ -2,12 +2,6 @@
 name: opik-compare
 description: Run a candidate against the baseline over an Opik test suite and read the numbers back — which cases broke, which got fixed, the per-metric deltas, worst rows, and whether the two runs are comparable — with the Opik compare-view link. Runs via the SDK; reads results via the MCP when connected. Does not issue a ship/no-ship verdict. Use for "did my fix work", "compare against the baseline", "run the regression suite", "why did quality drop", "which cases regressed", "compare these two experiments". Not for the ship/hold decision itself (use verify), live production triage (use diagnose), building an evaluation from scratch (use evaluate), or capturing a single case (use test).
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project with Opik configured and a test suite (from the test or evaluate skill) or two existing experiments. Install the `opik` skill alongside this one — it holds the shared test-suite and experiment references; without it, this skill falls back to the public docs.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
-  - Write
 metadata:
   last_updated: "2026-09-15"
   source_commit: "2.0.0"

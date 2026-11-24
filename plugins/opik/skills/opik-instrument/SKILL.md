@@ -2,13 +2,6 @@
 name: opik-instrument
 description: Add Opik tracing to an existing app and verify a real trace lands. Installs the Opik package, detects the language and LLM framework, adds the minimum tracing, runs a safe representative path, confirms a trace in Opik, and returns the trace link. Use for "instrument my code", "add opik tracing", "add observability", "trace my agent". Not for building a new app from scratch, or a review-only pass with no code changes.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python or TypeScript project. Install the `opik` skill alongside this one — it holds the shared SDK and integration references; without it, this skill falls back to the public docs.
-allowed-tools:
-  - Read
-  - Edit
-  - Write
-  - Grep
-  - Glob
-  - Bash
 metadata:
   last_updated: "2026-10-23"
   source_commit: "2.0.0"
@@ -33,7 +26,7 @@ Never turn inference into a questionnaire. Ask only when you hit a genuine, non-
 
 ### 1. Configure Opik (one source of truth)
 - If `~/.opik.config` exists or `OPIK_API_KEY` is set, use it as-is.
-- Otherwise run the official flow: `opik configure` (Python) / `npx opik-ts configure` (TypeScript).
+- Otherwise run the official flow: `opik configure` (Python) / the `opik-ts configure` CLI from the [TypeScript SDK docs](https://www.comet.com/docs/opik/reference/typescript-sdk/overview) (TypeScript).
 - **Verify the config before instrumenting:** run `opik healthcheck` — it validates the config, the install, and backend/workspace reachability. If it fails, stop at that Blocker and fix config or connectivity before adding any tracing.
 - Only add project-local `.env` vars if the project **already** uses that pattern. Never introduce a second config mechanism; never copy secret values between mechanisms.
 

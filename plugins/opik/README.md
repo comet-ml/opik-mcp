@@ -32,7 +32,8 @@ The skills work with any Opik. For your own server:
 
 1. Add it. For a self-hosted Comet that serves the MCP server:
    `claude mcp add --transport http opik-mcp https://<host>/opik/api/v1/mcp`.
-   For any other Opik, run `uvx opik@latest mcp configure`.
+   For any other Opik, follow the setup in the
+   [Opik MCP docs](https://www.comet.com/docs/opik/mcp-server).
 2. In `/mcp`, disable `plugin:opik:opik-cloud`, the Cloud server.
 
 ## What it sends, and where
@@ -46,8 +47,8 @@ The skills work with any Opik. For your own server:
 - The hosted server sends a crash report to Comet's error tracking when an
   unexpected error occurs. A report can include details of the request that
   failed.
-- The skills can ask Claude to install the Opik SDK (`pip install opik` or
-  `npm install opik`) and to run code that sends traces from your app to your
+- The skills can ask Claude to install the Opik SDK (the `opik` package for
+  Python or TypeScript) and to run code that sends traces from your app to your
   Opik workspace.
 - The evaluation and optimization skills run LLM calls through the model
   provider that you configure (such as OpenAI or Anthropic), with your own

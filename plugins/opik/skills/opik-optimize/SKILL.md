@@ -2,12 +2,6 @@
 name: opik-optimize
 description: Improve a prompt with the Opik Agent Optimizer — resolve the prompt, a dataset, and a metric, pick the algorithm, run a bounded optimization, check the gain on held-out data, and save the winner as a new prompt version with the optimization run link. Runs via the opik-optimizer package; reads prompts and datasets via the MCP when connected. Use for "optimize this prompt", "improve my system prompt", "make the agent answer better", "tune the prompt against my dataset", "run the prompt optimizer". Not for measuring quality once (use evaluate), before/after on a suite (use compare), or hand-editing a prompt without data.
 compatibility: Tested with Claude Code; works with any Agent Skills-compatible host (Cursor, VS Code Copilot, Codex). Requires a Python project with Opik configured, a provider API key, and a dataset (or traces to build one). Install the `opik` skill alongside this one — it holds the shared dataset and prompt-library references; without it, this skill falls back to the public docs.
-allowed-tools:
-  - Read
-  - Grep
-  - Glob
-  - Bash
-  - Write
 metadata:
   last_updated: "2026-09-15"
   source_commit: "2.0.0"
@@ -60,7 +54,7 @@ Never optimize against a judge nobody validated: an unvalidated judge is the eas
 | Tool descriptions are the problem | `optimize_prompt(..., optimize_tools=True)` (`optimize_mcp` is deprecated) |
 
 ### 5. State the budget, then run
-`uv add opik-optimizer` (or `pip install opik-optimizer`) in a scratch environment, not the repo's lockfile unless the user wants it. Each trial evaluates `n_samples` items with the task model plus the reasoning model — tell the user the rough call count before running. Provider key absent → **Blocker**.
+Install the `opik-optimizer` package in a scratch environment, not the repo's lockfile unless the user wants it. Each trial evaluates `n_samples` items with the task model plus the reasoning model — tell the user the rough call count before running. Provider key absent → **Blocker**.
 The `MetaPromptOptimizer` run, with the default budget: `references/sdk-snippets.md` (**Run the optimizer**).
 Write the runner as a temp file outside the repo. The run appears in Opik as an Optimization (`result.get_run_link()`).
 
