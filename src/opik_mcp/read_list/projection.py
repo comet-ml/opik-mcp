@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import difflib
 import json
+import os.path
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -309,9 +310,12 @@ def _segments(path: str) -> tuple[_Segment, ...]:
     return tuple(out)
 
 
-def _quoted_path(keys: Sequence[str]) -> str:
-    """Keys as one ``fields=`` path: dots until a key needs quoting, ``["…"]`` from there."""
-    first = next((i for i, key in enumerate(keys) if _NEEDS_QUOTING & set(key)), len(keys))
+def _quoted_path(keys: Sequence[str], *, quote_from: int) -> str:
+    """Keys as one ``fields=`` path: dots, then ``["…"]`` from ``quote_from`` or an earlier key
+    that holds a dot, bracket or quote."""
+    first = next(
+        (i for i, key in enumerate(keys[:quote_from]) if _NEEDS_QUOTING & set(key)), quote_from
+    )
     plain = ".".join(keys[:first])
     quoted = "".join(f"[{json.dumps(key, ensure_ascii=False)}]" for key in keys[first:])
     return f"{plain}.{quoted}" if plain and quoted else plain or quoted
@@ -395,7 +399,12 @@ def _refuse_ambiguous(
     for name in fields:
         found = _matches(record, _segments(name), named_lists)
         if len(found) > 1:
-            options = one_line(", ".join(repr(_quoted_path(keys)) for keys, _ in found))
+            # Quoting only the keys that hold dots would print the nested key as the
+            # path that was just refused; past the shared keys, each must be quoted.
+            shared = len(os.path.commonprefix([keys for keys, _ in found]))
+            options = one_line(
+                ", ".join(repr(_quoted_path(keys, quote_from=shared)) for keys, _ in found)
+            )
             raise FieldsError(
                 f"{name!r} in fields= names {len(found)} keys of this record, because "
                 f"a key holds dots. Name one: {options}."

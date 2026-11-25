@@ -229,7 +229,20 @@ async def test_a_path_naming_a_flat_and_a_nested_key_is_refused_with_both_quoted
         await run_read("span", SPAN, fields=["metadata.a.b"], client=fake)
     message = str(excinfo.value)
     assert """'metadata.["a.b"]'""" in message
-    assert "'metadata.a.b'" in message
+    assert """'metadata.["a"]["b"]'""" in message
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("option", "metadata"),
+    [('metadata.["a.b"]', {"a.b": 1}), ('metadata.["a"]["b"]', {"a": {"b": 2}})],
+)
+async def test_each_option_the_refusal_names_reads_one_key(
+    option: str, metadata: dict[str, object]
+) -> None:
+    fake = _span_with_metadata({"a.b": 1, "a": {"b": 2}})
+    out = await run_read("span", SPAN, fields=[option], client=fake)
+    assert _payload(out) == {"id": SPAN, "metadata": metadata}
 
 
 @pytest.mark.anyio

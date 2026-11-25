@@ -197,8 +197,8 @@ cannot tell an empty field from an unknown one.
 - A key may hold dots (`gen_ai.request.model` from OpenTelemetry), so a read
   matches the dotted path against the record's keys at every level. When the
   path names two keys (`{"a.b": 1, "a": {"b": 2}}`), the read refuses it with
-  each key in the Opik UI's quoted form, `metadata.["a.b"]`, which `fields=`
-  also takes. A list reads one level, so `metadata.<key>` already takes the key whole.
+  each key in the Opik UI's quoted form, `metadata.["a.b"]` and
+  `metadata.["a"]["b"]`, which `fields=` also takes. A list reads one level, so `metadata.<key>` already takes the key whole.
 - `make record-shapes` regenerates the file (`scripts/generate_record_shapes.py`)
   and writes it only when a field changed.
   `.github/workflows/record-shapes.yaml` runs it on weekdays against opik
@@ -314,7 +314,8 @@ Boundaries:
   (`test_a_page_of_root_spans_takes_parent_span_id_and_says_no_row_sets_it`,
   `test_a_misspelt_score_is_refused_with_the_score_the_records_hold`,
   `test_a_key_that_holds_dots_under_a_nested_object_is_found`,
-  `test_a_path_naming_a_flat_and_a_nested_key_is_refused_with_both_quoted`),
+  `test_a_path_naming_a_flat_and_a_nested_key_is_refused_with_both_quoted`,
+  `test_each_option_the_refusal_names_reads_one_key`),
   `tests/read_list/test_record_shapes.py`
   (`test_every_entity_that_lists_backend_rows_names_its_schema`), and against a
   real backend `tests/live/test_record_shapes.py`
