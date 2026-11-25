@@ -112,9 +112,9 @@ def build(spec: Mapping[str, object], names: Iterable[str]) -> Schemas:
 def entity_schema_names() -> set[str]:
     names: set[str] = set()
     for handler in ENTITY_REGISTRY.values():
-        if handler.list_record_schema is not None:
-            names.add(handler.list_record_schema)
-        names.update(handler.read_record_schemas.values())
+        for schema in (handler.list_record_schema, handler.read_record_schema):
+            if schema is not None:
+                names.add(schema)
     return names
 
 

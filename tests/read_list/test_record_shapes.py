@@ -21,7 +21,7 @@ def test_every_schema_an_entity_names_is_in_the_shapes_file() -> None:
     named = {
         (entity, schema)
         for entity, handler in ENTITY_REGISTRY.items()
-        for schema in (handler.list_record_schema, *handler.read_record_schemas.values())
+        for schema in (handler.list_record_schema, handler.read_record_schema)
         if schema is not None
     }
     missing = sorted(pair for pair in named if pair[1] not in record_shapes.schema_names())

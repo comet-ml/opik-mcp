@@ -61,7 +61,7 @@ def dataset_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 HANDLER = EntityHandler(
     entity_type="dataset",
     list_record_schema="Dataset_Public",
-    read_record_schemas={"": "Dataset_Public"},
+    read_record_schema="Dataset_Public",
     is_name_searchable=True,
     # Legacy spelling: the entity was called test_suite before the rename, and
     # URIs handed out then still have to resolve.
@@ -81,7 +81,7 @@ HANDLER = EntityHandler(
 ITEM_HANDLER = EntityHandler(
     entity_type="dataset_item",
     list_record_schema="DatasetItem_Public",
-    read_record_schemas={"": "DatasetItem_Public"},
+    read_record_schema="DatasetItem_Public",
     fetch_fn=fetch_item,
     parent_page=ParentPage(fetch=fetch, area="datasets", subpath="items", noun="dataset"),
     list_fn=list_items,

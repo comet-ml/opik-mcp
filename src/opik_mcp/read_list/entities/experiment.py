@@ -432,7 +432,7 @@ HANDLER = EntityHandler(
     entity_type="experiment",
     list_record_schema="Experiment_Public",
     list_derived_fields=("assertion_runs", "prompt_version", "dataset_version"),
-    read_record_schemas={"": "Experiment_Public"},
+    read_record_schema="Experiment_Public",
     is_name_searchable=True,
     uri_patterns=(
         opik_uri("experiments/{id}"),

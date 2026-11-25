@@ -181,7 +181,8 @@ cannot tell an empty field from an unknown one.
   user chose (`metadata`, `usage`), and score lists addressed by name
   (`feedback_scores`). Its `source` names the opik commit.
 - An entity names its schemas on its `EntityHandler`: `list_record_schema`,
-  `read_record_schemas` (one per block of a composite read) and
+  `read_record_schema` with `read_record_key` when a read answer holds the
+  record under a key (`trace` in `{trace, spans}`), and
   `list_derived_fields` for the columns `list_row_fn` adds, and
   `list_unsent_fields` for schema fields a list endpoint never sends (a span
   list has no `project_name`), which stay refused. A derived column

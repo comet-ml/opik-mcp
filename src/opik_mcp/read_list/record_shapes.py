@@ -69,12 +69,12 @@ def for_list(handler: EntityHandler) -> DeclaredFields:
 
 
 def for_read(handler: EntityHandler) -> DeclaredFields:
-    out = NOTHING_DECLARED
-    for block, schema in handler.read_record_schemas.items():
-        out |= declared(schema, prefix=f"{block}." if block else "")
-        if block:
-            out |= DeclaredFields(paths=frozenset({block}))
-    return out
+    schema, key = handler.read_record_schema, handler.read_record_key
+    if schema is None:
+        return NOTHING_DECLARED
+    if key is None:
+        return declared(schema, prefix="")
+    return declared(schema, prefix=f"{key}.") | DeclaredFields(paths=frozenset({key}))
 
 
 def reset_for_tests() -> None:
