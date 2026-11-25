@@ -67,6 +67,7 @@ SHARED: frozenset[str] = frozenset(
         # comparison's own table apply the same three rules, and a projection
         # each of them wrote for itself would be three ways to cut silently.
         "projection",
+        "record_shapes",
         "read_tool",
         "reference",
         "registry",

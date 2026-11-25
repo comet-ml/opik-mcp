@@ -33,8 +33,12 @@ because the caller who asked is not always the one who reads.
 
 from __future__ import annotations
 
+import difflib
+import json
+import os.path
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 from opik_mcp.read_list.columns import one_line
@@ -48,6 +52,20 @@ class FieldsError(EntityArgValidationError):
     did the agent reach for and miss" is the question this feature will be
     judged on, and the analytics wrapper records exception class names.
     """
+
+
+@dataclass(frozen=True)
+class DeclaredFields:
+    paths: frozenset[str] = frozenset()
+    open_paths: frozenset[str] = frozenset()
+
+    def __or__(self, other: DeclaredFields) -> DeclaredFields:
+        return DeclaredFields(self.paths | other.paths, self.open_paths | other.open_paths)
+
+
+NOTHING_DECLARED: Final = DeclaredFields()
+
+_NEAR_MISS_CUTOFF: Final = 0.8
 
 
 MAX_NESTED_NAMES: Final = 12
@@ -203,6 +221,7 @@ def check(
     *,
     whole: str,
     accepts: Callable[[str], bool] | None = None,
+    declared: DeclaredFields = NOTHING_DECLARED,
 ) -> None:
     """Refuse the first fields that name nothing, with the names that do.
 
@@ -212,33 +231,188 @@ def check(
     worse than not advertising it.
     """
     known = set(valid)
-    unknown = [f for f in requested if f not in known and not (accepts and accepts(f))]
+    unknown: list[str] = []
+    suggestions: list[str] = []
+    for name in requested:
+        if name in known or name in declared.paths or (accepts and accepts(name)):
+            continue
+        container = _open_container(name, declared)
+        if container is None or "." in name.removeprefix(f"{container}."):
+            unknown.append(name)
+            continue
+        near = _near_miss(name, container, known)
+        if near is not None:
+            unknown.append(name)
+            suggestions.append(near)
     if not unknown:
         return
-    shown = offered(valid)
+    shown = offered([*valid, *sorted(declared.paths - known)])
     named = one_line(", ".join(repr(f) for f in unknown))
+    hint = f" Did you mean {one_line(', '.join(map(repr, suggestions)))}?" if suggestions else ""
     raise FieldsError(
-        f"Unknown field{'s' if len(unknown) > 1 else ''} {named} in fields=. "
-        f"These records carry: {one_line(', '.join(shown)) if shown else '(nothing)'}. "
+        f"Unknown field{'s' if len(unknown) > 1 else ''} {named} in fields=.{hint} "
+        f"These records take: {one_line(', '.join(shown)) if shown else '(nothing)'}. "
         f"Drop fields= for the whole of {whole}."
     )
+
+
+def _open_container(name: str, declared: DeclaredFields) -> str | None:
+    return next((path for path in declared.open_paths if name.startswith(f"{path}.")), None)
+
+
+def _near_miss(name: str, container: str, known: set[str]) -> str | None:
+    prefix = f"{container}."
+    siblings = [path.removeprefix(prefix) for path in known if path.startswith(prefix)]
+    match = difflib.get_close_matches(
+        name.removeprefix(prefix), siblings, n=1, cutoff=_NEAR_MISS_CUTOFF
+    )
+    return f"{prefix}{match[0]}" if match else None
 
 
 # --- doing it ----------------------------------------------------------------- #
 
 
-def dig(record: Mapping[str, Any], path: str) -> tuple[bool, Any]:
-    """``(found, value)`` for a dotted path, descending dicts only."""
-    node: Any = record
-    for part in path.split("."):
-        if not isinstance(node, Mapping) or part not in node:
-            return False, None
-        node = node[part]
-    return True, node
+@dataclass(frozen=True)
+class _Quoted:
+    key: str
 
 
-def _plant(target: dict[str, Any], path: str, value: Any) -> None:
-    head, _, rest = path.partition(".")
+# Plain text is matched against the record's keys and may span a key that holds
+# dots; a ``["…"]`` segment is one key exactly, as the Opik UI writes paths.
+_Segment = str | _Quoted
+
+_NEEDS_QUOTING: Final = frozenset('.[]"')
+
+
+def _segments(path: str) -> tuple[_Segment, ...]:
+    out: list[_Segment] = []
+    plain = ""
+    cursor = 0
+    while cursor < len(path):
+        if path.startswith('["', cursor):
+            try:
+                key, end = json.JSONDecoder().raw_decode(path, cursor + 1)
+            except json.JSONDecodeError:
+                key, end = None, cursor
+            if isinstance(key, str) and path.startswith("]", end):
+                if plain.strip("."):
+                    out.append(plain.strip("."))
+                plain = ""
+                out.append(_Quoted(key))
+                cursor = end + 1
+                if path.startswith(".", cursor):
+                    cursor += 1
+                continue
+        plain += path[cursor]
+        cursor += 1
+    if plain.strip("."):
+        out.append(plain.strip("."))
+    return tuple(out)
+
+
+def _quoted_path(keys: Sequence[str], *, quote_from: int) -> str:
+    """Keys as one ``fields=`` path: dots, then ``["…"]`` from ``quote_from`` or an earlier key
+    that holds a dot, bracket or quote."""
+    first = next(
+        (i for i, key in enumerate(keys[:quote_from]) if _NEEDS_QUOTING & set(key)), quote_from
+    )
+    plain = ".".join(keys[:first])
+    quoted = "".join(f"[{json.dumps(key, ensure_ascii=False)}]" for key in keys[first:])
+    return f"{plain}.{quoted}" if plain and quoted else plain or quoted
+
+
+def _children(
+    node: object, walked: tuple[str, ...], named_lists: frozenset[str]
+) -> Mapping[str, object]:
+    if isinstance(node, Mapping):
+        return node
+    entries: dict[str, object] = {}
+    if isinstance(node, list) and ".".join(walked) in named_lists:
+        for entry in node:
+            if isinstance(entry, Mapping) and isinstance(entry.get("name"), str):
+                entries.setdefault(entry["name"], entry)
+    return entries
+
+
+def _steps(
+    children: Mapping[str, object], segments: tuple[_Segment, ...]
+) -> Iterable[tuple[str, object, tuple[_Segment, ...]]]:
+    """Each child the first segment can name, with the segments left after it."""
+    head, rest = segments[0], segments[1:]
+    if isinstance(head, _Quoted):
+        if head.key in children:
+            yield head.key, children[head.key], rest
+        return
+    for key, child in children.items():
+        if head == key:
+            yield key, child, rest
+        elif head.startswith(f"{key}."):
+            yield key, child, (head[len(key) + 1 :], *rest)
+
+
+def _matches(
+    node: object,
+    segments: tuple[_Segment, ...],
+    named_lists: frozenset[str],
+    walked: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], object]]:
+    """Every ``(keys, value)`` the path resolves to; more than one when keys hold dots."""
+    if not segments:
+        return [(walked, node)]
+    out: list[tuple[tuple[str, ...], object]] = []
+    for key, child, rest in _steps(_children(node, walked, named_lists), segments):
+        out.extend(_matches(child, rest, named_lists, (*walked, key)))
+    return out
+
+
+def _missing_keys(
+    node: object,
+    segments: tuple[_Segment, ...],
+    named_lists: frozenset[str],
+    walked: tuple[str, ...] = (),
+) -> tuple[str, ...]:
+    """The keys of a path that does not resolve, down to the first key the record lacks."""
+    head = segments[0]
+    deepest = (*walked, head.key if isinstance(head, _Quoted) else head.split(".")[0])
+    for key, child, rest in _steps(_children(node, walked, named_lists), segments):
+        if rest:
+            candidate = _missing_keys(child, rest, named_lists, (*walked, key))
+            deepest = max(deepest, candidate, key=len)
+    return deepest
+
+
+def dig(
+    record: Mapping[str, Any], path: str, *, named_lists: frozenset[str] = frozenset()
+) -> tuple[bool, Any]:
+    """``(found, value)`` for a path, descending dicts and the lists in ``named_lists``.
+
+    A key may hold dots (``gen_ai.request.model``), so the plain path is matched
+    against the keys the record has, at every level.
+    """
+    found = _matches(record, _segments(path), named_lists)
+    return (True, found[0][1]) if found else (False, None)
+
+
+def _refuse_ambiguous(
+    record: Mapping[str, object], fields: Sequence[str], named_lists: frozenset[str]
+) -> None:
+    for name in fields:
+        found = _matches(record, _segments(name), named_lists)
+        if len(found) > 1:
+            # Quoting only the keys that hold dots would print the nested key as the
+            # path that was just refused; past the shared keys, each must be quoted.
+            shared = len(os.path.commonprefix([keys for keys, _ in found]))
+            options = one_line(
+                ", ".join(repr(_quoted_path(keys, quote_from=shared)) for keys, _ in found)
+            )
+            raise FieldsError(
+                f"{name!r} in fields= names {len(found)} keys of this record, because "
+                f"a key holds dots. Name one: {options}."
+            )
+
+
+def _plant(target: dict[str, Any], keys: Sequence[str], value: Any) -> None:
+    head, rest = keys[0], keys[1:]
     if not rest:
         target[head] = value
         return
@@ -272,6 +446,7 @@ def project_record(
     fields: Sequence[str],
     *,
     whole: str,
+    declared: DeclaredFields = NOTHING_DECLARED,
 ) -> tuple[dict[str, Any], tuple[str, ...], tuple[str, ...]]:
     """The record cut to ``fields``: ``(projected, kept, omitted)``.
 
@@ -281,7 +456,15 @@ def project_record(
     it.
     """
     paths = record_paths(record)
-    check(fields, paths, whole=whole, accepts=lambda f: dig(record, f)[0])
+    named = declared.open_paths
+    _refuse_ambiguous(record, fields, named)
+    check(
+        fields,
+        [*paths, *_open_keys(record, declared)],
+        whole=whole,
+        accepts=lambda f: dig(record, f, named_lists=named)[0],
+        declared=declared,
+    )
 
     kept = list(fields)
     identity = identity_path(record)
@@ -289,12 +472,40 @@ def project_record(
         kept.append(identity)
 
     out: dict[str, Any] = {}
+    # A quoted path covers the same record paths as the dotted one it names.
+    kept_paths: list[str] = []
     for path in kept:
-        found, value = dig(record, path)
+        segments = _segments(path)
+        found = _matches(record, segments, named)
         if found:
-            _plant(out, path, value)
-    omitted = tuple(p for p in leaves(paths) if not any(covers(f, p) for f in kept))
+            keys, value = found[0]
+            _plant(out, keys, value)
+            kept_paths.append(".".join(keys))
+        else:
+            _plant(out, _missing_keys(record, segments, named), None)
+            kept_paths.append(path)
+    omitted = tuple(p for p in leaves(paths) if not any(covers(f, p) for f in kept_paths))
     return out, tuple(kept), omitted
+
+
+def _open_keys(record: Mapping[str, object], declared: DeclaredFields) -> list[str]:
+    out: list[str] = []
+    for container in sorted(declared.open_paths):
+        found, value = dig(record, container)
+        if not found:
+            continue
+        keys = sorted(value) if isinstance(value, Mapping) else _named_entries(value)
+        out.extend(f"{container}.{key}" for key in keys if f"{container}.{key}" not in out)
+    return out
+
+
+def unset(
+    record: Mapping[str, object],
+    fields: Sequence[str],
+    *,
+    declared: DeclaredFields = NOTHING_DECLARED,
+) -> tuple[str, ...]:
+    return tuple(f for f in fields if not dig(record, f, named_lists=declared.open_paths)[0])
 
 
 def covers(field: str, path: str) -> bool:
@@ -312,7 +523,13 @@ def covers(field: str, path: str) -> bool:
 # --- saying so ------------------------------------------------------------------ #
 
 
-def marker(*, kept: Sequence[str], omitted: Sequence[str], whole: str) -> str:
+def marker(
+    *,
+    kept: Sequence[str],
+    omitted: Sequence[str],
+    whole: str,
+    unset: Sequence[str] = (),
+) -> str:
     """The line that keeps a projected answer from reading as a whole one.
 
     It states a count, which cannot be argued with, then names as much of the
@@ -321,14 +538,20 @@ def marker(*, kept: Sequence[str], omitted: Sequence[str], whole: str) -> str:
     "nothing was omitted" is itself the fact a reader needs.
     """
     total = len(kept) + len(omitted)
+    not_set = f"; not set: {one_line(', '.join(_capped(unset)))}" if unset else ""
     if not omitted:
-        return f"projected: all {total} fields named, nothing omitted. {whole}"
-    named = list(omitted[:NAMED_OMISSIONS])
-    if len(omitted) > NAMED_OMISSIONS:
-        named.append(f"+{len(omitted) - NAMED_OMISSIONS} more")
+        return f"projected: all {total} fields named, nothing omitted{not_set}. {whole}"
     return (
-        f"projected: {len(kept)} of {total} fields; omitted: {one_line(', '.join(named))}. {whole}"
+        f"projected: {len(kept)} of {total} fields; "
+        f"omitted: {one_line(', '.join(_capped(omitted)))}{not_set}. {whole}"
     )
+
+
+def _capped(names: Sequence[str]) -> list[str]:
+    shown = list(names[:NAMED_OMISSIONS])
+    if len(names) > NAMED_OMISSIONS:
+        shown.append(f"+{len(names) - NAMED_OMISSIONS} more")
+    return shown
 
 
 def fields_line(available: Sequence[str]) -> str | None:
@@ -357,6 +580,8 @@ __all__ = [
     "MAX_NESTED_NAMES",
     "MAX_OFFERED",
     "NAMED_OMISSIONS",
+    "NOTHING_DECLARED",
+    "DeclaredFields",
     "FieldsError",
     "check",
     "covers",
@@ -370,4 +595,5 @@ __all__ = [
     "project_record",
     "record_paths",
     "row_fields",
+    "unset",
 ]

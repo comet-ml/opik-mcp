@@ -138,6 +138,7 @@ async def list_page(client: OpikListClient, **kw: Any) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="agent_insights_issue",
+    list_record_schema="AgentInsightsIssue",
     uri_patterns=(
         opik_uri("projects/{project}/agent-insights-issues/{id}"),
         # The Diagnostics page, open or resolved view.

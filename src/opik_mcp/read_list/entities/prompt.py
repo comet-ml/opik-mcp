@@ -91,6 +91,9 @@ def prompt_links(settings: Settings, data: dict[str, Any]) -> dict[str, Any]:
 
 HANDLER = EntityHandler(
     entity_type="prompt",
+    list_record_schema="Prompt_Public",
+    read_record_schema="Prompt_Detail",
+    read_record_key="prompt",
     is_name_searchable=True,
     uri_patterns=(opik_uri("prompts/{id}"),),
     link_fn=prompt_links,
@@ -108,6 +111,7 @@ HANDLER = EntityHandler(
 
 VERSION_HANDLER = EntityHandler(
     entity_type="prompt_version",
+    list_record_schema="PromptVersion_Public",
     fetch_fn=unsupported_fetch,
     parent_page=ParentPage(fetch=fetch_prompt_record, area="prompts", subpath="", noun="prompt"),
     list_fn=list_versions,

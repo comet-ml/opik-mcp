@@ -154,6 +154,8 @@ def plain_read_view(record: dict[str, object]) -> dict[str, object]:
 
 HANDLER = EntityHandler(
     entity_type="annotation_queue",
+    list_record_schema="AnnotationQueue_Public",
+    read_record_schema="AnnotationQueue_Public",
     is_name_searchable=True,
     uri_patterns=(opik_uri("annotation-queues/{id}"),),
     link_fn=queue_links,

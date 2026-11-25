@@ -13,6 +13,7 @@ import re
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
+from opik_mcp.read_list import record_shapes
 from opik_mcp.read_list.columns import has_value, one_line
 from opik_mcp.read_list.columns import resolve as resolve_column
 from opik_mcp.read_list.handler import EntityHandler
@@ -189,7 +190,12 @@ def format_table(
     dropped: tuple[str, ...] = ()
     columns: tuple[str, ...]
     if fields is not None:
-        check_fields(fields, available, whole=f"list({entity_type!r}, …)")
+        check_fields(
+            fields,
+            available,
+            whole=f"list({entity_type!r}, …)",
+            declared=record_shapes.for_list(handler),
+        )
         columns = _projected_columns(handler, content, fields)
         # No cut: the caller named these fields to read them, and a value cut
         # to sixty characters is not the field, it is a prefix of it.
@@ -254,6 +260,7 @@ def format_table(
                     c for c in leaves(available) if not any(covers(col, c) for col in columns)
                 ),
                 whole="Drop fields= for the row as the table chooses it.",
+                unset=tuple(f for f in fields if all(_cell(row, f) is None for row in content)),
             )
         )
     if projection is not None and projection.note:

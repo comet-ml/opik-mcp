@@ -36,6 +36,7 @@ dev = [
     "asgi-lifespan>=2.1",
     "mypy>=1.13",
     "pytest>=8",
+    "pyyaml>=6",
     "respx>=0.21",
     "ruff>=0.7",
     # Reference implementation of the agentskills.io spec. Used to validate the
@@ -43,6 +44,7 @@ dev = [
     # pack, so our reading of a skill is identical to an agent's. Pinned to the
     # 0.1.x line: a behaviour change there changes what CI accepts and what ships.
     "skills-ref>=0.1.1,<0.2",
+    "types-pyyaml>=6",
 ]
 
 [project.scripts]

@@ -1,0 +1,79 @@
+name: Record shapes
+run-name: "Record shapes from opik ${{ inputs.ref || 'main' }}"
+
+# CI does not start on a PR that GITHUB_TOKEN opens, hence COMET_ACTION_CREATE_PR.
+
+on:
+  schedule:
+    - cron: "37 6 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "opik branch, tag or commit SHA to read the spec from"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+env:
+  UV_LOCKED: "1"
+  OPIK_MCP_ANALYTICS_ENABLED: "false"
+  OPIK_MCP_SENTRY_ENABLED: "false"
+  DO_NOT_TRACK: "1"
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Generate _version.py (required before any uv build)
+        run: make version
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Install Python
+        run: uv python install 3.13
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+      - name: Regenerate record_shapes.json
+        id: generate
+        env:
+          REF: ${{ inputs.ref || 'main' }}
+        run: |
+          delimiter="summary_$(openssl rand -hex 16)"
+          {
+            echo "summary<<$delimiter"
+            uv run python scripts/generate_record_shapes.py --ref "$REF"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+      - name: Open or update the PR
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ secrets.COMET_ACTION_CREATE_PR || github.token }}
+          branch: github-actions/NA-update-record-shapes
+          base: main
+          add-paths: src/opik_mcp/read_list/record_shapes.json
+          commit-message: "[NA] Update record shapes from opik's OpenAPI spec"
+          title: "[NA] Update record shapes from opik's OpenAPI spec"
+          body: |
+            ## Details
+            Automated update of `src/opik_mcp/read_list/record_shapes.json` from
+            `opik.yaml` on comet-ml/opik `${{ inputs.ref || 'main' }}`, by
+            `.github/workflows/record-shapes.yaml`.
+
+            Field changes:
+            ${{ steps.generate.outputs.summary }}
+
+            If `make check` fails, an entity uses a field the spec removed. Fix
+            the entity in this PR.
+
+            ## Issues
+            N/A

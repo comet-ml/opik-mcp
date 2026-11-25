@@ -333,6 +333,13 @@ class EntityHandler:
     column is a field the records lack, and inventing one would undo the point
     of :mod:`opik_mcp.read_list.projection`'s naming rule.
     """
+    list_record_schema: str | None = None
+    list_derived_fields: tuple[str, ...] = ()
+    list_unsent_fields: tuple[str, ...] = ()
+    read_record_schema: str | None = None
+    read_record_key: str | None = None
+    """The key that holds the record in a read answer such as ``{trace, spans}``.
+    ``None`` when the answer is the record."""
     vocabularies: tuple[Vocabulary, ...] = ()
     """The field tables this entity's ``list`` validates against: its own,
     named after it, and any other one ``list_vocabulary`` names."""

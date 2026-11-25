@@ -81,7 +81,10 @@ project if set, tool selection, the link rule, and today's UTC date.
   - Others: [project-overview](../project-overview/design-doc.md), [experiment-flows](../experiment-flows/design-doc.md), [diagnostics](../diagnostics/design-doc.md).
 - `fields=[…]` returns only the named dotted paths, uncut, and always keeps
   the id. It is marked `| projected` in the header and on the line under it.
-  An unknown path is refused with the valid ones.
+  An unknown path is refused with the valid ones. A path the entity's schema
+  declares and the record leaves out comes back `null`, and the marker says
+  `not set: …` (see [Record shapes](#record-shapes)). A dotted path into a
+  score list returns that entry whole (`trace.feedback_scores.helpfulness`).
 - A backend failure is one sentence: what was asked and what to change
   (`raise_for_status` in `src/opik_mcp/client/errors/__init__.py`). A missing record
   adds the `list('<type>', …)` call for a listable type
@@ -119,7 +122,8 @@ project if set, tool selection, the link rule, and today's UTC date.
 - An entity with its own runner (`project_metric`, the dataset comparison) takes the call from `run_list`.
 - Columns are id, name, `list_extra_fields`, then the sort and filter fields.
   Cells past `_TRUNCATE_AT` are cut and counted; `url` cells never are.
-  `fields=[…]` picks the columns and lifts the cut.
+  `fields=[…]` picks the columns and lifts the cut. A declared column that no
+  row fills is an empty column, named `not set` in the marker.
 - No default column is a trace body: `list('thread')` leaves out
   `first_message`, and `fields=["first_message"]` still returns it.
 - The order of checks and calls is in `run_list` (`src/opik_mcp/read_list/list_tool.py`);
@@ -164,6 +168,42 @@ Where to start:
 - A column: `src/opik_mcp/read_list/list_table.py`. An empty-page hint:
   `src/opik_mcp/read_list/list_empty_page.py`. An argument check:
   `src/opik_mcp/read_list/list_args.py`.
+
+### Record shapes
+
+The backend serialises with `NON_NULL`, so a record's JSON leaves out every
+null field. A page of root spans has no `parent_span_id` key. The records alone
+cannot tell an empty field from an unknown one.
+
+- `src/opik_mcp/read_list/record_shapes.json` holds the fields of each schema
+  an entity names, read from opik's OpenAPI spec: fixed fields, the sub-fields
+  of a fixed object (`error_info.message`), open containers whose keys the
+  user chose (`metadata`, `usage`), and score lists addressed by name
+  (`feedback_scores`). Its `source` names the opik commit.
+- An entity names its schemas on its `EntityHandler`: `list_record_schema`,
+  `read_record_schema` with `read_record_key` when a read answer holds the
+  record under a key (`trace` in `{trace, spans}`), and
+  `list_derived_fields` for the columns `list_row_fn` adds, and
+  `list_unsent_fields` for schema fields a list endpoint never sends (a span
+  list has no `project_name`), which stay refused. A derived column
+  replaces the schema's value of that name, so its sub-paths are not declared.
+  `agent_insights_issue` names no read schema: its read moves `details` out
+  of the `issue` block.
+- `fields=` takes a path the rows carry, the schema declares, or the entity
+  derives. A key one level under an open container that no record holds is
+  `not set`, unless it is a near miss of a key the records hold; then it is
+  refused with that key (`feedback_scores.gevl`). A deeper path must resolve.
+- A dotted path goes into a list by entry name only for a declared score list;
+  `spans.llm` is refused, since several spans can share a name.
+- A key may hold dots (`gen_ai.request.model` from OpenTelemetry), so a read
+  matches the dotted path against the record's keys at every level. When the
+  path names two keys (`{"a.b": 1, "a": {"b": 2}}`), the read refuses it with
+  each key in the Opik UI's quoted form, `metadata.["a.b"]` and
+  `metadata.["a"]["b"]`, which `fields=` also takes. A list reads one level, so `metadata.<key>` already takes the key whole.
+- `make record-shapes` regenerates the file (`scripts/generate_record_shapes.py`)
+  and writes it only when a field changed.
+  `.github/workflows/record-shapes.yaml` runs it on weekdays against opik
+  `main` and opens or updates one PR with the field changes.
 
 Root modules stay generic ([ADR 0004](../decisions/0004-entity-logic-in-its-namespace.md));
 `entity_names_at_root` in `tests/repo/ratchets.json` is empty and stays so: a root table
@@ -234,6 +274,17 @@ Boundaries:
 - Under an OAuth bearer with no resolved workspace, `link_workspace` returns
   `None` and project-scoped links are left out, because the configured
   workspace would point into the wrong one.
+- `opik.yaml` on opik `main` changes only when its own nightly PR merges, so
+  Cloud can send a field before `record_shapes.json` has it. A key the rows
+  carry is taken anyway; the live suite flags the gap
+  (`tests/live/test_record_shapes.py`).
+- An older self-hosted backend may lack a field the spec declares. It comes
+  back `not set`, which is true for that backend.
+- A score asked for by a name close to one the records hold is refused
+  (`accuracy_v2` on a page holding only `accuracy_v1`), even when it is a real
+  score with no value there.
+- The record-shapes PR starts CI only when the `COMET_ACTION_CREATE_PR` secret
+  exists in the repo. Without it, close and reopen the PR.
 - The UI serves retired link shapes through a shim that fills in the
   reader's last project, so an old-shape link opens the wrong project. Every
   link goes through `project_page_url`, which accepts only `ProjectArea`.
@@ -260,6 +311,16 @@ Boundaries:
   `test_only_a_400_or_422_quotes_the_backend`).
 - OQL, its reference and `fields`: `tests/read_list/test_oql.py`,
   `tests/read_list/test_list_schema.py`, `tests/read_list/test_fields.py`.
+- Record shapes: `tests/read_list/test_fields_declared.py`
+  (`test_a_page_of_root_spans_takes_parent_span_id_and_says_no_row_sets_it`,
+  `test_a_misspelt_score_is_refused_with_the_score_the_records_hold`,
+  `test_a_key_that_holds_dots_under_a_nested_object_is_found`,
+  `test_a_path_naming_a_flat_and_a_nested_key_is_refused_with_both_quoted`,
+  `test_each_option_the_refusal_names_reads_one_key`),
+  `tests/read_list/test_record_shapes.py`
+  (`test_every_entity_that_lists_backend_rows_names_its_schema`), and against a
+  real backend `tests/live/test_record_shapes.py`
+  (`test_a_list_never_reports_unset_a_field_the_read_fills`).
 - Links: `tests/read_list/test_link_shape.py`, `tests/read_list/test_ui_links.py`,
   and each entity's file in `tests/hermetic/reads/`, which also checks the size
   header and that a refusal carries no backend body or REST path
@@ -269,6 +330,7 @@ Boundaries:
 
 ## Log
 
+- 2026-11-23: `fields=` takes the fields of each entity's schema from opik's OpenAPI spec, so a field the backend left out is `not set` instead of refused; a daily workflow keeps the spec copy current (OPIK-8948).
 - 2026-11-06: each tool's title is repeated in its annotations, for the Connectors Directory listing; +158 bytes (#272).
 - 2026-10-23: `read_view_fn` lets an entity state a long field of its own by size on a read without `fields`; "covered by Phase 1" left the instructions (OPIK-8951).
 - 2026-09-25: list answers state their size; `first_message` left `list('thread')`; refusals lost the backend body and path, keeping a capped reason on 400/422 (OPIK-8496).

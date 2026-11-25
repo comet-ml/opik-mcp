@@ -56,6 +56,7 @@ How a call flows:
 | `make live` | the tools against a seeded real Opik; needs `OPIK_URL` | yes, `live.yaml` |
 | `make user-flows` | real agent (OPIK-8491) | not yet |
 | `make install-branch` | installs this worktree as MCP server `opik-<ticket>` | no |
+| `make record-shapes` | regenerates `read_list/record_shapes.json` from opik's OpenAPI spec | daily, `record-shapes.yaml` opens a PR |
 
 `make` runs mypy over `src/`, `tests/` and the scripts, and ruff over
 everything, as CI does. Running them on `src/` alone misses test and script

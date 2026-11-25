@@ -34,10 +34,11 @@ from opik_mcp.client.opik import client_for_call
 from opik_mcp.client.protocols import OpikReadClient
 from opik_mcp.config import Settings, get_settings
 from opik_mcp.features.toggles import FeatureToggles
+from opik_mcp.read_list import record_shapes
 from opik_mcp.read_list.errors import EntityArgValidationError
 from opik_mcp.read_list.handler import EntityHandler
 from opik_mcp.read_list.paging import short_list
-from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record
+from opik_mcp.read_list.projection import FieldsError, marker, normalise, project_record, unset
 from opik_mcp.read_list.registry import URI_PATTERNS, resolve_entity_type
 from opik_mcp.read_list.size import compact_json, estimate_tokens, size_header
 from opik_mcp.read_list.uri import InvalidURI, is_uuid, looks_like_opik_link, looks_like_uri
@@ -250,7 +251,8 @@ async def run_read(
         # what they see, not what the fetcher happened to hand over.
         whole = f"read({entity_type!r}, {record_id!r})"
         try:
-            projected, kept, omitted = project_record(data, wanted, whole=whole)
+            declared = record_shapes.for_read(handler)
+            projected, kept, omitted = project_record(data, wanted, whole=whole, declared=declared)
         except FieldsError as e:
             # Which paths are valid is a fact about the record, so this is the
             # earliest the refusal can be written — and it is written with the
@@ -269,6 +271,7 @@ async def run_read(
         note = marker(
             kept=kept,
             omitted=omitted,
+            unset=unset(data, wanted, declared=declared),
             whole=(
                 f"{whole} without fields returns the record, its long fields stated by size."
                 if handler.read_view_fn is not None

@@ -116,6 +116,10 @@ VOCABULARY = Vocabulary(
 
 HANDLER = EntityHandler(
     entity_type="span",
+    list_record_schema="Span_Public",
+    list_derived_fields=("error_type",),
+    list_unsent_fields=("project_name",),
+    read_record_schema="Span_Public",
     is_windowed=True,
     uri_patterns=(opik_uri("spans/{id}"),),
     vocabularies=(VOCABULARY,),
