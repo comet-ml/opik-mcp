@@ -6,6 +6,7 @@ import configparser
 import importlib
 import json
 import os
+import shlex
 import sys
 import urllib.error
 import urllib.parse
@@ -43,6 +44,17 @@ LINE_LABELS = {
 UNITS = {"per_1m": Decimal(1), "per_1k": Decimal(1000), "per_token": Decimal(1_000_000)}
 UNIT_NOTE = "Prices are dollars per 1M tokens."
 WHOSE = {"organization": "yours", "built_in": "built-in"}
+# Opik answers 503 both when the prices toggle is off and when it can't ask Comet whether the
+# caller is an organization admin; only this message means the toggle.
+PRICES_DISABLED = "Custom model prices are disabled"
+NAME_FORMS = {
+    "lower_cased": "its name in lower case",
+    "normalized": "its normalized name",
+    "date_stripped": "its name without the date",
+    "normalized_date_stripped": "its normalized name without the date",
+    "version_stripped": "its name without the version",
+    "normalized_version_stripped": "its normalized name without the version",
+}
 READ_ONLY_FIELDS = ("id", "created_at", "created_by", "last_updated_at", "last_updated_by")
 # Opik saves these provider spellings under another name (ProviderRegistry in the Opik
 # backend), so a sheet row is matched to a saved row under the name Opik saves it as.
@@ -186,8 +198,14 @@ def error_text(body: object) -> str:
     return "; ".join(messages) or message or (body if isinstance(body, str) else "")
 
 
-def stop_for(error: OpikError, *, saving: bool = False) -> Stop:
+def stop_for(error: OpikError, *, writing: bool = False) -> Stop:
     detail = error_text(error.body)
+    if error.status == 503 and detail != PRICES_DISABLED:
+        return Stop(
+            f"Opik is unavailable for now ({detail or 'no reason given'}). Nothing was saved. "
+            "Try again in a minute.",
+            EXIT_FAILED,
+        )
     if error.status == 503:
         return Stop(
             "Custom model prices are turned off on this Opik. An Opik admin turns them on "
@@ -205,15 +223,15 @@ def stop_for(error: OpikError, *, saving: bool = False) -> Stop:
         )
     if error.status == 403:
         who = (
-            "Only an admin of the workspace's organization can save prices."
-            if saving
+            "Only an admin of the workspace's organization can preview or save prices."
+            if writing
             else "Opik refused access."
         )
-        return Stop(f"{who} {detail}".strip(), EXIT_FORBIDDEN)
+        return Stop(f"{who} Opik said: {detail}" if detail else who, EXIT_FORBIDDEN)
     if error.status == 409:
         return Stop(
-            "Someone saved prices since your preview, so nothing was saved. "
-            "Run preview again and confirm the new changes.",
+            "The price list changed since it was read: someone saved in between. Nothing was "
+            "saved. Run preview again and confirm the new changes.",
             EXIT_CONFLICT,
         )
     return Stop(f"Opik answered {error.status}. {detail}".strip())
@@ -444,14 +462,14 @@ def send(connection: Connection, plan: Plan, *, dry_run: bool) -> Json:
         if error.status == 422:
             attach_problems(plan, as_list(as_dict(error.body).get("errors")))
             return {}
-        raise stop_for(error, saving=True) from None
+        raise stop_for(error, writing=True) from None
 
 
 def attach_problems(plan: Plan, problems: list[object]) -> None:
     for raw in problems:
         problem = as_dict(raw)
         index = problem.get("row")
-        message = as_str(problem.get("message")) or as_str(problem.get("code"))
+        message = as_str(problem.get("message")) or as_str(problem.get("code")) or as_str(raw)
         sheet = plan.sheet_by_index.get(index) if isinstance(index, int) else None
         if sheet is not None:
             sheet.errors.append(message)
@@ -468,14 +486,26 @@ def _saved_row_label(plan: Plan, index: int) -> str:
     return f"row {index}"
 
 
+def resolve(connection: Connection, model: str, provider: str) -> Json:
+    return as_dict(call(connection, "POST", "/resolve", {"model": model, "provider": provider}))
+
+
 def resolve_rates(connection: Connection, model: str, provider: str) -> list[Json]:
     try:
-        answer = as_dict(
-            call(connection, "POST", "/resolve", {"model": model, "provider": provider})
-        )
+        answer = resolve(connection, model, provider)
     except (OpikError, Stop):
         return []
     return [as_dict(line) for line in as_list(answer.get("lines"))]
+
+
+def rates_of(lines: list[Json]) -> str:
+    return " · ".join(
+        f"{LINE_LABELS.get(name, name)} {as_str(line.get('rate_per_million'))} ({whose})"
+        for line in lines
+        for name in [as_str(line.get("name"))]
+        for whose in [WHOSE.get(as_str(line.get("source")), "")]
+        if whose
+    )
 
 
 def changes_between(before: Json, after: Json) -> str:
@@ -553,8 +583,11 @@ def classify(connection: Connection, plan: Plan, result: Json) -> Outcome:
             outcome.added += 1
             if row.get("kind") == "alias":
                 outcome.lines.append(entry("NEW", name_of(row), sheet.ref, prices_of(row)))
-            elif index in custom or not as_str(row.get("provider")):
+            elif index in custom:
                 label = f"{name_of(row)} (custom model)"
+                outcome.lines.append(entry("NEW", label, sheet.ref, prices_of(row)))
+            elif not as_str(row.get("provider")):
+                label = f"{name_of(row)} (replaces the built-in price on every provider)"
                 outcome.lines.append(entry("NEW", label, sheet.ref, prices_of(row)))
             else:
                 label = f"{name_of(row)} (replaces the built-in price)"
@@ -646,7 +679,8 @@ def preview(connection: Connection, path: str) -> Plan:
     say(totals(outcome, plan))
     if outcome.updated or outcome.added:
         say("To save after the user confirms:")
-        say(f"  model_prices.py save {path} --expected-version {plan.version}")
+        command = ["python3", str(Path(__file__).resolve()), "save", str(Path(path).resolve())]
+        say(f"  {shlex.join(command)} --expected-version {plan.version}")
     else:
         say("Nothing to save: every row already matches the saved prices.")
     return plan
@@ -674,16 +708,11 @@ def effective_rates(connection: Connection, plan: Plan) -> list[str]:
     lines = []
     for index in plan.sheet_by_index:
         row = plan.rows[index]
-        rates = resolve_rates(connection, as_str(row.get("model")), as_str(row.get("provider")))
-        parts = [
-            f"{LINE_LABELS.get(name, name)} {as_str(line.get('rate_per_million'))} ({whose})"
-            for line in rates
-            for name in [as_str(line.get("name"))]
-            for whose in [WHOSE.get(as_str(line.get("source")), "")]
-            if whose
-        ]
-        if parts:
-            lines.append(f"  {name_of(row)}: {' · '.join(parts)}")
+        rates = rates_of(
+            resolve_rates(connection, as_str(row.get("model")), as_str(row.get("provider")))
+        )
+        if rates:
+            lines.append(f"  {name_of(row)}: {rates}")
     return lines
 
 
@@ -742,22 +771,37 @@ def show(connection: Connection) -> None:
         say(f"Cost center: {link}")
 
 
-def models_used(connection: Connection) -> None:
-    try:
-        answer = as_dict(call(connection, "GET", "/models-used"))
-    except OpikError as error:
-        raise stop_for(error) from None
-    content = [as_dict(row) for row in as_list(answer.get("content"))]
+def how_priced(answer: Json, provider: str) -> str:
+    match = as_dict(answer.get("match"))
+    if not match:
+        return "NO PRICE: spans with this model and provider cost $0 now"
+    form = NAME_FORMS.get(as_str(match.get("name_form")), "")
+    via = f", matched by {form}" if form else ""
+    row = as_dict(match.get("row"))
+    if not row:
+        filed_under = as_str(match.get("provider"))
+        where = f" under {filed_under}" if filed_under != provider.strip().lower() else ""
+        return f"built-in price{where}{via}"
+    if row.get("kind") == "alias":
+        return f"your row {name_of(row)}, {prices_of(row)}{via}"
+    return f"your row {name_of(row)}{via}"
+
+
+def check(connection: Connection, models: list[str], provider: str) -> None:
+    if any(not model.strip() for model in models):
+        raise Stop("Give each model a name.", EXIT_INVALID)
     say(connection.describe())
-    days = as_int(answer.get("days"))
-    say(f"Models the organization's spans used in the last {days} days: {len(content)}.")
-    sources = {"organization": "your price", "built_in": "built-in price", "none": "NO PRICE"}
-    for row in content:
-        source = as_str(row.get("price_source"))
-        say(
-            f"  {name_of(row)}: used on {as_int(row.get('days_used'))} days, "
-            f"last {as_str(row.get('last_seen'))}, {sources.get(source, source)}"
-        )
+    say(f"How spans are priced now. {UNIT_NOTE}")
+    for model in models:
+        try:
+            answer = resolve(connection, model, provider)
+        except OpikError as error:
+            raise stop_for(error) from None
+        rates = rates_of([as_dict(line) for line in as_list(answer.get("lines"))])
+        span = f"{model} · {provider or 'no provider'}"
+        say(f"  {span}: {how_priced(answer, provider)}")
+        if rates:
+            say(f"      {rates}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -766,8 +810,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("show", help="the saved price list and its version")
-    commands.add_parser(
-        "models-used", help="models the organization's spans used in the last 30 days"
+    check_parser = commands.add_parser(
+        "check", help="how spans with these model names and this provider are priced now"
+    )
+    check_parser.add_argument("models", nargs="+", metavar="model")
+    check_parser.add_argument(
+        "--provider", default="", help="the provider the spans send; leave out for none"
     )
     preview_parser = commands.add_parser(
         "preview", help="what a rows file would change; saves nothing"
@@ -783,8 +831,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         connection = load_connection()
         if args.command == "show":
             show(connection)
-        elif args.command == "models-used":
-            models_used(connection)
+        elif args.command == "check":
+            check(connection, args.models, args.provider)
         elif args.command == "preview":
             preview(connection, args.rows_file)
         else:

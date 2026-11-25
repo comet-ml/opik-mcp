@@ -243,7 +243,8 @@ def test_the_preview_shows_each_change_against_its_sheet_row(
     assert "UPDATE   gpt-4o · openai   [Sheet1 row 4]\n         output 8 → 6" in out
     assert "NEW      acme-y · acme (custom model)   [Sheet1 row 5]" in out
     assert "SKIPPED  [Sheet1 row 9]\n         batch prices aren't supported" in out
-    assert "--expected-version 6" in out
+    assert f"save {sheet} --expected-version 6" in out
+    assert not opik.sent("PUT", PRICES), "a preview must only ever send a dry run"
 
 
 def test_a_backend_error_points_at_the_sheet_row_and_nothing_can_be_saved(
@@ -365,12 +366,112 @@ def test_a_save_is_read_back_and_reports_what_new_spans_cost(
 
 
 def test_turned_off_prices_stop_with_the_reason(opik: StubOpik, run: RunScript) -> None:
-    opik.answer("GET", PRICES, 503, {"errors": ["Custom model prices are disabled"]})
+    opik.answer("GET", PRICES, 503, {"code": 503, "message": "Custom model prices are disabled"})
 
     code, out = run("show")
 
     assert code == model_prices.EXIT_UNAVAILABLE, out
     assert "TOGGLE_MODEL_PRICES_ENABLED" in out
+
+
+def test_a_failed_admin_check_asks_to_retry_instead_of_blaming_the_toggle(
+    opik: StubOpik, run: RunScript, tmp_path: Path
+) -> None:
+    opik.answer("GET", PRICES, 200, SAVED)
+    opik.answer(
+        "PUT",
+        f"{PRICES}?dry_run=true",
+        503,
+        {"code": 503, "message": "Could not check whether you are an organization admin"},
+    )
+    sheet = _sheet(tmp_path, {"rows": [{"model": "gpt-4o", "provider": "openai", "output": 6}]})
+
+    code, out = run("preview", sheet)
+
+    assert code == model_prices.EXIT_FAILED, out
+    assert "Try again" in out
+    assert "TOGGLE_MODEL_PRICES_ENABLED" not in out
+
+
+def test_a_preview_by_a_non_admin_says_who_can_preview(
+    opik: StubOpik, run: RunScript, tmp_path: Path
+) -> None:
+    opik.answer("GET", PRICES, 200, SAVED)
+    opik.answer(
+        "PUT",
+        f"{PRICES}?dry_run=true",
+        403,
+        {"code": 403, "message": "Only organization admins can change organization settings"},
+    )
+    sheet = _sheet(tmp_path, {"rows": [{"model": "gpt-4o", "provider": "openai", "output": 6}]})
+
+    code, out = run("preview", sheet)
+
+    assert code == model_prices.EXIT_FORBIDDEN, out
+    assert "Only an admin of the workspace's organization can preview or save prices" in out
+
+
+def test_a_new_row_for_any_provider_is_not_called_a_custom_model(
+    opik: StubOpik, run: RunScript, tmp_path: Path
+) -> None:
+    gemini = {"model": "gemini-2.5-flash", "provider": "", "kind": "fixed", "input_price": "0.25"}
+    opik.answer("GET", PRICES, 200, {"version": 3, "rows": []})
+    opik.answer(
+        "PUT",
+        f"{PRICES}?dry_run=true",
+        200,
+        {**NOTHING_CHANGED, "version": 3, "created": [gemini], "unchanged": 0},
+    )
+    sheet = _sheet(tmp_path, {"rows": [{"model": "gemini-2.5-flash", "input": "0.25"}]})
+
+    code, out = run("preview", sheet)
+
+    assert code == 0, out
+    assert "gemini-2.5-flash · any provider (replaces the built-in price on every provider)" in out
+
+
+def test_check_says_where_each_span_name_gets_its_price(opik: StubOpik, run: RunScript) -> None:
+    gpt_4o_row = {"model": "gpt-4o", "provider": "openai", "kind": "fixed", "output_price": "6"}
+    opik.answer(
+        "POST",
+        f"{PRICES}/resolve",
+        200,
+        {
+            "match": {"provider": "openai", "name_form": "date_stripped", "row": gpt_4o_row},
+            "lines": [
+                {"name": "input", "rate_per_million": "2.5", "source": "built_in"},
+                {"name": "output", "rate_per_million": "6", "source": "organization"},
+                {"name": "cache_write", "rate_per_million": "0", "source": "none"},
+            ],
+        },
+    )
+    opik.answer(
+        "POST",
+        f"{PRICES}/resolve",
+        200,
+        {
+            "match": {"provider": "openai", "name_form": "exact"},
+            "lines": [{"name": "input", "rate_per_million": "0.1", "source": "built_in"}],
+        },
+    )
+    opik.answer("POST", f"{PRICES}/resolve", 200, {"lines": []})
+
+    code, out = run(
+        "check", "gpt-4o-2024-08-06", "gpt-4.1-nano", "GPT-4o (Aug)", "--provider", "openai"
+    )
+
+    assert code == 0, out
+    assert [call.body for call in opik.sent("POST", f"{PRICES}/resolve")] == [
+        {"model": "gpt-4o-2024-08-06", "provider": "openai"},
+        {"model": "gpt-4.1-nano", "provider": "openai"},
+        {"model": "GPT-4o (Aug)", "provider": "openai"},
+    ]
+    assert (
+        "gpt-4o-2024-08-06 · openai: your row gpt-4o · openai, matched by its name without the date"
+        "\n      input 2.5 (built-in) · output 6 (yours)\n" in out
+    )
+    assert "gpt-4.1-nano · openai: built-in price\n      input 0.1 (built-in)" in out
+    assert "GPT-4o (Aug) · openai: NO PRICE" in out
 
 
 def test_the_api_key_is_sent_but_never_printed(opik: StubOpik, run: RunScript) -> None:

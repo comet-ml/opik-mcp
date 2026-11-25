@@ -4,7 +4,7 @@ How to get model prices out of a sheet and into the rows file. The script checks
 
 ## By format
 
-- **Excel (.xlsx, .xls).** Read every sheet, hidden ones included, with `python3` and `openpyxl` (`uv run --with openpyxl python3 …` when it isn't installed) or `pandas`. Use computed values, not formulas (`load_workbook(path, data_only=True)`). The header row is often not row 1, and merged cells repeat a model or provider over several rows. If neither library can be used, ask the user to export each sheet as CSV.
+- **Excel (.xlsx, .xls).** Read every sheet, hidden ones included, with Python and the `openpyxl` package, or `pandas` (an `.xls` file needs `xlrd`). Use computed values, not formulas (`load_workbook(path, data_only=True)`). The header row is often not row 1, and merged cells repeat a model or provider over several rows. If none of these packages is installed and the user doesn't want one added, ask them to export each sheet as CSV.
 - **CSV.** Check the delimiter (`,` `;` or tab) and the decimal mark. `0,25` in a `;`-separated file is 0.25; in a `,`-separated file it is two columns.
 - **PDF.** Read every page. Tables split across pages repeat or drop their header. Footnotes often hold the unit (`* per 1K tokens`) or the currency.
 - **Email or pasted text.** Prices can be in a table, a list or a sentence ("gpt-4o: $2 in / $8 out per million"). Each model with a price is one row.
@@ -25,8 +25,8 @@ How to get model prices out of a sheet and into the rows file. The script checks
 
 ## Model and provider
 
-- The model name must match what spans send. Run `models-used` and use its names. Sheets add dates, regions or marketing names ("GPT-4o (Aug '24)", "Claude Sonnet 4.5 — us-east-1").
-- The provider is the one spans send, in Opik's names (`openai`, `azure`, `anthropic`, `bedrock`, `gemini`, `mistral`, `groq`, `together_ai`); `models-used` shows the exact names. A price sheet from Azure OpenAI prices `azure`, not `openai`: the same model on two providers is two rows.
+- The model name must match what spans send. Take it from an LLM span in Opik's traces, and confirm it with the script's `check`. Sheets add dates, regions or marketing names ("GPT-4o (Aug '24)", "Claude Sonnet 4.5 — us-east-1").
+- The provider is the one spans send, such as `openai`, `azure`, `anthropic`, `bedrock`, `gemini`, `mistral`, `groq` or `together_ai`. Opik saves a few other spellings under its own name (`google_ai` as `gemini`), and the preview says so (`name_normalized`). A price sheet from Azure OpenAI prices `azure`, not `openai`: the same model on two providers is two rows.
 - For a model only this organization uses, use the provider its spans send, or leave it empty to match spans from any provider.
 
 ## Units

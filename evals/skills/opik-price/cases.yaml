@@ -11,6 +11,7 @@ triggering:
     - "set our negotiated price for gpt-4o"
     - "add a price for our fine-tuned model"
     - "here's our Azure price sheet, use it for costs in Opik"
+    - "Upload the model prices in ./acme-llm-contract.xlsx to my Opik organization. Include custom price fields. Show me what will change and any errors, then ask me to confirm before saving."
   should_not_trigger:
     - "why did this trace cost so much"            # explain
     - "add opik tracing to my app"                 # instrument
