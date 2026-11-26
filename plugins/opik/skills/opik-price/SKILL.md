@@ -70,7 +70,7 @@ Write it in a temporary folder, never in the user's repository:
 - **Errors:** fix the row, or mark it `skip` with the reason, and preview again. Nothing saves while one remains.
 - **`price_out_of_range`** (over 10× or under a tenth of the built-in price) almost always means a wrong unit. Check the unit before going on.
 - **`priced_per_unit`:** Opik prices this model per second or per character, so the row would change nothing. Mark it `skip` with that reason.
-- **`name_normalized`:** Opik saves the name in another form. Use that form in the file.
+- **`name_normalized`:** a note, not a problem. For a model, it says which span names the row will match: with a prefix such as `azure/`, only the part after the first `/` counts. Check that this is the name spans send, and leave the file as it is. For a provider, Opik saves its own spelling (`google_ai` as `gemini`).
 - **`shadows_builtin`:** a `same_as` row replaces the built-in price of a model Opik knows. Say so in the preview.
 - **`provider_unpriced` and `no_base`** are expected for a custom model. Say once that only these rates will price it.
 
