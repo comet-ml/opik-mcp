@@ -216,9 +216,12 @@ make skills-pack  -> scripts/build_skills_pack.py -> dist/opik-skills/
   `make skills-verify`, `make skills-verify-source`.
 - Evals stay out of the plugin folder: `tests/skills/test_catalog.py`.
 - The manifests pass `claude plugin validate --strict`: `make plugin-validate`.
+- The `opik-price` script previews with a dry run, saves only at the previewed
+  version and reads the rows back: `tests/skills/test_price_script.py`.
 
 ## Log
 
+- 2026-11-25: `opik-price` added, the first skill with a script: `plugins/opik/skills/opik-price/scripts/model_prices.py` uploads a price sheet through the Opik REST API, as the MCP has no price tools (OPIK-9112).
 - 2026-11-06: the plugin's server is `opik-cloud` at the fixed hosted URL, with no `opik_mcp_url` option, so the directory can match it to the Opik connector; self-hosted users add their server by hand (OPIK-9161).
 - 2026-10-23: `opik-annotate` added; the `read_skill` intro says "if not already loaded" once to fit its line (OPIK-8951).
 - 2026-10-21: the plugin's server URL becomes the `opik_mcp_url` option, default the hosted server, so a self-hosted Comet can use the plugin (OPIK-8848).

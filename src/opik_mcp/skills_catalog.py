@@ -121,6 +121,7 @@ SKILL_SUMMARIES: dict[str, str] = {
         'this release" — a ship/hold verdict against a release policy.'
     ),
     "opik-annotate": '"build a custom annotator view", "set up an annotation queue".',
+    "opik-price": '"upload model prices", "import our rate card".',
 }
 
 #: Content types by suffix. Markdown is what skills are made of; the rest cover
